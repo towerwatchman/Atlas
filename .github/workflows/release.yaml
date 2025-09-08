@@ -31,8 +31,23 @@ jobs:
     - name: Clear npm cache
       run: npm cache clean --force
 
-    - name: Install dependencies
+    - name: Clear temporary directories
+      run: |
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          powershell -Command "Remove-Item -Path 'D:\a\Altas-Electron\Altas-Electron\node_modules' -Recurse -Force -ErrorAction SilentlyContinue"
+        else
+          rm -rf ./node_modules
+        fi
+
+    - name: Install electron
       timeout-minutes: 20
+      run: |
+        npm install electron@38.0.0 --verbose || npm install electron@38.0.0 --verbose || npm install electron@38.0.0 --verbose
+      env:
+        ELECTRON_VERSION: 38.0.0
+
+    - name: Install dependencies
+      timeout-minutes: 30
       run: |
         npm ci --verbose || npm ci --verbose || npm ci --verbose
       env:
@@ -76,19 +91,6 @@ jobs:
 
     - name: Create release
       id: create_release
-      uses: softprops/action-gh-release@v2
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: v${{ steps.get_version.outputs.result }}
-        name: v${{ steps.get_version.outputs.result }}
-        body: Stable release of v${{ steps.get_version.outputs.result }}
-        draft: false
-        prerelease: false
-        fail_on_unmatched_files: true
-        generate_release_notes: true
-
-    - name: Upload release asset
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

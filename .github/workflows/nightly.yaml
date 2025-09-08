@@ -33,8 +33,23 @@ jobs:
     - name: Clear npm cache
       run: npm cache clean --force
 
-    - name: Install dependencies
+    - name: Clear temporary directories
+      run: |
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          powershell -Command "Remove-Item -Path 'D:\a\Altas-Electron\Altas-Electron\node_modules' -Recurse -Force -ErrorAction SilentlyContinue"
+        else
+          rm -rf ./node_modules
+        fi
+
+    - name: Install electron
       timeout-minutes: 20
+      run: |
+        npm install electron@38.0.0 --verbose || npm install electron@38.0.0 --verbose || npm install electron@38.0.0 --verbose
+      env:
+        ELECTRON_VERSION: 38.0.0
+
+    - name: Install dependencies
+      timeout-minutes: 30
       run: |
         npm ci --verbose || npm ci --verbose || npm ci --verbose
       env:
