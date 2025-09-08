@@ -31,16 +31,14 @@ jobs:
     - name: Clear npm cache
       run: npm cache clean --force
 
-    - name: Install debug dependency
-      run: npm install debug@4.3.4 --save-dev
-
     - name: Install dependencies
+      timeout-minutes: 15
       run: npm ci
       env:
         ELECTRON_VERSION: 38.0.0
 
     - name: Rebuild native dependencies for Electron
-      run: npx @electron/rebuild --version=38.0.0
+      run: npx @electron/rebuild --version=38.0.0 --verbose
       env:
         ELECTRON_VERSION: 38.0.0
 
