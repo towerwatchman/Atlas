@@ -14,11 +14,12 @@ files:
       - node_modules/sqlite3/**/*
       - node_modules/node-7z/**/*
       - node_modules/unrar/**/*
-asar: false
+asar: true
 nodeGypRebuild: false
 win:
   target:
     - 7z
+  icon: src/assets/images/appicon.ico
 linux:
   target:
     - deb

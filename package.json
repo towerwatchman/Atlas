@@ -1,7 +1,8 @@
 {
-  "name": "atlas-electron",
+  "name": "atlas",
   "version": "1.0.0",
-  "description": "Atlas: Open-source game and visual novel manager",
+  "author": "towerwatchman",
+  "description": "Atlas: Open-source game and visual novel manager",  
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -25,10 +26,11 @@
       "node_modules/node-7z/**/*",
       "node_modules/unrar/**/*"
     ],
-    "asar": false,
+    "asar": true,
     "nodeGypRebuild": false,
     "win": {
-      "target": ["7z"]
+      "target": ["7z"],
+      "icon": "src/assets/images/appicon.ico"
     },
     "linux": {
       "target": ["deb", "AppImage"]

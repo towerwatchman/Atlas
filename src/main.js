@@ -34,7 +34,9 @@ function createWindow() {
 }
 
 // Create data folders
-const dataDir = path.join(app.getAppPath(), 'data');
+// Check if we are in Electron folder
+const resourcesPath = path.resolve(app.getAppPath(), '../../');
+const dataDir = path.join(resourcesPath, 'data');
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
