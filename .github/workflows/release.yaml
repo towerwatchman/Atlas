@@ -1,7 +1,6 @@
 name: Atlas Release Build
 on:
   push:
-    branches: [ "main" ]
     tags:
       - 'v*'
 jobs:
@@ -28,8 +27,18 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: sudo apt-get update && sudo apt-get install -y build-essential libudev-dev
 
+    - name: Clear npm cache directory
+      run: |
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          powershell -Command "Remove-Item -Path 'C:\npm\cache' -Recurse -Force -ErrorAction SilentlyContinue"
+        else
+          rm -rf ~/.npm
+        fi
+
     - name: Clear npm cache
-      run: npm cache clean --force
+      timeout-minutes: 5
+      run: |
+        npm cache clean --force --verbose || npm cache clean --force --verbose || npm cache clean --force --verbose
 
     - name: Clear temporary directories
       run: |
@@ -64,7 +73,13 @@ jobs:
       with:
         result-encoding: string
         script: |
+          console.log('Context ref:', context.ref);
+          if (!context.ref.startsWith('refs/tags/v')) {
+            core.setFailed('Workflow triggered without a valid tag. Expected refs/tags/vX.Y.0.');
+            return;
+          }
           const tag = context.ref.replace('refs/tags/v', '');
+          console.log('Extracted tag:', tag);
           const versionRegex = /^[0-9]+\.[0-9]\.0$/;
           const minorVersion = parseInt(tag.split('.')[1], 10);
           if (!versionRegex.test(tag) || minorVersion > 9) {
@@ -91,6 +106,19 @@ jobs:
 
     - name: Create release
       id: create_release
+      uses: softprops/action-gh-release@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ steps.get_version.outputs.result }}
+        name: v${{ steps.get_version.outputs.result }}
+        body: Stable release of v${{ steps.get_version.outputs.result }}
+        draft: false
+        prerelease: false
+        fail_on_unmatched_files: true
+        generate_release_notes: true
+
+    - name: Upload release asset
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
