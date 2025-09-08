@@ -7,7 +7,8 @@
     "start": "electron .",
     "build": "npm run build:css && electron-builder --win --linux",
     "dev": "npm run build:css && electron . --dev",
-    "build:css": "postcss src/assets/css/tailwind.css -o src/assets/css/tailwind.output.css"
+    "build:css": "postcss src/assets/css/tailwind.css -o src/assets/css/tailwind.output.css",
+    "rebuild": "electron-rebuild --version=38.0.0"
   },
   "build": {
     "appId": "com.towerwatchman.atlas",
