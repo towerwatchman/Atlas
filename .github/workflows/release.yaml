@@ -36,9 +36,11 @@ jobs:
 
     - name: Install dependencies
       run: npm ci
+      env:
+        ELECTRON_VERSION: 38.0.0
 
     - name: Rebuild native dependencies for Electron
-      run: npx electron-rebuild --version=38.0.0
+      run: npx @electron/rebuild --version=38.0.0
       env:
         ELECTRON_VERSION: 38.0.0
 
