@@ -17,10 +17,28 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: 16
+        node-version: 18
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install Windows build tools
+      if: matrix.os == 'windows-latest'
+      run: npm install -g windows-build-tools --vs2019
+
+    - name: Install Linux build dependencies
+      if: matrix.os == 'ubuntu-latest'
+      run: sudo apt-get update && sudo apt-get install -y build-essential libudev-dev
 
     - name: Install dependencies
-      run: npm install
+      run: npm ci
+
+    - name: Rebuild native dependencies for Electron
+      run: npx electron-rebuild --version=38.0.0
+      env:
+        ELECTRON_VERSION: 38.0.0
 
     - name: Validate tag version (vX.Y.0, Y <= 9)
       id: get_version
@@ -31,6 +49,9 @@ jobs:
           exit 1
         fi
         echo "version=$TAG" >> $GITHUB_OUTPUT
+
+    - name: Build CSS
+      run: npm run build:css
 
     - name: Build for ${{ matrix.os }}
       run: npm run build
