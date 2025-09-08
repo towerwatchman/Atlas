@@ -14,7 +14,7 @@ files:
       - node_modules/sqlite3/**/*
       - node_modules/node-7z/**/*
       - node_modules/unrar/**/*
-asar: true
+asar: false
 nodeGypRebuild: false
 win:
   target:

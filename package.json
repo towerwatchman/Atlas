@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "towerwatchman",
   "description": "Atlas: Open-source game and visual novel manager",  
   "main": "src/main.js",
@@ -26,7 +26,7 @@
       "node_modules/node-7z/**/*",
       "node_modules/unrar/**/*"
     ],
-    "asar": true,
+    "asar": false,
     "nodeGypRebuild": false,
     "win": {
       "target": ["7z"],

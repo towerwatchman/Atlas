@@ -5,7 +5,7 @@ const GameBanner = ({ game, onSelect }) => {
     { className: 'cursor-pointer w-[537px] h-[251px] relative', onClick: onSelect },
     [
       React.createElement('img', {
-        src: `./${game.banner_url}`,
+        src: `${game.banner_url}`,
         alt: game.title,
         className: 'w-[537px] h-[251px] object-contain rounded'
       }),

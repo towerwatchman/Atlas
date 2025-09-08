@@ -35,8 +35,17 @@ function createWindow() {
 
 // Create data folders
 // Check if we are in Electron folder
-const resourcesPath = path.resolve(app.getAppPath(), '../../');
-const dataDir = path.join(resourcesPath, 'data');
+var dataDir = ""; 
+if (process.defaultApp) {
+  console.log('Running in development');
+  dataDir = path.join(__dirname, 'data');
+}
+else{
+  const resourcesPath = path.resolve(app.getAppPath(), '../../');
+  dataDir = path.join(resourcesPath, 'data');
+  console.log(`Running in release`);
+}
+
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
@@ -266,6 +275,13 @@ ipcMain.handle('add-game', async (event, game) => {
 
 ipcMain.handle('get-games', async () => {
   return new Promise((resolve, reject) => {
+    // Determine the base path for images
+    const isDev = process.defaultApp;
+    const appPath = app.getAppPath(); // Points to 'resources/app' in packaged mode, or project root in dev mode
+    const baseImagePath = isDev
+      ? path.join(appPath, "src") // Development: root/data/images
+      : path.resolve(appPath, '../../');; // Packaged: resources/app/data/images
+
     db.all(`
       WITH LatestVersion AS (
         SELECT record_id, MAX(date_added) as latest_date
@@ -288,7 +304,10 @@ ipcMain.handle('get-games', async () => {
         v.version_playtime,
         v.folder_size,
         v.date_added,
-        REPLACE(b.path, '\\', '/') AS banner_url,
+        CASE 
+          WHEN b.path IS NOT NULL THEN REPLACE('${baseImagePath}/' || b.path, '\\', '/')
+          ELSE NULL
+        END AS banner_url,
         GROUP_CONCAT(t.tag) AS tags
       FROM games g
       INNER JOIN LatestVersion lv ON g.record_id = lv.record_id
