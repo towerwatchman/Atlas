@@ -13,16 +13,21 @@
   "build": {
     "appId": "com.towerwatchman.atlas",
     "win": {
-      "target": ["exe"]
+      "target": [
+        "exe"
+      ]
     },
     "linux": {
-      "target": ["deb", "AppImage"]
+      "target": [
+        "deb",
+        "AppImage"
+      ]
     }
   },
   "dependencies": {
+    "@babel/standalone": "^7.25.6",
     "adm-zip": "^0.5.10",
     "axios": "^1.7.2",
-    "@babel/standalone": "^7.25.6",
     "electron-updater": "^6.1.8",
     "node-7z": "^3.0.0",
     "react": "^18.2.0",

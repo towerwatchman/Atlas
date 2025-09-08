@@ -1,0 +1,70 @@
+name: Atlas Release Build
+on:
+  push:
+    branches: [ "main" ]
+    tags:
+      - 'v*'
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 16
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Validate tag version (vX.Y.0, Y <= 9)
+      id: get_version
+      run: |
+        TAG=${GITHUB_REF#refs/tags/v}
+        if [[ ! $TAG =~ ^[0-9]+\.[0-9]\.0$ ]] || [[ $(echo $TAG | cut -d'.' -f2) -gt 9 ]]; then
+          echo "Invalid tag format or minor version > 9. Expected vX.Y.0 (Y <= 9)."
+          exit 1
+        fi
+        echo "version=$TAG" >> $GITHUB_OUTPUT
+
+    - name: Build for ${{ matrix.os }}
+      run: npm run build
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Zip build artifacts
+      run: |
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          powershell Compress-Archive -Path ./dist/* -DestinationPath ${{ github.workspace }}/Atlas_${{ steps.get_version.outputs.version }}_windows.zip
+        else
+          zip -r ${{ github.workspace }}/Atlas_${{ steps.get_version.outputs.version }}_linux.zip ./dist/*
+        fi
+
+    - name: Create release
+      id: create_release
+      uses: softprops/action-gh-release@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ steps.get_version.outputs.version }}
+        name: v${{ steps.get_version.outputs.version }}
+        body: Stable release of v${{ steps.get_version.outputs.version }}
+        draft: false
+        prerelease: false
+        fail_on_unmatched_files: true
+        generate_release_notes: true
+
+    - name: Upload release asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ github.workspace }}/Atlas_${{ steps.get_version.outputs.version }}_${{ matrix.os == 'windows-latest' && 'windows' || 'linux' }}.zip
+        asset_name: Atlas_${{ steps.get_version.outputs.version }}_${{ matrix.os == 'windows-latest' && 'windows' || 'linux' }}.zip
+        asset_content_type: application/zip
