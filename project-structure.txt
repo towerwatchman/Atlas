@@ -1,7 +1,7 @@
 ├── generate-structure.js (1962 bytes)
 ├── LICENSE (35803 bytes)
-├── package-lock.json (262860 bytes)
-├── package.json (1416 bytes)
+├── package-lock.json (245430 bytes)
+├── package.json (1874 bytes)
 ├── postcss.config.js (85 bytes)
 ├── project-structure.txt (0 bytes)
 ├── README.md (3768 bytes)
@@ -12,11 +12,12 @@
 │   │   │   ├── tailwind.css (60 bytes)
 │   │   │   └── tailwind.output.css (15305 bytes)
 │   │   └── images
+│   │       ├── appicon.ico (454664 bytes)
 │   │       └── atlas_logo.svg (663762 bytes)
 │   ├── components
 │   │   ├── GameBanner.js (643 bytes)
 │   │   ├── GameDetails.js (730 bytes)
-│   │   └── Sidebar.js (1238 bytes)
+│   │   └── Sidebar.js (1248 bytes)
 │   ├── data
 │   │   ├── data.db (139264 bytes)
 │   │   ├── images
@@ -24,7 +25,7 @@
 │   │   └── updates
 │   │       (empty directory)
 │   ├── index.html (2680 bytes)
-│   ├── main.js (10976 bytes)
+│   ├── main.js (11084 bytes)
 │   └── renderer.js (757 bytes)
 └── tailwind.config.js (611 bytes)
 

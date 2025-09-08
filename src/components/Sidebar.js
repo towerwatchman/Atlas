@@ -11,7 +11,7 @@ const Sidebar = () => {
 
   return React.createElement(
     'div',
-    { className: 'w-[60px] bg-[var(--primary)] flex flex-col items-center py-4' },
+    { className: 'w-[60px] mt-[70px] bg-[var(--primary)] flex flex-col items-center py-4' },
     items.map((item) =>
       React.createElement(
         'div',
