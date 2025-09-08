@@ -28,22 +28,23 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: sudo apt-get update && sudo apt-get install -y build-essential libudev-dev
 
-    - name: Clear npm cache directory
-      run: |
-        if [ "${{ matrix.os }}" == "windows-latest" ]; then
-          powershell -Command "Remove-Item -Path 'C:\npm\cache' -Recurse -Force -ErrorAction SilentlyContinue"
-        else
-          rm -rf ~/.npm
-        fi
+    - name: Clear npm cache directory (Windows)
+      if: matrix.os == 'windows-latest'
+      run: powershell -Command "Remove-Item -Path 'C:\npm\cache' -Recurse -Force -ErrorAction SilentlyContinue"
 
-    - name: Clear npm cache
+    - name: Clear npm cache directory (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: rm -rf ~/.npm
+
+    - name: Clear npm cache (Windows)
+      if: matrix.os == 'windows-latest'
       timeout-minutes: 10
-      run: |
-        if [ "${{ matrix.os }}" == "windows-latest" ]; then
-          powershell -Command "npm cache clean --force --verbose || npm cache clean --force --verbose || npm cache clean --force --verbose"
-        else
-          npm cache clean --force --verbose || npm cache clean --force --verbose || npm cache clean --force --verbose
-        fi
+      run: powershell -Command "npm cache clean --force --verbose || npm cache clean --force --verbose || npm cache clean --force --verbose"
+
+    - name: Clear npm cache (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      timeout-minutes: 10
+      run: npm cache clean --force --verbose || npm cache clean --force --verbose || npm cache clean --force --verbose
 
     - name: Clear temporary directories
       run: |
@@ -128,7 +129,7 @@ jobs:
     - name: Zip build artifacts
       run: |
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
-          powershell Compress-Archive -Path ./dist/* -DestinationPath ${{ github.workspace }}/Atlas_${{ steps.determine_version.outputs.result }}_windows.zip
+          powershell -Command "Compress-Archive -Path ./dist/* -DestinationPath ${{ github.workspace }}/Atlas_${{ steps.determine_version.outputs.result }}_windows.zip"
         else
           zip -r ${{ github.workspace }}/Atlas_${{ steps.determine_version.outputs.result }}_linux.zip ./dist/*
         fi
