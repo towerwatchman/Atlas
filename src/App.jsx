@@ -1,93 +1,5 @@
-const { useState, useEffect, useRef } = window.React;
+const { useState, useEffect } = window.React;
 const { createRoot } = window.ReactDOM;
-
-// Wrap Swiper in a React component
-const SwiperComponent = ({ children, spaceBetween, slidesPerView, navigation, pagination, className }) => {
-  const swiperRef = useRef(null);
-  const instanceRef = useRef(null);
-  const navigationPrevRef = useRef(null);
-  const navigationNextRef = useRef(null);
-  const paginationRef = useRef(null);
-
-  useEffect(() => {
-    const initializeSwiper = () => {
-      if (!swiperRef.current) {
-        console.warn('Swiper container not found');
-        return;
-      }
-
-      try {
-        instanceRef.current = new window.Swiper(swiperRef.current, {
-          spaceBetween: spaceBetween || 10,
-          slidesPerView: slidesPerView || 3,
-          navigation: navigation ? {
-            prevEl: navigationPrevRef.current,
-            nextEl: navigationNextRef.current
-          } : false,
-          pagination: pagination ? {
-            el: paginationRef.current,
-            clickable: true
-          } : false
-        });
-        console.log('Swiper initialized successfully');
-      } catch (error) {
-        console.error('Swiper initialization failed:', error);
-      }
-    };
-
-    // Delay initialization to ensure DOM is ready
-    const timer = setTimeout(initializeSwiper, 0);
-
-    return () => {
-      clearTimeout(timer);
-      if (instanceRef.current) {
-        try {
-          instanceRef.current.destroy(true, true);
-          console.log('Swiper cleaned up successfully');
-        } catch (error) {
-          console.error('Swiper cleanup failed:', error);
-        }
-      }
-    };
-  }, [spaceBetween, slidesPerView, navigation, pagination]);
-
-  useEffect(() => {
-    // Verify CSS variables and Tailwind classes
-    const rootStyle = getComputedStyle(document.documentElement);
-    const primaryColor = rootStyle.getPropertyValue('--primary').trim();
-    const testElement = document.querySelector('.flex');
-    if (primaryColor !== '#19191c') {
-      console.warn('CSS variables not applied correctly, --primary:', primaryColor);
-    } else {
-      console.log('CSS variables applied successfully, --primary:', primaryColor);
-    }
-    if (!testElement) {
-      console.warn('Tailwind classes not applied (no .flex element found)');
-    } else {
-      console.log('Tailwind classes applied successfully');
-    }
-  }, []);
-
-  return window.React.createElement(
-    'div',
-    { className: `swiper ${className || ''}`, ref: swiperRef },
-    [
-      window.React.createElement('div', { key: 'swiper-wrapper', className: 'swiper-wrapper' }, children),
-      navigation && window.React.createElement('div', { key: 'swiper-button-prev', className: 'swiper-button-prev', ref: navigationPrevRef }),
-      navigation && window.React.createElement('div', { key: 'swiper-button-next', className: 'swiper-button-next', ref: navigationNextRef }),
-      pagination && window.React.createElement('div', { key: 'swiper-pagination', className: 'swiper-pagination', ref: paginationRef })
-    ]
-  );
-};
-
-// Wrap SwiperSlide in a React component
-const SwiperSlideComponent = ({ children, ...props }) => {
-  return window.React.createElement(
-    'div',
-    { className: 'swiper-slide', ...props },
-    children
-  );
-};
 
 const App = () => {
   const [games, setGames] = useState([]);
@@ -112,6 +24,15 @@ const App = () => {
       console.error('Failed to check updates:', error);
     });
   }, []);
+
+  useEffect(() => {
+    // Debug filteredGames
+    console.log('Filtered games:', filteredGames.map(g => ({
+      record_id: g.record_id,
+      title: g.title,
+      banner_url: g.banner_url
+    })));
+  }, [games, filter]);
 
   const addGame = async () => {
     const path = await window.electronAPI.selectDirectory();
@@ -174,13 +95,16 @@ const App = () => {
   };
 
   const filteredGames = games.filter((game) =>
-    game && game.title && game.title.toLowerCase().includes(filter.toLowerCase()) ||
-    (game && game.tags && game.tags.toLowerCase().includes(filter.toLowerCase()))
+    game && 
+    game.title && 
+    game.banner_url && // Only include games with a banner_url
+    (game.title.toLowerCase().includes(filter.toLowerCase()) ||
+    (game.tags && game.tags.toLowerCase().includes(filter.toLowerCase())))
   );
 
   return (
     <div className="flex flex-col h-screen" style={{ backgroundColor: '#000000', color: '#d2d2d2' }}>
-      <div className="flex bg-[var(--primary)] h-[70px] items-center justify-between px-4 z-50" style={{ backgroundColor: '#19191c' }}>
+      <div className="flex bg-[var(--primary)] h-[70px] items-center justify-between px-4 z-50 fixed w-full top-0" style={{ backgroundColor: '#19191c' }}>
         <div className="flex items-center">
           <img src="./assets/images/atlas_logo.svg" alt="Atlas Logo" className="w-10 h-10" />
           <div className="flex ml-10">
@@ -231,10 +155,10 @@ const App = () => {
           </button>
         </div>
       </div>
-      <div className="flex flex-1">
-        <window.Sidebar />
+      <div className="flex flex-1 bg-[var(--tertiary)]" style={{ backgroundColor: '#313338' }}>
+        <window.Sidebar className="fixed w-[60px] mt-[70px] h-[calc(100%-110px)] z-50" />
         <div className="flex flex-1">
-          <div className="w-[200px] bg-[var(--secondary)] overflow-y-auto" style={{ backgroundColor: '#242629' }}>
+          <div className="w-[200px] bg-[var(--secondary)] fixed mt-[70px] h-[calc(100%-110px)] z-40 overflow-y-auto" style={{ backgroundColor: '#242629' }}>
             {filteredGames.length === 0 ? (
               <div className="p-2 text-center text-[var(--text)]" style={{ color: '#d2d2d2' }}>No games found</div>
             ) : (
@@ -250,33 +174,23 @@ const App = () => {
               ))
             )}
           </div>
-          <div className="flex-1 bg-[var(--tertiary)] p-4" style={{ backgroundColor: '#313338' }}>
-            <SwiperComponent
-              spaceBetween={10}
-              slidesPerView={3}
-              navigation={true}
-              pagination={{ clickable: true }}
-              className="mb-4"
-            >
+          <div className="flex-1 bg-[var(--tertiary)] p-4 ml-[200px] mt-[70px] overflow-y-auto h-[calc(100%-110px)]" style={{ backgroundColor: '#313338' }}>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(537px,1fr))] gap-4 mb-4">
               {filteredGames.length === 0 ? (
-                <SwiperSlideComponent key="no-games">
-                  <div className="text-center text-[var(--text)]" style={{ color: '#d2d2d2' }}>No games available</div>
-                </SwiperSlideComponent>
+                <div className="text-center text-[var(--text)] col-span-full" style={{ color: '#d2d2d2' }}>No games available</div>
               ) : (
                 filteredGames.map((game) => (
-                  <SwiperSlideComponent key={game.record_id}>
-                    <window.GameBanner game={game} onSelect={() => setSelectedGame(game)} />
-                  </SwiperSlideComponent>
+                  <window.GameBanner key={game.record_id} game={game} onSelect={() => setSelectedGame(game)} />
                 ))
               )}
-            </SwiperComponent>
+            </div>
             {selectedGame && (
               <window.GameDetails game={selectedGame} onRemove={() => removeGame(selectedGame.record_id)} />
             )}
           </div>
         </div>
       </div>
-      <div className="bg-[var(--primary)] h-[40px] flex items-center justify-between px-4 border-t border-[var(--border)]" style={{ backgroundColor: '#19191c', borderColor: '#51535A' }}>
+      <div className="bg-[var(--primary)] h-[40px] flex items-center justify-between px-4 fixed bottom-0 w-full border-t border-[var(--border)] z-50" style={{ backgroundColor: '#19191c', borderColor: '#51535A' }}>
         <button
           onClick={addGame}
           className="flex items-center bg-transparent text-[var(--text)] hover:text-[var(--highlight)]"
@@ -295,7 +209,7 @@ const App = () => {
         </div>
       </div>
       {importStatus.text && (
-        <div className="absolute bottom-10 left-1/2 transform -translate-x-1/2 w-[600px] bg-[var(--primary)] flex items-center justify-center p-2" style={{ backgroundColor: '#19191c' }}>
+        <div className="absolute bottom-10 left-1/2 transform -translate-x-1/2 w-[600px] bg-[var(--primary)] flex items-center justify-center p-2 z-50" style={{ backgroundColor: '#19191c' }}>
           <span className="w-[300px] text-[10px]" style={{ color: '#d2d2d2' }}>{importStatus.text}</span>
           <div className="relative w-[300px]">
             <div className="h-[15px] bg-gray-700 rounded overflow-hidden">

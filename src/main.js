@@ -12,8 +12,8 @@ let mainWindow;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1370,
-    height: 720,
+    width: 1420,
+    height: 770,
     minWidth: 1000,
     minHeight: 500,
     frame: false,
@@ -230,6 +230,11 @@ const db = new sqlite3.Database(dbPath, (err) => {
         f95_id INTEGER REFERENCES f95_zone_data(f95_id)
       );
     `);
+    // Debug banner paths
+    db.all('SELECT record_id, path FROM banners', [], (err, rows) => {
+      if (err) console.error('Error fetching banners:', err);
+      else console.log('Banners:', rows);
+    });
   });
 });
 
@@ -260,6 +265,11 @@ ipcMain.handle('add-game', async (event, game) => {
 ipcMain.handle('get-games', async () => {
   return new Promise((resolve, reject) => {
     db.all(`
+      WITH LatestVersion AS (
+        SELECT record_id, MAX(date_added) as latest_date
+        FROM versions
+        GROUP BY record_id
+      )
       SELECT 
         g.record_id,
         g.title,
@@ -276,14 +286,15 @@ ipcMain.handle('get-games', async () => {
         v.version_playtime,
         v.folder_size,
         v.date_added,
-        b.path AS banner_url,
+        REPLACE(b.path, '\\', '/') AS banner_url,
         GROUP_CONCAT(t.tag) AS tags
       FROM games g
-      LEFT JOIN versions v ON g.record_id = v.record_id
+      INNER JOIN LatestVersion lv ON g.record_id = lv.record_id
+      INNER JOIN versions v ON g.record_id = v.record_id AND v.date_added = lv.latest_date
       LEFT JOIN banners b ON g.record_id = b.record_id
       LEFT JOIN tag_mappings tm ON g.record_id = tm.record_id
       LEFT JOIN tags t ON tm.tag_id = t.tag_id
-      GROUP BY g.record_id, v.version
+      GROUP BY g.record_id
     `, [], (err, rows) => {
       if (err) reject(err);
       else resolve(rows || []);
