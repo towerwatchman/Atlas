@@ -35,41 +35,10 @@ jobs:
     - name: Clear npm cache directory (Linux)
       if: matrix.os == 'ubuntu-latest'
       run: rm -rf ~/.npm
-
-    - name: Clear npm cache (Windows)
-      if: matrix.os == 'windows-latest'
+    
+    - name: Clear npm cache
       timeout-minutes: 10
-      run: |
-        powershell -Command "& {
-          $attempts = 3
-          $success = $false
-          for ($i = 1; $i -le $attempts; $i++) {
-            Write-Host 'Attempt $i of $attempts to clear npm cache'
-            npm cache clean --force --verbose
-            if ($LASTEXITCODE -eq 0) {
-              $success = $true
-              break
-            }
-            Start-Sleep -Seconds 5
-          }
-          if (-not $success) {
-            Write-Error 'Failed to clear npm cache after $attempts attempts'
-            exit 1
-          }
-        }"
-
-    - name: Clear npm cache (Linux)
-      if: matrix.os == 'ubuntu-latest'
-      timeout-minutes: 10
-      run: npm cache clean --force --verbose || npm cache clean --force --verbose || npm cache clean --force --verbose
-
-    - name: Clear temporary directories
-      run: |
-        if [ "${{ matrix.os }}" == "windows-latest" ]; then
-          powershell -Command "Remove-Item -Path 'D:\a\Altas-Electron\Altas-Electron\node_modules' -Recurse -Force -ErrorAction SilentlyContinue"
-        else
-          rm -rf ./node_modules
-        fi
+      run: npm cache clean --force --verbose
 
     - name: Install electron
       timeout-minutes: 20
