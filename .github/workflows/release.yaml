@@ -24,13 +24,15 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install Windows build tools
-      if: matrix.os == 'windows-latest'
-      run: npm install -g windows-build-tools --vs2019
-
     - name: Install Linux build dependencies
       if: matrix.os == 'ubuntu-latest'
       run: sudo apt-get update && sudo apt-get install -y build-essential libudev-dev
+
+    - name: Clear npm cache
+      run: npm cache clean --force
+
+    - name: Install debug dependency
+      run: npm install debug@4.3.4 --save-dev
 
     - name: Install dependencies
       run: npm ci
