@@ -34,7 +34,7 @@ function createWindow() {
 }
 
 // Create data folders
-const dataDir = path.join(__dirname, 'data');
+const dataDir = path.join(app.getAppPath(), 'data');
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }

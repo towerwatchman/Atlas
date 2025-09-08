@@ -5,24 +5,37 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "build": "npm run build:css && electron-builder --win",
+    "build": "npm run build:css && electron-builder --win --x64",
     "dev": "npm run build:css && electron . --dev",
     "build:css": "postcss src/assets/css/tailwind.css -o src/assets/css/tailwind.output.css",
-    "rebuild": "electron-rebuild --version=38.0.0"
+    "rebuild": "npx electron-rebuild --version=37.0.0",
+    "structure": "node generate-structure.js > project-structure.txt"
   },
   "build": {
     "appId": "com.towerwatchman.atlas",
+    "files": [
+      "src/main.js",
+      "src/index.html",
+      "src/renderer.js",
+      "src/App.jsx",
+      "src/assets/**/*",
+      "src/components/**/*",
+      "package.json",
+      "node_modules/sqlite3/**/*",
+      "node_modules/node-7z/**/*",
+      "node_modules/unrar/**/*"
+    ],
+    "asar": false,
+    "nodeGypRebuild": false,
     "win": {
-      "target": [
-        "exe"
-      ]
+      "target": ["7z"]
     },
     "linux": {
-      "target": [
-        "deb",
-        "AppImage"
-      ]
-    }
+      "target": ["deb", "AppImage"]
+    },
+    "extraResources": [
+      "src/assets/images/atlas_logo.svg"
+    ]
   },
   "dependencies": {
     "@babel/standalone": "^7.25.6",
@@ -40,13 +53,13 @@
     "unrar": "^0.2.0"
   },
   "devDependencies": {
-    "electron-rebuild": "^3.2.9",
+    "@electron/rebuild": "^3.7.2",
     "autoprefixer": "^10.4.21",
     "debug": "^4.3.4",
-    "electron": "^38.0.0",
-    "electron-builder": "^19.24.4",
-    "postcss": "^8.4.31",
+    "electron": "^37.0.0",
+    "electron-builder": "^26.0.12",
+    "postcss": "^8.5.6",
     "postcss-cli": "^10.1.0",
-    "tailwindcss": "^3.4.3"
+    "tailwindcss": "^3.4.17"
   }
 }

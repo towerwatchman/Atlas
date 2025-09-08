@@ -2,12 +2,28 @@ directories:
   output: dist
   buildResources: build
 appId: com.towerwatchman.atlas
+files:
+  - filter:
+      - src/main.js
+      - src/index.html
+      - src/renderer.js
+      - src/App.jsx
+      - src/assets/**/*
+      - src/components/**/*
+      - package.json
+      - node_modules/sqlite3/**/*
+      - node_modules/node-7z/**/*
+      - node_modules/unrar/**/*
+asar: false
+nodeGypRebuild: false
 win:
   target:
-    - exe
+    - 7z
 linux:
   target:
     - deb
     - AppImage
-files: []
-electronVersion: 38.0.0
+extraResources:
+  - filter:
+      - src/assets/images/atlas_logo.svg
+electronVersion: 37.4.0
