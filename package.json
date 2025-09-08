@@ -1,0 +1,42 @@
+{
+  "name": "atlas-electron",
+  "version": "1.0.0",
+  "description": "Atlas: Open-source game and visual novel manager",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "npm run build:css && electron-builder --win --linux",
+    "dev": "npm run build:css && electron . --dev",
+    "postinstall": "electron-builder install-app-deps",
+    "build:css": "postcss src/assets/css/tailwind.css -o src/assets/css/tailwind.output.css"
+  },
+  "build": {
+    "appId": "com.towerwatchman.atlas",
+    "win": {
+      "target": ["exe"]
+    },
+    "linux": {
+      "target": ["deb", "AppImage"]
+    }
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.10",
+    "axios": "^1.7.2",
+    "@babel/standalone": "^7.25.6",
+    "electron-updater": "^6.1.8",
+    "node-7z": "^3.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "sqlite3": "^5.1.7",
+    "swiper": "^10.3.1",
+    "unrar": "^0.2.0"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.21",
+    "electron": "^38.0.0",
+    "electron-builder": "^24.13.3",
+    "postcss": "^8.4.31",
+    "postcss-cli": "^10.1.0",
+    "tailwindcss": "^3.4.3"
+  }
+}

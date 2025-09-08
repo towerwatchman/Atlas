@@ -1,0 +1,7 @@
+node_modules/ dist/ *.log
+node_modules
+src/assets/css/tailwind.output.css
+src/data/data.db
+/src/data/images
+/src/data/logs
+/src/data/updates
