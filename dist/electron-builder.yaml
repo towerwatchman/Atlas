@@ -1,0 +1,12 @@
+directories:
+  output: dist
+  buildResources: build
+appId: com.towerwatchman.atlas
+win:
+  target:
+    - exe
+linux:
+  target:
+    - deb
+    - AppImage
+electronVersion: 38.0.0
