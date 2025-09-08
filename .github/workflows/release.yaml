@@ -32,8 +32,9 @@ jobs:
       run: npm cache clean --force
 
     - name: Install dependencies
-      timeout-minutes: 15
-      run: npm ci
+      timeout-minutes: 20
+      run: |
+        npm ci --verbose || npm ci --verbose || npm ci --verbose
       env:
         ELECTRON_VERSION: 38.0.0
 
