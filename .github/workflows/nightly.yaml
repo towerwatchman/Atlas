@@ -39,9 +39,13 @@ jobs:
         fi
 
     - name: Clear npm cache
-      timeout-minutes: 5
+      timeout-minutes: 10
       run: |
-        npm cache clean --force --verbose || npm cache clean --force --verbose || npm cache clean --force --verbose
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          powershell -Command "npm cache clean --force --verbose || npm cache clean --force --verbose || npm cache clean --force --verbose"
+        else
+          npm cache clean --force --verbose || npm cache clean --force --verbose || npm cache clean --force --verbose
+        fi
 
     - name: Clear temporary directories
       run: |
@@ -70,7 +74,17 @@ jobs:
       env:
         ELECTRON_VERSION: 38.0.0
 
+    - name: Build CSS
+      run: npm run build:css
+
+    - name: Build for ${{ matrix.os }}
+      id: build
+      run: npm run build
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Bump patch version (1.0.x)
+      if: success()
       id: package_version
       run: |
         git config user.name "towerwatchman"
@@ -79,14 +93,6 @@ jobs:
         echo "newVersion=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
         git push
         git push --tags
-
-    - name: Build CSS
-      run: npm run build:css
-
-    - name: Build for ${{ matrix.os }}
-      run: npm run build
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Zip build artifacts
       run: |

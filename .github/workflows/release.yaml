@@ -1,6 +1,7 @@
 name: Atlas Release Build
 on:
   push:
+    branches: [ "main" ]
     tags:
       - 'v*'
 jobs:
@@ -36,9 +37,13 @@ jobs:
         fi
 
     - name: Clear npm cache
-      timeout-minutes: 5
+      timeout-minutes: 10
       run: |
-        npm cache clean --force --verbose || npm cache clean --force --verbose || npm cache clean --force --verbose
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          powershell -Command "npm cache clean --force --verbose || npm cache clean --force --verbose || npm cache clean --force --verbose"
+        else
+          npm cache clean --force --verbose || npm cache clean --force --verbose || npm cache clean --force --verbose
+        fi
 
     - name: Clear temporary directories
       run: |
@@ -67,41 +72,65 @@ jobs:
       env:
         ELECTRON_VERSION: 38.0.0
 
-    - name: Validate tag version (vX.Y.0, Y <= 9)
-      id: get_version
+    - name: Determine version
+      id: determine_version
       uses: actions/github-script@v6
       with:
         result-encoding: string
         script: |
           console.log('Context ref:', context.ref);
-          if (!context.ref.startsWith('refs/tags/v')) {
-            core.setFailed('Workflow triggered without a valid tag. Expected refs/tags/vX.Y.0.');
-            return;
+          if (context.ref.startsWith('refs/tags/v')) {
+            const tag = context.ref.replace('refs/tags/v', '');
+            console.log('Extracted tag:', tag);
+            const versionRegex = /^[0-9]+\.[0-9]\.0$/;
+            const minorVersion = parseInt(tag.split('.')[1], 10);
+            if (!versionRegex.test(tag) || minorVersion > 9) {
+              core.setFailed('Invalid tag format or minor version > 9. Expected vX.Y.0 (Y <= 9).');
+              return;
+            }
+            return tag;
+          } else {
+            const fs = require('fs');
+            const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            const currentVersion = packageJson.version;
+            console.log('Current version:', currentVersion);
+            const [major, minor, patch] = currentVersion.split('.').map(Number);
+            let newMinor = minor + 1;
+            let newMajor = major;
+            if (newMinor > 9) {
+              newMajor = major + 1;
+              newMinor = 0;
+            }
+            const newVersion = `${newMajor}.${newMinor}.0`;
+            console.log('New version:', newVersion);
+            return newVersion;
           }
-          const tag = context.ref.replace('refs/tags/v', '');
-          console.log('Extracted tag:', tag);
-          const versionRegex = /^[0-9]+\.[0-9]\.0$/;
-          const minorVersion = parseInt(tag.split('.')[1], 10);
-          if (!versionRegex.test(tag) || minorVersion > 9) {
-            core.setFailed('Invalid tag format or minor version > 9. Expected vX.Y.0 (Y <= 9).');
-            return;
-          }
-          return tag;
 
     - name: Build CSS
       run: npm run build:css
 
     - name: Build for ${{ matrix.os }}
+      id: build
       run: npm run build
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Update package.json version
+      if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        npm version ${{ steps.determine_version.outputs.result }} -m "Bump version to %s for release build"
+        git config user.name "towerwatchman"
+        git config user.email "towerwatchman@users.noreply.github.com"
+        git push
+        git tag v${{ steps.determine_version.outputs.result }}
+        git push --tags
+
     - name: Zip build artifacts
       run: |
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
-          powershell Compress-Archive -Path ./dist/* -DestinationPath ${{ github.workspace }}/Atlas_${{ steps.get_version.outputs.result }}_windows.zip
+          powershell Compress-Archive -Path ./dist/* -DestinationPath ${{ github.workspace }}/Atlas_${{ steps.determine_version.outputs.result }}_windows.zip
         else
-          zip -r ${{ github.workspace }}/Atlas_${{ steps.get_version.outputs.result }}_linux.zip ./dist/*
+          zip -r ${{ github.workspace }}/Atlas_${{ steps.determine_version.outputs.result }}_linux.zip ./dist/*
         fi
 
     - name: Create release
@@ -110,9 +139,9 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: v${{ steps.get_version.outputs.result }}
-        name: v${{ steps.get_version.outputs.result }}
-        body: Stable release of v${{ steps.get_version.outputs.result }}
+        tag_name: v${{ steps.determine_version.outputs.result }}
+        name: v${{ steps.determine_version.outputs.result }}
+        body: Stable release of v${{ steps.determine_version.outputs.result }}
         draft: false
         prerelease: false
         fail_on_unmatched_files: true
@@ -124,6 +153,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ${{ github.workspace }}/Atlas_${{ steps.get_version.outputs.result }}_${{ matrix.os == 'windows-latest' && 'windows' || 'linux' }}.zip
-        asset_name: Atlas_${{ steps.get_version.outputs.result }}_${{ matrix.os == 'windows-latest' && 'windows' || 'linux' }}.zip
+        asset_path: ${{ github.workspace }}/Atlas_${{ steps.determine_version.outputs.result }}_${{ matrix.os == 'windows-latest' && 'windows' || 'linux' }}.zip
+        asset_name: Atlas_${{ steps.determine_version.outputs.result }}_${{ matrix.os == 'windows-latest' && 'windows' || 'linux' }}.zip
         asset_content_type: application/zip
