@@ -20,7 +20,7 @@
 </div>
 
 #
-Atlas is an open source game manager and launcher for Windows and Linux with a modern interface for viewing, finding, and easily installing 3rd party games and visual novels.
+Atlas is an open source game manager and launcher for Windows, Linux, and Mac with a modern interface for viewing, finding, and easily installing 3rd party games and visual novels.
 We currently support adding games from [F95Zone](https://f95zone.to/) and [DLSite](https://www.dlsite.com/) and plan on adding more sources as the project progresses (See features below).
 It's meant to replace [Game-List](https://www.game-list.org) ([Github](https://github.com/game-list/game-list)) but also expand on it's feature set.
 
@@ -31,7 +31,7 @@ For discussion about future releases and new features please visit our [Discord 
 ## Features:
 A summary of planned features is listed below. Once we launch our website, all features will be listed there. 
 - Fast and Snappy UI.
-- Easy to understand UI written in XML.
+- Easy to understand UI written htmls/js
 - Custom themes and color schemes.
 - Game file management (moves or copies game install files for you)
 - Easy to edit metadata and tags per title.
