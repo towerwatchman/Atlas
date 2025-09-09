@@ -10,10 +10,13 @@ const Library = () => {
   };
 
   React.useEffect(() => {
-    // Simulate fetching root path (dynamic based on app location)
-    const isDev = process.env.NODE_ENV === 'development';
-    const root = isDev ? './data' : '../../data';
-    setRootPath(root);
+    // Use IPC to determine environment
+    window.electronAPI.getVersion().then(() => {
+      // Assume development mode if --dev flag is present
+      const isDev = window.location.href.includes('--dev');
+      const root = isDev ? './data' : '../../data';
+      setRootPath(root);
+    });
   }, []);
 
   return (
