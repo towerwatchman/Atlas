@@ -9,6 +9,7 @@ const axios = require('axios');
 const { autoUpdater } = require('electron-updater');
 
 let mainWindow;
+let settingsWindow;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -34,12 +35,47 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 
-  // Handle window state changes
   mainWindow.on('maximize', () => {
     mainWindow.webContents.send('window-state-changed', 'maximized');
   });
   mainWindow.on('unmaximize', () => {
     mainWindow.webContents.send('window-state-changed', 'restored');
+  });
+}
+
+function createSettingsWindow() {
+  settingsWindow = new BrowserWindow({
+    width: 850,
+    height: 600,
+    minWidth: 850,
+    minHeight: 600,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    center: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'renderer.js'),
+      contextIsolation: true,
+      enableRemoteModule: false,
+      nodeIntegration: false
+    }
+  });
+
+  settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
+
+  if (process.argv.includes('--dev')) {
+    settingsWindow.webContents.openDevTools();
+  }
+
+  settingsWindow.on('maximize', () => {
+    settingsWindow.webContents.send('window-state-changed', 'maximized');
+  });
+  settingsWindow.on('unmaximize', () => {
+    settingsWindow.webContents.send('window-state-changed', 'restored');
+  });
+
+  settingsWindow.on('closed', () => {
+    settingsWindow = null;
   });
 }
 
@@ -183,28 +219,6 @@ const db = new sqlite3.Database(dbPath, (err) => {
       CREATE TABLE IF NOT EXISTS updates
       (
         update_time INTEGER PRIMARY KEY,
-        processed_time INTEGER,
-        md5 BLOB
-      );
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS tags
-      (
-        tag_id INTEGER PRIMARY KEY,
-        tag TEXT UNIQUE
-      );
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS tag_mappings
-      (
-        record_id INTEGER REFERENCES games (record_id),
-        tag_id INTEGER REFERENCES tags (tag_id),
-        UNIQUE (record_id, tag_id)
-      );
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS banners
-      (
         record_id INTEGER REFERENCES games (record_id),
         path STRING UNIQUE
       );
@@ -334,19 +348,24 @@ ipcMain.handle('check-updates', async () => {
 });
 
 ipcMain.handle('minimize-window', () => {
-  mainWindow.minimize();
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  if (focusedWindow) focusedWindow.minimize();
 });
 
 ipcMain.handle('maximize-window', () => {
-  if (mainWindow.isMaximized()) {
-    mainWindow.unmaximize();
-  } else {
-    mainWindow.maximize();
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  if (focusedWindow) {
+    if (focusedWindow.isMaximized()) {
+      focusedWindow.unmaximize();
+    } else {
+      focusedWindow.maximize();
+    }
   }
 });
 
 ipcMain.handle('close-window', () => {
-  mainWindow.close();
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  if (focusedWindow) focusedWindow.close();
 });
 
 ipcMain.handle('select-file', async () => {
@@ -360,6 +379,14 @@ ipcMain.handle('select-directory', async () => {
 });
 
 ipcMain.handle('get-version', () => app.getVersion());
+
+ipcMain.handle('open-settings', () => {
+  if (!settingsWindow) {
+    createSettingsWindow();
+  } else {
+    settingsWindow.focus();
+  }
+});
 
 app.whenReady().then(() => {
   createWindow();
