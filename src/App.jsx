@@ -118,15 +118,17 @@ const App = () => {
           {/* Accent Bar */}
           <div className="absolute top-0 left-[50px] right-[110px] h-[10px] bg-accentBar"></div>
           {/* Left Corner Polygon */}
-          <div className="absolute top-0 left-[40px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 100%, 100% 0%)' }}></div>
+          <div className="absolute top-0 left-[40px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 100% 100%)' }}></div>
           {/* Right Corner Polygon */}
-          <div className="absolute top-0 right-[100px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 0% 100%, 100% 0%)' }}></div>
-          <div className="flex items-center justify-between h-full px-4">
-            <div className="flex items-center">
+          <div className="absolute top-0 right-[100px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 0% 100%)' }}></div>
+          {/* Window Controls */}  
+          <div className="w-full flex h-[70px]">
+            {/* Nav Controls */}  
+            <div className="flex items-center ml-5 mt-3">
               <div className="text-accent font-semibold cursor-pointer">Games</div>
             </div>
-            <div className="flex items-center">
-              <div className="flex bg-secondary h-10 w-[400px] items-center rounded -webkit-app-region-no-drag">
+            <div className="flex justify-center w-full">
+              <div className="flex bg-secondary h-10 w-[400px] items-center rounded mt-[20px] -webkit-app-region-no-drag">
                 <i className="fas fa-search w-6 h-6 text-text pl-2"></i>
                 <input
                   type="text"
@@ -137,36 +139,38 @@ const App = () => {
                 />
               </div>
             </div>
-            <div className="flex items-center -webkit-app-region-no-drag">
-              <span className="text-text text-xs mr-4">v{version}</span>
-              <button
-                onClick={() => window.electronAPI.minimizeWindow()}
-                className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-tertiary"
-              >
-                <i className="fas fa-window-minimize text-text"></i>
-              </button>
-              <button
-                onClick={() => window.electronAPI.maximizeWindow()}
-                className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-tertiary"
-              >
-                <i className={`fas ${isMaximized ? 'fa-window-restore' : 'fa-window-maximize'} text-text`}></i>
-              </button>
-              <button
-                onClick={() => window.electronAPI.closeWindow()}
-                className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-redExit"
-              >
-                <i className="fas fa-times text-text"></i>
-              </button>
-            </div>
+          </div>
+          <div className="absolute top-0 right-0 flex h-[32px]">
+            <button
+              onClick={() => window.electronAPI.minimizeWindow()}
+              className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-grayHover"
+            >
+              <i className="fas fa-minus text-text"></i>
+            </button>
+            <button
+              onClick={() => window.electronAPI.maximizeWindow()}
+              className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-grayHover"
+            >
+              <i className={`fas ${isMaximized ? 'fa-window-restore' : 'fa-window-maximize'} text-text`}></i>
+            </button>
+            <button
+              onClick={() => window.electronAPI.closeWindow()}
+              className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-redExit"
+            >
+              <i className="fas fa-times text-text"></i>
+            </button>
+          </div>
+          <div className="absolute mt-10 top-0 right-0 flex h-[10px]">
+            <span className="text-text text-xs mr-4">Version: {version} α</span>
           </div>
         </div>
       </div>
       {/* Main Content */}
-      <div className="flex flex-1 bg-tertiary fixed w-full">
-        <window.Sidebar className="fixed w-[60px] mt-[70px] h-[calc(100%-110px)] z-50" />
+      <div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
+        <window.Sidebar className="fixed w-[60px] h-full z-50" />
         <div className="flex flex-1 bg-tertiary">
           {/* Game List Sidebar */}
-          <div className="w-[200px] bg-secondary fixed mt-[70px] h-[calc(100%-110px)] z-40 overflow-y-auto">
+          <div className="w-[200px] bg-secondary fixed h-full z-40 overflow-y-auto">
             {filteredGames.length === 0 ? (
               <div className="p-2 text-center text-text">No games found</div>
             ) : (
@@ -184,7 +188,7 @@ const App = () => {
             )}
           </div>
           {/* Main Game Display */}
-          <div className="flex-1 bg-tertiary p-4 ml-[200px] mt-[70px] overflow-y-auto h-[calc(100%-110px)]">
+          <div className="flex-1 bg-tertiary p-4 ml-[200px] overflow-y-auto">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(537px,1fr))] gap-2 mb-2">
               {filteredGames.length === 0 ? (
                 <div className="text-center text-text col-span-full">No games available</div>
