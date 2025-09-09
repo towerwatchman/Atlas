@@ -11,7 +11,7 @@ module.exports = {
         border: '#51535A',
         selected: '#404249',
         accent: '#2C8EA9',
-        accentBar: '#242629',
+        accentBar: '#2C8EA9',
         atlasLogo: '#FFFFFF',
         text: '#d2d2d2',
         highlight: '#FFFFFF',

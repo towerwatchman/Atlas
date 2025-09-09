@@ -111,7 +111,7 @@ const App = () => {
     <div className="flex flex-col h-screen font-sans text-[13px]">
       {/* Top Navigation */}
       <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none">
-        <div className="w-[60px] bg-accent flex items-center justify-center h-[70px]">
+        <div className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50">
           <img src="./assets/images/atlas_logo.svg" alt="Atlas Logo" className="w-[50px] h-[50px]" />
         </div>
         <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)]">
@@ -162,7 +162,7 @@ const App = () => {
         </div>
       </div>
       {/* Main Content */}
-      <div className="flex flex-1 bg-tertiary fixed">
+      <div className="flex flex-1 bg-tertiary fixed w-full">
         <window.Sidebar className="fixed w-[60px] mt-[70px] h-[calc(100%-110px)] z-50" />
         <div className="flex flex-1 bg-tertiary">
           {/* Game List Sidebar */}
@@ -184,8 +184,8 @@ const App = () => {
             )}
           </div>
           {/* Main Game Display */}
-          <div className="flex-1 bg-tertiary p-4 ml-[260px] mt-[70px] overflow-y-auto h-[calc(100%-110px)]">
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(537px,1fr))] gap-4 mb-4">
+          <div className="flex-1 bg-tertiary p-4 ml-[200px] mt-[70px] overflow-y-auto h-[calc(100%-110px)]">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(537px,1fr))] gap-2 mb-2">
               {filteredGames.length === 0 ? (
                 <div className="text-center text-text col-span-full">No games available</div>
               ) : (
