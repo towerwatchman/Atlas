@@ -218,7 +218,6 @@ const db = new sqlite3.Database(dbPath, (err) => {
     `);
     db.all('SELECT record_id, path FROM banners', [], (err, rows) => {
       if (err) console.error('Error fetching banners:', err);
-      else console.log('Banners:', rows);
     });
   });
 });

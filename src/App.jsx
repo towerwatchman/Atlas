@@ -11,7 +11,7 @@ const App = () => {
 
   useEffect(() => {
     window.electronAPI.getGames().then((games) => {
-      console.log('Games fetched:', games);
+      //console.log('Games fetched:', games);
       setGames(Array.isArray(games) ? games : []);
     }).catch((error) => {
       console.error('Failed to fetch games:', error);
@@ -31,14 +31,6 @@ const App = () => {
       setIsMaximized(state === 'maximized');
     });
   }, []);
-
-  useEffect(() => {
-    console.log('Filtered games:', filteredGames.map(g => ({
-      record_id: g.record_id,
-      title: g.title,
-      banner_url: g.banner_url
-    })));
-  }, [games, filter]);
 
   const addGame = async () => {
     const path = await window.electronAPI.selectDirectory();
