@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://atlas-gamesdb.com/">
-    <img height="180px" src="https://github.com/towerwatchman/Atlas/blob/master/Atlas/src/assets/images/atlas_logo.svg" alt="atlas logo">
+    <img height="180px" src="https://github.com/towerwatchman/Atlas/blob/main/src/assets/images/atlas_logo.svg" alt="atlas logo">
   </a>
   
 <!--![GitHub release (with filter)](https://img.shields.io/github/v/release/towerwatchman/Atlas?style=flat&logo=github&logoColor=white&label=)-->
