@@ -4,10 +4,11 @@
   </a>
   
 <!--![GitHub release (with filter)](https://img.shields.io/github/v/release/towerwatchman/Atlas?style=flat&logo=github&logoColor=white&label=)-->
-[![React](https://img.shields.io/badge/-ReactJs-61DAFB?logo=react&logoColor=white&style=for-the-badge)](#)
+[![React](https://img.shields.io/badge/-ReactJs-61DAFB?logo=react)](#)
 [![Windows](https://custom-icon-badges.demolab.com/badge/Windows-0078D6?logo=windows11&logoColor=white)](#)
-[![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)](#)
-[![Electron](https://img.shields.io/badge/-electron-F1C40F?style=for-the-badge&labelColor=17202A&logo=electron&logoColor=61DBFB)](#)
+[![Linux](https://img.shields.io/badge/-Linux-grey?logo=linux)](#)
+[![Electron](https://img.shields.io/badge/-Electron-000?&logo=Electron)](#)
+[![MacOS](https://shields.io/badge/MacOS--9cf?logo=Apple&style=social)](#)
 [![SQLite](https://img.shields.io/badge/SQLite-%2307405e.svg?logo=sqlite&logoColor=white)](#)
 <!--![Static Badge](https://img.shields.io/badge/-docs-green.svg?logo=Wikipedia)-->
 
@@ -20,7 +21,7 @@
 </div>
 
 #
-Atlas is an open source game manager and launcher for Windows, Linux, and Mac with a modern interface for viewing, finding, and easily installing 3rd party games and visual novels.
+Atlas is an open source game manager and launcher for Windows, Linux, and MacOS with a modern interface for viewing, finding, and easily installing 3rd party games and visual novels.
 We currently support adding games from [F95Zone](https://f95zone.to/) and [DLSite](https://www.dlsite.com/) and plan on adding more sources as the project progresses (See features below).
 It's meant to replace [Game-List](https://www.game-list.org) ([Github](https://github.com/game-list/game-list)) but also expand on it's feature set.
 
