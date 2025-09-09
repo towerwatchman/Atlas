@@ -12,12 +12,14 @@ let mainWindow;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1420,
-    height: 770,
+    width: 1370,
+    height: 720,
     minWidth: 1000,
     minHeight: 500,
     frame: false,
-    backgroundColor: '#000000',
+    transparent: true,
+    backgroundColor: '#00000000',
+    center: true,
     webPreferences: {
       preload: path.join(__dirname, 'renderer.js'),
       contextIsolation: true,
@@ -31,16 +33,22 @@ function createWindow() {
   if (process.argv.includes('--dev')) {
     mainWindow.webContents.openDevTools();
   }
+
+  // Handle window state changes
+  mainWindow.on('maximize', () => {
+    mainWindow.webContents.send('window-state-changed', 'maximized');
+  });
+  mainWindow.on('unmaximize', () => {
+    mainWindow.webContents.send('window-state-changed', 'restored');
+  });
 }
 
 // Create data folders
-// Check if we are in Electron folder
-var dataDir = ""; 
+var dataDir = "";
 if (process.defaultApp) {
   console.log('Running in development');
   dataDir = path.join(__dirname, 'data');
-}
-else{
+} else {
   const resourcesPath = path.resolve(app.getAppPath(), '../../');
   dataDir = path.join(resourcesPath, 'data');
   console.log(`Running in release`);
@@ -195,53 +203,19 @@ const db = new sqlite3.Database(dbPath, (err) => {
       );
     `);
     db.run(`
-      CREATE TABLE IF NOT EXISTS atlas_tags
-      (
-        tag_id INTEGER REFERENCES tags (tag_id),
-        atlas_id INTEGER REFERENCES atlas_data (atlas_id),
-        UNIQUE (atlas_id, tag_id)
-      );
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS f95_zone_tags
-      (
-        f95_id INTEGER REFERENCES f95_zone_data (f95_id),
-        tag_id INTEGER REFERENCES tags (tag_id)
-      );
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS previews
-      (
-        record_id INTEGER REFERENCES games (record_id),
-        path TEXT UNIQUE,
-        position INTEGER DEFAULT 256,
-        UNIQUE (record_id, path)
-      );
-    `);
-    db.run(`
       CREATE TABLE IF NOT EXISTS banners
       (
-        record_id INTEGER REFERENCES games (record_id) UNIQUE PRIMARY KEY,
-        path TEXT UNIQUE,
-        type INTEGER,
-        UNIQUE (record_id, path, type)
+        record_id INTEGER REFERENCES games (record_id),
+        path STRING UNIQUE
       );
     `);
     db.run(`
-      CREATE TABLE IF NOT EXISTS data_change
-      (
-        timestamp INTEGER,
-        delta INTEGER
-      );
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS f95_zone_mappings
+      CREATE TABLE IF NOT EXISTS f95_latest
       (
         record_id INTEGER REFERENCES games(record_id),
         f95_id INTEGER REFERENCES f95_zone_data(f95_id)
       );
     `);
-    // Debug banner paths
     db.all('SELECT record_id, path FROM banners', [], (err, rows) => {
       if (err) console.error('Error fetching banners:', err);
       else console.log('Banners:', rows);
@@ -275,13 +249,11 @@ ipcMain.handle('add-game', async (event, game) => {
 
 ipcMain.handle('get-games', async () => {
   return new Promise((resolve, reject) => {
-    // Determine the base path for images
     const isDev = process.defaultApp;
-    const appPath = app.getAppPath(); // Points to 'resources/app' in packaged mode, or project root in dev mode
+    const appPath = app.getAppPath();
     const baseImagePath = isDev
-      ? path.join(appPath, "src") // Development: root/data/images
-      : path.resolve(appPath, '../../');; // Packaged: resources/app/data/images
-
+      ? path.join(appPath, "src")
+      : path.resolve(appPath, '../../');
     db.all(`
       WITH LatestVersion AS (
         SELECT record_id, MAX(date_added) as latest_date
@@ -387,6 +359,8 @@ ipcMain.handle('select-directory', async () => {
   const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
   return result.filePaths[0] || null;
 });
+
+ipcMain.handle('get-version', () => app.getVersion());
 
 app.whenReady().then(() => {
   createWindow();

@@ -1,59 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; img-src 'self' data:; font-src 'self' https://cdnjs.cloudflare.com data:; connect-src 'self' https://cdn.jsdelivr.net https://unpkg.com;">
-  <title>Atlas</title>
-  <link href="./assets/css/tailwind.output.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/swiper@10/swiper-bundle.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <style>
-    :root {
-      --canvas: #000000 !important;
-      --primary: #19191c !important;
-      --secondary: #242629 !important;
-      --tertiary: #313338 !important;
-      --border: #51535A !important;
-      --selected: #404249 !important;
-      --accent: #2C8EA9 !important;
-      --accent-bar: #242629 !important;
-      --atlas-logo: #FFFFFF !important;
-      --text: #d2d2d2 !important;
-      --highlight: #FFFFFF !important;
-    }
-    body {
-      background-color: var(--canvas);
-      color: var(--text);
-      font-family: sans-serif;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atlas</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="./assets/css/tailwind.output.css">
 </head>
-<body>
-  <div id="root"></div>
+<body class="bg-canvas text-text">
+    <div id="root"></div>
   <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/swiper@10/swiper-bundle.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
-  <script src="components/GameBanner.js"></script>
-  <script src="components/GameDetails.js"></script>
-  <script src="components/Sidebar.js"></script>
-  <script type="text/babel" data-presets="react" src="App.jsx"></script>
-  <script>
-    // Verify CSS loading
-    const tailwindLink = document.querySelector('link[href="./assets/css/tailwind.output.css"]');
-    if (!tailwindLink || !tailwindLink.sheet) {
-      console.error('Tailwind CSS failed to load');
-    } else {
-      console.log('Tailwind CSS loaded successfully');
-    }
-    // Verify Font Awesome
-    const fontAwesomeLink = document.querySelector('link[href*="font-awesome"]');
-    if (!fontAwesomeLink || !fontAwesomeLink.sheet) {
-      console.error('Font Awesome CSS failed to load');
-    } else {
-      console.log('Font Awesome CSS loaded successfully');
-    }
-  </script>
+    <script src="./components/Sidebar.js"></script>
+    <script src="./components/GameBanner.js"></script>
+    <script src="./components/GameDetails.js"></script>
+    <script type="text/babel" src="./App.jsx"></script>
 </body>
 </html>

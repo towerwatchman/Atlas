@@ -10,5 +10,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
   closeWindow: () => ipcRenderer.invoke('close-window'),
   selectFile: () => ipcRenderer.invoke('select-file'),
-  selectDirectory: () => ipcRenderer.invoke('select-directory')
+  selectDirectory: () => ipcRenderer.invoke('select-directory'),
+  getVersion: () => ipcRenderer.invoke('get-version'),
+  onWindowStateChanged: (callback) => {
+    ipcRenderer.on('window-state-changed', (event, state) => callback(state));
+  }
 });

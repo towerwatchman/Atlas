@@ -5,8 +5,9 @@ const App = () => {
   const [games, setGames] = useState([]);
   const [selectedGame, setSelectedGame] = useState(null);
   const [filter, setFilter] = useState('');
-  const [version] = useState('0.0.0');
+  const [version, setVersion] = useState('0.0.0');
   const [importStatus, setImportStatus] = useState({ text: '', progress: 0, total: 0 });
+  const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
     window.electronAPI.getGames().then((games) => {
@@ -23,10 +24,15 @@ const App = () => {
     }).catch((error) => {
       console.error('Failed to check updates:', error);
     });
+    window.electronAPI.getVersion().then((v) => setVersion(v));
+
+    // Listen for window state changes
+    window.electronAPI.onWindowStateChanged((state) => {
+      setIsMaximized(state === 'maximized');
+    });
   }, []);
 
   useEffect(() => {
-    // Debug filteredGames
     console.log('Filtered games:', filteredGames.map(g => ({
       record_id: g.record_id,
       title: g.title,
@@ -81,7 +87,7 @@ const App = () => {
     if (!zipPath || !extractPath) return;
     setImportStatus({ text: 'Unzipping game', progress: 50, total: 100 });
     try {
-      const result = await window.electronAPI.unzipGame(zipPath, extractPath);
+      const result = await window.electronAPI.unzipGame({ zipPath, extractPath });
       setImportStatus({
         text: result.success ? 'Unzip complete' : `Error: ${result.error}`,
         progress: result.success ? 100 : 0,
@@ -95,78 +101,81 @@ const App = () => {
   };
 
   const filteredGames = games.filter((game) =>
-    game && 
-    game.title && 
-    game.banner_url && // Only include games with a banner_url
+    game &&
+    game.title &&
     (game.title.toLowerCase().includes(filter.toLowerCase()) ||
     (game.tags && game.tags.toLowerCase().includes(filter.toLowerCase())))
   );
 
   return (
-    <div className="flex flex-col h-screen" style={{ backgroundColor: '#000000', color: '#d2d2d2' }}>
-      <div className="flex bg-[var(--primary)] h-[70px] items-center justify-between px-4 z-50 fixed w-full top-0" style={{ backgroundColor: '#19191c' }}>
-        <div className="flex items-center">
-          <img src="./assets/images/atlas_logo.svg" alt="Atlas Logo" className="w-10 h-10" />
-          <div className="flex ml-10">
-            <label className="flex items-center mr-4">
-              <input type="radio" name="nav" defaultChecked className="mr-2" />
-              Games
-            </label>
-          </div>
+    <div className="flex flex-col h-screen font-sans text-[13px]">
+      {/* Top Navigation */}
+      <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none">
+        <div className="w-[60px] bg-accent flex items-center justify-center h-[70px]">
+          <img src="./assets/images/atlas_logo.svg" alt="Atlas Logo" className="w-[50px] h-[50px]" />
         </div>
-        <div className="flex items-center">
-          <div className="flex bg-[var(--secondary)] h-10 w-[400px] items-center rounded" style={{ backgroundColor: '#242629' }}>
-            <i className="fas fa-search mx-2 text-[var(--text)]" style={{ color: '#d2d2d2' }}></i>
-            <input
-              type="text"
-              placeholder="Search Atlas"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="bg-transparent text-[var(--text)] w-[325px] outline-none"
-              style={{ color: '#d2d2d2' }}
-            />
-            <button
-              onClick={() => setFilter('')}
-              className="w-10 h-10 flex items-center justify-center"
-            >
-              <i className="fas fa-times text-[var(--text)]" style={{ color: '#d2d2d2' }}></i>
-            </button>
+        <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)]">
+          {/* Accent Bar */}
+          <div className="absolute top-0 left-[50px] right-[110px] h-[10px] bg-accentBar"></div>
+          {/* Left Corner Polygon */}
+          <div className="absolute top-0 left-[40px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 100%, 100% 0%)' }}></div>
+          {/* Right Corner Polygon */}
+          <div className="absolute top-0 right-[100px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 0% 100%, 100% 0%)' }}></div>
+          <div className="flex items-center justify-between h-full px-4">
+            <div className="flex items-center">
+              <div className="text-accent font-semibold cursor-pointer">Games</div>
+            </div>
+            <div className="flex items-center">
+              <div className="flex bg-secondary h-10 w-[400px] items-center rounded -webkit-app-region-no-drag">
+                <i className="fas fa-search w-6 h-6 text-text pl-2"></i>
+                <input
+                  type="text"
+                  placeholder="Search"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  className="bg-transparent outline-none text-text flex-1 px-2"
+                />
+              </div>
+            </div>
+            <div className="flex items-center -webkit-app-region-no-drag">
+              <span className="text-text text-xs mr-4">v{version}</span>
+              <button
+                onClick={() => window.electronAPI.minimizeWindow()}
+                className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-tertiary"
+              >
+                <i className="fas fa-window-minimize text-text"></i>
+              </button>
+              <button
+                onClick={() => window.electronAPI.maximizeWindow()}
+                className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-tertiary"
+              >
+                <i className={`fas ${isMaximized ? 'fa-window-restore' : 'fa-window-maximize'} text-text`}></i>
+              </button>
+              <button
+                onClick={() => window.electronAPI.closeWindow()}
+                className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-redExit"
+              >
+                <i className="fas fa-times text-text"></i>
+              </button>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center">
-          <span className="mr-2" style={{ color: '#d2d2d2' }}>Version: {version} α</span>
-          <button
-            onClick={() => window.electronAPI.minimizeWindow()}
-            className="w-8 h-8 flex items-center justify-center bg-transparent"
-          >
-            <i className="fas fa-minus text-[var(--text)]" style={{ color: '#d2d2d2' }}></i>
-          </button>
-          <button
-            onClick={() => window.electronAPI.maximizeWindow()}
-            className="w-8 h-8 flex items-center justify-center bg-transparent"
-          >
-            <i className="fas fa-window-maximize text-[var(--text)]" style={{ color: '#d2d2d2' }}></i>
-          </button>
-          <button
-            onClick={() => window.electronAPI.closeWindow()}
-            className="w-8 h-8 flex items-center justify-center bg-transparent"
-          >
-            <i className="fas fa-times text-[var(--text)]" style={{ color: '#d2d2d2' }}></i>
-          </button>
         </div>
       </div>
-      <div className="flex flex-1 bg-[var(--tertiary)]" style={{ backgroundColor: '#313338' }}>
+      {/* Main Content */}
+      <div className="flex flex-1 bg-tertiary fixed">
         <window.Sidebar className="fixed w-[60px] mt-[70px] h-[calc(100%-110px)] z-50" />
-        <div className="flex flex-1">
-          <div className="w-[200px] bg-[var(--secondary)] fixed mt-[70px] h-[calc(100%-110px)] z-40 overflow-y-auto" style={{ backgroundColor: '#242629' }}>
+        <div className="flex flex-1 bg-tertiary">
+          {/* Game List Sidebar */}
+          <div className="w-[200px] bg-secondary fixed mt-[70px] h-[calc(100%-110px)] z-40 overflow-y-auto">
             {filteredGames.length === 0 ? (
-              <div className="p-2 text-center text-[var(--text)]" style={{ color: '#d2d2d2' }}>No games found</div>
+              <div className="p-2 text-center text-text">No games found</div>
             ) : (
               filteredGames.map((game) => (
                 <div
                   key={game.record_id}
-                  className="p-2 cursor-pointer hover:bg-[var(--selected)]"
-                  style={{ color: '#d2d2d2' }}
+                  className={`p-2 cursor-pointer hover:bg-selected ${
+                    selectedGame?.record_id === game.record_id ? 'bg-selected' : ''
+                  }`}
                   onClick={() => setSelectedGame(game)}
                 >
                   {game.title}
@@ -174,10 +183,11 @@ const App = () => {
               ))
             )}
           </div>
-          <div className="flex-1 bg-[var(--tertiary)] p-4 ml-[200px] mt-[70px] overflow-y-auto h-[calc(100%-110px)]" style={{ backgroundColor: '#313338' }}>
+          {/* Main Game Display */}
+          <div className="flex-1 bg-tertiary p-4 ml-[260px] mt-[70px] overflow-y-auto h-[calc(100%-110px)]">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(537px,1fr))] gap-4 mb-4">
               {filteredGames.length === 0 ? (
-                <div className="text-center text-[var(--text)] col-span-full" style={{ color: '#d2d2d2' }}>No games available</div>
+                <div className="text-center text-text col-span-full">No games available</div>
               ) : (
                 filteredGames.map((game) => (
                   <window.GameBanner key={game.record_id} game={game} onSelect={() => setSelectedGame(game)} />
@@ -190,40 +200,52 @@ const App = () => {
           </div>
         </div>
       </div>
-      <div className="bg-[var(--primary)] h-[40px] flex items-center justify-between px-4 fixed bottom-0 w-full border-t border-[var(--border)] z-50" style={{ backgroundColor: '#19191c', borderColor: '#51535A' }}>
+      {/* Footer */}
+      <div className="bg-primary h-[40px] flex items-center justify-between px-4 fixed bottom-0 w-full border-t border-border z-50">
         <button
           onClick={addGame}
-          className="flex items-center bg-transparent text-[var(--text)] hover:text-[var(--highlight)]"
-          style={{ color: '#d2d2d2' }}
+          className="flex items-center bg-transparent text-text hover:text-highlight"
         >
-          <i className="fas fa-plus mr-2 text-[var(--text)]" style={{ color: '#d2d2d2' }}></i>
+          <i className="fas fa-plus mr-2 text-text"></i>
           Add Game
         </button>
         <div className="flex items-center">
-          <i className="fas fa-gamepad mr-2 text-[var(--text)]" style={{ color: '#d2d2d2' }}></i>
-          <span style={{ color: '#d2d2d2' }}>{`${games.length} Games Installed, ${games.length} Total Versions`}</span>
+          <i className="fas fa-gamepad mr-2 text-text"></i>
+          <span>{`${games.length} Games Installed, ${games.length} Total Versions`}</span>
         </div>
         <div className="flex items-center">
-          <i className="fas fa-download mr-2 text-[var(--text)]" style={{ color: '#d2d2d2' }}></i>
-          <span onClick={unzipGame} style={{ color: '#d2d2d2' }}>Downloads</span>
+          <i className="fas fa-download mr-2 text-text"></i>
+          <span className="cursor-pointer" onClick={unzipGame}>Downloads</span>
         </div>
       </div>
+      {/* Import Status */}
       {importStatus.text && (
-        <div className="absolute bottom-10 left-1/2 transform -translate-x-1/2 w-[600px] bg-[var(--primary)] flex items-center justify-center p-2 z-50" style={{ backgroundColor: '#19191c' }}>
-          <span className="w-[300px] text-[10px]" style={{ color: '#d2d2d2' }}>{importStatus.text}</span>
-          <div className="relative w-[300px]">
-            <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
-              <div
-                className="h-full bg-[var(--accent)]"
-                style={{ backgroundColor: '#2C8EA9', width: `${(importStatus.progress / importStatus.total) * 100}%` }}
-              ></div>
+        <div className="absolute bottom-[61px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500]">
+          <div className="flex items-center w-[540px]">
+            <span className="w-[300px] text-[10px] text-text">{importStatus.text}</span>
+            <div className="relative w-[300px]">
+              <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
+                <div
+                  className="h-full bg-accent"
+                  style={{ width: `${(importStatus.progress / importStatus.total) * 100}%` }}
+                ></div>
+              </div>
+              <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
+                File {importStatus.progress}/{importStatus.total}
+              </span>
             </div>
-            <span className="absolute inset-0 flex items-center justify-center text-[10px]" style={{ color: '#d2d2d2' }}>
-              File {importStatus.progress}/{importStatus.total}
-            </span>
           </div>
+          {/* Left Corner Polygon */}
+          <div className="absolute left-[200px] bottom-0 w-[20px] h-[20px] bg-accent" style={{ clipPath: 'polygon(0% 100%, 100% 0%, 100% 100%)' }}></div>
+          {/* Right Corner Polygon */}
+          <div className="absolute right-[200px] bottom-0 w-[20px] h-[20px] bg-accent" style={{ clipPath: 'polygon(0% 0%, 100% 100%, 0% 100%)' }}></div>
         </div>
       )}
+      {/* Updater Section (Hidden by Default) */}
+      <div className="hidden bg-canvas h-full w-full" id="updater">
+        <div className="h-[200px] bg-tertiary"></div>
+        <div className="flex-1 bg-primary border-t border-accent"></div>
+      </div>
     </div>
   );
 };
