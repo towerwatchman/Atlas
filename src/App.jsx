@@ -103,9 +103,25 @@ const App = () => {
     <div className="flex flex-col h-screen font-sans text-[13px]">
       {/* Top Navigation */}
       <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none">
-        <div className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50">
+        {/*<div className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50">
           <img src="./assets/images/atlas_logo.svg" alt="Atlas Logo" className="w-[50px] h-[50px]" />
-        </div>
+        </div>*/}
+<div className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50" >
+
+  <svg
+    className="w-[50px] h-[50px] text-atlasLogo"
+    viewBox="0 0 24 24"
+    style={{ shapeRendering: 'geometricPrecision'}}
+    fill="currentColor"   
+    dangerouslySetInnerHTML= {{ __html: window.atlasLogo.path}}
+  />
+  {/* Fallback for debugging - uncomment to test original SVG file */}
+  {/* <img
+    src="./assets/images/atlas_logo.svg"
+    alt="Atlas Logo"
+    className="w-[65px] h-[65px]"
+  /> */}
+</div>
         <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)]">
           {/* Accent Bar */}
           <div className="absolute top-0 left-[50px] right-[110px] h-[10px] bg-accentBar"></div>
