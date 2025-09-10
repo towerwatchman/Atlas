@@ -10,35 +10,33 @@ const Sidebar = () => {
   ];
 
   return React.createElement(
-    'div',
-    { className: 'w-[60px] bg-primary flex flex-col items-center min-w-[60px] py-[1px]' },
-    items.map((item) =>
-      React.createElement(
-        'div',
-        {
-          key: item.name,
-          className: `w-full h-[60px] flex items-center justify-center relative cursor-pointer group`,
-          onClick: () => {
-            setSelected(item.name);
-            if (item.name === 'Settings') {
-              window.electronAPI.openSettings();
-            }
+  'div',
+  { className: 'w-[60px] bg-primary flex flex-col items-center min-w-[60px] py-[1px]' },
+  items.map((item) =>
+    React.createElement(
+      'div',
+      {
+        key: item.name,
+        className: `w-full h-[60px] flex items-center justify-center relative cursor-pointer group`,
+        onClick: () => {
+          setSelected(item.name);
+          if (item.name === 'Settings') {
+            window.electronAPI.openSettings();
           }
-        },
-        [
-          React.createElement('div', {
-            className: `absolute left-0 w-[3px] h-full bg-accent transition-opacity opacity-0 group-hover:opacity-100`
-          }),
-          React.createElement('svg', {
-            className: `w-6 h-6 ${selected === item.name ? 'text-accent' : 'text-text'}`,
-            viewBox: '0 0 26 26',
-            fill: 'currentColor',
-            dangerouslySetInnerHTML: { __html: item.path }
-          })
-        ]
-      )
+        }
+      },
+      React.createElement('div', {
+        className: `absolute left-0 w-[3px] h-full bg-accent transition-opacity opacity-0 group-hover:opacity-100`
+      }),
+      React.createElement('svg', {
+        className: `w-6 h-6 ${selected === item.name ? 'text-accent' : 'text-text'}`,
+        viewBox: '0 0 26 26',
+        fill: 'currentColor',
+        dangerouslySetInnerHTML: { __html: item.path }
+      })
     )
-  );
+  )
+);
 };
 
 window.Sidebar = Sidebar;
