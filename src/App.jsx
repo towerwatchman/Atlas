@@ -102,7 +102,7 @@ const App = () => {
   return (
     <div className="flex flex-col h-screen font-sans text-[13px]">
       {/* Top Navigation */}
-      <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none">
+      <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
        
 <div className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50" >
 
@@ -125,7 +125,7 @@ const App = () => {
           <div className="w-full flex h-[70px]">
             {/* Nav Controls */}  
             <div className="flex items-center ml-5 mt-3">
-              <div className="text-accent font-semibold cursor-pointer">Games</div>
+              <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag">Games</div>
             </div>
             <div className="flex justify-center w-full">
               <div className="flex bg-secondary h-10 w-[400px] items-center rounded mt-[20px] -webkit-app-region-no-drag">
@@ -140,7 +140,7 @@ const App = () => {
               </div>
             </div>
           </div>
-          <div className="absolute top-0 right-0 flex h-[32px]">
+          <div className="absolute top-0 right-0 flex h-[32px] -webkit-app-region-no-drag">
             <button
               onClick={() => window.electronAPI.minimizeWindow()}
               className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-grayHover"
