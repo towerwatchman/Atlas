@@ -140,26 +140,26 @@ const App = () => {
               </div>
             </div>
           </div>
-          <div className="absolute top-0 right-0 flex h-[32px] -webkit-app-region-no-drag">
-            <button
-              onClick={() => window.electronAPI.minimizeWindow()}
-              className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-grayHover"
-            >
-              <i className="fas fa-minus text-text"></i>
-            </button>
-            <button
-              onClick={() => window.electronAPI.maximizeWindow()}
-              className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-grayHover"
-            >
-              <i className={`fas ${isMaximized ? 'fa-window-restore' : 'fa-window-maximize'} text-text`}></i>
-            </button>
-            <button
-              onClick={() => window.electronAPI.closeWindow()}
-              className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-redExit"
-            >
-              <i className="fas fa-times text-text"></i>
-            </button>
-          </div>
+<div className="flex absolute top-0 right-0 h-[70px] -webkit-app-region-no-drag">
+  <button
+    onClick={() => window.electronAPI.minimizeWindow()}
+    className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+  >
+    <i className="fas fa-minus text-text"></i>
+  </button>
+  <button
+    onClick={() => window.electronAPI.maximizeWindow()}
+    className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+  >
+    <i className={isMaximized ? "fas fa-window-restore text-text" : "fas fa-window-maximize text-text"}></i>
+  </button>
+  <button
+    onClick={() => window.electronAPI.closeWindow()}
+    className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
+  >
+    <i className="fas fa-times text-text"></i>
+  </button>
+</div>
           <div className="absolute mt-10 top-0 right-0 flex h-[10px]">
             <span className="text-text text-xs mr-4">Version: {version} α</span>
           </div>

@@ -6,9 +6,10 @@
 ├── project-structure.txt (0 bytes)
 ├── README.md (3719 bytes)
 ├── src
-│   ├── App.jsx (11351 bytes)
+│   ├── App.jsx (11316 bytes)
 │   ├── assets
 │   │   ├── css
+│   │   │   ├── main.css (154 bytes)
 │   │   │   ├── tailwind.css (60 bytes)
 │   │   │   └── tailwind.output.css (18592 bytes)
 │   │   ├── icons
@@ -30,7 +31,7 @@
 │   │   │   ├── Platforms.jsx (262 bytes)
 │   │   │   ├── Settings.jsx (3894 bytes)
 │   │   │   └── settingsIcons.js (8645 bytes)
-│   │   └── Sidebar.js (4584 bytes)
+│   │   └── Sidebar.js (4490 bytes)
 │   ├── data
 │   │   ├── config.ini (290 bytes)
 │   │   ├── data.db (143360 bytes)
@@ -38,7 +39,7 @@
 │   │   │   (empty directory)
 │   │   └── updates
 │   │       (empty directory)
-│   ├── index.html (1173 bytes)
+│   ├── index.html (1231 bytes)
 │   ├── main.js (13111 bytes)
 │   ├── renderer.js (1134 bytes)
 │   └── settings.html (1235 bytes)
