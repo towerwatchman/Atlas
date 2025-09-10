@@ -161,7 +161,7 @@ const App = () => {
   </button>
 </div>
           <div className="absolute mt-10 top-0 right-0 flex h-[10px]">
-            <span className="text-text text-xs mr-4">Version: {version} α</span>
+            <span className="text-text text-xs mr-4">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
           </div>
         </div>
       </div>
