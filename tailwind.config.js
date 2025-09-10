@@ -15,6 +15,8 @@ module.exports = {
         atlasLogo: '#FFFFFF',
         text: '#d2d2d2',
         highlight: '#FFFFFF',
+        overlayTopColor: '#000000',
+        overlayBottomColor: '#000000'
       },
     },
   },
