@@ -3,10 +3,51 @@ const Interface = () => {
   const [atlasStartup, setAtlasStartup] = React.useState('Do Nothing');
   const [gameStartup, setGameStartup] = React.useState('Do Nothing');
   const [showDebugConsole, setShowDebugConsole] = React.useState(false);
+  const [minimizeToTray, setMinimizeToTray] = React.useState(false);
+
+  React.useEffect(() => {
+    window.electronAPI.getConfig().then((config) => {
+      const interfaceSettings = config.Interface || {};
+      setLanguage(interfaceSettings.language || 'English');
+      setAtlasStartup(interfaceSettings.atlasStartup || 'Do Nothing');
+      setGameStartup(interfaceSettings.gameStartup || 'Do Nothing');
+      setShowDebugConsole(interfaceSettings.showDebugConsole || false);
+      setMinimizeToTray(interfaceSettings.minimizeToTray || false);
+    });
+  }, []);
+
+  const saveSettings = (updatedSettings) => {
+    window.electronAPI.getConfig().then((config) => {
+      const newConfig = { ...config, Interface: { ...config.Interface, ...updatedSettings } };
+      window.electronAPI.saveSettings(newConfig);
+    });
+  };
+
+  const handleLanguageChange = (e) => {
+    setLanguage(e.target.value);
+    saveSettings({ language: e.target.value });
+    alert('Changing the system language will require a restart.');
+  };
+
+  const handleAtlasStartupChange = (e) => {
+    setAtlasStartup(e.target.value);
+    saveSettings({ atlasStartup: e.target.value });
+  };
+
+  const handleGameStartupChange = (e) => {
+    setGameStartup(e.target.value);
+    saveSettings({ gameStartup: e.target.value });
+  };
 
   const handleDebugConsoleChange = () => {
     setShowDebugConsole(!showDebugConsole);
+    saveSettings({ showDebugConsole: !showDebugConsole });
     alert('Changing the debug console setting requires a restart.');
+  };
+
+  const handleMinimizeToTrayChange = () => {
+    setMinimizeToTray(!minimizeToTray);
+    saveSettings({ minimizeToTray: !minimizeToTray });
   };
 
   return (
@@ -16,7 +57,7 @@ const Interface = () => {
         <select
           className="w-24 bg-secondary border border-border text-text rounded p-1"
           value={language}
-          onChange={(e) => setLanguage(e.target.value)}
+          onChange={handleLanguageChange}
         >
           <option>English</option>
         </select>
@@ -28,7 +69,7 @@ const Interface = () => {
         <select
           className="w-48 bg-secondary border border-border text-text rounded p-1"
           value={atlasStartup}
-          onChange={(e) => setAtlasStartup(e.target.value)}
+          onChange={handleAtlasStartupChange}
         >
           <option>Do Nothing</option>
         </select>
@@ -40,7 +81,7 @@ const Interface = () => {
         <select
           className="w-24 bg-secondary border border-border text-text rounded p-1"
           value={gameStartup}
-          onChange={(e) => setGameStartup(e.target.value)}
+          onChange={handleGameStartupChange}
         >
           <option>Do Nothing</option>
         </select>
@@ -61,7 +102,13 @@ const Interface = () => {
       <div className="opacity-50">
         <div className="flex items-center mb-2">
           <label className="flex-1">Minimize Atlas to system tray when the application window is closed</label>
-          <input type="checkbox" className="mr-5" disabled />
+          <input
+            type="checkbox"
+            className="mr-5"
+            checked={minimizeToTray}
+            onChange={handleMinimizeToTrayChange}
+            disabled
+          />
         </div>
         <div className="border-t border-text opacity-25 my-2"></div>
       </div>

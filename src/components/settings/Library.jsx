@@ -2,22 +2,33 @@ const Library = () => {
   const [rootPath, setRootPath] = React.useState('');
   const [gameFolder, setGameFolder] = React.useState('');
 
+  React.useEffect(() => {
+    window.electronAPI.getConfig().then((config) => {
+      const librarySettings = config.Library || {};
+      setRootPath(librarySettings.rootPath || './data');
+      setGameFolder(librarySettings.gameFolder || '');
+    });
+  }, []);
+
+  const saveSettings = (updatedSettings) => {
+    window.electronAPI.getConfig().then((config) => {
+      const newConfig = { ...config, Library: { ...config.Library, ...updatedSettings } };
+      window.electronAPI.saveSettings(newConfig);
+    });
+  };
+
   const handleSetGameFolder = async () => {
     const path = await window.electronAPI.selectDirectory();
     if (path) {
       setGameFolder(path);
+      saveSettings({ gameFolder: path });
     }
   };
 
-  React.useEffect(() => {
-    // Use IPC to determine environment
-    window.electronAPI.getVersion().then(() => {
-      // Assume development mode if --dev flag is present
-      const isDev = window.location.href.includes('--dev');
-      const root = isDev ? './data' : '../../data';
-      setRootPath(root);
-    });
-  }, []);
+  const handleGameFolderChange = (e) => {
+    setGameFolder(e.target.value);
+    saveSettings({ gameFolder: e.target.value });
+  };
 
   return (
     <div className="p-5 text-text">
@@ -38,7 +49,7 @@ const Library = () => {
           type="text"
           className="flex-1 bg-secondary border border-border text-text rounded p-1"
           value={gameFolder}
-          onChange={(e) => setGameFolder(e.target.value)}
+          onChange={handleGameFolderChange}
         />
         <button
           className="ml-5 bg-accent text-text px-4 py-1 rounded hover:bg-hover"

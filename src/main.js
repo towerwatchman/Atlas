@@ -7,9 +7,11 @@ const Seven = require('node-7z');
 const Unrar = require('unrar');
 const axios = require('axios');
 const { autoUpdater } = require('electron-updater');
+const ini = require('ini');
 
 let mainWindow;
 let settingsWindow;
+let appConfig; // Global config variable
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -100,6 +102,41 @@ if (!fs.existsSync(updatesDir)) {
 const imagesDir = path.join(dataDir, 'images');
 if (!fs.existsSync(imagesDir)) {
   fs.mkdirSync(imagesDir, { recursive: true });
+}
+
+// Initialize config.ini
+const configPath = path.join(dataDir, 'config.ini');
+const defaultConfig = {
+  Interface: {
+    language: 'English',
+    atlasStartup: 'Do Nothing',
+    gameStartup: 'Do Nothing',
+    showDebugConsole: false,
+    minimizeToTray: false
+  },
+  Library: {
+    rootPath: dataDir,
+    gameFolder: ''
+  },
+  Metadata: {
+    downloadPreviews: false
+  }
+};
+
+// Load config.ini at startup
+function loadConfig() {
+  try {
+    if (fs.existsSync(configPath)) {
+      const configData = fs.readFileSync(configPath, 'utf8');
+      appConfig = ini.parse(configData);
+    } else {
+      appConfig = defaultConfig;
+      fs.writeFileSync(configPath, ini.stringify(appConfig));
+    }
+  } catch (err) {
+    console.error('Error loading config.ini:', err);
+    appConfig = defaultConfig;
+  }
 }
 
 const dbPath = path.join(dataDir, 'data.db');
@@ -388,7 +425,23 @@ ipcMain.handle('open-settings', () => {
   }
 });
 
+ipcMain.handle('get-settings', async () => {
+  return appConfig || defaultConfig;
+});
+
+ipcMain.handle('save-settings', async (event, settings) => {
+  try {
+    appConfig = settings;
+    fs.writeFileSync(configPath, ini.stringify(settings));
+    return { success: true };
+  } catch (err) {
+    console.error('Error writing to config.ini:', err);
+    return { success: false, error: err.message };
+  }
+});
+
 app.whenReady().then(() => {
+  loadConfig(); // Load config at startup
   createWindow();
   autoUpdater.checkForUpdatesAndNotify();
 });
