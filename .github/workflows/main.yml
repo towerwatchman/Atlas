@@ -28,10 +28,22 @@ jobs:
 
       - name: Clean npm cache
         run: npm cache clean --force
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+
+      - name: Clean npm cache (Linux)
+        run: npm cache clean --force
+        if: matrix.os == 'ubuntu-latest'
         shell: bash
 
       - name: Install dependencies
         run: npm ci
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+
+      - name: Install dependencies (Linux)
+        run: npm ci
+        if: matrix.os == 'ubuntu-latest'
         shell: bash
 
       - name: Install Linux dependencies
@@ -45,11 +57,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          Write-Output "Starting build and publish for ${{ matrix.os }}"
+          npm run publish
+          Write-Output "Build and publish completed"
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+
+      - name: Build and publish (Linux)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           echo "Starting build and publish for ${{ matrix.os }}"
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            npm run publish
-          else
-            npm run build:css && npx electron-builder --linux -p always
-          fi
+          npm run build:css && npx electron-builder --linux -p always
           echo "Build and publish completed"
+        if: matrix.os == 'ubuntu-latest'
         shell: bash
