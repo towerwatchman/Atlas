@@ -16,6 +16,7 @@
     "appId": "com.towerwatchman.atlas",
     "files": [
       "src/main.js",
+      "src/database.js",
       "src/index.html",
       "src/settings.html",
       "src/renderer.js",
@@ -41,10 +42,7 @@
         "deb",
         "AppImage"
       ]
-    },
-    "extraResources": [
-      "src/assets/images/atlas_logo.svg"
-    ]
+    }    
   },
   "dependencies": {
     "@babel/standalone": "^7.25.6",
