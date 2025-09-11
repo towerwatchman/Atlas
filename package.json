@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "author": "towerwatchman",
   "description": "Atlas: Open-source game and visual novel manager",
   "main": "src/main.js",
@@ -15,7 +15,7 @@
   },
   "build": {
     "appId": "com.towerwatchman.atlas",
-    "productName": "YourAppName",
+    "productName": "Atlas",
     "publish": {
       "provider": "github",
       "owner": "towerwatchman",
@@ -45,7 +45,9 @@
       "icon": "src/assets/images/appicon.ico"
     },
     "nsis": {
-      "oneClick": false
+      "allowToChangeInstallationDirectory": true,
+      "oneClick": false,
+      "perMachine": true
     },
     "linux": {
       "target": [
