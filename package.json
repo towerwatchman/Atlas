@@ -23,8 +23,8 @@
       "provider": "github",
       "owner": "towerwatchman",
       "repo": "Atlas",
-      "prerelease": false,
-      "draft": true
+      "releaseType": "release",
+      "vPrefixedTagName": true
     },
     "files": [
       "src/main.js",
