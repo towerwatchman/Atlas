@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "towerwatchman",
   "description": "Atlas: Open-source game and visual novel manager",
   "main": "src/main.js",
