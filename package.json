@@ -47,8 +47,7 @@
     "nsis": {
       "allowToChangeInstallationDirectory": true,
       "oneClick": false,
-      "perMachine": true,
-      "requestedExecutionLevel": "admin"
+      "perMachine": true
     },
     "linux": {
       "target": [
