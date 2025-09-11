@@ -22,7 +22,9 @@
     "publish": {
       "provider": "github",
       "owner": "towerwatchman",
-      "repo": "Atlas"
+      "repo": "Atlas",
+      "prerelease": false,
+      "draft": true
     },
     "files": [
       "src/main.js",
