@@ -49,7 +49,7 @@ jobs:
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             npm run publish
           else
-            npm run build:css && electron-builder --linux -p always
+            npm run build:css && npx electron-builder --linux -p always
           fi
           echo "Build and publish completed"
         shell: bash
