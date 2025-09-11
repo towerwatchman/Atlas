@@ -1,0 +1,35 @@
+    name: Atlas Release
+
+    on:
+      push:
+        tags:
+          - 'v*.*.*' # Trigger on new tags like v1.0.0
+
+    jobs:
+      build-and-release:
+        runs-on: ${{ matrix.os }}
+        strategy:
+          matrix:
+            os: [windows-latest, ubuntu-latest] # Build for desired platforms
+
+        steps:
+          - name: Checkout code
+            uses: actions/checkout@v4
+
+          - name: Setup Node.js
+            uses: actions/setup-node@v4
+            with:
+              node-version: 20 # Or your preferred Node.js version
+
+          - name: Install dependencies
+            run: npm install
+
+          - name: Build and Release
+            uses: samuelmeuli/action-electron-builder@v1 # Or a similar electron-builder action
+            with:
+              # GitHub token for publishing releases
+              github_token: ${{ secrets.GITHUB_TOKEN }}
+              # Optional: Code signing certificates for macOS (if applicable)
+              # mac_certs: ${{ secrets.MAC_CERTS }}
+              # mac_certs_password: ${{ secrets.MAC_CERTS_PASSWORD }}
+              # Other electron-builder options as needed
