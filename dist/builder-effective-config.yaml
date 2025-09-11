@@ -5,11 +5,14 @@ appId: com.towerwatchman.atlas
 files:
   - filter:
       - src/main.js
+      - src/database.js
       - src/index.html
+      - src/settings.html
       - src/renderer.js
       - src/App.jsx
       - src/assets/**/*
       - src/components/**/*
+      - src/components/settings/**/*
       - package.json
       - node_modules/sqlite3/**/*
       - node_modules/node-7z/**/*
@@ -18,13 +21,12 @@ asar: false
 nodeGypRebuild: false
 win:
   target:
-    - 7z
+    - nsis
   icon: src/assets/images/appicon.ico
+nsis:
+  oneClick: false
 linux:
   target:
     - deb
     - AppImage
-extraResources:
-  - filter:
-      - src/assets/images/atlas_logo.svg
 electronVersion: 37.4.0

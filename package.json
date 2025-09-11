@@ -1,8 +1,8 @@
 {
   "name": "atlas",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "towerwatchman",
-  "description": "Atlas: Open-source game and visual novel manager",  
+  "description": "Atlas: Open-source game and visual novel manager",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -10,17 +10,27 @@
     "dev": "npm run build:css && electron . --dev",
     "build:css": "postcss src/assets/css/tailwind.css -o src/assets/css/tailwind.output.css",
     "rebuild": "npx electron-rebuild --version=37.0.0",
-    "structure": "node generate-structure.js > project-structure.txt"
+    "structure": "node generate-structure.js > project-structure.txt",
+    "publish": "electron-builder --win -p always"
   },
   "build": {
     "appId": "com.towerwatchman.atlas",
+    "productName": "YourAppName",
+    "publish": {
+      "provider": "github",
+      "owner": "towerwatchman",
+      "repo": "Atlas"
+    },
     "files": [
       "src/main.js",
+      "src/database.js",
       "src/index.html",
+      "src/settings.html",
       "src/renderer.js",
       "src/App.jsx",
       "src/assets/**/*",
       "src/components/**/*",
+      "src/components/settings/**/*",
       "package.json",
       "node_modules/sqlite3/**/*",
       "node_modules/node-7z/**/*",
@@ -29,15 +39,20 @@
     "asar": false,
     "nodeGypRebuild": false,
     "win": {
-      "target": ["7z"],
+      "target": [
+        "nsis"
+      ],
       "icon": "src/assets/images/appicon.ico"
     },
-    "linux": {
-      "target": ["deb", "AppImage"]
+    "nsis": {
+      "oneClick": false
     },
-    "extraResources": [
-      "src/assets/images/atlas_logo.svg"
-    ]
+    "linux": {
+      "target": [
+        "deb",
+        "AppImage"
+      ]
+    }    
   },
   "dependencies": {
     "@babel/standalone": "^7.25.6",
@@ -45,7 +60,9 @@
     "adm-zip": "^0.5.10",
     "axios": "^1.7.2",
     "electron-updater": "^6.6.2",
+    "ini": "^5.0.0",
     "lru-cache": "^10.0.0",
+    "lz4js": "^0.2.0",
     "node-7z": "^0.4.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

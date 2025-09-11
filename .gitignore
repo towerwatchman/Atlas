@@ -10,3 +10,5 @@ src/data/data.db
 /dist
 /dist
 data/data.db
+/src/_data
+src/data/config.ini

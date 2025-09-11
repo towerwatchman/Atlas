@@ -1,31 +1,47 @@
 ├── generate-structure.js (1962 bytes)
 ├── LICENSE (35803 bytes)
-├── package-lock.json (245430 bytes)
-├── package.json (1874 bytes)
+├── package-lock.json (245798 bytes)
+├── package.json (2007 bytes)
 ├── postcss.config.js (85 bytes)
 ├── project-structure.txt (0 bytes)
-├── README.md (3768 bytes)
+├── README.md (3719 bytes)
 ├── src
-│   ├── App.jsx (10406 bytes)
+│   ├── App.jsx (11501 bytes)
 │   ├── assets
 │   │   ├── css
+│   │   │   ├── main.css (154 bytes)
 │   │   │   ├── tailwind.css (60 bytes)
-│   │   │   └── tailwind.output.css (15305 bytes)
+│   │   │   └── tailwind.output.css (19829 bytes)
+│   │   ├── icons
+│   │   │   ├── atlas_logo.svg (977 bytes)
+│   │   │   ├── data.js (655 bytes)
+│   │   │   └── home.svg (488 bytes)
 │   │   └── images
 │   │       ├── appicon.ico (454664 bytes)
 │   │       └── atlas_logo.svg (663762 bytes)
 │   ├── components
-│   │   ├── GameBanner.js (643 bytes)
+│   │   ├── GameBanner.js (725 bytes)
 │   │   ├── GameDetails.js (730 bytes)
-│   │   └── Sidebar.js (1248 bytes)
+│   │   ├── settings
+│   │   │   ├── Appearance.jsx (2704 bytes)
+│   │   │   ├── Emulators.jsx (262 bytes)
+│   │   │   ├── Interface.jsx (4727 bytes)
+│   │   │   ├── Library.jsx (2340 bytes)
+│   │   │   ├── Metadata.jsx (1351 bytes)
+│   │   │   ├── Platforms.jsx (262 bytes)
+│   │   │   ├── Settings.jsx (3894 bytes)
+│   │   │   └── settingsIcons.js (8645 bytes)
+│   │   └── Sidebar.js (4490 bytes)
 │   ├── data
-│   │   ├── data.db (139264 bytes)
+│   │   ├── config.ini (290 bytes)
+│   │   ├── data.db (143360 bytes)
 │   │   ├── images
 │   │   │   (empty directory)
 │   │   └── updates
 │   │       (empty directory)
-│   ├── index.html (2680 bytes)
-│   ├── main.js (11084 bytes)
-│   └── renderer.js (757 bytes)
-└── tailwind.config.js (611 bytes)
+│   ├── index.html (1231 bytes)
+│   ├── main.js (13111 bytes)
+│   ├── renderer.js (1134 bytes)
+│   └── settings.html (1235 bytes)
+└── tailwind.config.js (574 bytes)
 
