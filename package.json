@@ -1,7 +1,10 @@
 {
   "name": "atlas",
   "version": "1.0.4",
-  "author": "towerwatchman",
+  "author": {
+    "name": "towerwatchman",
+    "email": "towerwatchman@atlas.com"
+  },
   "description": "Atlas: Open-source game and visual novel manager",
   "main": "src/main.js",
   "scripts": {
@@ -11,7 +14,7 @@
     "build:css": "postcss src/assets/css/tailwind.css -o src/assets/css/tailwind.output.css",
     "rebuild": "npx electron-rebuild --version=37.0.0",
     "structure": "node generate-structure.js > project-structure.txt",
-    "publish": "electron-builder --win -p always"
+    "publish": "npm run build:css && electron-builder --win -p always"
   },
   "build": {
     "appId": "com.towerwatchman.atlas",
