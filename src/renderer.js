@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeGame: (id) => ipcRenderer.invoke('remove-game', id),
   unzipGame: (zipPath, extractPath) => ipcRenderer.invoke('unzip-game', { zipPath, extractPath }),
   checkUpdates: () => ipcRenderer.invoke('check-updates'),
+  checkDbUpdates: () => ipcRenderer.invoke('check-db-updates'),
   minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
   maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
   closeWindow: () => ipcRenderer.invoke('close-window'),
@@ -17,5 +18,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   onWindowStateChanged: (callback) => {
     ipcRenderer.on('window-state-changed', (event, state) => callback(state));
+  },
+  onDbUpdateProgress: (callback) => {
+    ipcRenderer.on('db-update-progress', (event, progress) => callback(progress));
   }
 });

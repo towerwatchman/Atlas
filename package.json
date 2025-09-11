@@ -54,6 +54,7 @@
     "electron-updater": "^6.6.2",
     "ini": "^5.0.0",
     "lru-cache": "^10.0.0",
+    "lz4js": "^0.2.0",
     "node-7z": "^0.4.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
