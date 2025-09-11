@@ -6,10 +6,12 @@ files:
   - filter:
       - src/main.js
       - src/index.html
+      - src/settings.html
       - src/renderer.js
       - src/App.jsx
       - src/assets/**/*
       - src/components/**/*
+      - src/components/settings/**/*
       - package.json
       - node_modules/sqlite3/**/*
       - node_modules/node-7z/**/*

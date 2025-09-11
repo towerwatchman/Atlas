@@ -39,7 +39,7 @@ const App = () => {
         setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
       } else if (result.total === 0) {
         setDbUpdateStatus({ text: result.message, progress: 0, total: 0 });
-        setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
+        //setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
       }
     }).catch((error) => {
       console.error('Failed to check database updates:', error);
@@ -382,9 +382,9 @@ const App = () => {
           </div>
         </div>
       </div>
-      {/* Database Update Status */}
+{/* Database Update Status */}
       {dbUpdateStatus.text && (
-        <div className="absolute bottom-[81px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500]">
+        <div className="absolute bottom-[44px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border">
           <div className="flex items-center w-[540px]">
             <span className="w-[300px] text-[10px] text-text">{dbUpdateStatus.text}</span>
             <div className="relative w-[300px]">
@@ -398,16 +398,12 @@ const App = () => {
                 Update {dbUpdateStatus.progress}/{dbUpdateStatus.total}
               </span>
             </div>
-          </div>
-          {/* Left Corner Polygon */}
-          <div className="absolute left-[200px] bottom-0 w-[20px] h-[20px] bg-accent" style={{ clipPath: 'polygon(0% 100%, 100% 0%, 100% 100%)' }}></div>
-          {/* Right Corner Polygon */}
-          <div className="absolute right-[200px] bottom-0 w-[20px] h-[20px] bg-accent" style={{ clipPath: 'polygon(0% 0%, 100% 100%, 0% 100%)' }}></div>
+          </div>         
         </div>
       )}
       {/* Import Status */}
       {importStatus.text && (
-        <div className="absolute bottom-[61px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500]">
+        <div className="absolute bottom-[60px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500]">
           <div className="flex items-center w-[540px]">
             <span className="w-[300px] text-[10px] text-text">{importStatus.text}</span>
             <div className="relative w-[300px]">
