@@ -5,6 +5,9 @@ on:
     branches:
       - main # Trigger on new tags like v1.0.0
 
+permissions:
+  contents: write
+
 jobs:
   build-and-release:
     runs-on: ${{ matrix.os }}
@@ -25,23 +28,28 @@ jobs:
 
       - name: Clean npm cache
         run: npm cache clean --force
+        shell: bash
 
       - name: Install dependencies
         run: npm ci
+        shell: bash
 
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libarchive-tools rpm
+        shell: bash
 
       - name: Build and publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "Starting build and publish for ${{ matrix.os }}"
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             npm run publish
           else
             npm run build:css && electron-builder --linux -p always
           fi
+          echo "Build and publish completed"
         shell: bash
