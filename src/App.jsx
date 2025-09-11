@@ -59,6 +59,25 @@ const App = () => {
         setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
       }
     });
+
+    // Listen for app update status
+    window.electronAPI.onUpdateStatus((status) => {
+      console.log('Update status:', status);
+      if (status.status === 'available') {
+        alert(`New app version ${status.version} is available and will be downloaded.`);
+      } else if (status.status === 'downloading') {
+        setDbUpdateStatus({ text: `Downloading update: ${status.percent.toFixed(0)}%`, progress: status.percent, total: 100 });
+      } else if (status.status === 'downloaded') {
+        alert(`Update ${status.version} downloaded. Restarting app to install.`);
+      } else if (status.status === 'error') {
+        alert(`Update error: ${status.error}`);
+      }
+    });
+
+    return () => {
+      // Cleanup listeners
+      window.electronAPI.removeUpdateStatusListener?.();
+    };
   }, []);
 
   const addGame = async () => {

@@ -21,5 +21,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   onDbUpdateProgress: (callback) => {
     ipcRenderer.on('db-update-progress', (event, progress) => callback(progress));
+  },
+  onUpdateStatus: (callback) => {
+    ipcRenderer.on('update-status', (event, status) => callback(status));
+    return () => ipcRenderer.removeAllListeners('update-status');
   }
 });

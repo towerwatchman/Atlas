@@ -100,6 +100,38 @@ if (!fs.existsSync(imagesDir)) {
   fs.mkdirSync(imagesDir, { recursive: true });
 }
 
+// Setup electron-updater events
+autoUpdater.on('checking-for-update', () => {
+  console.log('Checking for updates...');
+  mainWindow.webContents.send('update-status', { status: 'checking' });
+});
+
+autoUpdater.on('update-available', (info) => {
+  console.log(`Update available: ${info.version}`);
+  mainWindow.webContents.send('update-status', { status: 'available', version: info.version });
+});
+
+autoUpdater.on('update-not-available', (info) => {
+  console.log('No updates available.');
+  mainWindow.webContents.send('update-status', { status: 'not-available' });
+});
+
+autoUpdater.on('download-progress', (progress) => {
+  console.log(`Download progress: ${progress.percent}%`);
+  mainWindow.webContents.send('update-status', { status: 'downloading', percent: progress.percent });
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  console.log(`Update downloaded: ${info.version}`);
+  mainWindow.webContents.send('update-status', { status: 'downloaded', version: info.version });
+  autoUpdater.quitAndInstall();
+});
+
+autoUpdater.on('error', (err) => {
+  console.error('Updater error:', err);
+  mainWindow.webContents.send('update-status', { status: 'error', error: err.message });
+});
+
 // Initialize database
 initializeDatabase(dataDir);
 
