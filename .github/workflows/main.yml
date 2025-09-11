@@ -11,6 +11,7 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
@@ -21,6 +22,9 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+
+      - name: Clean npm cache
+        run: npm cache clean --force
 
       - name: Install dependencies
         run: npm ci
@@ -34,4 +38,9 @@ jobs:
       - name: Build and publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run publish
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            npm run publish
+          else
+            npm run build:css && electron-builder --linux -p always
+          fi
