@@ -39,7 +39,7 @@ const App = () => {
         setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
       } else if (result.total === 0) {
         setDbUpdateStatus({ text: result.message, progress: 0, total: 0 });
-        //setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
+        setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
       }
     }).catch((error) => {
       console.error('Failed to check database updates:', error);

@@ -10,10 +10,17 @@
     "dev": "npm run build:css && electron . --dev",
     "build:css": "postcss src/assets/css/tailwind.css -o src/assets/css/tailwind.output.css",
     "rebuild": "npx electron-rebuild --version=37.0.0",
-    "structure": "node generate-structure.js > project-structure.txt"
+    "structure": "node generate-structure.js > project-structure.txt",
+    "publish": "electron-builder --win -p always"
   },
   "build": {
     "appId": "com.towerwatchman.atlas",
+    "productName": "YourAppName",
+    "publish": {
+      "provider": "github",
+      "owner": "towerwatchman",
+      "repo": "Atlas"
+    },
     "files": [
       "src/main.js",
       "src/database.js",
@@ -33,9 +40,12 @@
     "nodeGypRebuild": false,
     "win": {
       "target": [
-        "7z"
+        "nsis"
       ],
       "icon": "src/assets/images/appicon.ico"
+    },
+    "nsis": {
+      "oneClick": false
     },
     "linux": {
       "target": [
