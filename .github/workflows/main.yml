@@ -2,8 +2,8 @@
 
     on:
       push:
-        tags:
-          - 'v*.*.*' # Trigger on new tags like v1.0.0
+        branches:
+          - main # Trigger on new tags like v1.0.0
 
     jobs:
       build-and-release:
