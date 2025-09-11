@@ -101,6 +101,12 @@ if (!fs.existsSync(imagesDir)) {
 }
 
 // Setup electron-updater events
+autoUpdater.setFeedURL({
+  provider: 'github',
+  owner: 'towerwatchman',
+  repo: 'Atlas'
+});
+autoUpdater.allowDowngrade = true; // Prevent clearing app directory during updates
 autoUpdater.on('checking-for-update', () => {
   console.log('Checking for updates...');
   mainWindow.webContents.send('update-status', { status: 'checking' });

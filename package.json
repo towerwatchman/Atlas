@@ -22,7 +22,8 @@
     "publish": {
       "provider": "github",
       "owner": "towerwatchman",
-      "repo": "Atlas"
+      "repo": "Atlas",
+      "draft": false
     },
     "files": [
       "src/main.js",
@@ -39,7 +40,7 @@
       "node_modules/node-7z/**/*",
       "node_modules/unrar/**/*"
     ],
-    "asar": false,
+    "asar": true,
     "nodeGypRebuild": false,
     "win": {
       "target": [
