@@ -194,27 +194,17 @@ const initializeDatabase = (dataDir) => {
   });
 };
 
-const addGame = async (game) => {
+const addGame = (game) => {
+  const { title, creator, engine, description, game_path, exec_path, version, folderSize = 0 } = game;
   return new Promise((resolve, reject) => {
-    db.run(
-      'INSERT INTO games (title, creator, engine, description, total_playtime, last_played_r) VALUES (?, ?, ?, ?, 0, 0)',
-      [game.title, game.creator || 'Unknown', game.engine || null, game.description || ''],
-      function (err) {
-        if (err) {
-          reject(err);
-          return;
-        }
-        const record_id = this.lastID;
-        db.run(
-          'INSERT INTO versions (record_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [record_id, game.version || '1.0', game.game_path || game.path, game.exec_path || game.path, game.in_place || 0, game.last_played || null, game.version_playtime || 0, game.folder_size || 0, Date.now()],
-          (err) => {
-            if (err) reject(err);
-            else resolve({ success: true, record_id });
-          }
-        );
-      }
-    );
+    db.run(`INSERT OR IGNORE INTO games (title, creator, engine, description) VALUES (?, ?, ?, ?)`, [title, creator, engine, description], function (err) {
+      if (err) return reject(err);
+      const recordId = this.lastID || this.changes ? db.get('SELECT record_id FROM games WHERE title = ? AND creator = ? AND engine = ?', [title, creator, engine], (err, row) => row.record_id) : null;
+      db.run(`INSERT INTO versions (record_id, version, game_path, exec_path, in_place, date_added, folder_size) VALUES (?, ?, ?, ?, ?, ?, ?)`, [recordId, version, game_path, exec_path, true, Math.floor(Date.now() / 1000), folderSize], (err) => {
+        if (err) reject(err);
+        else resolve(recordId);
+      });
+    });
   });
 };
 
@@ -352,6 +342,60 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
   }
 };
 
+const searchAtlas = (title, creator) => {
+  return new Promise((resolve, reject) => {
+    db.all(`SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ? AND creator LIKE ?`, [`%${title}%`, `%${creator}%`], (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+};
+
+const findF95Id = (atlasId) => {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT f95_id FROM f95_zone_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
+      if (err) reject(err);
+      else resolve(row ? row.f95_id : null);
+    });
+  });
+};
+
+const checkRecordExist = (title, creator, engine, version) => {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT v.record_id FROM games g JOIN versions v ON g.record_id = v.record_id WHERE g.title = ? AND g.creator = ? AND g.engine = ? AND v.version = ?`, [title, creator, engine, version], (err, row) => {
+      if (err) reject(err);
+      resolve(!!row);
+    });
+  });
+};
+
+const checkPathExist = (gamePath, title) => {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT v.record_id FROM games g JOIN versions v ON g.record_id = v.record_id WHERE g.title = ? AND v.game_path = ?`, [title, gamePath], (err, row) => {
+      if (err) reject(err);
+      resolve(!!row);
+    });
+  });
+};
+
+const addAtlasMapping = (recordId, atlasId) => {
+  return new Promise((resolve, reject) => {
+    db.run(`INSERT OR IGNORE INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)`, [recordId, atlasId], (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+};
+
+const updateFolderSize = (recordId, version, size) => {
+  return new Promise((resolve, reject) => {
+    db.run(`UPDATE versions SET folder_size = ? WHERE record_id = ? AND version = ?`, [size, recordId, version], (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+};
+
 const insertJsonData = async (jsonData, tableName) => {
   return new Promise((resolve, reject) => {
     db.serialize(() => {
@@ -386,5 +430,11 @@ module.exports = {
   getGames,
   removeGame,
   checkDbUpdates,
-  insertJsonData
+  insertJsonData,
+  searchAtlas,
+  findF95Id,
+  checkRecordExist,
+  checkPathExist,
+  addAtlasMapping,
+  updateFolderSize
 };

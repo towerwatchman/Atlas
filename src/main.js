@@ -1,14 +1,18 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
+const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
 const { initializeDatabase, addGame, getGames, removeGame, checkDbUpdates } = require('./database');
 
 let mainWindow;
 let settingsWindow;
+let importerWindow;
 let appConfig; // Global config variable
 
+// MAIN WINDOW
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -41,6 +45,7 @@ function createWindow() {
   });
 }
 
+// SETTINGS WINDOW
 function createSettingsWindow() {
   settingsWindow = new BrowserWindow({
     width: 850,
@@ -74,6 +79,43 @@ function createSettingsWindow() {
 
   settingsWindow.on('closed', () => {
     settingsWindow = null;
+  });
+}
+
+// IMPORTER WINDOW
+function createImporterWindow() {
+  importerWindow = new BrowserWindow({
+    width: 1280,
+    height: 720,
+    minWidth: 1280,
+    minHeight: 720,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    center: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'renderer.js'),
+      contextIsolation: true,
+      enableRemoteModule: false,
+      nodeIntegration: false
+    }
+  });
+
+  importerWindow.loadFile(path.join(__dirname, 'importer.html'));
+
+  if (process.argv.includes('--dev')) {
+    importerWindow.webContents.openDevTools();
+  }
+
+  importerWindow.on('maximize', () => {
+    importerWindow.webContents.send('window-state-changed', 'maximized');
+  });
+  importerWindow.on('unmaximize', () => {
+    importerWindow.webContents.send('window-state-changed', 'restored');
+  });
+
+  importerWindow.on('closed', () => {
+    importerWindow = null;
   });
 }
 
@@ -281,6 +323,178 @@ ipcMain.handle('save-settings', async (event, settings) => {
     return { success: false, error: err.message };
   }
 });
+
+ipcMain.handle('open-importer', () => {
+  if (!importerWindow) {
+    createImporterWindow();
+  } else {
+    importerWindow.focus();
+  }
+});
+
+ipcMain.handle('start-scan', async (event, params) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  try {
+    await startScan(params, window);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('search-atlas', async (event, { title, creator }) => {
+  return searchAtlas(title, creator);
+});
+
+ipcMain.handle('find-f95-id', async (event, atlasId) => {
+  return findF95Id(atlasId);
+});
+
+ipcMain.handle('check-record-exist', async (event, { title, creator, engine, version, path }) => {
+  const existsByDetails = await checkRecordExist(title, creator, engine, version);
+  if (existsByDetails) return true;
+  return checkPathExist(path, title);
+});
+
+ipcMain.handle('import-games', async (event, params) => {
+  const { games, deleteAfter, scanSize, downloadImages, gameExt } = params;
+  const gamesDir = path.join(dataDir, 'games');
+  if (!fs.existsSync(gamesDir)) fs.mkdirSync(gamesDir, { recursive: true });
+
+  const results = [];
+  for (const game of games) {
+    try {
+      let gamePath = game.folder;
+      let execPath = game.selectedValue ? path.join(gamePath, game.selectedValue) : '';
+      let size = 0;
+
+      if (game.isArchive) {
+        const extractPath = path.join(gamesDir, `${game.title}-${game.version}`);
+        if (!fs.existsSync(extractPath)) fs.mkdirSync(extractPath, { recursive: true });
+        await unzipGame({ zipPath: game.folder, extractPath });
+        if (deleteAfter) fs.unlinkSync(game.folder);
+        gamePath = extractPath;
+
+        const execs = findExecutables(extractPath, gameExt);
+        if (execs.length > 0) {
+          const selected = execs[0];
+          execPath = path.join(extractPath, selected);
+          for (const [eng, patterns] of Object.entries(engineMap)) {
+            if (patterns.some(p => selected.toLowerCase().includes(p))) {
+              game.engine = eng;
+              break;
+            }
+          }
+        }
+      }
+
+      if (scanSize) {
+        size = getFolderSize(gamePath);
+      }
+
+      const add = {
+        title: game.title,
+        creator: game.creator,
+        engine: game.engine,
+        description: game.description || 'Imported game',
+        game_path: gamePath,
+        exec_path: execPath,
+        version: game.version,
+        folderSize: size
+      };
+
+      const recordId = await addGame(add);
+      if (game.atlasId) await addAtlasMapping(recordId, game.atlasId);
+      if (downloadImages && game.atlasId) await downloadImagesFunc(game.atlasId); // Rename if conflicting with var name
+      results.push({ success: true, recordId });
+    } catch (err) {
+      results.push({ success: false, error: err.message });
+    }
+  }
+  return results;
+});
+
+const engineMap = {
+  rpgm: ['rpgmv.exe', 'rpgmk.exe', 'rpgvx.exe', 'rpgvxace.exe', 'rpgmktranspatch.exe'],
+  renpy: ['renpy.exe', 'renpy.sh'],
+  unity: ['unityplayer.dll', 'unitycrashhandler64.exe'],
+  html: ['index.html'],
+  flash: ['.swf']
+};
+
+function getFolderSize(dir) {
+  let size = 0;
+  const stack = [dir];
+  while (stack.length) {
+    const current = stack.pop();
+    const stat = fs.statSync(current);
+    if (stat.isDirectory()) {
+      fs.readdirSync(current).forEach(f => stack.push(path.join(current, f)));
+    } else {
+      size += stat.size;
+    }
+  }
+  return size;
+}
+
+function findExecutables(dir, extensions) {
+  const execs = [];
+  const stack = [dir];
+  while (stack.length) {
+    const current = stack.pop();
+    const items = fs.readdirSync(current, { withFileTypes: true });
+    for (const item of items) {
+      const full = path.join(current, item.name);
+      if (item.isDirectory()) {
+        stack.push(full);
+      } else {
+        const ext = path.extname(item.name).toLowerCase().slice(1);
+        if (extensions.includes(ext)) {
+          execs.push(full.replace(dir + path.sep, ''));
+        }
+      }
+    }
+  }
+  return execs;
+}
+
+async function downloadImagesFunc(atlasId) {
+  const row = await new Promise((resolve, reject) => {
+    db.get(`SELECT banner, cover, logo, wallpaper, previews FROM atlas_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
+      if (err) reject(err);
+      resolve(row);
+    });
+  });
+  if (!row) return;
+  const imgDir = path.join(imagesDir, atlasId.toString());
+  if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
+  const urls = {
+    banner: row.banner,
+    cover: row.cover,
+    logo: row.logo,
+    wallpaper: row.wallpaper
+  };
+  for (const [name, url] of Object.entries(urls)) {
+    if (url) {
+      try {
+        const resp = await axios.get(url, { responseType: 'arraybuffer' });
+        fs.writeFileSync(path.join(imgDir, `${name}${path.extname(new URL(url).pathname) || '.jpg'}`), resp.data);
+      } catch {}
+    }
+  }
+  if (row.previews) {
+    const prevs = row.previews.split(',');
+    for (let i = 0; i < prevs.length; i++) {
+      const url = prevs[i].trim();
+      if (url) {
+        try {
+          const resp = await axios.get(url, { responseType: 'arraybuffer' });
+          fs.writeFileSync(path.join(imgDir, `preview${i}${path.extname(new URL(url).pathname) || '.jpg'}`), resp.data);
+        } catch {}
+      }
+    }
+  }
+}
 
 app.whenReady().then(() => {
   loadConfig(); // Load config at startup

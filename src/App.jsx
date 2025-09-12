@@ -81,33 +81,7 @@ const App = () => {
   }, []);
 
   const addGame = async () => {
-    const path = await window.electronAPI.selectDirectory();
-    if (!path) return;
-    const game = {
-      title: 'Sample Game',
-      creator: 'Unknown',
-      engine: null,
-      description: 'A sample game',
-      game_path: path,
-      exec_path: path,
-      version: '1.0',
-      in_place: 0,
-      last_played: null,
-      version_playtime: 0,
-      folder_size: 0,
-      date_added: Date.now()
-    };
-    setImportStatus({ text: `Importing ${game.title}`, progress: 50, total: 100 });
-    try {
-      await window.electronAPI.addGame(game);
-      const updatedGames = await window.electronAPI.getGames();
-      setGames(Array.isArray(updatedGames) ? updatedGames : []);
-      setImportStatus({ text: 'Import complete', progress: 100, total: 100 });
-      setTimeout(() => setImportStatus({ text: '', progress: 0, total: 0 }), 2000);
-    } catch (error) {
-      console.error('Failed to add game:', error);
-      setImportStatus({ text: `Error: ${error.message}`, progress: 0, total: 100 });
-    }
+    window.electronAPI.openImporter();
   };
 
   const removeGame = async (id) => {

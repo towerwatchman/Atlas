@@ -31,11 +31,13 @@
       "src/database.js",
       "src/index.html",
       "src/settings.html",
+      "src/importer.html",
       "src/renderer.js",
       "src/App.jsx",
       "src/assets/**/*",
       "src/components/**/*",
-      "src/components/settings/**/*",
+      "src/components/scanners/**/*",
+      "src/components/importer/**/*",
       "package.json",
       "node_modules/sqlite3/**/*",
       "node_modules/node-7z/**/*",
@@ -48,13 +50,13 @@
         "nsis"
       ],
       "icon": "src/assets/images/appicon.ico"
-    },   
+    },
     "nsis": {
       "allowToChangeInstallationDirectory": true,
       "oneClick": false,
       "perMachine": true,
-      "deleteAppDataOnUninstall":false,
-      "artifactName": "${productName}-Setup ${version}.${ext}", 
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "${productName}-Setup ${version}.${ext}",
       "include": "build/installer.nsh",
       "installerSidebar": "build/installerSidebar.bmp",
       "uninstallerSidebar": "build/installerSidebar.bmp"
@@ -64,7 +66,7 @@
         "deb",
         "AppImage"
       ]
-    }    
+    }
   },
   "dependencies": {
     "@babel/standalone": "^7.25.6",
@@ -76,8 +78,8 @@
     "lru-cache": "^10.0.0",
     "lz4js": "^0.2.0",
     "node-7z": "^0.4.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
     "rimraf": "^4.0.0",
     "sqlite3": "^5.0.2",
     "swiper": "^10.3.1",

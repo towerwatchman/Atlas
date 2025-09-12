@@ -4,17 +4,17 @@
 ├── generate-structure.js (1962 bytes)
 ├── LICENSE (35802 bytes)
 ├── package-lock.json (246106 bytes)
-├── package.json (2721 bytes)
+├── package.json (2788 bytes)
 ├── postcss.config.js (85 bytes)
 ├── project-structure.txt (0 bytes)
 ├── README.md (3719 bytes)
 ├── src
-│   ├── App.jsx (29556 bytes)
+│   ├── App.jsx (28563 bytes)
 │   ├── assets
 │   │   ├── css
 │   │   │   ├── main.css (154 bytes)
 │   │   │   ├── tailwind.css (60 bytes)
-│   │   │   └── tailwind.output.css (21040 bytes)
+│   │   │   └── tailwind.output.css (21940 bytes)
 │   │   ├── icons
 │   │   │   ├── atlas_logo.svg (977 bytes)
 │   │   │   ├── data.js (655 bytes)
@@ -25,18 +25,22 @@
 │   ├── components
 │   │   ├── GameBanner.js (725 bytes)
 │   │   ├── GameDetails.js (730 bytes)
+│   │   ├── importer
+│   │   │   └── importer.jsx (13854 bytes)
+│   │   ├── scanners
+│   │   │   └── f95scanner.js (8906 bytes)
 │   │   ├── settings
 │   │   │   ├── Appearance.jsx (2704 bytes)
 │   │   │   ├── Emulators.jsx (262 bytes)
 │   │   │   ├── Interface.jsx (4727 bytes)
-│   │   │   ├── Library.jsx (2340 bytes)
+│   │   │   ├── Library.jsx (4170 bytes)
 │   │   │   ├── Metadata.jsx (1351 bytes)
 │   │   │   ├── Platforms.jsx (262 bytes)
 │   │   │   ├── Settings.jsx (3894 bytes)
 │   │   │   └── settingsIcons.js (8645 bytes)
 │   │   └── Sidebar.js (4490 bytes)
 │   ├── data
-│   │   ├── config.ini (252 bytes)
+│   │   ├── config.ini (350 bytes)
 │   │   ├── data.db (56545280 bytes)
 │   │   ├── images
 │   │   │   (empty directory)
@@ -44,11 +48,13 @@
 │   │       ├── 1757563206.update (16531604 bytes)
 │   │       ├── 1757575456.update (929513 bytes)
 │   │       ├── 1757597046.update (1003242 bytes)
-│   │       └── 1757618273.update (862066 bytes)
-│   ├── database.js (12074 bytes)
+│   │       ├── 1757618273.update (862066 bytes)
+│   │       └── 1757636149.update (816518 bytes)
+│   ├── database.js (13990 bytes)
+│   ├── importer.html (652 bytes)
 │   ├── index.html (1231 bytes)
-│   ├── main.js (8514 bytes)
-│   ├── renderer.js (1511 bytes)
+│   ├── main.js (15104 bytes)
+│   ├── renderer.js (2165 bytes)
 │   ├── settings.html (1235 bytes)
 │   └── _data
 │       ├── games
