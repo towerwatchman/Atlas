@@ -12,6 +12,8 @@ let settingsWindow;
 let importerWindow;
 let appConfig; // Global config variable
 
+app.commandLine.appendSwitch('force-color-profile', 'srgb');
+
 // MAIN WINDOW
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -52,10 +54,11 @@ function createSettingsWindow() {
     height: 600,
     minWidth: 850,
     minHeight: 600,
+    roundedCorners:  true,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
-    center: true,
+    center: false,
     webPreferences: {
       preload: path.join(__dirname, 'renderer.js'),
       contextIsolation: true,

@@ -313,22 +313,22 @@ const App = () => {
               </div>
             </div>
           </div>
-          <div className="flex absolute top-0 right-0 h-[70px] -webkit-app-region-no-drag">
+          <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
             <button
               onClick={() => window.electronAPI.minimizeWindow()}
-              className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+              className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
             >
               <i className="fas fa-minus text-text"></i>
             </button>
             <button
               onClick={() => window.electronAPI.maximizeWindow()}
-              className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+              className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
             >
               <i className={isMaximized ? "fas fa-window-restore text-text" : "fas fa-window-maximize text-text"}></i>
             </button>
             <button
               onClick={() => window.electronAPI.closeWindow()}
-              className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
+              className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
             >
               <i className="fas fa-times text-text"></i>
             </button>

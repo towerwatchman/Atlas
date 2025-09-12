@@ -15,7 +15,7 @@ const Appearance = () => {
   };
 
   return (
-    <div className="p-5 text-text">
+    <div className="p-5 text-text -webkit-app-region-no-drag">
       <div className="flex items-center mb-2">
         <label className="w-32 text-right mr-2">Select a Theme:</label>
         <div className="flex items-center">
