@@ -418,7 +418,7 @@ const App = () => {
         </div>
       )}
       {/* Footer */}
-      <div className="bg-primary h-[40px] flex items-center justify-between px-4 fixed bottom-0 w-full border-t border-border z-50">
+      <div className="bg-primary h-[40px] flex items-center justify-between px-4 fixed bottom-0 w-full border-t border-accent z-50">
         <button
           onClick={addGame}
           className="flex items-center bg-transparent text-text hover:text-highlight"
