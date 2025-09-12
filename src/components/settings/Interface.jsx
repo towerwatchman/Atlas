@@ -55,7 +55,7 @@ const Interface = () => {
       <div className="flex items-center mb-2">
         <label className="flex-1">Language:</label>
         <select
-          className="w-24 bg-secondary border border-border text-text rounded p-1"
+          className="w-40 bg-secondary border border-border text-text rounded p-1"
           value={language}
           onChange={handleLanguageChange}
         >
@@ -67,7 +67,7 @@ const Interface = () => {
       <div className="flex items-center mb-2">
         <label className="flex-1">When Atlas Starts:</label>
         <select
-          className="w-48 bg-secondary border border-border text-text rounded p-1"
+          className="w-40 bg-secondary border border-border text-text rounded p-1"
           value={atlasStartup}
           onChange={handleAtlasStartupChange}
         >
@@ -79,7 +79,7 @@ const Interface = () => {
       <div className="flex items-center mb-2">
         <label className="flex-1">When Game Starts:</label>
         <select
-          className="w-24 bg-secondary border border-border text-text rounded p-1 right-0"
+          className="w-40 bg-secondary border border-border text-text rounded p-1 right-0"
           value={gameStartup}
           onChange={handleGameStartupChange}
         >

@@ -66,7 +66,7 @@ const Settings = () => {
                 className={`pt-2 pb-2 pl-4 pr-4 cursor-pointer hover:bg-highlight flex items-center text-text ${selected === item.name ? 'bg-selected' : ''} ${item.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                 onClick={() => !item.disabled && setSelected(item.name)}
               >
-                <svg className="w-4 h-4 text-text mr-2" viewBox="0 0 32 32" fill="currentColor">
+                <svg className="w-4 h-4 object-contain text-text mr-2" fill="currentColor">
                   <path d={item.path} />
                 </svg>
                 <span>{item.name}</span>

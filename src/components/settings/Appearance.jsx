@@ -17,7 +17,7 @@ const Appearance = () => {
   return (
     <div className="p-5 text-text -webkit-app-region-no-drag">
       <div className="flex items-center mb-2">
-        <label className="w-32 text-right mr-2">Select a Theme:</label>
+        <label className="flex-1">Select a Theme:</label>
         <div className="flex items-center">
           <select
             className="w-80 bg-secondary border border-border text-text rounded p-1"
@@ -37,7 +37,7 @@ const Appearance = () => {
       <p className="text-xs opacity-50 mb-2">Default Atlas Theme. Changes are saved as soon as theme file is loaded</p>
       <div className="border-t border-text opacity-25 my-2"></div>
       <div className="flex items-center mb-2">
-        <label className="w-32 text-right mr-2">Select a Banner UI Resource:</label>
+        <label className="flex-1">Select a Banner UI Resource:</label>
         <div className="flex items-center">
           <select
             className="w-80 bg-secondary border border-border text-text rounded p-1"
@@ -57,7 +57,7 @@ const Appearance = () => {
       <p className="text-xs opacity-50 mb-2">This will override the default banner layout. Please check for errors prior to loading</p>
       <div className="border-t border-text opacity-25 my-2"></div>
       <div className="flex items-center mb-2">
-        <label className="w-32 text-right mr-2">Open Xaml Editor</label>
+        <label className="flex-1">Open Xaml Editor</label>
         <button
           className="ml-5 bg-accent text-text px-4 py-1 rounded hover:bg-hover"
           onClick={handleOpenXamlEditor}
