@@ -32,7 +32,7 @@ const Settings = () => {
   return (
     <div className="flex h-screen font-sans text-[13px] bg-transparent -webkit-app-region-no-drag">
       {/* Drag Header*/}
-      <div className="absolute left-0 top-0 w-full h-10 z-40 -webkit-app-region-drag" />
+      <div className="absolute left-0 top-0 w-full h-[50px] ml-[-90px] z-40 -webkit-app-region-drag" />
       {/* Window Controls */}
       <div className="flex absolute top-1 right-2 h-[70px]">
             <button
@@ -58,7 +58,7 @@ const Settings = () => {
       <div className="flex flex-1">
         {/* Settings Sidebar */}
         <div className="w-[180px] bg-primary h-full border-r border-border -webkit-app-region-no-drag">
-          <div className="text-center text-accent font-bold text-md mt-4 mb-4 antialiased">ATLAS SETTINGS</div>
+          <div className="text-center text-accent font-bold text-md mt-4 mb-4 antialiased -webkit-app-region-drag">ATLAS SETTINGS</div>
           <ul>
             {window.settingsIcons.map((item) => (
               <li

@@ -53,7 +53,7 @@ const Interface = () => {
   return (
     <div className="p-5 text-text">
       <div className="flex items-center mb-2">
-        <label className="flex1 w-32  mr-2">Language:</label>
+        <label className="flex-1">Language:</label>
         <select
           className="w-24 bg-secondary border border-border text-text rounded p-1"
           value={language}
@@ -65,7 +65,7 @@ const Interface = () => {
       <p className="text-xs opacity-50 mb-2">Changing the system language will require a restart</p>
       <div className="border-t border-text opacity-25 my-2"></div>
       <div className="flex items-center mb-2">
-        <label className="w-32  mr-2">When Atlas Starts:</label>
+        <label className="flex-1">When Atlas Starts:</label>
         <select
           className="w-48 bg-secondary border border-border text-text rounded p-1"
           value={atlasStartup}
@@ -77,7 +77,7 @@ const Interface = () => {
       <p className="text-xs opacity-50 mb-2">Select default Atlas behavior</p>
       <div className="border-t border-text opacity-25 my-2"></div>
       <div className="flex items-center mb-2">
-        <label className="w-32  mr-2">When Game Starts:</label>
+        <label className="flex-1">When Game Starts:</label>
         <select
           className="w-24 bg-secondary border border-border text-text rounded p-1 right-0"
           value={gameStartup}
