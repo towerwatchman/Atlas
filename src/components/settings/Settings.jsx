@@ -32,39 +32,26 @@ const Settings = () => {
   return (
     <div className="flex h-screen font-sans text-[13px] bg-transparent">
       {/* Window Controls */}
-      <div className="absolute top-0 right-0 flex items-center h-[30px] z-50 -webkit-app-region-no-drag">
-        <button
-          onClick={() => window.electronAPI.minimizeWindow()}
-          className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-hover"
-          title="Minimize"
-        >
-          <svg className="w-3 h-3 text-text" viewBox="0 0 45 45" fill="currentColor">
-            <rect x="5.887" y="12.208" width="35.992" height="2.015" />
-          </svg>
-        </button>
-        <button
-          onClick={() => window.electronAPI.maximizeWindow()}
-          className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-hover"
-          title="Maximize/Restore"
-        >
-          <svg className="w-3 h-3 text-text" viewBox="0 0 45 45" fill="currentColor">
-            {isMaximized ? (
-              <path d="M7,16H3v-5h4v-4h5v4h-4v5zm6,0v4h4v4h-5v-4h4v-5h-4v-4h5v4h-4zm11,5v-4h-4v-5h4v4h5v-4h4v5h-4v4h-5zm-6,0v5h-4v4h-5v-4h4v-5h5v4h4v-4h-4z" />
-            ) : (
-              <rect x="5" y="5" width="35" height="35" />
-            )}
-          </svg>
-        </button>
-        <button
-          onClick={() => window.electronAPI.closeWindow()}
-          className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-redExit"
-          title="Close"
-        >
-          <svg className="w-3 h-3 text-text" viewBox="0 0 45 45" fill="currentColor">
-            <path d="M6.34375,6.34375 L38.65625,38.65625 M38.65625,6.34375 L6.34375,38.65625" />
-          </svg>
-        </button>
-      </div>
+      <div className="flex absolute top-0 right-0 h-[70px] -webkit-app-region-no-drag">
+            <button
+              onClick={() => window.electronAPI.minimizeWindow()}
+              className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+            >
+              <i className="fas fa-minus text-text"></i>
+            </button>
+            <button
+              onClick={() => window.electronAPI.maximizeWindow()}
+              className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+            >
+              <i className={isMaximized ? "fas fa-window-restore text-text" : "fas fa-window-maximize text-text"}></i>
+            </button>
+            <button
+              onClick={() => window.electronAPI.closeWindow()}
+              className="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
+            >
+              <i className="fas fa-times text-text"></i>
+            </button>
+          </div>
       {/* Main Content */}
       <div className="flex flex-1">
         {/* Settings Sidebar */}
