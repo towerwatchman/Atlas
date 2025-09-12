@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "1.0.20",
+  "version": "1.0.21",
   "author": {
     "name": "towerwatchman",
     "email": "towerwatchman@atlas.com"
@@ -48,20 +48,16 @@
         "nsis"
       ],
       "icon": "src/assets/images/appicon.ico"
-    },
-    "msi": {
-      "oneClick": false,
-      "perMachine": true,
-      "artifactName": "${productName}-Setup ${version}.${ext}",
-      "upgradeCode": "5ddd3f43-e3f1-49fd-b4f3-4e98327f5220"
-    },
+    },   
     "nsis": {
       "allowToChangeInstallationDirectory": true,
       "oneClick": false,
       "perMachine": true,
       "deleteAppDataOnUninstall":false,
       "artifactName": "${productName}-Setup ${version}.${ext}", 
-      "include": "build/installer.nsh"
+      "include": "build/installer.nsh",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/installerSidebar.bmp"
     },
     "linux": {
       "target": [
