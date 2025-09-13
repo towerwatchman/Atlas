@@ -346,9 +346,15 @@ ipcMain.handle('start-scan', async (event, params) => {
 });
 
 ipcMain.handle('search-atlas', async (event, { title, creator }) => {
-  return searchAtlas(title, creator);
+  try {
+    const { searchAtlas } = require('./database');
+    const data = await searchAtlas(title, creator);
+    return data;
+  } catch (err) {
+    console.error('Error in search-atlas:', err);
+    return [];
+  }
 });
-
 ipcMain.handle('find-f95-id', async (event, atlasId) => {
   return findF95Id(atlasId);
 });

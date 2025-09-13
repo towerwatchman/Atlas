@@ -83,7 +83,8 @@ const Importer = () => {
       game.atlasId = parts[0];
       game.title = parts[1];
       game.creator = parts[2];
-      game.f95Id = await window.electronAPI.findF95Id(game.atlasId);
+      game.f95Id = await window.electronAPI.findF95Id(parts[0]);
+      game.engine = game.engine || 'Unknown'; // Preserve existing engine or set default
     }
     setGamesList(updated);
   };
@@ -95,20 +96,29 @@ const Importer = () => {
       const data = await window.electronAPI.searchAtlas(game.title, game.creator);
       if (data.length === 1) {
         game.atlasId = data[0].atlas_id;
-        game.f95Id = await window.electronAPI.findF95Id(game.atlasId);
+        game.f95Id = await window.electronAPI.findF95Id(data[0].atlas_id);
         game.title = data[0].title;
         game.creator = data[0].creator;
-        game.engine = data[0].engine || game.engine;
+        game.engine = data[0].engine || game.engine || 'Unknown';
         game.results = [{ key: 'match', value: 'Match Found' }];
+        game.resultSelectedValue = 'match';
         game.resultVisibility = 'visible';
       } else if (data.length > 1) {
         game.results = data.map(d => ({ key: d.atlas_id, value: `${d.atlas_id} | ${d.title} | ${d.creator}` }));
         game.resultSelectedValue = game.results[0].key;
         game.resultVisibility = 'visible';
+        // Update atlasId and f95Id based on the first match
+        const parts = game.results[0].value.split(' | ');
+        game.atlasId = parts[0];
+        game.f95Id = await window.electronAPI.findF95Id(parts[0]);
+        game.title = parts[1];
+        game.creator = parts[2];
+        game.engine = data[0].engine || game.engine || 'Unknown';
       } else {
         game.atlasId = '';
         game.f95Id = '';
         game.results = [];
+        game.resultSelectedValue = '';
         game.resultVisibility = 'hidden';
       }
     }
