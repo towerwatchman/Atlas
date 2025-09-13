@@ -114,7 +114,7 @@ const Importer = () => {
     setGamesList(updated);
   };
 
-  const importGamesFunc = async () => {
+  const importGamesFunc = () => {
     const params = {
       games: gamesList,
       deleteAfter,
@@ -122,9 +122,8 @@ const Importer = () => {
       downloadImages,
       gameExt: gameExt.split(',').map(e => e.trim())
     };
-    const results = await window.electronAPI.importGames(params);
-    alert(`Import complete: ${results.filter(r => r.success).length} successful`);
-    window.electronAPI.closeWindow();
+    window.electronAPI.importGames(params); // Do not await, run in background
+    window.electronAPI.closeWindow(); // Close importer immediately
   };
 
   return (

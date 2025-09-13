@@ -8,6 +8,7 @@ const App = () => {
   const [version, setVersion] = useState('0.0.0');
   const [importStatus, setImportStatus] = useState({ text: '', progress: 0, total: 0 });
   const [dbUpdateStatus, setDbUpdateStatus] = useState({ text: '', progress: 0, total: 0 });
+  const [importProgress, setImportProgress] = useState({ text: '', progress: 0, total: 0 });
   const [isMaximized, setIsMaximized] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -58,6 +59,22 @@ const App = () => {
       if (progress.progress >= progress.total && progress.total > 0) {
         setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
       }
+    });
+
+    // Listen for Import Progress
+    window.electronAPI.onImportProgress((progress) => {
+      setImportProgress(progress);
+      if (progress.progress >= progress.total && progress.total > 0) {
+        setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000);
+      }
+    });
+    // Listen for Game Import Successful
+    window.electronAPI.onGameImported(() => {
+      window.electronAPI.getGames().then((games) => {
+        setGames(Array.isArray(games) ? games : []);
+      }).catch((error) => {
+        console.error('Failed to refresh games:', error);
+      });
     });
 
     // Listen for app update status
@@ -408,6 +425,28 @@ const App = () => {
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
                 File {importStatus.progress}/{importStatus.total}
+              </span>
+            </div>
+          </div>
+          {/* Left Corner Polygon */}
+          <div className="absolute left-[200px] bottom-0 w-[20px] h-[20px] bg-accent" style={{ clipPath: 'polygon(0% 100%, 100% 0%, 100% 100%)' }}></div>
+          {/* Right Corner Polygon */}
+          <div className="absolute right-[200px] bottom-0 w-[20px] h-[20px] bg-accent" style={{ clipPath: 'polygon(0% 0%, 100% 100%, 0% 100%)' }}></div>
+        </div>
+      )}
+      {importProgress.text && (
+        <div className="absolute bottom-[60px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500]">
+          <div className="flex items-center w-[540px]">
+            <span className="w-[300px] text-[10px] text-text">{importProgress.text}</span>
+            <div className="relative w-[300px]">
+              <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
+                <div
+                  className="h-full bg-accent"
+                  style={{ width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%` }}
+                ></div>
+              </div>
+              <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
+                Game {importProgress.progress}/{importProgress.total}
               </span>
             </div>
           </div>
