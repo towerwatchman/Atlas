@@ -400,12 +400,26 @@ const findF95Id = (atlasId) => {
   });
 };
 
-const checkRecordExist = (title, creator, engine, version) => {
+const checkRecordExist = (title, creator, version) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT v.record_id FROM games g JOIN versions v ON g.record_id = v.record_id WHERE g.title = ? AND g.creator = ? AND v.version = ?`, [title, creator, version], (err, row) => {
-      if (err) reject(err);
-      resolve(!!row);
-    });
+    const escapedTitle = title.replace(/'/g, "''");
+    const escapedCreator = creator.replace(/'/g, "''");
+    const escapedVersion = version.replace(/'/g, "''");
+    db.get(
+      `SELECT g.record_id
+       FROM games g
+       LEFT JOIN versions v ON g.record_id = v.record_id
+       WHERE g.title = ? AND g.creator = ? AND v.version = ?`,
+      [escapedTitle, escapedCreator, escapedVersion],
+      (err, row) => {
+        if (err) {
+          console.error('Error checking record existence:', err);
+          reject(err);
+        } else {
+          resolve(!!row);
+        }
+      }
+    );
   });
 };
 

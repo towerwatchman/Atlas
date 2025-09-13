@@ -360,7 +360,7 @@ ipcMain.handle('check-record-exist', async (event, { title, creator, engine, ver
 });
 
 ipcMain.handle('import-games', async (event, params) => {
-  const { games, deleteAfter, scanSize, downloadImages, gameExt } = params;
+  const { games, deleteAfter, scanSize, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos, gameExt } = params;
   const gamesDir = path.join(dataDir, 'games');
   if (!fs.existsSync(gamesDir)) fs.mkdirSync(gamesDir, { recursive: true });
 
@@ -373,10 +373,11 @@ ipcMain.handle('import-games', async (event, params) => {
     try {
       // Calculate image total for display
       let imageTotal = 0;
-      if (downloadImages && game.atlasId) {
+      if ((downloadBannerImages || downloadPreviewImages) && game.atlasId) {
         const bannerUrl = await getBannerUrl(game.atlasId);
         const screenUrls = await getScreensUrlList(game.atlasId);
-        imageTotal = (bannerUrl ? 3 : 0) + screenUrls.filter(url => url.trim()).length; // 3 for banner: original + high + low res
+        const previewCount = downloadPreviewImages ? (previewLimit === 'Unlimited' ? screenUrls.length : Math.min(parseInt(previewLimit), screenUrls.length)) : 0;
+        imageTotal = (downloadBannerImages && bannerUrl ? 3 : 0) + previewCount;
       }
       mainWindow.webContents.send('import-progress', { 
         text: `Importing game '${game.title}' ${progress + 1}/${total}${imageTotal > 0 ? `, downloading images 0/${imageTotal}` : ''}`, 
@@ -439,14 +440,14 @@ ipcMain.handle('import-games', async (event, params) => {
         }
       }
 
-      if (downloadImages && game.atlasId) {
+      if ((downloadBannerImages || downloadPreviewImages) && game.atlasId) {
         await downloadImagesFunc(recordId, game.atlasId, (current, totalImages) => {
           mainWindow.webContents.send('import-progress', { 
             text: `Importing game '${game.title}' ${progress + 1}/${total}, downloading images ${current}/${totalImages}`, 
             progress, 
             total 
           });
-        });
+        }, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos);
       }
 
       if (size > 0) await updateFolderSize(recordId, game.version, size);
@@ -526,7 +527,7 @@ function findExecutables(dir, extensions) {
   return execs;
 }
 
-async function downloadImagesFunc(recordId, atlasId, onImageProgress) {
+async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos) {
   const sharp = require('sharp');
   const axios = require('axios');
   const { getBannerUrl, getScreensUrlList, updateBanners, updatePreviews } = require('./database');
@@ -535,9 +536,10 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress) {
   if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
 
   let imageProgress = 0;
-  const bannerUrl = await getBannerUrl(atlasId);
-  const screenUrls = await getScreensUrlList(atlasId);
-  const totalImages = (bannerUrl ? 3 : 0) + screenUrls.filter(url => url.trim()).length; // 3 for banner: original + high + low res
+  const bannerUrl = downloadBannerImages ? await getBannerUrl(atlasId) : null;
+  const screenUrls = downloadPreviewImages ? await getScreensUrlList(atlasId) : [];
+  const previewCount = downloadPreviewImages ? (previewLimit === 'Unlimited' ? screenUrls.length : Math.min(parseInt(previewLimit), screenUrls.length)) : 0;
+  const totalImages = (bannerUrl ? 3 : 0) + previewCount; // 3 for banner: original + high + low res
 
   // Download banner
   if (bannerUrl) {
@@ -550,7 +552,7 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress) {
 
       let imageBytes;
       let downloaded = false;
-      if (['.gif', '.mp4', '.webm'].includes(ext)) {
+      if (['.gif', '.mp4', '.webm'].includes(ext) && downloadVideos) {
         const animatedPath = `${imagePath}${ext}`;
         if (!fs.existsSync(animatedPath)) {
           const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
@@ -603,7 +605,7 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress) {
   }
 
   // Download screens
-  for (let i = 0; i < screenUrls.length; i++) {
+  for (let i = 0; i < previewCount; i++) {
     const url = screenUrls[i].trim();
     if (url) {
       console.log(`Downloading screen ${i + 1} from URL: ${url}`);
@@ -613,16 +615,16 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress) {
         const imagePath = path.join(imgDir, baseName);
         const relativePath = path.join('data', 'images', recordId.toString(), baseName);
 
-        const targetPath = ['.gif', '.mp4', '.webm'].includes(ext) ? `${imagePath}${ext}` : `${imagePath}_pr.webp`;
+        const targetPath = (['.gif', '.mp4', '.webm'].includes(ext) && downloadVideos) ? `${imagePath}${ext}` : `${imagePath}_pr.webp`;
         let downloaded = false;
         if (!fs.existsSync(targetPath)) {
           const response = await axios.get(url, { responseType: 'arraybuffer' });
           const imageBytes = Buffer.from(response.data);
 
-          if (['.gif', '.mp4', '.webm'].includes(ext)) {
+          if (['.gif', '.mp4', '.webm'].includes(ext) && downloadVideos) {
             fs.writeFileSync(targetPath, imageBytes);
             await updatePreviews(recordId, `${relativePath}${ext}`);
-          } else {
+          } else if (!['.gif', '.mp4', '.webm'].includes(ext)) {
             await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(targetPath);
             await updatePreviews(recordId, `${relativePath}_pr.webp`);
           }
@@ -641,7 +643,6 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress) {
     }
   }
 }
-
 app.whenReady().then(() => {
   loadConfig(); // Load config at startup
   createWindow();

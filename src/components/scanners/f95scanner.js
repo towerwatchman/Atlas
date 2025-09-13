@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { searchAtlas, findF95Id, checkRecordExist, checkPathExist } = require('../../database');
+const { searchAtlas, findF95Id, checkRecordExist } = require('../../database');
 
 const engineMap = {
   rpgm: ['rpgmv.exe', 'rpgmk.exe', 'rpgvx.exe', 'rpgvxace.exe', 'rpgmktranspatch.exe'],
@@ -11,7 +11,7 @@ const engineMap = {
 };
 
 async function startScan(params, window) {
-  const { folder, format, gameExt, archiveExt, isCompressed } = params;
+  const { folder, format, gameExt, archiveExt, isCompressed, deleteAfter, scanSize, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos } = params;
   const extensions = isCompressed ? archiveExt : gameExt;
   const games = [];
   let potential = 0;
@@ -24,7 +24,7 @@ async function startScan(params, window) {
       const file = files[i];
       if (fs.statSync(file).isFile()) {
         console.log(`Scanning file: ${file} (isFile: true)`);
-        await findGame(file, format, extensions, folder, 5, true, games, window, params);
+        await findGame(file, format, extensions, folder, 5, true, games, window, params, []);
         window.webContents.send('scan-progress', { value: i + 1, total: files.length, potential: games.length });
       }
     }
@@ -40,37 +40,44 @@ async function startScan(params, window) {
 
   for (const dir of directories) {
     console.log(`Scanning directory: ${dir}`);
-    const subdirs = getAllSubdirs(dir);
-    let found = false;
-    let stopLevel = 15;
-    for (const t of subdirs) {
-      const level = t.split(path.sep).length - dir.split(path.sep).length;
-      if (level <= stopLevel) {
-        console.log(`Processing subdirectory: ${t} (level ${level})`);
-        const res = await findGame(t, format, extensions, folder, stopLevel, false, games, window, params);
-        if (!found && res) {
-          found = true;
-          stopLevel = level;
-        }
-      }
-    }
-    if (!found || isCompressed) {
-      const files = fs.readdirSync(dir).map(f => path.join(dir, f));
-      console.log(`Checking files in ${dir}: ${files.join(', ')}`);
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i];
-        if (fs.statSync(f).isFile()) {
-          console.log(`Scanning file in ${dir}: ${f} (isFile: true)`);
-          await findGame(f, format, extensions, folder, stopLevel, true, games, window, params, { creator, title, version });
-          window.webContents.send('scan-progress', { value: ittr + 1, total: totalDirs, potential: games.length });
-        } else {
-          console.log(`Skipping ${f} (not a file)`);
-        }
-      }
-    }
     ittr++;
-    potential = games.length;
-    window.webContents.send('scan-progress', { value: ittr, total: totalDirs, potential });
+    // Check files in the current directory
+    const files = fs.readdirSync(dir, { withFileTypes: true })
+      .filter(f => f.isFile())
+      .map(f => path.join(dir, f.name));
+    console.log(`Checking files in ${dir}: ${files.join(', ')}`);
+    let found = false;
+    const dirExecutables = files.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)));
+    if (dirExecutables.length > 0) {
+      console.log(`Scanning directory with executables: ${dir} (isFile: false)`);
+      const res = await findGame(dir, format, extensions, folder, 0, false, games, window, params, dirExecutables);
+      if (res) found = true;
+    }
+    // Only scan subdirectories if no match was found or in archive mode
+    if (!found || isCompressed) {
+      const subdirs = getAllSubdirs(dir);
+      // Assume the format is {creator}/{title}/{version}, so check two levels deep for versions
+      const versionDirs = subdirs.filter(subdir => {
+        const relativePath = subdir.replace(`${folder}${path.sep}`, '');
+        const pathParts = relativePath.split(path.sep);
+        return pathParts.length === 3; // e.g., ArcGames/Corrupted Kingdoms/0.19.4 -> 3 parts after root
+      });
+      console.log(`Version directories for ${dir}: ${versionDirs.join(', ')}`);
+      for (const t of versionDirs) {
+        console.log(`Processing version directory: ${t}`);
+        const filesInSubdir = fs.readdirSync(t, { withFileTypes: true })
+          .filter(f => f.isFile())
+          .map(f => path.join(t, f.name));
+        console.log(`Checking files in ${t}: ${filesInSubdir.join(', ')}`);
+        const subdirExecutables = filesInSubdir.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)));
+        if (subdirExecutables.length > 0) {
+          console.log(`Scanning version directory with executables: ${t} (isFile: false)`);
+          const res = await findGame(t, format, extensions, folder, 0, false, games, window, params, subdirExecutables);
+          if (res) found = true;
+        }
+      }
+    }
+    window.webContents.send('scan-progress', { value: ittr, total: totalDirs, potential: games.length });
   }
 
   console.log(`Scan complete. Found ${games.length} games: ${games.map(g => g.title).join(', ')}`);
@@ -95,30 +102,25 @@ function getAllSubdirs(root) {
   return dirs;
 }
 
-async function findGame(t, format, extensions, rootPath, stopLevel, isFile, games, window, params, metadata = {}) {
+async function findGame(t, format, extensions, rootPath, stopLevel, isFile, games, window, params, executables) {
   console.log(`Finding game in: ${t} (isFile: ${isFile}) with extensions: ${extensions.join(', ')}`);
-  let potentialExecutables = [];
+  let potentialExecutables = executables || [];
   let singleExecutable = '';
   let selectedValue = '';
   let singleVisible = 'hidden';
   let multipleVisible = 'hidden';
-  let gameEngine = ''; // Default to empty string
+  let gameEngine = '';
   let isArchive = false;
 
   try {
     if (!isFile) {
-      console.log(`Checking directory ${t} for files`);
-      const files = fs.readdirSync(t);
-      potentialExecutables = files.filter(f => {
-        const ext = path.extname(f).toLowerCase().slice(1);
-        const matches = extensions.includes(ext);
-        console.log(`File: ${f}, Extension: ${ext}, Matches: ${matches}`);
-        return matches;
-      });
       if (potentialExecutables.length === 0) {
-        console.log(`No executable files found in ${t}`);
+        console.log(`No executable files provided for ${t}`);
         return false;
       }
+
+      // Use only filenames for executables
+      potentialExecutables = potentialExecutables.map(f => path.basename(f));
 
       for (const exec of potentialExecutables) {
         for (const [engine, patterns] of Object.entries(engineMap)) {
@@ -150,37 +152,37 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
       singleExecutable = path.basename(t);
       selectedValue = singleExecutable;
       singleVisible = 'visible';
+      potentialExecutables = [singleExecutable]; // Use filename only
     }
 
-    let title = metadata.title || '';
-    let creator = metadata.creator || 'Unknown';
-    let version = metadata.version || '';
+    let title = '';
+    let creator = 'Unknown';
+    let version = '';
 
     const relativePath = t.replace(`${rootPath}${path.sep}`, '');
     console.log(`Relative path: ${relativePath}, Format: ${format}`);
-    if (format && format.trim() !== '' && !isFile) {
-      const pathParts = relativePath.split(path.sep);
+    if (format && format.trim() !== '') {
+      // For files, use the parent directory structure; for directories, use the current path
+      const parsePath = isFile ? path.dirname(relativePath) : relativePath;
+      const pathParts = parsePath.split(path.sep);
       console.log(`Path parts: ${pathParts.join(', ')}`);
       const formatParts = format.split('/').map(part => part.replace(/\{|\}/g, ''));
-      if (pathParts.length === formatParts.length) {
+      if (pathParts.length >= formatParts.length) {
         const mapping = {};
         formatParts.forEach((part, index) => {
-          mapping[part] = pathParts[index];
+          mapping[part] = pathParts[index] || '';
         });
         creator = mapping.creator || 'Unknown';
         title = mapping.title || '';
         version = mapping.version || '';
         console.log(`Structured match: creator=${creator}, title=${title}, version=${version}`);
       } else {
-        console.log(`Path parts (${pathParts.length}) do not match format parts (${formatParts.length}) for ${relativePath}`);
+        console.log(`Path parts (${pathParts.length}) do not match format parts (${formatParts.length}) for ${parsePath}`);
       }
-    } else if (isFile && metadata.title) {
-      // Use metadata from directory for file
-      title = metadata.title;
-      creator = metadata.creator;
-      version = metadata.version;
-      console.log(`Using metadata for file: creator=${creator}, title=${title}, version=${version}`);
-    } else {
+    }
+
+    // Fallback to filename parsing if structured parsing fails or no format is provided
+    if (!title || title.trim() === '') {
       let filename = isFile ? path.basename(t, path.extname(t)) : path.basename(t);
       console.log(`Parsing filename: ${filename}`);
       filename = filename.replace(/\[(.*?)\]/g, '$1').trim();
@@ -209,7 +211,7 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
       return false;
     }
 
-    console.log(`Processing game: ${title}, Creator: ${creator}, Version: ${version}, Engine: ${gameEngine}`); // Use gameEngine
+    console.log(`Processing game: ${title}, Creator: ${creator}, Version: ${version}, Engine: ${gameEngine}`);
     const data = await searchAtlas(title, creator);
     let atlasId = '';
     let f95Id = '';
@@ -219,12 +221,21 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
       f95Id = await findF95Id(atlasId);
       title = data[0].title;
       creator = data[0].creator;
-      gameEngine = data[0].engine || gameEngine; // Use gameEngine
+      gameEngine = data[0].engine || gameEngine;
+      results = [{ key: 'match', value: 'Match Found' }]; // Single match indicator
     } else if (data.length > 1) {
       results = data.map(d => ({ key: d.atlas_id, value: `${d.atlas_id} | ${d.title} | ${d.creator}` }));
     }
 
-    const recordExist = await checkRecordExist(title, creator, gameEngine, version, t); // Use gameEngine
+    // Ensure engine is not empty to avoid SQLite errors
+    const engine = gameEngine || 'Unknown';
+    let recordExist = false;
+    try {
+      recordExist = await checkRecordExist(title, creator, version);
+    } catch (err) {
+      console.error(`Error checking record existence for ${title}: ${err.message}`);
+      return false;
+    }
 
     if (!recordExist) {
       const gd = {
@@ -232,14 +243,14 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
         f95Id,
         title,
         creator,
-        engine: gameEngine, // Use gameEngine
+        engine,
         version,
         singleExecutable,
         executables: potentialExecutables.map(e => ({ key: e, value: e })),
         selectedValue,
         singleVisible,
         multipleVisible,
-        folder: t,
+        folder: isFile ? path.dirname(t) : t, // Use directory for folder, not file path
         results,
         resultSelectedValue: results[0]?.key || '',
         resultVisibility: results.length > 0 ? 'visible' : 'hidden',
@@ -248,7 +259,6 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
       };
       console.log(`Adding game to list: ${JSON.stringify(gd)}`);
       games.push(gd);
-      window.webContents.send('scan-progress', { value: games.length, total: totalDirs, potential: games.length });
       return true;
     }
     console.log(`Game ${title} already exists or failed to add`);
