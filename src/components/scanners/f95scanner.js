@@ -5,10 +5,36 @@ const { searchAtlas, findF95Id, checkRecordExist } = require('../../database');
 const engineMap = {
   rpgm: ['rpgmv.exe', 'rpgmk.exe', 'rpgvx.exe', 'rpgvxace.exe', 'rpgmktranspatch.exe'],
   renpy: ['renpy.exe', 'renpy.sh'],
-  unity: ['unityplayer.dll', 'unitycrashhandler64.exe'],
+  unity: ['unityplayer.dll'],
   html: ['index.html'],
   flash: ['.swf']
 };
+
+const blacklist = [
+  'UnityCrashHandler64.exe',
+  'UnityCrashHandler32.exe',
+  'payload.exe',
+  'nwjc.exe',
+  'notification_helper.exe',
+  'nacl64.exe',
+  'chromedriver.exe',
+  'Squirrel.exe',
+  'zsync.exe',
+  'zsyncmake.exe',
+  'cmake.exe',
+  'pythonw.exe',
+  'python.exe',
+  'dxwebsetup.exe',
+  'README.html',
+  'manual.htm',
+  'unins000.exe',
+  'UE4PrereqSetup_X64.exe',
+  'UEPrereqSetup_x64.exe',
+  'credits.html',
+  'LICENSES.chromium.html',
+  'Uninstall.exe',
+  'CONFIG_dl.exe'
+];
 
 async function startScan(params, window) {
   const { folder, format, gameExt, archiveExt, isCompressed, deleteAfter, scanSize, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos } = params;
@@ -47,7 +73,7 @@ async function startScan(params, window) {
       .map(f => path.join(dir, f.name));
     console.log(`Checking files in ${dir}: ${files.join(', ')}`);
     let found = false;
-    const dirExecutables = files.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)));
+    const dirExecutables = files.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)) && !blacklist.includes(path.basename(f)));
     if (dirExecutables.length > 0) {
       console.log(`Scanning directory with executables: ${dir} (isFile: false)`);
       const res = await findGame(dir, format, extensions, folder, 0, false, games, window, params, dirExecutables);
@@ -69,7 +95,7 @@ async function startScan(params, window) {
           .filter(f => f.isFile())
           .map(f => path.join(t, f.name));
         console.log(`Checking files in ${t}: ${filesInSubdir.join(', ')}`);
-        const subdirExecutables = filesInSubdir.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)));
+        const subdirExecutables = filesInSubdir.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)) && !blacklist.includes(path.basename(f)));
         if (subdirExecutables.length > 0) {
           console.log(`Scanning version directory with executables: ${t} (isFile: false)`);
           const res = await findGame(t, format, extensions, folder, 0, false, games, window, params, subdirExecutables);
@@ -122,6 +148,15 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
       // Use only filenames for executables
       potentialExecutables = potentialExecutables.map(f => path.basename(f));
 
+      // Sort executables: non-32-bit first, -32 last
+      potentialExecutables.sort((a, b) => {
+        const aIs32 = a.includes('-32');
+        const bIs32 = b.includes('-32');
+        if (aIs32 && !bIs32) return 1; // -32 goes to bottom
+        if (!aIs32 && bIs32) return -1; // non-32 stays at top
+        return 0;
+      });
+
       for (const exec of potentialExecutables) {
         for (const [engine, patterns] of Object.entries(engineMap)) {
           if (patterns.some(p => exec.toLowerCase().includes(p))) {
@@ -139,13 +174,13 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
         singleVisible = 'visible';
       } else if (potentialExecutables.length > 1) {
         multipleVisible = 'visible';
-        selectedValue = potentialExecutables[0];
+        selectedValue = potentialExecutables[0]; // Default to first (non-32-bit if available)
       }
     } else {
       const ext = path.extname(t).toLowerCase().slice(1);
       console.log(`Checking file ${t}, Extension: ${ext}`);
-      if (!extensions.includes(ext)) {
-        console.log(`File ${t} has unsupported extension ${ext}`);
+      if (!extensions.includes(ext) || blacklist.includes(path.basename(t))) {
+        console.log(`File ${t} has unsupported extension ${ext} or is blacklisted`);
         return false;
       }
       isArchive = params.isCompressed;
