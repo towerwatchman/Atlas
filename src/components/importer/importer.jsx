@@ -78,7 +78,7 @@ const Importer = () => {
     const game = updated[index];
     game.resultSelectedValue = value;
     const selected = game.results.find(r => r.key === value);
-    if (selected) {
+    if (selected && value !== 'match') {
       const parts = selected.value.split(' | ');
       game.atlasId = parts[0];
       game.title = parts[1];
@@ -114,7 +114,6 @@ const Importer = () => {
     }
     setGamesList(updated);
   };
-
 
   const importGamesFunc = () => {
     const params = {
@@ -166,15 +165,16 @@ const Importer = () => {
                 <input type="text" value={archiveExt} onChange={(e) => setArchiveExt(e.target.value)} className="ml-2 flex-1 bg-secondary border border-border p-1" />
               </div>
             )}
-           <p className="text-sm text-text leading-relaxed">
-  Valid folder structure options: <span className="font-semibold">Title</span>, <span className="font-semibold">Creator</span>, <span className="font-semibold">Engine</span>, and <span className="font-semibold">Version</span>.<br />
-  - Enclose each option in braces, e.g., <span className="font-mono">{'{Title}'}</span>. Use <span className="font-mono">/</span> for folder separators.<br />
-  - For unsorted games, check "Unstructured Format" to let the program parse the title and version automatically.<br /><br />
-  Examples:<br />
-  <span className="font-mono">{'{engine}/{creator}/{title}/{version}'}</span><br />
-  <span className="font-mono">{'[{engine}] [{title}] [{version}]'}</span><br />
-  <span className="font-mono">{'{title-version}'}</span>
-</p> <div className="space-y-2">
+            <p className="text-sm text-text leading-relaxed">
+              Valid folder structure options: <span className="font-semibold">Title</span>, <span className="font-semibold">Creator</span>, <span className="font-semibold">Engine</span>, and <span className="font-semibold">Version</span>.<br />
+              - Enclose each option in braces, e.g., <span className="font-mono">{'{Title}'}</span>. Use <span className="font-mono">/</span> for folder separators.<br />
+              - For unsorted games, check "Unstructured Format" to let the program parse the title and version automatically.<br /><br />
+              Examples:<br />
+              <span className="font-mono">{'{engine}/{creator}/{title}/{version}'}</span><br />
+              <span className="font-mono">{'[{engine}] [{title}] [{version}]'}</span><br />
+              <span className="font-mono">{'{title-version}'}</span>
+            </p>
+            <div className="space-y-2">
               <div>
                 <input type="checkbox" checked={downloadBannerImages} onChange={(e) => setDownloadBannerImages(e.target.checked)} />
                 <label>Download Banner Images</label>
@@ -265,12 +265,16 @@ const Importer = () => {
                         )}
                       </td>
                       <td className="border border-border p-1" style={{ visibility: game.resultVisibility }}>
-                        {game.results.length > 0 && (
-                          <select value={game.resultSelectedValue} onChange={(e) => handleResultChange(index, e.target.value)} className="w-full bg-secondary border border-border p-1">
-                            {game.results.map((opt) => (
-                              <option key={opt.key} value={opt.key}>{opt.value}</option>
-                            ))}
-                          </select>
+                        {game.results.length === 1 && game.results[0].key === 'match' ? (
+                          <span className="text-text select-none">{game.results[0].value}</span>
+                        ) : (
+                          game.results.length > 1 && (
+                            <select value={game.resultSelectedValue} onChange={(e) => handleResultChange(index, e.target.value)} className="w-full bg-secondary border border-border p-1">
+                              {game.results.map((opt) => (
+                                <option key={opt.key} value={opt.key}>{opt.value}</option>
+                              ))}
+                            </select>
+                          )
                         )}
                       </td>
                       <td className="border border-border p-1">{game.folder}</td>
