@@ -62,9 +62,10 @@ const App = () => {
     });
 
     // Listen for Import Progress
-    window.electronAPI.onImportProgress((progress) => {
+        window.electronAPI.onImportProgress((progress) => {
       setImportProgress(progress);
-      if (progress.progress >= progress.total && progress.total > 0) {
+      // Only clear the progress bar after a delay if the import is complete
+      if (progress.progress >= progress.total && progress.total > 0 && progress.text.includes('Import complete')) {
         setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000);
       }
     });
@@ -394,7 +395,7 @@ const App = () => {
       </div>
 {/* Database Update Status */}
       {dbUpdateStatus.text && (
-        <div className="absolute bottom-[44px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border">
+        <div className="absolute bottom-[44px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border opacity-95">
           <div className="flex items-center w-[540px]">
             <span className="w-[300px] text-[10px] text-text">{dbUpdateStatus.text}</span>
             <div className="relative w-[300px]">
@@ -435,9 +436,9 @@ const App = () => {
         </div>
       )}
       {importProgress.text && (
-        <div className="absolute bottom-[60px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500]">
-          <div className="flex items-center w-[540px]">
-            <span className="w-[300px] text-[10px] text-text">{importProgress.text}</span>
+        <div className="absolute bottom-[60px] left-1/2 transform -translate-x-1/2 w-[800px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border opacity-95">
+          <div className="flex items-center w-[800px]">
+            <span className="w-[450px] text-[10px] text-text">{importProgress.text}</span>
             <div className="relative w-[300px]">
               <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
                 <div
@@ -449,11 +450,7 @@ const App = () => {
                 Game {importProgress.progress}/{importProgress.total}
               </span>
             </div>
-          </div>
-          {/* Left Corner Polygon */}
-          <div className="absolute left-[200px] bottom-0 w-[20px] h-[20px] bg-accent" style={{ clipPath: 'polygon(0% 100%, 100% 0%, 100% 100%)' }}></div>
-          {/* Right Corner Polygon */}
-          <div className="absolute right-[200px] bottom-0 w-[20px] h-[20px] bg-accent" style={{ clipPath: 'polygon(0% 0%, 100% 100%, 0% 100%)' }}></div>
+          </div>         
         </div>
       )}
       {/* Footer */}

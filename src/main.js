@@ -366,11 +366,24 @@ ipcMain.handle('import-games', async (event, params) => {
 
   const total = games.length;
   let progress = 0;
-  mainWindow.webContents.send('import-progress', { text: `Importing games...`, progress, total });
+  mainWindow.webContents.send('import-progress', { text: `Starting import of ${total} games...`, progress, total });
 
   const results = [];
   for (const game of games) {
     try {
+      // Calculate image total for display
+      let imageTotal = 0;
+      if (downloadImages && game.atlasId) {
+        const bannerUrl = await getBannerUrl(game.atlasId);
+        const screenUrls = await getScreensUrlList(game.atlasId);
+        imageTotal = (bannerUrl ? 3 : 0) + screenUrls.filter(url => url.trim()).length; // 3 for banner: original + high + low res
+      }
+      mainWindow.webContents.send('import-progress', { 
+        text: `Importing game '${game.title}' ${progress + 1}/${total}${imageTotal > 0 ? `, downloading images 0/${imageTotal}` : ''}`, 
+        progress, 
+        total 
+      });
+
       let gamePath = game.folder;
       let execPath = game.selectedValue ? path.join(gamePath, game.selectedValue) : '';
       let size = 0;
@@ -426,23 +439,10 @@ ipcMain.handle('import-games', async (event, params) => {
         }
       }
 
-      let imageProgress = 0;
-      let imageTotal = 0;
       if (downloadImages && game.atlasId) {
-        // Calculate total images (1 for banner + number of previews)
-        const bannerUrl = await getBannerUrl(game.atlasId);
-        const screenUrls = await getScreensUrlList(game.atlasId);
-        imageTotal = (bannerUrl ? 1 : 0) + screenUrls.filter(url => url.trim()).length;
-        mainWindow.webContents.send('import-progress', { 
-          text: `Importing game ${progress + 1}/${total}, downloading images 0/${imageTotal}`, 
-          progress, 
-          total 
-        });
-
-        await downloadImagesFunc(recordId, game.atlasId, (current, total) => {
-          imageProgress = current;
+        await downloadImagesFunc(recordId, game.atlasId, (current, totalImages) => {
           mainWindow.webContents.send('import-progress', { 
-            text: `Importing game ${progress + 1}/${total}, downloading images ${current}/${total}`, 
+            text: `Importing game '${game.title}' ${progress + 1}/${total}, downloading images ${current}/${totalImages}`, 
             progress, 
             total 
           });
@@ -452,10 +452,10 @@ ipcMain.handle('import-games', async (event, params) => {
       if (size > 0) await updateFolderSize(recordId, game.version, size);
       results.push({ success: true, recordId });
 
-      // Update progress only after all images are downloaded
+      // Update progress only after game import is complete
       progress++;
       mainWindow.webContents.send('import-progress', { 
-        text: `Importing game ${progress}/${total}, downloading images ${imageProgress}/${imageTotal}`, 
+        text: `Imported game '${game.title}' ${progress}/${total}${imageTotal > 0 ? `, ${imageTotal} images downloaded` : ''}`, 
         progress, 
         total 
       });
@@ -465,7 +465,7 @@ ipcMain.handle('import-games', async (event, params) => {
       results.push({ success: false, error: err.message });
       progress++;
       mainWindow.webContents.send('import-progress', { 
-        text: `Error importing game ${progress}/${total}: ${err.message}`, 
+        text: `Error importing game '${game.title}' ${progress}/${total}: ${err.message}`, 
         progress, 
         total 
       });
@@ -535,9 +535,11 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress) {
   if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
 
   let imageProgress = 0;
+  const bannerUrl = await getBannerUrl(atlasId);
+  const screenUrls = await getScreensUrlList(atlasId);
+  const totalImages = (bannerUrl ? 3 : 0) + screenUrls.filter(url => url.trim()).length; // 3 for banner: original + high + low res
 
   // Download banner
-  const bannerUrl = await getBannerUrl(atlasId);
   if (bannerUrl) {
     console.log(`Downloading banner from URL: ${bannerUrl}`);
     try {
@@ -546,31 +548,61 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress) {
       const imagePath = path.join(imgDir, baseName);
       const relativePath = path.join('data', 'images', recordId.toString(), baseName);
 
-      const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
-      const imageBytes = Buffer.from(response.data);
-
+      let imageBytes;
+      let downloaded = false;
       if (['.gif', '.mp4', '.webm'].includes(ext)) {
-        // Save GIF or video with original extension
-        fs.writeFileSync(`${imagePath}${ext}`, imageBytes);
-        await updateBanners(recordId, `${relativePath}${ext}`, 'banner');
-      } else {
-        // Convert to WebP (high res: 1260px, low res: 600px)
-        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(`${imagePath}_mc.webp`);
-        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(`${imagePath}_sc.webp`);
-        await updateBanners(recordId, `${relativePath}_mc.webp`, 'banner');
-        await updateBanners(recordId, `${relativePath}_sc.webp`, 'banner');
+        const animatedPath = `${imagePath}${ext}`;
+        if (!fs.existsSync(animatedPath)) {
+          const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
+          imageBytes = Buffer.from(response.data);
+          fs.writeFileSync(animatedPath, imageBytes);
+          await updateBanners(recordId, `${relativePath}${ext}`, 'banner');
+          downloaded = true;
+        }
+        imageProgress++;
+        onImageProgress(imageProgress, totalImages);
       }
-      console.log('Banner images updated');
+
+      // Always create high and low res WebP copies if they don't exist
+      const highResPath = `${imagePath}_mc.webp`;
+      const lowResPath = `${imagePath}_sc.webp`;
+      if (!fs.existsSync(highResPath)) {
+        if (!imageBytes) {
+          const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
+          imageBytes = Buffer.from(response.data);
+          downloaded = true;
+        }
+        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(highResPath);
+        await updateBanners(recordId, `${relativePath}_mc.webp`, 'banner');
+        downloaded = true;
+      }
       imageProgress++;
-      onImageProgress(imageProgress, (bannerUrl ? 1 : 0) + (await getScreensUrlList(atlasId)).filter(url => url.trim()).length);
+      onImageProgress(imageProgress, totalImages);
+
+      if (!fs.existsSync(lowResPath)) {
+        if (!imageBytes) {
+          const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
+          imageBytes = Buffer.from(response.data);
+          downloaded = true;
+        }
+        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(lowResPath);
+        await updateBanners(recordId, `${relativePath}_sc.webp`, 'banner');
+        downloaded = true;
+      }
+      imageProgress++;
+      onImageProgress(imageProgress, totalImages);
+
+      console.log('Banner images updated');
+      // Apply throttling delay only if a download occurred
+      if (downloaded) {
+        await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (2000 - 1000 + 1)) + 1000));
+      }
     } catch (err) {
       console.error('Error downloading or converting banner:', err);
     }
   }
 
   // Download screens
-  const screenUrls = await getScreensUrlList(atlasId);
-  const totalImages = (bannerUrl ? 1 : 0) + screenUrls.filter(url => url.trim()).length;
   for (let i = 0; i < screenUrls.length; i++) {
     const url = screenUrls[i].trim();
     if (url) {
@@ -581,29 +613,33 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress) {
         const imagePath = path.join(imgDir, baseName);
         const relativePath = path.join('data', 'images', recordId.toString(), baseName);
 
-        const response = await axios.get(url, { responseType: 'arraybuffer' });
-        const imageBytes = Buffer.from(response.data);
+        const targetPath = ['.gif', '.mp4', '.webm'].includes(ext) ? `${imagePath}${ext}` : `${imagePath}_pr.webp`;
+        let downloaded = false;
+        if (!fs.existsSync(targetPath)) {
+          const response = await axios.get(url, { responseType: 'arraybuffer' });
+          const imageBytes = Buffer.from(response.data);
 
-        if (['.gif', '.mp4', '.webm'].includes(ext)) {
-          // Save GIF or video with original extension
-          fs.writeFileSync(`${imagePath}${ext}`, imageBytes);
-          await updatePreviews(recordId, `${relativePath}${ext}`);
-        } else {
-          // Convert to WebP (1260px)
-          await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(`${imagePath}_pr.webp`);
-          await updatePreviews(recordId, `${relativePath}_pr.webp`);
+          if (['.gif', '.mp4', '.webm'].includes(ext)) {
+            fs.writeFileSync(targetPath, imageBytes);
+            await updatePreviews(recordId, `${relativePath}${ext}`);
+          } else {
+            await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(targetPath);
+            await updatePreviews(recordId, `${relativePath}_pr.webp`);
+          }
+          downloaded = true;
         }
-        console.log(`Screen ${i + 1} updated`);
         imageProgress++;
         onImageProgress(imageProgress, totalImages);
+        console.log(`Screen ${i + 1} updated`);
+        // Apply throttling delay only if a download occurred
+        if (downloaded) {
+          await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (2000 - 1000 + 1)) + 1000));
+        }
       } catch (err) {
         console.error(`Error downloading or converting screen ${i + 1}:`, err);
       }
     }
   }
-
-  // Random delay to mimic C# behavior
-  await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (2000 - 1000 + 1)) + 1000));
 }
 
 app.whenReady().then(() => {

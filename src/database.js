@@ -402,7 +402,7 @@ const findF95Id = (atlasId) => {
 
 const checkRecordExist = (title, creator, engine, version) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT v.record_id FROM games g JOIN versions v ON g.record_id = v.record_id WHERE g.title = ? AND g.creator = ? AND g.engine = ? AND v.version = ?`, [title, creator, engine, version], (err, row) => {
+    db.get(`SELECT v.record_id FROM games g JOIN versions v ON g.record_id = v.record_id WHERE g.title = ? AND g.creator = ? AND v.version = ?`, [title, creator, version], (err, row) => {
       if (err) reject(err);
       resolve(!!row);
     });
