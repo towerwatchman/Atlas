@@ -55,25 +55,34 @@ const Settings = () => {
             </button>
           </div>
       {/* Main Content */}
-      <div className="flex flex-1">
-        {/* Settings Sidebar */}
-        <div className="w-[180px] bg-primary h-full border-r border-border -webkit-app-region-no-drag">
-          <div className="text-center text-accent font-bold text-md mt-4 mb-4 antialiased -webkit-app-region-drag">ATLAS SETTINGS</div>
-          <ul>
-            {window.settingsIcons.map((item) => (
-              <li
-                key={item.name}
-                className={`pt-2 pb-2 pl-4 pr-4 cursor-pointer hover:bg-highlight flex items-center text-text ${selected === item.name ? 'bg-selected' : ''} ${item.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                onClick={() => !item.disabled && setSelected(item.name)}
-              >
-                <svg className="w-4 h-4 object-contain text-text mr-2" fill="currentColor">
-                  <path d={item.path} />
-                </svg>
-                <span>{item.name}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+      <div className="flex flex-1 border border-accent rounded-md overflow-hidden">
+{/* Settings Sidebar */}
+<div className="w-[180px] bg-primary h-full border-r border-border -webkit-app-region-no-drag">
+  <div className="text-center text-accent font-bold text-md mt-4 mb-4 antialiased -webkit-app-region-drag">ATLAS SETTINGS</div>
+  <ul>
+    {window.settingsIcons.map((item) => (
+      <>
+        <li
+          key={item.name}
+          className={`pt-2 pb-2 pl-4 pr-4 cursor-pointer hover:bg-highlight flex items-center text-text ${selected === item.name ? 'bg-selected' : ''} ${item.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+          onClick={() => !item.disabled && setSelected(item.name)}
+        >
+          <svg
+            className="w-4 h-4 object-contain text-text mr-2"
+            fill="currentColor"
+            viewBox={item.viewBox}
+          >
+            <path d={item.path} />
+          </svg>
+          <span>{item.name}</span>
+        </li>
+        {item.name === 'Emulators' && (
+          <hr className="mx-2 my-2 border-border border-1" />
+        )}
+      </>
+    ))}
+  </ul>
+</div>
         {/* Settings Content */}
         <div className="flex-1 bg-secondary p-4 overflow-y-auto">
           <h2 className="text-2xl font-bold mb-4 text-text">{selected}</h2>
