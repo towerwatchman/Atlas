@@ -51,6 +51,9 @@ const Sidebar = () => {
             if (item.name === 'Settings') {
               window.electronAPI.openSettings();
             }
+            if(item.name == 'Add') {
+              
+            }
           }
         },
         React.createElement('div', {

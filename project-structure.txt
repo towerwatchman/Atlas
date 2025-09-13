@@ -14,7 +14,7 @@
 │   │   ├── css
 │   │   │   ├── main.css (154 bytes)
 │   │   │   ├── tailwind.css (60 bytes)
-│   │   │   └── tailwind.output.css (22703 bytes)
+│   │   │   └── tailwind.output.css (22747 bytes)
 │   │   ├── icons
 │   │   │   ├── atlas_logo.svg (977 bytes)
 │   │   │   ├── data.js (655 bytes)
@@ -23,7 +23,7 @@
 │   │       ├── appicon.ico (454664 bytes)
 │   │       └── atlas_logo.svg (663762 bytes)
 │   ├── components
-│   │   ├── GameBanner.js (725 bytes)
+│   │   ├── GameBanner.js (693 bytes)
 │   │   ├── GameDetails.js (730 bytes)
 │   │   ├── importer
 │   │   │   └── importer.jsx (14162 bytes)
@@ -38,32 +38,29 @@
 │   │   │   ├── Platforms.jsx (262 bytes)
 │   │   │   ├── Settings.jsx (3810 bytes)
 │   │   │   └── settingsIcons.js (6817 bytes)
-│   │   └── Sidebar.js (5651 bytes)
+│   │   └── Sidebar.js (5720 bytes)
 │   ├── data
-│   │   ├── config.ini (338 bytes)
-│   │   ├── data.db (56586240 bytes)
+│   │   ├── config.ini (252 bytes)
+│   │   ├── data.db (56332288 bytes)
 │   │   ├── games
 │   │   │   (empty directory)
 │   │   ├── images
 │   │   │   (empty directory)
 │   │   └── updates
-│   │       ├── 1757563206.update (16531604 bytes)
-│   │       ├── 1757575456.update (929513 bytes)
-│   │       ├── 1757597046.update (1003242 bytes)
-│   │       ├── 1757618273.update (862066 bytes)
-│   │       ├── 1757636149.update (816518 bytes)
 │   │       ├── 1757649607.update (16536974 bytes)
 │   │       ├── 1757661685.update (933827 bytes)
 │   │       ├── 1757683270.update (944997 bytes)
 │   │       ├── 1757704910.update (947516 bytes)
-│   │       └── 1757722931.update (942817 bytes)
-│   ├── database.js (13990 bytes)
+│   │       ├── 1757722931.update (942817 bytes)
+│   │       └── 1757736006.update (16552717 bytes)
+│   ├── database.js (16707 bytes)
 │   ├── importer.html (652 bytes)
 │   ├── index.html (1231 bytes)
-│   ├── main.js (15197 bytes)
+│   ├── main.js (15892 bytes)
 │   ├── renderer.js (2165 bytes)
 │   ├── settings.html (1291 bytes)
 │   └── _data
+│       ├── data.db (52912128 bytes)
 │       ├── games
 │       │   (empty directory)
 │       ├── images

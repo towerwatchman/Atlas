@@ -195,16 +195,56 @@ const initializeDatabase = (dataDir) => {
 };
 
 const addGame = (game) => {
-  const { title, creator, engine, description, game_path, exec_path, version, folderSize = 0 } = game;
+  const { title, creator, engine, description } = game;
   return new Promise((resolve, reject) => {
-    db.run(`INSERT OR IGNORE INTO games (title, creator, engine, description) VALUES (?, ?, ?, ?)`, [title, creator, engine, description], function (err) {
-      if (err) return reject(err);
-      const recordId = this.lastID || this.changes ? db.get('SELECT record_id FROM games WHERE title = ? AND creator = ? AND engine = ?', [title, creator, engine], (err, row) => row.record_id) : null;
-      db.run(`INSERT INTO versions (record_id, version, game_path, exec_path, in_place, date_added, folder_size) VALUES (?, ?, ?, ?, ?, ?, ?)`, [recordId, version, game_path, exec_path, true, Math.floor(Date.now() / 1000), folderSize], (err) => {
-        if (err) reject(err);
-        else resolve(recordId);
-      });
-    });
+    const escapedTitle = title.replace(/'/g, "''");
+    const escapedCreator = creator.replace(/'/g, "''");
+    const escapedEngine = engine ? engine.replace(/'/g, "''") : '';
+    const escapedDescription = description ? description.replace(/'/g, "''") : '';
+    db.run(
+      `INSERT OR REPLACE INTO games (title, creator, engine, description, last_played_r, total_playtime) VALUES (?, ?, ?, ?, 0, 0)`,
+      [escapedTitle, escapedCreator, escapedEngine, escapedDescription],
+      function (err) {
+        if (err) {
+          console.error('Error adding or updating game:', err);
+          reject(err);
+        } else {
+          db.get(
+            `SELECT record_id FROM games WHERE title = ? AND creator = ? AND engine = ?`,
+            [escapedTitle, escapedCreator, escapedEngine],
+            (err, row) => {
+              if (err) reject(err);
+              else resolve(row.record_id);
+            }
+          );
+        }
+      }
+    );
+  });
+};
+
+const addVersion = (game, recordId) => {
+  const { version, folder, executables, folderSize = 0 } = game;
+  const executable = executables && executables.length > 0 ? executables[0].value : '';
+  const escapedVersion = version.replace(/'/g, "''");
+  const escapedFolder = folder.replace(/'/g, "''");
+  const escapedExecPath = executable ? path.join(folder, executable).replace(/'/g, "''") : '';
+  const dateAdded = Math.floor(Date.now() / 1000);
+
+  console.log('adding version')
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT OR REPLACE INTO versions (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)`,
+      [recordId, escapedVersion, escapedFolder, escapedExecPath, true, dateAdded, folderSize],
+      (err) => {
+        if (err) {
+          console.error('Error adding or updating version:', err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      }
+    );
   });
 };
 
@@ -380,9 +420,51 @@ const checkPathExist = (gamePath, title) => {
 
 const addAtlasMapping = (recordId, atlasId) => {
   return new Promise((resolve, reject) => {
-    db.run(`INSERT OR IGNORE INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)`, [recordId, atlasId], (err) => {
-      if (err) reject(err);
-      else resolve();
+    // Validate inputs
+    if (!recordId || !atlasId) {
+      const error = new Error(`Invalid input: recordId=${recordId}, atlasId=${atlasId}`);
+      console.error('addAtlasMapping error:', error.message);
+      return reject(error);
+    }
+
+    // Check if record_id exists in games
+    db.get(`SELECT record_id FROM games WHERE record_id = ?`, [recordId], (err, row) => {
+      if (err) {
+        console.error('Error checking games table:', err);
+        return reject(err);
+      }
+      if (!row) {
+        const error = new Error(`record_id ${recordId} does not exist in games table`);
+        console.error('addAtlasMapping error:', error.message);
+        return reject(error);
+      }
+
+      // Check if atlas_id exists in atlas_data
+      db.get(`SELECT atlas_id FROM atlas_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
+        if (err) {
+          console.error('Error checking atlas_data table:', err);
+          return reject(err);
+        }
+        if (!row) {
+          const error = new Error(`atlas_id ${atlasId} does not exist in atlas_data table`);
+          console.error('addAtlasMapping error:', error.message);
+          return reject(error);
+        }
+
+        // Insert or ignore mapping
+        db.run(
+          `INSERT OR IGNORE INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)`,
+          [recordId, atlasId],
+          (err) => {
+            if (err) {
+              console.error('Error inserting into atlas_mappings:', err);
+              reject(err);
+            } else {
+              resolve();
+            }
+          }
+        );
+      });
     });
   });
 };
@@ -393,6 +475,70 @@ const updateFolderSize = (recordId, version, size) => {
       if (err) reject(err);
       else resolve();
     });
+  });
+};
+
+const getBannerUrl = (atlasId) => {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT banner_url FROM f95_zone_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
+      if (err) {
+        console.error('Error fetching banner_url:', err);
+        reject(err);
+      } else {
+        resolve(row ? row.banner_url : '');
+      }
+    });
+  });
+};
+
+const getScreensUrlList = (atlasId) => {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT screens FROM f95_zone_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
+      if (err) {
+        console.error('Error fetching screens:', err);
+        reject(err);
+      } else {
+        const screens = row && row.screens ? row.screens.split(',').map(s => s.trim()) : [];
+        resolve(screens);
+      }
+    });
+  });
+};
+
+const updateBanners = (recordId, bannerPath, type) => {
+  return new Promise((resolve, reject) => {
+    const escapedPath = bannerPath.replace(/'/g, "''");
+    const escapedType = type.replace(/'/g, "''");
+    db.run(
+      `INSERT OR REPLACE INTO banners (record_id, path, type) VALUES (?, ?, ?)`,
+      [recordId, escapedPath, escapedType],
+      (err) => {
+        if (err) {
+          console.error('Error updating banners:', err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      }
+    );
+  });
+};
+
+const updatePreviews = (recordId, previewPath) => {
+  return new Promise((resolve, reject) => {
+    const escapedPath = previewPath.replace(/'/g, "''");
+    db.run(
+      `INSERT OR REPLACE INTO previews (record_id, path) VALUES (?, ?)`,
+      [recordId, escapedPath],
+      (err) => {
+        if (err) {
+          console.error('Error updating previews:', err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      }
+    );
   });
 };
 
@@ -427,6 +573,7 @@ const insertJsonData = async (jsonData, tableName) => {
 module.exports = {
   initializeDatabase,
   addGame,
+  addVersion,
   getGames,
   removeGame,
   checkDbUpdates,
@@ -436,5 +583,9 @@ module.exports = {
   checkRecordExist,
   checkPathExist,
   addAtlasMapping,
-  updateFolderSize
+  updateFolderSize,
+  getBannerUrl,
+  getScreensUrlList,
+  updateBanners,
+  updatePreviews
 };

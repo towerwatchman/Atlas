@@ -5,7 +5,7 @@ const axios = require('axios');
 const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
-const { initializeDatabase, addGame, getGames, removeGame, checkDbUpdates } = require('./database');
+const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGames, removeGame, checkDbUpdates, updateFolderSize } = require('./database');
 
 let mainWindow;
 let settingsWindow;
@@ -388,6 +388,8 @@ ipcMain.handle('import-games', async (event, params) => {
               break;
             }
           }
+          game.executables = execs.map(e => ({ key: e, value: e }));
+          game.selectedValue = selected;
         }
       }
 
@@ -399,18 +401,30 @@ ipcMain.handle('import-games', async (event, params) => {
         title: game.title,
         creator: game.creator,
         engine: game.engine,
-        description: game.description || 'Imported game',
-        game_path: gamePath,
-        exec_path: execPath,
-        version: game.version,
-        folderSize: size
+        description: game.description || 'Imported game'
       };
 
+      console.log('Adding Game');
       const recordId = await addGame(add);
-      if (game.atlasId) await addAtlasMapping(recordId, game.atlasId);
-      if (downloadImages && game.atlasId) await downloadImagesFunc(game.atlasId); // Rename if conflicting with var name
+      console.log('game added');
+      console.log('adding version');
+      await addVersion({ ...game, folder: gamePath, execPath, folderSize: size }, recordId);
+      console.log('added version');
+      console.log('adding mapping');
+      console.log('recordId:', recordId, 'atlasId:', game.atlasId);
+      if (game.atlasId) {
+        try {
+          await addAtlasMapping(recordId, game.atlasId);
+          console.log('mapping added');
+        } catch (err) {
+          console.error('Failed to add atlas mapping:', err);
+          throw err;
+        }
+      }
+      if (downloadImages && game.atlasId) await downloadImagesFunc(recordId, game.atlasId);
       results.push({ success: true, recordId });
     } catch (err) {
+      console.error('Error importing game:', err);
       results.push({ success: false, error: err.message });
     }
   }
@@ -461,42 +475,77 @@ function findExecutables(dir, extensions) {
   return execs;
 }
 
-async function downloadImagesFunc(atlasId) {
-  const row = await new Promise((resolve, reject) => {
-    db.get(`SELECT banner, cover, logo, wallpaper, previews FROM atlas_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
-      if (err) reject(err);
-      resolve(row);
-    });
-  });
-  if (!row) return;
-  const imgDir = path.join(imagesDir, atlasId.toString());
+async function downloadImagesFunc(recordId, atlasId) {
+  const sharp = require('sharp');
+  const axios = require('axios');
+  const { getBannerUrl, getScreensUrlList, updateBanners, updatePreviews } = require('./database');
+
+  const imgDir = path.join(dataDir, 'images', recordId.toString());
   if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
-  const urls = {
-    banner: row.banner,
-    cover: row.cover,
-    logo: row.logo,
-    wallpaper: row.wallpaper
-  };
-  for (const [name, url] of Object.entries(urls)) {
-    if (url) {
-      try {
-        const resp = await axios.get(url, { responseType: 'arraybuffer' });
-        fs.writeFileSync(path.join(imgDir, `${name}${path.extname(new URL(url).pathname) || '.jpg'}`), resp.data);
-      } catch {}
+
+  // Download banner
+  const bannerUrl = await getBannerUrl(atlasId);
+  if (bannerUrl) {
+    console.log(`Downloading banner from URL: ${bannerUrl}`);
+    try {
+      const ext = path.extname(new URL(bannerUrl).pathname).toLowerCase();
+      const baseName = path.basename(bannerUrl, ext);
+      const imagePath = path.join(imgDir, baseName);
+      const relativePath = path.join('data', 'images', recordId.toString(), baseName);
+
+      const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
+      const imageBytes = Buffer.from(response.data);
+
+      if (['.gif', '.mp4', '.webm'].includes(ext)) {
+        // Save GIF or video with original extension
+        fs.writeFileSync(`${imagePath}${ext}`, imageBytes);
+        await updateBanners(recordId, `${relativePath}${ext}`, 'banner');
+      } else {
+        // Convert to WebP (high res: 1260px, low res: 600px)
+        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(`${imagePath}_mc.webp`);
+        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(`${imagePath}_sc.webp`);
+        await updateBanners(recordId, `${relativePath}_mc.webp`, 'banner');
+        await updateBanners(recordId, `${relativePath}_sc.webp`, 'banner');
+      }
+      console.log('Banner images updated');
+    } catch (err) {
+      console.error('Error downloading or converting banner:', err);
     }
   }
-  if (row.previews) {
-    const prevs = row.previews.split(',');
-    for (let i = 0; i < prevs.length; i++) {
-      const url = prevs[i].trim();
-      if (url) {
-        try {
-          const resp = await axios.get(url, { responseType: 'arraybuffer' });
-          fs.writeFileSync(path.join(imgDir, `preview${i}${path.extname(new URL(url).pathname) || '.jpg'}`), resp.data);
-        } catch {}
+
+  // Download screens
+  const screenUrls = await getScreensUrlList(atlasId);
+  for (let i = 0; i < screenUrls.length; i++) {
+    const url = screenUrls[i].trim();
+    if (url) {
+      console.log(`Downloading screen ${i + 1} from URL: ${url}`);
+      try {
+        const ext = path.extname(new URL(url).pathname).toLowerCase();
+        const baseName = `preview${i}`;
+        const imagePath = path.join(imgDir, baseName);
+        const relativePath = path.join('data', 'images', recordId.toString(), baseName);
+
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        const imageBytes = Buffer.from(response.data);
+
+        if (['.gif', '.mp4', '.webm'].includes(ext)) {
+          // Save GIF or video with original extension
+          fs.writeFileSync(`${imagePath}${ext}`, imageBytes);
+          await updatePreviews(recordId, `${relativePath}${ext}`);
+        } else {
+          // Convert to WebP (1260px)
+          await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(`${imagePath}_pr.webp`);
+          await updatePreviews(recordId, `${relativePath}_pr.webp`);
+        }
+        console.log(`Screen ${i + 1} updated`);
+      } catch (err) {
+        console.error(`Error downloading or converting screen ${i + 1}:`, err);
       }
     }
   }
+
+  // Random delay to mimic C# behavior
+  await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (2000 - 1000 + 1)) + 1000));
 }
 
 app.whenReady().then(() => {
