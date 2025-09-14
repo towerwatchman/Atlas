@@ -20,8 +20,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startScan: (params) => ipcRenderer.invoke('start-scan', params),
   searchAtlas: (title, creator) => ipcRenderer.invoke('search-atlas', { title, creator }),
   findF95Id: (atlasId) => ipcRenderer.invoke('find-f95-id', atlasId),
+  getAtlasData: (atlasId) => ipcRenderer.invoke('get-atlas-data', atlasId),
   checkRecordExist: (params) => ipcRenderer.invoke('check-record-exist', params),
   importGames: (params) => ipcRenderer.invoke('import-games', params),
+  log: (message) => ipcRenderer.invoke('log', message),
+  sendUpdateProgress: (progress) => ipcRenderer.invoke('update-progress', progress),
   onWindowStateChanged: (callback) => {
     ipcRenderer.on('window-state-changed', (event, state) => callback(state));
   },
@@ -30,6 +33,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   onScanProgress: (callback) => ipcRenderer.on('scan-progress', (event, progress) => callback(progress)),
   onScanComplete: (callback) => ipcRenderer.on('scan-complete', (event, games) => callback(games)),
+  onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (event, progress) => callback(progress)),
   onImportProgress: (callback) => ipcRenderer.on('import-progress', (event, progress) => callback(progress)),
   onGameImported: (callback) => ipcRenderer.on('game-imported', callback),
   onUpdateStatus: (callback) => {

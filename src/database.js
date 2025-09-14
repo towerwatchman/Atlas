@@ -382,14 +382,129 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
   }
 };
 
-const searchAtlas = (title, creator) => {
-  return new Promise((resolve, reject) => {
-    db.all(`SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ? AND creator LIKE ?`, [`%${title}%`, `%${creator}%`], (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
+const searchAtlas = async (title, creator) => {
+  const queries = [
+    async () => {
+      return new Promise((resolve, reject) => {
+        db.all(
+          `SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ? AND creator LIKE ?`,
+          [`%${title}%`, `%${creator}%`],
+          (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+          }
+        );
+      });
+    },
+    async () => {
+      const shortName = title.replace(/[\W_]+/g, '').toUpperCase();
+      const queryTitle = `
+        SELECT
+          atlas_id,
+          title,
+          creator,
+          engine,
+          LENGTH(short_name) - LENGTH(?) as difference
+        FROM atlas_data
+        WHERE short_name LIKE ?
+        ORDER BY LENGTH(short_name) - LENGTH(?)
+      `;
+      return new Promise((resolve, reject) => {
+        db.all(
+          queryTitle,
+          [shortName, `%${shortName}%`, shortName],
+          (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+          }
+        );
+      });
+    },
+    async () => {
+      const fullName = `${title}${creator}`.replace(/[\W_]+/g, '').toUpperCase();
+      const queryFull = `
+        WITH data_0 AS (
+          SELECT
+            atlas_id,
+            title,
+            creator,
+            engine,
+            UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+              title || '' || creator,
+              '-', ''), '_', ''), '/', ''), '\\', ''), ':', ''), ';', ''), '''', ''), ' ', ''), '.', '')) as full_name
+          FROM atlas_data
+        )
+        SELECT
+          atlas_id,
+          title,
+          creator,
+          engine,
+          LENGTH(full_name) - LENGTH(?) as difference
+        FROM data_0
+        WHERE full_name LIKE ?
+        ORDER BY LENGTH(full_name) - LENGTH(?)
+      `;
+      return new Promise((resolve, reject) => {
+        db.all(
+          queryFull,
+          [fullName, `%${fullName}%`, fullName],
+          (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+          }
+        );
+      });
+    },
+    async () => {
+      // Title-only search
+      return new Promise((resolve, reject) => {
+        db.all(
+          `SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ?`,
+          [`%${title}%`],
+          (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+          }
+        );
+      });
+    }
+  ];
+
+  const allResults = new Map(); // Use Map to store unique results by atlas_id
+
+  for (const queryFn of queries) {
+    try {
+      const rows = await queryFn();
+      console.log(`Query returned ${rows.length} results`);
+      let hasF95Id = false;
+      const enrichedRows = [];
+      for (const row of rows) {
+        const f95Id = await findF95Id(row.atlas_id);
+        if (f95Id) {
+          hasF95Id = true;
+        }
+        if (!allResults.has(row.atlas_id)) {
+          allResults.set(row.atlas_id, { ...row, f95_id: f95Id || '' });
+        }
+        enrichedRows.push({ ...row, f95_id: f95Id || '' });
+      }
+      if (hasF95Id) {
+        // Return results from this query if any have f95_id
+        const filteredRows = enrichedRows.filter(row =>findF95Id(row.atlas_id));
+        console.log(`Query found ${filteredRows.length} results with f95_id`);
+        return filteredRows.length > 0 ? filteredRows : enrichedRows;
+      }
+    } catch (err) {
+      console.error('Error in searchAtlas query:', err);
+    }
+  }
+
+  // If no results with f95_id, return all unique results from all queries
+  const finalResults = Array.from(allResults.values());
+  console.log(`Returning ${finalResults.length} unique results from all queries`);
+  return finalResults;
 };
+
 
 const findF95Id = (atlasId) => {
   return new Promise((resolve, reject) => {
@@ -556,6 +671,15 @@ const updatePreviews = (recordId, previewPath) => {
   });
 };
 
+const getAtlasData = (atlasId) => {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT title, creator, engine FROM atlas_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
+      if (err) reject(err);
+      else resolve(row || {});
+    });
+  });
+};
+
 const insertJsonData = async (jsonData, tableName) => {
   return new Promise((resolve, reject) => {
     db.serialize(() => {
@@ -601,5 +725,7 @@ module.exports = {
   getBannerUrl,
   getScreensUrlList,
   updateBanners,
-  updatePreviews
+  updatePreviews,
+  getAtlasData,
+  db // Export db instance
 };

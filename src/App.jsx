@@ -336,19 +336,19 @@ const App = () => {
               onClick={() => window.electronAPI.minimizeWindow()}
               className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
             >
-              <i className="fas fa-minus text-text"></i>
+              <i className="fas fa-minus text-text fa-sm"></i>
             </button>
             <button
               onClick={() => window.electronAPI.maximizeWindow()}
               className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
             >
-              <i className={isMaximized ? "fas fa-window-restore text-text" : "fas fa-window-maximize text-text"}></i>
+              <i className={isMaximized ? "fas fa-window-restore text-text fa-sm" : "fas fa-window-maximize text-text fa-sm"}></i>
             </button>
             <button
               onClick={() => window.electronAPI.closeWindow()}
               className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
             >
-              <i className="fas fa-times text-text"></i>
+              <i className="fas fa-times text-text fa-sm"></i>
             </button>
           </div>
           <div className="absolute mt-10 top-0 right-0 flex h-[10px]">

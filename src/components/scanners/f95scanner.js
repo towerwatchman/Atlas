@@ -54,56 +54,75 @@ async function startScan(params, window) {
         window.webContents.send('scan-progress', { value: i + 1, total: files.length, potential: games.length });
       }
     }
-  }
+  } else {
+    const directories = fs.readdirSync(folder, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => path.join(folder, d.name));
+    const totalDirs = directories.length + 1; // Include root folder
+    let ittr = 0;
 
-  const directories = fs.readdirSync(folder, { withFileTypes: true })
-    .filter(d => d.isDirectory())
-    .map(d => path.join(folder, d.name));
-  const totalDirs = directories.length;
-  let ittr = 0;
+    console.log(`Found ${totalDirs} directories to scan (including root): ${folder}, ${directories.join(', ')}`);
 
-  console.log(`Found ${totalDirs} initial directories to scan: ${directories.join(', ')}`);
-
-  for (const dir of directories) {
-    console.log(`Scanning directory: ${dir}`);
+    // Scan files in the root folder first
+    console.log(`Scanning root directory: ${folder}`);
     ittr++;
-    // Check files in the current directory
-    const files = fs.readdirSync(dir, { withFileTypes: true })
+    const rootFiles = fs.readdirSync(folder, { withFileTypes: true })
       .filter(f => f.isFile())
-      .map(f => path.join(dir, f.name));
-    console.log(`Checking files in ${dir}: ${files.join(', ')}`);
-    let found = false;
-    const dirExecutables = files.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)) && !blacklist.includes(path.basename(f)));
-    if (dirExecutables.length > 0) {
-      console.log(`Scanning directory with executables: ${dir} (isFile: false)`);
-      const res = await findGame(dir, format, extensions, folder, 0, false, games, window, params, dirExecutables);
-      if (res) found = true;
-    }
-    // Only scan subdirectories if no match was found or in archive mode
-    if (!found || isCompressed) {
-      const subdirs = getAllSubdirs(dir);
-      // Assume the format is {creator}/{title}/{version}, so check two levels deep for versions
-      const versionDirs = subdirs.filter(subdir => {
-        const relativePath = subdir.replace(`${folder}${path.sep}`, '');
-        const pathParts = relativePath.split(path.sep);
-        return pathParts.length === 3; // e.g., ArcGames/Corrupted Kingdoms/0.19.4 -> 3 parts after root
-      });
-      console.log(`Version directories for ${dir}: ${versionDirs.join(', ')}`);
-      for (const t of versionDirs) {
-        console.log(`Processing version directory: ${t}`);
-        const filesInSubdir = fs.readdirSync(t, { withFileTypes: true })
-          .filter(f => f.isFile())
-          .map(f => path.join(t, f.name));
-        console.log(`Checking files in ${t}: ${filesInSubdir.join(', ')}`);
-        const subdirExecutables = filesInSubdir.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)) && !blacklist.includes(path.basename(f)));
-        if (subdirExecutables.length > 0) {
-          console.log(`Scanning version directory with executables: ${t} (isFile: false)`);
-          const res = await findGame(t, format, extensions, folder, 0, false, games, window, params, subdirExecutables);
-          if (res) found = true;
-        }
-      }
+      .map(f => path.join(folder, f.name));
+    console.log(`Checking files in ${folder}: ${rootFiles.join(', ')}`);
+    let foundInRoot = false;
+    const rootExecutables = rootFiles.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)) && !blacklist.includes(path.basename(f)));
+    if (rootExecutables.length > 0) {
+      console.log(`Scanning root directory with executables: ${folder} (isFile: false)`);
+      const res = await findGame(folder, format, extensions, folder, 0, false, games, window, params, rootExecutables);
+      if (res) foundInRoot = true;
     }
     window.webContents.send('scan-progress', { value: ittr, total: totalDirs, potential: games.length });
+
+    // Scan top-level directories if no match in root or deeper scanning is needed
+    if (!foundInRoot) {
+      for (const dir of directories) {
+        console.log(`Scanning directory: ${dir}`);
+        ittr++;
+        // Check files in the current directory
+        const files = fs.readdirSync(dir, { withFileTypes: true })
+          .filter(f => f.isFile())
+          .map(f => path.join(dir, f.name));
+        console.log(`Checking files in ${dir}: ${files.join(', ')}`);
+        let found = false;
+        const dirExecutables = files.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)) && !blacklist.includes(path.basename(f)));
+        if (dirExecutables.length > 0) {
+          console.log(`Scanning directory with executables: ${dir} (isFile: false)`);
+          const res = await findGame(dir, format, extensions, folder, 0, false, games, window, params, dirExecutables);
+          if (res) found = true;
+        }
+        // Only scan subdirectories if no match was found
+        if (!found) {
+          const subdirs = getAllSubdirs(dir);
+          // Assume the format is {creator}/{title}/{version}, so check two levels deep for versions
+          const versionDirs = subdirs.filter(subdir => {
+            const relativePath = subdir.replace(`${folder}${path.sep}`, '');
+            const pathParts = relativePath.split(path.sep);
+            return pathParts.length === 3; // e.g., ArcGames/Corrupted Kingdoms/0.19.4 -> 3 parts after root
+          });
+          console.log(`Version directories for ${dir}: ${versionDirs.join(', ')}`);
+          for (const t of versionDirs) {
+            console.log(`Processing version directory: ${t}`);
+            const filesInSubdir = fs.readdirSync(t, { withFileTypes: true })
+              .filter(f => f.isFile())
+              .map(f => path.join(t, f.name));
+            console.log(`Checking files in ${t}: ${filesInSubdir.join(', ')}`);
+            const subdirExecutables = filesInSubdir.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)) && !blacklist.includes(path.basename(f)));
+            if (subdirExecutables.length > 0) {
+              console.log(`Scanning version directory with executables: ${t} (isFile: false)`);
+              const res = await findGame(t, format, extensions, folder, 0, false, games, window, params, subdirExecutables);
+              if (res) found = true;
+            }
+          }
+        }
+        window.webContents.send('scan-progress', { value: ittr, total: totalDirs, potential: games.length });
+      }
+    }
   }
 
   console.log(`Scan complete. Found ${games.length} games: ${games.map(g => g.title).join(', ')}`);
@@ -253,13 +272,13 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
     let results = [];
     if (data.length === 1) {
       atlasId = data[0].atlas_id;
-      f95Id = await findF95Id(atlasId);
+      f95Id = data[0].f95_id || '';
       title = data[0].title;
       creator = data[0].creator;
       gameEngine = data[0].engine || gameEngine;
       results = [{ key: 'match', value: 'Match Found' }]; // Single match indicator
     } else if (data.length > 1) {
-      results = data.map(d => ({ key: d.atlas_id, value: `${d.atlas_id} | ${d.title} | ${d.creator}` }));
+      results = data.map(d => ({ key: d.atlas_id, value: `${d.atlas_id} | ${d.f95_id || ''} | ${d.title} | ${d.creator}` }));
     }
 
     // Ensure engine is not empty to avoid SQLite errors

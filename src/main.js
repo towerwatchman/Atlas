@@ -10,7 +10,10 @@ const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGames, remo
 let mainWindow;
 let settingsWindow;
 let importerWindow;
-let appConfig; // Global config variable
+let appConfig;
+
+// Initialize database
+initializeDatabase(path.join(__dirname, 'data'));
 
 app.commandLine.appendSwitch('force-color-profile', 'srgb');
 
@@ -35,7 +38,7 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
-  if (process.argv.includes('--dev') || appConfig.Interface.showDebugConsole) {
+  if (process.argv.includes('--dev') || appConfig?.Interface?.showDebugConsole) {
     mainWindow.webContents.openDevTools();
   }
 
@@ -54,7 +57,7 @@ function createSettingsWindow() {
     height: 600,
     minWidth: 850,
     minHeight: 600,
-    roundedCorners:  true,
+    roundedCorners: true,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -69,7 +72,7 @@ function createSettingsWindow() {
 
   settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
 
-  if (process.argv.includes('--dev') || appConfig.Interface.showDebugConsole) {
+  if (process.argv.includes('--dev') || appConfig?.Interface?.showDebugConsole) {
     settingsWindow.webContents.openDevTools();
   }
 
@@ -106,9 +109,8 @@ function createImporterWindow() {
 
   importerWindow.loadFile(path.join(__dirname, 'importer.html'));
 
-  if (process.argv.includes('--dev') || appConfig.Interface.showDebugConsole) {
-    importerWindow.webContents.openDevTools();
-  }
+  // Force DevTools open for debugging
+  importerWindow.webContents.openDevTools();
 
   importerWindow.on('maximize', () => {
     importerWindow.webContents.send('window-state-changed', 'maximized');
@@ -151,7 +153,7 @@ autoUpdater.setFeedURL({
   owner: 'towerwatchman',
   repo: 'Atlas'
 });
-autoUpdater.allowDowngrade = true; // Prevent clearing app directory during updates
+autoUpdater.allowDowngrade = true;
 autoUpdater.on('checking-for-update', () => {
   console.log('Checking for updates...');
   mainWindow.webContents.send('update-status', { status: 'checking' });
@@ -182,9 +184,6 @@ autoUpdater.on('error', (err) => {
   console.error('Updater error:', err);
   mainWindow.webContents.send('update-status', { status: 'error', error: err.message });
 });
-
-// Initialize database
-initializeDatabase(dataDir);
 
 // Initialize config.ini
 const configPath = path.join(dataDir, 'config.ini');
@@ -257,7 +256,6 @@ ipcMain.handle('unzip-game', async (event, { zipPath, extractPath }) => {
 });
 
 ipcMain.handle('check-updates', async () => {
-  const axios = require('axios');
   try {
     const response = await axios.get('https://api.github.com/repos/towerwatchman/Atlas-Electron/releases/latest');
     const latestVersion = response.data.tag_name;
@@ -355,14 +353,43 @@ ipcMain.handle('search-atlas', async (event, { title, creator }) => {
     return [];
   }
 });
+
 ipcMain.handle('find-f95-id', async (event, atlasId) => {
-  return findF95Id(atlasId);
+  try {
+    const { findF95Id } = require('./database');
+    return await findF95Id(atlasId);
+  } catch (err) {
+    console.error('Error in find-f95-id:', err);
+    return '';
+  }
+});
+
+ipcMain.handle('get-atlas-data', async (event, atlasId) => {
+  try {
+    const { getAtlasData } = require('./database');
+    return await getAtlasData(atlasId);
+  } catch (err) {
+    console.error('Error in get-atlas-data:', err);
+    return {};
+  }
 });
 
 ipcMain.handle('check-record-exist', async (event, { title, creator, engine, version, path }) => {
+  const { checkRecordExist } = require('./database');
   const existsByDetails = await checkRecordExist(title, creator, engine, version);
   if (existsByDetails) return true;
   return checkPathExist(path, title);
+});
+
+ipcMain.handle('log', async (event, message) => {
+  console.log(`Renderer: ${message}`);
+});
+
+ipcMain.handle('update-progress', async (event, progress) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (window) {
+    window.webContents.send('update-progress', progress);
+  }
 });
 
 ipcMain.handle('import-games', async (event, params) => {
@@ -377,7 +404,6 @@ ipcMain.handle('import-games', async (event, params) => {
   const results = [];
   for (const game of games) {
     try {
-      // Calculate image total for display
       let imageTotal = 0;
       if ((downloadBannerImages || downloadPreviewImages) && game.atlasId) {
         const bannerUrl = await getBannerUrl(game.atlasId);
@@ -459,7 +485,6 @@ ipcMain.handle('import-games', async (event, params) => {
       if (size > 0) await updateFolderSize(recordId, game.version, size);
       results.push({ success: true, recordId });
 
-      // Update progress only after game import is complete
       progress++;
       mainWindow.webContents.send('import-progress', { 
         text: `Imported game '${game.title}' ${progress}/${total}${imageTotal > 0 ? `, ${imageTotal} images downloaded` : ''}`, 
@@ -479,7 +504,6 @@ ipcMain.handle('import-games', async (event, params) => {
     }
   }
 
-  // Final progress update
   mainWindow.webContents.send('import-progress', { 
     text: `Import complete: ${results.filter(r => r.success).length} successful`, 
     progress, 
@@ -545,9 +569,8 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
   const bannerUrl = downloadBannerImages ? await getBannerUrl(atlasId) : null;
   const screenUrls = downloadPreviewImages ? await getScreensUrlList(atlasId) : [];
   const previewCount = downloadPreviewImages ? (previewLimit === 'Unlimited' ? screenUrls.length : Math.min(parseInt(previewLimit), screenUrls.length)) : 0;
-  const totalImages = (bannerUrl ? 3 : 0) + previewCount; // 3 for banner: original + high + low res
+  const totalImages = (bannerUrl ? 3 : 0) + previewCount;
 
-  // Download banner
   if (bannerUrl) {
     console.log(`Downloading banner from URL: ${bannerUrl}`);
     try {
@@ -571,7 +594,6 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
         onImageProgress(imageProgress, totalImages);
       }
 
-      // Always create high and low res WebP copies if they don't exist
       const highResPath = `${imagePath}_mc.webp`;
       const lowResPath = `${imagePath}_sc.webp`;
       if (!fs.existsSync(highResPath)) {
@@ -601,7 +623,6 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
       onImageProgress(imageProgress, totalImages);
 
       console.log('Banner images updated');
-      // Apply throttling delay only if a download occurred
       if (downloaded) {
         await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (2000 - 1000 + 1)) + 1000));
       }
@@ -610,7 +631,6 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
     }
   }
 
-  // Download screens
   for (let i = 0; i < previewCount; i++) {
     const url = screenUrls[i].trim();
     if (url) {
@@ -639,7 +659,6 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
         imageProgress++;
         onImageProgress(imageProgress, totalImages);
         console.log(`Screen ${i + 1} updated`);
-        // Apply throttling delay only if a download occurred
         if (downloaded) {
           await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (2000 - 1000 + 1)) + 1000));
         }
@@ -649,8 +668,9 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
     }
   }
 }
+
 app.whenReady().then(() => {
-  loadConfig(); // Load config at startup
+  loadConfig();
   createWindow();
   autoUpdater.checkForUpdatesAndNotify();
 });
