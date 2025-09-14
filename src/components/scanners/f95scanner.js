@@ -49,7 +49,7 @@ async function startScan(params, window) {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (fs.statSync(file).isFile()) {
-        //console.log(`Scanning file: ${file} (isFile: true)`);
+        console.log(`Scanning file: ${file} (isFile: true)`);
         const success = await findGame(file, format, extensions, folder, 5, true, games, window, params, []);
         if (success) {
           potential = games.length;
@@ -65,19 +65,19 @@ async function startScan(params, window) {
     const totalDirs = directories.length + 1; // Include root folder
     let ittr = 0;
 
-    //console.log(`Found ${totalDirs} directories to scan (including root): ${folder}, ${directories.join(', ')}`);
+    console.log(`Found ${totalDirs} directories to scan (including root): ${folder}, ${directories.join(', ')}`);
 
     // Scan files in the root folder first
-    //console.log(`Scanning root directory: ${folder}`);
+    console.log(`Scanning root directory: ${folder}`);
     ittr++;
     const rootFiles = fs.readdirSync(folder, { withFileTypes: true })
       .filter(f => f.isFile())
       .map(f => path.join(folder, f.name));
-    //console.log(`Checking files in ${folder}: ${rootFiles.join(', ')}`);
+    console.log(`Checking files in ${folder}: ${rootFiles.join(', ')}`);
     let foundInRoot = false;
     const rootExecutables = rootFiles.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)) && !blacklist.includes(path.basename(f)));
     if (rootExecutables.length > 0) {
-      //console.log(`Scanning root directory with executables: ${folder} (isFile: false)`);
+      console.log(`Scanning root directory with executables: ${folder} (isFile: false)`);
       const res = await findGame(folder, format, extensions, folder, 0, false, games, window, params, rootExecutables);
       if (res) {
         foundInRoot = true;
@@ -90,17 +90,17 @@ async function startScan(params, window) {
     // Scan top-level directories if no match in root or deeper scanning is needed
     if (!foundInRoot) {
       for (const dir of directories) {
-        //console.log(`Scanning directory: ${dir}`);
+        console.log(`Scanning directory: ${dir}`);
         ittr++;
         // Check files in the current directory
         const files = fs.readdirSync(dir, { withFileTypes: true })
           .filter(f => f.isFile())
           .map(f => path.join(dir, f.name));
-        //console.log(`Checking files in ${dir}: ${files.join(', ')}`);
+        console.log(`Checking files in ${dir}: ${files.join(', ')}`);
         let found = false;
         const dirExecutables = files.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)) && !blacklist.includes(path.basename(f)));
         if (dirExecutables.length > 0) {
-          //console.log(`Scanning directory with executables: ${dir} (isFile: false)`);
+          console.log(`Scanning directory with executables: ${dir} (isFile: false)`);
           const res = await findGame(dir, format, extensions, folder, 0, false, games, window, params, dirExecutables);
           if (res) {
             found = true;
@@ -117,16 +117,16 @@ async function startScan(params, window) {
             const pathParts = relativePath.split(path.sep);
             return pathParts.length === 3; // e.g., ArcGames/Corrupted Kingdoms/0.19.4 -> 3 parts after root
           });
-          //console.log(`Version directories for ${dir}: ${versionDirs.join(', ')}`);
+          console.log(`Version directories for ${dir}: ${versionDirs.join(', ')}`);
           for (const t of versionDirs) {
-            //console.log(`Processing version directory: ${t}`);
+            console.log(`Processing version directory: ${t}`);
             const filesInSubdir = fs.readdirSync(t, { withFileTypes: true })
               .filter(f => f.isFile())
               .map(f => path.join(t, f.name));
-            //console.log(`Checking files in ${t}: ${filesInSubdir.join(', ')}`);
+            console.log(`Checking files in ${t}: ${filesInSubdir.join(', ')}`);
             const subdirExecutables = filesInSubdir.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)) && !blacklist.includes(path.basename(f)));
             if (subdirExecutables.length > 0) {
-              //console.log(`Scanning version directory with executables: ${t} (isFile: false)`);
+              console.log(`Scanning version directory with executables: ${t} (isFile: false)`);
               const res = await findGame(t, format, extensions, folder, 0, false, games, window, params, subdirExecutables);
               if (res) {
                 found = true;
@@ -151,7 +151,7 @@ function getAllSubdirs(root) {
   const stack = [root];
   while (stack.length) {
     const current = stack.pop();
-    //console.log(`Exploring directory: ${current}`);
+    console.log(`Exploring directory: ${current}`);
     const items = fs.readdirSync(current, { withFileTypes: true });
     for (const item of items) {
       const full = path.join(current, item.name);
@@ -165,7 +165,7 @@ function getAllSubdirs(root) {
 }
 
 async function findGame(t, format, extensions, rootPath, stopLevel, isFile, games, window, params, executables) {
-  //console.log(`Finding game in: ${t} (isFile: ${isFile}) with extensions: ${extensions.join(', ')}`);
+  console.log(`Finding game in: ${t} (isFile: ${isFile}) with extensions: ${extensions.join(', ')}`);
   let potentialExecutables = executables || [];
   let singleExecutable = '';
   let selectedValue = '';
@@ -177,7 +177,7 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
   try {
     if (!isFile) {
       if (potentialExecutables.length === 0) {
-        //console.log(`No executable files provided for ${t}`);
+        console.log(`No executable files provided for ${t}`);
         return false;
       }
 
@@ -197,7 +197,7 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
         for (const [engine, patterns] of Object.entries(engineMap)) {
           if (patterns.some(p => exec.toLowerCase().includes(p))) {
             gameEngine = engine;
-            //console.log(`Matched engine ${gameEngine} for ${exec}`);
+            console.log(`Matched engine ${gameEngine} for ${exec}`);
             break;
           }
         }
@@ -214,9 +214,9 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
       }
     } else {
       const ext = path.extname(t).toLowerCase().slice(1);
-      //console.log(`Checking file ${t}, Extension: ${ext}`);
+      console.log(`Checking file ${t}, Extension: ${ext}`);
       if (!extensions.includes(ext) || blacklist.includes(path.basename(t))) {
-        //console.log(`File ${t} has unsupported extension ${ext} or is blacklisted`);
+        console.log(`File ${t} has unsupported extension ${ext} or is blacklisted`);
         return false;
       }
       isArchive = params.isCompressed;
@@ -231,12 +231,12 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
     let version = '';
 
     const relativePath = t.replace(`${rootPath}${path.sep}`, '');
-    //console.log(`Relative path: ${relativePath}, Format: ${format}`);
+    console.log(`Relative path: ${relativePath}, Format: ${format}`);
     if (format && format.trim() !== '') {
       // For files, use the parent directory structure; for directories, use the current path
       const parsePath = isFile ? path.dirname(relativePath) : relativePath;
       const pathParts = parsePath.split(path.sep);
-      //console.log(`Path parts: ${pathParts.join(', ')}`);
+      console.log(`Path parts: ${pathParts.join(', ')}`);
       const formatParts = format.split('/').map(part => part.replace(/\{|\}/g, ''));
       if (pathParts.length >= formatParts.length) {
         const mapping = {};
@@ -246,16 +246,16 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
         creator = mapping.creator || 'Unknown';
         title = mapping.title || '';
         version = mapping.version || '';
-        //console.log(`Structured match: creator=${creator}, title=${title}, version=${version}`);
+        console.log(`Structured match: creator=${creator}, title=${title}, version=${version}`);
       } else {
-        //console.log(`Path parts (${pathParts.length}) do not match format parts (${formatParts.length}) for ${parsePath}`);
+        console.log(`Path parts (${pathParts.length}) do not match format parts (${formatParts.length}) for ${parsePath}`);
       }
     }
 
     // Fallback to filename parsing if structured parsing fails or no format is provided
     if (!title || title.trim() === '') {
       let filename = isFile ? path.basename(t, path.extname(t)) : path.basename(t);
-      //console.log(`Parsing filename: ${filename}`);
+      console.log(`Parsing filename: ${filename}`);
       filename = filename.replace(/\[(.*?)\]/g, '$1').trim();
       const parts = filename.split('-').map(p => p.trim());
       if (parts.length > 0) {
@@ -273,16 +273,16 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
           title = parts.join(' ');
           version = '1.0';
         }
-        //console.log(`Parsed: title=${title}, version=${version}`);
+        console.log(`Parsed: title=${title}, version=${version}`);
       }
     }
 
     if (!title || title.trim() === '') {
-      //console.log(`No valid title extracted from ${t}, parsing failed`);
+      console.log(`No valid title extracted from ${t}, parsing failed`);
       return false;
     }
 
-    //console.log(`Processing game: ${title}, Creator: ${creator}, Version: ${version}, Engine: ${gameEngine}`);
+    console.log(`Processing game: ${title}, Creator: ${creator}, Version: ${version}, Engine: ${gameEngine}`);
     const data = await searchAtlas(title, creator);
     let atlasId = '';
     let f95Id = '';
@@ -328,11 +328,11 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
         recordExist,
         isArchive
       };
-      //console.log(`Adding game to list: ${JSON.stringify(gd)}`);
+      console.log(`Adding game to list: ${JSON.stringify(gd)}`);
       games.push(gd);
       return true;
     }
-    //console.log(`Game ${title} already exists or failed to add`);
+    console.log(`Game ${title} already exists or failed to add`);
     return false;
   } catch (err) {
     console.error(`Error processing ${t}: ${err.message}`);

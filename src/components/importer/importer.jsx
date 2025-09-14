@@ -35,17 +35,17 @@ const Importer = () => {
       setIsMaximized(state === 'maximized');
     });
     window.electronAPI.onScanProgress((prog) => {
-      //console.log(`Scan progress: ${JSON.stringify(prog)}`);
+      console.log(`Scan progress: ${JSON.stringify(prog)}`);
       //window.electronAPI.log(`Scan progress: ${JSON.stringify(prog)}`);
       setProgress(prog);
     });
     window.electronAPI.onScanComplete((game) => {
-      //console.log(`Received incremental game: ${JSON.stringify(game)}`);
+      console.log(`Received incremental game: ${JSON.stringify(game)}`);
       //window.electronAPI.log(`Received incremental game: ${JSON.stringify(game)}`);
       setGamesList(prev => [...prev, game]); // Append new game incrementally
     });
     window.electronAPI.onScanCompleteFinal((games) => {
-      //console.log(`Scan complete, received ${games.length} games`);
+      console.log(`Scan complete, received ${games.length} games`);
       //window.electronAPI.log(`Scan complete, received ${games.length} games`);
       setGamesList(games); // Set final games list to ensure all are included
     });
@@ -222,7 +222,7 @@ const Importer = () => {
     updateMatches();
   };
 
-  //console.log('Rendering Importer component, view:', view);
+  console.log('Rendering Importer component, view:', view);
   //window.electronAPI.log(`Rendering Importer component, view: ${view}`);
   return (
     <div className="h-screen flex flex-col fixed w-full">
