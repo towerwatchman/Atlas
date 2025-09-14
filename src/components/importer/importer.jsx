@@ -122,9 +122,9 @@ const Importer = () => {
     if (selected && value !== 'match') {
       const parts = selected.value.split(' | ');
       game.atlasId = parts[0];
-      game.title = parts[1];
-      game.creator = parts[2];
-      game.f95Id = await window.electronAPI.findF95Id(game.atlasId);
+      game.f95Id = parts[1] || '';
+      game.title = parts[2];
+      game.creator = parts[3];
       const atlasData = await window.electronAPI.getAtlasData(game.atlasId);
       game.engine = atlasData.engine || 'Unknown';
       console.log(`Updated game: ${JSON.stringify(game)}`);
@@ -149,7 +149,7 @@ const Importer = () => {
       window.electronAPI.log(`Search results for ${game.title}: ${JSON.stringify(data)}`);
       if (data.length === 1) {
         game.atlasId = data[0].atlas_id;
-        game.f95Id = await window.electronAPI.findF95Id(data[0].atlas_id);
+        game.f95Id = data[0].f95_id || '';
         game.title = data[0].title;
         game.creator = data[0].creator;
         game.engine = data[0].engine || game.engine || 'Unknown';
@@ -157,7 +157,10 @@ const Importer = () => {
         game.resultSelectedValue = 'match';
         game.resultVisibility = 'visible';
       } else if (data.length > 1) {
-        game.results = data.map(d => ({ key: d.atlas_id, value: `${d.atlas_id} | ${d.title} | ${d.creator}` }));
+        game.results = data.map(d => ({
+          key: d.atlas_id,
+          value: `${d.atlas_id} | ${d.f95_id || ''} | ${d.title} | ${d.creator}`
+        }));
         // Preserve existing selection if still valid
         const currentSelection = game.resultSelectedValue;
         const validSelection = game.results.find(r => r.key === currentSelection);
@@ -166,9 +169,9 @@ const Importer = () => {
         const selectedResult = game.results.find(r => r.key === game.resultSelectedValue) || game.results[0];
         const parts = selectedResult.value.split(' | ');
         game.atlasId = parts[0];
-        game.f95Id = await window.electronAPI.findF95Id(parts[0]);
-        game.title = parts[1];
-        game.creator = parts[2];
+        game.f95Id = parts[1] || '';
+        game.title = parts[2];
+        game.creator = parts[3];
         const atlasData = await window.electronAPI.getAtlasData(parts[0]);
         game.engine = atlasData.engine || game.engine || 'Unknown';
       } else {

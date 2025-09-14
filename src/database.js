@@ -456,7 +456,7 @@ const searchAtlas = async (title, creator) => {
       });
     },
     async () => {
-      // Title only search without short_name (full title LIKE)
+      // Title-only search
       return new Promise((resolve, reject) => {
         db.all(
           `SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ?`,
@@ -475,28 +475,34 @@ const searchAtlas = async (title, creator) => {
   for (const queryFn of queries) {
     try {
       const rows = await queryFn();
+      console.log(`Query returned ${rows.length} results`);
       let hasF95Id = false;
+      const enrichedRows = [];
       for (const row of rows) {
         const f95Id = await findF95Id(row.atlas_id);
         if (f95Id) {
           hasF95Id = true;
         }
         if (!allResults.has(row.atlas_id)) {
-          allResults.set(row.atlas_id, row);
+          allResults.set(row.atlas_id, { ...row, f95_id: f95Id || '' });
         }
+        enrichedRows.push({ ...row, f95_id: f95Id || '' });
       }
       if (hasF95Id) {
-        // Return results from this query if any have f95 id
-        const filteredRows = rows.filter(row => findF95Id(row.atlas_id));
-        return filteredRows.length > 0 ? filteredRows : rows;
+        // Return results from this query if any have f95_id
+        const filteredRows = enrichedRows.filter(row =>findF95Id(row.atlas_id));
+        console.log(`Query found ${filteredRows.length} results with f95_id`);
+        return filteredRows.length > 0 ? filteredRows : enrichedRows;
       }
     } catch (err) {
       console.error('Error in searchAtlas query:', err);
     }
   }
 
-  // If no results with f95 id, return all unique results from all queries
-  return Array.from(allResults.values());
+  // If no results with f95_id, return all unique results from all queries
+  const finalResults = Array.from(allResults.values());
+  console.log(`Returning ${finalResults.length} unique results from all queries`);
+  return finalResults;
 };
 
 
