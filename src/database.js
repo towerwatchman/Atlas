@@ -384,12 +384,98 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
 
 const searchAtlas = (title, creator) => {
   return new Promise((resolve, reject) => {
-    db.all(`SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ? AND creator LIKE ?`, [`%${title}%`, `%${creator}%`], (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
+    // Initial query
+    db.all(
+      `SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ? AND creator LIKE ?`,
+      [`%${title}%`, `%${creator}%`],
+      (err, rows) => {
+        if (err) {
+          console.error('Error in initial searchAtlas query:', err);
+          reject(err);
+          return;
+        }
+        if (rows.length > 0) {
+          console.log(`Initial query found ${rows.length} results for title: ${title}, creator: ${creator}`);
+          resolve(rows);
+          return;
+        }
+
+        // Normalize inputs for additional queries
+        const fullName = `${title}${creator}`
+          .replace(/[\W_]+/g, '')
+          .toUpperCase();
+        const shortName = title.replace(/[\W_]+/g, '').toUpperCase();
+
+        // Query based on title only (short_name)
+        const queryTitle = `
+          SELECT
+            atlas_id,
+            title,
+            creator,
+            engine,
+            LENGTH(short_name) - LENGTH(?) as difference
+          FROM atlas_data
+          WHERE short_name LIKE ?
+          ORDER BY LENGTH(short_name) - LENGTH(?)
+        `;
+        db.all(
+          queryTitle,
+          [shortName, `%${shortName}%`, shortName],
+          (err, titleRows) => {
+            if (err) {
+              console.error('Error in title searchAtlas query:', err);
+              reject(err);
+              return;
+            }
+            if (titleRows.length > 0) {
+              console.log(`Title query found ${titleRows.length} results for short_name: ${shortName}`);
+              resolve(titleRows);
+              return;
+            }
+
+            // Query based on full_name (title + creator)
+            const queryFull = `
+              WITH data_0 AS (
+                SELECT
+                  atlas_id,
+                  title,
+                  creator,
+                  engine,
+                  UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                    title || '' || creator,
+                    '-', ''), '_', ''), '/', ''), '\\', ''), ':', ''), ';', ''), '''', ''), ' ', ''), '.', '')) as full_name
+                FROM atlas_data
+              )
+              SELECT
+                atlas_id,
+                title,
+                creator,
+                engine,
+                LENGTH(full_name) - LENGTH(?) as difference
+              FROM data_0
+              WHERE full_name LIKE ?
+              ORDER BY LENGTH(full_name) - LENGTH(?)
+            `;
+            db.all(
+              queryFull,
+              [fullName, `%${fullName}%`, fullName],
+              (err, fullRows) => {
+                if (err) {
+                  console.error('Error in full_name searchAtlas query:', err);
+                  reject(err);
+                  return;
+                }
+                console.log(`Full_name query found ${fullRows.length} results for full_name: ${fullName}`);
+                resolve(fullRows);
+              }
+            );
+          }
+        );
+      }
+    );
   });
 };
+
 
 const findF95Id = (atlasId) => {
   return new Promise((resolve, reject) => {

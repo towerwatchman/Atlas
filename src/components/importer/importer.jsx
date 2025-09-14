@@ -22,38 +22,52 @@ const Importer = () => {
   const [deleteAfter, setDeleteAfter] = useState(false);
   const [moveGame, setMoveGame] = useState(false);
   const [progress, setProgress] = useState({ value: 0, total: 0, potential: 0 });
+  const [updateProgress, setUpdateProgress] = useState({ value: 0, total: 0 });
   const [gamesList, setGamesList] = useState([]);
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
     console.log('Importer component mounted');
+    window.electronAPI.log('Importer component mounted');
     window.electronAPI.onWindowStateChanged((state) => {
       console.log(`Window state changed: ${state}`);
+      window.electronAPI.log(`Window state changed: ${state}`);
       setIsMaximized(state === 'maximized');
     });
     window.electronAPI.onScanProgress((prog) => {
       console.log(`Scan progress: ${JSON.stringify(prog)}`);
+      window.electronAPI.log(`Scan progress: ${JSON.stringify(prog)}`);
       setProgress(prog);
     });
     window.electronAPI.onScanComplete((games) => {
       console.log(`Scan complete, received ${games.length} games`);
+      window.electronAPI.log(`Scan complete, received ${games.length} games`);
       setGamesList(games);
+    });
+    window.electronAPI.onUpdateProgress((prog) => {
+      console.log(`Update progress: ${JSON.stringify(prog)}`);
+      window.electronAPI.log(`Update progress: ${JSON.stringify(prog)}`);
+      setUpdateProgress(prog);
     });
     window.electronAPI.getConfig().then((config) => {
       console.log(`Config loaded: ${JSON.stringify(config)}`);
+      window.electronAPI.log(`Config loaded: ${JSON.stringify(config)}`);
       const librarySettings = config.Library || {};
       setGameExt(librarySettings.gameExtensions || 'exe,swf,flv,f4v,rag,cmd,bat,jar,html');
       setArchiveExt(librarySettings.extractionExtensions || 'zip,7z,rar');
     }).catch((err) => {
       console.error('Error loading config:', err);
+      window.electronAPI.log(`Error loading config: ${err.message}`);
     });
   }, []);
 
   const selectFolder = async () => {
     console.log('Selecting folder');
+    window.electronAPI.log('Selecting folder');
     const path = await window.electronAPI.selectDirectory();
     if (path) {
       console.log(`Folder selected: ${path}`);
+      window.electronAPI.log(`Folder selected: ${path}`);
       setFolder(path);
     }
   };
@@ -61,9 +75,11 @@ const Importer = () => {
   const startScan = async () => {
     if (!folder) {
       console.log('No folder selected');
+      window.electronAPI.log('No folder selected');
       return alert('Select a folder');
     }
     console.log('Starting scan');
+    window.electronAPI.log('Starting scan');
     setView('scan');
     const params = {
       folder,
@@ -79,15 +95,18 @@ const Importer = () => {
       downloadVideos
     };
     console.log(`Scan params: ${JSON.stringify(params)}`);
+    window.electronAPI.log(`Scan params: ${JSON.stringify(params)}`);
     const result = await window.electronAPI.startScan(params);
     if (!result.success) {
       console.error(`Scan error: ${result.error}`);
+      window.electronAPI.log(`Scan error: ${result.error}`);
       alert(`Error: ${result.error}`);
     }
   };
 
   const updateGame = (index, field, value) => {
     console.log(`Updating game at index ${index}, field ${field} to ${value}`);
+    window.electronAPI.log(`Updating game at index ${index}, field ${field} to ${value}`);
     const updated = [...gamesList];
     updated[index][field] = value;
     setGamesList(updated);
@@ -95,6 +114,7 @@ const Importer = () => {
 
   const handleResultChange = async (index, value) => {
     console.log(`Handling result change for index ${index}, value ${value}`);
+    window.electronAPI.log(`Handling result change for index ${index}, value ${value}`);
     const updated = [...gamesList];
     const game = updated[index];
     game.resultSelectedValue = value;
@@ -108,18 +128,25 @@ const Importer = () => {
       const atlasData = await window.electronAPI.getAtlasData(game.atlasId);
       game.engine = atlasData.engine || 'Unknown';
       console.log(`Updated game: ${JSON.stringify(game)}`);
+      window.electronAPI.log(`Updated game: ${JSON.stringify(game)}`);
     }
     setGamesList(updated);
   };
 
   const updateMatches = async () => {
     console.log('Updating games');
+    window.electronAPI.log('Updating games');
     const updated = [...gamesList];
+    const total = updated.length;
+    setUpdateProgress({ value: 0, total });
+    window.electronAPI.sendUpdateProgress({ value: 0, total });
     for (let i = 0; i < updated.length; i++) {
       const game = updated[i];
       console.log(`Searching for game: ${game.title}, Creator: ${game.creator}`);
+      window.electronAPI.log(`Searching for game: ${game.title}, Creator: ${game.creator}`);
       const data = await window.electronAPI.searchAtlas(game.title, game.creator);
       console.log(`Search results for ${game.title}: ${JSON.stringify(data)}`);
+      window.electronAPI.log(`Search results for ${game.title}: ${JSON.stringify(data)}`);
       if (data.length === 1) {
         game.atlasId = data[0].atlas_id;
         game.f95Id = await window.electronAPI.findF95Id(data[0].atlas_id);
@@ -131,9 +158,13 @@ const Importer = () => {
         game.resultVisibility = 'visible';
       } else if (data.length > 1) {
         game.results = data.map(d => ({ key: d.atlas_id, value: `${d.atlas_id} | ${d.title} | ${d.creator}` }));
-        game.resultSelectedValue = game.results[0].key;
+        // Preserve existing selection if still valid
+        const currentSelection = game.resultSelectedValue;
+        const validSelection = game.results.find(r => r.key === currentSelection);
+        game.resultSelectedValue = validSelection ? currentSelection : game.results[0].key;
         game.resultVisibility = 'visible';
-        const parts = game.results[0].value.split(' | ');
+        const selectedResult = game.results.find(r => r.key === game.resultSelectedValue) || game.results[0];
+        const parts = selectedResult.value.split(' | ');
         game.atlasId = parts[0];
         game.f95Id = await window.electronAPI.findF95Id(parts[0]);
         game.title = parts[1];
@@ -147,13 +178,19 @@ const Importer = () => {
         game.resultSelectedValue = '';
         game.resultVisibility = 'hidden';
       }
+      setUpdateProgress({ value: i + 1, total });
+      window.electronAPI.sendUpdateProgress({ value: i + 1, total });
     }
     console.log('Finished updating games');
+    window.electronAPI.log('Finished updating games');
+    setUpdateProgress({ value: total, total });
+    window.electronAPI.sendUpdateProgress({ value: total, total });
     setGamesList(updated);
   };
 
   const importGamesFunc = () => {
     console.log('Importing games');
+    window.electronAPI.log('Importing games');
     const params = {
       games: gamesList,
       deleteAfter,
@@ -170,10 +207,12 @@ const Importer = () => {
 
   const handleUpdateClick = (event) => {
     console.log('Update button clicked', event);
+    window.electronAPI.log('Update button clicked');
     updateMatches();
   };
 
   console.log('Rendering Importer component, view:', view);
+  window.electronAPI.log(`Rendering Importer component, view: ${view}`);
   return (
     <div className="h-screen flex flex-col">
       {/* Window Controls */}
@@ -208,7 +247,12 @@ const Importer = () => {
           <div className="space-y-4">
             <div className="flex items-center">
               <label>Game Path:</label>
-              <input type="text" value={folder} readOnly className="ml-2 flex-1 bg-secondary border border-border p-1" />
+              <input
+                type="text"
+                value={folder}
+                readOnly
+                className="ml-2 flex-1 bg-secondary border border-border p-1"
+              />
               <button
                 onClick={selectFolder}
                 className="ml-2 bg-accent p-1"
@@ -354,8 +398,12 @@ const Importer = () => {
           <div className="space-y-4">
             <h2 className="text-xl">Scan Results</h2>
             <div className="flex items-center">
-              <progress value={progress.value} max={progress.total} className="w-96" />
-              <span className="ml-2">{progress.value}/{progress.total} Folders Scanned</span>
+              <progress value={updateProgress.value || progress.value} max={updateProgress.total || progress.total} className="w-96" />
+              <span className="ml-2">
+                {updateProgress.total > 0
+                  ? `${updateProgress.value}/${updateProgress.total} Games Updated`
+                  : `${progress.value}/${progress.total} Folders Scanned`}
+              </span>
             </div>
             <span>Found {progress.potential} Games</span>
             <div className="overflow-auto max-h-96">
