@@ -35,7 +35,7 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
-  if (process.argv.includes('--dev')) {
+  if (process.argv.includes('--dev') || appConfig.Interface.showDebugConsole) {
     mainWindow.webContents.openDevTools();
   }
 
@@ -69,7 +69,7 @@ function createSettingsWindow() {
 
   settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
 
-  if (process.argv.includes('--dev')) {
+  if (process.argv.includes('--dev') || appConfig.Interface.showDebugConsole) {
     settingsWindow.webContents.openDevTools();
   }
 
@@ -106,7 +106,7 @@ function createImporterWindow() {
 
   importerWindow.loadFile(path.join(__dirname, 'importer.html'));
 
-  if (process.argv.includes('--dev')) {
+  if (process.argv.includes('--dev') || appConfig.Interface.showDebugConsole) {
     importerWindow.webContents.openDevTools();
   }
 
