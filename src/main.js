@@ -356,7 +356,24 @@ ipcMain.handle('search-atlas', async (event, { title, creator }) => {
   }
 });
 ipcMain.handle('find-f95-id', async (event, atlasId) => {
-  return findF95Id(atlasId);
+    try {
+    const { findF95Id } = require('./database');
+      return await findF95Id(atlasId);
+  } catch (err) {
+    console.error('Error in search-atlas:', err);
+    return [];
+  }
+
+});
+
+ipcMain.handle('get-atlas-data', async (event, atlasId) => {
+      try {
+    const { getAtlasData } = require('./database');
+      return await getAtlasData(atlasId)
+  } catch (err) {
+    console.error('Error in search-atlas:', err);
+    return [];
+  }
 });
 
 ipcMain.handle('check-record-exist', async (event, { title, creator, engine, version, path }) => {
@@ -649,6 +666,7 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
     }
   }
 }
+
 app.whenReady().then(() => {
   loadConfig(); // Load config at startup
   createWindow();

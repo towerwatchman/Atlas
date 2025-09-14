@@ -556,6 +556,15 @@ const updatePreviews = (recordId, previewPath) => {
   });
 };
 
+const getAtlasData = (atlasId) => {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT title, creator, engine FROM atlas_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
+      if (err) reject(err);
+      else resolve(row || {});
+    });
+  });
+};
+
 const insertJsonData = async (jsonData, tableName) => {
   return new Promise((resolve, reject) => {
     db.serialize(() => {
@@ -601,5 +610,7 @@ module.exports = {
   getBannerUrl,
   getScreensUrlList,
   updateBanners,
-  updatePreviews
+  updatePreviews,
+  getAtlasData,
+  db // Export db instance
 };

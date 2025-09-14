@@ -83,15 +83,19 @@ const Importer = () => {
       game.atlasId = parts[0];
       game.title = parts[1];
       game.creator = parts[2];
-      game.f95Id = await window.electronAPI.findF95Id(parts[0]);
-      game.engine = game.engine || 'Unknown'; // Preserve existing engine or set default
+      game.f95Id = await window.electronAPI.findF95Id(game.atlasId);
+      // Fetch engine from atlas_data using new IPC
+      const atlasData = await window.electronAPI.getAtlasData(game.atlasId);
+      game.engine = atlasData.engine || 'Unknown';
     }
     setGamesList(updated);
   };
 
-  const updateMatches = async () => {
+    const updateMatches = async () => {
+    console.log("updating games")
     const updated = [...gamesList];
     for (let i = 0; i < updated.length; i++) {
+      console.log(game.title)
       const game = updated[i];
       const data = await window.electronAPI.searchAtlas(game.title, game.creator);
       if (data.length === 1) {
@@ -107,13 +111,15 @@ const Importer = () => {
         game.results = data.map(d => ({ key: d.atlas_id, value: `${d.atlas_id} | ${d.title} | ${d.creator}` }));
         game.resultSelectedValue = game.results[0].key;
         game.resultVisibility = 'visible';
-        // Update atlasId and f95Id based on the first match
+        // Update atlasId, f95Id, title, creator, and engine based on the first match
         const parts = game.results[0].value.split(' | ');
         game.atlasId = parts[0];
         game.f95Id = await window.electronAPI.findF95Id(parts[0]);
         game.title = parts[1];
         game.creator = parts[2];
-        game.engine = data[0].engine || game.engine || 'Unknown';
+        // Fetch engine from atlas_data using new IPC
+        const atlasData = await window.electronAPI.getAtlasData(parts[0]);
+        game.engine = atlasData.engine || game.engine || 'Unknown';
       } else {
         game.atlasId = '';
         game.f95Id = '';

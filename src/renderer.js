@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startScan: (params) => ipcRenderer.invoke('start-scan', params),
   searchAtlas: (title, creator) => ipcRenderer.invoke('search-atlas', { title, creator }),
   findF95Id: (atlasId) => ipcRenderer.invoke('find-f95-id', atlasId),
+  getAtlasData: (atlasId) => ipcRenderer.invoke('get-atlas-data', atlasId),
   checkRecordExist: (params) => ipcRenderer.invoke('check-record-exist', params),
   importGames: (params) => ipcRenderer.invoke('import-games', params),
   onWindowStateChanged: (callback) => {
