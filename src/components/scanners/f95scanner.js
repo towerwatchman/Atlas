@@ -110,13 +110,16 @@ async function startScan(params, window) {
         }
         // Only scan subdirectories if no match was found
         if (!found) {
-          const subdirs = getAllSubdirs(dir);
-          // Assume the format is {creator}/{title}/{version}, so check two levels deep for versions
-          const versionDirs = subdirs.filter(subdir => {
-            const relativePath = subdir.replace(`${folder}${path.sep}`, '');
-            const pathParts = relativePath.split(path.sep);
-            return pathParts.length === 3; // e.g., ArcGames/Corrupted Kingdoms/0.19.4 -> 3 parts after root
-          });
+          const maxDepth = format && format.trim() !== '' ? 3 : Infinity; // Limit to 3 levels for structured format
+          const subdirs = getAllSubdirs(dir, folder, maxDepth);
+          // Filter directories matching the expected format (e.g., {creator}/{title}/{version})
+          const versionDirs = format && format.trim() !== ''
+            ? subdirs.filter(subdir => {
+                const relativePath = subdir.replace(`${folder}${path.sep}`, '');
+                const pathParts = relativePath.split(path.sep);
+                return pathParts.length === 3; // e.g., ArcGames/Corrupted Kingdoms/0.19.4
+              })
+            : subdirs;
           console.log(`Version directories for ${dir}: ${versionDirs.join(', ')}`);
           for (const t of versionDirs) {
             console.log(`Processing version directory: ${t}`);
@@ -126,7 +129,7 @@ async function startScan(params, window) {
             console.log(`Checking files in ${t}: ${filesInSubdir.join(', ')}`);
             const subdirExecutables = filesInSubdir.filter(f => extensions.includes(path.extname(f).toLowerCase().slice(1)) && !blacklist.includes(path.basename(f)));
             if (subdirExecutables.length > 0) {
-              console.log(`Scanning version directory with executables: ${t} (isFile: false)`);
+              console.log(`Scanning version Directory with executables: ${t} (isFile: false)`);
               const res = await findGame(t, format, extensions, folder, 0, false, games, window, params, subdirExecutables);
               if (res) {
                 found = true;
@@ -146,18 +149,19 @@ async function startScan(params, window) {
   window.webContents.send('scan-complete-final', games);
 }
 
-function getAllSubdirs(root) {
+function getAllSubdirs(root, basePath, maxDepth = Infinity) {
   const dirs = [];
-  const stack = [root];
+  const stack = [{ path: root, depth: 0 }];
   while (stack.length) {
-    const current = stack.pop();
+    const { path: current, depth } = stack.pop();
+    if (depth >= maxDepth) continue; // Skip if depth exceeds limit
     console.log(`Exploring directory: ${current}`);
     const items = fs.readdirSync(current, { withFileTypes: true });
     for (const item of items) {
       const full = path.join(current, item.name);
       if (item.isDirectory()) {
         dirs.push(full);
-        stack.push(full);
+        stack.push({ path: full, depth: depth + 1 });
       }
     }
   }
@@ -213,6 +217,7 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
         selectedValue = potentialExecutables[0]; // Default to first (non-32-bit if available)
       }
     } else {
+     丧病
       const ext = path.extname(t).toLowerCase().slice(1);
       console.log(`Checking file ${t}, Extension: ${ext}`);
       if (!extensions.includes(ext) || blacklist.includes(path.basename(t))) {
