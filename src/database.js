@@ -475,7 +475,7 @@ const searchAtlas = async (title, creator) => {
   for (const queryFn of queries) {
     try {
       const rows = await queryFn();
-      console.log(`Query returned ${rows.length} results`);
+      //console.log(`Query returned ${rows.length} results`);
       let hasF95Id = false;
       const enrichedRows = [];
       for (const row of rows) {
@@ -491,7 +491,7 @@ const searchAtlas = async (title, creator) => {
       if (hasF95Id) {
         // Return results from this query if any have f95_id
         const filteredRows = enrichedRows.filter(row =>findF95Id(row.atlas_id));
-        console.log(`Query found ${filteredRows.length} results with f95_id`);
+        //console.log(`Query found ${filteredRows.length} results with f95_id`);
         return filteredRows.length > 0 ? filteredRows : enrichedRows;
       }
     } catch (err) {
@@ -501,7 +501,7 @@ const searchAtlas = async (title, creator) => {
 
   // If no results with f95_id, return all unique results from all queries
   const finalResults = Array.from(allResults.values());
-  console.log(`Returning ${finalResults.length} unique results from all queries`);
+  //console.log(`Returning ${finalResults.length} unique results from all queries`);
   return finalResults;
 };
 
