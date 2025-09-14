@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "author": {
     "name": "towerwatchman",
     "email": "towerwatchman@atlas.com"
@@ -38,6 +38,7 @@
       "src/components/**/*",
       "src/components/scanners/**/*",
       "src/components/importer/**/*",
+      "src/components/settings/**/*",
       "package.json",
       "node_modules/sqlite3/**/*",
       "node_modules/node-7z/**/*",
