@@ -12,9 +12,6 @@ let settingsWindow;
 let importerWindow;
 let appConfig;
 
-// Initialize database
-initializeDatabase(path.join(__dirname, 'data'));
-
 app.commandLine.appendSwitch('force-color-profile', 'srgb');
 
 // MAIN WINDOW
@@ -184,6 +181,9 @@ autoUpdater.on('error', (err) => {
   console.error('Updater error:', err);
   mainWindow.webContents.send('update-status', { status: 'error', error: err.message });
 });
+
+// Initialize database
+initializeDatabase(dataDir);
 
 // Initialize config.ini
 const configPath = path.join(dataDir, 'config.ini');
