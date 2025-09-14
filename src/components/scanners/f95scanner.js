@@ -125,7 +125,7 @@ async function startScan(params, window) {
     }
   }
 
-  console.log(`Scan complete. Found ${games.length} games: ${games.map(g => g.title).join(', ')}`);
+  //console.log(`Scan complete. Found ${games.length} games: ${games.map(g => g.title).join(', ')}`);
   window.webContents.send('scan-complete', games);
 }
 
@@ -311,7 +311,7 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
         recordExist,
         isArchive
       };
-      console.log(`Adding game to list: ${JSON.stringify(gd)}`);
+      //console.log(`Adding game to list: ${JSON.stringify(gd)}`);
       games.push(gd);
       return true;
     }
