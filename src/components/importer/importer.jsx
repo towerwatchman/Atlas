@@ -144,9 +144,26 @@ const Importer = () => {
     <div className="h-screen flex flex-col">
       {/* Window Controls */}
       <div className="bg-primary h-8 flex justify-end items-center pr-2">
-        <button onClick={() => window.electronAPI.minimizeWindow()} className="text-text hover:text-highlight mx-1">−</button>
-        <button onClick={() => window.electronAPI.maximizeWindow()} className="text-text hover:text-highlight mx-1">{isMaximized ? '↙' : '□'}</button>
-        <button onClick={() => window.electronAPI.closeWindow()} className="text-text hover:text-highlight mx-1">×</button>
+      <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
+        <button
+          onClick={() => window.electronAPI.minimizeWindow()}
+          className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+        >
+          <i className="fas fa-minus fa-xs text-text"></i>
+        </button>
+        <button
+          onClick={() => window.electronAPI.maximizeWindow()}
+          className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+        >
+          <i className={isMaximized ? "fas fa-window-restore fa-xs text-text" : "fas fa-window-maximize fa-xs text-text"}></i>
+        </button>
+        <button
+          onClick={() => window.electronAPI.closeWindow()}
+          className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
+        >
+          <i className="fas fa-times fa-xs text-text"></i>
+        </button>
+      </div>
       </div>
       <div className="flex-1 p-4">
         {view === 'settings' ? (
