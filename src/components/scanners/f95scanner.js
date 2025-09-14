@@ -125,7 +125,7 @@ async function startScan(params, window) {
     }
   }
 
-  //console.log(`Scan complete. Found ${games.length} games: ${games.map(g => g.title).join(', ')}`);
+  console.log(`Scan complete. Found ${games.length} games: ${games.map(g => g.title).join(', ')}`);
   window.webContents.send('scan-complete', games);
 }
 
@@ -272,13 +272,13 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
     let results = [];
     if (data.length === 1) {
       atlasId = data[0].atlas_id;
-      f95Id = await findF95Id(atlasId);
+      f95Id = data[0].f95_id || '';
       title = data[0].title;
       creator = data[0].creator;
       gameEngine = data[0].engine || gameEngine;
       results = [{ key: 'match', value: 'Match Found' }]; // Single match indicator
     } else if (data.length > 1) {
-      results = data.map(d => ({ key: d.atlas_id, value: `${d.atlas_id} | ${d.title} | ${d.creator}` }));
+      results = data.map(d => ({ key: d.atlas_id, value: `${d.atlas_id} | ${d.f95_id || ''} | ${d.title} | ${d.creator}` }));
     }
 
     // Ensure engine is not empty to avoid SQLite errors
@@ -311,7 +311,7 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
         recordExist,
         isArchive
       };
-      //console.log(`Adding game to list: ${JSON.stringify(gd)}`);
+      console.log(`Adding game to list: ${JSON.stringify(gd)}`);
       games.push(gd);
       return true;
     }
