@@ -195,29 +195,44 @@ const initializeDatabase = (dataDir) => {
 };
 
 const addGame = (game) => {
-  const { title, creator, engine, description } = game;
   return new Promise((resolve, reject) => {
+    const { title, creator, engine } = game;
     const escapedTitle = title.replace(/'/g, "''");
     const escapedCreator = creator.replace(/'/g, "''");
-    const escapedEngine = engine ? engine.replace(/'/g, "''") : '';
-    const escapedDescription = description ? description.replace(/'/g, "''") : '';
-    db.run(
-      `INSERT OR REPLACE INTO games (title, creator, engine, description, last_played_r, total_playtime) VALUES (?, ?, ?, ?, 0, 0)`,
-      [escapedTitle, escapedCreator, escapedEngine, escapedDescription],
-      function (err) {
+    const escapedEngine = engine.replace(/'/g, "''");
+
+    // Check if game already exists
+    db.get(
+      `SELECT record_id FROM games WHERE title = ? AND creator = ?`,
+      [escapedTitle, escapedCreator],
+      (err, row) => {
         if (err) {
-          console.error('Error adding or updating game:', err);
+          console.error('Error checking existing game:', err);
           reject(err);
-        } else {
-          db.get(
-            `SELECT record_id FROM games WHERE title = ? AND creator = ? AND engine = ?`,
-            [escapedTitle, escapedCreator, escapedEngine],
-            (err, row) => {
-              if (err) reject(err);
-              else resolve(row.record_id);
-            }
-          );
+          return;
         }
+        if (row) {
+          // Game exists, return existing record_id
+          console.log(`Game ${title} by ${creator} already exists with record_id: ${row.record_id}`);
+          resolve(row.record_id);
+          return;
+        }
+        // Game doesn't exist, insert new record
+        db.run(
+          `INSERT INTO games (title, creator, engine, last_played_r, total_playtime)
+           VALUES (?, ?, ?, 0, 0)`,
+          [escapedTitle, escapedCreator, escapedEngine],
+          function (err) {
+            if (err) {
+              console.error('Error inserting game:', err);
+              reject(err);
+              return;
+            }
+            // Return the new record_id
+            console.log(`Inserted new game ${title} by ${creator} with record_id: ${this.lastID}`);
+            resolve(this.lastID);
+          }
+        );
       }
     );
   });
