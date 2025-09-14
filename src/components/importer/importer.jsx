@@ -39,10 +39,15 @@ const Importer = () => {
       window.electronAPI.log(`Scan progress: ${JSON.stringify(prog)}`);
       setProgress(prog);
     });
-    window.electronAPI.onScanComplete((games) => {
+    window.electronAPI.onScanComplete((game) => {
+      console.log(`Received incremental game: ${JSON.stringify(game)}`);
+      window.electronAPI.log(`Received incremental game: ${JSON.stringify(game)}`);
+      setGamesList(prev => [...prev, game]); // Append new game incrementally
+    });
+    window.electronAPI.onScanCompleteFinal((games) => {
       console.log(`Scan complete, received ${games.length} games`);
       window.electronAPI.log(`Scan complete, received ${games.length} games`);
-      setGamesList(games);
+      setGamesList(games); // Set final games list to ensure all are included
     });
     window.electronAPI.onUpdateProgress((prog) => {
       console.log(`Update progress: ${JSON.stringify(prog)}`);
@@ -81,6 +86,7 @@ const Importer = () => {
     console.log('Starting scan');
     window.electronAPI.log('Starting scan');
     setView('scan');
+    setGamesList([]); // Clear gamesList to start fresh
     const params = {
       folder,
       format: useUnstructured ? '' : customFormat,
@@ -136,10 +142,10 @@ const Importer = () => {
   const updateMatches = async () => {
     console.log('Updating games');
     window.electronAPI.log('Updating games');
-    const updated = [...gamesList];
-    const total = updated.length;
+    const total = gamesList.length;
     setUpdateProgress({ value: 0, total });
     window.electronAPI.sendUpdateProgress({ value: 0, total });
+    let updated = [...gamesList];
     for (let i = 0; i < updated.length; i++) {
       const game = updated[i];
       console.log(`Searching for game: ${game.title}, Creator: ${game.creator}`);
@@ -181,6 +187,9 @@ const Importer = () => {
         game.resultSelectedValue = '';
         game.resultVisibility = 'hidden';
       }
+      // Update the table incrementally with a slight delay to ensure rendering
+      await new Promise(resolve => setTimeout(resolve, 0));
+      setGamesList([...updated]);
       setUpdateProgress({ value: i + 1, total });
       window.electronAPI.sendUpdateProgress({ value: i + 1, total });
     }
@@ -188,7 +197,6 @@ const Importer = () => {
     window.electronAPI.log('Finished updating games');
     setUpdateProgress({ value: total, total });
     window.electronAPI.sendUpdateProgress({ value: total, total });
-    setGamesList(updated);
   };
 
   const importGamesFunc = () => {
@@ -401,12 +409,8 @@ const Importer = () => {
           <div className="space-y-4">
             <h2 className="text-xl">Scan Results</h2>
             <div className="flex items-center">
-              <progress value={updateProgress.value || progress.value} max={updateProgress.total || progress.total} className="w-96" />
-              <span className="ml-2">
-                {updateProgress.total > 0
-                  ? `${updateProgress.value}/${updateProgress.total} Games Updated`
-                  : `${progress.value}/${progress.total} Folders Scanned`}
-              </span>
+              <progress value={progress.value} max={progress.total} className="w-96" />
+              <span className="ml-2">{progress.value}/{progress.total} Folders Scanned</span>
             </div>
             <span>Found {progress.potential} Games</span>
             <div className="overflow-auto max-h-96">
