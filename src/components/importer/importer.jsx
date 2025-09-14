@@ -143,7 +143,8 @@ const Importer = () => {
   return (
     <div className="h-screen flex flex-col">
       {/* Window Controls */}
-      <div className="bg-primary h-8 flex justify-end items-center pr-2">
+      <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
+      <p className="text-sm absolute left-2 top-1">Import Games Wizard</p>
       <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
         <button
           onClick={() => window.electronAPI.minimizeWindow()}
@@ -165,10 +166,9 @@ const Importer = () => {
         </button>
       </div>
       </div>
-      <div className="flex-1 p-4">
+      <div className="flex-1 p-4 bg-secondary">
         {view === 'settings' ? (
-          <div className="space-y-4">
-            <h2 className="text-xl">Import Games Wizard</h2>
+          <div className="space-y-4">            
             <div className="flex items-center">
               <label>Game Path:</label>
               <input type="text" value={folder} readOnly className="ml-2 flex-1 bg-secondary border border-border p-1" />
