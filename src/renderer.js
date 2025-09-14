@@ -32,7 +32,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('db-update-progress', (event, progress) => callback(progress));
   },
   onScanProgress: (callback) => ipcRenderer.on('scan-progress', (event, progress) => callback(progress)),
-  onScanComplete: (callback) => ipcRenderer.on('scan-complete', (event, games) => callback(games)),
+  onScanComplete: (callback) => ipcRenderer.on('scan-complete', (event, game) => callback(game)),
+  onScanCompleteFinal: (callback) => ipcRenderer.on('scan-complete-final', (event, games) => callback(games)),
   onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (event, progress) => callback(progress)),
   onImportProgress: (callback) => ipcRenderer.on('import-progress', (event, progress) => callback(progress)),
   onGameImported: (callback) => ipcRenderer.on('game-imported', callback),

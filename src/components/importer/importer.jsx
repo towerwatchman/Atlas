@@ -39,10 +39,15 @@ const Importer = () => {
       window.electronAPI.log(`Scan progress: ${JSON.stringify(prog)}`);
       setProgress(prog);
     });
-    window.electronAPI.onScanComplete((games) => {
+    window.electronAPI.onScanComplete((game) => {
+      console.log(`Received incremental game: ${JSON.stringify(game)}`);
+      window.electronAPI.log(`Received incremental game: ${JSON.stringify(game)}`);
+      setGamesList(prev => [...prev, game]); // Append new game incrementally
+    });
+    window.electronAPI.onScanCompleteFinal((games) => {
       console.log(`Scan complete, received ${games.length} games`);
       window.electronAPI.log(`Scan complete, received ${games.length} games`);
-      setGamesList(games);
+      setGamesList(games); // Set final games list to ensure all are included
     });
     window.electronAPI.onUpdateProgress((prog) => {
       console.log(`Update progress: ${JSON.stringify(prog)}`);
@@ -81,6 +86,7 @@ const Importer = () => {
     console.log('Starting scan');
     window.electronAPI.log('Starting scan');
     setView('scan');
+    setGamesList([]); // Clear gamesList to start fresh
     const params = {
       folder,
       format: useUnstructured ? '' : customFormat,
@@ -136,10 +142,10 @@ const Importer = () => {
   const updateMatches = async () => {
     console.log('Updating games');
     window.electronAPI.log('Updating games');
-    const updated = [...gamesList];
-    const total = updated.length;
+    const total = gamesList.length;
     setUpdateProgress({ value: 0, total });
     window.electronAPI.sendUpdateProgress({ value: 0, total });
+    let updated = [...gamesList];
     for (let i = 0; i < updated.length; i++) {
       const game = updated[i];
       console.log(`Searching for game: ${game.title}, Creator: ${game.creator}`);
@@ -181,6 +187,9 @@ const Importer = () => {
         game.resultSelectedValue = '';
         game.resultVisibility = 'hidden';
       }
+      // Update the table incrementally with a slight delay to ensure rendering
+      await new Promise(resolve => setTimeout(resolve, 0));
+      setGamesList([...updated]);
       setUpdateProgress({ value: i + 1, total });
       window.electronAPI.sendUpdateProgress({ value: i + 1, total });
     }
@@ -188,7 +197,6 @@ const Importer = () => {
     window.electronAPI.log('Finished updating games');
     setUpdateProgress({ value: total, total });
     window.electronAPI.sendUpdateProgress({ value: total, total });
-    setGamesList(updated);
   };
 
   const importGamesFunc = () => {
@@ -217,7 +225,7 @@ const Importer = () => {
   console.log('Rendering Importer component, view:', view);
   window.electronAPI.log(`Rendering Importer component, view: ${view}`);
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col fixed w-full">
       {/* Window Controls */}
       <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
         <p className="text-sm absolute left-2 top-1">Import Games Wizard</p>
@@ -245,9 +253,9 @@ const Importer = () => {
           </button>
         </div>
       </div>
-      <div className="flex-1 p-4 bg-secondary">
+      <div className="flex-1 p-4 bg-secondary overflow-y-auto">
         {view === 'settings' ? (
-          <div className="space-y-4">
+          <div className="space-y-4 flex-1">
             <div className="flex items-center">
               <label>Game Path:</label>
               <input
@@ -398,21 +406,19 @@ const Importer = () => {
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
-            <h2 className="text-xl">Scan Results</h2>
-            <div className="flex items-center">
-              <progress value={updateProgress.value || progress.value} max={updateProgress.total || progress.total} className="w-96" />
-              <span className="ml-2">
-                {updateProgress.total > 0
-                  ? `${updateProgress.value}/${updateProgress.total} Games Updated`
-                  : `${progress.value}/${progress.total} Folders Scanned`}
-              </span>
+          <div className="h-full flex flex-col">
+            <div className="shrink-0">
+              <h2 className="text-xl mb-4">Scan Results</h2>
+              <div className="flex items-center mb-4">
+                <progress value={progress.value} max={progress.total} className="w-96" />
+                <span className="ml-2">{progress.value}/{progress.total} Folders Scanned</span>
+              </div>
+              <span className="mb-4">Found {progress.potential} Games</span>
             </div>
-            <span>Found {progress.potential} Games</span>
-            <div className="overflow-auto max-h-96">
+            <div className="flex-1 overflow-y-auto">
               <table className="w-full border-collapse border border-border">
                 <thead>
-                  <tr className="bg-secondary">
+                  <tr className="bg-secondary sticky top-0">
                     <th className="border border-border p-1">Atlas ID</th>
                     <th className="border border-border p-1">F95 ID</th>
                     <th className="border border-border p-1">Title</th>
@@ -495,7 +501,7 @@ const Importer = () => {
                 </tbody>
               </table>
             </div>
-            <div className="flex justify-end space-x-2">
+            <div className="shrink-0 mt-4 flex justify-end space-x-2">
               <button
                 onClick={handleUpdateClick}
                 className="bg-elementNormal hover:bg-elementSelected text-text p-2 rounded"

@@ -50,8 +50,12 @@ async function startScan(params, window) {
       const file = files[i];
       if (fs.statSync(file).isFile()) {
         console.log(`Scanning file: ${file} (isFile: true)`);
-        await findGame(file, format, extensions, folder, 5, true, games, window, params, []);
-        window.webContents.send('scan-progress', { value: i + 1, total: files.length, potential: games.length });
+        const success = await findGame(file, format, extensions, folder, 5, true, games, window, params, []);
+        if (success) {
+          potential = games.length;
+          window.webContents.send('scan-complete', games[games.length - 1]); // Send each game incrementally
+        }
+        window.webContents.send('scan-progress', { value: i + 1, total: files.length, potential });
       }
     }
   } else {
@@ -75,9 +79,13 @@ async function startScan(params, window) {
     if (rootExecutables.length > 0) {
       console.log(`Scanning root directory with executables: ${folder} (isFile: false)`);
       const res = await findGame(folder, format, extensions, folder, 0, false, games, window, params, rootExecutables);
-      if (res) foundInRoot = true;
+      if (res) {
+        foundInRoot = true;
+        potential = games.length;
+        window.webContents.send('scan-complete', games[games.length - 1]); // Send each game incrementally
+      }
     }
-    window.webContents.send('scan-progress', { value: ittr, total: totalDirs, potential: games.length });
+    window.webContents.send('scan-progress', { value: ittr, total: totalDirs, potential });
 
     // Scan top-level directories if no match in root or deeper scanning is needed
     if (!foundInRoot) {
@@ -94,7 +102,11 @@ async function startScan(params, window) {
         if (dirExecutables.length > 0) {
           console.log(`Scanning directory with executables: ${dir} (isFile: false)`);
           const res = await findGame(dir, format, extensions, folder, 0, false, games, window, params, dirExecutables);
-          if (res) found = true;
+          if (res) {
+            found = true;
+            potential = games.length;
+            window.webContents.send('scan-complete', games[games.length - 1]); // Send each game incrementally
+          }
         }
         // Only scan subdirectories if no match was found
         if (!found) {
@@ -116,17 +128,22 @@ async function startScan(params, window) {
             if (subdirExecutables.length > 0) {
               console.log(`Scanning version directory with executables: ${t} (isFile: false)`);
               const res = await findGame(t, format, extensions, folder, 0, false, games, window, params, subdirExecutables);
-              if (res) found = true;
+              if (res) {
+                found = true;
+                potential = games.length;
+                window.webContents.send('scan-complete', games[games.length - 1]); // Send each game incrementally
+              }
             }
           }
         }
-        window.webContents.send('scan-progress', { value: ittr, total: totalDirs, potential: games.length });
+        window.webContents.send('scan-progress', { value: ittr, total: totalDirs, potential });
       }
     }
   }
 
-  console.log(`Scan complete. Found ${games.length} games: ${games.map(g => g.title).join(', ')}`);
-  window.webContents.send('scan-complete', games);
+  console.log(`Scan complete. Total games found: ${games.length}`);
+  // Send final scan-complete to ensure any remaining games are processed
+  window.webContents.send('scan-complete-final', games);
 }
 
 function getAllSubdirs(root) {
