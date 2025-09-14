@@ -225,7 +225,7 @@ const Importer = () => {
   console.log('Rendering Importer component, view:', view);
   window.electronAPI.log(`Rendering Importer component, view: ${view}`);
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col fixed w-full">
       {/* Window Controls */}
       <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
         <p className="text-sm absolute left-2 top-1">Import Games Wizard</p>
@@ -253,9 +253,9 @@ const Importer = () => {
           </button>
         </div>
       </div>
-      <div className="flex-1 p-4 bg-secondary">
+      <div className="flex-1 p-4 bg-secondary overflow-y-auto">
         {view === 'settings' ? (
-          <div className="space-y-4">
+          <div className="space-y-4 flex-1">
             <div className="flex items-center">
               <label>Game Path:</label>
               <input
@@ -406,17 +406,19 @@ const Importer = () => {
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
-            <h2 className="text-xl">Scan Results</h2>
-            <div className="flex items-center">
-              <progress value={progress.value} max={progress.total} className="w-96" />
-              <span className="ml-2">{progress.value}/{progress.total} Folders Scanned</span>
+          <div className="h-full flex flex-col">
+            <div className="shrink-0">
+              <h2 className="text-xl mb-4">Scan Results</h2>
+              <div className="flex items-center mb-4">
+                <progress value={progress.value} max={progress.total} className="w-96" />
+                <span className="ml-2">{progress.value}/{progress.total} Folders Scanned</span>
+              </div>
+              <span className="mb-4">Found {progress.potential} Games</span>
             </div>
-            <span>Found {progress.potential} Games</span>
-            <div className="overflow-auto max-h-96">
+            <div className="flex-1 overflow-y-auto">
               <table className="w-full border-collapse border border-border">
                 <thead>
-                  <tr className="bg-secondary">
+                  <tr className="bg-secondary sticky top-0">
                     <th className="border border-border p-1">Atlas ID</th>
                     <th className="border border-border p-1">F95 ID</th>
                     <th className="border border-border p-1">Title</th>
@@ -499,7 +501,7 @@ const Importer = () => {
                 </tbody>
               </table>
             </div>
-            <div className="flex justify-end space-x-2">
+            <div className="shrink-0 mt-4 flex justify-end space-x-2">
               <button
                 onClick={handleUpdateClick}
                 className="bg-elementNormal hover:bg-elementSelected text-text p-2 rounded"
