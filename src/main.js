@@ -144,6 +144,12 @@ if (!fs.existsSync(imagesDir)) {
   fs.mkdirSync(imagesDir, { recursive: true });
 }
 
+const templatesDir = path.join(dataDir, 'templates/banner');
+if (!fs.existsSync(templatesDir)) {
+  fs.mkdirSync(templatesDir, { recursive: true });
+}
+
+
 // Setup electron-updater events
 autoUpdater.setFeedURL({
   provider: 'github',
@@ -389,6 +395,53 @@ ipcMain.handle('update-progress', async (event, progress) => {
   const window = BrowserWindow.fromWebContents(event.sender);
   if (window) {
     window.webContents.send('update-progress', progress);
+  }
+});
+
+ipcMain.handle('get-available-banner-templates', async () => {
+  const templatesDir = path.join(__dirname, 'data', 'templates', 'banner');
+  try {
+    if (!fs.existsSync(templatesDir)) {
+      fs.mkdirSync(templatesDir, { recursive: true });
+      console.log(`Created templates directory: ${templatesDir}`);
+    }
+    const files = fs.readdirSync(templatesDir).filter(file => file.endsWith('.js'));
+    return files.map(file => path.basename(file, '.js'));
+  } catch (err) {
+    console.error('Error reading templates directory:', err);
+    return [];
+  }
+});
+
+ipcMain.handle('get-selected-banner-template', async () => {
+  const configPath = path.join(__dirname, 'data', 'config.ini');
+  try {
+    const configData = fs.readFileSync(configPath, 'utf-8');
+    const match = configData.match(/bannerTemplate=(.*)/);
+    return match ? match[1] : 'Default';
+  } catch (err) {
+    console.error('Error reading selected banner template:', err);
+    return 'Default';
+  }
+});
+
+ipcMain.handle('set-selected-banner-template', async (event, template) => {
+  const configPath = path.join(__dirname, 'data', 'config.ini');
+  try {
+    let configData = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf-8') : '';
+    configData = configData.replace(/bannerTemplate=.*/g, '') + `\nbannerTemplate=${template}`;
+    fs.writeFileSync(configPath, configData.trim());
+  } catch (err) {
+    console.error('Error saving selected banner template:', err);
+    throw err;
+  }
+});
+
+ipcMain.handle('open-external-url', async (event, url) => {
+  try {
+    await require('electron').shell.openExternal(url);
+  } catch (err) {
+    console.error('Error opening external URL:', err);
   }
 });
 

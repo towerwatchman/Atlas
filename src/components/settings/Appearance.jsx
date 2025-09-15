@@ -1,13 +1,37 @@
+const { useState, useEffect } = window.React;
+
 const Appearance = () => {
-  const [theme, setTheme] = React.useState('');
-  const [banner, setBanner] = React.useState('');
+  const [theme, setTheme] = useState('Default');
+  const [banner, setBanner] = useState('Default');
+  const [availableTemplates, setAvailableTemplates] = useState(['Default']);
+
+  useEffect(() => {
+    // Fetch available templates from data/templates/banner
+    const loadTemplates = async () => {
+      try {
+        const templates = await window.electronAPI.getAvailableBannerTemplates();
+        setAvailableTemplates(['Default', ...templates]);
+      } catch (err) {
+        console.error('Error fetching banner templates:', err);
+        window.electronAPI.log(`Error fetching banner templates: ${err.message}`);
+      }
+    };
+    loadTemplates();
+  }, []);
 
   const handleLoadTheme = () => {
     alert('Theme loaded. Changes saved.');
   };
 
-  const handleLoadBanner = () => {
-    alert('Banner layout loaded.');
+  const handleLoadBanner = async () => {
+    try {
+      await window.electronAPI.setSelectedBannerTemplate(banner);
+      alert('Banner layout loaded.');
+    } catch (err) {
+      console.error('Error loading banner template:', err);
+      window.electronAPI.log(`Error loading banner template: ${err.message}`);
+      alert('Failed to load banner template.');
+    }
   };
 
   const handleOpenXamlEditor = () => {
@@ -44,7 +68,9 @@ const Appearance = () => {
             value={banner}
             onChange={(e) => setBanner(e.target.value)}
           >
-            <option>Default</option>
+            {availableTemplates.map((template) => (
+              <option key={template} value={template}>{template}</option>
+            ))}
           </select>
           <button
             className="ml-5 bg-accent text-text px-4 py-1 rounded hover:bg-hover"

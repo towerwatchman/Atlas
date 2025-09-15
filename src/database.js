@@ -263,51 +263,140 @@ const addVersion = (game, recordId) => {
   });
 };
 
-const getGames = async (appPath, isDev) => {
+const getGames = (appPath, isDev) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = isDev
-      ? path.join(appPath, "src")
+      ? path.join(appPath, 'src')
       : path.resolve(appPath, '../../');
-    db.all(`
-      WITH LatestVersion AS (
-        SELECT record_id, MAX(date_added) as latest_date
-        FROM versions
-        GROUP BY record_id
-      )
-      SELECT 
-        g.record_id,
-        g.title,
-        g.creator,
-        g.engine,
-        g.description,
-        g.total_playtime,
-        g.last_played_r,
-        v.version,
-        v.game_path,
-        v.exec_path,
-        v.in_place,
-        v.last_played,
-        v.version_playtime,
-        v.folder_size,
-        v.date_added,
+
+    // Main query combining provided SQL with original fields
+    const mainQuery = `
+      SELECT
+        games.record_id as record_id,
+        atlas_mappings.atlas_id as atlas_id,
+        games.title as title,
+        games.creator as creator,
+        games.engine as engine,
+        games.description,
+        games.total_playtime,
+        games.last_played_r,
+        games.last_played_version,
         CASE 
-          WHEN b.path IS NOT NULL THEN REPLACE('${baseImagePath}/' || b.path, '\\', '/')
+          WHEN banners.path IS NOT NULL THEN REPLACE('${baseImagePath}/' || banners.path, '\\', '/')
           ELSE NULL
         END AS banner_url,
-        GROUP_CONCAT(t.tag) AS tags
-      FROM games g
-      INNER JOIN LatestVersion lv ON g.record_id = lv.record_id
-      INNER JOIN versions v ON g.record_id = v.record_id AND v.date_added = lv.latest_date
-      LEFT JOIN banners b ON g.record_id = b.record_id
-      LEFT JOIN tag_mappings tm ON g.record_id = tm.record_id
-      LEFT JOIN tags t ON tm.tag_id = t.tag_id
-      GROUP BY g.record_id
-    `, [], (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows || []);
+        f95_zone_data.f95_id as f95_id,
+        f95_zone_data.site_url as siteUrl,
+        f95_zone_data.views as views,
+        f95_zone_data.likes as likes,
+        f95_zone_data.tags as f95_tags,
+        f95_zone_data.rating as rating,
+        atlas_data.status,
+        atlas_data.version as latestVersion,
+        atlas_data.category,
+        atlas_data.censored,
+        atlas_data.genre,
+        atlas_data.language,
+        atlas_data.os,
+        atlas_data.overview,
+        atlas_data.translations,
+        atlas_data.release_date,
+        atlas_data.voice,
+        atlas_data.short_name,
+        GROUP_CONCAT(tags.tag) AS tags
+      FROM
+        games
+      LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+      LEFT JOIN banners ON games.record_id = banners.record_id
+      LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
+      LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+      LEFT JOIN tag_mappings ON games.record_id = tag_mappings.record_id
+      LEFT JOIN tags ON tag_mappings.tag_id = tags.tag_id
+      GROUP BY games.record_id
+    `;
+
+    // Query to aggregate versions for each game
+    const versionsQuery = `
+      SELECT record_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added
+      FROM versions
+    `;
+
+    // Execute main query
+    db.all(mainQuery, [], (err, rows) => {
+      if (err) {
+        console.error('Error fetching games:', err);
+        reject(err);
+        return;
+      }
+
+      // Execute versions query
+      db.all(versionsQuery, [], (err, versionRows) => {
+        if (err) {
+          console.error('Error fetching versions:', err);
+          reject(err);
+          return;
+        }
+
+        // Group versions by record_id
+        const versionsByRecordId = {};
+        versionRows.forEach((row) => {
+          if (!versionsByRecordId[row.record_id]) {
+            versionsByRecordId[row.record_id] = [];
+          }
+          versionsByRecordId[row.record_id].push({
+            version: row.version,
+            game_path: row.game_path,
+            exec_path: row.exec_path,
+            in_place: row.in_place,
+            last_played: row.last_played,
+            version_playtime: row.version_playtime,
+            folder_size: row.folder_size,
+            date_added: row.date_added
+          });
+        });
+
+        // Map rows to include versions array and isUpdateAvailable
+        const games = rows.map((row) => {
+          const versions = versionsByRecordId[row.record_id] || [];
+          // Compute isUpdateAvailable based on C# logic
+          let isUpdateAvailable = false;
+          if (row.latestVersion && versions.length > 0) {
+            let latest;
+            try {
+              latest = parseInt(row.latestVersion.replace(/[^0-9]/g, ''), 10);
+            } catch {
+              latest = 0;
+            }
+            for (const version of versions) {
+              let current;
+              try {
+                current = parseInt(version.version.replace(/[^0-9]/g, ''), 10);
+              } catch {
+                current = 0;
+              }
+              if (latest > current) {
+                isUpdateAvailable = true;
+              } else {
+                isUpdateAvailable = false;
+                break;
+              }
+            }
+          }
+
+          return {
+            ...row,
+            versions,
+            isUpdateAvailable
+          };
+        });
+
+        console.log(`Fetched ${games.length} games with versions`);
+        resolve(games);
+      });
     });
   });
 };
+
 
 const removeGame = async (record_id) => {
   return new Promise((resolve, reject) => {

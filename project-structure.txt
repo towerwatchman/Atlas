@@ -3,18 +3,18 @@
 │   └── installerSidebar.bmp (154542 bytes)
 ├── generate-structure.js (1962 bytes)
 ├── LICENSE (35802 bytes)
-├── package-lock.json (245343 bytes)
-├── package.json (2781 bytes)
+├── package-lock.json (262991 bytes)
+├── package.json (2845 bytes)
 ├── postcss.config.js (85 bytes)
 ├── project-structure.txt (0 bytes)
 ├── README.md (3742 bytes)
 ├── src
-│   ├── App.jsx (28563 bytes)
+│   ├── App.jsx (30425 bytes)
 │   ├── assets
 │   │   ├── css
 │   │   │   ├── main.css (154 bytes)
 │   │   │   ├── tailwind.css (60 bytes)
-│   │   │   └── tailwind.output.css (22747 bytes)
+│   │   │   └── tailwind.output.css (22971 bytes)
 │   │   ├── icons
 │   │   │   ├── atlas_logo.svg (977 bytes)
 │   │   │   ├── data.js (655 bytes)
@@ -26,9 +26,9 @@
 │   │   ├── GameBanner.js (693 bytes)
 │   │   ├── GameDetails.js (730 bytes)
 │   │   ├── importer
-│   │   │   └── importer.jsx (14162 bytes)
+│   │   │   └── importer.jsx (24446 bytes)
 │   │   ├── scanners
-│   │   │   └── f95scanner.js (9923 bytes)
+│   │   │   └── f95scanner.js (14172 bytes)
 │   │   ├── settings
 │   │   │   ├── Appearance.jsx (2689 bytes)
 │   │   │   ├── Emulators.jsx (262 bytes)
@@ -41,23 +41,21 @@
 │   │   └── Sidebar.js (5720 bytes)
 │   ├── data
 │   │   ├── config.ini (252 bytes)
-│   │   ├── data.db (56332288 bytes)
+│   │   ├── data.db (56422400 bytes)
 │   │   ├── games
 │   │   │   (empty directory)
 │   │   ├── images
 │   │   │   (empty directory)
 │   │   └── updates
-│   │       ├── 1757649607.update (16536974 bytes)
-│   │       ├── 1757661685.update (933827 bytes)
-│   │       ├── 1757683270.update (944997 bytes)
-│   │       ├── 1757704910.update (947516 bytes)
-│   │       ├── 1757722931.update (942817 bytes)
-│   │       └── 1757736006.update (16552717 bytes)
-│   ├── database.js (16707 bytes)
-│   ├── importer.html (652 bytes)
+│   │       ├── 1757822409.update (16566700 bytes)
+│   │       ├── 1757834436.update (894284 bytes)
+│   │       ├── 1757855997.update (875821 bytes)
+│   │       └── 1757878242.update (936617 bytes)
+│   ├── database.js (23220 bytes)
+│   ├── importer.html (757 bytes)
 │   ├── index.html (1231 bytes)
-│   ├── main.js (15892 bytes)
-│   ├── renderer.js (2165 bytes)
+│   ├── main.js (22741 bytes)
+│   ├── renderer.js (2793 bytes)
 │   ├── settings.html (1291 bytes)
 │   └── _data
 │       ├── data.db (52912128 bytes)
