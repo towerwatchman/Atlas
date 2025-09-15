@@ -5,7 +5,7 @@ const axios = require('axios');
 const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
-const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList } = require('./database');
+const { checkRecordExist, checkPathExist ,initializeDatabase, addGame, addVersion, addAtlasMapping, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList } = require('./database');
 
 let mainWindow;
 let settingsWindow;
@@ -106,8 +106,9 @@ function createImporterWindow() {
 
   importerWindow.loadFile(path.join(__dirname, 'importer.html'));
 
-  // Force DevTools open for debugging
-  importerWindow.webContents.openDevTools();
+  if (process.argv.includes('--dev') || appConfig?.Interface?.showDebugConsole) {
+    importerWindow.webContents.openDevTools();
+  }
 
   importerWindow.on('maximize', () => {
     importerWindow.webContents.send('window-state-changed', 'maximized');
@@ -148,7 +149,6 @@ const templatesDir = path.join(dataDir, 'templates/banner');
 if (!fs.existsSync(templatesDir)) {
   fs.mkdirSync(templatesDir, { recursive: true });
 }
-
 
 // Setup electron-updater events
 autoUpdater.setFeedURL({
@@ -247,11 +247,11 @@ ipcMain.handle('unzip-game', async (event, { zipPath, extractPath }) => {
     if (ext === '.zip') {
       const zip = new AdmZip(zipPath);
       zip.extractAllTo(extractPath, true);
-    } else if (ext === '.rar') {
-      const unrar = new Unrar(zipPath);
-      unrar.extract(extractPath);
     } else if (ext === '.7z') {
       await Seven.extractFull(zipPath, extractPath);
+    } else if (ext === '.rar') {
+      const extractor = new Unrar(zipPath);
+      extractor.extract(extractPath);
     } else {
       throw new Error('Unsupported file format');
     }
@@ -381,10 +381,14 @@ ipcMain.handle('get-atlas-data', async (event, atlasId) => {
 });
 
 ipcMain.handle('check-record-exist', async (event, { title, creator, engine, version, path }) => {
-  const { checkRecordExist } = require('./database');
-  const existsByDetails = await checkRecordExist(title, creator, engine, version);
-  if (existsByDetails) return true;
-  return checkPathExist(path, title);
+  try {
+    const existsByDetails = await checkRecordExist(title, creator, engine, version);
+    if (existsByDetails) return true;
+    return checkPathExist(path, title);
+  } catch (err) {
+    console.error('Error in check-record-exist:', err);
+    return false;
+  }
 });
 
 ipcMain.handle('log', async (event, message) => {
@@ -414,7 +418,6 @@ ipcMain.handle('get-available-banner-templates', async () => {
 });
 
 ipcMain.handle('get-selected-banner-template', async () => {
-  const configPath = path.join(__dirname, 'data', 'config.ini');
   try {
     const configData = fs.readFileSync(configPath, 'utf-8');
     const match = configData.match(/bannerTemplate=(.*)/);
@@ -426,7 +429,6 @@ ipcMain.handle('get-selected-banner-template', async () => {
 });
 
 ipcMain.handle('set-selected-banner-template', async (event, template) => {
-  const configPath = path.join(__dirname, 'data', 'config.ini');
   try {
     let configData = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf-8') : '';
     configData = configData.replace(/bannerTemplate=.*/g, '') + `\nbannerTemplate=${template}`;
@@ -446,126 +448,100 @@ ipcMain.handle('open-external-url', async (event, url) => {
 });
 
 ipcMain.handle('import-games', async (event, params) => {
-  const { games, deleteAfter, scanSize, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos, gameExt } = params;
-  const gamesDir = path.join(dataDir, 'games');
-  if (!fs.existsSync(gamesDir)) fs.mkdirSync(gamesDir, { recursive: true });
-
+  const { games, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos, deleteAfter, scanSize, isCompressed } = params;
   const total = games.length;
   let progress = 0;
-  mainWindow.webContents.send('import-progress', { text: `Starting import of ${total} games...`, progress, total });
-
   const results = [];
+  const successfulImports = [];
+
+  // First, import all game data without downloading images
   for (const game of games) {
     try {
-      let imageTotal = 0;
-      if ((downloadBannerImages || downloadPreviewImages) && game.atlasId) {
-        const bannerUrl = await getBannerUrl(game.atlasId);
-        const screenUrls = await getScreensUrlList(game.atlasId);
-        const previewCount = downloadPreviewImages ? (previewLimit === 'Unlimited' ? screenUrls.length : Math.min(parseInt(previewLimit), screenUrls.length)) : 0;
-        imageTotal = (downloadBannerImages && bannerUrl ? 3 : 0) + previewCount;
-      }
-      mainWindow.webContents.send('import-progress', { 
-        text: `Importing game '${game.title}' ${progress + 1}/${total}${imageTotal > 0 ? `, downloading images 0/${imageTotal}` : ''}`, 
-        progress, 
-        total 
-      });
-
-      let gamePath = game.folder;
-      let execPath = game.selectedValue ? path.join(gamePath, game.selectedValue) : '';
-      let size = 0;
-
-      if (game.isArchive) {
-        const extractPath = path.join(gamesDir, `${game.title}-${game.version}`);
-        if (!fs.existsSync(extractPath)) fs.mkdirSync(extractPath, { recursive: true });
-        await unzipGame({ zipPath: game.folder, extractPath });
-        if (deleteAfter) fs.unlinkSync(game.folder);
-        gamePath = extractPath;
-
-        const execs = findExecutables(extractPath, gameExt);
-        if (execs.length > 0) {
-          const selected = execs[0];
-          execPath = path.join(extractPath, selected);
-          for (const [eng, patterns] of Object.entries(engineMap)) {
-            if (patterns.some(p => selected.toLowerCase().includes(p))) {
-              game.engine = eng;
-              break;
-            }
-          }
-          game.executables = execs.map(e => ({ key: e, value: e }));
-          game.selectedValue = selected;
+      const exists = await checkRecordExist(game.title, game.creator, game.version);
+      if (exists) {
+        results.push({ success: false, error: 'Record already exists' });
+      } else {
+        const record_id = await addGame({
+          title: game.title,
+          creator: game.creator,
+          engine: game.engine || 'Unknown'
+        });
+        await addVersion(game, record_id);
+        if (game.atlasId) {
+          await addAtlasMapping(record_id, game.atlasId);
         }
-      }
-
-      if (scanSize) {
-        size = getFolderSize(gamePath);
-      }
-
-      const add = {
-        title: game.title,
-        creator: game.creator,
-        engine: game.engine,
-        description: game.description || 'Imported game'
-      };
-
-      console.log('Adding Game');
-      const recordId = await addGame(add);
-      console.log('game added');
-      console.log('adding version');
-      await addVersion({ ...game, folder: gamePath, execPath, folderSize: size }, recordId);
-      console.log('added version');
-      console.log('adding mapping');
-      console.log('recordId:', recordId, 'atlasId:', game.atlasId);
-      if (game.atlasId) {
-        try {
-          await addAtlasMapping(recordId, game.atlasId);
-          console.log('mapping added');
-        } catch (err) {
-          console.error('Failed to add atlas mapping:', err);
-          throw err;
+        if (scanSize) {
+          const size = getFolderSize(game.folder);
+          await updateFolderSize(record_id, game.version, size);
         }
+        successfulImports.push({
+          recordId: record_id,
+          atlasId: game.atlasId,
+          title: game.title
+        });
+        results.push({ success: true });
+        mainWindow.webContents.send('game-imported'); // Send to main window after game import
       }
-
-      if ((downloadBannerImages || downloadPreviewImages) && game.atlasId) {
-        await downloadImagesFunc(recordId, game.atlasId, (current, totalImages) => {
-          mainWindow.webContents.send('import-progress', { 
-            text: `Importing game '${game.title}' ${progress + 1}/${total}, downloading images ${current}/${totalImages}`, 
-            progress, 
-            total 
-          });
-        }, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos);
-      }
-
-      if (size > 0) await updateFolderSize(recordId, game.version, size);
-      results.push({ success: true, recordId });
-
-      progress++;
-      mainWindow.webContents.send('import-progress', { 
-        text: `Imported game '${game.title}' ${progress}/${total}${imageTotal > 0 ? `, ${imageTotal} images downloaded` : ''}`, 
-        progress, 
-        total 
-      });
-      mainWindow.webContents.send('game-imported');
     } catch (err) {
       console.error('Error importing game:', err);
       results.push({ success: false, error: err.message });
+    } finally {
       progress++;
       mainWindow.webContents.send('import-progress', { 
-        text: `Error importing game '${game.title}' ${progress}/${total}: ${err.message}`, 
+        text: `Importing game data '${game.title}' ${progress}/${total}`, 
         progress, 
         total 
+      });
+    }
+
+    if (deleteAfter && isCompressed && game.folder) {
+      try {
+        if (fs.existsSync(game.folder)) {
+          fs.unlinkSync(game.folder);
+          console.log(`Deleted archive: ${game.folder}`);
+        }
+      } catch (err) {
+        console.error(`Error deleting archive for ${game.title}:`, err);
+      }
+    }
+  }
+
+  // Now, download images for all successfully imported games that require it
+  const imageDownloads = successfulImports.filter(imp => imp.atlasId && (downloadBannerImages || downloadPreviewImages));
+  const imageTotal = imageDownloads.length;
+  let imageProgress = 0;
+
+  for (const imp of imageDownloads) {
+    try {
+      const onImageProgress = (current, totalImages) => {
+        mainWindow.webContents.send('import-progress', { 
+          text: `Downloading image ${current} of ${totalImages} for '${imp.title}'`, 
+          progress: imageProgress, 
+          total: imageTotal 
+        });
+      };
+      await downloadImagesFunc(imp.recordId, imp.atlasId, onImageProgress, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos);
+      mainWindow.webContents.send('game-imported'); // Send to main window after images downloaded
+    } catch (err) {
+      console.error(`Error downloading images for ${imp.title}:`, err);
+    } finally {
+      imageProgress++;
+      mainWindow.webContents.send('import-progress', { 
+        text: `Completed images for '${imp.title}' (${imageProgress}/${imageTotal})`, 
+        progress: imageProgress, 
+        total: imageTotal 
       });
     }
   }
 
   mainWindow.webContents.send('import-progress', { 
     text: `Import complete: ${results.filter(r => r.success).length} successful`, 
-    progress, 
-    total 
+    progress: imageTotal, 
+    total: imageTotal 
   });
 
   return results;
 });
-
 const engineMap = {
   rpgm: ['rpgmv.exe', 'rpgmk.exe', 'rpgvx.exe', 'rpgvxace.exe', 'rpgmktranspatch.exe'],
   renpy: ['renpy.exe', 'renpy.sh'],
@@ -624,6 +600,9 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
   const previewCount = downloadPreviewImages ? (previewLimit === 'Unlimited' ? screenUrls.length : Math.min(parseInt(previewLimit), screenUrls.length)) : 0;
   const totalImages = (bannerUrl ? 3 : 0) + previewCount;
 
+  // Delay function to enforce 2 requests per second (500ms per request)
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
   if (bannerUrl) {
     console.log(`Downloading banner from URL: ${bannerUrl}`);
     try {
@@ -633,7 +612,6 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
       const relativePath = path.join('data', 'images', recordId.toString(), baseName);
 
       let imageBytes;
-      let downloaded = false;
       if (['.gif', '.mp4', '.webm'].includes(ext) && downloadVideos) {
         const animatedPath = `${imagePath}${ext}`;
         if (!fs.existsSync(animatedPath)) {
@@ -641,7 +619,7 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
           imageBytes = Buffer.from(response.data);
           fs.writeFileSync(animatedPath, imageBytes);
           await updateBanners(recordId, `${relativePath}${ext}`, 'banner');
-          downloaded = true;
+          await delay(500); // Enforce 2 requests per second
         }
         imageProgress++;
         onImageProgress(imageProgress, totalImages);
@@ -653,11 +631,10 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
         if (!imageBytes) {
           const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
           imageBytes = Buffer.from(response.data);
-          downloaded = true;
+          await delay(500); // Enforce 2 requests per second
         }
         await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(highResPath);
         await updateBanners(recordId, `${relativePath}_mc.webp`, 'banner');
-        downloaded = true;
       }
       imageProgress++;
       onImageProgress(imageProgress, totalImages);
@@ -666,19 +643,15 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
         if (!imageBytes) {
           const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
           imageBytes = Buffer.from(response.data);
-          downloaded = true;
+          await delay(500); // Enforce 2 requests per second
         }
         await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(lowResPath);
         await updateBanners(recordId, `${relativePath}_sc.webp`, 'banner');
-        downloaded = true;
       }
       imageProgress++;
       onImageProgress(imageProgress, totalImages);
 
       console.log('Banner images updated');
-      if (downloaded) {
-        await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (2000 - 1000 + 1)) + 1000));
-      }
     } catch (err) {
       console.error('Error downloading or converting banner:', err);
     }
@@ -695,10 +668,10 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
         const relativePath = path.join('data', 'images', recordId.toString(), baseName);
 
         const targetPath = (['.gif', '.mp4', '.webm'].includes(ext) && downloadVideos) ? `${imagePath}${ext}` : `${imagePath}_pr.webp`;
-        let downloaded = false;
         if (!fs.existsSync(targetPath)) {
           const response = await axios.get(url, { responseType: 'arraybuffer' });
           const imageBytes = Buffer.from(response.data);
+          await delay(500); // Enforce 2 requests per second
 
           if (['.gif', '.mp4', '.webm'].includes(ext) && downloadVideos) {
             fs.writeFileSync(targetPath, imageBytes);
@@ -707,14 +680,10 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
             await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(targetPath);
             await updatePreviews(recordId, `${relativePath}_pr.webp`);
           }
-          downloaded = true;
         }
         imageProgress++;
         onImageProgress(imageProgress, totalImages);
         console.log(`Screen ${i + 1} updated`);
-        if (downloaded) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (2000 - 1000 + 1)) + 1000));
-        }
       } catch (err) {
         console.error(`Error downloading or converting screen ${i + 1}:`, err);
       }

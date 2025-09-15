@@ -493,7 +493,7 @@ const searchAtlas = async (title, creator) => {
     async () => {
       return new Promise((resolve, reject) => {
         db.all(
-          `SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ? AND creator LIKE ?`,
+          `SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ? AND creator LIKE ? LIMIT 10`,
           [`%${title}%`, `%${creator}%`],
           (err, rows) => {
             if (err) reject(err);
@@ -513,7 +513,7 @@ const searchAtlas = async (title, creator) => {
           LENGTH(short_name) - LENGTH(?) as difference
         FROM atlas_data
         WHERE short_name LIKE ?
-        ORDER BY LENGTH(short_name) - LENGTH(?)
+        ORDER BY LENGTH(short_name) - LENGTH(?) LIMIT 10
       `;
       return new Promise((resolve, reject) => {
         db.all(
@@ -548,7 +548,7 @@ const searchAtlas = async (title, creator) => {
           LENGTH(full_name) - LENGTH(?) as difference
         FROM data_0
         WHERE full_name LIKE ?
-        ORDER BY LENGTH(full_name) - LENGTH(?)
+        ORDER BY LENGTH(full_name) - LENGTH(?) LIMIT 10
       `;
       return new Promise((resolve, reject) => {
         db.all(
@@ -565,7 +565,7 @@ const searchAtlas = async (title, creator) => {
       // Title-only search
       return new Promise((resolve, reject) => {
         db.all(
-          `SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ?`,
+          `SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ? LIMIT 10`,
           [`%${title}%`],
           (err, rows) => {
             if (err) reject(err);
@@ -596,9 +596,9 @@ const searchAtlas = async (title, creator) => {
       }
       if (hasF95Id) {
         // Return results from this query if any have f95_id
-        const filteredRows = enrichedRows.filter(row =>findF95Id(row.atlas_id));
+        const filteredRows = enrichedRows.filter(row => row.f95_id);
         console.log(`Query found ${filteredRows.length} results with f95_id`);
-        return filteredRows.length > 0 ? filteredRows : enrichedRows;
+        return filteredRows.slice(0, 10); // Limit to 10 results
       }
     } catch (err) {
       console.error('Error in searchAtlas query:', err);
@@ -608,9 +608,8 @@ const searchAtlas = async (title, creator) => {
   // If no results with f95_id, return all unique results from all queries
   const finalResults = Array.from(allResults.values());
   console.log(`Returning ${finalResults.length} unique results from all queries`);
-  return finalResults;
+  return finalResults.slice(0, 10); // Limit to 10 unique results
 };
-
 
 const findF95Id = (atlasId) => {
   return new Promise((resolve, reject) => {
