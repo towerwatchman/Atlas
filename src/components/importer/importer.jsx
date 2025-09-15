@@ -199,21 +199,27 @@ const Importer = () => {
     window.electronAPI.sendUpdateProgress({ value: total, total });
   };
 
-  const importGamesFunc = () => {
-    console.log('Importing games');
-    window.electronAPI.log('Importing games');
+  const importGamesFunc = async () => {
+    console.log('Starting game import');
+    window.electronAPI.log('Starting game import');
     const params = {
       games: gamesList,
-      deleteAfter,
-      scanSize,
       downloadBannerImages,
       downloadPreviewImages,
       previewLimit,
       downloadVideos,
-      gameExt: gameExt.split(',').map(e => e.trim())
+      deleteAfter,
+      scanSize,
+      isCompressed
     };
-    window.electronAPI.importGames(params);
-    window.electronAPI.closeWindow();
+    try {
+      await window.electronAPI.importGames(params);
+      window.electronAPI.closeWindow(); // Close importer window after initiating import
+    } catch (err) {
+      console.error('Error importing games:', err);
+      window.electronAPI.log(`Error importing games: ${err.message}`);
+      alert(`Error importing games: ${err.message}`);
+    }
   };
 
   const handleUpdateClick = (event) => {
