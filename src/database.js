@@ -385,6 +385,8 @@ const getGames = (appPath, isDev) => {
 
           return {
             ...row,
+            // Unescape engine to fix 'Ren''Py' issue
+            engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
             versions,
             isUpdateAvailable
           };

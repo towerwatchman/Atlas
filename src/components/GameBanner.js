@@ -58,14 +58,30 @@ const GameBanner = ({ game, onSelect }) => {
     return statusColors[status] || 'transparent'; // Default to transparent if unknown
   };
 
-  // Default template with updated status and version rendering
+  // Default template with fixed update button
   const DefaultBannerTemplate = ({ game, onSelect }) => {
     const children = [
       // Top overlay
       React.createElement('div', {
         key: 'top-overlay',
-        className: 'absolute top-0 left-0 w-full h-[26px] bg-black opacity-80 z-10'
-      }),
+        className: 'absolute top-0 left-0 w-full h-[26px] bg-black opacity-80 z-10 flex items-center'
+      }, [
+        // Update Available button at top-right, vertically centered
+        game.isUpdateAvailable &&
+          React.createElement(
+            'button',
+            {
+              key: 'update-button',
+              className: 'absolute right-0 w-[90px] h-[20px] bg-transparent border border-yellow-400 text-yellow-400 text-[10px] rounded-sm mr-2.5 z-30',
+              onClick: (e) => {
+                e.stopPropagation();
+                console.log(`Opening siteUrl: ${game.siteUrl}`); // Debug log
+                window.electronAPI.openExternalUrl(game.siteUrl);
+              }
+            },
+            'Update Available!'
+          )
+      ]),
       // Bottom overlay
       React.createElement('div', {
         key: 'bottom-overlay',
@@ -82,20 +98,6 @@ const GameBanner = ({ game, onSelect }) => {
             className: 'absolute top-0 left-0 text-white text-xs ml-2.5 mt-1.5',
             children: game.creator || 'Unknown'
           }),
-          // Update Available button at top-right
-          game.isUpdateAvailable &&
-            React.createElement(
-              'button',
-              {
-                key: 'update-button',
-                className: 'absolute top-0 right-0 w-[90px] h-[20px] bg-transparent border border-yellow-400 text-yellow-400 text-[10px] rounded-sm m-1 hover:bg-yellow-400 hover:text-black',
-                onClick: (e) => {
-                  e.stopPropagation();
-                  window.electronAPI.openExternalUrl(game.siteUrl);
-                }
-              },
-              'Update Available!'
-            ),
           // Bottom overlay content
           React.createElement(
             'div',
