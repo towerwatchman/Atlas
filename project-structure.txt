@@ -1,0 +1,320 @@
+├── build
+│   ├── installer.nsh (610 bytes)
+│   └── installerSidebar.bmp (154542 bytes)
+├── generate-structure.js (1962 bytes)
+├── LICENSE (35802 bytes)
+├── package-lock.json (262991 bytes)
+├── package.json (2845 bytes)
+├── postcss.config.js (85 bytes)
+├── project-structure.txt (0 bytes)
+├── README.md (3742 bytes)
+├── src
+│   ├── App.jsx (30425 bytes)
+│   ├── assets
+│   │   ├── css
+│   │   │   ├── main.css (154 bytes)
+│   │   │   ├── tailwind.css (60 bytes)
+│   │   │   └── tailwind.output.css (22971 bytes)
+│   │   ├── icons
+│   │   │   ├── atlas_logo.svg (977 bytes)
+│   │   │   ├── data.js (655 bytes)
+│   │   │   └── home.svg (486 bytes)
+│   │   └── images
+│   │       ├── appicon.ico (454664 bytes)
+│   │       └── atlas_logo.svg (663762 bytes)
+│   ├── components
+│   │   ├── GameBanner.js (693 bytes)
+│   │   ├── GameDetails.js (730 bytes)
+│   │   ├── importer
+│   │   │   └── importer.jsx (24446 bytes)
+│   │   ├── scanners
+│   │   │   └── f95scanner.js (14172 bytes)
+│   │   ├── settings
+│   │   │   ├── Appearance.jsx (2689 bytes)
+│   │   │   ├── Emulators.jsx (262 bytes)
+│   │   │   ├── Interface.jsx (4693 bytes)
+│   │   │   ├── Library.jsx (4170 bytes)
+│   │   │   ├── Metadata.jsx (1351 bytes)
+│   │   │   ├── Platforms.jsx (262 bytes)
+│   │   │   ├── Settings.jsx (3810 bytes)
+│   │   │   └── settingsIcons.js (6817 bytes)
+│   │   └── Sidebar.js (5720 bytes)
+│   ├── data
+│   │   ├── config.ini (252 bytes)
+│   │   ├── data.db (56422400 bytes)
+│   │   ├── games
+│   │   │   (empty directory)
+│   │   ├── images
+│   │   │   (empty directory)
+│   │   └── updates
+│   │       ├── 1757822409.update (16566700 bytes)
+│   │       ├── 1757834436.update (894284 bytes)
+│   │       ├── 1757855997.update (875821 bytes)
+│   │       └── 1757878242.update (936617 bytes)
+│   ├── database.js (23220 bytes)
+│   ├── importer.html (757 bytes)
+│   ├── index.html (1231 bytes)
+│   ├── main.js (22741 bytes)
+│   ├── renderer.js (2793 bytes)
+│   ├── settings.html (1291 bytes)
+│   └── _data
+│       ├── data.db (52912128 bytes)
+│       ├── games
+│       │   (empty directory)
+│       ├── images
+│       │   ├── 1
+│       │   │   (empty directory)
+│       │   ├── 10
+│       │   │   (empty directory)
+│       │   ├── 100
+│       │   │   (empty directory)
+│       │   ├── 101
+│       │   │   (empty directory)
+│       │   ├── 102
+│       │   │   (empty directory)
+│       │   ├── 103
+│       │   │   (empty directory)
+│       │   ├── 104
+│       │   │   (empty directory)
+│       │   ├── 105
+│       │   │   (empty directory)
+│       │   ├── 106
+│       │   │   (empty directory)
+│       │   ├── 107
+│       │   │   (empty directory)
+│       │   ├── 108
+│       │   │   (empty directory)
+│       │   ├── 109
+│       │   │   (empty directory)
+│       │   ├── 11
+│       │   │   (empty directory)
+│       │   ├── 110
+│       │   │   (empty directory)
+│       │   ├── 111
+│       │   │   (empty directory)
+│       │   ├── 112
+│       │   │   (empty directory)
+│       │   ├── 113
+│       │   │   (empty directory)
+│       │   ├── 114
+│       │   │   (empty directory)
+│       │   ├── 115
+│       │   │   (empty directory)
+│       │   ├── 116
+│       │   │   (empty directory)
+│       │   ├── 117
+│       │   │   (empty directory)
+│       │   ├── 119
+│       │   │   (empty directory)
+│       │   ├── 12
+│       │   │   (empty directory)
+│       │   ├── 121
+│       │   │   (empty directory)
+│       │   ├── 122
+│       │   │   (empty directory)
+│       │   ├── 123
+│       │   │   (empty directory)
+│       │   ├── 124
+│       │   │   (empty directory)
+│       │   ├── 125
+│       │   │   (empty directory)
+│       │   ├── 126
+│       │   │   (empty directory)
+│       │   ├── 128
+│       │   │   (empty directory)
+│       │   ├── 13
+│       │   │   (empty directory)
+│       │   ├── 130
+│       │   │   (empty directory)
+│       │   ├── 132
+│       │   │   (empty directory)
+│       │   ├── 133
+│       │   │   (empty directory)
+│       │   ├── 134
+│       │   │   (empty directory)
+│       │   ├── 135
+│       │   │   (empty directory)
+│       │   ├── 136
+│       │   │   (empty directory)
+│       │   ├── 14
+│       │   │   (empty directory)
+│       │   ├── 15
+│       │   │   (empty directory)
+│       │   ├── 16
+│       │   │   (empty directory)
+│       │   ├── 17
+│       │   │   (empty directory)
+│       │   ├── 18
+│       │   │   (empty directory)
+│       │   ├── 19
+│       │   │   (empty directory)
+│       │   ├── 2
+│       │   │   (empty directory)
+│       │   ├── 21
+│       │   │   (empty directory)
+│       │   ├── 22
+│       │   │   (empty directory)
+│       │   ├── 23
+│       │   │   (empty directory)
+│       │   ├── 24
+│       │   │   (empty directory)
+│       │   ├── 25
+│       │   │   (empty directory)
+│       │   ├── 26
+│       │   │   (empty directory)
+│       │   ├── 27
+│       │   │   (empty directory)
+│       │   ├── 28
+│       │   │   (empty directory)
+│       │   ├── 29
+│       │   │   (empty directory)
+│       │   ├── 3
+│       │   │   (empty directory)
+│       │   ├── 30
+│       │   │   (empty directory)
+│       │   ├── 31
+│       │   │   (empty directory)
+│       │   ├── 32
+│       │   │   (empty directory)
+│       │   ├── 33
+│       │   │   (empty directory)
+│       │   ├── 34
+│       │   │   (empty directory)
+│       │   ├── 35
+│       │   │   (empty directory)
+│       │   ├── 36
+│       │   │   (empty directory)
+│       │   ├── 37
+│       │   │   (empty directory)
+│       │   ├── 38
+│       │   │   (empty directory)
+│       │   ├── 39
+│       │   │   (empty directory)
+│       │   ├── 4
+│       │   │   (empty directory)
+│       │   ├── 40
+│       │   │   (empty directory)
+│       │   ├── 41
+│       │   │   (empty directory)
+│       │   ├── 42
+│       │   │   (empty directory)
+│       │   ├── 43
+│       │   │   (empty directory)
+│       │   ├── 44
+│       │   │   (empty directory)
+│       │   ├── 45
+│       │   │   (empty directory)
+│       │   ├── 46
+│       │   │   (empty directory)
+│       │   ├── 47
+│       │   │   (empty directory)
+│       │   ├── 49
+│       │   │   (empty directory)
+│       │   ├── 5
+│       │   │   (empty directory)
+│       │   ├── 50
+│       │   │   (empty directory)
+│       │   ├── 51
+│       │   │   (empty directory)
+│       │   ├── 53
+│       │   │   (empty directory)
+│       │   ├── 54
+│       │   │   (empty directory)
+│       │   ├── 55
+│       │   │   (empty directory)
+│       │   ├── 56
+│       │   │   (empty directory)
+│       │   ├── 57
+│       │   │   (empty directory)
+│       │   ├── 58
+│       │   │   (empty directory)
+│       │   ├── 59
+│       │   │   (empty directory)
+│       │   ├── 6
+│       │   │   (empty directory)
+│       │   ├── 60
+│       │   │   (empty directory)
+│       │   ├── 61
+│       │   │   (empty directory)
+│       │   ├── 62
+│       │   │   (empty directory)
+│       │   ├── 63
+│       │   │   (empty directory)
+│       │   ├── 64
+│       │   │   (empty directory)
+│       │   ├── 65
+│       │   │   (empty directory)
+│       │   ├── 66
+│       │   │   (empty directory)
+│       │   ├── 67
+│       │   │   (empty directory)
+│       │   ├── 68
+│       │   │   (empty directory)
+│       │   ├── 69
+│       │   │   (empty directory)
+│       │   ├── 7
+│       │   │   (empty directory)
+│       │   ├── 70
+│       │   │   (empty directory)
+│       │   ├── 71
+│       │   │   (empty directory)
+│       │   ├── 72
+│       │   │   (empty directory)
+│       │   ├── 73
+│       │   │   (empty directory)
+│       │   ├── 74
+│       │   │   (empty directory)
+│       │   ├── 75
+│       │   │   (empty directory)
+│       │   ├── 76
+│       │   │   (empty directory)
+│       │   ├── 78
+│       │   │   (empty directory)
+│       │   ├── 79
+│       │   │   (empty directory)
+│       │   ├── 8
+│       │   │   (empty directory)
+│       │   ├── 80
+│       │   │   (empty directory)
+│       │   ├── 83
+│       │   │   (empty directory)
+│       │   ├── 84
+│       │   │   (empty directory)
+│       │   ├── 85
+│       │   │   (empty directory)
+│       │   ├── 86
+│       │   │   (empty directory)
+│       │   ├── 87
+│       │   │   (empty directory)
+│       │   ├── 88
+│       │   │   (empty directory)
+│       │   ├── 89
+│       │   │   (empty directory)
+│       │   ├── 9
+│       │   │   (empty directory)
+│       │   ├── 90
+│       │   │   (empty directory)
+│       │   ├── 91
+│       │   │   (empty directory)
+│       │   ├── 92
+│       │   │   (empty directory)
+│       │   ├── 93
+│       │   │   (empty directory)
+│       │   ├── 94
+│       │   │   (empty directory)
+│       │   ├── 95
+│       │   │   (empty directory)
+│       │   ├── 96
+│       │   │   (empty directory)
+│       │   ├── 97
+│       │   │   (empty directory)
+│       │   ├── 98
+│       │   │   (empty directory)
+│       │   └── 99
+│       │       (empty directory)
+│       ├── logs
+│       │   (empty directory)
+│       └── updates
+│           (empty directory)
+└── tailwind.config.js (574 bytes)
+
