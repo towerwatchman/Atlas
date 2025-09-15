@@ -608,7 +608,7 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
     try {
       const ext = path.extname(new URL(bannerUrl).pathname).toLowerCase();
       const baseName = path.basename(bannerUrl, ext);
-      const imagePath = path.join(imgDir, baseName);
+      const imagePath = path.join(imgDir, 'banner');
       const relativePath = path.join('data', 'images', recordId.toString(), baseName);
 
       let imageBytes;
@@ -663,7 +663,7 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
       console.log(`Downloading screen ${i + 1} from URL: ${url}`);
       try {
         const ext = path.extname(new URL(url).pathname).toLowerCase();
-        const baseName = `preview${i}`;
+        const baseName = path.basename(url, ext);
         const imagePath = path.join(imgDir, baseName);
         const relativePath = path.join('data', 'images', recordId.toString(), baseName);
 
