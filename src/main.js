@@ -5,7 +5,7 @@ const axios = require('axios');
 const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
-const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList } = require('./database');
+const { checkRecordExist, checkPathExist ,initializeDatabase, addGame, addVersion, addAtlasMapping, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList } = require('./database');
 
 let mainWindow;
 let settingsWindow;
@@ -272,7 +272,7 @@ ipcMain.handle('check-updates', async () => {
 });
 
 ipcMain.handle('check-db-updates', async () => {
-  return checkDbUpdates(dataDir, updatesDir, mainWindow.webContents);
+  return checkDbUpdates(updatesDir, mainWindow);
 });
 
 ipcMain.handle('minimize-window', () => {
@@ -382,7 +382,6 @@ ipcMain.handle('get-atlas-data', async (event, atlasId) => {
 
 ipcMain.handle('check-record-exist', async (event, { title, creator, engine, version, path }) => {
   try {
-    const { checkRecordExist, checkPathExist } = require('./database');
     const existsByDetails = await checkRecordExist(title, creator, engine, version);
     if (existsByDetails) return true;
     return checkPathExist(path, title);
@@ -458,7 +457,6 @@ ipcMain.handle('import-games', async (event, params) => {
   // First, import all game data without downloading images
   for (const game of games) {
     try {
-      const { checkRecordExist, checkPathExist } = require('./database');
       const exists = await checkRecordExist(game.title, game.creator, game.version);
       if (exists) {
         results.push({ success: false, error: 'Record already exists' });
@@ -482,7 +480,7 @@ ipcMain.handle('import-games', async (event, params) => {
           title: game.title
         });
         results.push({ success: true });
-        mainWindow.webContents.send('game-imported'); // Send to main window
+        mainWindow.webContents.send('game-imported'); // Send to main window after game import
       }
     } catch (err) {
       console.error('Error importing game:', err);
@@ -496,11 +494,11 @@ ipcMain.handle('import-games', async (event, params) => {
       });
     }
 
-    if (deleteAfter && isCompressed) {
-      // Note: game.zipPath is not provided; assuming game.folder for archives
+    if (deleteAfter && isCompressed && game.folder) {
       try {
         if (fs.existsSync(game.folder)) {
           fs.unlinkSync(game.folder);
+          console.log(`Deleted archive: ${game.folder}`);
         }
       } catch (err) {
         console.error(`Error deleting archive for ${game.title}:`, err);
@@ -517,18 +515,19 @@ ipcMain.handle('import-games', async (event, params) => {
     try {
       const onImageProgress = (current, totalImages) => {
         mainWindow.webContents.send('import-progress', { 
-          text: `Downloading image ${current}/${totalImages} for '${imp.title}'`, 
-          progress: imageProgress + (current / totalImages), 
+          text: `Downloading image ${current} of ${totalImages} for '${imp.title}'`, 
+          progress: imageProgress, 
           total: imageTotal 
         });
       };
       await downloadImagesFunc(imp.recordId, imp.atlasId, onImageProgress, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos);
+      mainWindow.webContents.send('game-imported'); // Send to main window after images downloaded
     } catch (err) {
       console.error(`Error downloading images for ${imp.title}:`, err);
     } finally {
       imageProgress++;
       mainWindow.webContents.send('import-progress', { 
-        text: `Downloaded images for '${imp.title}' ${imageProgress}/${imageTotal}`, 
+        text: `Completed images for '${imp.title}' (${imageProgress}/${imageTotal})`, 
         progress: imageProgress, 
         total: imageTotal 
       });
@@ -543,7 +542,6 @@ ipcMain.handle('import-games', async (event, params) => {
 
   return results;
 });
-
 const engineMap = {
   rpgm: ['rpgmv.exe', 'rpgmk.exe', 'rpgvx.exe', 'rpgvxace.exe', 'rpgmktranspatch.exe'],
   renpy: ['renpy.exe', 'renpy.sh'],
@@ -602,6 +600,9 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
   const previewCount = downloadPreviewImages ? (previewLimit === 'Unlimited' ? screenUrls.length : Math.min(parseInt(previewLimit), screenUrls.length)) : 0;
   const totalImages = (bannerUrl ? 3 : 0) + previewCount;
 
+  // Delay function to enforce 2 requests per second (500ms per request)
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
   if (bannerUrl) {
     console.log(`Downloading banner from URL: ${bannerUrl}`);
     try {
@@ -611,7 +612,6 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
       const relativePath = path.join('data', 'images', recordId.toString(), baseName);
 
       let imageBytes;
-      let downloaded = false;
       if (['.gif', '.mp4', '.webm'].includes(ext) && downloadVideos) {
         const animatedPath = `${imagePath}${ext}`;
         if (!fs.existsSync(animatedPath)) {
@@ -619,7 +619,7 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
           imageBytes = Buffer.from(response.data);
           fs.writeFileSync(animatedPath, imageBytes);
           await updateBanners(recordId, `${relativePath}${ext}`, 'banner');
-          downloaded = true;
+          await delay(500); // Enforce 2 requests per second
         }
         imageProgress++;
         onImageProgress(imageProgress, totalImages);
@@ -631,11 +631,10 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
         if (!imageBytes) {
           const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
           imageBytes = Buffer.from(response.data);
-          downloaded = true;
+          await delay(500); // Enforce 2 requests per second
         }
         await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(highResPath);
         await updateBanners(recordId, `${relativePath}_mc.webp`, 'banner');
-        downloaded = true;
       }
       imageProgress++;
       onImageProgress(imageProgress, totalImages);
@@ -644,19 +643,15 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
         if (!imageBytes) {
           const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
           imageBytes = Buffer.from(response.data);
-          downloaded = true;
+          await delay(500); // Enforce 2 requests per second
         }
         await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(lowResPath);
         await updateBanners(recordId, `${relativePath}_sc.webp`, 'banner');
-        downloaded = true;
       }
       imageProgress++;
       onImageProgress(imageProgress, totalImages);
 
       console.log('Banner images updated');
-      if (downloaded) {
-        await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (2000 - 1000 + 1)) + 1000));
-      }
     } catch (err) {
       console.error('Error downloading or converting banner:', err);
     }
@@ -673,10 +668,10 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
         const relativePath = path.join('data', 'images', recordId.toString(), baseName);
 
         const targetPath = (['.gif', '.mp4', '.webm'].includes(ext) && downloadVideos) ? `${imagePath}${ext}` : `${imagePath}_pr.webp`;
-        let downloaded = false;
         if (!fs.existsSync(targetPath)) {
           const response = await axios.get(url, { responseType: 'arraybuffer' });
           const imageBytes = Buffer.from(response.data);
+          await delay(500); // Enforce 2 requests per second
 
           if (['.gif', '.mp4', '.webm'].includes(ext) && downloadVideos) {
             fs.writeFileSync(targetPath, imageBytes);
@@ -685,14 +680,10 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
             await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(targetPath);
             await updatePreviews(recordId, `${relativePath}_pr.webp`);
           }
-          downloaded = true;
         }
         imageProgress++;
         onImageProgress(imageProgress, totalImages);
         console.log(`Screen ${i + 1} updated`);
-        if (downloaded) {
-          await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (2000 - 1000 + 1)) + 1000));
-        }
       } catch (err) {
         console.error(`Error downloading or converting screen ${i + 1}:`, err);
       }

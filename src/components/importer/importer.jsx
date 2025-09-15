@@ -213,13 +213,13 @@ const Importer = () => {
       isCompressed
     };
     try {
-      await window.electronAPI.importGames(params);
-      window.electronAPI.closeWindow(); // Close importer window after initiating import
+      window.electronAPI.importGames(params); // Invoke without await to allow immediate window close
     } catch (err) {
-      console.error('Error importing games:', err);
-      window.electronAPI.log(`Error importing games: ${err.message}`);
-      alert(`Error importing games: ${err.message}`);
+      console.error('Error initiating game import:', err);
+      window.electronAPI.log(`Error initiating game import: ${err.message}`);
+      alert(`Error initiating game import: ${err.message}`);
     }
+    window.electronAPI.closeWindow(); // Close window immediately
   };
 
   const handleUpdateClick = (event) => {
