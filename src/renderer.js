@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   importGames: (params) => ipcRenderer.invoke('import-games', params),
   log: (message) => ipcRenderer.invoke('log', message),
   sendUpdateProgress: (progress) => ipcRenderer.invoke('update-progress', progress),
+  getAvailableBannerTemplates: () => ipcRenderer.invoke('get-available-banner-templates'),
+  getSelectedBannerTemplate: () => ipcRenderer.invoke('get-selected-banner-template'),
+  setSelectedBannerTemplate: (template) => ipcRenderer.invoke('set-selected-banner-template', template),
+  openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
   onWindowStateChanged: (callback) => {
     ipcRenderer.on('window-state-changed', (event, state) => callback(state));
   },
