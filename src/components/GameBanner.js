@@ -1,5 +1,37 @@
 const { useState, useEffect } = window.React;
 
+// Inline CSS for hover effects
+const bannerStyles = `
+  .banner-root {
+    perspective: 1000px;
+    transform-style: preserve-3d;
+    transform: skewX(0.001deg);
+    transition: transform 0.35s ease-in-out;
+  }
+  .banner-root:hover {
+    transform: rotateX(7deg) translateY(-6px) scale(1.05);
+    transition: transform 0.35s ease-in-out 0.1s;
+  }
+  .banner-root::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    top: 5%;
+    left: 5%;
+    width: 90%;
+    height: 90%;
+    background: rgba(0,0,0,0.5);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    transform-origin: top center;
+    transform: skewX(0.001deg);
+    transition: transform 0.35s ease-in-out 0.1s, opacity 0.5s ease-in-out 0.1s;
+  }
+  .banner-root:hover::before {
+    opacity: 0.6;
+    transform: rotateX(7deg) translateY(-6px) scale(1.05);
+  }
+`;
+
 const GameBanner = ({ game, onSelect }) => {
   const [template, setTemplate] = useState(null);
 
@@ -58,50 +90,55 @@ const GameBanner = ({ game, onSelect }) => {
     return statusColors[status] || 'transparent'; // Default to transparent if unknown
   };
 
-  // Default template with fixed update button
+  // Default template
   const DefaultBannerTemplate = ({ game, onSelect }) => {
     const children = [
+      // Inline styles for hover effects
+      React.createElement('style', { key: 'banner-styles' }, bannerStyles),
       // Top overlay
       React.createElement('div', {
         key: 'top-overlay',
-        className: 'absolute top-0 left-0 w-full h-[26px] bg-black opacity-80 z-10 flex items-center'
-      }, [
-        // Update Available button at top-right, vertically centered
-        game.isUpdateAvailable &&
-          React.createElement(
-            'button',
-            {
-              key: 'update-button',
-              className: 'absolute right-0 w-[90px] h-[20px] bg-transparent border border-yellow-400 text-yellow-400 text-[10px] rounded-sm mr-2.5 z-30',
-              onClick: (e) => {
-                e.stopPropagation();
-                console.log(`Opening siteUrl: ${game.siteUrl}`); // Debug log
-                window.electronAPI.openExternalUrl(game.siteUrl);
-              }
-            },
-            'Update Available!'
-          )
-      ]),
+        className: 'absolute top-0 left-0 w-full h-[28px] bg-black opacity-80 z-10'
+      }),
       // Bottom overlay
       React.createElement('div', {
         key: 'bottom-overlay',
-        className: 'absolute bottom-0 left-0 w-full h-[26px] bg-black opacity-80 z-10'
+        className: 'absolute bottom-0 left-0 w-full h-[28px] bg-black opacity-80 z-10'
       }),
       // Text and button elements
       React.createElement(
         'div',
         { key: 'content-layer', className: 'absolute inset-0 z-20' },
         [
-          // Creator in top-left of top overlay
+          // Creator in top-left of top overlay, vertically centered
           React.createElement('div', {
             key: 'creator',
-            className: 'absolute top-0 left-0 text-white text-xs ml-2.5 mt-1.5',
+            className: 'absolute top-0 left-0 text-white text-xs ml-2.5 flex items-center h-[28px]',
             children: game.creator || 'Unknown'
           }),
+          // Update Available button at top-right, vertically centered
+          game.isUpdateAvailable &&
+            React.createElement(
+              'button',
+              {
+                key: 'update-button',
+                className: 'absolute top-[4px] right-2.5 w-[90px] h-[20px] bg-transparent border border-yellow-400 text-yellow-400 text-[10px] rounded-sm z-30 pointer-events-auto',
+                onClick: (e) => {
+                  e.stopPropagation();
+                  console.log(`Attempting to open siteUrl: ${game.siteUrl}`);
+                  if (game.siteUrl && typeof game.siteUrl === 'string' && game.siteUrl.startsWith('http')) {
+                    window.electronAPI.openExternalUrl(game.siteUrl);
+                  } else {
+                    console.error(`Invalid siteUrl: ${game.siteUrl}`);
+                  }
+                }
+              },
+              'Update Available!'
+            ),
           // Bottom overlay content
           React.createElement(
             'div',
-            { key: 'bottom-content', className: 'absolute bottom-0 left-0 w-full h-[26px] flex items-center' },
+            { key: 'bottom-content', className: 'absolute bottom-0 left-0 w-full h-[28px] flex items-center' },
             [
               // Engine at bottom-left with rounded background
               React.createElement('div', {
@@ -144,21 +181,33 @@ const GameBanner = ({ game, onSelect }) => {
       )
     ];
 
-    // Conditionally add banner image if banner_url exists
+    // Conditionally add banner image
     if (game.banner_url) {
-      children.splice(1, 0, React.createElement('img', {
-        key: 'banner-image',
-        src: game.banner_url,
-        alt: game.title,
-        className: 'w-[537px] h-[251px] object-contain'
+      children.splice(1, 0, React.createElement('div', {
+        key: 'banner-image-container',
+        className: 'absolute top-0 left-0 w-[537px] h-[251px] z-0 bg-[#1F2937]'
+      }, [
+        React.createElement('img', {
+          src: game.banner_url,
+          alt: game.title,
+          className: 'w-[537px] h-[251px] object-contain'
+        })
+      ]));
+    } else {
+      // Fallback background when no image
+      children.splice(1, 0, React.createElement('div', {
+        key: 'banner-fallback',
+        className: 'absolute top-0 left-0 w-[537px] h-[251px] bg-[#1F2937] z-0'
       }));
     }
 
     return React.createElement(
       'div',
       {
-        className: 'relative w-[537px] h-[251px] border border-black cursor-pointer overflow-hidden',
-        onClick: onSelect
+        className: 'relative w-[537px] h-[251px] border border-black cursor-pointer overflow-hidden banner-root',
+        onClick: onSelect,
+        onMouseEnter: () => console.log(`Hover started on banner: ${game.title || 'Unknown'}`),
+        onMouseLeave: () => console.log(`Hover ended on banner: ${game.title || 'Unknown'}`)
       },
       children
     );
