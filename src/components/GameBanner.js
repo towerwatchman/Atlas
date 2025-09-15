@@ -40,12 +40,20 @@ const GameBanner = ({ game, onSelect }) => {
     const loadTemplate = async () => {
       try {
         const selectedTemplate = await window.electronAPI.getSelectedBannerTemplate();
+        console.log(`Attempting to load template: ${selectedTemplate}`);
         if (selectedTemplate && selectedTemplate !== 'Default') {
-          // Dynamically import the template JS file from data/templates/banner
-          const templateModule = await import(`../../data/templates/banner/${selectedTemplate}.js`);
-          setTemplate(() => templateModule.default);
+          try {
+            // Adjust path based on project structure
+            const templateModule = await import(`./data/templates/banner/${selectedTemplate}.js`);
+            console.log(`Successfully loaded template: ${selectedTemplate}`);
+            setTemplate(() => templateModule.default);
+          } catch (importErr) {
+            console.error(`Failed to import template ${selectedTemplate}:`, importErr);
+            window.electronAPI.log(`Failed to import template ${selectedTemplate}: ${importErr.message}`);
+            setTemplate(() => DefaultBannerTemplate); // Fallback to default
+          }
         } else {
-          // Use default template
+          console.log('Using default template');
           setTemplate(() => DefaultBannerTemplate);
         }
       } catch (err) {
@@ -75,7 +83,7 @@ const GameBanner = ({ game, onSelect }) => {
       'WebGL': '#E56200',
       'Wolf RPG': '#4B8926'
     };
-    return engineColors[engine] || '#4B8926'; // Default to Wolf RPG color if unknown
+    return engineColors[engine] || '#4B8926'; // Default to Wolf RPG color
   };
 
   // Status background color mapping based on C# Style.Triggers
@@ -87,7 +95,7 @@ const GameBanner = ({ game, onSelect }) => {
       '': 'transparent',
       null: 'transparent'
     };
-    return statusColors[status] || 'transparent'; // Default to transparent if unknown
+    return statusColors[status] || 'transparent'; // Default to transparent
   };
 
   // Default template

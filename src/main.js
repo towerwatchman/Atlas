@@ -29,7 +29,7 @@ function createWindow() {
       preload: path.join(__dirname, 'renderer.js'),
       contextIsolation: true,
       enableRemoteModule: false,
-      nodeIntegration: false
+      nodeIntegration: true
     }
   });
 
