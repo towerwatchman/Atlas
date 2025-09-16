@@ -199,8 +199,7 @@ const defaultConfig = {
     atlasStartup: 'Do Nothing',
     gameStartup: 'Do Nothing',
     showDebugConsole: false,
-    minimizeToTray: false,
-    maxGamesDisplayed: 256
+    minimizeToTray: false
   },
   Library: {
     rootPath: dataDir,
@@ -566,6 +565,8 @@ ipcMain.handle('import-games', async (event, params) => {
     progress, 
     total 
   });
+
+  //Reload the UI to show all games. Use get games
 
   return results;
 });

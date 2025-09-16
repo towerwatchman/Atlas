@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (event, progress) => callback(progress)),
   onImportProgress: (callback) => ipcRenderer.on('import-progress', (event, progress) => callback(progress)),
   onGameImported: (callback) => ipcRenderer.on('game-imported', callback),
+  onImportComplete: (callback) => ipcRenderer.on('import-complete', callback),
   onUpdateStatus: (callback) => {
     ipcRenderer.on('update-status', (event, status) => callback(status));
     return () => ipcRenderer.removeAllListeners('update-status');
