@@ -40,12 +40,12 @@ const GameBanner = ({ game, onSelect }) => {
     const loadTemplate = async () => {
       try {
         const selectedTemplate = await window.electronAPI.getSelectedBannerTemplate();
-        console.log(`Attempting to load template: ${selectedTemplate}`);
+        //console.log(`Attempting to load template: ${selectedTemplate}`);
         if (selectedTemplate && selectedTemplate !== 'Default') {
           try {
             // Adjust path based on project structure
             const templateModule = await import(`./data/templates/banner/${selectedTemplate}.js`);
-            console.log(`Successfully loaded template: ${selectedTemplate}`);
+            //console.log(`Successfully loaded template: ${selectedTemplate}`);
             setTemplate(() => templateModule.default);
           } catch (importErr) {
             console.error(`Failed to import template ${selectedTemplate}:`, importErr);
@@ -53,7 +53,7 @@ const GameBanner = ({ game, onSelect }) => {
             setTemplate(() => DefaultBannerTemplate); // Fallback to default
           }
         } else {
-          console.log('Using default template');
+          //console.log('Using default template');
           setTemplate(() => DefaultBannerTemplate);
         }
       } catch (err) {
@@ -214,8 +214,8 @@ const GameBanner = ({ game, onSelect }) => {
       {
         className: 'relative w-[537px] h-[251px] border border-black cursor-pointer overflow-hidden banner-root',
         onClick: onSelect,
-        onMouseEnter: () => console.log(`Hover started on banner: ${game.title || 'Unknown'}`),
-        onMouseLeave: () => console.log(`Hover ended on banner: ${game.title || 'Unknown'}`)
+        //onMouseEnter: () => console.log(`Hover started on banner: ${game.title || 'Unknown'}`),
+        //onMouseLeave: () => console.log(`Hover ended on banner: ${game.title || 'Unknown'}`)
       },
       children
     );

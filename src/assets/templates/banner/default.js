@@ -170,8 +170,8 @@ const CustomBannerTemplate = ({ game, onSelect }) => {
     {
       className: 'relative w-[537px] h-[251px] border border-gray-700 cursor-pointer overflow-hidden banner-root',
       onClick: onSelect,
-      onMouseEnter: () => console.log(`Hover started on banner: ${game.title || 'Unknown'}`),
-      onMouseLeave: () => console.log(`Hover ended on banner: ${game.title || 'Unknown'}`)
+      //onMouseEnter: () => console.log(`Hover started on banner: ${game.title || 'Unknown'}`),
+      //onMouseLeave: () => console.log(`Hover ended on banner: ${game.title || 'Unknown'}`)
     },
     children
   );

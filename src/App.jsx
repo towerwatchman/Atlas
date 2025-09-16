@@ -416,10 +416,13 @@ const App = () => {
             {filteredGames.length === 0 ? (
               <div className="text-center text-text">No games available</div>
             ) : (
+              // TO DO: At some point this needs to get fixed
               <AutoSizer>
                 {({ height, width }) => {
-                  const adjustedWidth = Math.max(0, width); // Ensure non-negative width
-                  const updatedColumnCount = getColumnCount(adjustedWidth);
+                  const adjustedWidth = Math.max(0, width); // total width of area to use for grid                 
+                  const updatedColumnCount = getColumnCount(adjustedWidth);                
+                  const totalColumnsWidth = adjustedWidth;//columnCount * (bannerSize.bannerWidth + 16);
+                  const extraWidth = (adjustedWidth - totalColumnsWidth ) / columnCount;
                   if (updatedColumnCount !== columnCount) {
                     setColumnCount(updatedColumnCount);
                   }
@@ -427,13 +430,14 @@ const App = () => {
                     <Grid
                       ref={gridRef}
                       columnCount={columnCount}
-                      columnWidth={(index) => {
-                        const totalColumnsWidth = columnCount * (bannerSize.bannerWidth + 8);
-                        if (totalColumnsWidth < adjustedWidth) {
-                          const extraWidth = (adjustedWidth - totalColumnsWidth) / columnCount;
-                          return Math.floor(bannerSize.bannerWidth + extraWidth);
+                      columnWidth={(index) => {                        
+                        if(columnCount >1)
+                        {
+                            return ((adjustedWidth/ columnCount)) - 8;
                         }
-                        return bannerSize.bannerWidth + 8;
+                        else{
+                            return ((adjustedWidth/ columnCount)) - 14;
+                        }
                       }}
                       rowCount={Math.ceil(filteredGames.length / columnCount)}
                       rowHeight={bannerSize.bannerHeight + 16}

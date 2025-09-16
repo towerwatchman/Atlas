@@ -208,8 +208,8 @@ const F95BannerTemplate = ({ game, onSelect }) => {
     {
       className: 'relative w-[300px] h-[450px] border border-black cursor-pointer overflow-hidden banner-root',
       onClick: onSelect,
-      onMouseEnter: () => console.log(`Hover started on banner: ${game.title || 'Unknown'}`),
-      onMouseLeave: () => console.log(`Hover ended on banner: ${game.title || 'Unknown'}`)
+      //onMouseEnter: () => console.log(`Hover started on banner: ${game.title || 'Unknown'}`),
+      //onMouseLeave: () => console.log(`Hover ended on banner: ${game.title || 'Unknown'}`)
     },
     children
   );
