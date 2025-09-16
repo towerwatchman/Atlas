@@ -159,7 +159,7 @@ const App = () => {
   const getColumnCount = (width) => {
     const containerWidth = width || (gameGridRef.current?.clientWidth || window.innerWidth - 260);
     const scrollbarWidth = getScrollbarWidth();
-    const adjustedWidth = containerWidth - scrollbarWidth;
+    const adjustedWidth = containerWidth;
     return Math.max(1, Math.floor(adjustedWidth / (bannerSize.bannerWidth + 8)));
   };
 
@@ -418,8 +418,7 @@ const App = () => {
             ) : (
               <AutoSizer>
                 {({ height, width }) => {
-                  const scrollbarWidth = getScrollbarWidth();
-                  const adjustedWidth = Math.max(0, width - scrollbarWidth); // Ensure non-negative width
+                  const adjustedWidth = Math.max(0, width); // Ensure non-negative width
                   const updatedColumnCount = getColumnCount(adjustedWidth);
                   if (updatedColumnCount !== columnCount) {
                     setColumnCount(updatedColumnCount);
@@ -432,7 +431,7 @@ const App = () => {
                         const totalColumnsWidth = columnCount * (bannerSize.bannerWidth + 8);
                         if (totalColumnsWidth < adjustedWidth) {
                           const extraWidth = (adjustedWidth - totalColumnsWidth) / columnCount;
-                          return Math.floor(bannerSize.bannerWidth + 8 + extraWidth);
+                          return Math.floor(bannerSize.bannerWidth + extraWidth);
                         }
                         return bannerSize.bannerWidth + 8;
                       }}
