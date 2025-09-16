@@ -79,11 +79,20 @@ const App = () => {
     });
 
     window.electronAPI.onGameImported(() => {
+     /* window.electronAPI.getGames().then((games) => {
+        setGames(Array.isArray(games) ? games : []);
+      }).catch((error) => {
+        console.error('Failed to refresh games:', error);
+      });*/
+    });
+
+    window.electronAPI.onImportComplete(() => {
       window.electronAPI.getGames().then((games) => {
         setGames(Array.isArray(games) ? games : []);
       }).catch((error) => {
         console.error('Failed to refresh games:', error);
       });
+      setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000);
     });
 
     window.electronAPI.onUpdateStatus((status) => {

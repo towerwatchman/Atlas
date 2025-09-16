@@ -458,17 +458,11 @@ ipcMain.handle('import-games', async (event, params) => {
   mainWindow.webContents.send('import-progress', { text: `Starting import of ${total} games...`, progress, total });
 
   const results = [];
+  // Phase 1: Import all games
   for (const game of games) {
     try {
-      let imageTotal = 0;
-      if ((downloadBannerImages || downloadPreviewImages) && game.atlasId) {
-        const bannerUrl = await getBannerUrl(game.atlasId);
-        const screenUrls = await getScreensUrlList(game.atlasId);
-        const previewCount = downloadPreviewImages ? (previewLimit === 'Unlimited' ? screenUrls.length : Math.min(parseInt(previewLimit), screenUrls.length)) : 0;
-        imageTotal = (downloadBannerImages && bannerUrl ? 3 : 0) + previewCount;
-      }
       mainWindow.webContents.send('import-progress', { 
-        text: `Importing game '${game.title}' ${progress + 1}/${total}${imageTotal > 0 ? `, downloading images 0/${imageTotal}` : ''}`, 
+        text: `Importing game '${game.title}' ${progress + 1}/${total}`, 
         progress, 
         total 
       });
@@ -528,22 +522,12 @@ ipcMain.handle('import-games', async (event, params) => {
         }
       }
 
-      if ((downloadBannerImages || downloadPreviewImages) && game.atlasId) {
-        await downloadImagesFunc(recordId, game.atlasId, (current, totalImages) => {
-          mainWindow.webContents.send('import-progress', { 
-            text: `Importing game '${game.title}' ${progress + 1}/${total}, downloading images ${current}/${totalImages}`, 
-            progress, 
-            total 
-          });
-        }, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos);
-      }
-
       if (size > 0) await updateFolderSize(recordId, game.version, size);
-      results.push({ success: true, recordId });
+      results.push({ success: true, recordId, atlasId: game.atlasId });
 
       progress++;
       mainWindow.webContents.send('import-progress', { 
-        text: `Imported game '${game.title}' ${progress}/${total}${imageTotal > 0 ? `, ${imageTotal} images downloaded` : ''}`, 
+        text: `Imported game '${game.title}' ${progress}/${total}`, 
         progress, 
         total 
       });
@@ -561,12 +545,76 @@ ipcMain.handle('import-games', async (event, params) => {
   }
 
   mainWindow.webContents.send('import-progress', { 
-    text: `Import complete: ${results.filter(r => r.success).length} successful`, 
+    text: `Game import complete: ${results.filter(r => r.success).length} successful`, 
     progress, 
     total 
   });
+  mainWindow.webContents.send('import-complete');
 
-  //Reload the UI to show all games. Use get games
+  // Phase 2: Download images for successful imports
+  if (downloadBannerImages || downloadPreviewImages) {
+    progress = 0;
+    const gamesWithImages = results
+      .filter(r => r.success && r.atlasId)
+      .map(r => ({
+        title: games.find(g => g.atlasId === r.atlasId)?.title || 'Unknown Game',
+        atlasId: r.atlasId,
+        recordId: r.recordId
+      }));
+    const imageTotal = gamesWithImages.length;
+
+    mainWindow.webContents.send('import-progress', { 
+      text: `Starting image download for ${imageTotal} games...`, 
+      progress, 
+      total: imageTotal 
+    });
+
+    for (const game of gamesWithImages) {
+      try {
+        const bannerUrl = await getBannerUrl(game.atlasId);
+        const screenUrls = await getScreensUrlList(game.atlasId);
+        const previewCount = downloadPreviewImages ? (previewLimit === 'Unlimited' ? screenUrls.length : Math.min(parseInt(previewLimit), screenUrls.length)) : 0;
+        const totalImages = (downloadBannerImages && bannerUrl ? 3 : 0) + previewCount;
+
+        mainWindow.webContents.send('import-progress', { 
+          text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, 0/${totalImages}`, 
+          progress, 
+          total: imageTotal 
+        });
+
+        await downloadImagesFunc(game.recordId, game.atlasId, (current, totalImages) => {
+          mainWindow.webContents.send('import-progress', { 
+            text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, ${current}/${totalImages}`, 
+            progress, 
+            total: imageTotal 
+          });
+        }, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos);
+
+        progress++;
+        mainWindow.webContents.send('import-progress', { 
+          text: `Completed image download for '${game.title}' ${progress}/${imageTotal}, ${totalImages} images downloaded`, 
+          progress, 
+          total: imageTotal 
+        });
+      } catch (err) {
+        console.error('Error downloading images for game:', err);
+        progress++;
+        mainWindow.webContents.send('import-progress', { 
+          text: `Error downloading images for '${game.title}' ${progress}/${imageTotal}: ${err.message}`, 
+          progress, 
+          total: imageTotal 
+        });
+      }
+    }
+
+    mainWindow.webContents.send('import-progress', { 
+      text: `Image download complete for ${progress} games`, 
+      progress, 
+      total: imageTotal 
+    });
+  }
+
+  // Reload the UI to show all games
   mainWindow.webContents.send('import-complete');
   return results;
 });
