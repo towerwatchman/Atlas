@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "1.0.36",
+  "version": "1.0.53",
   "author": {
     "name": "towerwatchman",
     "email": "towerwatchman@atlas.com"
@@ -81,6 +81,7 @@
     "node-7z": "^0.4.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-infinite-scroll-component": "^6.1.0",
     "rimraf": "^4.0.0",
     "sharp": "^0.34.3",
     "sqlite3": "^5.0.2",

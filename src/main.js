@@ -199,7 +199,8 @@ const defaultConfig = {
     atlasStartup: 'Do Nothing',
     gameStartup: 'Do Nothing',
     showDebugConsole: false,
-    minimizeToTray: false
+    minimizeToTray: false,
+    maxGamesDisplayed: 256
   },
   Library: {
     rootPath: dataDir,
@@ -207,6 +208,9 @@ const defaultConfig = {
   },
   Metadata: {
     downloadPreviews: false
+  },
+  Performance: {
+    maxHeapSize: 4096
   }
 };
 
@@ -230,8 +234,8 @@ ipcMain.handle('add-game', async (event, game) => {
   return addGame(game);
 });
 
-ipcMain.handle('get-games', async () => {
-  return getGames(app.getAppPath(), process.defaultApp);
+ipcMain.handle('get-games', async (event, { offset, limit }) => {
+  return await getGames(app.getAppPath(), process.defaultApp, offset, limit);
 });
 
 ipcMain.handle('remove-game', async (event, record_id) => {

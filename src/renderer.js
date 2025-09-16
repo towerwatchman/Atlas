@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   addGame: (game) => ipcRenderer.invoke('add-game', game),
-  getGames: () => ipcRenderer.invoke('get-games'),
+  getGames: (offset, limit) => ipcRenderer.invoke('get-games', { offset, limit }),
   removeGame: (id) => ipcRenderer.invoke('remove-game', id),
   unzipGame: (zipPath, extractPath) => ipcRenderer.invoke('unzip-game', { zipPath, extractPath }),
   checkUpdates: () => ipcRenderer.invoke('check-updates'),

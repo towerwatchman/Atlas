@@ -1,5 +1,6 @@
 const { useState, useEffect } = window.React;
 const { createRoot } = window.ReactDOM;
+const InfiniteScroll = window.InfiniteScroll; // Use global variable
 
 const App = () => {
   const [games, setGames] = useState([]);
@@ -11,14 +12,20 @@ const App = () => {
   const [importProgress, setImportProgress] = useState({ text: '', progress: 0, total: 0 });
   const [isMaximized, setIsMaximized] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [maxGames, setMaxGames] = useState(256); // Batch size (configurable limit)
+  const [offset, setOffset] = useState(0); // Current offset for pagination
+  const [hasMore, setHasMore] = useState(true); // Whether there's more data to load
+  const [isLoading, setIsLoading] = useState(false); // Loading state for batches
 
   useEffect(() => {
-    // Fetch games
-    window.electronAPI.getGames().then((games) => {
-      setGames(Array.isArray(games) ? games : []);
+    // Load config to get maxGamesDisplayed (batch size)
+    window.electronAPI.getConfig().then((config) => {
+      const maxGamesDisplayed = parseInt(config.Interface?.maxGamesDisplayed, 10) || 256;
+      setMaxGames(maxGamesDisplayed);
+      loadInitialGames(maxGamesDisplayed);
     }).catch((error) => {
-      console.error('Failed to fetch games:', error);
-      setGames([]);
+      console.error('Error loading config:', error);
+      loadInitialGames(256);
     });
 
     // Check for app updates
@@ -71,11 +78,12 @@ const App = () => {
     });
     // Listen for Game Import Successful
     window.electronAPI.onGameImported(() => {
-      window.electronAPI.getGames().then((games) => {
-        setGames(Array.isArray(games) ? games : []);
+      /*window.electronAPI.getGames().then((games) => {
+        console.log("-----------------GET GAMES-----------------")
+        //setGames(Array.isArray(games) ? games : []);
       }).catch((error) => {
         console.error('Failed to refresh games:', error);
-      });
+      });*/
     });
 
     // Listen for app update status
@@ -96,7 +104,7 @@ const App = () => {
       // Cleanup listeners
       window.electronAPI.removeUpdateStatusListener?.();
     };
-  }, []);
+  }, [maxGames]);
 
   const addGame = async () => {
     window.electronAPI.openImporter();
@@ -132,203 +140,233 @@ const App = () => {
     }
   };
 
+  const loadInitialGames = (batchSize) => {
+    setIsLoading(true);
+    window.electronAPI.getGames(0, batchSize).then((initialGames) => {
+      setGames(Array.isArray(initialGames) ? initialGames : []);
+      setOffset(initialGames.length);
+      setHasMore(initialGames.length === batchSize); // If full batch, assume more
+      setIsLoading(false);
+    }).catch((error) => {
+      console.error('Failed to fetch initial games:', error);
+      setGames([]);
+      setIsLoading(false);
+    });
+  };
+
+  const loadMoreGames = () => {
+    if (isLoading || !hasMore) return;
+    setIsLoading(true);
+    window.electronAPI.getGames(offset, maxGames).then((newGames) => {
+      if (newGames.length === 0) {
+        setHasMore(false);
+      } else {
+        setGames((prevGames) => [...prevGames, ...newGames]);
+        setOffset((prevOffset) => prevOffset + newGames.length);
+        setHasMore(newGames.length === maxGames);
+      }
+      setIsLoading(false);
+    }).catch((error) => {
+      console.error('Failed to fetch more games:', error);
+      setIsLoading(false);
+    });
+  };
+
+  // Filtered games (apply filter to loaded games)
   const filteredGames = games.filter((game) =>
-    game &&
-    game.title &&
-    (game.title.toLowerCase().includes(filter.toLowerCase()) ||
-    (game.tags && game.tags.toLowerCase().includes(filter.toLowerCase())))
+    game.title.toLowerCase().includes(filter.toLowerCase()) ||
+    game.creator.toLowerCase().includes(filter.toLowerCase())
   );
 
-  return (
-    <div className="flex flex-col h-screen font-sans text-[13px]">
-      {/* Top Navigation */}
-      <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
-        <div className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50">
-          <svg
-            className="w-[50px] h-[50px] text-atlasLogo"
-            viewBox="0 0 24 24"
-            style={{ shapeRendering: 'geometricPrecision'}}
-            fill="currentColor"   
-            dangerouslySetInnerHTML= {{ __html: window.atlasLogo.path}}
-          />
-        </div>
-        <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)]">
-          {/* Accent Bar */}
-          <div className="absolute top-0 left-[50px] right-[110px] h-[10px] bg-accentBar"></div>
-          {/* Left Corner Polygon */}
-          <div className="absolute top-0 left-[40px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 100% 100%)' }}></div>
-          {/* Right Corner Polygon */}
-          <div className="absolute top-0 right-[100px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 0% 100%)' }}></div>
-          {/* Window Controls */}  
-          <div className="w-full flex h-[70px]">
-            {/* Nav Controls */}  
-            <div className="flex items-center ml-5 mt-3">
-              <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag">Games</div>
-            </div>
-            <div className="flex justify-center w-full">
-              <div className="flex bg-secondary h-10 w-[400px] items-center rounded mt-[20px] -webkit-app-region-no-drag border border-border hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent relative">
-                <i className="fas fa-search w-6 h-6 text-text pl-2 flex items-center justify-center"></i>
-                <input
-                  type="text"
-                  placeholder="Search Atlas"
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                  className="bg-transparent outline-none text-text flex-1 px-2 focus:outline-none"
-                />
-                <button
-                  onClick={() => setIsMenuOpen(!isMenuOpen)}
-                  className="w-10 h-10 flex items-center justify-center text-text hover:text-highlight focus:outline-none"
-                >
-                  <i className="fas fa-sliders"></i>
-                </button>
-                {isMenuOpen && (
-                  <div className="absolute top-full left-0 mt-2 w-[400px] bg-secondary border border-border rounded shadow-lg z-50">
-                    <div className="p-2 grid grid-cols-2 gap-2">
-                      <div>
-                        <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">PLAYERS</h3>
-                          <div className="flex flex-col gap-1 text-[11px] text-text">
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Single player</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Multiplayer</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Cooperative</span>
-                            </label>
-                          </div>
+return (
+  <div className="flex flex-col h-screen font-sans text-[13px]">
+    {/* Top Navigation */}
+    <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
+      <div className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50">
+        <svg
+          className="w-[50px] h-[50px] text-atlasLogo"
+          viewBox="0 0 24 24"
+          style={{ shapeRendering: 'geometricPrecision' }}
+          fill="currentColor"
+          dangerouslySetInnerHTML={{ __html: window.atlasLogo.path }}
+        />
+      </div>
+      <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)]">
+        {/* Accent Bar */}
+        <div className="absolute top-0 left-[50px] right-[110px] h-[10px] bg-accentBar"></div>
+        {/* Left Corner Polygon */}
+        <div className="absolute top-0 left-[40px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 100% 100%)' }}></div>
+        {/* Right Corner Polygon */}
+        <div className="absolute top-0 right-[100px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 0% 100%)' }}></div>
+        {/* Window Controls */}
+        <div className="w-full flex h-[70px]">
+          {/* Nav Controls */}
+          <div className="flex items-center ml-5 mt-3">
+            <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag">Games</div>
+          </div>
+          <div className="flex justify-center w-full">
+            <div className="flex bg-secondary h-10 w-[400px] items-center rounded mt-[20px] -webkit-app-region-no-drag border border-border hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent relative">
+              <i className="fas fa-search w-6 h-6 text-text pl-2 flex items-center justify-center"></i>
+              <input
+                type="text"
+                placeholder="Search Atlas"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                className="bg-transparent outline-none text-text flex-1 px-2 focus:outline-none"
+              />
+              <button
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
+                className="w-10 h-10 flex items-center justify-center text-text hover:text-highlight focus:outline-none"
+              >
+                <i className="fas fa-sliders"></i>
+              </button>
+              {isMenuOpen && (
+                <div className="absolute top-full left-0 mt-2 w-[400px] bg-secondary border border-border rounded shadow-lg z-50">
+                  <div className="p-2 grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="mb-2">
+                        <h3 className="text-xs text-text font-bold">PLAYERS</h3>
+                        <div className="flex flex-col gap-1 text-[11px] text-text">
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Single player</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Multiplayer</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Cooperative</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-2">
+                        <h3 className="text-xs text-text font-bold">PLAY STATE</h3>
+                        <div className="flex flex-col gap-1 text-[11px] text-text">
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Ready to play</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Installed locally</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Played</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Unplayed</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Private</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-2">
+                        <h3 className="text-xs text-text font-bold">GENRE</h3>
+                        <div className="flex flex-col gap-1 text-[11px] text-text">
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Action</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Adventure</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Casual</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Indie</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Massively Multiplayer</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Racing</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>RPG</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Simulation</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Sports</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Strategy</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-2">
+                        <h3 className="text-xs text-text font-bold">HARDWARE SUPPORT</h3>
+                        <div className="flex flex-col gap-1 text-[11px] text-text">
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Controller Preferred</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Full Controller Support</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>VR</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Gamepads</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Steam Deck</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-2">
+                        <h3 className="text-xs text-text font-bold">FEATURES</h3>
+                        <div className="flex flex-col gap-1 text-[11px] text-text">
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Trading cards</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Workshop</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Achievements</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Remote Play Together</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Family Sharing</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="col-span-2">
+                      <div className="mb-2">
+                        <h3 className="text-xs text-text font-bold">STORE TAGS</h3>
+                        <div className="flex flex-col text-[11px] text-text">
+                          <input
+                            type="text"
+                            placeholder="enter a tag"
+                            className="w-full p-1 bg-transparent border border-border rounded text-[11px] text-text mb-2"
+                          />
                         </div>
                       </div>
                       <div>
-                        <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">PLAY STATE</h3>
-                          <div className="flex flex-col gap-1 text-[11px] text-text">
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Ready to play</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Installed locally</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Played</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Unplayed</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Private</span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">GENRE</h3>
-                          <div className="flex flex-col gap-1 text-[11px] text-text">
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Action</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Adventure</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Casual</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Indie</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Massively Multiplayer</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Racing</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>RPG</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Simulation</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Sports</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Strategy</span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">HARDWARE SUPPORT</h3>
-                          <div className="flex flex-col gap-1 text-[11px] text-text">
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Controller Preferred</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Full Controller Support</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>VR</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Gamepads</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Steam Deck</span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">FEATURES</h3>
-                          <div className="flex flex-col gap-1 text-[11px] text-text">
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Trading cards</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Workshop</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Achievements</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Remote Play Together</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Family Sharing</span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="col-span-2">
-                        <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">STORE TAGS</h3>
-                          <div className="flex flex-col text-[11px] text-text">
-                            <input
-                              type="text"
-                              placeholder="enter a tag"
-                              className="w-full p-1 bg-transparent border border-border rounded text-[11px] text-text mb-2"
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <h3 className="text-xs text-text font-bold">FRIENDS</h3>
-                          <div className="flex flex-col text-[11px] text-text">
-                            <input
-                              type="text"
-                              placeholder="enter a friend's name"
-                              className="w-full p-1 bg-transparent border border-border rounded text-[11px] text-text"
-                            />
-                          </div>
+                        <h3 className="text-xs text-text font-bold">FRIENDS</h3>
+                        <div className="flex flex-col text-[11px] text-text">
+                          <input
+                            type="text"
+                            placeholder="enter a friend's name"
+                            className="w-full p-1 bg-transparent border border-border rounded text-[11px] text-text"
+                          />
                         </div>
                       </div>
                     </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
@@ -377,23 +415,32 @@ const App = () => {
             )}
           </div>
           {/* Main Game Display */}
-          <div className="flex-1 bg-tertiary p-4 ml-[200px] overflow-y-auto">
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(537px,1fr))] gap-2 mb-2">
-              {filteredGames.length === 0 ? (
-                <div className="text-center text-text col-span-full">No games available</div>
-              ) : (
-                filteredGames.map((game) => (
-                  <window.GameBanner key={game.record_id} game={game} onSelect={() => setSelectedGame(game)} />
-                ))
-              )}
-            </div>
+          <div id="gameGrid" className="flex-1 bg-tertiary p-4 ml-[200px] overflow-y-auto">
+            <InfiniteScroll
+              dataLength={filteredGames.length}
+              next={loadMoreGames}
+              hasMore={hasMore}
+              loader={<div className="text-center py-4 text-text">Loading more games...</div>}
+              endMessage={<div className="text-center py-4 text-text">No more games to load</div>}
+              scrollableTarget="gameGrid"
+            >
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(537px,1fr))] gap-2 mb-2">
+                {filteredGames.length === 0 ? (
+                  <div className="text-center text-text col-span-full">No games available</div>
+                ) : (
+                  filteredGames.map((game) => (
+                    <window.GameBanner key={game.record_id} game={game} onSelect={() => setSelectedGame(game)} />
+                  ))
+                )}
+              </div>
+            </InfiniteScroll>
             {selectedGame && (
               <window.GameDetails game={selectedGame} onRemove={() => removeGame(selectedGame.record_id)} />
             )}
           </div>
         </div>
       </div>
-{/* Database Update Status */}
+      {/* Database Update Status */}
       {dbUpdateStatus.text && (
         <div className="absolute bottom-[44px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border opacity-95">
           <div className="flex items-center w-[540px]">
@@ -409,7 +456,7 @@ const App = () => {
                 Update {dbUpdateStatus.progress}/{dbUpdateStatus.total}
               </span>
             </div>
-          </div>         
+          </div>
         </div>
       )}
       {/* Import Status */}
@@ -450,7 +497,7 @@ const App = () => {
                 Game {importProgress.progress}/{importProgress.total}
               </span>
             </div>
-          </div>         
+          </div>
         </div>
       )}
       {/* Footer */}
@@ -476,6 +523,7 @@ const App = () => {
         <div className="h-[200px] bg-tertiary"></div>
         <div className="flex-1 bg-primary border-t border-accent"></div>
       </div>
+    </div>
     </div>
   );
 };

@@ -263,14 +263,14 @@ const addVersion = (game, recordId) => {
   });
 };
 
-const getGames = (appPath, isDev) => {
+const getGames = (appPath, isDev, offset = 0, limit = null) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = isDev
       ? path.join(appPath, 'src')
       : path.resolve(appPath, '../../');
 
-    // Main query combining provided SQL with original fields
-    const mainQuery = `
+    // Main query with OFFSET and LIMIT
+    let mainQuery = `
       SELECT
         games.record_id as record_id,
         atlas_mappings.atlas_id as atlas_id,
@@ -314,6 +314,15 @@ const getGames = (appPath, isDev) => {
       LEFT JOIN tags ON tag_mappings.tag_id = tags.tag_id
       GROUP BY games.record_id
     `;
+    const params = [];
+    if (limit !== null) {
+      mainQuery += ` LIMIT ?`;
+      params.push(limit);
+    }
+    if (offset > 0) {
+      mainQuery += ` OFFSET ?`;
+      params.push(offset);
+    }
 
     // Query to aggregate versions for each game
     const versionsQuery = `
@@ -322,7 +331,7 @@ const getGames = (appPath, isDev) => {
     `;
 
     // Execute main query
-    db.all(mainQuery, [], (err, rows) => {
+    db.all(mainQuery, params, (err, rows) => {
       if (err) {
         console.error('Error fetching games:', err);
         reject(err);
@@ -398,7 +407,6 @@ const getGames = (appPath, isDev) => {
     });
   });
 };
-
 
 const removeGame = async (record_id) => {
   return new Promise((resolve, reject) => {
