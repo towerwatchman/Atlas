@@ -9,7 +9,7 @@ const bannerStyles = `
     transition: transform 0.35s ease-in-out;
   }
   .banner-root:hover {
-    transform: rotateX(7deg) translateY(-6px) scale(1.05);
+    transform: rotateX(7deg) translateY(-6px) scale(1.02);
     transition: transform 0.35s ease-in-out 0.1s;
   }
   .banner-root::before {
@@ -28,7 +28,7 @@ const bannerStyles = `
   }
   .banner-root:hover::before {
     opacity: 0.6;
-    transform: rotateX(7deg) translateY(-6px) scale(1.05);
+    transform: rotateX(7deg) translateY(-6px) scale(1.02);
   }
 `;
 
