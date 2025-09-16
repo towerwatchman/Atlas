@@ -1,6 +1,6 @@
 const { useState, useEffect, useRef } = window.React;
 const { createRoot } = window.ReactDOM;
-const { VariableSizeGrid } = window.ReactWindow;
+const { AutoSizer, Grid } = window.ReactVirtualized;
 
 const App = () => {
   const [games, setGames] = useState([]);
@@ -12,8 +12,10 @@ const App = () => {
   const [importProgress, setImportProgress] = useState({ text: '', progress: 0, total: 0 });
   const [isMaximized, setIsMaximized] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [columnCount, setColumnCount] = useState(1); // Dynamic column count
+  const [bannerSize, setBannerSize] = useState({ bannerWidth: 537, bannerHeight: 251 }); // Default sizes
+  const [columnCount, setColumnCount] = useState(1);
   const gridRef = useRef(null);
+  const gameGridRef = useRef(null);
 
   useEffect(() => {
     // Fetch all games
@@ -22,6 +24,15 @@ const App = () => {
     }).catch((error) => {
       console.error('Failed to fetch games:', error);
       setGames([]);
+    });
+
+    // Load banner size from template
+    window.electronAPI.getTemplate?.().then((template) => {
+      if (template && template.bannerWidth && template.bannerHeight) {
+        setBannerSize({ bannerWidth: template.bannerWidth, bannerHeight: template.bannerHeight });
+      }
+    }).catch((error) => {
+      console.error('Failed to load template:', error);
     });
 
     // Existing listeners
@@ -92,11 +103,11 @@ const App = () => {
     const handleResize = () => {
       setColumnCount(getColumnCount());
       if (gridRef.current) {
-        gridRef.current.resetAfterColumnIndex(0); // Recompute layout
+        gridRef.current.recomputeGridSize();
       }
     };
     window.addEventListener('resize', handleResize);
-    handleResize(); // Initial calculation
+    handleResize();
 
     return () => {
       window.electronAPI.removeUpdateStatusListener?.();
@@ -145,18 +156,34 @@ const App = () => {
   );
 
   // Calculate column count dynamically based on container width
-const getColumnCount = () => {
-    const minBannerWidth = 537; // From grid-cols-[repeat(auto-fill,minmax(537px,1fr))]
-    const gap = 16; // Gap between banners
-    const gameGrid = document.getElementById('gameGrid');
-    const containerWidth = gameGrid ? gameGrid.clientWidth : window.innerWidth - 300; // Fallback to previous calculation
-    return Math.max(1, Math.floor(containerWidth / (minBannerWidth + gap)));
+  const getColumnCount = (width) => {
+    const containerWidth = width || (gameGridRef.current?.clientWidth || window.innerWidth - 260);
+    const scrollbarWidth = getScrollbarWidth();
+    const adjustedWidth = containerWidth - scrollbarWidth;
+    return Math.max(1, Math.floor(adjustedWidth / (bannerSize.bannerWidth + 8)));
   };
 
-  // Assume fixed height for GameBanner
-  const getRowHeight = () => 251 + 16; // Banner height (251px) + gap (16px)
+  // Calculate scrollbar width
+  const getScrollbarWidth = () => {
+    if (gameGridRef.current) {
+      return gameGridRef.current.offsetWidth - gameGridRef.current.clientWidth;
+    }
+    return 16; // Fallback scrollbar width
+  };
 
-return (
+  // Cell renderer for Grid
+  const cellRenderer = ({ columnIndex, rowIndex, style }) => {
+    const index = rowIndex * columnCount + columnIndex;
+    if (index >= filteredGames.length) return null;
+    const game = filteredGames[index];
+    return (
+      <div style={{ ...style, display: 'flex', justifyContent: 'center', padding: '8px 4px', maxWidth: '100%' }}>
+        <window.GameBanner key={game.record_id} game={game} onSelect={() => setSelectedGame(game)} />
+      </div>
+    );
+  };
+
+  return (
     <div className="flex flex-col h-screen font-sans text-[13px]">
       <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
         <div className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50">
@@ -385,44 +412,40 @@ return (
               ))
             )}
           </div>
-          <div id="gameGrid" className="flex-1 bg-tertiary ml-[200px] overflow-y-auto">
+          <div id="gameGrid" className="flex-1 bg-tertiary ml-[200px] overflow-y-auto" ref={gameGridRef} style={{ overflowX: 'hidden' }}>
             {filteredGames.length === 0 ? (
               <div className="text-center text-text">No games available</div>
             ) : (
-              <div className="flex justify-center">
-                <VariableSizeGrid
-                  ref={gridRef}
-                  columnCount={columnCount}
-                  columnWidth={(index) => {
-                    const gameGrid = document.getElementById('gameGrid');
-                    const containerWidth = gameGrid ? gameGrid.clientWidth : window.innerWidth - 260;
-                    const columnWidth = 537 + 16; // Banner width + gap
-                    const totalColumnsWidth = columnCount * columnWidth;
-                    if (totalColumnsWidth < containerWidth) {
-                      // Distribute extra space evenly across columns
-                      const extraWidth = (containerWidth - totalColumnsWidth) / columnCount;
-                      return 537 + 16 + extraWidth;
-                    }
-                    return columnWidth;
-                  }}
-                  rowCount={Math.ceil(filteredGames.length / columnCount)}
-                  rowHeight={getRowHeight}
-                  height={window.innerHeight - 70 - 40} // Screen height - header (70px) - footer (40px)
-                  width={gameGrid ? gameGrid.clientWidth : window.innerWidth - 260} // Match #gameGrid width
-                  onScroll={() => {}}
-                >
-                  {({ columnIndex, rowIndex, style }) => {
-                    const index = rowIndex * columnCount + columnIndex;
-                    if (index >= filteredGames.length) return null;
-                    const game = filteredGames[index];
-                    return (
-                      <div style={{ ...style, display: 'flex', justifyContent: 'center', padding: '8px' }}>
-                        <window.GameBanner key={game.record_id} game={game} onSelect={() => setSelectedGame(game)} />
-                      </div>
-                    );
-                  }}
-                </VariableSizeGrid>
-              </div>
+              <AutoSizer>
+                {({ height, width }) => {
+                  const scrollbarWidth = getScrollbarWidth();
+                  const adjustedWidth = Math.max(0, width - scrollbarWidth); // Ensure non-negative width
+                  const updatedColumnCount = getColumnCount(adjustedWidth);
+                  if (updatedColumnCount !== columnCount) {
+                    setColumnCount(updatedColumnCount);
+                  }
+                  return (
+                    <Grid
+                      ref={gridRef}
+                      columnCount={columnCount}
+                      columnWidth={(index) => {
+                        const totalColumnsWidth = columnCount * (bannerSize.bannerWidth + 8);
+                        if (totalColumnsWidth < adjustedWidth) {
+                          const extraWidth = (adjustedWidth - totalColumnsWidth) / columnCount;
+                          return Math.floor(bannerSize.bannerWidth + 8 + extraWidth);
+                        }
+                        return bannerSize.bannerWidth + 8;
+                      }}
+                      rowCount={Math.ceil(filteredGames.length / columnCount)}
+                      rowHeight={bannerSize.bannerHeight + 16}
+                      height={height}
+                      width={adjustedWidth}
+                      cellRenderer={cellRenderer}
+                      style={{ overflowX: 'hidden' }}
+                    />
+                  );
+                }}
+              </AutoSizer>
             )}
             {selectedGame && (
               <window.GameDetails game={selectedGame} onRemove={() => removeGame(selectedGame.record_id)} />

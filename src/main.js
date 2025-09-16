@@ -567,7 +567,7 @@ ipcMain.handle('import-games', async (event, params) => {
   });
 
   //Reload the UI to show all games. Use get games
-
+  mainWindow.webContents.send('import-complete');
   return results;
 });
 
