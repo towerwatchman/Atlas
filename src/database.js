@@ -265,68 +265,121 @@ const addVersion = (game, recordId) => {
 
 const getGame = (recordId, appPath, isDev) => {
   return new Promise((resolve, reject) => {
+    const baseImagePath = isDev
+      ? path.join(appPath, 'src')
+      : path.resolve(appPath, '../../');
     const query = `
-      SELECT g.record_id, g.title, g.creator, g.engine, g.description,
-             v.version, v.game_path, v.exec_path, v.folder_size,
-             b.path AS banner_path, b.type AS banner_type,
-             p.path AS preview_path
-      FROM games g
-      LEFT JOIN versions v ON g.record_id = v.record_id
-      LEFT JOIN banners b ON g.record_id = b.record_id
-      LEFT JOIN previews p ON g.record_id = p.record_id
-      WHERE g.record_id = ?
-      ORDER BY g.title ASC, v.version DESC
+      SELECT
+        games.record_id as record_id,
+        atlas_mappings.atlas_id as atlas_id,
+        games.title as title,
+        games.creator as creator,
+        games.engine as engine,
+        games.description,
+        games.total_playtime,
+        games.last_played_r,
+        games.last_played_version,
+        CASE 
+          WHEN banners.path IS NOT NULL THEN REPLACE('${baseImagePath}/' || banners.path, '\\', '/')
+          ELSE NULL
+        END AS banner_url,
+        f95_zone_data.f95_id as f95_id,
+        f95_zone_data.site_url as siteUrl,
+        f95_zone_data.views as views,
+        f95_zone_data.likes as likes,
+        f95_zone_data.tags as f95_tags,
+        f95_zone_data.rating as rating,
+        atlas_data.status,
+        atlas_data.version as latestVersion,
+        atlas_data.category,
+        atlas_data.censored,
+        atlas_data.genre,
+        atlas_data.language,
+        atlas_data.os,
+        atlas_data.overview,
+        atlas_data.translations,
+        atlas_data.release_date,
+        atlas_data.voice,
+        atlas_data.short_name,
+        GROUP_CONCAT(tags.tag) AS tags
+      FROM
+        games
+      LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+      LEFT JOIN banners ON games.record_id = banners.record_id
+      LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
+      LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+      LEFT JOIN tag_mappings ON games.record_id = tag_mappings.record_id
+      LEFT JOIN tags ON tag_mappings.tag_id = tags.tag_id
+      WHERE games.record_id = ?
+      GROUP BY games.record_id
     `;
-    db.all(query, [recordId], (err, rows) => {
+    db.get(query, [recordId], (err, row) => {
       if (err) {
         console.error('Error fetching game:', err);
         reject(err);
         return;
       }
-      if (rows.length === 0) {
+      if (!row) {
         resolve(null);
         return;
       }
-      let game = null;
-      for (const row of rows) {
-        if (!game) {
-          game = {
-            record_id: row.record_id,
-            title: row.title,
-            creator: row.creator,
-            engine: row.engine,
-            description: row.description,
-            versions: [],
-            banners: {},
-            previews: []
+      // Fetch versions separately
+      db.all(
+        `SELECT version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added
+         FROM versions
+         WHERE record_id = ?`,
+        [recordId],
+        (err, versionRows) => {
+          if (err) {
+            console.error('Error fetching versions:', err);
+            reject(err);
+            return;
+          }
+          const game = {
+            ...row,
+            engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
+            versions: versionRows.map(v => ({
+              version: v.version,
+              game_path: v.game_path,
+              exec_path: v.exec_path,
+              in_place: v.in_place,
+              last_played: v.last_played,
+              version_playtime: v.version_playtime,
+              folder_size: v.folder_size,
+              date_added: v.date_added
+            })),
+            versionCount: versionRows.length,
+            isUpdateAvailable: false
           };
+          // Compute isUpdateAvailable
+          if (row.latestVersion && game.versions.length > 0) {
+            let latest;
+            try {
+              latest = parseInt(row.latestVersion.replace(/[^0-9]/g, ''), 10);
+            } catch {
+              latest = 0;
+            }
+            for (const version of game.versions) {
+              let current;
+              try {
+                current = parseInt(version.version.replace(/[^0-9]/g, ''), 10);
+              } catch {
+                current = 0;
+              }
+              if (latest > current) {
+                game.isUpdateAvailable = true;
+              } else {
+                game.isUpdateAvailable = false;
+                break;
+              }
+            }
+          }
+          resolve(game);
         }
-        if (row.version && !game.versions.some(v => v.version === row.version)) {
-          game.versions.push({
-            version: row.version,
-            game_path: row.game_path,
-            exec_path: row.exec_path,
-            folder_size: row.folder_size
-          });
-        }
-        if (row.banner_path) {
-          game.banners[row.banner_type] = row.banner_path;
-        }
-        if (row.preview_path && !game.previews.includes(row.preview_path)) {
-          game.previews.push(row.preview_path);
-        }
-      }
-      const imagesDir = isDev ? path.join(appPath, 'data', 'images') : path.join(appPath, 'data', 'images');
-      const gameImgDir = path.join(imagesDir, game.record_id.toString());
-      if (game.banners.banner) {
-        game.banner = path.join(gameImgDir, game.banners.banner);
-      }
-      game.previews = game.previews.map(preview => path.join(gameImgDir, preview));
-      resolve(game);
+      );
     });
   });
 };
-
 const getGames = (appPath, isDev, offset = 0, limit = null) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = isDev
