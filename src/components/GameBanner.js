@@ -40,12 +40,10 @@ const GameBanner = ({ game, onSelect }) => {
     const loadTemplate = async () => {
       try {
         const selectedTemplate = await window.electronAPI.getSelectedBannerTemplate();
-        //console.log(`Attempting to load template: ${selectedTemplate}`);
         if (selectedTemplate && selectedTemplate !== 'Default') {
           try {
             // Adjust path based on project structure
             const templateModule = await import(`./data/templates/banner/${selectedTemplate}.js`);
-            //console.log(`Successfully loaded template: ${selectedTemplate}`);
             setTemplate(() => templateModule.default);
           } catch (importErr) {
             console.error(`Failed to import template ${selectedTemplate}:`, importErr);
@@ -53,7 +51,6 @@ const GameBanner = ({ game, onSelect }) => {
             setTemplate(() => DefaultBannerTemplate); // Fallback to default
           }
         } else {
-          //console.log('Using default template');
           setTemplate(() => DefaultBannerTemplate);
         }
       } catch (err) {
@@ -105,22 +102,22 @@ const GameBanner = ({ game, onSelect }) => {
       React.createElement('style', { key: 'banner-styles' }, bannerStyles),
       // Top overlay
       React.createElement('div', {
-        key: 'top-overlay',
+        key: `top-overlay-${game.record_id}`,
         className: 'absolute top-0 left-0 w-full h-[28px] bg-black opacity-80 z-10'
       }),
       // Bottom overlay
       React.createElement('div', {
-        key: 'bottom-overlay',
+        key: `bottom-overlay-${game.record_id}`,
         className: 'absolute bottom-0 left-0 w-full h-[28px] bg-black opacity-80 z-10'
       }),
       // Text and button elements
       React.createElement(
         'div',
-        { key: 'content-layer', className: 'absolute inset-0 z-20' },
+        { key: `content-layer-${game.record_id}`, className: 'absolute inset-0 z-20' },
         [
           // Creator in top-left of top overlay, vertically centered
           React.createElement('div', {
-            key: 'creator',
+            key: `creator-${game.record_id}`,
             className: 'absolute top-0 left-0 text-white text-xs ml-2.5 flex items-center h-[28px]',
             children: game.creator || 'Unknown'
           }),
@@ -129,11 +126,10 @@ const GameBanner = ({ game, onSelect }) => {
             React.createElement(
               'button',
               {
-                key: 'update-button',
+                key: `update-button-${game.record_id}`,
                 className: 'absolute top-[4px] right-2.5 w-[90px] h-[20px] bg-transparent border border-yellow-400 text-yellow-400 text-[10px] rounded-sm z-30 pointer-events-auto',
                 onClick: (e) => {
                   e.stopPropagation();
-                  console.log(`Attempting to open siteUrl: ${game.siteUrl}`);
                   if (game.siteUrl && typeof game.siteUrl === 'string' && game.siteUrl.startsWith('http')) {
                     window.electronAPI.openExternalUrl(game.siteUrl);
                   } else {
@@ -146,37 +142,37 @@ const GameBanner = ({ game, onSelect }) => {
           // Bottom overlay content
           React.createElement(
             'div',
-            { key: 'bottom-content', className: 'absolute bottom-0 left-0 w-full h-[28px] flex items-center' },
+            { key: `bottom-content-${game.record_id}`, className: 'absolute bottom-0 left-0 w-full h-[28px] flex items-center' },
             [
               // Engine at bottom-left with rounded background
               React.createElement('div', {
-                key: 'engine',
+                key: `engine-${game.record_id}`,
                 className: 'text-white text-[10px] rounded-sm px-2 py-0.5 ml-2',
                 style: { backgroundColor: getEngineBackgroundColor(game.engine) },
                 children: game.engine || 'Unknown'
               }),
               // Title centered in bottom overlay
               React.createElement('div', {
-                key: 'title',
+                key: `title-${game.record_id}`,
                 className: 'text-white text-xs font-semibold flex-1 text-center',
                 children: game.title || 'Unknown'
               }),
               // Status and LatestVersion at bottom-right
               React.createElement(
                 'div',
-                { key: 'status-version', className: 'flex items-center mr-2.5' },
+                { key: `status-version-${game.record_id}`, className: 'flex items-center mr-2.5' },
                 [
                   // Status (if present) to the left of version
                   game.status &&
                     React.createElement('div', {
-                      key: 'status',
+                      key: `status-${game.record_id}`,
                       className: 'text-white text-[10px] rounded-l-sm px-2 py-0.5',
                       style: { backgroundColor: getStatusBackgroundColor(game.status) },
                       children: game.status
                     }),
                   // LatestVersion with fixed background color
                   React.createElement('div', {
-                    key: 'version',
+                    key: `version-${game.record_id}`,
                     className: `text-white text-[10px] ${game.status ? 'rounded-r-sm -ml-0.5' : 'rounded-sm'} px-2 py-0.5`,
                     style: { backgroundColor: '#3F4043' },
                     children: game.latestVersion || 'V 1.0'
@@ -192,10 +188,11 @@ const GameBanner = ({ game, onSelect }) => {
     // Conditionally add banner image
     if (game.banner_url) {
       children.splice(1, 0, React.createElement('div', {
-        key: 'banner-image-container',
+        key: `banner-image-container-${game.record_id}`,
         className: 'absolute top-0 left-0 w-[537px] h-[251px] z-0 bg-[#1F2937]'
       }, [
         React.createElement('img', {
+          key: `banner-image-${game.record_id}`,
           src: game.banner_url,
           alt: game.title,
           className: 'w-[537px] h-[251px] object-contain'
@@ -204,7 +201,7 @@ const GameBanner = ({ game, onSelect }) => {
     } else {
       // Fallback background when no image
       children.splice(1, 0, React.createElement('div', {
-        key: 'banner-fallback',
+        key: `banner-fallback-${game.record_id}`,
         className: 'absolute top-0 left-0 w-[537px] h-[251px] bg-[#1F2937] z-0'
       }));
     }
@@ -212,10 +209,9 @@ const GameBanner = ({ game, onSelect }) => {
     return React.createElement(
       'div',
       {
+        key: `banner-root-${game.record_id}`,
         className: 'relative w-[537px] h-[251px] border border-black cursor-pointer overflow-hidden banner-root',
-        onClick: onSelect,
-        //onMouseEnter: () => console.log(`Hover started on banner: ${game.title || 'Unknown'}`),
-        //onMouseLeave: () => console.log(`Hover ended on banner: ${game.title || 'Unknown'}`)
+        onClick: onSelect
       },
       children
     );

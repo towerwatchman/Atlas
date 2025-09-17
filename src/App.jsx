@@ -12,13 +12,44 @@ const App = () => {
   const [importProgress, setImportProgress] = useState({ text: '', progress: 0, total: 0 });
   const [isMaximized, setIsMaximized] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [bannerSize, setBannerSize] = useState({ bannerWidth: 537, bannerHeight: 251 }); // Default sizes
+  const [bannerSize, setBannerSize] = useState({ bannerWidth: 537, bannerHeight: 251 });
   const [columnCount, setColumnCount] = useState(1);
   const gridRef = useRef(null);
   const gameGridRef = useRef(null);
 
+  // Debounce function for game refresh
+  const debounce = (func, delay) => {
+    let timeout;
+    return (...args) => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => func(...args), delay);
+    };
+  };
+
+  // Debounced refresh for game updates
+  const refreshGame = debounce((recordId) => {
+    window.electronAPI.getGame(recordId).then(updatedGame => {
+      if (updatedGame) {
+        setGames(prev => prev.map(g => g.record_id === updatedGame.record_id ? updatedGame : g));
+      }
+    }).catch(error => console.error('Failed to update game:', error));
+  }, 500);
+
+  // Handle resize with reduced debounce delay for smoother updates
+  const debounceResize = debounce(() => {
+    const containerWidth = gameGridRef.current?.clientWidth || window.innerWidth - 260;
+    const scrollbarWidth = getScrollbarWidth();
+    const adjustedWidth = Math.max(0, containerWidth - scrollbarWidth);
+    const newColumnCount = getColumnCount(adjustedWidth);
+    setColumnCount(newColumnCount);
+    if (gridRef.current) {
+      gridRef.current.recomputeGridSize();
+      gridRef.current.forceUpdateGrids(); // Force re-render to clear stale images
+    }
+  }, 16); // ~60fps for smoother resize
+
   useEffect(() => {
-    // Fetch all games
+    // Fetch games only once on mount
     window.electronAPI.getGames().then((allGames) => {
       setGames(Array.isArray(allGames) ? allGames : []);
     }).catch((error) => {
@@ -35,7 +66,7 @@ const App = () => {
       console.error('Failed to load template:', error);
     });
 
-    // Existing listeners
+    // Check for updates
     window.electronAPI.checkUpdates().then(({ latestVersion, currentVersion }) => {
       if (latestVersion !== currentVersion) {
         alert(`New version ${latestVersion} available!`);
@@ -60,42 +91,32 @@ const App = () => {
       setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
     });
 
-    window.electronAPI.onWindowStateChanged((state) => {
-      setIsMaximized(state === 'maximized');
-    });
-
-    window.electronAPI.onDbUpdateProgress((progress) => {
+    // Set up IPC listeners
+    const handleWindowStateChanged = (state) => setIsMaximized(state === 'maximized');
+    const handleDbUpdateProgress = (progress) => {
       setDbUpdateStatus(progress);
       if (progress.progress >= progress.total && progress.total > 0) {
         setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
       }
-    });
-
-    window.electronAPI.onImportProgress((progress) => {
+    };
+    const handleImportProgress = (progress) => {
       setImportProgress(progress);
       if (progress.progress >= progress.total && progress.total > 0 && progress.text.includes('Import complete')) {
         setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000);
       }
-    });
-
-    window.electronAPI.onGameImported(() => {
-     /* window.electronAPI.getGames().then((games) => {
-        setGames(Array.isArray(games) ? games : []);
-      }).catch((error) => {
-        console.error('Failed to refresh games:', error);
-      });*/
-    });
-
-    window.electronAPI.onImportComplete(() => {
-      window.electronAPI.getGames().then((games) => {
-        setGames(Array.isArray(games) ? games : []);
-      }).catch((error) => {
-        console.error('Failed to refresh games:', error);
-      });
+    };
+    const handleGameImported = (event, recordId) => {
+      window.electronAPI.getGame(recordId).then(game => {
+        if (game) {
+          setGames(prev => [...prev, game].sort((a, b) => a.title.localeCompare(b.title)));
+        }
+      }).catch(error => console.error('Failed to get game:', error));
+    };
+    const handleGameUpdated = (event, recordId) => refreshGame(recordId);
+    const handleImportComplete = () => {
       setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000);
-    });
-
-    window.electronAPI.onUpdateStatus((status) => {
+    };
+    const handleUpdateStatus = (status) => {
       console.log('Update status:', status);
       if (status.status === 'available') {
         alert(`New app version ${status.version} is available and will be downloaded.`);
@@ -106,21 +127,31 @@ const App = () => {
       } else if (status.status === 'error') {
         alert(`Update error: ${status.error}`);
       }
-    });
-
-    // Handle window resize to update column count
-    const handleResize = () => {
-      setColumnCount(getColumnCount());
-      if (gridRef.current) {
-        gridRef.current.recomputeGridSize();
-      }
     };
-    window.addEventListener('resize', handleResize);
-    handleResize();
 
+    window.electronAPI.onWindowStateChanged(handleWindowStateChanged);
+    window.electronAPI.onDbUpdateProgress(handleDbUpdateProgress);
+    window.electronAPI.onImportProgress(handleImportProgress);
+    window.electronAPI.onGameImported(handleGameImported);
+    window.electronAPI.onGameUpdated(handleGameUpdated);
+    window.electronAPI.onImportComplete(handleImportComplete);
+    window.electronAPI.onUpdateStatus(handleUpdateStatus);
+
+    // Set up resize listener
+    window.addEventListener('resize', debounceResize);
+    debounceResize(); // Initial resize calculation
+
+    // Cleanup
     return () => {
       window.electronAPI.removeUpdateStatusListener?.();
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', debounceResize);
+      window.electronAPI.onWindowStateChanged(() => {});
+      window.electronAPI.onDbUpdateProgress(() => {});
+      window.electronAPI.onImportProgress(() => {});
+      window.electronAPI.onGameImported(() => {});
+      window.electronAPI.onGameUpdated(() => {});
+      window.electronAPI.onImportComplete(() => {});
+      window.electronAPI.onUpdateStatus(() => {});
     };
   }, []);
 
@@ -131,8 +162,7 @@ const App = () => {
   const removeGame = async (id) => {
     try {
       await window.electronAPI.removeGame(id);
-      const updatedGames = await window.electronAPI.getGames();
-      setGames(Array.isArray(updatedGames) ? updatedGames : []);
+      setGames(prev => prev.filter(g => g.record_id !== id));
       if (selectedGame?.record_id === id) setSelectedGame(null);
     } catch (error) {
       console.error('Failed to remove game:', error);
@@ -164,30 +194,30 @@ const App = () => {
     game.creator.toLowerCase().includes(filter.toLowerCase())
   );
 
-  // Calculate column count dynamically based on container width
   const getColumnCount = (width) => {
     const containerWidth = width || (gameGridRef.current?.clientWidth || window.innerWidth - 260);
     const scrollbarWidth = getScrollbarWidth();
-    const adjustedWidth = containerWidth;
+    const adjustedWidth = containerWidth - scrollbarWidth;
     return Math.max(1, Math.floor(adjustedWidth / (bannerSize.bannerWidth + 8)));
   };
 
-  // Calculate scrollbar width
   const getScrollbarWidth = () => {
     if (gameGridRef.current) {
       return gameGridRef.current.offsetWidth - gameGridRef.current.clientWidth;
     }
-    return 16; // Fallback scrollbar width
+    return 16;
   };
 
-  // Cell renderer for Grid
   const cellRenderer = ({ columnIndex, rowIndex, style }) => {
     const index = rowIndex * columnCount + columnIndex;
     if (index >= filteredGames.length) return null;
     const game = filteredGames[index];
     return (
-      <div style={{ ...style, display: 'flex', justifyContent: 'center', padding: '8px 4px', maxWidth: '100%' }}>
-        <window.GameBanner key={game.record_id} game={game} onSelect={() => setSelectedGame(game)} />
+      <div
+        key={game.record_id}
+        style={{ ...style, display: 'flex', justifyContent: 'center', padding: '8px 4px', maxWidth: '100%' }}
+      >
+        <window.GameBanner game={game} onSelect={() => setSelectedGame(game)} />
       </div>
     );
   };
@@ -350,7 +380,7 @@ const App = () => {
                           </div>
                         </div>
                       </div>
-                      <div className="col-span-2">
+                      <div>
                         <div className="mb-2">
                           <h3 className="text-xs text-text font-bold">STORE TAGS</h3>
                           <div className="flex flex-col text-[11px] text-text">
@@ -425,27 +455,18 @@ const App = () => {
             {filteredGames.length === 0 ? (
               <div className="text-center text-text">No games available</div>
             ) : (
-              // TO DO: At some point this needs to get fixed
               <AutoSizer>
                 {({ height, width }) => {
-                  const adjustedWidth = Math.max(0, width); // total width of area to use for grid                 
-                  const updatedColumnCount = getColumnCount(adjustedWidth);                
-                  const totalColumnsWidth = adjustedWidth;//columnCount * (bannerSize.bannerWidth + 16);
-                  const extraWidth = (adjustedWidth - totalColumnsWidth ) / columnCount;
-                  if (updatedColumnCount !== columnCount) {
-                    setColumnCount(updatedColumnCount);
-                  }
+                  const adjustedWidth = Math.max(0, width - getScrollbarWidth());
                   return (
                     <Grid
                       ref={gridRef}
                       columnCount={columnCount}
-                      columnWidth={(index) => {                        
-                        if(columnCount >1)
-                        {
-                            return ((adjustedWidth/ columnCount)) - 8;
-                        }
-                        else{
-                            return ((adjustedWidth/ columnCount)) - 14;
+                      columnWidth={() => {
+                        if (columnCount > 1) {
+                          return (adjustedWidth / columnCount) - 8;
+                        } else {
+                          return (adjustedWidth / columnCount) - 14;
                         }
                       }}
                       rowCount={Math.ceil(filteredGames.length / columnCount)}

@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   addGame: (game) => ipcRenderer.invoke('add-game', game),
+  getGame: (id) => ipcRenderer.invoke('get-game', id),
   getGames: (offset, limit) => ipcRenderer.invoke('get-games', { offset, limit }),
   removeGame: (id) => ipcRenderer.invoke('remove-game', id),
   unzipGame: (zipPath, extractPath) => ipcRenderer.invoke('unzip-game', { zipPath, extractPath }),
@@ -41,6 +42,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onUpdateProgress: (callback) => ipcRenderer.on('update-progress', (event, progress) => callback(progress)),
   onImportProgress: (callback) => ipcRenderer.on('import-progress', (event, progress) => callback(progress)),
   onGameImported: (callback) => ipcRenderer.on('game-imported', callback),
+  onGameUpdated: (callback) => ipcRenderer.on('game-updated', callback),
   onImportComplete: (callback) => ipcRenderer.on('import-complete', callback),
   onUpdateStatus: (callback) => {
     ipcRenderer.on('update-status', (event, status) => callback(status));

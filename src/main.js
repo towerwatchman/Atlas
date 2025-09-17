@@ -5,7 +5,7 @@ const axios = require('axios');
 const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
-const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList } = require('./database');
+const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList } = require('./database');
 
 let mainWindow;
 let settingsWindow;
@@ -231,6 +231,10 @@ function loadConfig() {
 
 ipcMain.handle('add-game', async (event, game) => {
   return addGame(game);
+});
+
+ipcMain.handle('get-game', async (event, recordId) => {
+  return await getGame(recordId, app.getAppPath(), process.defaultApp);
 });
 
 ipcMain.handle('get-games', async (event, { offset, limit }) => {
@@ -531,7 +535,7 @@ ipcMain.handle('import-games', async (event, params) => {
         progress, 
         total 
       });
-      mainWindow.webContents.send('game-imported');
+      //mainWindow.webContents.send('game-imported', recordId);
     } catch (err) {
       console.error('Error importing game:', err);
       results.push({ success: false, error: err.message });
@@ -589,6 +593,8 @@ ipcMain.handle('import-games', async (event, params) => {
             total: imageTotal 
           });
         }, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos);
+
+        mainWindow.webContents.send('game-updated', game.recordId);
 
         progress++;
         mainWindow.webContents.send('import-progress', { 
@@ -733,6 +739,7 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
 
       console.log('Banner images updated');
       if (downloaded) {
+        mainWindow.webContents.send('game-updated', recordId);
         await delay(500); // Enforce 2 requests per second
       }
     } catch (err) {
@@ -769,6 +776,7 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
         onImageProgress(imageProgress, totalImages);
         console.log(`Screen ${i + 1} updated`);
         if (downloaded) {
+          // We do not need to update the record. Only update for banner images
           await delay(500); // Enforce 2 requests per second
         }
       } catch (err) {

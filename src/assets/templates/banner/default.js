@@ -146,6 +146,7 @@ const CustomBannerTemplate = ({ game, onSelect }) => {
   ];
 
   // Conditionally add banner image
+  //we need to change this to banner
   if (game.banner_url) {
     children.splice(1, 0, React.createElement('div', {
       key: 'banner-image-container',

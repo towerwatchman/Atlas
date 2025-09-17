@@ -1,0 +1,79 @@
+├── build
+│   ├── installer.nsh (610 bytes)
+│   └── installerSidebar.bmp (154542 bytes)
+├── generate-structure.js (1962 bytes)
+├── LICENSE (35802 bytes)
+├── package-lock.json (256618 bytes)
+├── package.json (2821 bytes)
+├── postcss.config.js (85 bytes)
+├── project-structure.txt (0 bytes)
+├── README.md (3742 bytes)
+├── scripts
+│   └── create_dummy_games.py (10615 bytes)
+├── src
+│   ├── App.jsx (34084 bytes)
+│   ├── assets
+│   │   ├── css
+│   │   │   ├── main.css (154 bytes)
+│   │   │   ├── tailwind.css (60 bytes)
+│   │   │   └── tailwind.output.css (26171 bytes)
+│   │   ├── icons
+│   │   │   ├── atlas_logo.svg (977 bytes)
+│   │   │   ├── data.js (655 bytes)
+│   │   │   └── home.svg (486 bytes)
+│   │   ├── images
+│   │   │   ├── appicon.ico (454664 bytes)
+│   │   │   └── atlas_logo.svg (663762 bytes)
+│   │   ├── templates
+│   │   │   └── banner
+│   │   │       ├── default.js (6519 bytes)
+│   │   │       └── f95.js (7625 bytes)
+│   │   └── themes
+│   │       (empty directory)
+│   ├── components
+│   │   ├── GameBanner.js (8806 bytes)
+│   │   ├── GameDetails.js (730 bytes)
+│   │   ├── importer
+│   │   │   └── importer.jsx (24446 bytes)
+│   │   ├── scanners
+│   │   │   └── f95scanner.js (14172 bytes)
+│   │   ├── settings
+│   │   │   ├── Appearance.jsx (3731 bytes)
+│   │   │   ├── Emulators.jsx (262 bytes)
+│   │   │   ├── Interface.jsx (4693 bytes)
+│   │   │   ├── Library.jsx (4170 bytes)
+│   │   │   ├── Metadata.jsx (1351 bytes)
+│   │   │   ├── Platforms.jsx (262 bytes)
+│   │   │   ├── Settings.jsx (3810 bytes)
+│   │   │   └── settingsIcons.js (6817 bytes)
+│   │   └── Sidebar.js (5720 bytes)
+│   ├── data
+│   │   ├── config.ini (287 bytes)
+│   │   ├── data.db (56578048 bytes)
+│   │   ├── games
+│   │   │   (empty directory)
+│   │   ├── images
+│   │   │   (empty directory)
+│   │   ├── templates
+│   │   │   └── banner
+│   │   │       (empty directory)
+│   │   └── updates
+│   │       ├── 1757908807.update (16584628 bytes)
+│   │       ├── 1757921126.update (1013718 bytes)
+│   │       ├── 1757942330.update (849313 bytes)
+│   │       ├── 1757964155.update (936373 bytes)
+│   │       ├── 1757982074.update (928325 bytes)
+│   │       ├── 1757995206.update (16593783 bytes)
+│   │       ├── 1758007271.update (914907 bytes)
+│   │       ├── 1758028713.update (871110 bytes)
+│   │       ├── 1758050522.update (952419 bytes)
+│   │       └── 1758068555.update (971995 bytes)
+│   ├── database.js (28892 bytes)
+│   ├── importer.html (757 bytes)
+│   ├── index.html (1351 bytes)
+│   ├── main.js (26728 bytes)
+│   ├── renderer.js (3396 bytes)
+│   └── settings.html (1291 bytes)
+├── tailwind.config.js (574 bytes)
+└── update-version.js (598 bytes)
+

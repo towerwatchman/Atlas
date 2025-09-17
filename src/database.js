@@ -263,6 +263,70 @@ const addVersion = (game, recordId) => {
   });
 };
 
+const getGame = (recordId, appPath, isDev) => {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT g.record_id, g.title, g.creator, g.engine, g.description,
+             v.version, v.game_path, v.exec_path, v.folder_size,
+             b.path AS banner_path, b.type AS banner_type,
+             p.path AS preview_path
+      FROM games g
+      LEFT JOIN versions v ON g.record_id = v.record_id
+      LEFT JOIN banners b ON g.record_id = b.record_id
+      LEFT JOIN previews p ON g.record_id = p.record_id
+      WHERE g.record_id = ?
+      ORDER BY g.title ASC, v.version DESC
+    `;
+    db.all(query, [recordId], (err, rows) => {
+      if (err) {
+        console.error('Error fetching game:', err);
+        reject(err);
+        return;
+      }
+      if (rows.length === 0) {
+        resolve(null);
+        return;
+      }
+      let game = null;
+      for (const row of rows) {
+        if (!game) {
+          game = {
+            record_id: row.record_id,
+            title: row.title,
+            creator: row.creator,
+            engine: row.engine,
+            description: row.description,
+            versions: [],
+            banners: {},
+            previews: []
+          };
+        }
+        if (row.version && !game.versions.some(v => v.version === row.version)) {
+          game.versions.push({
+            version: row.version,
+            game_path: row.game_path,
+            exec_path: row.exec_path,
+            folder_size: row.folder_size
+          });
+        }
+        if (row.banner_path) {
+          game.banners[row.banner_type] = row.banner_path;
+        }
+        if (row.preview_path && !game.previews.includes(row.preview_path)) {
+          game.previews.push(row.preview_path);
+        }
+      }
+      const imagesDir = isDev ? path.join(appPath, 'data', 'images') : path.join(appPath, 'data', 'images');
+      const gameImgDir = path.join(imagesDir, game.record_id.toString());
+      if (game.banners.banner) {
+        game.banner = path.join(gameImgDir, game.banners.banner);
+      }
+      game.previews = game.previews.map(preview => path.join(gameImgDir, preview));
+      resolve(game);
+    });
+  });
+};
+
 const getGames = (appPath, isDev, offset = 0, limit = null) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = isDev
@@ -841,5 +905,6 @@ module.exports = {
   updateBanners,
   updatePreviews,
   getAtlasData,
+  getGame,
   db // Export db instance
 };
