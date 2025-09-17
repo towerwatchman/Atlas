@@ -1,4 +1,4 @@
-const { useState, useEffect, useRef } = window.React;
+const { useState, useEffect, useRef, useCallback } = window.React;
 const { createRoot } = window.ReactDOM;
 const { AutoSizer, Grid } = window.ReactVirtualized;
 
@@ -14,6 +14,7 @@ const App = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [bannerSize, setBannerSize] = useState({ bannerWidth: 537, bannerHeight: 251 });
   const [columnCount, setColumnCount] = useState(1);
+  const [totalVersions, setTotalVersions] = useState(0);
   const gridRef = useRef(null);
   const gameGridRef = useRef(null);
 
@@ -27,15 +28,32 @@ const App = () => {
   };
 
   // Debounced refresh for game updates
-  const refreshGame = debounce((recordId) => {
+  const refreshGame = useCallback(debounce((recordId) => {
+    console.log(`refreshGame called for recordId: ${recordId}`);
     window.electronAPI.getGame(recordId).then(updatedGame => {
       if (updatedGame) {
-        setGames(prev => prev.map(g => g.record_id === updatedGame.record_id ? updatedGame : g));
+        console.log(`Updated game data for recordId ${recordId}:`, {
+          record_id: updatedGame.record_id,
+          title: updatedGame.title,
+          banner_url: updatedGame.banner_url
+        });
+        setGames(prev => {
+          const newGames = prev.map(g => g.record_id === updatedGame.record_id ? updatedGame : g);
+          setTotalVersions(newGames.reduce((sum, game) => sum + (game.versionCount || 0), 0));
+          return newGames;
+        });
+        // Force grid re-render for the updated game
+        if (gridRef.current) {
+          console.log(`Forcing grid update for recordId: ${recordId}`);
+          gridRef.current.forceUpdate();
+        }
+      } else {
+        console.warn(`No game data returned for recordId: ${recordId}`);
       }
-    }).catch(error => console.error('Failed to update game:', error));
-  }, 500);
+    }).catch(error => console.error(`Failed to update game for recordId ${recordId}:`, error));
+  }, 100), []);
 
-  // Handle resize with reduced debounce delay for smoother updates
+  // Handle resize with debounce for smoother updates
   const debounceResize = debounce(() => {
     const containerWidth = gameGridRef.current?.clientWidth || window.innerWidth - 260;
     const scrollbarWidth = getScrollbarWidth();
@@ -44,17 +62,21 @@ const App = () => {
     setColumnCount(newColumnCount);
     if (gridRef.current) {
       gridRef.current.recomputeGridSize();
-      gridRef.current.forceUpdateGrids(); // Force re-render to clear stale images
+      gridRef.current.forceUpdate();
     }
   }, 16); // ~60fps for smoother resize
 
   useEffect(() => {
     // Fetch games only once on mount
     window.electronAPI.getGames().then((allGames) => {
-      setGames(Array.isArray(allGames) ? allGames : []);
+      const gamesArray = Array.isArray(allGames) ? allGames : [];
+      console.log(`Initial fetch: ${gamesArray.length} games loaded`);
+      setGames(gamesArray);
+      setTotalVersions(gamesArray.reduce((sum, game) => sum + (game.versionCount || 0), 0));
     }).catch((error) => {
       console.error('Failed to fetch games:', error);
       setGames([]);
+      setTotalVersions(0);
     });
 
     // Load banner size from template
@@ -106,14 +128,33 @@ const App = () => {
       }
     };
     const handleGameImported = (event, recordId) => {
+      console.log(`Game imported: recordId ${recordId}`);
       window.electronAPI.getGame(recordId).then(game => {
         if (game) {
-          setGames(prev => [...prev, game].sort((a, b) => a.title.localeCompare(b.title)));
+          setGames(prev => {
+            const newGames = [...prev, game].sort((a, b) => a.title.localeCompare(b.title));
+            setTotalVersions(newGames.reduce((sum, game) => sum + (game.versionCount || 0), 0));
+            return newGames;
+          });
         }
-      }).catch(error => console.error('Failed to get game:', error));
+      }).catch(error => console.error(`Failed to get game for recordId ${recordId}:`, error));
     };
-    const handleGameUpdated = (event, recordId) => refreshGame(recordId);
+    const handleGameUpdated = (event, recordId) => {
+      console.log(`Game updated event received for recordId: ${recordId}`);
+      refreshGame(recordId);
+    };
     const handleImportComplete = () => {
+      console.log('Import complete: fetching all games');
+      window.electronAPI.getGames().then((allGames) => {
+        const gamesArray = Array.isArray(allGames) ? allGames : [];
+        console.log(`Import complete: ${gamesArray.length} games loaded`);
+        setGames(gamesArray);
+        setTotalVersions(gamesArray.reduce((sum, game) => sum + (game.versionCount || 0), 0));
+      }).catch((error) => {
+        console.error('Failed to fetch games on import complete:', error);
+        setGames([]);
+        setTotalVersions(0);
+      });
       setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000);
     };
     const handleUpdateStatus = (status) => {
@@ -162,7 +203,11 @@ const App = () => {
   const removeGame = async (id) => {
     try {
       await window.electronAPI.removeGame(id);
-      setGames(prev => prev.filter(g => g.record_id !== id));
+      setGames(prev => {
+        const newGames = prev.filter(g => g.record_id !== id);
+        setTotalVersions(newGames.reduce((sum, game) => sum + (game.versionCount || 0), 0));
+        return newGames;
+      });
       if (selectedGame?.record_id === id) setSelectedGame(null);
     } catch (error) {
       console.error('Failed to remove game:', error);
@@ -380,7 +425,7 @@ const App = () => {
                           </div>
                         </div>
                       </div>
-                      <div>
+                      <div className="col-span-2">
                         <div className="mb-2">
                           <h3 className="text-xs text-text font-bold">STORE TAGS</h3>
                           <div className="flex flex-col text-[11px] text-text">
@@ -552,7 +597,7 @@ const App = () => {
         </button>
         <div className="flex items-center">
           <i className="fas fa-gamepad mr-2 text-text"></i>
-          <span>{`${games.length} Games Installed, ${games.length} Total Versions`}</span>
+          <span>{`${games.length} Games Installed, ${totalVersions} Total Versions`}</span>
         </div>
         <div className="flex items-center">
           <i className="fas fa-download mr-2 text-text"></i>

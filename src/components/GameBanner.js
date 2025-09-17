@@ -36,6 +36,8 @@ const GameBanner = ({ game, onSelect }) => {
   const [template, setTemplate] = useState(null);
 
   useEffect(() => {
+    // Log banner_url on mount or update
+    console.log(`GameBanner rendering for recordId: ${game.record_id}, banner_url: ${game.banner_url}`);
     // Load the selected template from Appearance settings
     const loadTemplate = async () => {
       try {
@@ -60,7 +62,7 @@ const GameBanner = ({ game, onSelect }) => {
       }
     };
     loadTemplate();
-  }, []);
+  }, [game.banner_url]); // Re-run when banner_url changes
 
   // Engine background color mapping based on C# DataTriggers
   const getEngineBackgroundColor = (engine) => {
@@ -95,11 +97,31 @@ const GameBanner = ({ game, onSelect }) => {
     return statusColors[status] || 'transparent'; // Default to transparent
   };
 
+  // Find the newest version for the game
+  const getNewestVersion = (versions) => {
+    if (!versions || versions.length === 0) return 'V 1.0';
+    let maxVersion = versions[0].version;
+    let maxValue = 0;
+    for (const version of versions) {
+      let current;
+      try {
+        current = parseInt(version.version.replace(/[^0-9]/g, ''), 10);
+      } catch {
+        current = 0;
+      }
+      if (current > maxValue) {
+        maxValue = current;
+        maxVersion = version.version;
+      }
+    }
+    return maxVersion || 'V 1.0';
+  };
+
   // Default template
   const DefaultBannerTemplate = ({ game, onSelect }) => {
     const children = [
       // Inline styles for hover effects
-      React.createElement('style', { key: 'banner-styles' }, bannerStyles),
+      React.createElement('style', { key: `banner-styles-${game.record_id}` }, bannerStyles),
       // Top overlay
       React.createElement('div', {
         key: `top-overlay-${game.record_id}`,
@@ -157,7 +179,7 @@ const GameBanner = ({ game, onSelect }) => {
                 className: 'text-white text-xs font-semibold flex-1 text-center',
                 children: game.title || 'Unknown'
               }),
-              // Status and LatestVersion at bottom-right
+              // Status and Newest Version at bottom-right
               React.createElement(
                 'div',
                 { key: `status-version-${game.record_id}`, className: 'flex items-center mr-2.5' },
@@ -170,12 +192,12 @@ const GameBanner = ({ game, onSelect }) => {
                       style: { backgroundColor: getStatusBackgroundColor(game.status) },
                       children: game.status
                     }),
-                  // LatestVersion with fixed background color
+                  // Newest Version with fixed background color
                   React.createElement('div', {
                     key: `version-${game.record_id}`,
                     className: `text-white text-[10px] ${game.status ? 'rounded-r-sm -ml-0.5' : 'rounded-sm'} px-2 py-0.5`,
                     style: { backgroundColor: '#3F4043' },
-                    children: game.latestVersion || 'V 1.0'
+                    children: getNewestVersion(game.versions)
                   })
                 ]
               )
@@ -195,7 +217,8 @@ const GameBanner = ({ game, onSelect }) => {
           key: `banner-image-${game.record_id}`,
           src: game.banner_url,
           alt: game.title,
-          className: 'w-[537px] h-[251px] object-contain'
+          className: 'w-[537px] h-[251px] object-contain',
+          onError: () => console.error(`Failed to load banner image for recordId ${game.record_id}: ${game.banner_url}`)
         })
       ]));
     } else {

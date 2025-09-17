@@ -461,6 +461,7 @@ const getGames = (appPath, isDev, offset = 0, limit = null) => {
             // Unescape engine to fix 'Ren''Py' issue
             engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
             versions,
+            versionCount: versions.length, // Add versionCount
             isUpdateAvailable
           };
         });
