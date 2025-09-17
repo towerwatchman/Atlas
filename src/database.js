@@ -380,6 +380,7 @@ const getGame = (recordId, appPath, isDev) => {
     });
   });
 };
+
 const getGames = (appPath, isDev, offset = 0, limit = null) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = isDev

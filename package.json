@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "1.0.205",
+  "version": "1.0.37",
   "author": {
     "name": "towerwatchman",
     "email": "towerwatchman@atlas.com"
@@ -10,7 +10,7 @@
   "scripts": {
     "start": "electron .",
     "build": "npm run build:css && electron-builder --win --x64",
-    "dev": "node update-version.js && npm run build:css && electron . --dev",
+    "dev": "npm run build:css && electron . --dev",
     "build:css": "postcss src/assets/css/tailwind.css -o src/assets/css/tailwind.output.css",
     "rebuild": "npx electron-rebuild --version=37.0.0",
     "structure": "node generate-structure.js > project-structure.txt",
