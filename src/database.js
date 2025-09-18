@@ -627,15 +627,17 @@ const searchAtlas = async (title, creator) => {
   const queries = [
     async () => {
       return new Promise((resolve, reject) => {
-        db.all(
-          `SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ? AND creator LIKE ?`,
-          [`%${title}%`, `%${creator}%`],
-          (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows);
-          }
-        );
-      });
+      const safeTitle = (title || '').replace(/[^\w\s.-]/g, '');
+      const safeCreator = (creator || '').replace(/[^\w\s.-]/g, '');
+      db.all(
+        `SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ? AND creator LIKE ?`,
+        [`%${safeTitle}%`, `%${safeCreator}%`],
+        (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows);
+        }
+      );
+    });
     },
     async () => {
       const shortName = title.replace(/[\W_]+/g, '').toUpperCase();
@@ -758,15 +760,16 @@ const findF95Id = (atlasId) => {
 
 const checkRecordExist = (title, creator, version) => {
   return new Promise((resolve, reject) => {
-    const escapedTitle = title.replace(/'/g, "''");
-    const escapedCreator = creator.replace(/'/g, "''");
-    const escapedVersion = version.replace(/'/g, "''");
+    // Sanitize inputs
+    const safeTitle = (title || '').replace(/[^\w\s.-]/g, '').replace(/'/g, "''");
+    const safeCreator = (creator || '').replace(/[^\w\s.-]/g, '').replace(/'/g, "''");
+    const safeVersion = (version || '').replace(/[^\w\s.-]/g, '').replace(/'/g, "''");
     db.get(
       `SELECT g.record_id
        FROM games g
        LEFT JOIN versions v ON g.record_id = v.record_id
        WHERE g.title = ? AND g.creator = ? AND v.version = ?`,
-      [escapedTitle, escapedCreator, escapedVersion],
+      [safeTitle, safeCreator, safeVersion],
       (err, row) => {
         if (err) {
           console.error('Error checking record existence:', err);
