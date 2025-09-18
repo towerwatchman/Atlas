@@ -76,7 +76,7 @@ const GameBanner = ({ game, onSelect }) => {
     // Play
     if (game.versions.length === 1) {
       const v = game.versions[0];
-      const ext = v.exec_path.split('.').pop().toLowerCase();
+      const ext = v.exec_path ? v.exec_path.split('.').pop().toLowerCase() : '';
       template.push({
         label: 'Play',
         data: { action: 'launch', execPath: v.exec_path, extension: ext }
@@ -85,7 +85,7 @@ const GameBanner = ({ game, onSelect }) => {
       template.push({
         label: 'Play',
         submenu: game.versions.map(v => {
-          const ext = v.exec_path.split('.').pop().toLowerCase();
+          const ext = v.exec_path ? v.exec_path.split('.').pop().toLowerCase() : '';
           return {
             label: v.version,
             data: { action: 'launch', execPath: v.exec_path, extension: ext }
@@ -112,10 +112,10 @@ const GameBanner = ({ game, onSelect }) => {
     }
 
     // Open Web Link
-    if (game.site_url) {
+    if (game.siteUrl) {
       template.push({
         label: 'Open Web Link',
-        data: { action: 'openUrl', url: game.site_url }
+        data: { action: 'openUrl', url: game.siteUrl }
       });
     }
 
@@ -128,6 +128,7 @@ const GameBanner = ({ game, onSelect }) => {
     console.log('Context menu template:', JSON.stringify(template, null, 2));
     window.electronAPI.showContextMenu(template);
   };
+
   // Engine background color mapping based on C# DataTriggers
   const getEngineBackgroundColor = (engine) => {
     const engineColors = {
