@@ -5,8 +5,12 @@ const axios = require('axios');
 const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
-const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig } = require('./database');
+const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension } = require('./database');
+const { Menu, shell } = require('electron');
+const cp = require('child_process');
+const contextMenuData = new Map();
 
+let contextMenuId = 0;
 let mainWindow;
 let settingsWindow;
 let importerWindow;
@@ -672,6 +676,19 @@ ipcMain.handle('remove-emulator-config', async (event, extension) => {
   }
 });
 
+ipcMain.handle('show-context-menu', (event, template) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!senderWindow) {
+    console.error('No sender window found for context menu');
+    return;
+  }
+
+  const processedTemplate = processTemplate(template, event.sender);
+  console.log('Processed context menu template:', JSON.stringify(processedTemplate, null, 2));
+  const menu = Menu.buildFromTemplate(processedTemplate);
+  menu.popup({ window: senderWindow });
+});
+
 const engineMap = {
   rpgm: ['rpgmv.exe', 'rpgmk.exe', 'rpgvx.exe', 'rpgvxace.exe', 'rpgmktranspatch.exe'],
   renpy: ['renpy.exe', 'renpy.sh'],
@@ -831,6 +848,68 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
       }
     }
   }
+}
+
+async function launchGame({ execPath, extension }) {
+  if (!fs.existsSync(execPath)) {
+    console.error(`Executable not found: ${execPath}`);
+    return;
+  }
+
+  const emulator = await getEmulatorByExtension(extension);
+  if (emulator) {
+    const args = emulator.parameters ? emulator.parameters.split(' ') : [];
+    args.push(execPath);
+    const child = cp.spawn(emulator.program_path, args, { detached: true, stdio: 'ignore' });
+    child.unref();
+  } else {
+    shell.openPath(execPath);
+  }
+}
+
+function handleContextAction(data, sender) {
+  if (!data || typeof data.action === 'undefined') {
+    console.error('handleContextAction: Invalid or missing data object', data);
+    return;
+  }
+
+  switch (data.action) {
+    case 'launch':
+      launchGame(data);
+      break;
+    case 'openFolder':
+      shell.openPath(data.gamePath);
+      break;
+    case 'openUrl':
+      shell.openExternal(data.url);
+      break;
+    case 'properties':
+      sender.send('context-menu-command', data);
+      break;
+    default:
+      console.error(`Unknown action: ${data.action}`);
+  }
+}
+
+function processTemplate(items, sender) {
+  return items.map(item => {
+    const newItem = { ...item };
+    if (newItem.submenu) {
+      newItem.submenu = processTemplate(newItem.submenu, sender);
+    }
+    if (newItem.data) {
+      const id = contextMenuId++;
+      contextMenuData.set(id, newItem.data);
+      newItem.click = () => {
+        const data = contextMenuData.get(id);
+        console.log('Menu item clicked:', data);
+        handleContextAction(data, sender);
+        contextMenuData.delete(id); // Clean up
+      };
+      delete newItem.data; // Remove data to prevent serialization issues
+    }
+    return newItem;
+  });
 }
 
 app.whenReady().then(() => {

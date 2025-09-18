@@ -64,6 +64,70 @@ const GameBanner = ({ game, onSelect }) => {
     loadTemplate();
   }, [game.banner_url]); // Re-run when banner_url changes
 
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    if (!game || !game.versions || game.versions.length === 0) {
+      console.log('No versions available for context menu:', game.record_id);
+      return;
+    }
+
+    const template = [];
+
+    // Play
+    if (game.versions.length === 1) {
+      const v = game.versions[0];
+      const ext = v.exec_path.split('.').pop().toLowerCase();
+      template.push({
+        label: 'Play',
+        data: { action: 'launch', execPath: v.exec_path, extension: ext }
+      });
+    } else {
+      template.push({
+        label: 'Play',
+        submenu: game.versions.map(v => {
+          const ext = v.exec_path.split('.').pop().toLowerCase();
+          return {
+            label: v.version,
+            data: { action: 'launch', execPath: v.exec_path, extension: ext }
+          };
+        })
+      });
+    }
+
+    // Open Game Folder
+    if (game.versions.length === 1) {
+      const v = game.versions[0];
+      template.push({
+        label: 'Open Game Folder',
+        data: { action: 'openFolder', gamePath: v.game_path }
+      });
+    } else {
+      template.push({
+        label: 'Open Game Folder',
+        submenu: game.versions.map(v => ({
+          label: v.version,
+          data: { action: 'openFolder', gamePath: v.game_path }
+        }))
+      });
+    }
+
+    // Open Web Link
+    if (game.site_url) {
+      template.push({
+        label: 'Open Web Link',
+        data: { action: 'openUrl', url: game.site_url }
+      });
+    }
+
+    // Properties
+    template.push({
+      label: 'Properties',
+      data: { action: 'properties', recordId: game.record_id }
+    });
+
+    console.log('Context menu template:', JSON.stringify(template, null, 2));
+    window.electronAPI.showContextMenu(template);
+  };
   // Engine background color mapping based on C# DataTriggers
   const getEngineBackgroundColor = (engine) => {
     const engineColors = {
@@ -234,7 +298,8 @@ const GameBanner = ({ game, onSelect }) => {
       {
         key: `banner-root-${game.record_id}`,
         className: 'relative w-[537px] h-[251px] border border-black cursor-pointer overflow-hidden banner-root',
-        onClick: onSelect
+        onClick: onSelect,
+        onContextMenu: handleContextMenu
       },
       children
     );

@@ -992,6 +992,15 @@ const removeEmulatorConfig = (extension) => {
   });
 };
 
+const getEmulatorByExtension = (extension) => {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT * FROM emulators WHERE extension = ?`, [extension], (err, row) => {
+      if (err) reject(err);
+      else resolve(row);
+    });
+  });
+};
+
 module.exports = {
   initializeDatabase,
   addGame,
@@ -1014,6 +1023,7 @@ module.exports = {
   getGame,
   saveEmulatorConfig,
   getEmulatorConfig,
-  removeEmulatorConfig,
+  removeEmulatorConfig, 
+  getEmulatorByExtension,
   db // Export db instance
 };

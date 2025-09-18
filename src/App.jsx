@@ -178,6 +178,15 @@ const App = () => {
     window.electronAPI.onImportComplete(handleImportComplete);
     window.electronAPI.onUpdateStatus(handleUpdateStatus);
 
+    //banner context menu
+    window.electronAPI.onContextMenuCommand((event, data) => {
+      if (data.action === 'properties') {
+        window.electronAPI.getGame(data.recordId).then(updatedGame => {
+          setSelectedGame(updatedGame);
+        }).catch(error => console.error('Failed to get game for properties:', error));
+      }
+    });
+
     // Set up resize listener
     window.addEventListener('resize', debounceResize);
     debounceResize(); // Initial resize calculation

@@ -50,5 +50,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onUpdateStatus: (callback) => {
     ipcRenderer.on('update-status', (event, status) => callback(status));
     return () => ipcRenderer.removeAllListeners('update-status');
-  }
+  },
+  showContextMenu: (template) => ipcRenderer.invoke('show-context-menu', template),
+  onContextMenuCommand: (callback) => ipcRenderer.on('context-menu-command', callback),
 });
