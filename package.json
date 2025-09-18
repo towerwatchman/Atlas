@@ -60,7 +60,8 @@
       "artifactName": "${productName}-Setup ${version}.${ext}",
       "include": "build/installer.nsh",
       "installerSidebar": "build/installerSidebar.bmp",
-      "uninstallerSidebar": "build/installerSidebar.bmp"
+      "uninstallerSidebar": "build/installerSidebar.bmp",
+      "runAfterFinish": true
     },
     "linux": {
       "target": [
