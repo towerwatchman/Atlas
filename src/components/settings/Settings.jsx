@@ -19,7 +19,7 @@ const Settings = () => {
       case 'Platforms':
         return <window.Platforms />;
       case 'Emulators':
-        return <window.Emulators />;
+        return <window.EmulatorLauncher />;
       case 'Appearance':
         return <window.Appearance />;
       case 'Metadata':

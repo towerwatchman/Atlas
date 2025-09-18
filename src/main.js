@@ -5,7 +5,7 @@ const axios = require('axios');
 const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
-const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList } = require('./database');
+const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig } = require('./database');
 
 let mainWindow;
 let settingsWindow;
@@ -123,17 +123,23 @@ function createImporterWindow() {
 
 // Create data folders
 var dataDir = "";
+var launcherDir = "";
 if (process.defaultApp) {
   console.log('Running in development');
   dataDir = path.join(__dirname, 'data');
+  launcherDir = path.join(__dirname, 'launchers');
 } else {
   const resourcesPath = path.resolve(app.getAppPath(), '../../');
   dataDir = path.join(resourcesPath, 'data');
+  launcherDir = path.join(resourcesPath, 'launchers');
   console.log(`Running in release`);
 }
 
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
+}
+if (!fs.existsSync(launcherDir)) {
+  fs.mkdirSync(launcherDir, { recursive: true });
 }
 const updatesDir = path.join(dataDir, 'updates');
 if (!fs.existsSync(updatesDir)) {
@@ -304,8 +310,17 @@ ipcMain.handle('close-window', () => {
 });
 
 ipcMain.handle('select-file', async () => {
-  const result = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'Archives', extensions: ['zip', 'rar', '7z'] }] });
-  return result.filePaths[0] || null;
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [], // Allow all file types
+    });
+    if (result.canceled) return null;
+    return result.filePaths[0];
+  } catch (err) {
+    console.error('Error selecting file:', err);
+    return null;
+  }
 });
 
 ipcMain.handle('select-directory', async () => {
@@ -623,6 +638,38 @@ ipcMain.handle('import-games', async (event, params) => {
   // Reload the UI to show all games
   mainWindow.webContents.send('import-complete');
   return results;
+});
+
+ipcMain.handle('save-emulator-config', async (event, emulator) => {
+  try {
+    await initializeDatabase(dataDir); // Ensure DB is initialized
+    await saveEmulatorConfig(emulator);
+    return { success: true };
+  } catch (err) {
+    console.error('Error saving emulator config:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('get-emulator-config', async () => {
+  try {
+    await initializeDatabase(dataDir); // Ensure DB is initialized
+    return await getEmulatorConfig();
+  } catch (err) {
+    console.error('Error fetching emulator config:', err);
+    return [];
+  }
+});
+
+ipcMain.handle('remove-emulator-config', async (event, extension) => {
+  try {
+    await initializeDatabase(dataDir); // Ensure DB is initialized
+    await removeEmulatorConfig(extension);
+    return { success: true };
+  } catch (err) {
+    console.error('Error removing emulator config:', err);
+    return { success: false, error: err.message };
+  }
 });
 
 const engineMap = {

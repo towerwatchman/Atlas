@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSelectedBannerTemplate: () => ipcRenderer.invoke('get-selected-banner-template'),
   setSelectedBannerTemplate: (template) => ipcRenderer.invoke('set-selected-banner-template', template),
   openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
+  saveEmulatorConfig: (config) => ipcRenderer.invoke('save-emulator-config', config),
+  getEmulatorConfig: () => ipcRenderer.invoke('get-emulator-config'),
+  removeEmulatorConfig: (extension) => ipcRenderer.invoke('remove-emulator-config', extension),
   onWindowStateChanged: (callback) => {
     ipcRenderer.on('window-state-changed', (event, state) => callback(state));
   },

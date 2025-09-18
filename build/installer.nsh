@@ -5,6 +5,7 @@
     StrCmp $1 "." ${PREFIX}next
     StrCmp $1 ".." ${PREFIX}next
     StrCmp $1 "data" ${PREFIX}next
+    StrCmp $1 "launchers" ${PREFIX}next
     IfFileExists "${DIR}\$1\*.*" 0 ${PREFIX}next
     RMDir /r "${DIR}\$1"
   ${PREFIX}next:

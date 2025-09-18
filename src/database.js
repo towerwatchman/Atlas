@@ -191,6 +191,14 @@ const initializeDatabase = (dataDir) => {
         f95_id INTEGER REFERENCES f95_zone_data(f95_id)
       );
     `);
+     db.run(`
+      CREATE TABLE IF NOT EXISTS emulators
+      (
+        extension TEXT PRIMARY KEY,
+        program_path TEXT NOT NULL,
+        parameters TEXT
+      );
+    `);
   });
 };
 
@@ -941,6 +949,49 @@ const insertJsonData = async (jsonData, tableName) => {
   });
 };
 
+const saveEmulatorConfig = (emulator) => {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT OR REPLACE INTO emulators (extension, program_path, parameters) VALUES (?, ?, ?)`,
+      [emulator.extension, emulator.program_path, emulator.parameters || ''],
+      (err) => {
+        if (err) {
+          console.error('Error saving emulator config:', err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      }
+    );
+  });
+};
+
+const getEmulatorConfig = () => {
+  return new Promise((resolve, reject) => {
+    db.all(`SELECT extension, program_path, parameters FROM emulators`, [], (err, rows) => {
+      if (err) {
+        console.error('Error fetching emulator config:', err);
+        reject(err);
+      } else {
+        resolve(rows || []);
+      }
+    });
+  });
+};
+
+const removeEmulatorConfig = (extension) => {
+  return new Promise((resolve, reject) => {
+    db.run(`DELETE FROM emulators WHERE extension = ?`, [extension], (err) => {
+      if (err) {
+        console.error('Error removing emulator config:', err);
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+};
+
 module.exports = {
   initializeDatabase,
   addGame,
@@ -961,5 +1012,8 @@ module.exports = {
   updatePreviews,
   getAtlasData,
   getGame,
+  saveEmulatorConfig,
+  getEmulatorConfig,
+  removeEmulatorConfig,
   db // Export db instance
 };
