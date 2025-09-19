@@ -9,9 +9,6 @@ const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGa
 const { Menu, shell } = require('electron');
 const cp = require('child_process');
 const contextMenuData = new Map();
-const AdmZip = require('adm-zip');
-const node7z = require('node-7z');
-const unrar = require('unrar');
 
 let contextMenuId = 0;
 let mainWindow;
@@ -474,230 +471,177 @@ ipcMain.handle('open-external-url', async (event, url) => {
   }
 });
 
-async function unzipGame(zipPath, extractPath, extension, deleteAfter) {
-  try {
-    console.log(`Extracting ${zipPath} to ${extractPath} (extension: ${extension})`);
-    if (!fs.existsSync(extractPath)) {
-      fs.mkdirSync(extractPath, { recursive: true });
-    }
+ipcMain.handle('import-games', async (event, params) => {
+  const { games, deleteAfter, scanSize, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos, gameExt } = params;
+  const gamesDir = path.join(dataDir, 'games');
+  if (!fs.existsSync(gamesDir)) fs.mkdirSync(gamesDir, { recursive: true });
 
-    if (extension === 'zip') {
-      const zip = new AdmZip(zipPath);
-      zip.extractAllTo(extractPath, true); // Overwrite if exists
-      console.log(`Successfully extracted ${zipPath} to ${extractPath}`);
-    } else if (extension === '7z') {
-      await new Promise((resolve, reject) => {
-        node7z.extractFull(zipPath, extractPath, { $progress: true })
-          .on('end', () => resolve())
-          .on('error', (err) => reject(err));
-      });
-      console.log(`Successfully extracted ${zipPath} to ${extractPath}`);
-    } else if (extension === 'rar') {
-      const archive = new unrar(zipPath);
-      await new Promise((resolve, reject) => {
-        archive.extract(extractPath, null, (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-      console.log(`Successfully extracted ${zipPath} to ${extractPath}`);
-    } else {
-      throw new Error(`Unsupported archive type: ${extension}`);
-    }
-
-    if (deleteAfter) {
-      fs.unlinkSync(zipPath);
-      console.log(`Deleted archive: ${zipPath}`);
-    }
-
-    return { success: true, extractPath };
-  } catch (err) {
-    console.error(`Error extracting ${zipPath}: ${err.message}`);
-    return { success: false, error: err.message };
-  }
-}
-
-ipcMain.handle('import-games', async (event, { games, moveGame, isCompressed, scanSize, downloadBannerImages, downloadPreviewImages, previewLimit, deleteAfter }) => {
-  let progress = 0;
   const total = games.length;
-  event.sender.send('import-progress', { progress, total, text: 'Starting import...' });
+  let progress = 0;
+  mainWindow.webContents.send('import-progress', { text: `Starting import of ${total} games...`, progress, total });
 
+  const results = [];
+  // Phase 1: Import all games
   for (const game of games) {
     try {
-      console.log(`Importing game: ${game.title}, Version: ${game.version}, IsArchive: ${game.isArchive}`);
-      const recordId = await addGame(game);
+      mainWindow.webContents.send('import-progress', { 
+        text: `Importing game '${game.title}' ${progress + 1}/${total}`, 
+        progress, 
+        total 
+      });
+
       let gamePath = game.folder;
-      let execPath = path.join(game.folder, game.selectedValue);
+      let execPath = game.selectedValue ? path.join(gamePath, game.selectedValue) : '';
+      let size = 0;
 
       if (game.isArchive) {
-        const zipPath = path.join(game.folder, game.singleExecutable);
-        const extension = path.extname(zipPath).slice(1).toLowerCase();
-        const extractPath = appConfig.Library.gameFolder
-          ? path.join(appConfig.Library.gameFolder, game.title, game.version)
-          : path.join(game.folder, `${game.title}-${game.version}`);
+        const extractPath = path.join(gamesDir, `${game.title}-${game.version}`);
+        if (!fs.existsSync(extractPath)) fs.mkdirSync(extractPath, { recursive: true });
+        await unzipGame({ zipPath: game.folder, extractPath });
+        if (deleteAfter) fs.unlinkSync(game.folder);
+        gamePath = extractPath;
 
-        const unzipResult = await unzipGame(zipPath, extractPath, extension, deleteAfter);
-        if (!unzipResult.success) {
-          throw new Error(`Failed to extract archive: ${unzipResult.error}`);
+        const execs = findExecutables(extractPath, gameExt);
+        if (execs.length > 0) {
+          const selected = execs[0];
+          execPath = path.join(extractPath, selected);
+          for (const [eng, patterns] of Object.entries(engineMap)) {
+            if (patterns.some(p => selected.toLowerCase().includes(p))) {
+              game.engine = eng;
+              break;
+            }
+          }
+          game.executables = execs.map(e => ({ key: e, value: e }));
+          game.selectedValue = selected;
         }
-
-        gamePath = unzipResult.extractPath;
-        // Scan extracted folder for executables
-        const files = fs.readdirSync(gamePath, { withFileTypes: true })
-          .filter(f => f.isFile())
-          .map(f => f.name);
-        const executables = files.filter(f => gameExt.includes(path.extname(f).toLowerCase().slice(1)) && !blacklist.includes(f));
-        if (executables.length === 0) {
-          throw new Error(`No executable found in extracted folder: ${gamePath}`);
-        }
-        execPath = path.join(gamePath, executables[0]); // Use first executable
-        console.log(`Found executable: ${execPath}`);
-      }
-
-      // Add version with updated paths
-      await addVersion({
-        ...game,
-        folder: gamePath,
-        executables: [{ value: path.basename(execPath) }],
-        game_path: gamePath,
-        exec_path: execPath
-      }, recordId);
-
-      if (game.atlasId) {
-        await addAtlasMapping(recordId, game.atlasId);
       }
 
       if (scanSize) {
-        const size = calculateFolderSize(gamePath); // Implement or import this function if needed
-        await updateFolderSize(recordId, game.version, size);
+        size = getFolderSize(gamePath);
       }
 
-      if (downloadBannerImages || downloadPreviewImages) {
-        const bannerUrl = await getBannerUrl(game.atlasId);
-        const screenUrls = await getScreensUrlList(game.atlasId);
-        const imgDir = path.join(dataDir, 'images', recordId.toString());
-        if (!fs.existsSync(imgDir)) {
-          fs.mkdirSync(imgDir, { recursive: true });
-        }
-        const totalImages = (bannerUrl ? 3 : 0) + (downloadPreviewImages ? Math.min(screenUrls.length, parseInt(previewLimit) || 5) : 0);
-        let imageProgress = 0;
+      const add = {
+        title: game.title,
+        creator: game.creator,
+        engine: game.engine,
+        description: game.description || 'Imported game'
+      };
 
-        const onImageProgress = (progress, total) => {
-          event.sender.send('import-progress', { progress, total, text: `Downloading images for ${game.title}...` });
-        };
-
-        const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-        if (bannerUrl) {
-          console.log(`Downloading banner from URL: ${bannerUrl}`);
-          try {
-            const ext = path.extname(new URL(bannerUrl).pathname).toLowerCase();
-            const baseName = path.basename('banner', ext);
-            const imagePath = path.join(imgDir, baseName);
-            const relativePath = path.join('data', 'images', recordId.toString(), baseName);
-
-            let imageBytes;
-            let downloaded = false;
-            if (['.gif', '.mp4', '.webm'].includes(ext) && downloadVideos) {
-              const animatedPath = `${imagePath}${ext}`;
-              if (!fs.existsSync(animatedPath)) {
-                const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
-                imageBytes = Buffer.from(response.data);
-                fs.writeFileSync(animatedPath, imageBytes);
-                await updateBanners(recordId, `${relativePath}${ext}`, 'banner');
-                downloaded = true;
-              }
-              imageProgress++;
-              onImageProgress(imageProgress, totalImages);
-            }
-
-            const highResPath = `${imagePath}_mc.webp`;
-            const lowResPath = `${imagePath}_sc.webp`;
-            if (!fs.existsSync(highResPath)) {
-              if (!imageBytes) {
-                const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
-                imageBytes = Buffer.from(response.data);
-                downloaded = true;
-              }
-              await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(highResPath);
-              await updateBanners(recordId, `${relativePath}_mc.webp`, 'banner');
-              downloaded = true;
-            }
-            imageProgress++;
-            onImageProgress(imageProgress, totalImages);
-
-            if (!fs.existsSync(lowResPath)) {
-              if (!imageBytes) {
-                const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
-                imageBytes = Buffer.from(response.data);
-                downloaded = true;
-              }
-              await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(lowResPath);
-              await updateBanners(recordId, `${relativePath}_sc.webp`, 'banner');
-              downloaded = true;
-            }
-            imageProgress++;
-            onImageProgress(imageProgress, totalImages);
-
-            console.log('Banner images updated');
-            if (downloaded) {
-              mainWindow.webContents.send('game-updated', recordId);
-              await delay(500);
-            }
-          } catch (err) {
-            console.error('Error downloading or converting banner:', err);
-          }
-        }
-
-        for (let i = 0; i < Math.min(screenUrls.length, parseInt(previewLimit) || 5); i++) {
-          const url = screenUrls[i].trim();
-          if (url) {
-            console.log(`Downloading screen ${i + 1} from URL: ${url}`);
-            try {
-              const ext = path.extname(new URL(url).pathname).toLowerCase();
-              const baseName = path.basename(url, ext);
-              const imagePath = path.join(imgDir, baseName);
-              const relativePath = path.join('data', 'images', recordId.toString(), baseName);
-
-              const targetPath = (['.gif', '.mp4', '.webm'].includes(ext) && downloadVideos) ? `${imagePath}${ext}` : `${imagePath}_pr.webp`;
-              let downloaded = false;
-              if (!fs.existsSync(targetPath)) {
-                const response = await axios.get(url, { responseType: 'arraybuffer' });
-                const imageBytes = Buffer.from(response.data);
-
-                if (['.gif', '.mp4', '.webm'].includes(ext) && downloadVideos) {
-                  fs.writeFileSync(targetPath, imageBytes);
-                  await updatePreviews(recordId, `${relativePath}${ext}`);
-                } else if (!['.gif', '.mp4', '.webm'].includes(ext)) {
-                  await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(targetPath);
-                  await updatePreviews(recordId, `${relativePath}_pr.webp`);
-                }
-                downloaded = true;
-              }
-              imageProgress++;
-              onImageProgress(imageProgress, totalImages);
-              console.log(`Screen ${i + 1} updated`);
-              if (downloaded) {
-                await delay(500);
-              }
-            } catch (err) {
-              console.error(`Error downloading or converting screen ${i + 1}:`, err);
-            }
-          }
+      console.log('Adding Game');
+      const recordId = await addGame(add);
+      console.log('game added');
+      console.log('adding version');
+      await addVersion({ ...game, folder: gamePath, execPath, folderSize: size }, recordId);
+      console.log('added version');
+      console.log('adding mapping');
+      console.log('recordId:', recordId, 'atlasId:', game.atlasId);
+      if (game.atlasId) {
+        try {
+          await addAtlasMapping(recordId, game.atlasId);
+          console.log('mapping added');
+        } catch (err) {
+          console.error('Failed to add atlas mapping:', err);
+          throw err;
         }
       }
 
-      event.sender.send('game-imported', recordId);
+      if (size > 0) await updateFolderSize(recordId, game.version, size);
+      results.push({ success: true, recordId, atlasId: game.atlasId });
+
       progress++;
-      event.sender.send('import-progress', { progress, total, text: `Importing ${game.title}...` });
+      mainWindow.webContents.send('import-progress', { 
+        text: `Imported game '${game.title}' ${progress}/${total}`, 
+        progress, 
+        total 
+      });
+      //mainWindow.webContents.send('game-imported', recordId);
     } catch (err) {
-      console.error(`Error importing game ${game.title}: ${err.message}`);
-      event.sender.send('import-progress', { progress, total, text: `Error importing ${game.title}: ${err.message}` });
+      console.error('Error importing game:', err);
+      results.push({ success: false, error: err.message });
+      progress++;
+      mainWindow.webContents.send('import-progress', { 
+        text: `Error importing game '${game.title}' ${progress}/${total}: ${err.message}`, 
+        progress, 
+        total 
+      });
     }
   }
 
-  event.sender.send('import-complete');
-  return { success: true };
+  mainWindow.webContents.send('import-progress', { 
+    text: `Game import complete: ${results.filter(r => r.success).length} successful`, 
+    progress, 
+    total 
+  });
+  mainWindow.webContents.send('import-complete');
+
+  // Phase 2: Download images for successful imports
+  if (downloadBannerImages || downloadPreviewImages) {
+    progress = 0;
+    const gamesWithImages = results
+      .filter(r => r.success && r.atlasId)
+      .map(r => ({
+        title: games.find(g => g.atlasId === r.atlasId)?.title || 'Unknown Game',
+        atlasId: r.atlasId,
+        recordId: r.recordId
+      }));
+    const imageTotal = gamesWithImages.length;
+
+    mainWindow.webContents.send('import-progress', { 
+      text: `Starting image download for ${imageTotal} games...`, 
+      progress, 
+      total: imageTotal 
+    });
+
+    for (const game of gamesWithImages) {
+      try {
+        const bannerUrl = await getBannerUrl(game.atlasId);
+        const screenUrls = await getScreensUrlList(game.atlasId);
+        const previewCount = downloadPreviewImages ? (previewLimit === 'Unlimited' ? screenUrls.length : Math.min(parseInt(previewLimit), screenUrls.length)) : 0;
+        const totalImages = (downloadBannerImages && bannerUrl ? 3 : 0) + previewCount;
+
+        mainWindow.webContents.send('import-progress', { 
+          text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, 0/${totalImages}`, 
+          progress, 
+          total: imageTotal 
+        });
+
+        await downloadImagesFunc(game.recordId, game.atlasId, (current, totalImages) => {
+          mainWindow.webContents.send('import-progress', { 
+            text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, ${current}/${totalImages}`, 
+            progress, 
+            total: imageTotal 
+          });
+        }, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos);
+
+        mainWindow.webContents.send('game-updated', game.recordId);
+
+        progress++;
+        mainWindow.webContents.send('import-progress', { 
+          text: `Completed image download for '${game.title}' ${progress}/${imageTotal}, ${totalImages} images downloaded`, 
+          progress, 
+          total: imageTotal 
+        });
+      } catch (err) {
+        console.error('Error downloading images for game:', err);
+        progress++;
+        mainWindow.webContents.send('import-progress', { 
+          text: `Error downloading images for '${game.title}' ${progress}/${imageTotal}: ${err.message}`, 
+          progress, 
+          total: imageTotal 
+        });
+      }
+    }
+
+    mainWindow.webContents.send('import-progress', { 
+      text: `Image download complete for ${progress} games`, 
+      progress, 
+      total: imageTotal 
+    });
+  }
+
+  // Reload the UI to show all games
+  mainWindow.webContents.send('import-complete');
+  return results;
 });
 
 ipcMain.handle('save-emulator-config', async (event, emulator) => {
