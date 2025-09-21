@@ -1,10 +1,6 @@
 const { useState, useEffect } = window.React;
 const ReactDOM = window.ReactDOM || {};
-const createRoot = ReactDOM.createRoot || ((container) => {
-  return {
-    render: (component) => ReactDOM.render(component, container)
-  };
-});
+const { createRoot } = window.ReactDOM;
 
 const Importer = () => {
   const [view, setView] = useState('settings');

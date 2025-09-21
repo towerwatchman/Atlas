@@ -53,4 +53,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   showContextMenu: (template) => ipcRenderer.invoke('show-context-menu', template),
   onContextMenuCommand: (callback) => ipcRenderer.on('context-menu-command', callback),
+  onGameData: (callback) => ipcRenderer.on('game-data', callback),
 });

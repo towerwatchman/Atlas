@@ -125,6 +125,48 @@ function createImporterWindow() {
   });
 }
 
+// GAME DETAILS WINDOW
+function createGameDetailsWindow(recordId) {
+  const gameDetailsWindow = new BrowserWindow({
+    width: 850,
+    height: 600,
+    minWidth: 850,
+    minHeight: 600,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    center: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'renderer.js'),
+      contextIsolation: true,
+      enableRemoteModule: false,
+      nodeIntegration: false
+    }
+  });
+
+  gameDetailsWindow.loadFile(path.join(__dirname, 'gamedetails.html'));
+
+  if (process.argv.includes('--dev') || appConfig?.Interface?.showDebugConsole) {
+    gameDetailsWindow.webContents.openDevTools();
+  }
+
+  gameDetailsWindow.on('maximize', () => {
+    gameDetailsWindow.webContents.send('window-state-changed', 'maximized');
+  });
+  gameDetailsWindow.on('unmaximize', () => {
+    gameDetailsWindow.webContents.send('window-state-changed', 'restored');
+  });
+
+  gameDetailsWindow.webContents.on('did-finish-load', () => {
+    getGame(recordId, app.getAppPath(), process.defaultApp).then(game => {
+      console.log(game)
+      gameDetailsWindow.webContents.send('game-data', game);
+    }).catch(err => {
+      console.error('Failed to fetch game data:', err);
+    });
+  });
+}
+
 // Create data folders
 var dataDir = "";
 var launcherDir = "";
@@ -884,7 +926,7 @@ function handleContextAction(data, sender) {
       shell.openExternal(data.url);
       break;
     case 'properties':
-      sender.send('context-menu-command', data);
+      createGameDetailsWindow(data.recordId);
       break;
     default:
       console.error(`Unknown action: ${data.action}`);
