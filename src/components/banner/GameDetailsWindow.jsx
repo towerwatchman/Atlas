@@ -36,6 +36,8 @@ const GameDetailWindow = () => {
     version_size: '',
     date_added: '',
   });
+  const [previewUrls, setPreviewUrls] = useState([]);
+  const [bannerUrl, setBannerUrl] = useState('');
 
   useEffect(() => {
     console.log('Setting up onGameData listener');
@@ -76,6 +78,13 @@ const GameDetailWindow = () => {
       } else {
         console.log('No versions available');
       }
+      // Load media
+      setBannerUrl(fetchedGame.banner_url || '');
+      window.electronAPI.getScreensUrlList(fetchedGame.record_id).then(urls => {
+        setPreviewUrls(urls || []);
+      }).catch(err => {
+        console.error('Failed to load previews:', err);
+      });
     };
 
     window.electronAPI.onGameData(handleGameData);
@@ -127,14 +136,62 @@ const GameDetailWindow = () => {
     setSelectedVersion(version);
     setVersionData({
       game_version: version.version || '',
-      game_path: version.game_path || '',
-      executable: version.exec_path || '',
-      last_played: version.last_played?.toString() || '',
-      playtime: version.version_playtime?.toString() || '',
-      version_size: version.folder_size?.toString() || '',
-      date_added: version.date_added
-          ? new Date(parseInt(version.date_added) * 1000).toISOString().split('T')[0]
-          : '',
+      game_path: version.gamePath || '',
+      executable: version.exePath || '',
+      last_played: version.lastPlayed?.toString() || '',
+      playtime: version.playtime?.toString() || '',
+      version_size: version.folderSize?.toString() || '',
+      date_added: version.dateAdded?.toString() || '',
+    });
+  };
+
+  const handleSetPath = () => {
+    window.electronAPI.selectDirectory().then(path => {
+      if (path) {
+        setVersionData({ ...versionData, game_path: path });
+      }
+    }).catch(err => {
+      console.error('Failed to select directory:', err);
+    });
+  };
+
+  const handleChangeExecutable = () => {
+    window.electronAPI.selectFile().then(path => {
+      if (path) {
+        setVersionData({ ...versionData, executable: path });
+      }
+    }).catch(err => {
+      console.error('Failed to select file:', err);
+    });
+  };
+
+  const handleDownloadBanner = () => {
+    window.electronAPI.updateBanners(game.record_id).then(newUrl => {
+      setBannerUrl(newUrl);
+    }).catch(err => {
+      console.error('Failed to download banner:', err);
+    });
+  };
+
+  const handleSelectCustomBanner = () => {
+    window.electronAPI.selectFile().then(filePath => {
+      if (filePath) {
+        window.electronAPI.convertAndSaveBanner(game.record_id, filePath).then(newUrl => {
+          setBannerUrl(newUrl);
+        }).catch(err => {
+          console.error('Failed to convert and save banner:', err);
+        });
+      }
+    }).catch(err => {
+      console.error('Failed to select custom banner:', err);
+    });
+  };
+
+  const handleDownloadPreviews = () => {
+    window.electronAPI.updatePreviews(game.record_id).then(newUrls => {
+      setPreviewUrls(newUrls);
+    }).catch(err => {
+      console.error('Failed to download previews:', err);
     });
   };
 
@@ -174,8 +231,39 @@ const GameDetailWindow = () => {
     console.log('TODO: Add new version');
   };
 
-  const handleSave = () => {
-    console.log('TODO: Save changes', formData, versionData);
+  const handleSave = async () => {
+    console.log('Saving changes', formData, versionData);
+    const updatedGame = {
+      ...game,
+      title: formData.title,
+      shortName: formData.short_name,
+      OS: formData.platform,
+      engine: formData.engine,
+      creator: formData.developer,
+      publisher: formData.publisher,
+      release_date: formData.release_date ? new Date(formData.release_date).getTime() / 1000 : '',
+      status: formData.status,
+      f95_tags: formData.tags ? formData.tags.replace(/ , /g, ',') : '',
+      overview: formData.description,
+      category: formData.category,
+      latestVersion: formData.latest_version,
+      censored: formData.censored,
+      language: formData.language,
+      translations: formData.translations,
+      genre: formData.genre,
+      voice: formData.voice,
+      rating: formData.rating,
+    };
+    await window.electronAPI.updateGame(updatedGame);
+
+    if (selectedVersion) {
+      const updatedVersion = {
+        ...selectedVersion,
+        gamePath: versionData.game_path,
+        exePath: versionData.executable,
+      };
+      await window.electronAPI.updateVersion(updatedVersion);
+    }
   };
 
   const handleCancel = () => {
@@ -357,12 +445,12 @@ const GameDetailWindow = () => {
                 <div className="flex items-center">
                   <label className="w-24">Game Path</label>
                   <input name="game_path" value={versionData.game_path} onChange={handleVersionInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  <button className="ml-2 px-2 py-1 bg-tertiary hover:bg-button_hover rounded">Set Path</button>
+                  <button onClick={handleSetPath} className="ml-2 px-2 py-1 bg-tertiary hover:bg-button_hover rounded">Set Path</button>
                 </div>
                 <div className="flex items-center">
                   <label className="w-24">Executable</label>
                   <input name="executable" value={versionData.executable} onChange={handleVersionInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  <button className="ml-2 px-2 py-1 bg-tertiary hover:bg-button_hover rounded">Change</button>
+                  <button onClick={handleChangeExecutable} className="ml-2 px-2 py-1 bg-tertiary hover:bg-button_hover rounded">Change</button>
                 </div>
                 <div className="flex items-center opacity-75">
                   <label className="w-24">Last Played</label>
@@ -384,8 +472,30 @@ const GameDetailWindow = () => {
             </div>
           )}
 
+          {activeTab === 'Media' && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col">
+                <label>Banner Image</label>
+                {bannerUrl ? (
+                  <img src={bannerUrl} alt="Banner" className="w-full h-auto rounded" />
+                ) : (
+                  <button onClick={handleDownloadBanner} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Download Banner</button>
+                )}
+                <button onClick={handleSelectCustomBanner} className="mt-2 px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Select Custom Banner</button>
+              </div>
+              <div className="flex flex-col">
+                <label>Preview Images</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {previewUrls.map((url, index) => (
+                    <img key={index} src={url} alt={`Preview ${index}`} className="w-full h-auto rounded" />
+                  ))}
+                </div>
+                <button onClick={handleDownloadPreviews} className="mt-2 px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Download Previews</button>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'Advanced' && <div>Advanced content (TODO)</div>}
-          {activeTab === 'Media' && <div>Media content (TODO)</div>}
           {activeTab === 'Mappings' && <div>Mappings content (TODO)</div>}
           {activeTab === 'Installation' && <div>Installation content (TODO)</div>}
         </div>

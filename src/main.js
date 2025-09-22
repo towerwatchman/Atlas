@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const sharp = require('sharp');
 const axios = require('axios');
 const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
@@ -738,6 +739,85 @@ ipcMain.handle('show-context-menu', (event, template) => {
   console.log('Processed context menu template:', JSON.stringify(processedTemplate, null, 2));
   const menu = Menu.buildFromTemplate(processedTemplate);
   menu.popup({ window: senderWindow });
+});
+
+// ipc handles for game details window
+
+// Handle new IPC channels
+ipcMain.handle('get-screens-url-list', async (event, recordId) => {
+  console.log('Handling get-screens-url-list for recordId:', recordId);
+  try {
+    // Assuming a database function to retrieve preview URLs
+    const previews = await getPreviewsFromDatabase(recordId); // Implement this based on your database schema
+    return previews || [];
+  } catch (err) {
+    console.error('Error fetching preview URLs:', err);
+    return [];
+  }
+});
+
+ipcMain.handle('update-banners', async (event, recordId) => {
+  console.log('Handling update-banners for recordId:', recordId);
+  try {
+    // Assuming an importer function similar to what's used in the importer
+    const bannerUrl = await downloadBanner(recordId); // Implement this based on your importer logic
+    return bannerUrl;
+  } catch (err) {
+    console.error('Error downloading banner:', err);
+    throw err;
+  }
+});
+
+ipcMain.handle('update-previews', async (event, recordId) => {
+  console.log('Handling update-previews for recordId:', recordId);
+  try {
+    // Assuming an importer function to download previews
+    const previewUrls = await downloadPreviews(recordId); // Implement this based on your importer logic
+    return previewUrls;
+  } catch (err) {
+    console.error('Error downloading previews:', err);
+    throw err;
+  }
+});
+
+ipcMain.handle('convert-and-save-banner', async (event, { recordId, filePath }) => {
+  console.log('Handling convert-and-save-banner for recordId:', recordId, 'filePath:', filePath);
+  try {
+    const outputPath = path.join(app.getAppPath(), 'src', 'data', 'images', `${recordId}`, 'banner_sc.webp');
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    await sharp(filePath)
+      .webp({ quality: 80 })
+      .toFile(outputPath);
+    console.log('Banner converted and saved:', outputPath);
+    return `file://${outputPath}`;
+  } catch (err) {
+    console.error('Error converting and saving banner:', err);
+    throw err;
+  }
+});
+
+ipcMain.handle('update-game', async (event, game) => {
+  console.log('Handling update-game:', game);
+  try {
+    // Assuming a database update function
+    await updateGameInDatabase(game); // Implement this based on your database schema
+    console.log('Game updated in database');
+  } catch (err) {
+    console.error('Error updating game:', err);
+    throw err;
+  }
+});
+
+ipcMain.handle('update-version', async (event, version) => {
+  console.log('Handling update-version:', version);
+  try {
+    // Assuming a database update function for versions
+    await updateVersionInDatabase(version); // Implement this based on your database schema
+    console.log('Version updated in database');
+  } catch (err) {
+    console.error('Error updating version:', err);
+    throw err;
+  }
 });
 
 const engineMap = {

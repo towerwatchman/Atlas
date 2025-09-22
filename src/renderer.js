@@ -1,8 +1,12 @@
+// src/renderer.js
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   addGame: (game) => ipcRenderer.invoke('add-game', game),
-  getGame: (id) => ipcRenderer.invoke('get-game', id),
+  getGame: (id) => {
+    console.log('Invoking getGame for recordId:', id);
+    return ipcRenderer.invoke('get-game', id);
+  },
   getGames: (offset, limit) => ipcRenderer.invoke('get-games', { offset, limit }),
   removeGame: (id) => ipcRenderer.invoke('remove-game', id),
   unzipGame: (zipPath, extractPath) => ipcRenderer.invoke('unzip-game', { zipPath, extractPath }),
@@ -11,8 +15,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
   maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
   closeWindow: () => ipcRenderer.invoke('close-window'),
-  selectFile: () => ipcRenderer.invoke('select-file'),
-  selectDirectory: () => ipcRenderer.invoke('select-directory'),
+  selectFile: () => {
+    console.log('Invoking selectFile');
+    return ipcRenderer.invoke('select-file');
+  },
+  selectDirectory: () => {
+    console.log('Invoking selectDirectory');
+    return ipcRenderer.invoke('select-directory');
+  },
   getVersion: () => ipcRenderer.invoke('get-version'),
   openSettings: () => ipcRenderer.invoke('open-settings'),
   openImporter: () => ipcRenderer.invoke('open-importer'),
@@ -33,6 +43,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveEmulatorConfig: (config) => ipcRenderer.invoke('save-emulator-config', config),
   getEmulatorConfig: () => ipcRenderer.invoke('get-emulator-config'),
   removeEmulatorConfig: (extension) => ipcRenderer.invoke('remove-emulator-config', extension),
+  getScreensUrlList: (recordId) => {
+    console.log('Invoking getScreensUrlList for recordId:', recordId);
+    return ipcRenderer.invoke('get-screens-url-list', recordId);
+  },
+  updateBanners: (recordId) => {
+    console.log('Invoking updateBanners for recordId:', recordId);
+    return ipcRenderer.invoke('update-banners', recordId);
+  },
+  updatePreviews: (recordId) => {
+    console.log('Invoking updatePreviews for recordId:', recordId);
+    return ipcRenderer.invoke('update-previews', recordId);
+  },
+  convertAndSaveBanner: (recordId, filePath) => {
+    console.log('Invoking convertAndSaveBanner for recordId:', recordId, 'filePath:', filePath);
+    return ipcRenderer.invoke('convert-and-save-banner', { recordId, filePath });
+  },
+  updateGame: (game) => {
+    console.log('Invoking updateGame with game data:', game);
+    return ipcRenderer.invoke('update-game', game);
+  },
+  updateVersion: (version) => {
+    console.log('Invoking updateVersion with version data:', version);
+    return ipcRenderer.invoke('update-version', version);
+  },
   onWindowStateChanged: (callback) => {
     ipcRenderer.on('window-state-changed', (event, state) => callback(state));
   },
