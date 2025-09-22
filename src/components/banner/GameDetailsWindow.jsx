@@ -78,13 +78,18 @@ const GameDetailWindow = () => {
 
     window.electronAPI.onGameData(handleGameData);
 
-    // Cleanup listener on unmount
+    // Timeout to detect if no data is received
+    const timeout = setTimeout(() => {
+      if (!game) {
+        console.error('No game data received after 5 seconds');
+      }
+    }, 5000);
+
     return () => {
       console.log('Cleaning up onGameData listener');
-      // Note: electronAPI doesn't provide a direct way to remove specific listeners,
-      // but this is here for completeness if you add a custom removeListener method
+      clearTimeout(timeout);
     };
-  }, []);
+  }, [game]);
 
   useEffect(() => {
     console.log('formData updated:', formData);
@@ -173,7 +178,6 @@ const GameDetailWindow = () => {
 
   const [activeTab, setActiveTab] = useState('Record');
 
-  // Render a loading state if no game data is available
   if (!game) {
     return (
       <div className="flex flex-col h-screen bg-canvas text-text border border-accent rounded-md overflow-hidden">

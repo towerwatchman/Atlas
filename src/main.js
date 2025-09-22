@@ -146,6 +146,20 @@ function createGameDetailsWindow(recordId) {
 
   gameDetailsWindow.loadFile(path.join(__dirname, 'gamedetails.html'));
 
+  gameDetailsWindow.webContents.on('did-finish-load', () => {
+    console.log('Fetching game data for recordId:', recordId);
+    getGame(recordId, app.getAppPath(), process.argv.includes('--dev')).then(game => {
+      console.log('Sending game data:', game);
+      // Add a 500ms delay to ensure renderer is ready
+      setTimeout(() => {
+        gameDetailsWindow.webContents.send('send-game-data', game);
+      }, 500);
+    }).catch(err => {
+      console.error('Failed to fetch game data:', err);
+      gameDetailsWindow.webContents.send('send-game-data', null);
+    });
+  });
+
   if (process.argv.includes('--dev') || appConfig?.Interface?.showDebugConsole) {
     gameDetailsWindow.webContents.openDevTools();
   }
@@ -157,13 +171,8 @@ function createGameDetailsWindow(recordId) {
     gameDetailsWindow.webContents.send('window-state-changed', 'restored');
   });
 
-  gameDetailsWindow.webContents.on('did-finish-load', () => {
-    getGame(recordId, app.getAppPath(), process.defaultApp).then(game => {
-      console.log(game)
-      gameDetailsWindow.webContents.send('game-data', game);
-    }).catch(err => {
-      console.error('Failed to fetch game data:', err);
-    });
+  gameDetailsWindow.on('closed', () => {
+    //gameDetailsWindow = null;
   });
 }
 
@@ -926,6 +935,7 @@ function handleContextAction(data, sender) {
       shell.openExternal(data.url);
       break;
     case 'properties':
+      console.log('Creating GameDetailsWindow for recordId:', data.recordId);
       createGameDetailsWindow(data.recordId);
       break;
     default:

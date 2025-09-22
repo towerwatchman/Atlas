@@ -53,5 +53,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   showContextMenu: (template) => ipcRenderer.invoke('show-context-menu', template),
   onContextMenuCommand: (callback) => ipcRenderer.on('context-menu-command', callback),
-  onGameData: (callback) => ipcRenderer.on('game-data', callback),
+  onGameData: (callback) => {
+    console.log('Registering onGameData listener');
+    ipcRenderer.on('send-game-data', (event, game) => {
+      console.log('Received send-game-data event in renderer:', game);
+      callback(event, game);
+    });
+  },
 });
