@@ -586,16 +586,16 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
       const compressedData = fs.readFileSync(outputPath);
       const decompressedData = Buffer.from(lz4.decompress(compressedData));
       const data = JSON.parse(decompressedData.toString('utf8'));
-
+      console.log(data)
       // Process atlas_data
       mainWindow.webContents.send('db-update-progress', { text: `Processing Atlas Metadata ${processed + 1}/${total}`, progress: processed, total });
-      if (data.atlas) {
+      if (data.atlas && data.atlas.length > 0) {
         await insertJsonData(data.atlas, 'atlas_data');
       }
 
       // Process f95_zone_data
       mainWindow.webContents.send('db-update-progress', { text: `Processing F95 Metadata ${processed + 1}/${total}`, progress: processed, total });
-      if (data.f95_zone) {
+      if (data.f95_zone && data.f95_zone.length >0 ) {
         await insertJsonData(data.f95_zone, 'f95_zone_data');
       }
 
