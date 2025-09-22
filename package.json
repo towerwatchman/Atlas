@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "1.0.43",
+  "version": "1.0.44",
   "author": {
     "name": "towerwatchman",
     "email": "towerwatchman@atlas.com"
@@ -32,6 +32,7 @@
       "src/index.html",
       "src/settings.html",
       "src/importer.html",
+      "src/gamedetails.html",
       "src/renderer.js",
       "src/App.jsx",
       "src/assets/**/*",
