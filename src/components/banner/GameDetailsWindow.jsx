@@ -6,6 +6,7 @@ const GameDetailWindow = () => {
   const [game, setGame] = useState(null);
   const [selectedVersion, setSelectedVersion] = useState(null);
   const [versions, setVersions] = useState([]);
+  const [dataReceived, setDataReceived] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     short_name: '',
@@ -40,6 +41,7 @@ const GameDetailWindow = () => {
     console.log('Setting up onGameData listener');
     const handleGameData = (event, fetchedGame) => {
       console.log('Received game data:', fetchedGame);
+      setDataReceived(true);
       if (!fetchedGame) {
         console.error('No game data received');
         return;
@@ -78,18 +80,25 @@ const GameDetailWindow = () => {
 
     window.electronAPI.onGameData(handleGameData);
 
-    // Timeout to detect if no data is received
+    // Fallback to request data if not received
     const timeout = setTimeout(() => {
-      if (!game) {
-        console.error('No game data received after 5 seconds');
+      if (!dataReceived) {
+        console.warn('No game data received after 3 seconds, requesting manually');
+        // Placeholder: Use recordId 1 as fallback; ideally, this should be passed
+        window.electronAPI.getGame(1).then(fetchedGame => {
+          console.log('Received fallback game data:', fetchedGame);
+          handleGameData(null, fetchedGame);
+        }).catch(err => {
+          console.error('Failed to fetch fallback game data:', err);
+        });
       }
-    }, 5000);
+    }, 3000);
 
     return () => {
       console.log('Cleaning up onGameData listener');
       clearTimeout(timeout);
     };
-  }, [game]);
+  }, [dataReceived]);
 
   useEffect(() => {
     console.log('formData updated:', formData);

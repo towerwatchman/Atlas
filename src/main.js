@@ -150,10 +150,10 @@ function createGameDetailsWindow(recordId) {
     console.log('Fetching game data for recordId:', recordId);
     getGame(recordId, app.getAppPath(), process.argv.includes('--dev')).then(game => {
       console.log('Sending game data:', game);
-      // Add a 500ms delay to ensure renderer is ready
+      // Reduced delay to 400ms to minimize latency
       setTimeout(() => {
         gameDetailsWindow.webContents.send('send-game-data', game);
-      }, 500);
+      }, 400);
     }).catch(err => {
       console.error('Failed to fetch game data:', err);
       gameDetailsWindow.webContents.send('send-game-data', null);
