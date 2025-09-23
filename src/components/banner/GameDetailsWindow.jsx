@@ -473,27 +473,77 @@ const GameDetailWindow = () => {
           )}
 
           {activeTab === 'Media' && (
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col">
-                <label>Banner Image</label>
-                {bannerUrl ? (
-                  <img src={bannerUrl} alt="Banner" className="w-full h-auto rounded" />
-                ) : (
-                  <button onClick={handleDownloadBanner} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Download Banner</button>
-                )}
-                <button onClick={handleSelectCustomBanner} className="mt-2 px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Select Custom Banner</button>
-              </div>
-              <div className="flex flex-col">
-                <label>Preview Images</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {previewUrls.map((url, index) => (
-                    <img key={index} src={url} alt={`Preview ${index}`} className="w-full h-auto rounded" />
-                  ))}
-                </div>
-                <button onClick={handleDownloadPreviews} className="mt-2 px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Download Previews</button>
-              </div>
-            </div>
-          )}
+  <div className="flex flex-col gap-4">
+    <div className="flex flex-col">
+      <label>Banner Image</label>
+      {bannerUrl ? (
+        <div>
+          <img
+            src={bannerUrl}
+            alt="Banner"
+            className="w-full max-h-[350px] object-contain rounded"
+            onError={(e) => console.error('Failed to load banner:', bannerUrl)}
+          />
+          <button
+            onClick={async () => {
+              try {
+                await window.electronAPI.deleteBanner(game.record_id);
+                console.log('Banner deleted for recordId:', game.record_id);
+                setBannerUrl('');
+              } catch (err) {
+                console.error('Error deleting banner:', err);
+              }
+            }}
+            className="mt-2 px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+          >
+            Delete Banner
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={handleDownloadBanner}
+          className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+        >
+          Download Banner
+        </button>
+      )}
+      <button
+        onClick={handleSelectCustomBanner}
+        className="mt-2 px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+      >
+        Select Custom Banner
+      </button>
+    </div>
+    <div className="flex flex-col">
+      <label>Preview Images</label>
+      <div className="grid grid-cols-3 gap-2">
+        {Array.isArray(previewUrls) && previewUrls.length > 0 ? (
+          previewUrls.map((url, index) => (
+            <img
+              key={index}
+              src={url}
+              alt={`Preview ${index + 1}`}
+              className="w-full h-auto rounded cursor-pointer"
+              onClick={() => {
+                console.log('Opening preview:', url);
+                window.electronAPI.openExternalUrl(url);
+              }}
+              onError={(e) => console.error(`Failed to load preview ${index + 1}:`, url)}
+            />
+          ))
+        ) : (
+          <p>No previews available</p>
+        )}
+      </div>
+      <button
+        onClick={handleDownloadPreviews}
+        className="mt-2 px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+      >
+        Download Previews
+      </button>
+    </div>
+  </div>
+)}
 
           {activeTab === 'Advanced' && <div>Advanced content (TODO)</div>}
           {activeTab === 'Mappings' && <div>Mappings content (TODO)</div>}

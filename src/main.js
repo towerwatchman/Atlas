@@ -6,7 +6,7 @@ const axios = require('axios');
 const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
-const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord, getPreviews } = require('./database');
+const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord, getPreviews, deleteBanner } = require('./database');
 const { Menu, shell } = require('electron');
 const cp = require('child_process');
 const contextMenuData = new Map();
@@ -777,7 +777,7 @@ ipcMain.handle('update-previews', async (event, recordId) => {
         progress, 
         total: imageTotal 
       });
-    }, false, true, 1, false);
+    }, false, true, 100, false);
     
     const previewUrls = await getPreviews(recordId, app.getAppPath(), process.argv.includes('--dev'));
     mainWindow.webContents.send('game-updated', recordId);
@@ -833,6 +833,12 @@ ipcMain.handle('update-version', async (event, version) => {
     console.error('Error updating version:', err);
     throw err;
   }
+});
+
+// NEED TO REFACTOR. SHOULD BE IN DATABASE
+ipcMain.handle('delete-banner', async (event, recordId) => { 
+  console.log('Handling delete-banner for recordId:', recordId);
+  deleteBanner(recordId, app.getAppPath(), process.defaultApp);
 });
 
 // UTIL FUNCTIONS
@@ -923,10 +929,10 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
         if (!fs.existsSync(animatedPath)) {
           const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
           imageBytes = Buffer.from(response.data);
-          fs.writeFileSync(animatedPath, imageBytes);
-          await updateBanners(recordId, `${relativePath}${ext}`, 'banner');
+          fs.writeFileSync(animatedPath, imageBytes);          
           downloaded = true;
         }
+        await updateBanners(recordId, `${relativePath}${ext}`, 'banner');
         imageProgress++;
         onImageProgress(imageProgress, totalImages);
       }
@@ -939,10 +945,10 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
           imageBytes = Buffer.from(response.data);
           downloaded = true;
         }
-        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(highResPath);
-        await updateBanners(recordId, `${relativePath}_mc.webp`, 'banner');
+        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(highResPath);        
         downloaded = true;
       }
+      await updateBanners(recordId, `${relativePath}_mc.webp`, 'banner');
       imageProgress++;
       onImageProgress(imageProgress, totalImages);
 
@@ -952,10 +958,10 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
           imageBytes = Buffer.from(response.data);
           downloaded = true;
         }
-        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(lowResPath);
-        await updateBanners(recordId, `${relativePath}_sc.webp`, 'banner');
+        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(lowResPath);       
         downloaded = true;
       }
+      await updateBanners(recordId, `${relativePath}_sc.webp`, 'banner');
       imageProgress++;
       onImageProgress(imageProgress, totalImages);
 
@@ -989,11 +995,11 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
             fs.writeFileSync(targetPath, imageBytes);
             await updatePreviews(recordId, `${relativePath}${ext}`);
           } else if (!['.gif', '.mp4', '.webm'].includes(ext)) {
-            await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(targetPath);
-            await updatePreviews(recordId, `${relativePath}_pr.webp`);
+            await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(targetPath);            
           }
           downloaded = true;
         }
+        await updatePreviews(recordId, `${relativePath}_pr.webp`);
         imageProgress++;
         onImageProgress(imageProgress, totalImages);
         console.log(`Screen ${i + 1} updated`);

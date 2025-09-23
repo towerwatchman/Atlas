@@ -1,5 +1,6 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
 
 let db;
 
@@ -1017,6 +1018,43 @@ const removeEmulatorConfig = (extension) => {
   });
 };
 
+const deleteBanner = (recordId, appPath, isDev) => {
+  return new Promise((resolve, reject) => {
+    const baseImagePath = isDev
+      ? path.join(appPath, 'src')
+      : path.resolve(appPath, '../../');
+    db.get(`SELECT path FROM banners WHERE record_id = ?`, [recordId], async (err, row) => {
+      if (err) {
+        console.error('Error fetching banner path:', err);
+        reject(err);
+        return;
+      }
+      if (row) {
+        const filePath = path.join(baseImagePath, row.path);
+        console.log(filePath)
+        try {
+          if (await fs.access(filePath).then(() => true).catch(() => false)) {
+            await fs.unlink(filePath);
+            console.log('Deleted banner file:', filePath);
+          }
+        } catch (fileErr) {
+          console.error('Error deleting banner file:', fileErr);
+          // Continue with database deletion even if file deletion fails
+        }
+      }
+      db.run(`DELETE FROM banners WHERE record_id = ?`, [recordId], (err) => {
+        if (err) {
+          console.error('Error removing banner from database:', err);
+          reject(err);
+        } else {
+          console.log('Banner removed from database for recordId:', recordId);
+          resolve();
+        }
+      });
+    });
+  });
+};
+
 const getEmulatorByExtension = (extension) => {
   return new Promise((resolve, reject) => {
     db.get(`SELECT * FROM emulators WHERE extension = ?`, [extension], (err, row) => {
@@ -1052,5 +1090,6 @@ module.exports = {
   getEmulatorByExtension,
   GetAtlasIDbyRecord,
   getPreviews,
+  deleteBanner,
   db // Export db instance
 };

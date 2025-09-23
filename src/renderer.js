@@ -73,6 +73,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onDbUpdateProgress: (callback) => {
     ipcRenderer.on('db-update-progress', (event, progress) => callback(progress));
   },
+  deleteBanner: (recordId) => {
+    console.log('Invoking deleteBanner for recordId:', recordId);
+    return ipcRenderer.invoke('delete-banner', recordId);
+  },
   onScanProgress: (callback) => ipcRenderer.on('scan-progress', (event, progress) => callback(progress)),
   onScanComplete: (callback) => ipcRenderer.on('scan-complete', (event, game) => callback(game)),
   onScanCompleteFinal: (callback) => ipcRenderer.on('scan-complete-final', (event, games) => callback(games)),
