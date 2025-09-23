@@ -535,12 +535,30 @@ const GameDetailWindow = () => {
           <p>No previews available</p>
         )}
       </div>
-      <button
-        onClick={handleDownloadPreviews}
-        className="mt-2 px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-      >
-        Download Previews
-      </button>
+      <div className="flex space-x-2 mt-2">
+        <button
+          onClick={handleDownloadPreviews}
+          className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+        >
+          Download Previews
+        </button>
+        {Array.isArray(previewUrls) && previewUrls.length > 0 && (
+          <button
+            onClick={async () => {
+              try {
+                await window.electronAPI.deletePreviews(game.record_id);
+                console.log('Previews deleted for recordId:', game.record_id);
+                setPreviewUrls([]);
+              } catch (err) {
+                console.error('Error deleting previews:', err);
+              }
+            }}
+            className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+          >
+            Delete Previews
+          </button>
+        )}
+      </div>
     </div>
   </div>
 )}

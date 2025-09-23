@@ -6,7 +6,7 @@ const axios = require('axios');
 const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
-const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord, getPreviews, deleteBanner } = require('./database');
+const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord, getPreviews, deleteBanner, deletePreviews } = require('./database');
 const { Menu, shell } = require('electron');
 const cp = require('child_process');
 const contextMenuData = new Map();
@@ -835,10 +835,30 @@ ipcMain.handle('update-version', async (event, version) => {
   }
 });
 
-// NEED TO REFACTOR. SHOULD BE IN DATABASE
-ipcMain.handle('delete-banner', async (event, recordId) => { 
+ipcMain.handle('delete-banner', async (event, recordId) => {
+  await initializeDatabase(dataDir);
   console.log('Handling delete-banner for recordId:', recordId);
-  deleteBanner(recordId, app.getAppPath(), process.defaultApp);
+  try {
+    await deleteBanner(recordId, app.getAppPath(), process.argv.includes('--dev'));
+    mainWindow.webContents.send('game-updated', recordId);
+    return { success: true };
+  } catch (err) {
+    console.error('Error deleting banner:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('delete-previews', async (event, recordId) => {
+  await initializeDatabase(dataDir);
+  console.log('Handling delete-previews for recordId:', recordId);
+  try {
+    await deletePreviews(recordId, app.getAppPath(), process.argv.includes('--dev'));
+    mainWindow.webContents.send('game-updated', recordId);
+    return { success: true };
+  } catch (err) {
+    console.error('Error deleting previews:', err);
+    return { success: false, error: err.message };
+  }
 });
 
 // UTIL FUNCTIONS

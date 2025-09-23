@@ -1143,6 +1143,7 @@ module.exports = {
   GetAtlasIDbyRecord,
   getPreviews,
   deleteBanner,
+  deletePreviews,
   getBanners,
   db // Export db instance
 };

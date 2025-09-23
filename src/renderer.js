@@ -77,6 +77,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     console.log('Invoking deleteBanner for recordId:', recordId);
     return ipcRenderer.invoke('delete-banner', recordId);
   },
+  deletePreviews: (recordId) => {
+  console.log('Invoking deletePreviews for recordId:', recordId);
+  return ipcRenderer.invoke('delete-previews', recordId);
+},
   onScanProgress: (callback) => ipcRenderer.on('scan-progress', (event, progress) => callback(progress)),
   onScanComplete: (callback) => ipcRenderer.on('scan-complete', (event, game) => callback(game)),
   onScanCompleteFinal: (callback) => ipcRenderer.on('scan-complete-final', (event, games) => callback(games)),
