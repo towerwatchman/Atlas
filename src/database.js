@@ -746,12 +746,20 @@ const searchAtlas = async (title, creator) => {
   return finalResults;
 };
 
-
 const findF95Id = (atlasId) => {
   return new Promise((resolve, reject) => {
     db.get(`SELECT f95_id FROM f95_zone_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
       if (err) reject(err);
       else resolve(row ? row.f95_id : null);
+    });
+  });
+};
+
+const GetAtlasIDbyRecord = (recordId) => {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT atlas_id FROM atlas_mappings WHERE record_id = ?`, [recordId], (err, row) => {
+      if (err) reject(err);
+      else resolve(row ? row.atlas_id : null);
     });
   });
 };
@@ -1025,5 +1033,6 @@ module.exports = {
   getEmulatorConfig,
   removeEmulatorConfig, 
   getEmulatorByExtension,
+  GetAtlasIDbyRecord,
   db // Export db instance
 };

@@ -6,7 +6,7 @@ const axios = require('axios');
 const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
-const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension } = require('./database');
+const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord } = require('./database');
 const { Menu, shell } = require('electron');
 const cp = require('child_process');
 const contextMenuData = new Map();
@@ -223,28 +223,23 @@ autoUpdater.on('checking-for-update', () => {
   console.log('Checking for updates...');
   mainWindow.webContents.send('update-status', { status: 'checking' });
 });
-
 autoUpdater.on('update-available', (info) => {
   console.log(`Update available: ${info.version}`);
   mainWindow.webContents.send('update-status', { status: 'available', version: info.version });
 });
-
 autoUpdater.on('update-not-available', (info) => {
   console.log('No updates available.');
   mainWindow.webContents.send('update-status', { status: 'not-available' });
 });
-
 autoUpdater.on('download-progress', (progress) => {
   console.log(`Download progress: ${progress.percent}%`);
   mainWindow.webContents.send('update-status', { status: 'downloading', percent: progress.percent });
 });
-
 autoUpdater.on('update-downloaded', (info) => {
   console.log(`Update downloaded: ${info.version}`);
   mainWindow.webContents.send('update-status', { status: 'downloaded', version: info.version });
   autoUpdater.quitAndInstall();
 });
-
 autoUpdater.on('error', (err) => {
   console.error('Updater error:', err);
   mainWindow.webContents.send('update-status', { status: 'error', error: err.message });
@@ -275,22 +270,7 @@ const defaultConfig = {
   }
 };
 
-// Load config.ini at startup
-function loadConfig() {
-  try {
-    if (fs.existsSync(configPath)) {
-      const configData = fs.readFileSync(configPath, 'utf8');
-      appConfig = ini.parse(configData);
-    } else {
-      appConfig = defaultConfig;
-      fs.writeFileSync(configPath, ini.stringify(appConfig));
-    }
-  } catch (err) {
-    console.error('Error loading config.ini:', err);
-    appConfig = defaultConfig;
-  }
-}
-
+// IPC HANDLERS SECTION
 ipcMain.handle('add-game', async (event, game) => {
   return addGame(game);
 });
@@ -657,7 +637,7 @@ ipcMain.handle('import-games', async (event, params) => {
           total: imageTotal 
         });
 
-        await downloadImagesFunc(game.recordId, game.atlasId, (current, totalImages) => {
+        await downloadImages(game.recordId, game.atlasId, (current, totalImages) => {
           mainWindow.webContents.send('import-progress', { 
             text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, ${current}/${totalImages}`, 
             progress, 
@@ -741,9 +721,6 @@ ipcMain.handle('show-context-menu', (event, template) => {
   menu.popup({ window: senderWindow });
 });
 
-// ipc handles for game details window
-
-// Handle new IPC channels
 ipcMain.handle('get-screens-url-list', async (event, recordId) => {
   console.log('Handling get-screens-url-list for recordId:', recordId);
   try {
@@ -760,7 +737,28 @@ ipcMain.handle('update-banners', async (event, recordId) => {
   console.log('Handling update-banners for recordId:', recordId);
   try {
     // Assuming an importer function similar to what's used in the importer
-    const bannerUrl = await downloadBanner(recordId); // Implement this based on your importer logic
+    const atlas_id = await GetAtlasIDbyRecord(recordId);
+    console.log(atlas_id);
+    let progress = 0;
+    let imageTotal = 1;
+    await downloadImages(recordId, atlas_id, (current, totalImages) => {
+          mainWindow.webContents.send('import-progress', { 
+            text: `Downloading images ${progress + 1}/${imageTotal}, ${current}/${totalImages}`, 
+            progress, 
+            total: imageTotal 
+          });
+        }, true, false, 1, false);
+        const bannerUrl = await getBannerUrl(atlas_id); // Implement this based on your importer logic
+
+        mainWindow.webContents.send('game-updated', recordId);
+
+        progress++;
+        mainWindow.webContents.send('import-progress', { 
+          text: `Completed image download for ${progress}/${imageTotal}, ${imageTotal} images downloaded`, 
+          progress, 
+          total: imageTotal 
+        });
+      console.log(bannerUrl);
     return bannerUrl;
   } catch (err) {
     console.error('Error downloading banner:', err);
@@ -820,6 +818,7 @@ ipcMain.handle('update-version', async (event, version) => {
   }
 });
 
+// UTIL FUNCTIONS
 const engineMap = {
   rpgm: ['rpgmv.exe', 'rpgmk.exe', 'rpgvx.exe', 'rpgvxace.exe', 'rpgmktranspatch.exe'],
   renpy: ['renpy.exe', 'renpy.sh'],
@@ -827,7 +826,20 @@ const engineMap = {
   html: ['index.html'],
   flash: ['.swf']
 };
-
+function loadConfig() {
+  try {
+    if (fs.existsSync(configPath)) {
+      const configData = fs.readFileSync(configPath, 'utf8');
+      appConfig = ini.parse(configData);
+    } else {
+      appConfig = defaultConfig;
+      fs.writeFileSync(configPath, ini.stringify(appConfig));
+    }
+  } catch (err) {
+    console.error('Error loading config.ini:', err);
+    appConfig = defaultConfig;
+  }
+}
 function getFolderSize(dir) {
   let size = 0;
   const stack = [dir];
@@ -842,7 +854,6 @@ function getFolderSize(dir) {
   }
   return size;
 }
-
 function findExecutables(dir, extensions) {
   const execs = [];
   const stack = [dir];
@@ -863,8 +874,7 @@ function findExecutables(dir, extensions) {
   }
   return execs;
 }
-
-async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos) {
+async function downloadImages(recordId, atlasId, onImageProgress, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos) {
   const sharp = require('sharp');
   const axios = require('axios');
   const { getBannerUrl, getScreensUrlList, updateBanners, updatePreviews } = require('./database');
@@ -980,7 +990,6 @@ async function downloadImagesFunc(recordId, atlasId, onImageProgress, downloadBa
     }
   }
 }
-
 async function launchGame({ execPath, extension }) {
   if (!fs.existsSync(execPath)) {
     console.error(`Executable not found: ${execPath}`);
@@ -997,7 +1006,6 @@ async function launchGame({ execPath, extension }) {
     shell.openPath(execPath);
   }
 }
-
 function handleContextAction(data, sender) {
   if (!data || typeof data.action === 'undefined') {
     console.error('handleContextAction: Invalid or missing data object', data);
@@ -1022,7 +1030,6 @@ function handleContextAction(data, sender) {
       console.error(`Unknown action: ${data.action}`);
   }
 }
-
 function processTemplate(items, sender) {
   return items.map(item => {
     const newItem = { ...item };
@@ -1043,13 +1050,11 @@ function processTemplate(items, sender) {
     return newItem;
   });
 }
-
 app.whenReady().then(() => {
   loadConfig();
   createWindow();
   autoUpdater.checkForUpdatesAndNotify();
 });
-
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
