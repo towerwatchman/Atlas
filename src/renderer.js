@@ -43,9 +43,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveEmulatorConfig: (config) => ipcRenderer.invoke('save-emulator-config', config),
   getEmulatorConfig: () => ipcRenderer.invoke('get-emulator-config'),
   removeEmulatorConfig: (extension) => ipcRenderer.invoke('remove-emulator-config', extension),
-  getScreensUrlList: (recordId) => {
-    console.log('Invoking getScreensUrlList for recordId:', recordId);
-    return ipcRenderer.invoke('get-screens-url-list', recordId);
+  getPreviews: (recordId) => {
+    console.log('Invoking getPreviews for recordId:', recordId);
+    return ipcRenderer.invoke('get-previews', recordId);
   },
   updateBanners: (recordId) => {
     console.log('Invoking updateBanners for recordId:', recordId);

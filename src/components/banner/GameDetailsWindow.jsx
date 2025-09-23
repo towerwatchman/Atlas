@@ -80,7 +80,7 @@ const GameDetailWindow = () => {
       }
       // Load media
       setBannerUrl(fetchedGame.banner_url || '');
-      window.electronAPI.getScreensUrlList(fetchedGame.record_id).then(urls => {
+      window.electronAPI.getPreviews(fetchedGame.record_id).then(urls => {
         setPreviewUrls(urls || []);
       }).catch(err => {
         console.error('Failed to load previews:', err);

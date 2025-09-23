@@ -6,7 +6,7 @@ const axios = require('axios');
 const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
-const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord } = require('./database');
+const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord, getPreviews } = require('./database');
 const { Menu, shell } = require('electron');
 const cp = require('child_process');
 const contextMenuData = new Map();
@@ -51,7 +51,6 @@ function createWindow() {
     mainWindow.webContents.send('window-state-changed', 'restored');
   });
 }
-
 // SETTINGS WINDOW
 function createSettingsWindow() {
   settingsWindow = new BrowserWindow({
@@ -89,7 +88,6 @@ function createSettingsWindow() {
     settingsWindow = null;
   });
 }
-
 // IMPORTER WINDOW
 function createImporterWindow() {
   importerWindow = new BrowserWindow({
@@ -125,14 +123,13 @@ function createImporterWindow() {
     importerWindow = null;
   });
 }
-
 // GAME DETAILS WINDOW
 function createGameDetailsWindow(recordId) {
   const gameDetailsWindow = new BrowserWindow({
-    width: 850,
-    height: 600,
-    minWidth: 850,
-    minHeight: 600,
+    width: 1366,
+    height: 768,
+    minWidth: 1366,
+    minHeight: 768,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -150,7 +147,7 @@ function createGameDetailsWindow(recordId) {
   gameDetailsWindow.webContents.on('did-finish-load', () => {
     console.log('Fetching game data for recordId:', recordId);
     getGame(recordId, app.getAppPath(), process.argv.includes('--dev')).then(game => {
-      console.log('Sending game data:', game);
+      //console.log('Sending game data:', game);
       // Reduced delay to 400ms to minimize latency
       setTimeout(() => {
         gameDetailsWindow.webContents.send('send-game-data', game);
@@ -176,7 +173,6 @@ function createGameDetailsWindow(recordId) {
     //gameDetailsWindow = null;
   });
 }
-
 // Create data folders
 var dataDir = "";
 var launcherDir = "";
@@ -629,7 +625,7 @@ ipcMain.handle('import-games', async (event, params) => {
         const bannerUrl = await getBannerUrl(game.atlasId);
         const screenUrls = await getScreensUrlList(game.atlasId);
         const previewCount = downloadPreviewImages ? (previewLimit === 'Unlimited' ? screenUrls.length : Math.min(parseInt(previewLimit), screenUrls.length)) : 0;
-        const totalImages = (downloadBannerImages && bannerUrl ? 3 : 0) + previewCount;
+        const totalImages = (downloadBannerImages && bannerUrl ? 2 : 0) + previewCount;
 
         mainWindow.webContents.send('import-progress', { 
           text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, 0/${totalImages}`, 
@@ -716,16 +712,17 @@ ipcMain.handle('show-context-menu', (event, template) => {
   }
 
   const processedTemplate = processTemplate(template, event.sender);
-  console.log('Processed context menu template:', JSON.stringify(processedTemplate, null, 2));
+  //console.log('Processed context menu template:', JSON.stringify(processedTemplate, null, 2));
   const menu = Menu.buildFromTemplate(processedTemplate);
   menu.popup({ window: senderWindow });
 });
 
-ipcMain.handle('get-screens-url-list', async (event, recordId) => {
-  console.log('Handling get-screens-url-list for recordId:', recordId);
+ipcMain.handle('get-previews', async (event, recordId) => {
+  console.log('Handling get-previews for recordId:', recordId);
   try {
     // Assuming a database function to retrieve preview URLs
-    const previews = await getPreviewsFromDatabase(recordId); // Implement this based on your database schema
+    const previews = await getPreviews(recordId); // Implement this based on your database schema
+    console.log(previews)
     return previews || [];
   } catch (err) {
     console.error('Error fetching preview URLs:', err);
@@ -748,6 +745,7 @@ ipcMain.handle('update-banners', async (event, recordId) => {
             total: imageTotal 
           });
         }, true, false, 1, false);
+        
         const bannerUrl = await getBannerUrl(atlas_id); // Implement this based on your importer logic
 
         mainWindow.webContents.send('game-updated', recordId);
@@ -768,12 +766,34 @@ ipcMain.handle('update-banners', async (event, recordId) => {
 
 ipcMain.handle('update-previews', async (event, recordId) => {
   console.log('Handling update-previews for recordId:', recordId);
-  try {
-    // Assuming an importer function to download previews
-    const previewUrls = await downloadPreviews(recordId); // Implement this based on your importer logic
-    return previewUrls;
+    try {
+    // Assuming an importer function similar to what's used in the importer
+    const atlas_id = await GetAtlasIDbyRecord(recordId);
+    console.log(atlas_id);
+    let progress = 0;
+    let imageTotal = 1;
+    await downloadImages(recordId, atlas_id, (current, totalImages) => {
+          mainWindow.webContents.send('import-progress', { 
+            text: `Downloading images ${progress + 1}/${imageTotal}, ${current}/${totalImages}`, 
+            progress, 
+            total: imageTotal 
+          });
+        }, false, true, 1, false);
+        
+        const bannerUrl = await getBannerUrl(atlas_id); // Implement this based on your importer logic
+
+        mainWindow.webContents.send('game-updated', recordId);
+
+        progress++;
+        mainWindow.webContents.send('import-progress', { 
+          text: `Completed image download for ${progress}/${imageTotal}, ${imageTotal} images downloaded`, 
+          progress, 
+          total: imageTotal 
+        });
+      console.log(bannerUrl);
+    return bannerUrl;
   } catch (err) {
-    console.error('Error downloading previews:', err);
+    console.error('Error downloading banner:', err);
     throw err;
   }
 });
@@ -1041,7 +1061,7 @@ function processTemplate(items, sender) {
       contextMenuData.set(id, newItem.data);
       newItem.click = () => {
         const data = contextMenuData.get(id);
-        console.log('Menu item clicked:', data);
+        //console.log('Menu item clicked:', data);
         handleContextAction(data, sender);
         contextMenuData.delete(id); // Clean up
       };

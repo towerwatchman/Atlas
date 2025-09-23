@@ -589,7 +589,7 @@ function createGameDetailsWindow(recordId) {
   gameDetailsWindow.webContents.on('did-finish-load', () => {
     console.log('Fetching game data for recordId:', recordId);
     getGame(recordId, app.getAppPath(), process.argv.includes('--dev')).then(game => {
-      console.log('Sending game data:', game);
+      //console.log('Sending game data:', game);
       setTimeout(() => {
         gameDetailsWindow.webContents.send('send-game-data', game);
       }, 200);

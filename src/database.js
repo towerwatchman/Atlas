@@ -585,8 +585,7 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
       // Decompress LZ4
       const compressedData = fs.readFileSync(outputPath);
       const decompressedData = Buffer.from(lz4.decompress(compressedData));
-      const data = JSON.parse(decompressedData.toString('utf8'));
-      console.log(data)
+      const data = JSON.parse(decompressedData.toString('utf8'));      
       // Process atlas_data
       mainWindow.webContents.send('db-update-progress', { text: `Processing Atlas Metadata ${processed + 1}/${total}`, progress: processed, total });
       if (data.atlas && data.atlas.length > 0) {
@@ -920,6 +919,20 @@ const updatePreviews = (recordId, previewPath) => {
   });
 };
 
+const getPreviews = (recordId) => {
+ return new Promise((resolve, reject) => {
+    db.get(`SELECT path FROM previews WHERE record_id = ?`, [recordId], (err, row) => {
+      if (err) {
+        console.error('Error fetching screens:', err);
+        reject(err);
+      } else {
+        const screens = row && row.path ? row.path.split(',').map(s => s.trim()) : [];
+        resolve(screens);
+      }
+    });
+  });
+};
+
 const getAtlasData = (atlasId) => {
   return new Promise((resolve, reject) => {
     db.get(`SELECT title, creator, engine FROM atlas_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
@@ -1034,5 +1047,6 @@ module.exports = {
   removeEmulatorConfig, 
   getEmulatorByExtension,
   GetAtlasIDbyRecord,
+  getPreviews,
   db // Export db instance
 };
