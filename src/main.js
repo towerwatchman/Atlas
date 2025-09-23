@@ -127,9 +127,9 @@ function createImporterWindow() {
 function createGameDetailsWindow(recordId) {
   const gameDetailsWindow = new BrowserWindow({
     width: 1366,
-    height: 768,
+    height: 866,
     minWidth: 1366,
-    minHeight: 768,
+    minHeight: 866,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -723,7 +723,7 @@ ipcMain.handle('get-previews', async (event, recordId) => {
     // Assuming a database function to retrieve preview URLs
     const previews = await getPreviews(recordId, app.getAppPath(),process.defaultApp); // Implement this based on your database schema
     //console.log(previews)
-    return previews || [];
+    return Array.isArray(previews) ? previews : [];
   } catch (err) {
     console.error('Error fetching preview URLs:', err);
     return [];
@@ -766,34 +766,31 @@ ipcMain.handle('update-banners', async (event, recordId) => {
 
 ipcMain.handle('update-previews', async (event, recordId) => {
   console.log('Handling update-previews for recordId:', recordId);
-    try {
-    // Assuming an importer function similar to what's used in the importer
-    const atlas_id = await GetAtlasIDbyRecord(recordId);
-    console.log(atlas_id);
+  try {
+    const atlasId = await GetAtlasIDbyRecord(recordId);
+    console.log('Atlas ID:', atlasId);
     let progress = 0;
     let imageTotal = 1;
-    await downloadImages(recordId, atlas_id, (current, totalImages) => {
-          mainWindow.webContents.send('import-progress', { 
-            text: `Downloading images ${progress + 1}/${imageTotal}, ${current}/${totalImages}`, 
-            progress, 
-            total: imageTotal 
-          });
-        }, false, true, 100, false);
-        
-        const bannerUrl = await getPreviews(atlas_id); // Implement this based on your importer logic
-
-        mainWindow.webContents.send('game-updated', recordId);
-
-        progress++;
-        mainWindow.webContents.send('import-progress', { 
-          text: `Completed image download for ${progress}/${imageTotal}, ${imageTotal} images downloaded`, 
-          progress, 
-          total: imageTotal 
-        });
-      console.log(bannerUrl);
-    return bannerUrl;
+    await downloadImages(recordId, atlasId, (current, totalImages) => {
+      mainWindow.webContents.send('import-progress', { 
+        text: `Downloading previews ${progress + 1}/${imageTotal}, ${current}/${totalImages}`, 
+        progress, 
+        total: imageTotal 
+      });
+    }, false, true, 1, false);
+    
+    const previewUrls = await getPreviews(recordId, app.getAppPath(), process.argv.includes('--dev'));
+    mainWindow.webContents.send('game-updated', recordId);
+    progress++;
+    mainWindow.webContents.send('import-progress', { 
+      text: `Completed previews download ${progress}/${imageTotal}, 1 images downloaded`, 
+      progress, 
+      total: imageTotal 
+    });
+    console.log('Preview URLs:', previewUrls);
+    return Array.isArray(previewUrls) ? previewUrls : [];
   } catch (err) {
-    console.error('Error downloading banner:', err);
+    console.error('Error downloading previews:', err);
     throw err;
   }
 });
