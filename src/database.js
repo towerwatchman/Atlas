@@ -247,11 +247,60 @@ const addGame = (game) => {
   });
 };
 
+const updateGame = (game) => {
+  return new Promise((resolve, reject) => {
+    const { title, creator, engine } = game;
+    const escapedTitle = title.replace(/'/g, "''");
+    const escapedCreator = creator.replace(/'/g, "''");
+    const escapedEngine = engine.replace(/'/g, "''");
+      db.run(
+        `INSERT OR REPLACE INTO games (title, creator, engine)
+          VALUES (?, ?, ?)`,
+        [escapedTitle, escapedCreator, escapedEngine],
+        function (err) {
+          if (err) {
+            console.error('Error inserting game:', err);
+            reject(err);
+            return;
+          }
+          // Return the new record_id
+          console.log(`Inserted new game ${title} by ${creator} with record_id: ${this.lastID}`);
+          resolve(this.lastID);
+        }
+      );
+    }
+  );
+};
+
 const addVersion = (game, recordId) => {
   const { version, folder, executables, folderSize = 0 } = game;
   const executable = executables && executables.length > 0 ? executables[0].value : '';
   const escapedVersion = version.replace(/'/g, "''");
   const escapedFolder = folder.replace(/'/g, "''");
+  const escapedExecPath = executable ? path.join(folder, executable).replace(/'/g, "''") : '';
+  const dateAdded = Math.floor(Date.now() / 1000);
+
+  console.log('adding version')
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT OR REPLACE INTO versions (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)`,
+      [recordId, escapedVersion, escapedFolder, escapedExecPath, true, dateAdded, folderSize],
+      (err) => {
+        if (err) {
+          console.error('Error adding or updating version:', err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      }
+    );
+  });
+};
+
+const updateVersion = (game, recordId) => {
+  const executable = game.exec_path;
+  const escapedVersion = game.version.replace(/'/g, "''");
+  const escapedFolder = game.game_path.replace(/'/g, "''");
   const escapedExecPath = executable ? path.join(folder, executable).replace(/'/g, "''") : '';
   const dateAdded = Math.floor(Date.now() / 1000);
 
@@ -1145,5 +1194,6 @@ module.exports = {
   deleteBanner,
   deletePreviews,
   getBanners,
+  updateGame,
   db // Export db instance
 };

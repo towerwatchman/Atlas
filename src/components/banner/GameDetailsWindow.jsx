@@ -39,7 +39,9 @@ const GameDetailWindow = () => {
   const [previewUrls, setPreviewUrls] = useState([]);
   const [bannerUrl, setBannerUrl] = useState('');
   const [isMaximized, setIsMaximized] = useState(false);
-  const [previewHeight, setPreviewHeight] = useState(250); // Default height
+  const [previewHeight, setPreviewHeight] = useState(250);
+  const [searchResults, setSearchResults] = useState([]);
+  const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
     console.log('Setting up onGameData listener');
@@ -80,7 +82,6 @@ const GameDetailWindow = () => {
       } else {
         console.log('No versions available');
       }
-      // Load media
       setBannerUrl(fetchedGame.banner_url || '');
       window.electronAPI.getPreviews(fetchedGame.record_id).then(urls => {
         setPreviewUrls(urls || []);
@@ -91,7 +92,6 @@ const GameDetailWindow = () => {
 
     window.electronAPI.onGameData(handleGameData);
 
-    // Fallback to request data if not received
     const timeout = setTimeout(() => {
       if (!dataReceived) {
         console.warn('No game data received after 3 seconds, requesting manually');
@@ -104,7 +104,6 @@ const GameDetailWindow = () => {
       }
     }, 3000);
 
-    // Listen for window state changes
     window.electronAPI.onWindowStateChanged((state) => {
       setIsMaximized(state === 'maximized');
     });
@@ -115,20 +114,19 @@ const GameDetailWindow = () => {
     };
   }, [dataReceived]);
 
-  // Dynamic height calculation for previews div
   useEffect(() => {
     const updatePreviewHeight = () => {
       const windowHeight = window.innerHeight;
-      const topBannerHeight = 32; // h-8 ≈ 32px
-      const altHeight = 170; // py-2 ≈ 24px
-      const stickyButtonsHeight = 48; // p-4 ≈ 48px
-      const mediaBannerHeight = 414; // Fixed banner section height
+      const topBannerHeight = 32;
+      const altHeight = 170;
+      const stickyButtonsHeight = 48;
+      const mediaBannerHeight = 414;
       const availableHeight = windowHeight - topBannerHeight - altHeight - stickyButtonsHeight - mediaBannerHeight;
       console.log('Updating preview height:', availableHeight);
-      setPreviewHeight(Math.max(availableHeight, 100)); // Minimum 100px
+      setPreviewHeight(Math.max(availableHeight, 100));
     };
 
-    updatePreviewHeight(); // Initial calculation
+    updatePreviewHeight();
     window.addEventListener('resize', updatePreviewHeight);
     return () => window.removeEventListener('resize', updatePreviewHeight);
   }, []);
@@ -300,6 +298,65 @@ const GameDetailWindow = () => {
   const maximize = () => window.electronAPI.maximizeWindow();
   const close = () => window.electronAPI.closeWindow();
 
+  const handleFindGame = async () => {
+    try {
+      console.log('Searching for game:', formData.title);
+      const results = await window.electronAPI.searchAtlas(formData.title);
+      console.log('Search results:', results);
+      setSearchResults(results || []);
+      setShowModal(true);
+    } catch (err) {
+      console.error('Failed to search Atlas:', err);
+    }
+  };
+
+  const handleSelectGame = async (atlasId) => {
+    try {
+      console.log('Selected Atlas ID:', atlasId);
+      await window.electronAPI.addAtlasMapping(game.record_id, atlasId);
+      const updatedGame = await window.electronAPI.getGame(game.record_id);
+      console.log('Reloaded game data:', updatedGame);
+      setGame(updatedGame);
+      setFormData({
+        title: updatedGame.title || '',
+        short_name: updatedGame.shortName || '',
+        platform: updatedGame.os || '',
+        engine: updatedGame.engine || '',
+        developer: updatedGame.creator || '',
+        publisher: updatedGame.publisher || '',
+        release_date: updatedGame.release_date
+          ? new Date(parseInt(updatedGame.release_date) * 1000).toISOString().split('T')[0]
+          : '',
+        status: updatedGame.status || '',
+        tags: updatedGame.f95_tags ? updatedGame.f95_tags.replace(/,/g, ' , ') : '',
+        description: updatedGame.overview || '',
+        category: updatedGame.category || '',
+        latest_version: updatedGame.latestVersion || '',
+        censored: updatedGame.censored || '',
+        language: updatedGame.language || '',
+        translations: updatedGame.translations || '',
+        genre: updatedGame.genre || '',
+        voice: updatedGame.voice || '',
+        rating: updatedGame.rating || '',
+      });
+      setVersions(updatedGame.versions || []);
+      setBannerUrl(updatedGame.banner_url || '');
+      window.electronAPI.getPreviews(updatedGame.record_id).then(urls => {
+        setPreviewUrls(urls || []);
+      }).catch(err => {
+        console.error('Failed to load previews:', err);
+      });
+      setShowModal(false);
+    } catch (err) {
+      console.error('Failed to update Atlas mapping:', err);
+    }
+  };
+
+  const handleCloseModal = () => {
+    setShowModal(false);
+    setSearchResults([]);
+  };
+
   const [activeTab, setActiveTab] = useState('Record');
 
   if (!game) {
@@ -373,7 +430,7 @@ const GameDetailWindow = () => {
 
       <div className="flex flex-col flex-grow bg-primary">
         <div className="flex border-b border-border">
-          {['Record', 'Versions', 'Advanced', 'Media', 'Mappings', 'Installation'].map(tab => (
+          {['Record', 'Versions', 'Media', 'Mappings'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -467,6 +524,16 @@ const GameDetailWindow = () => {
                     <label className="w-24">Description</label>
                     <textarea name="description" value={formData.description} onChange={handleInputChange} className="flex-grow h-48 bg-tertiary border border-border p-1 rounded" />
                   </div>
+                  {!game.atlas_id && (
+                    <div className="flex justify-end">
+                      <button
+                        onClick={handleFindGame}
+                        className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                      >
+                        Find Game
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -637,11 +704,40 @@ const GameDetailWindow = () => {
               </div>
             )}
 
-            {activeTab === 'Advanced' && <div>Advanced content (TODO)</div>}
             {activeTab === 'Mappings' && <div>Mappings content (TODO)</div>}
-            {activeTab === 'Installation' && <div>Installation content (TODO)</div>}
           </div>
         </div>
+
+        {showModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-secondary p-4 rounded-md max-w-lg w-full">
+              <h2 className="text-lg mb-4">Select Game Match</h2>
+              {searchResults.length > 0 ? (
+                <ul className="space-y-2 max-h-[300px] overflow-y-auto">
+                  {searchResults.map((result, index) => (
+                    <li
+                      key={index}
+                      className="p-2 bg-tertiary hover:bg-button_hover rounded cursor-pointer"
+                      onClick={() => handleSelectGame(result.atlas_id)}
+                    >
+                      {result.title} (ID: {result.atlas_id})
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No matches found</p>
+              )}
+              <div className="flex justify-end space-x-2 mt-4">
+                <button
+                  onClick={handleCloseModal}
+                  className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="sticky bottom-0 p-4 bg-primary flex justify-end space-x-2 z-10">
           <button onClick={handleSave} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Save</button>
@@ -651,6 +747,7 @@ const GameDetailWindow = () => {
     </div>
   );
 };
+
 const root = createRoot(document.getElementById('root')) || {
   render: (component) => ReactDOM.render(component, document.getElementById('root'))
 };

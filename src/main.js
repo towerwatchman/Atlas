@@ -6,7 +6,7 @@ const axios = require('axios');
 const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
-const { initializeDatabase, addGame, addVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord, getPreviews, deleteBanner, deletePreviews } = require('./database');
+const { initializeDatabase, addGame, updateGame, addVersion, updateVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord, getPreviews, deleteBanner, deletePreviews } = require('./database');
 const { Menu, shell } = require('electron');
 const cp = require('child_process');
 const contextMenuData = new Map();
@@ -423,7 +423,7 @@ ipcMain.handle('search-atlas', async (event, { title, creator }) => {
       return [];
     }
   });
-  
+
 ipcMain.handle('find-f95-id', async (event, atlasId) => {
   try {
     const { findF95Id } = require('./database');
@@ -825,7 +825,7 @@ ipcMain.handle('update-game', async (event, game) => {
   console.log('Handling update-game:', game);
   try {
     // Assuming a database update function
-    await updateGameInDatabase(game); // Implement this based on your database schema
+    await updateGame(game); // Implement this based on your database schema
     console.log('Game updated in database');
   } catch (err) {
     console.error('Error updating game:', err);
@@ -837,7 +837,7 @@ ipcMain.handle('update-version', async (event, version) => {
   console.log('Handling update-version:', version);
   try {
     // Assuming a database update function for versions
-    await updateVersionInDatabase(version); // Implement this based on your database schema
+    await addVersion(version); // Implement this based on your database schema
     console.log('Version updated in database');
   } catch (err) {
     console.error('Error updating version:', err);
