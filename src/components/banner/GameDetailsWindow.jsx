@@ -7,6 +7,7 @@ const GameDetailWindow = () => {
   const [selectedVersion, setSelectedVersion] = useState(null);
   const [versions, setVersions] = useState([]);
   const [dataReceived, setDataReceived] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     short_name: '',
@@ -41,6 +42,11 @@ const GameDetailWindow = () => {
 
   useEffect(() => {
     console.log('Setting up onGameData listener');
+    window.electronAPI.onWindowStateChanged((state) => {
+      console.log(`Window state changed: ${state}`);
+      window.electronAPI.log(`Window state changed: ${state}`);
+      setIsMaximized(state === 'maximized');
+    });
     const handleGameData = (event, fetchedGame) => {
       console.log('Received game data:', fetchedGame);
       setDataReceived(true);
@@ -141,7 +147,9 @@ const GameDetailWindow = () => {
       last_played: version.last_played?.toString() || '',
       playtime: version.version_playtime?.toString() || '',
       version_size: version.folder_size?.toString() || '',
-      date_added: version.date_added?.toString() || '',
+      date_added: version.date_added
+        ? new Date(parseInt(version.date_added) * 1000).toISOString().split('T')[0]
+        : '',
     });
   };
 
@@ -279,20 +287,36 @@ const GameDetailWindow = () => {
 
   if (!game) {
     return (
-      <div className="flex flex-col h-screen bg-canvas text-text border border-accent rounded-md overflow-hidden">
-        <div className="flex justify-between items-center h-8 bg-primary px-2">
-          <span className="ml-2">Edit Game Details</span>
-          <div className="flex space-x-1">
-            <button onClick={minimize} className="w-6 h-6 bg-transparent hover:bg-button_hover">
-              <span>-</span>
+      <div className="flex flex-col h-screen bg-canvas text-text border border-accent rounded-md overflow-hidden -webkit-app-region-drag">
+        <div className="flex justify-between items-center h-8 bg-primary px-2 -webkit-app-region-drag">
+            {/* Window Controls */}
+        <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
+          <p className="text-sm absolute left-2 top-1">Edit Game Details</p>
+          <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
+            <button
+              onClick={() => window.electronAPI.minimizeWindow()}
+              className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+              style={{ pointerEvents: 'auto', zIndex: 1000 }}
+            >
+              <i className="fas fa-minus fa-xs text-text"></i>
             </button>
-            <button onClick={maximize} className="w-6 h-6 bg-transparent hover:bg-button_hover">
-              <span>□</span>
+            <button
+              onClick={() => window.electronAPI.maximizeWindow()}
+              className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+              style={{ pointerEvents: 'auto', zIndex: 1000 }}
+            >
+              <i className={isMaximized ? "fas fa-window-restore fa-xs text-text" : "fas fa-window-maximize fa-xs text-text"}></i>
             </button>
-            <button onClick={close} className="w-6 h-6 bg-transparent hover:bg-red-500">
-              <span>×</span>
+            <button
+              onClick={() => window.electronAPI.closeWindow()}
+              className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
+              style={{ pointerEvents: 'auto', zIndex: 1000 }}
+            >
+              <i className="fas fa-times fa-xs text-text"></i>
             </button>
           </div>
+        </div>
+
         </div>
         <div className="flex-grow flex items-center justify-center bg-secondary">
           <span>Loading game data...</span>
@@ -303,18 +327,33 @@ const GameDetailWindow = () => {
 
   return (
     <div className="flex flex-col h-screen bg-canvas text-text border border-accent rounded-md overflow-hidden">
-      <div className="flex justify-between items-center h-8 bg-primary px-2">
-        <span className="ml-2">Edit Game Details</span>
-        <div className="flex space-x-1">
-          <button onClick={minimize} className="w-6 h-6 bg-transparent hover:bg-button_hover">
-            <span>-</span>
-          </button>
-          <button onClick={maximize} className="w-6 h-6 bg-transparent hover:bg-button_hover">
-            <span>□</span>
-          </button>
-          <button onClick={close} className="w-6 h-6 bg-transparent hover:bg-red-500">
-            <span>×</span>
-          </button>
+      <div className="flex justify-between items-center h-8 bg-primary px-2 -webkit-app-region-drag">
+          {/* Window Controls */}
+        <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
+          <p className="text-sm absolute left-2 top-1">Edit Game Details</p>
+          <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
+            <button
+              onClick={() => window.electronAPI.minimizeWindow()}
+              className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+              style={{ pointerEvents: 'auto', zIndex: 1000 }}
+            >
+              <i className="fas fa-minus fa-xs text-text"></i>
+            </button>
+            <button
+              onClick={() => window.electronAPI.maximizeWindow()}
+              className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+              style={{ pointerEvents: 'auto', zIndex: 1000 }}
+            >
+              <i className={isMaximized ? "fas fa-window-restore fa-xs text-text" : "fas fa-window-maximize fa-xs text-text"}></i>
+            </button>
+            <button
+              onClick={() => window.electronAPI.closeWindow()}
+              className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
+              style={{ pointerEvents: 'auto', zIndex: 1000 }}
+            >
+              <i className="fas fa-times fa-xs text-text"></i>
+            </button>
+          </div>
         </div>
       </div>
 
