@@ -1,6 +1,6 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
-const fs = require('fs');
+const fs = require('fs').promises;
 
 let db;
 
@@ -172,7 +172,7 @@ const initializeDatabase = (dataDir) => {
     db.run(`
       CREATE TABLE IF NOT EXISTS banners
       (
-        record_id INTEGER REFERENCES games (record_id) UNIQUE PRIMARY KEY,
+        record_id INTEGER REFERENCES games (record_id),
         path TEXT UNIQUE,
         type INTEGER,
         UNIQUE (record_id, path, type)
@@ -314,7 +314,7 @@ const getGame = (recordId, appPath, isDev) => {
       FROM
         games
       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
-      LEFT JOIN banners ON games.record_id = banners.record_id
+      LEFT JOIN banners ON games.record_id = banners.record_id AND banners.type = 'small'
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
       LEFT JOIN tag_mappings ON games.record_id = tag_mappings.record_id
@@ -434,7 +434,7 @@ const getGames = (appPath, isDev, offset = 0, limit = null) => {
       FROM
         games
       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
-      LEFT JOIN banners ON games.record_id = banners.record_id
+      LEFT JOIN banners ON games.record_id = banners.record_id AND banners.type = 'small'
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
       LEFT JOIN tag_mappings ON games.record_id = tag_mappings.record_id
@@ -938,6 +938,24 @@ const getPreviews = (recordId, appPath, isDev) => {
   });
 };
 
+const getBanners = (recordId, appPath, isDev) => {
+  return new Promise((resolve, reject) => {
+    const baseImagePath = isDev
+      ? path.join(appPath, 'src')
+      : path.resolve(appPath, '../../');
+    db.all(`SELECT path FROM banners WHERE record_id = ?`, [recordId], (err, rows) => {
+      if (err) {
+        console.error('Error fetching banners:', err);
+        reject(err);
+      } else {
+        const banners = rows.map(row => `${path.join(baseImagePath, row.path).replace(/\\/g, '/')}`);
+        console.log('Banners fetched for recordId:', recordId, banners);
+        resolve(banners);
+      }
+    });
+  });
+};
+
 const getAtlasData = (atlasId) => {
   return new Promise((resolve, reject) => {
     db.get(`SELECT title, creator, engine FROM atlas_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
@@ -1019,41 +1037,75 @@ const removeEmulatorConfig = (extension) => {
 };
 
 const deleteBanner = (recordId, appPath, isDev) => {
-  return new Promise((resolve, reject) => {
-    const baseImagePath = isDev
-      ? path.join(appPath, 'src')
-      : path.resolve(appPath, '../../');
-    db.get(`SELECT path FROM banners WHERE record_id = ?`, [recordId], async (err, row) => {
-      if (err) {
-        console.error('Error fetching banner path:', err);
-        reject(err);
-        return;
-      }
-      if (row) {
-        const filePath = path.join(baseImagePath, row.path);
-        console.log(filePath)
+ return new Promise(async (resolve, reject) => {    
+    try {
+      const banners = await getBanners(recordId, appPath, isDev);
+      for (const banner_path of banners) {
+        const filePath = banner_path.replace('file://', ''); // Adjust to data/images
+        console.log('Attempting to delete preview file:', filePath);
         try {
           if (await fs.access(filePath).then(() => true).catch(() => false)) {
             await fs.unlink(filePath);
-            console.log('Deleted banner file:', filePath);
+            console.log('Deleted preview file:', filePath);
+          } else {
+            console.log('Preview file does not exist:', filePath);
           }
         } catch (fileErr) {
-          console.error('Error deleting banner file:', fileErr);
-          // Continue with database deletion even if file deletion fails
+          console.error('Error deleting preview file:', fileErr);
+          // Continue with next file
         }
       }
       db.run(`DELETE FROM banners WHERE record_id = ?`, [recordId], (err) => {
         if (err) {
-          console.error('Error removing banner from database:', err);
+          console.error('Error removing banners from database:', err);
           reject(err);
         } else {
-          console.log('Banner removed from database for recordId:', recordId);
+          console.log('banners removed from database for recordId:', recordId);
           resolve();
         }
       });
-    });
+    } catch (err) {
+      console.error('Error deleting banners:', err);
+      reject(err);
+    }
   });
 };
+
+const deletePreviews = (recordId, appPath, isDev) => {
+  return new Promise(async (resolve, reject) => {   
+    try {
+      const previews = await getPreviews(recordId, appPath, isDev);
+      for (const previewUrl of previews) {
+        const filePath = previewUrl.replace('file://', ''); // Adjust to data/images
+        console.log('Attempting to delete preview file:', filePath);
+        try {
+          if (await fs.access(filePath).then(() => true).catch(() => false)) {
+            await fs.unlink(filePath);
+            console.log('Deleted preview file:', filePath);
+          } else {
+            console.log('Preview file does not exist:', filePath);
+          }
+        } catch (fileErr) {
+          console.error('Error deleting preview file:', fileErr);
+          // Continue with next file
+        }
+      }
+      db.run(`DELETE FROM previews WHERE record_id = ?`, [recordId], (err) => {
+        if (err) {
+          console.error('Error removing previews from database:', err);
+          reject(err);
+        } else {
+          console.log('Previews removed from database for recordId:', recordId);
+          resolve();
+        }
+      });
+    } catch (err) {
+      console.error('Error deleting previews:', err);
+      reject(err);
+    }
+  });
+};
+
 
 const getEmulatorByExtension = (extension) => {
   return new Promise((resolve, reject) => {
@@ -1091,5 +1143,6 @@ module.exports = {
   GetAtlasIDbyRecord,
   getPreviews,
   deleteBanner,
+  getBanners,
   db // Export db instance
 };

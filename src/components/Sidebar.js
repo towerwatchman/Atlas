@@ -52,7 +52,7 @@ const Sidebar = () => {
               window.electronAPI.openSettings();
             }
             if(item.name == 'Add') {
-              
+              window.electronAPI.openImporter();
             }
           }
         },

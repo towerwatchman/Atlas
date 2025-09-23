@@ -932,7 +932,7 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
           fs.writeFileSync(animatedPath, imageBytes);          
           downloaded = true;
         }
-        await updateBanners(recordId, `${relativePath}${ext}`, 'banner');
+        await updateBanners(recordId, `${relativePath}${ext}`, 'animated');
         imageProgress++;
         onImageProgress(imageProgress, totalImages);
       }
@@ -948,7 +948,7 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
         await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(highResPath);        
         downloaded = true;
       }
-      await updateBanners(recordId, `${relativePath}_mc.webp`, 'banner');
+      await updateBanners(recordId, `${relativePath}_mc.webp`, 'small');
       imageProgress++;
       onImageProgress(imageProgress, totalImages);
 
@@ -961,7 +961,7 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
         await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(lowResPath);       
         downloaded = true;
       }
-      await updateBanners(recordId, `${relativePath}_sc.webp`, 'banner');
+      await updateBanners(recordId, `${relativePath}_sc.webp`, 'large');
       imageProgress++;
       onImageProgress(imageProgress, totalImages);
 
