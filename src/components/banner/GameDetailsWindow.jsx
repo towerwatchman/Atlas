@@ -136,12 +136,12 @@ const GameDetailWindow = () => {
     setSelectedVersion(version);
     setVersionData({
       game_version: version.version || '',
-      game_path: version.gamePath || '',
-      executable: version.exePath || '',
-      last_played: version.lastPlayed?.toString() || '',
-      playtime: version.playtime?.toString() || '',
-      version_size: version.folderSize?.toString() || '',
-      date_added: version.dateAdded?.toString() || '',
+      game_path: version.game_path || '',
+      executable: version.exec_path || '',
+      last_played: version.last_played?.toString() || '',
+      playtime: version.version_playtime?.toString() || '',
+      version_size: version.folder_size?.toString() || '',
+      date_added: version.date_added?.toString() || '',
     });
   };
 
