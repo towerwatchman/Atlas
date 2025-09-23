@@ -721,8 +721,8 @@ ipcMain.handle('get-previews', async (event, recordId) => {
   console.log('Handling get-previews for recordId:', recordId);
   try {
     // Assuming a database function to retrieve preview URLs
-    const previews = await getPreviews(recordId); // Implement this based on your database schema
-    console.log(previews)
+    const previews = await getPreviews(recordId, app.getAppPath(),process.defaultApp); // Implement this based on your database schema
+    //console.log(previews)
     return previews || [];
   } catch (err) {
     console.error('Error fetching preview URLs:', err);
@@ -778,9 +778,9 @@ ipcMain.handle('update-previews', async (event, recordId) => {
             progress, 
             total: imageTotal 
           });
-        }, false, true, 1, false);
+        }, false, true, 100, false);
         
-        const bannerUrl = await getBannerUrl(atlas_id); // Implement this based on your importer logic
+        const bannerUrl = await getPreviews(atlas_id); // Implement this based on your importer logic
 
         mainWindow.webContents.send('game-updated', recordId);
 

@@ -919,15 +919,19 @@ const updatePreviews = (recordId, previewPath) => {
   });
 };
 
-const getPreviews = (recordId) => {
- return new Promise((resolve, reject) => {
-    db.get(`SELECT path FROM previews WHERE record_id = ?`, [recordId], (err, row) => {
+const getPreviews = (recordId, appPath, isDev) => {
+  return new Promise((resolve, reject) => {
+    const baseImagePath = isDev
+      ? path.join(appPath, 'src')
+      : path.resolve(appPath, '../../');
+    db.all(`SELECT path FROM previews WHERE record_id = ?`, [recordId], (err, rows) => {
       if (err) {
-        console.error('Error fetching screens:', err);
+        console.error('Error fetching previews:', err);
         reject(err);
       } else {
-        const screens = row && row.path ? row.path.split(',').map(s => s.trim()) : [];
-        resolve(screens);
+        const previews = rows.map(row => `${path.join(baseImagePath, row.path).replace(/\\/g, '/')}`);
+        console.log('Previews fetched for recordId:', recordId, previews);
+        resolve(previews);
       }
     });
   });
