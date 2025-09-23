@@ -174,6 +174,16 @@ function registerIpcHandlers(app, mainWindowInstance) {
     }
   });
 
+  ipcMain.handle('add-atlas-mapping', async (event, { recordId, atlasId }) => {
+    try {
+      const { addAtlasMapping } = require('./database');
+      return await addAtlasMapping(recordId, atlasId);
+    } catch (err) {
+      console.error('Error in add-atlas-mapping:', err);
+      return [];
+    }
+  });
+
   ipcMain.handle('find-f95-id', async (event, atlasId) => {
     try {
       const { findF95Id } = require('./database');

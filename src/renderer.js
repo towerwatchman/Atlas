@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   startScan: (params) => ipcRenderer.invoke('start-scan', params),
   searchAtlas: (title, creator) => ipcRenderer.invoke('search-atlas', { title, creator }),
+  addAtlasMapping: (recordId, atlasId) => ipcRenderer.invoke('add-atlas-mapping', { recordId, atlasId }),
   findF95Id: (atlasId) => ipcRenderer.invoke('find-f95-id', atlasId),
   getAtlasData: (atlasId) => ipcRenderer.invoke('get-atlas-data', atlasId),
   checkRecordExist: (params) => ipcRenderer.invoke('check-record-exist', params),
