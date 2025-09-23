@@ -126,10 +126,10 @@ function createImporterWindow() {
 // GAME DETAILS WINDOW
 function createGameDetailsWindow(recordId) {
   const gameDetailsWindow = new BrowserWindow({
-    width: 1366,
-    height: 866,
-    minWidth: 1366,
-    minHeight: 866,
+    width: 1400,
+    height: 900,
+    minWidth: 1400,
+    minHeight: 900,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',

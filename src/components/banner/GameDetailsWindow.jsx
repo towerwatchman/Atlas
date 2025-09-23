@@ -325,52 +325,52 @@ const GameDetailWindow = () => {
     );
   }
 
-  return (
-    <div className="flex flex-col h-screen bg-canvas text-text border border-accent rounded-md overflow-hidden">
-      <div className="flex justify-between items-center h-8 bg-primary px-2 -webkit-app-region-drag">
-          {/* Window Controls */}
-        <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
-          <p className="text-sm absolute left-2 top-1">Edit Game Details</p>
-          <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
-            <button
-              onClick={() => window.electronAPI.minimizeWindow()}
-              className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
-              style={{ pointerEvents: 'auto', zIndex: 1000 }}
-            >
-              <i className="fas fa-minus fa-xs text-text"></i>
-            </button>
-            <button
-              onClick={() => window.electronAPI.maximizeWindow()}
-              className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
-              style={{ pointerEvents: 'auto', zIndex: 1000 }}
-            >
-              <i className={isMaximized ? "fas fa-window-restore fa-xs text-text" : "fas fa-window-maximize fa-xs text-text"}></i>
-            </button>
-            <button
-              onClick={() => window.electronAPI.closeWindow()}
-              className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
-              style={{ pointerEvents: 'auto', zIndex: 1000 }}
-            >
-              <i className="fas fa-times fa-xs text-text"></i>
-            </button>
-          </div>
+return (
+  <div className="flex flex-col h-screen bg-canvas text-text border border-accent rounded-md overflow-hidden">
+    <div className="flex justify-between items-center h-8 bg-primary px-2 -webkit-app-region-drag">
+      <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
+        <p className="text-sm absolute left-2 top-1">Edit Game Details</p>
+        <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
+          <button
+            onClick={() => window.electronAPI.minimizeWindow()}
+            className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+            style={{ pointerEvents: 'auto', zIndex: 1000 }}
+          >
+            <i className="fas fa-minus fa-xs text-text"></i>
+          </button>
+          <button
+            onClick={() => window.electronAPI.maximizeWindow()}
+            className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+            style={{ pointerEvents: 'auto', zIndex: 1000 }}
+          >
+            <i className={isMaximized ? "fas fa-window-restore fa-xs text-text" : "fas fa-window-maximize fa-xs text-text"}></i>
+          </button>
+          <button
+            onClick={() => window.electronAPI.closeWindow()}
+            className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
+            style={{ pointerEvents: 'auto', zIndex: 1000 }}
+          >
+            <i className="fas fa-times fa-xs text-text"></i>
+          </button>
         </div>
       </div>
+    </div>
 
-      <div className="flex flex-col flex-grow bg-primary">
-        <div className="flex border-b border-border">
-          {['Record', 'Versions', 'Advanced', 'Media', 'Mappings', 'Installation'].map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 ${activeTab === tab ? 'bg-secondary border-t border-l border-r border-border' : 'bg-primary'}`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
+    <div className="flex flex-col flex-grow bg-primary">
+      <div className="flex border-b border-border">
+        {['Record', 'Versions', 'Advanced', 'Media', 'Mappings', 'Installation'].map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 ${activeTab === tab ? 'bg-secondary border-t border-l border-r border-border' : 'bg-primary'}`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
 
-        <div className="flex-grow overflow-auto p-4 bg-secondary">
+      <div className="flex flex-col flex-grow">
+        <div className="flex-grow overflow-y-auto p-4 bg-secondary pb-4">
           {activeTab === 'Record' && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -505,115 +505,136 @@ const GameDetailWindow = () => {
                 </div>
                 <div className="flex items-center opacity-75">
                   <label className="w-24">Date Added</label>
-                  <input name="date_added" value={versionData.date_added} disabled className="flex-grow bg-tertiary border border-border p-1 rounded cursor-not-allowed" />
+                  <input name="date_added" value={formData.date_added} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
                 </div>
               </div>
             </div>
           )}
 
           {activeTab === 'Media' && (
-  <div className="flex flex-col gap-4">
-    <div className="flex flex-col">
-      <label>Banner Image</label>
-      {bannerUrl ? (
-        <div>
-          <img
-            src={bannerUrl}
-            alt="Banner"
-            className="w-full max-h-[350px] object-contain rounded"
-            onError={(e) => console.error('Failed to load banner:', bannerUrl)}
-          />
-          <button
-            onClick={async () => {
-              try {
-                await window.electronAPI.deleteBanner(game.record_id);
-                console.log('Banner deleted for recordId:', game.record_id);
-                setBannerUrl('');
-              } catch (err) {
-                console.error('Error deleting banner:', err);
-              }
-            }}
-            className="mt-2 px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-          >
-            Delete Banner
-          </button>
-        </div>
-      ) : (
-        <button
-          onClick={handleDownloadBanner}
-          className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-        >
-          Download Banner
-        </button>
-      )}
-      <button
-        onClick={handleSelectCustomBanner}
-        className="mt-2 px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-      >
-        Select Custom Banner
-      </button>
-    </div>
-    <div className="flex flex-col">
-      <label>Preview Images</label>
-      <div className="grid grid-cols-3 gap-2">
-        {Array.isArray(previewUrls) && previewUrls.length > 0 ? (
-          previewUrls.map((url, index) => (
-            <img
-              key={index}
-              src={url}
-              alt={`Preview ${index + 1}`}
-              className="w-full h-auto rounded cursor-pointer"
-              onClick={() => {
-                console.log('Opening preview:', url);
-                window.electronAPI.openExternalUrl(url);
-              }}
-              onError={(e) => console.error(`Failed to load preview ${index + 1}:`, url)}
-            />
-          ))
-        ) : (
-          <p>No previews available</p>
-        )}
-      </div>
-      <div className="flex space-x-2 mt-2">
-        <button
-          onClick={handleDownloadPreviews}
-          className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-        >
-          Download Previews
-        </button>
-        {Array.isArray(previewUrls) && previewUrls.length > 0 && (
-          <button
-            onClick={async () => {
-              try {
-                await window.electronAPI.deletePreviews(game.record_id);
-                console.log('Previews deleted for recordId:', game.record_id);
-                setPreviewUrls([]);
-              } catch (err) {
-                console.error('Error deleting previews:', err);
-              }
-            }}
-            className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-          >
-            Delete Previews
-          </button>
-        )}
-      </div>
-    </div>
-  </div>
-)}
+            <div className="flex flex-col h-[calc(100%-3rem)] gap-4">
+              <div className="flex flex-col h-[414px]">
+                <label>Banner Image</label>
+                {bannerUrl ? (
+                  <div className="flex flex-col flex-grow">
+                    <img
+                      src={bannerUrl}
+                      alt="Banner"
+                      className="w-full max-h-[350px] object-contain rounded"
+                      onError={(e) => console.error('Failed to load banner:', bannerUrl)}
+                    />
+                    <div className="flex space-x-2 mt-2">
+                      <button
+                        onClick={handleDownloadBanner}
+                        className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                      >
+                        Download Banner
+                      </button>
+                      <button
+                        onClick={handleSelectCustomBanner}
+                        className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                      >
+                        Select Custom Banner
+                      </button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await window.electronAPI.deleteBanner(game.record_id);
+                            console.log('Banner deleted for recordId:', game.record_id);
+                            setBannerUrl('');
+                          } catch (err) {
+                            console.error('Error deleting banner:', err);
+                          }
+                        }}
+                        className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                      >
+                        Delete Banner
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={handleDownloadBanner}
+                      className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                      style={{ marginTop: '350px' }}
+                    >
+                      Download Banner
+                    </button>
+                    <button
+                      onClick={handleSelectCustomBanner}
+                      className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                      style={{ marginTop: '350px' }}
+                    >
+                      Select Custom Banner
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col flex-grow">
+                <label>Preview Images</label>
+                <div className="h-[calc(100%-414px-3rem)] overflow-y-auto">
+                  <div className="grid grid-cols-3 gap-2 p-2">
+                    {Array.isArray(previewUrls) && previewUrls.length > 0 ? (
+                      previewUrls.map((url, index) => (
+                        <img
+                          key={index}
+                          src={url}
+                          alt={`Preview ${index + 1}`}
+                          className="w-full max-w-[300px] h-auto rounded cursor-pointer"
+                          onClick={() => {
+                            console.log('Opening preview:', url);
+                            window.electronAPI.openExternalUrl(url);
+                          }}
+                          onError={(e) => console.error(`Failed to load preview ${index + 1}:`, url)}
+                        />
+                      ))
+                    ) : (
+                      <p>No previews available</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex space-x-2 mt-2">
+                  <button
+                    onClick={handleDownloadPreviews}
+                    className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                  >
+                    Download Previews
+                  </button>
+                  {Array.isArray(previewUrls) && previewUrls.length > 0 && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          await window.electronAPI.deletePreviews(game.record_id);
+                          console.log('Previews deleted for recordId:', game.record_id);
+                          setPreviewUrls([]);
+                        } catch (err) {
+                          console.error('Error deleting previews:', err);
+                        }
+                      }}
+                      className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                    >
+                      Delete Previews
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {activeTab === 'Advanced' && <div>Advanced content (TODO)</div>}
           {activeTab === 'Mappings' && <div>Mappings content (TODO)</div>}
           {activeTab === 'Installation' && <div>Installation content (TODO)</div>}
         </div>
+      </div>
 
-        <div className="flex justify-end p-4 bg-primary space-x-2">
-          <button onClick={handleSave} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Save</button>
-          <button onClick={handleCancel} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Cancel</button>
-        </div>
+      <div className="sticky bottom-0 p-4 bg-primary flex justify-end space-x-2 z-10">
+        <button onClick={handleSave} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Save</button>
+        <button onClick={handleCancel} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Cancel</button>
       </div>
     </div>
-  );
+  </div>
+);
 };
 
 const root = createRoot(document.getElementById('root')) || {
