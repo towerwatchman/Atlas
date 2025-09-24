@@ -298,17 +298,17 @@ const GameDetailWindow = () => {
   const maximize = () => window.electronAPI.maximizeWindow();
   const close = () => window.electronAPI.closeWindow();
 
-  const handleFindGame = async () => {
-    try {
-      console.log('Searching for game:', formData.title);
-      const results = await window.electronAPI.searchAtlas(formData.title);
-      console.log('Search results:', results);
-      setSearchResults(results || []);
-      setShowModal(true);
-    } catch (err) {
-      console.error('Failed to search Atlas:', err);
-    }
-  };
+const handleFindGame = async () => {
+  try {
+    console.log('Searching for game:', formData.title, formData.developer);
+    const results = await window.electronAPI.searchAtlas(formData.title, formData.developer );
+    console.log('Search results:', results);
+    setSearchResults(results || []);
+    setShowModal(true);
+  } catch (err) {
+    console.error('Failed to search Atlas:', err);
+  }
+};
 
   const handleSelectGame = async (atlasId) => {
     try {
@@ -423,10 +423,10 @@ const GameDetailWindow = () => {
               style={{ pointerEvents: 'auto', zIndex: 1000 }}
             >
               <i className="fas fa-times fa-xs text-text"></i>
-            </button>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
       <div className="flex flex-col flex-grow bg-primary">
         <div className="flex border-b border-border">
@@ -524,16 +524,14 @@ const GameDetailWindow = () => {
                     <label className="w-24">Description</label>
                     <textarea name="description" value={formData.description} onChange={handleInputChange} className="flex-grow h-48 bg-tertiary border border-border p-1 rounded" />
                   </div>
-                  {!game.atlas_id && (
-                    <div className="flex justify-end">
-                      <button
-                        onClick={handleFindGame}
-                        className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-                      >
-                        Find Game
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex justify-end">
+                    <button
+                      onClick={handleFindGame}
+                      className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                    >
+                      Find Game
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -704,7 +702,60 @@ const GameDetailWindow = () => {
               </div>
             )}
 
-            {activeTab === 'Mappings' && <div>Mappings content (TODO)</div>}
+            {activeTab === 'Mappings' && (
+              <div className="flex flex-col gap-4">
+                <div className="flex justify-end">
+                  <button
+                    onClick={handleFindGame}
+                    className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                  >
+                    Add Mapping
+                  </button>
+                </div>
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="bg-primary">
+                      <th className="p-2 text-left"></th>
+                      <th className="p-2 text-left">Mapper</th>
+                      <th className="p-2 text-left">ID</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {game.f95_id && (
+                      <tr className="border-b border-border">
+                        <td className="p-2">
+                          <img
+                            src="assets/images/f95_full.png"
+                            alt="F95Zone Logo"
+                            className="h-10 w-20 object-contain"
+                          />
+                        </td>
+                        <td className="p-2">F95Zone</td>
+                        <td className="p-2">{game.f95_id}</td>
+                      </tr>
+                    )}
+                    {game.atlas_id && (
+                      <tr className="border-b border-border">
+                        <td className="p-2">
+                          <img
+                            src="assets/images/atlas_logo.svg"
+                            alt="Atlas Logo"
+                            className="h-10 w-20 object-contain"
+                          />
+                        </td>
+                        <td className="p-2">Atlas</td>
+                        <td className="p-2">{game.atlas_id}</td>
+                      </tr>
+                    )}
+                    {!game.f95_id && !game.atlas_id && (
+                      <tr>
+                        <td colSpan="3" className="p-2 text-center">No mappings available</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
 
@@ -720,7 +771,10 @@ const GameDetailWindow = () => {
                       className="p-2 bg-tertiary hover:bg-button_hover rounded cursor-pointer"
                       onClick={() => handleSelectGame(result.atlas_id)}
                     >
-                      {result.title} (ID: {result.atlas_id})
+                      <div>{result.title}</div>
+                      <div className="text-sm text-gray-400">
+                        Atlas ID: {result.atlas_id} | F95 ID: {result.f95_id || 'N/A'} | Creator: {result.creator || 'N/A'}
+                      </div>
                     </li>
                   ))}
                 </ul>
