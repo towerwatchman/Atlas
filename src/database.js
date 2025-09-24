@@ -298,20 +298,18 @@ const addVersion = (game, recordId) => {
 };
 
 const updateVersion = (game, recordId) => {
-  const executable = game.exec_path;
   const escapedVersion = game.version.replace(/'/g, "''");
   const escapedFolder = game.game_path.replace(/'/g, "''");
-  const escapedExecPath = executable ? path.join(folder, executable).replace(/'/g, "''") : '';
-  const dateAdded = Math.floor(Date.now() / 1000);
+  const escapedExecPath = game.exec_path.replace(/'/g, "''");
 
-  console.log('adding version')
+  console.log('updating version')
   return new Promise((resolve, reject) => {
     db.run(
-      `INSERT OR REPLACE INTO versions (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)`,
-      [recordId, escapedVersion, escapedFolder, escapedExecPath, true, dateAdded, folderSize],
+      `INSERT OR REPLACE INTO versions (record_id, version, game_path, exec_path) VALUES (?, ?, ?, ?)`,
+      [recordId, escapedVersion, escapedFolder, escapedExecPath],
       (err) => {
         if (err) {
-          console.error('Error adding or updating version:', err);
+          console.error('Error updating version:', err);
           reject(err);
         } else {
           resolve();
@@ -1195,5 +1193,6 @@ module.exports = {
   deletePreviews,
   getBanners,
   updateGame,
+  updateVersion,
   db // Export db instance
 };

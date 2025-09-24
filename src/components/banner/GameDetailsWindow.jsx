@@ -397,409 +397,409 @@ const handleFindGame = async () => {
     );
   }
 
-  return (
-    <div className="flex flex-col h-screen bg-canvas text-text border border-accent rounded-md overflow-hidden">
-      <div className="flex justify-between items-center h-8 bg-primary px-2 -webkit-app-region-drag">
-        <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
-          <p className="text-sm absolute left-2 top-1">Edit Game Details</p>
-          <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
-            <button
-              onClick={minimize}
-              className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
-              style={{ pointerEvents: 'auto', zIndex: 1000 }}
-            >
-              <i className="fas fa-minus fa-xs text-text"></i>
-            </button>
-            <button
-              onClick={maximize}
-              className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
-              style={{ pointerEvents: 'auto', zIndex: 1000 }}
-            >
-              <i className={isMaximized ? "fas fa-window-restore fa-xs text-text" : "fas fa-window-maximize fa-xs text-text"}></i>
-            </button>
-            <button
-              onClick={close}
-              className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
-              style={{ pointerEvents: 'auto', zIndex: 1000 }}
-            >
-              <i className="fas fa-times fa-xs text-text"></i>
-              </button>
+return (
+  <div className="flex flex-col h-screen bg-canvas text-text border border-accent rounded-md overflow-hidden">
+    <div className="flex justify-between items-center h-8 bg-primary px-2 -webkit-app-region-drag">
+      <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
+        <p className="text-sm absolute left-2 top-1">Edit Game Details</p>
+        <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
+          <button
+            onClick={minimize}
+            className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+            style={{ pointerEvents: 'auto', zIndex: 1000 }}
+          >
+            <i className="fas fa-minus fa-xs text-text"></i>
+          </button>
+          <button
+            onClick={maximize}
+            className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+            style={{ pointerEvents: 'auto', zIndex: 1000 }}
+          >
+            <i className={isMaximized ? "fas fa-window-restore fa-xs text-text" : "fas fa-window-maximize fa-xs text-text"}></i>
+          </button>
+          <button
+            onClick={close}
+            className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
+            style={{ pointerEvents: 'auto', zIndex: 1000 }}
+          >
+            <i className="fas fa-times fa-xs text-text"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div className="flex flex-col flex-grow bg-primary">
+      <div className="flex border-b border-border">
+        {['Record', 'Versions', 'Media', 'Mappings'].map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 ${activeTab === tab ? 'bg-secondary border-t border-l border-r border-border' : 'bg-primary'}`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-col flex-grow">
+        <div className="flex-grow overflow-y-auto p-4 bg-secondary pb-4">
+          {activeTab === 'Record' && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <div className="flex items-center">
+                  <label className="w-24">Title</label>
+                  <input name="title" value={formData.title} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Short Name</label>
+                  <input name="short_name" value={formData.short_name} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Platform</label>
+                  <input name="platform" value={formData.platform} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Engine</label>
+                  <input name="engine" value={formData.engine} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Developer</label>
+                  <input name="developer" value={formData.developer} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Publisher</label>
+                  <input name="publisher" value={formData.publisher} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Release Date</label>
+                  <input name="release_date" value={formData.release_date} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" type="date" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Status</label>
+                  <input name="status" value={formData.status} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center">
+                  <label className="w-24">Category</label>
+                  <input name="category" value={formData.category} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Last Update</label>
+                  <input name="latest_version" value={formData.latest_version} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Censored</label>
+                  <input name="censored" value={formData.censored} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Language</label>
+                  <input name="language" value={formData.language} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Translations</label>
+                  <input name="translations" value={formData.translations} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Genre</label>
+                  <input name="genre" value={formData.genre} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Voice</label>
+                  <input name="voice" value={formData.voice} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Rating</label>
+                  <input name="rating" value={formData.rating} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                </div>
+              </div>
+
+              <div className="col-span-2 space-y-2 mt-4">
+                <div className="flex">
+                  <label className="w-24">Tags</label>
+                  <textarea name="tags" value={formData.tags} onChange={handleInputChange} className="flex-grow h-24 bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex">
+                  <label className="w-24">Description</label>
+                  <textarea name="description" value={formData.description} onChange={handleInputChange} className="flex-grow h-48 bg-tertiary border border-border p-1 rounded" />
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={handleFindGame}
+                    className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                  >
+                    Find Game
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          )}
 
-      <div className="flex flex-col flex-grow bg-primary">
-        <div className="flex border-b border-border">
-          {['Record', 'Versions', 'Media', 'Mappings'].map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 ${activeTab === tab ? 'bg-secondary border-t border-l border-r border-border' : 'bg-primary'}`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-col flex-grow">
-          <div className="flex-grow overflow-y-auto p-4 bg-secondary pb-4">
-            {activeTab === 'Record' && (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <div className="flex items-center">
-                    <label className="w-24">Title</label>
-                    <input name="title" value={formData.title} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Short Name</label>
-                    <input name="short_name" value={formData.short_name} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Platform</label>
-                    <input name="platform" value={formData.platform} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Engine</label>
-                    <input name="engine" value={formData.engine} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Developer</label>
-                    <input name="developer" value={formData.developer} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Publisher</label>
-                    <input name="publisher" value={formData.publisher} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Release Date</label>
-                    <input name="release_date" value={formData.release_date} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" type="date" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Status</label>
-                    <input name="status" value={formData.status} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center">
-                    <label className="w-24">Category</label>
-                    <input name="category" value={formData.category} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Last Update</label>
-                    <input name="latest_version" value={formData.latest_version} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Censored</label>
-                    <input name="censored" value={formData.censored} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Language</label>
-                    <input name="language" value={formData.language} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Translations</label>
-                    <input name="translations" value={formData.translations} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Genre</label>
-                    <input name="genre" value={formData.genre} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Voice</label>
-                    <input name="voice" value={formData.voice} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Rating</label>
-                    <input name="rating" value={formData.rating} onChange={handleInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                </div>
-
-                <div className="col-span-2 space-y-2 mt-4">
-                  <div className="flex">
-                    <label className="w-24">Tags</label>
-                    <textarea name="tags" value={formData.tags} onChange={handleInputChange} className="flex-grow h-24 bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex">
-                    <label className="w-24">Description</label>
-                    <textarea name="description" value={formData.description} onChange={handleInputChange} className="flex-grow h-48 bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex justify-end">
-                    <button
-                      onClick={handleFindGame}
-                      className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+          {activeTab === 'Versions' && (
+            <div className="flex h-full">
+              <div className="w-40 bg-primary border-r border-border">
+                <ul className="space-y-1">
+                  {versions.map((version, index) => (
+                    <li
+                      key={index}
+                      onClick={() => handleVersionSelect(version)}
+                      className={`p-2 cursor-pointer ${selectedVersion?.version === version.version ? 'bg-selected' : 'hover:bg-button_hover'}`}
                     >
-                      Find Game
-                    </button>
-                  </div>
+                      {version.version}
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex justify-center space-x-2 mt-2">
+                  <button onClick={handleAddVersion} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Add</button>
+                  <button onClick={handleRemoveVersion} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Remove</button>
                 </div>
               </div>
-            )}
 
-            {activeTab === 'Versions' && (
-              <div className="flex h-full">
-                <div className="w-40 bg-primary border-r border-border">
-                  <ul className="space-y-1">
-                    {versions.map((version, index) => (
-                      <li
-                        key={index}
-                        onClick={() => handleVersionSelect(version)}
-                        className={`p-2 cursor-pointer ${selectedVersion?.version === version.version ? 'bg-selected' : 'hover:bg-button_hover'}`}
-                      >
-                        {version.version}
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="flex justify-center space-x-2 mt-2">
-                    <button onClick={handleAddVersion} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Add</button>
-                    <button onClick={handleRemoveVersion} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Remove</button>
-                  </div>
+              <div className="flex-grow p-4 space-y-2">
+                <div className="flex items-center">
+                  <label className="w-24">Version</label>
+                  <input name="game_version" value={versionData.game_version} onChange={handleVersionInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
                 </div>
-
-                <div className="flex-grow p-4 space-y-2">
-                  <div className="flex items-center">
-                    <label className="w-24">Version</label>
-                    <input name="game_version" value={versionData.game_version} onChange={handleVersionInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Game Path</label>
-                    <input name="game_path" value={versionData.game_path} onChange={handleVersionInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                    <button onClick={handleSetPath} className="ml-2 px-2 py-1 bg-tertiary hover:bg-button_hover rounded">Set Path</button>
-                  </div>
-                  <div className="flex items-center">
-                    <label className="w-24">Executable</label>
-                    <input name="executable" value={versionData.executable} onChange={handleVersionInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-                    <button onClick={handleChangeExecutable} className="ml-2 px-2 py-1 bg-tertiary hover:bg-button_hover rounded">Change</button>
-                  </div>
-                  <div className="flex items-center opacity-75">
-                    <label className="w-24">Last Played</label>
-                    <input name="last_played" value={versionData.last_played} disabled className="flex-grow bg-tertiary border border-border p-1 rounded cursor-not-allowed" />
-                  </div>
-                  <div className="flex items-center opacity-75">
-                    <label className="w-24">Playtime</label>
-                    <input name="playtime" value={versionData.playtime} disabled className="flex-grow bg-tertiary border border-border p-1 rounded cursor-not-allowed" />
-                  </div>
-                  <div className="flex items-center opacity-75">
-                    <label className="w-24">Version Size</label>
-                    <input name="version_size" value={versionData.version_size} disabled className="flex-grow bg-tertiary border border-border p-1 rounded cursor-not-allowed" />
-                  </div>
-                  <div className="flex items-center opacity-75">
-                    <label className="w-24">Date Added</label>
-                    <input name="date_added" value={versionData.date_added} disabled className="flex-grow bg-tertiary border border-border p-1 rounded cursor-not-allowed" />
-                  </div>
+                <div className="flex items-center">
+                  <label className="w-24">Game Path</label>
+                  <input name="game_path" value={versionData.game_path} onChange={handleVersionInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                  <button onClick={handleSetPath} className="ml-2 px-2 py-1 bg-tertiary hover:bg-button_hover rounded">Set Path</button>
+                </div>
+                <div className="flex items-center">
+                  <label className="w-24">Executable</label>
+                  <input name="executable" value={versionData.executable} onChange={handleVersionInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
+                  <button onClick={handleChangeExecutable} className="ml-2 px-2 py-1 bg-tertiary hover:bg-button_hover rounded">Change</button>
+                </div>
+                <div className="flex items-center opacity-75">
+                  <label className="w-24">Last Played</label>
+                  <input name="last_played" value={versionData.last_played} disabled className="flex-grow bg-tertiary border border-border p-1 rounded cursor-not-allowed" />
+                </div>
+                <div className="flex items-center opacity-75">
+                  <label className="w-24">Playtime</label>
+                  <input name="playtime" value={versionData.playtime} disabled className="flex-grow bg-tertiary border border-border p-1 rounded cursor-not-allowed" />
+                </div>
+                <div className="flex items-center opacity-75">
+                  <label className="w-24">Version Size</label>
+                  <input name="version_size" value={versionData.version_size} disabled className="flex-grow bg-tertiary border border-border p-1 rounded cursor-not-allowed" />
+                </div>
+                <div className="flex items-center opacity-75">
+                  <label className="w-24">Date Added</label>
+                  <input name="date_added" value={versionData.date_added} disabled className="flex-grow bg-tertiary border border-border p-1 rounded cursor-not-allowed" />
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {activeTab === 'Media' && (
-              <div className="flex flex-col flex-grow gap-4">
-                <div className="flex flex-col h-[414px]">
-                  <label>Banner Image</label>
-                  {bannerUrl ? (
-                    <div className="flex flex-col flex-grow">
-                      <img
-                        src={bannerUrl}
-                        alt="Banner"
-                        className="w-full max-h-[350px] object-contain rounded"
-                        onError={(e) => console.error('Failed to load banner:', bannerUrl)}
-                      />
-                      <div className="flex space-x-2 mt-2">
-                        <button
-                          onClick={handleDownloadBanner}
-                          className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-                        >
-                          Download Banner
-                        </button>
-                        <button
-                          onClick={handleSelectCustomBanner}
-                          className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-                        >
-                          Select Custom Banner
-                        </button>
-                        <button
-                          onClick={async () => {
-                            try {
-                              await window.electronAPI.deleteBanner(game.record_id);
-                              console.log('Banner deleted for recordId:', game.record_id);
-                              setBannerUrl('');
-                            } catch (err) {
-                              console.error('Error deleting banner:', err);
-                            }
-                          }}
-                          className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-                        >
-                          Delete Banner
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex space-x-2">
+          {activeTab === 'Media' && (
+            <div className="flex flex-col flex-grow gap-4">
+              <div className="flex flex-col h-[414px]">
+                <label>Banner Image</label>
+                {bannerUrl ? (
+                  <div className="flex flex-col flex-grow">
+                    <img
+                      src={bannerUrl}
+                      alt="Banner"
+                      className="w-full max-h-[350px] object-contain rounded"
+                      onError={(e) => console.error('Failed to load banner:', bannerUrl)}
+                    />
+                    <div className="flex space-x-2 mt-2">
                       <button
                         onClick={handleDownloadBanner}
                         className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-                        style={{ marginTop: '350px' }}
                       >
                         Download Banner
                       </button>
                       <button
                         onClick={handleSelectCustomBanner}
                         className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-                        style={{ marginTop: '350px' }}
                       >
                         Select Custom Banner
                       </button>
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-col flex-grow">
-                  <label>Preview Images</label>
-                  <div style={{ height: `${previewHeight}px`, overflowY: 'auto' }}>
-                    <div className="grid grid-cols-3 gap-2 p-2">
-                      {Array.isArray(previewUrls) && previewUrls.length > 0 ? (
-                        previewUrls.map((url, index) => (
-                          <img
-                            key={index}
-                            src={url}
-                            alt={`Preview ${index + 1}`}
-                            className="w-full max-w-[300px] h-auto rounded cursor-pointer"
-                            onClick={() => {
-                              console.log('Opening preview:', url);
-                              window.electronAPI.openExternalUrl(url);
-                            }}
-                            onError={(e) => console.error(`Failed to load preview ${index + 1}:`, url)}
-                          />
-                        ))
-                      ) : (
-                        <p>No previews available</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex space-x-2 mt-2">
-                    <button
-                      onClick={handleDownloadPreviews}
-                      className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-                    >
-                      Download Previews
-                    </button>
-                    {Array.isArray(previewUrls) && previewUrls.length > 0 && (
                       <button
                         onClick={async () => {
                           try {
-                            await window.electronAPI.deletePreviews(game.record_id);
-                            console.log('Previews deleted for recordId:', game.record_id);
-                            setPreviewUrls([]);
+                            await window.electronAPI.deleteBanner(game.record_id);
+                            console.log('Banner deleted for recordId:', game.record_id);
+                            setBannerUrl('');
                           } catch (err) {
-                            console.error('Error deleting previews:', err);
+                            console.error('Error deleting banner:', err);
                           }
                         }}
                         className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
                       >
-                        Delete Previews
+                        Delete Banner
                       </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={handleDownloadBanner}
+                      className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                      style={{ marginTop: '350px' }}
+                    >
+                      Download Banner
+                    </button>
+                    <button
+                      onClick={handleSelectCustomBanner}
+                      className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                      style={{ marginTop: '350px' }}
+                    >
+                      Select Custom Banner
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col flex-grow">
+                <label>Preview Images</label>
+                <div style={{ height: `${previewHeight}px`, overflowY: 'auto' }}>
+                  <div className="grid grid-cols-3 gap-2 p-2">
+                    {Array.isArray(previewUrls) && previewUrls.length > 0 ? (
+                      previewUrls.map((url, index) => (
+                        <img
+                          key={index}
+                          src={url}
+                          alt={`Preview ${index + 1}`}
+                          className="w-full max-w-[300px] h-auto rounded cursor-pointer"
+                          onClick={() => {
+                            console.log('Opening preview:', url);
+                            window.electronAPI.openExternalUrl(url);
+                          }}
+                          onError={(e) => console.error(`Failed to load preview ${index + 1}:`, url)}
+                        />
+                      ))
+                    ) : (
+                      <p>No previews available</p>
                     )}
                   </div>
                 </div>
-              </div>
-            )}
-
-            {activeTab === 'Mappings' && (
-              <div className="flex flex-col gap-4">
-                <div className="flex justify-end">
+                <div className="flex space-x-2 mt-2">
                   <button
-                    onClick={handleFindGame}
+                    onClick={handleDownloadPreviews}
                     className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
                   >
-                    Add Mapping
+                    Download Previews
                   </button>
-                </div>
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-primary">
-                      <th className="p-2 text-left"></th>
-                      <th className="p-2 text-left">Mapper</th>
-                      <th className="p-2 text-left">ID</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {game.f95_id && (
-                      <tr className="border-b border-border">
-                        <td className="p-2">
-                          <img
-                            src="assets/images/f95_full.png"
-                            alt="F95Zone Logo"
-                            className="h-10 w-20 object-contain"
-                          />
-                        </td>
-                        <td className="p-2">F95Zone</td>
-                        <td className="p-2">{game.f95_id}</td>
-                      </tr>
-                    )}
-                    {game.atlas_id && (
-                      <tr className="border-b border-border">
-                        <td className="p-2">
-                          <img
-                            src="assets/images/atlas_logo.svg"
-                            alt="Atlas Logo"
-                            className="h-10 w-20 object-contain"
-                          />
-                        </td>
-                        <td className="p-2">Atlas</td>
-                        <td className="p-2">{game.atlas_id}</td>
-                      </tr>
-                    )}
-                    {!game.f95_id && !game.atlas_id && (
-                      <tr>
-                        <td colSpan="3" className="p-2 text-center">No mappings available</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {showModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-secondary p-4 rounded-md max-w-lg w-full">
-              <h2 className="text-lg mb-4">Select Game Match</h2>
-              {searchResults.length > 0 ? (
-                <ul className="space-y-2 max-h-[300px] overflow-y-auto">
-                  {searchResults.map((result, index) => (
-                    <li
-                      key={index}
-                      className="p-2 bg-tertiary hover:bg-button_hover rounded cursor-pointer"
-                      onClick={() => handleSelectGame(result.atlas_id)}
+                  {Array.isArray(previewUrls) && previewUrls.length > 0 && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          await window.electronAPI.deletePreviews(game.record_id);
+                          console.log('Previews deleted for recordId:', game.record_id);
+                          setPreviewUrls([]);
+                        } catch (err) {
+                          console.error('Error deleting previews:', err);
+                        }
+                      }}
+                      className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
                     >
-                      <div>{result.title}</div>
-                      <div className="text-sm text-gray-400">
-                        Atlas ID: {result.atlas_id} | F95 ID: {result.f95_id || 'N/A'} | Creator: {result.creator || 'N/A'}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>No matches found</p>
-              )}
-              <div className="flex justify-end space-x-2 mt-4">
-                <button
-                  onClick={handleCloseModal}
-                  className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-                >
-                  Cancel
-                </button>
+                      Delete Previews
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <div className="sticky bottom-0 p-4 bg-primary flex justify-end space-x-2 z-10">
-          <button onClick={handleSave} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Save</button>
-          <button onClick={handleCancel} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Cancel</button>
+          {activeTab === 'Mappings' && (
+            <div className="flex flex-col gap-4">
+              <div className="flex justify-end">
+                <button
+                  onClick={handleFindGame}
+                  className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                >
+                  Add Mapping
+                </button>
+              </div>
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-primary">
+                    <th className="p-2 text-left"></th>
+                    <th className="p-2 text-left">Mapper</th>
+                    <th className="p-2 text-left">ID</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {game.f95_id && (
+                    <tr className="border-b border-border">
+                      <td className="p-2">
+                        <img
+                          src="assets/images/f95_full.png"
+                          alt="F95Zone Logo"
+                          className="h-10 w-20 object-contain"
+                        />
+                      </td>
+                      <td className="p-2">F95Zone</td>
+                      <td className="p-2">{game.f95_id}</td>
+                    </tr>
+                  )}
+                  {game.atlas_id && (
+                    <tr className="border-b border-border">
+                      <td className="p-2">
+                        <img
+                          src="assets/images/atlas_logo.svg"
+                          alt="Atlas Logo"
+                          className="h-10 w-20 object-contain"
+                        />
+                      </td>
+                      <td className="p-2">Atlas</td>
+                      <td className="p-2">{game.atlas_id}</td>
+                    </tr>
+                  )}
+                  {!game.f95_id && !game.atlas_id && (
+                    <tr>
+                      <td colSpan="3" className="p-2 text-center">No mappings available</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
+
+      {showModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-secondary p-4 rounded-md max-w-lg w-full">
+            <h2 className="text-lg mb-4">Select Game Match</h2>
+            {searchResults.length > 0 ? (
+              <ul className="space-y-2 max-h-[300px] overflow-y-auto">
+                {searchResults.map((result, index) => (
+                  <li
+                    key={index}
+                    className="p-2 bg-tertiary hover:bg-button_hover rounded cursor-pointer"
+                    onClick={() => handleSelectGame(result.atlas_id)}
+                  >
+                    <div>{result.title}</div>
+                    <div className="text-sm text-gray-400">
+                      Atlas ID: {result.atlas_id} | F95 ID: {result.f95_id || 'N/A'} | Creator: {result.creator || 'N/A'}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No matches found</p>
+            )}
+            <div className="flex justify-end space-x-2 mt-4">
+              <button
+                onClick={handleCloseModal}
+                className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="sticky bottom-0 p-4 bg-primary flex justify-end space-x-2 z-10">
+        <button onClick={handleSave} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Save</button>
+        <button onClick={handleCancel} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Cancel</button>
+      </div>
     </div>
-  );
+  </div>
+);
 };
 
 const root = createRoot(document.getElementById('root')) || {

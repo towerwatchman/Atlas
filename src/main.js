@@ -837,7 +837,7 @@ ipcMain.handle('update-version', async (event, version) => {
   console.log('Handling update-version:', version);
   try {
     // Assuming a database update function for versions
-    await addVersion(version); // Implement this based on your database schema
+    await updateVersion(version); // Implement this based on your database schema
     console.log('Version updated in database');
   } catch (err) {
     console.error('Error updating version:', err);
