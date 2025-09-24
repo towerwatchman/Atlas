@@ -871,6 +871,18 @@ ipcMain.handle('delete-previews', async (event, recordId) => {
   }
 });
 
+ipcMain.handle('open-directory', async (event, path) => {
+  try {
+    const { shell } = require('electron');
+    console.log('Opening directory:', path);
+    await shell.openPath(require('path').dirname(path));
+    return { success: true };
+  } catch (err) {
+    console.error('Error opening directory:', err);
+    return { success: false, error: err.message };
+  }
+});
+
 // UTIL FUNCTIONS
 const engineMap = {
   rpgm: ['rpgmv.exe', 'rpgmk.exe', 'rpgvx.exe', 'rpgvxace.exe', 'rpgmktranspatch.exe'],
