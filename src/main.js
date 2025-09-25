@@ -743,31 +743,27 @@ ipcMain.handle('get-previews', async (event, recordId) => {
 ipcMain.handle('update-banners', async (event, recordId) => {
   console.log('Handling update-banners for recordId:', recordId);
   try {
-    // Assuming an importer function similar to what's used in the importer
     const atlas_id = await GetAtlasIDbyRecord(recordId);
     console.log(atlas_id);
     let progress = 0;
     let imageTotal = 1;
     await downloadImages(recordId, atlas_id, (current, totalImages) => {
-          mainWindow.webContents.send('import-progress', { 
-            text: `Downloading images ${progress + 1}/${imageTotal}, ${current}/${totalImages}`, 
-            progress, 
-            total: imageTotal 
-          });
-        }, true, false, 1, false);
-        
-        const bannerUrl = await getBannerUrl(atlas_id); // Implement this based on your importer logic
-
-        mainWindow.webContents.send('game-updated', recordId);
-
-        progress++;
-        mainWindow.webContents.send('import-progress', { 
-          text: `Completed image download for ${progress}/${imageTotal}, ${imageTotal} images downloaded`, 
-          progress, 
-          total: imageTotal 
-        });
-        mainWindow.webContents.send('import-complete');
-      console.log(bannerUrl);
+      event.sender.send('game-details-import-progress', { 
+        text: `Downloading images ${progress + 1}/${imageTotal}`, 
+        progress, 
+        total: imageTotal 
+      });
+    }, true, false, 1, false);
+    
+    const bannerUrl = await getBannerUrl(atlas_id);
+    event.sender.send('game-updated', recordId);
+    progress++;
+    event.sender.send('game-details-import-progress', { 
+      text: `Completed image download for ${progress}/${imageTotal}, ${imageTotal} images downloaded`, 
+      progress, 
+      total: imageTotal 
+    });
+    console.log(bannerUrl);
     return bannerUrl;
   } catch (err) {
     console.error('Error downloading banner:', err);
@@ -783,7 +779,7 @@ ipcMain.handle('update-previews', async (event, recordId) => {
     let progress = 0;
     let imageTotal = 1;
     await downloadImages(recordId, atlasId, (current, totalImages) => {
-      mainWindow.webContents.send('import-progress', { 
+      event.sender.send('game-details-import-progress', { 
         text: `Downloading previews ${progress + 1}/${imageTotal}, ${current}/${totalImages}`, 
         progress, 
         total: imageTotal 
@@ -791,14 +787,13 @@ ipcMain.handle('update-previews', async (event, recordId) => {
     }, false, true, 100, false);
     
     const previewUrls = await getPreviews(recordId, app.getAppPath(), process.argv.includes('--dev'));
-    mainWindow.webContents.send('game-updated', recordId);
+    event.sender.send('game-updated', recordId);
     progress++;
-    mainWindow.webContents.send('import-progress', { 
+    event.sender.send('game-details-import-progress', { 
       text: `Completed previews download ${progress}/${imageTotal}, 1 images downloaded`, 
       progress, 
       total: imageTotal 
     });
-    mainWindow.webContents.send('import-complete');
     console.log('Preview URLs:', previewUrls);
     return Array.isArray(previewUrls) ? previewUrls : [];
   } catch (err) {

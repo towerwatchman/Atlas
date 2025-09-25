@@ -47,90 +47,90 @@ const GameDetailWindow = () => {
 
   useEffect(() => {
     console.log('Setting up onGameData listener');
-    const handleGameData = (event, fetchedGame) => {
-      console.log('Received game data:', fetchedGame);
-      setDataReceived(true);
-      if (!fetchedGame) {
-        console.error('No game data received');
-        return;
-      }
-      setGame(fetchedGame);
-      setVersions(fetchedGame.versions || []);
-      const mapperNames = [];
-      if (fetchedGame.f95_id) mapperNames.push('F95Zone');
-      if (fetchedGame.atlas_id) mapperNames.push('Atlas');
-      setFormData({
-        title: fetchedGame.title || '',
-        mappings: mapperNames.join(', '),
-        platform: fetchedGame.os || '',
-        engine: fetchedGame.engine || '',
-        developer: fetchedGame.creator || '',
-        publisher: fetchedGame.publisher || '',
-        release_date: fetchedGame.release_date
-          ? new Date(parseInt(fetchedGame.release_date) * 1000).toISOString().split('T')[0]
-          : '',
-        status: fetchedGame.status || '',
-        tags: fetchedGame.f95_tags ? fetchedGame.f95_tags.replace(/,/g, ' , ') : '',
-        description: fetchedGame.overview || '',
-        category: fetchedGame.category || '',
-        latest_version: fetchedGame.latestVersion || '',
-        censored: fetchedGame.censored || '',
-        language: fetchedGame.language || '',
-        translations: fetchedGame.translations || '',
-        genre: fetchedGame.genre || '',
-        voice: fetchedGame.voice || '',
-        rating: fetchedGame.rating || '',
-      });
-      if (fetchedGame.versions?.length > 0) {
-        console.log('Selecting first version:', fetchedGame.versions[0]);
-        handleVersionSelect(fetchedGame.versions[0]);
-      } else {
-        console.log('No versions available');
-      }
-      setBannerUrl(fetchedGame.banner_url || '');
-      window.electronAPI.getPreviews(fetchedGame.record_id).then(urls => {
-        setPreviewUrls(urls || []);
-      }).catch(err => {
-        console.error('Failed to load previews:', err);
-      });
-    };
-
-    window.electronAPI.onGameData(handleGameData);
-
-    const timeout = setTimeout(() => {
-      if (!dataReceived) {
-        console.warn('No game data received after 3 seconds, requesting manually');
-        window.electronAPI.getGame(1).then(fetchedGame => {
-          console.log('Received fallback game data:', fetchedGame);
-          handleGameData(null, fetchedGame);
-        }).catch(err => {
-          console.error('Failed to fetch fallback game data:', err);
-        });
-      }
-    }, 3000);
-
-    window.electronAPI.onWindowStateChanged((state) => {
-      setIsMaximized(state === 'maximized');
+   const handleGameData = (event, fetchedGame) => {
+    console.log('Received game data:', fetchedGame);
+    setDataReceived(true);
+    if (!fetchedGame) {
+      console.error('No game data received');
+      return;
+    }
+    setGame(fetchedGame);
+    setVersions(fetchedGame.versions || []);
+    const mapperNames = [];
+    if (fetchedGame.f95_id) mapperNames.push('F95Zone');
+    if (fetchedGame.atlas_id) mapperNames.push('Atlas');
+    setFormData({
+      title: fetchedGame.title || '',
+      mappings: mapperNames.join(', '),
+      platform: fetchedGame.os || '',
+      engine: fetchedGame.engine || '',
+      developer: fetchedGame.creator || '',
+      publisher: fetchedGame.publisher || '',
+      release_date: fetchedGame.release_date
+        ? new Date(parseInt(fetchedGame.release_date) * 1000).toISOString().split('T')[0]
+        : '',
+      status: fetchedGame.status || '',
+      tags: fetchedGame.f95_tags ? fetchedGame.f95_tags.replace(/,/g, ' , ') : '',
+      description: fetchedGame.overview || '',
+      category: fetchedGame.category || '',
+      latest_version: fetchedGame.latestVersion || '',
+      censored: fetchedGame.censored || '',
+      language: fetchedGame.language || '',
+      translations: fetchedGame.translations || '',
+      genre: fetchedGame.genre || '',
+      voice: fetchedGame.voice || '',
+      rating: fetchedGame.rating || '',
     });
+    if (fetchedGame.versions?.length > 0) {
+      console.log('Selecting first version:', fetchedGame.versions[0]);
+      handleVersionSelect(fetchedGame.versions[0]);
+    } else {
+      console.log('No versions available');
+    }
+    setBannerUrl(fetchedGame.banner_url || '');
+    window.electronAPI.getPreviews(fetchedGame.record_id).then(urls => {
+      setPreviewUrls(urls || []);
+    }).catch(err => {
+      console.error('Failed to load previews:', err);
+    });
+  };
 
-    const handleImportProgress = (progress) => {
-      console.log('Import progress:', progress);
-      setImportProgress(progress);
-      if (progress.progress >= progress.total && progress.total > 0) {
-        setTimeout(() => {
-          setImportProgress({ text: '', progress: 0, total: 0 });
-        }, 2000);
-      }
-    };
+  window.electronAPI.onGameData(handleGameData);
 
-    window.electronAPI.onImportProgress(handleImportProgress);
+  const timeout = setTimeout(() => {
+    if (!dataReceived) {
+      console.warn('No game data received after 3 seconds, requesting manually');
+      window.electronAPI.getGame(1).then(fetchedGame => {
+        console.log('Received fallback game data:', fetchedGame);
+        handleGameData(null, fetchedGame);
+      }).catch(err => {
+        console.error('Failed to fetch fallback game data:', err);
+      });
+    }
+  }, 3000);
 
-    return () => {
-      console.log('Cleaning up listeners');
-      clearTimeout(timeout);
-      window.electronAPI.removeImportProgressListener(handleImportProgress);
-    };
-  }, [dataReceived]);
+  window.electronAPI.onWindowStateChanged((state) => {
+    setIsMaximized(state === 'maximized');
+  });
+
+  const handleGameDetailsImportProgress = (progress) => {
+    console.log('Game details import progress:', progress);
+    setImportProgress(progress);
+    if (progress.progress >= progress.total && progress.total > 0) {
+      setTimeout(() => {
+        setImportProgress({ text: '', progress: 0, total: 0 });
+      }, 2000);
+    }
+  };
+
+  window.electronAPI.onGameDetailsImportProgress(handleGameDetailsImportProgress);
+
+  return () => {
+    console.log('Cleaning up listeners');
+    clearTimeout(timeout);
+    window.electronAPI.removeGameDetailsImportProgressListener(handleGameDetailsImportProgress);
+  };
+}, [dataReceived]);
 
   useEffect(() => {
     const updatePreviewHeight = () => {
@@ -240,42 +240,44 @@ const GameDetailWindow = () => {
     }
   };
 
-  const handleDownloadBanner = async () => {
-    try {
-      const newUrl = await window.electronAPI.updateBanners(game.record_id);
-      setBannerUrl(newUrl);
-    } catch (err) {
-      console.error('Failed to download banner:', err);
-      setImportProgress({ text: '', progress: 0, total: 0 });
-    }
-  };
+const handleDownloadBanner = async () => {
+  try {
+    setImportProgress({ text: 'Starting banner download...', progress: 0, total: 1 });
+    const newUrl = await window.electronAPI.updateBanners(game.record_id);
+    setBannerUrl(newUrl);
+  } catch (err) {
+    console.error('Failed to download banner:', err);
+    setImportProgress({ text: '', progress: 0, total: 0 });
+  }
+};
 
-  const handleSelectCustomBanner = () => {
-    window.electronAPI.selectFile().then(filePath => {
-      if (filePath) {
-        window.electronAPI.convertAndSaveBanner(game.record_id, filePath).then(newUrl => {
-          setBannerUrl(newUrl);
-        }).catch(err => {
-          console.error('Failed to convert and save banner:', err);
-          setImportProgress({ text: '', progress: 0, total: 0 });
-        });
-      }
-    }).catch(err => {
-      console.error('Failed to select custom banner:', err);
-      setImportProgress({ text: '', progress: 0, total: 0 });
-    });
-  };
-
-  const handleDownloadPreviews = async () => {
-    try {
-      const newUrls = await window.electronAPI.updatePreviews(game.record_id);
-      console.log('Received previewUrls:', newUrls);
-      setPreviewUrls(newUrls);
-    } catch (err) {
-      console.error('Failed to download previews:', err);
-      setImportProgress({ text: '', progress: 0, total: 0 });
+const handleSelectCustomBanner = () => {
+  window.electronAPI.selectFile().then(filePath => {
+    if (filePath) {
+      setImportProgress({ text: 'Converting and saving banner...', progress: 0, total: 1 });
+      window.electronAPI.convertAndSaveBanner(game.record_id, filePath).then(newUrl => {
+        setBannerUrl(newUrl);
+      }).catch(err => {
+        console.error('Failed to convert and save banner:', err);
+        setImportProgress({ text: '', progress: 0, total: 0 });
+      });
     }
-  };
+  }).catch(err => {
+    console.error('Failed to select custom banner:', err);
+    setImportProgress({ text: '', progress: 0, total: 0 });
+  });
+};
+const handleDownloadPreviews = async () => {
+  try {
+    setImportProgress({ text: 'Starting previews download...', progress: 0, total: 1 });
+    const newUrls = await window.electronAPI.updatePreviews(game.record_id);
+    console.log('Received previewUrls:', newUrls);
+    setPreviewUrls(newUrls);
+  } catch (err) {
+    console.error('Failed to download previews:', err);
+    setImportProgress({ text: '', progress: 0, total: 0 });
+  }
+};
 
   const handleRemoveVersion = async () => {
     if (!selectedVersion) {
@@ -654,124 +656,134 @@ const handleSave = async () => {
               </div>
             )}
 
-            {activeTab === 'Media' && (
-              <div className="flex flex-col flex-grow gap-4">
-                {importProgress.progress > 0 && (
-                  <div className="w-full bg-gray-200 rounded h-2">
-                    <div
-                      className="bg-blue-500 h-2 rounded"
-                      style={{ width: `${(importProgress.progress / importProgress.total) * 100}%` }}
-                    ></div>
-                  </div>
-                )}
-                <div className="flex flex-col h-[414px]">
-                  <label>Banner Image</label>
-                  {bannerUrl ? (
-                    <div className="flex flex-col flex-grow">
-                      <img
-                        src={bannerUrl}
-                        alt="Banner"
-                        className="w-full max-h-[350px] object-contain rounded"
-                        onError={(e) => console.error('Failed to load banner:', bannerUrl)}
-                      />
-                      <div className="flex space-x-2 mt-2">
-                        <button
-                          onClick={handleDownloadBanner}
-                          className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-                        >
-                          Download Banner
-                        </button>
-                        <button
-                          onClick={handleSelectCustomBanner}
-                          className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-                        >
-                          Select Custom Banner
-                        </button>
-                        <button
-                          onClick={async () => {
-                            try {
-                              await window.electronAPI.deleteBanner(game.record_id);
-                              console.log('Banner deleted for recordId:', game.record_id);
-                              setBannerUrl('');
-                            } catch (err) {
-                              console.error('Error deleting banner:', err);
-                            }
-                          }}
-                          className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-                        >
-                          Delete Banner
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={handleDownloadBanner}
-                        className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-                        style={{ marginTop: '350px' }}
-                      >
-                        Download Banner
-                      </button>
-                      <button
-                        onClick={handleSelectCustomBanner}
-                        className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-                        style={{ marginTop: '350px' }}
-                      >
-                        Select Custom Banner
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-col flex-grow">
-                  <label>Preview Images</label>
-                  <div style={{ height: `${previewHeight}px`, overflowY: 'auto' }}>
-                    <div className="grid grid-cols-3 gap-2 p-2">
-                      {Array.isArray(validPreviewUrls) && validPreviewUrls.length > 0 ? (
-                        validPreviewUrls.map((url, index) => (
-                          <img
-                            key={index}
-                            src={url}
-                            alt={`Preview ${index + 1}`}
-                            className="w-full max-w-[300px] h-auto rounded cursor-pointer"
-                            onClick={() => {
-                              console.log('Opening preview:', url);
-                              window.electronAPI.openExternalUrl(url);
-                            }}
-                          />
-                        ))
-                      ) : (
-                        <p>No previews available</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex space-x-2 mt-2">
-                    <button
-                      onClick={handleDownloadPreviews}
-                      className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
-                    >
-                      Download Previews
-                    </button>
-                    {Array.isArray(validPreviewUrls) && validPreviewUrls.length > 0 && (
-                      <button
-                        onClick={async () => {
-                          try {
-                            await window.electronAPI.deletePreviews(game.record_id);
-                            console.log('Previews deleted for recordId:', game.record_id);
-                            setPreviewUrls([]);
-                            setValidPreviewUrls([]);
-                          } catch (err) {
-                            console.error('Error deleting previews:', err);
-                          }
-                        }}
-                        className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
-                      >
-                        Delete Previews
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+{activeTab === 'Media' && (
+  <div className="flex flex-col flex-grow gap-4 relative">
+    {importProgress.text && (
+      <div className="absolute bottom-[60px] left-1/2 transform -translate-x-1/2 w-[800px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border opacity-95">
+        <div className="flex items-center w-[800px]">
+          <span className="w-[450px] text-[10px] text-text">{importProgress.text}</span>
+          <div className="relative w-[300px]">
+            <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
+              <div
+                className="h-full bg-accent"
+                style={{ width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%` }}
+              ></div>
+            </div>
+            <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
+              Game {importProgress.progress}/{importProgress.total}
+            </span>
+          </div>
+        </div>
+      </div>
+    )}
+    <div className="flex flex-col h-[414px]">
+      <label>Banner Image</label>
+      {bannerUrl ? (
+        <div className="flex flex-col flex-grow">
+          <img
+            src={bannerUrl}
+            alt="Banner"
+            className="w-full max-h-[350px] object-contain rounded"
+            onError={(e) => console.error('Failed to load banner:', bannerUrl)}
+          />
+          <div className="flex space-x-2 mt-2">
+            <button
+              onClick={handleDownloadBanner}
+              className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+            >
+              Download Banner
+            </button>
+            <button
+              onClick={handleSelectCustomBanner}
+              className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+            >
+              Select Custom Banner
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  await window.electronAPI.deleteBanner(game.record_id);
+                  console.log('Banner deleted for recordId:', game.record_id);
+                  setBannerUrl('');
+                } catch (err) {
+                  console.error('Error deleting banner:', err);
+                }
+              }}
+              className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+            >
+              Delete Banner
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex space-x-2">
+          <button
+            onClick={handleDownloadBanner}
+            className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+            style={{ marginTop: '350px' }}
+          >
+            Download Banner
+          </button>
+          <button
+            onClick={handleSelectCustomBanner}
+            className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+            style={{ marginTop: '350px' }}
+          >
+            Select Custom Banner
+          </button>
+        </div>
+      )}
+    </div>
+    <div className="flex flex-col flex-grow">
+      <label>Preview Images</label>
+      <div style={{ height: `${previewHeight}px`, overflowY: 'auto' }}>
+        <div className="grid grid-cols-3 gap-2 p-2">
+          {Array.isArray(validPreviewUrls) && validPreviewUrls.length > 0 ? (
+            validPreviewUrls.map((url, index) => (
+              <img
+                key={index}
+                src={url}
+                alt={`Preview ${index + 1}`}
+                className="w-full max-w-[300px] h-auto rounded cursor-pointer"
+                onClick={() => {
+                  console.log('Opening preview:', url);
+                  window.electronAPI.openExternalUrl(url);
+                }}
+              />
+            ))
+          ) : (
+            <p>No previews available</p>
+          )}
+        </div>
+      </div>
+      <div className="flex space-x-2 mt-2">
+        <button
+          onClick={handleDownloadPreviews}
+          className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+        >
+          Download Previews
+        </button>
+        {Array.isArray(validPreviewUrls) && validPreviewUrls.length > 0 && (
+          <button
+            onClick={async () => {
+              try {
+                await window.electronAPI.deletePreviews(game.record_id);
+                console.log('Previews deleted for recordId:', game.record_id);
+                setPreviewUrls([]);
+                setValidPreviewUrls([]);
+              } catch (err) {
+                console.error('Error deleting previews:', err);
+              }
+            }}
+            className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+          >
+            Delete Previews
+          </button>
+        )}
+      </div>
+    </div>
+  </div>
+)}
 
             {activeTab === 'Mappings' && (
               <div className="flex flex-col gap-4">

@@ -107,8 +107,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   console.log('Invoking openDirectory for path:', path);
   return ipcRenderer.invoke('open-directory', path);
 },
-removeImportProgressListener: (callback) => {
-  console.log('Removing import-progress listener');
-  ipcRenderer.removeListener('import-progress', callback);
+onGameDetailsImportProgress: (callback) => {
+  console.log('Registering game-details-import-progress listener');
+  ipcRenderer.on('game-details-import-progress', (event, progress) => callback(progress));
+},
+removeGameDetailsImportProgressListener: (callback) => {
+  console.log('Removing game-details-import-progress listener');
+  ipcRenderer.removeListener('game-details-import-progress', callback);
 },
 });
