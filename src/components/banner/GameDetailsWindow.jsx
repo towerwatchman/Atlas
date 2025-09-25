@@ -43,6 +43,7 @@ const GameDetailWindow = () => {
   const [previewHeight, setPreviewHeight] = useState(250);
   const [searchResults, setSearchResults] = useState([]);
   const [showModal, setShowModal] = useState(false);
+  const [importProgress, setImportProgress] = useState({ text: '', progress: 0, total: 0 });
 
   useEffect(() => {
     console.log('Setting up onGameData listener');
@@ -112,9 +113,22 @@ const GameDetailWindow = () => {
       setIsMaximized(state === 'maximized');
     });
 
+    const handleImportProgress = (progress) => {
+      console.log('Import progress:', progress);
+      setImportProgress(progress);
+      if (progress.progress >= progress.total && progress.total > 0) {
+        setTimeout(() => {
+          setImportProgress({ text: '', progress: 0, total: 0 });
+        }, 2000);
+      }
+    };
+
+    window.electronAPI.onImportProgress(handleImportProgress);
+
     return () => {
-      console.log('Cleaning up onGameData listener');
+      console.log('Cleaning up listeners');
       clearTimeout(timeout);
+      window.electronAPI.removeImportProgressListener(handleImportProgress);
     };
   }, [dataReceived]);
 
@@ -226,12 +240,14 @@ const GameDetailWindow = () => {
     }
   };
 
-  const handleDownloadBanner = () => {
-    window.electronAPI.updateBanners(game.record_id).then(newUrl => {
+  const handleDownloadBanner = async () => {
+    try {
+      const newUrl = await window.electronAPI.updateBanners(game.record_id);
       setBannerUrl(newUrl);
-    }).catch(err => {
+    } catch (err) {
       console.error('Failed to download banner:', err);
-    });
+      setImportProgress({ text: '', progress: 0, total: 0 });
+    }
   };
 
   const handleSelectCustomBanner = () => {
@@ -241,20 +257,24 @@ const GameDetailWindow = () => {
           setBannerUrl(newUrl);
         }).catch(err => {
           console.error('Failed to convert and save banner:', err);
+          setImportProgress({ text: '', progress: 0, total: 0 });
         });
       }
     }).catch(err => {
       console.error('Failed to select custom banner:', err);
+      setImportProgress({ text: '', progress: 0, total: 0 });
     });
   };
 
-  const handleDownloadPreviews = () => {
-    window.electronAPI.updatePreviews(game.record_id).then(newUrls => {
+  const handleDownloadPreviews = async () => {
+    try {
+      const newUrls = await window.electronAPI.updatePreviews(game.record_id);
       console.log('Received previewUrls:', newUrls);
       setPreviewUrls(newUrls);
-    }).catch(err => {
+    } catch (err) {
       console.error('Failed to download previews:', err);
-    });
+      setImportProgress({ text: '', progress: 0, total: 0 });
+    }
   };
 
   const handleRemoveVersion = async () => {
@@ -293,40 +313,40 @@ const GameDetailWindow = () => {
     console.log('TODO: Add new version');
   };
 
-  const handleSave = async () => {
-    console.log('Saving changes', formData, versionData);
-    const updatedGame = {
-      ...game,
-      title: formData.title,
-      shortName: formData.short_name,
-      OS: formData.platform,
-      engine: formData.engine,
-      creator: formData.developer,
-      publisher: formData.publisher,
-      release_date: formData.release_date ? new Date(formData.release_date).getTime() / 1000 : '',
-      status: formData.status,
-      f95_tags: formData.tags ? formData.tags.replace(/ , /g, ',') : '',
-      overview: formData.description,
-      category: formData.category,
-      latestVersion: formData.latest_version,
-      censored: formData.censored,
-      language: formData.language,
-      translations: formData.translations,
-      genre: formData.genre,
-      voice: formData.voice,
-      rating: formData.rating,
-    };
-    await window.electronAPI.updateGame(updatedGame);
-
-    if (selectedVersion) {
-      const updatedVersion = {
-        ...selectedVersion,
-        gamePath: versionData.game_path,
-        exePath: versionData.executable,
-      };
-      await window.electronAPI.updateVersion(updatedVersion);
-    }
+const handleSave = async () => {
+  console.log('Saving changes', formData, versionData);
+  const updatedGame = {
+    ...game,
+    title: formData.title,
+    os: formData.platform,
+    engine: formData.engine,
+    creator: formData.developer,
+    publisher: formData.publisher,
+    release_date: formData.release_date ? new Date(formData.release_date).getTime() / 1000 : '',
+    status: formData.status,
+    f95_tags: formData.tags ? formData.tags.replace(/ , /g, ',') : '',
+    overview: formData.description,
+    category: formData.category,
+    latest_version: formData.latest_version,
+    censored: formData.censored,
+    language: formData.language,
+    translations: formData.translations,
+    genre: formData.genre,
+    voice: formData.voice,
+    rating: formData.rating,
   };
+  await window.electronAPI.updateGame(updatedGame);
+
+  for (const version of versions) {
+    const updatedVersion = {
+      ...version,
+      game_path: version.version === selectedVersion?.version ? versionData.game_path : version.game_path,
+      exec_path: version.version === selectedVersion?.version ? versionData.executable : version.exec_path,
+    };
+    console.log('Updating version:', updatedVersion, 'with record_id:', game.record_id);
+    await window.electronAPI.updateVersion(updatedVersion, game.record_id);
+  }
+};
 
   const handleCancel = () => {
     console.log('Closing window');
@@ -636,6 +656,14 @@ const GameDetailWindow = () => {
 
             {activeTab === 'Media' && (
               <div className="flex flex-col flex-grow gap-4">
+                {importProgress.progress > 0 && (
+                  <div className="w-full bg-gray-200 rounded h-2">
+                    <div
+                      className="bg-blue-500 h-2 rounded"
+                      style={{ width: `${(importProgress.progress / importProgress.total) * 100}%` }}
+                    ></div>
+                  </div>
+                )}
                 <div className="flex flex-col h-[414px]">
                   <label>Banner Image</label>
                   {bannerUrl ? (

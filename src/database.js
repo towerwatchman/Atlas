@@ -254,9 +254,9 @@ const updateGame = (game) => {
     const escapedCreator = creator.replace(/'/g, "''");
     const escapedEngine = engine.replace(/'/g, "''");
       db.run(
-        `INSERT OR REPLACE INTO games (title, creator, engine)
-          VALUES (?, ?, ?)`,
-        [escapedTitle, escapedCreator, escapedEngine],
+        `INSERT OR REPLACE INTO games (record_id, title, creator, engine)
+          VALUES (?, ?, ?, ?)`,
+        [game.record_id, escapedTitle, escapedCreator, escapedEngine],
         function (err) {
           if (err) {
             console.error('Error inserting game:', err);
@@ -264,8 +264,8 @@ const updateGame = (game) => {
             return;
           }
           // Return the new record_id
-          console.log(`Inserted new game ${title} by ${creator} with record_id: ${this.lastID}`);
-          resolve(this.lastID);
+          console.log(`Inserted new game ${title} by ${creator} with record_id: ${game.record_id}`);
+          resolve(game.record_id);
         }
       );
     }
@@ -297,16 +297,16 @@ const addVersion = (game, recordId) => {
   });
 };
 
-const updateVersion = (game, recordId) => {
-  const escapedVersion = game.version.replace(/'/g, "''");
-  const escapedFolder = game.game_path.replace(/'/g, "''");
-  const escapedExecPath = game.exec_path.replace(/'/g, "''");
+const updateVersion = (version, record_id) => {
+  const escapedVersion = version.version.replace(/'/g, "''");
+  const escapedFolder = version.game_path.replace(/'/g, "''");
+  const escapedExecPath = version.exec_path.replace(/'/g, "''");
 
-  console.log('updating version')
+  console.log('updating version with id:', record_id)
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT OR REPLACE INTO versions (record_id, version, game_path, exec_path) VALUES (?, ?, ?, ?)`,
-      [recordId, escapedVersion, escapedFolder, escapedExecPath],
+      [record_id, escapedVersion, escapedFolder, escapedExecPath],
       (err) => {
         if (err) {
           console.error('Error updating version:', err);

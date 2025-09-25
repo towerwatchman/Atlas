@@ -64,9 +64,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     console.log('Invoking updateGame with game data:', game);
     return ipcRenderer.invoke('update-game', game);
   },
-  updateVersion: (version) => {
+  updateVersion: (version, record_id) => {
     console.log('Invoking updateVersion with version data:', version);
-    return ipcRenderer.invoke('update-version', version);
+    return ipcRenderer.invoke('update-version', version, record_id);
   },
   onWindowStateChanged: (callback) => {
     ipcRenderer.on('window-state-changed', (event, state) => callback(state));
@@ -106,5 +106,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openDirectory: (path) => {
   console.log('Invoking openDirectory for path:', path);
   return ipcRenderer.invoke('open-directory', path);
+},
+removeImportProgressListener: (callback) => {
+  console.log('Removing import-progress listener');
+  ipcRenderer.removeListener('import-progress', callback);
 },
 });

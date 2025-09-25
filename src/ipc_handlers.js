@@ -488,11 +488,11 @@ function registerIpcHandlers(app, mainWindowInstance) {
     }
   });
 
-  ipcMain.handle('update-version', async (event, version) => {
+  ipcMain.handle('update-version', async (event, version, record_id) => {
     console.log('Handling update-version:', version);
     try {
       await initializeDatabase(path.join(app.getAppPath(), 'data'));
-      await updateVersionInDatabase(version); // Placeholder
+      await updateVersionInDatabase(version, record_id); // Placeholder
       mainWindow.webContents.send('game-updated', version.recordId); // Notify App.jsx
       console.log('Version updated in database');
     } catch (err) {

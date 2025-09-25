@@ -835,11 +835,11 @@ ipcMain.handle('update-game', async (event, game) => {
   }
 });
 
-ipcMain.handle('update-version', async (event, version) => {
+ipcMain.handle('update-version', async (event, version, record_id) => {
   console.log('Handling update-version:', version);
   try {
     // Assuming a database update function for versions
-    await updateVersion(version); // Implement this based on your database schema
+    await updateVersion(version, record_id); // Implement this based on your database schema
     console.log('Version updated in database');
   } catch (err) {
     console.error('Error updating version:', err);
