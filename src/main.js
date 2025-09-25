@@ -1115,6 +1115,106 @@ function processTemplate(items, sender) {
     return newItem;
   });
 }
+
+// STEAM FUNCTIONS
+async function getSteamGameData(steamId) {
+  try {
+    // Fetch from Steam API
+    const steamResponse = await fetch(`https://store.steampowered.com/api/appdetails?appids=${steamId}`);
+    const steamJson = await steamResponse.json();
+    if (!steamJson[steamId] || !steamJson[steamId].success) {
+      return null;
+    }
+    const data = steamJson[steamId].data;
+
+    // Fetch from SteamSpy API for tags and additional info
+    const spyResponse = await fetch(`https://steamspy.com/api.php?request=appdetails&appid=${steamId}`);
+    const spy = await spyResponse.json();
+
+    // Parse supported languages
+    const langHtml = data.supported_languages || '';
+    const languages = langHtml.replace(/<strong>\*<\/strong>/g, '*').split(',').map(l => l.trim());
+    const voiceLangs = languages.filter(l => l.endsWith('*')).map(l => l.replace(/\*$/, '').trim());
+    const textLangs = languages.map(l => l.replace(/\*$/, '').trim());
+
+    // OS platforms
+    const osArr = [];
+    if (data.platforms.windows) osArr.push('Windows');
+    if (data.platforms.mac) osArr.push('Mac');
+    if (data.platforms.linux) osArr.push('Linux');
+
+    // Engine (heuristically from tags, if common engines are present)
+    const possibleEngines = ['Unity', 'Unreal Engine', 'Godot', 'RPG Maker'];
+    const engine = Object.keys(spy.tags || {}).find(tag => possibleEngines.includes(tag)) || '';
+
+    // Censored (simple heuristic: if required_age > 0 or content descriptors present)
+    const censored = (data.required_age > 0 || (data.content_descriptors && data.content_descriptors.ids && data.content_descriptors.ids.length > 0)) ? 'yes' : 'no';
+
+    // Construct the game object
+    const game = {
+      steam_id: parseInt(steamId),
+      title: data.name || '',
+      category: data.categories ? data.categories.map(c => c.description).join(',') : '',
+      engine: engine,
+      developer: data.developers ? data.developers.join(',') : '',
+      publisher: data.publishers ? data.publishers.join(',') : '',
+      overview: data.detailed_description || '',
+      censored: censored,
+      language: textLangs.join(','),
+      translations: textLangs.join(','),
+      genre: data.genres ? data.genres.map(g => g.description).join(',') : '',
+      tags: spy.tags ? Object.keys(spy.tags).join(',') : '',
+      voice: voiceLangs.join(','),
+      os: osArr.join(','),
+      releaseState: data.release_date.coming_soon ? 'upcoming' : 'released',
+      release_date: data.release_date.date || '',
+      header: data.header_image || '',
+      library_hero: `https://steamcdn-a.akamaihd.net/steam/apps/${steamId}/library_hero.jpg`,
+      logo: `https://steamcdn-a.akamaihd.net/steam/apps/${steamId}/library_600x900.jpg`,
+      screenshots: data.screenshots ? data.screenshots.map(s => s.path_full).join(',') : '',
+      last_record_update: new Date().toISOString()
+    };
+
+    return game;
+  } catch (error) {
+    console.error('Error fetching game data:', error);
+    return null;
+  }
+}
+
+async function findSteamId(title, developer) {
+  try {
+    const query = encodeURIComponent(`${title} ${developer}`);
+    const searchResponse = await fetch(`https://store.steampowered.com/api/storesearch/?term=${query}&l=english&cc=US`);
+    const searchJson = await searchResponse.json();
+
+    if (searchJson.total === 0) {
+      return null;
+    }
+
+    for (const item of searchJson.items) {
+      if (item.name.toLowerCase() === title.toLowerCase()) {
+        // Confirm developer matches
+        const detailsResponse = await fetch(`https://store.steampowered.com/api/appdetails?appids=${item.id}`);
+        const detailsJson = await detailsResponse.json();
+        if (!detailsJson[item.id] || !detailsJson[item.id].success) {
+          continue;
+        }
+        const data = detailsJson[item.id].data;
+        if (data.developers && data.developers.some(d => d.toLowerCase() === developer.toLowerCase())) {
+          return item.id;
+        }
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error finding Steam ID:', error);
+    return null;
+  }
+}
+
+// APP FUNCTIONS
 app.whenReady().then(() => {
   loadConfig();
   createWindow();
