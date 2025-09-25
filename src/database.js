@@ -92,7 +92,7 @@ const initializeDatabase = (dataDir) => {
     db.run(`
       CREATE TABLE IF NOT EXISTS atlas_mappings
       (
-        record_id INTEGER REFERENCES games (record_id),
+        record_id INTEGER REFERENCES games (record_id) PRIMARY KEY,
         atlas_id INTEGER REFERENCES atlas_data (atlas_id),
         UNIQUE (record_id, atlas_id)
       );
@@ -845,6 +845,7 @@ const checkPathExist = (gamePath, title) => {
 
 const addAtlasMapping = (recordId, atlasId) => {
   return new Promise((resolve, reject) => {
+    console.log("Updating Atlas Mapping")
     // Validate inputs
     if (!recordId || !atlasId) {
       const error = new Error(`Invalid input: recordId=${recordId}, atlasId=${atlasId}`);
@@ -878,7 +879,7 @@ const addAtlasMapping = (recordId, atlasId) => {
 
         // Insert or ignore mapping
         db.run(
-          `INSERT OR IGNORE INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)`,
+          `INSERT OR REPLACE INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)`,
           [recordId, atlasId],
           (err) => {
             if (err) {

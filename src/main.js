@@ -759,7 +759,7 @@ ipcMain.handle('update-banners', async (event, recordId) => {
     event.sender.send('game-updated', recordId);
     progress++;
     event.sender.send('game-details-import-progress', { 
-      text: `Completed image download for ${progress}/${imageTotal}, ${imageTotal} images downloaded`, 
+      text: `Completed image download for ${progress}/${imageTotal}`, 
       progress, 
       total: imageTotal 
     });
@@ -780,9 +780,9 @@ ipcMain.handle('update-previews', async (event, recordId) => {
     let imageTotal = 1;
     await downloadImages(recordId, atlasId, (current, totalImages) => {
       event.sender.send('game-details-import-progress', { 
-        text: `Downloading previews ${progress + 1}/${imageTotal}, ${current}/${totalImages}`, 
-        progress, 
-        total: imageTotal 
+        text: `Downloading previews  ${current}/${totalImages}`, 
+        current, 
+        total: totalImages 
       });
     }, false, true, 100, false);
     
@@ -790,7 +790,7 @@ ipcMain.handle('update-previews', async (event, recordId) => {
     event.sender.send('game-updated', recordId);
     progress++;
     event.sender.send('game-details-import-progress', { 
-      text: `Completed previews download ${progress}/${imageTotal}, 1 images downloaded`, 
+      text: `Completed previews download`, 
       progress, 
       total: imageTotal 
     });
@@ -961,6 +961,8 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
   const sharp = require('sharp');
   const axios = require('axios');
   const { getBannerUrl, getScreensUrlList, updateBanners, updatePreviews } = require('./database');
+  const path = require('path');
+  const fs = require('fs');
 
   const imgDir = path.join(dataDir, 'images', recordId.toString());
   if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
@@ -969,7 +971,7 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
   const bannerUrl = downloadBannerImages ? await getBannerUrl(atlasId) : null;
   const screenUrls = downloadPreviewImages ? await getScreensUrlList(atlasId) : [];
   const previewCount = downloadPreviewImages ? (previewLimit === 'Unlimited' ? screenUrls.length : Math.min(parseInt(previewLimit), screenUrls.length)) : 0;
-  const totalImages = (bannerUrl ? 3 : 0) + previewCount;
+  const totalImages = (bannerUrl ? 3 : 0) + previewCount; // 3 for banner (animated, high-res, low-res)
 
   // Delay function to enforce 2 requests per second (500ms per request)
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -989,7 +991,7 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
         if (!fs.existsSync(animatedPath)) {
           const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
           imageBytes = Buffer.from(response.data);
-          fs.writeFileSync(animatedPath, imageBytes);          
+          fs.writeFileSync(animatedPath, imageBytes);
           downloaded = true;
         }
         await updateBanners(recordId, `${relativePath}${ext}`, 'animated');
@@ -998,28 +1000,26 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
       }
 
       const highResPath = `${imagePath}_mc.webp`;
-      const lowResPath = `${imagePath}_sc.webp`;
       if (!fs.existsSync(highResPath)) {
         if (!imageBytes) {
           const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
           imageBytes = Buffer.from(response.data);
           downloaded = true;
         }
-        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(highResPath);        
-        downloaded = true;
+        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(highResPath);
       }
       await updateBanners(recordId, `${relativePath}_mc.webp`, 'small');
       imageProgress++;
       onImageProgress(imageProgress, totalImages);
 
+      const lowResPath = `${imagePath}_sc.webp`;
       if (!fs.existsSync(lowResPath)) {
         if (!imageBytes) {
           const response = await axios.get(bannerUrl, { responseType: 'arraybuffer' });
           imageBytes = Buffer.from(response.data);
           downloaded = true;
         }
-        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(lowResPath);       
-        downloaded = true;
+        await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(lowResPath);
       }
       await updateBanners(recordId, `${relativePath}_sc.webp`, 'large');
       imageProgress++;
@@ -1027,8 +1027,14 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
 
       console.log('Banner images updated');
       if (downloaded) {
-        mainWindow.webContents.send('game-updated', recordId);
-        await delay(500); // Enforce 2 requests per second
+        require('electron').webContents.getAllWebContents().forEach(wc => {
+          wc.send('game-details-import-progress', { 
+            text: `Completed banner download ${imageProgress}/${totalImages}`, 
+            progress: imageProgress, 
+            total: totalImages 
+          });
+        });
+        await delay(500);
       }
     } catch (err) {
       console.error('Error downloading or converting banner:', err);
@@ -1055,7 +1061,7 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
             fs.writeFileSync(targetPath, imageBytes);
             await updatePreviews(recordId, `${relativePath}${ext}`);
           } else if (!['.gif', '.mp4', '.webm'].includes(ext)) {
-            await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(targetPath);            
+            await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(targetPath);
           }
           downloaded = true;
         }
@@ -1064,8 +1070,14 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
         onImageProgress(imageProgress, totalImages);
         console.log(`Screen ${i + 1} updated`);
         if (downloaded) {
-          // We do not need to update the record. Only update for banner images
-          await delay(500); // Enforce 2 requests per second
+          require('electron').webContents.getAllWebContents().forEach(wc => {
+            wc.send('game-details-import-progress', { 
+              text: `Completed preview download ${imageProgress}/${totalImages}`, 
+              progress: imageProgress, 
+              total: totalImages 
+            });
+          });
+          await delay(500);
         }
       } catch (err) {
         console.error(`Error downloading or converting screen ${i + 1}:`, err);

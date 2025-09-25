@@ -670,7 +670,7 @@ const handleSave = async () => {
               ></div>
             </div>
             <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
-              Game {importProgress.progress}/{importProgress.total}
+              Image {importProgress.progress}/{importProgress.total}
             </span>
           </div>
         </div>

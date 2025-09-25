@@ -293,16 +293,16 @@ const Importer = () => {
                 onChange={(e) => setGameExt(e.target.value)}
                 className="ml-2 flex-1 bg-secondary border border-border p-1"
               />
-             {/*<input
+             <input
                 type="checkbox"
                 checked={isCompressed}
                 onChange={(e) => setIsCompressed(e.target.checked)}
                 className="ml-2"
               />
               <label>Extract Games</label>
-              */}
+              
             </div>
-            {/*{isCompressed && (
+            {isCompressed && (
               <div className="flex items-center">
                 <label>Archive formats:</label>
                 <input
@@ -312,7 +312,7 @@ const Importer = () => {
                   className="ml-2 flex-1 bg-secondary border border-border p-1"
                 />
               </div>
-            )}*/}
+            )}
             <p className="text-sm text-text leading-relaxed">
               Valid folder structure options: <span className="font-semibold">Title</span>, <span className="font-semibold">Creator</span>, <span className="font-semibold">Engine</span>, and <span className="font-semibold">Version</span>.<br />
               - Enclose each option in braces, e.g., <span className="font-mono">{'{Title}'}</span>. Use <span className="font-mono">/</span> for folder separators.<br />
