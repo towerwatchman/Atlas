@@ -1,79 +1,96 @@
 ├── build
-│   ├── installer.nsh (610 bytes)
+│   ├── installer.nsh (651 bytes)
 │   └── installerSidebar.bmp (154542 bytes)
 ├── generate-structure.js (1962 bytes)
+├── GL_Infos.ini (99 bytes)
 ├── LICENSE (35802 bytes)
-├── package-lock.json (256618 bytes)
-├── package.json (2821 bytes)
+├── package-lock.json (263914 bytes)
+├── package.json (2994 bytes)
 ├── postcss.config.js (85 bytes)
 ├── project-structure.txt (0 bytes)
 ├── README.md (3742 bytes)
 ├── scripts
 │   └── create_dummy_games.py (10615 bytes)
 ├── src
-│   ├── App.jsx (34084 bytes)
+│   ├── App.jsx (36919 bytes)
 │   ├── assets
 │   │   ├── css
 │   │   │   ├── main.css (154 bytes)
 │   │   │   ├── tailwind.css (60 bytes)
-│   │   │   └── tailwind.output.css (26171 bytes)
+│   │   │   └── tailwind.output.css (27087 bytes)
 │   │   ├── icons
 │   │   │   ├── atlas_logo.svg (977 bytes)
 │   │   │   ├── data.js (655 bytes)
 │   │   │   └── home.svg (486 bytes)
 │   │   ├── images
 │   │   │   ├── appicon.ico (454664 bytes)
-│   │   │   └── atlas_logo.svg (663762 bytes)
+│   │   │   ├── atlas_logo.svg (663762 bytes)
+│   │   │   └── f95_full.png (100313 bytes)
 │   │   ├── templates
 │   │   │   └── banner
-│   │   │       ├── default.js (6519 bytes)
+│   │   │       ├── default.js (6557 bytes)
 │   │   │       └── f95.js (7625 bytes)
 │   │   └── themes
 │   │       (empty directory)
 │   ├── components
-│   │   ├── GameBanner.js (8806 bytes)
+│   │   ├── banner
+│   │   │   └── GameDetailsWindow.jsx (38950 bytes)
+│   │   ├── GameBanner.js (11469 bytes)
 │   │   ├── GameDetails.js (730 bytes)
 │   │   ├── importer
-│   │   │   └── importer.jsx (24446 bytes)
+│   │   │   └── importer.jsx (24374 bytes)
 │   │   ├── scanners
-│   │   │   └── f95scanner.js (14172 bytes)
+│   │   │   └── f95scanner.js (14911 bytes)
 │   │   ├── settings
 │   │   │   ├── Appearance.jsx (3731 bytes)
-│   │   │   ├── Emulators.jsx (262 bytes)
+│   │   │   ├── EmulatorLauncher.jsx (5448 bytes)
 │   │   │   ├── Interface.jsx (4693 bytes)
 │   │   │   ├── Library.jsx (4170 bytes)
 │   │   │   ├── Metadata.jsx (1351 bytes)
 │   │   │   ├── Platforms.jsx (262 bytes)
-│   │   │   ├── Settings.jsx (3810 bytes)
+│   │   │   ├── Settings.jsx (3817 bytes)
 │   │   │   └── settingsIcons.js (6817 bytes)
-│   │   └── Sidebar.js (5720 bytes)
+│   │   └── Sidebar.js (5754 bytes)
 │   ├── data
 │   │   ├── config.ini (287 bytes)
-│   │   ├── data.db (56578048 bytes)
+│   │   ├── data.db (56918016 bytes)
 │   │   ├── games
 │   │   │   (empty directory)
 │   │   ├── images
-│   │   │   (empty directory)
+│   │   │   └── 1
+│   │   │       ├── 1649171_intro_078_pr.webp (113390 bytes)
+│   │   │       ├── 1649172_intro_024_pr.webp (102590 bytes)
+│   │   │       ├── 1649173_introp2_026_pr.webp (104952 bytes)
+│   │   │       ├── 1649174_introp2_041_pr.webp (85684 bytes)
+│   │   │       ├── 1649181_d2_298_pr.webp (69428 bytes)
+│   │   │       ├── 1649182_d2_284f_pr.webp (109488 bytes)
+│   │   │       ├── 1649186_d3_106_pr.webp (70656 bytes)
+│   │   │       ├── 1649187_d3_64_pr.webp (91404 bytes)
+│   │   │       ├── 1649188_d3_01_pr.webp (51260 bytes)
+│   │   │       ├── 2584464_cocacola_pr.webp (36538 bytes)
+│   │   │       ├── banner_mc.webp (36538 bytes)
+│   │   │       └── banner_sc.webp (10512 bytes)
 │   │   ├── templates
 │   │   │   └── banner
 │   │   │       (empty directory)
 │   │   └── updates
-│   │       ├── 1757908807.update (16584628 bytes)
-│   │       ├── 1757921126.update (1013718 bytes)
-│   │       ├── 1757942330.update (849313 bytes)
-│   │       ├── 1757964155.update (936373 bytes)
-│   │       ├── 1757982074.update (928325 bytes)
-│   │       ├── 1757995206.update (16593783 bytes)
-│   │       ├── 1758007271.update (914907 bytes)
-│   │       ├── 1758028713.update (871110 bytes)
-│   │       ├── 1758050522.update (952419 bytes)
-│   │       └── 1758068555.update (971995 bytes)
-│   ├── database.js (28892 bytes)
+│   │       ├── 1758686405.update (16654579 bytes)
+│   │       ├── 1758698326.update (876854 bytes)
+│   │       ├── 1758719909.update (843379 bytes)
+│   │       ├── 1758741549.update (822055 bytes)
+│   │       └── 1758759740.update (915635 bytes)
+│   ├── database.js (38557 bytes)
+│   ├── gamedetails.html (768 bytes)
 │   ├── importer.html (757 bytes)
 │   ├── index.html (1351 bytes)
-│   ├── main.js (26728 bytes)
-│   ├── renderer.js (3396 bytes)
-│   └── settings.html (1291 bytes)
+│   ├── ipc_handlers.js (22018 bytes)
+│   ├── launchers
+│   │   └── flash
+│   │       └── ruffle.exe (24856576 bytes)
+│   ├── main.js (43563 bytes)
+│   ├── renderer.js (6382 bytes)
+│   ├── settings.html (1298 bytes)
+│   └── utils.js (8816 bytes)
 ├── tailwind.config.js (574 bytes)
 └── update-version.js (598 bytes)
 
