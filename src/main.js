@@ -766,6 +766,7 @@ ipcMain.handle('update-banners', async (event, recordId) => {
           progress, 
           total: imageTotal 
         });
+        mainWindow.webContents.send('import-complete');
       console.log(bannerUrl);
     return bannerUrl;
   } catch (err) {
@@ -797,6 +798,7 @@ ipcMain.handle('update-previews', async (event, recordId) => {
       progress, 
       total: imageTotal 
     });
+    mainWindow.webContents.send('import-complete');
     console.log('Preview URLs:', previewUrls);
     return Array.isArray(previewUrls) ? previewUrls : [];
   } catch (err) {
