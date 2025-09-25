@@ -885,6 +885,27 @@ ipcMain.handle('open-directory', async (event, path) => {
   }
 });
 
+ipcMain.handle('get-steam-data', async (event, steam_id) => {
+  console.log('Handling get-steam-data:', steam_id);
+  try {
+    await getSteamGameData(steam_id); 
+    console.log('Steam Game data updated in database');
+  } catch (err) {
+    console.error('Error updating Steam Game Data:', err);
+    throw err;
+  }
+});
+
+ipcMain.handle('find-steam-id', async (event, title, developer) => {
+  console.log('Handling get-steam-data:', title, developer);
+  try {
+    await findSteamId(title, developer); 
+    console.log('Steam Game id found');
+  } catch (err) {
+    console.error('Error checking Steam ID:', err);
+    throw err;
+  }
+});
 // UTIL FUNCTIONS
 const engineMap = {
   rpgm: ['rpgmv.exe', 'rpgmk.exe', 'rpgvx.exe', 'rpgvxace.exe', 'rpgmktranspatch.exe'],
