@@ -205,9 +205,9 @@ const App = () => {
     };
   }, []);
 
-  const addGame = async () => {
-    window.electronAPI.openImporter();
-  };
+const addGame = async () => {
+  window.electronAPI.openImportSourceDialog();
+};
 
   const removeGame = async (id) => {
     try {

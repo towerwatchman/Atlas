@@ -18,6 +18,7 @@ let contextMenuId = 0;
 let mainWindow;
 let settingsWindow;
 let importerWindow;
+let importSourceDialog;
 let appConfig;
 
 app.commandLine.appendSwitch('force-color-profile', 'srgb');
@@ -176,6 +177,42 @@ function createGameDetailsWindow(recordId) {
     //gameDetailsWindow = null;
   });
 }
+
+  // IMPORTER SOURCE WINDOW
+function createImportSourceDialog() {
+  const importSourceDialog = new BrowserWindow({
+    width: 400,
+    height: 200,
+    modal: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    center: true,
+    resizable: true,
+    minimizable: false,
+    maximizable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'renderer.js'),
+      contextIsolation: true,
+      enableRemoteModule: false,
+      nodeIntegration: false
+    }
+  });
+
+  const filePath = path.join(__dirname, 'components/ui/dialogs/import-source.html');
+  console.log('Attempting to load file:', filePath);
+  
+  importSourceDialog.loadFile(filePath).catch(err => {
+    console.error('Failed to load import-source.html:', err);
+  });
+  if (process.argv.includes('--dev') || appConfig?.Interface?.showDebugConsole) {
+    importSourceDialog.webContents.openDevTools();
+  }
+    importSourceDialog.on('closed', () => {
+    importSourceDialog = null;
+  });
+}
+
 // Create data folders
 var dataDir = "";
 var launcherDir = "";
@@ -339,9 +376,19 @@ ipcMain.handle('maximize-window', () => {
   }
 });
 
-ipcMain.handle('close-window', () => {
-  const focusedWindow = BrowserWindow.getFocusedWindow();
-  if (focusedWindow) focusedWindow.close();
+ipcMain.handle('close-window', async () => {
+  console.log('IPC close-window called');
+  try {
+    const win = BrowserWindow.getFocusedWindow();
+    if (win) {
+      win.close();
+      return { success: true };
+    }
+    return { success: false, error: 'No focused window' };
+  } catch (err) {
+    console.error('Error in close-window:', err);
+    return { success: false, error: err.message };
+  }
 });
 
 ipcMain.handle('select-file', async () => {
@@ -388,14 +435,16 @@ ipcMain.handle('save-settings', async (event, settings) => {
   }
 });
 
-ipcMain.handle('open-importer', () => {
-  if (!importerWindow) {
+ipcMain.handle('open-importer', async () => {
+  console.log('IPC open-importer called');
+  try {
     createImporterWindow();
-  } else {
-    importerWindow.focus();
+    return { success: true };
+  } catch (err) {
+    console.error('Error in open-importer:', err);
+    return { success: false, error: err.message };
   }
 });
-
 ipcMain.handle('start-scan', async (event, params) => {
   const window = BrowserWindow.fromWebContents(event.sender);
   try {
@@ -907,6 +956,14 @@ ipcMain.handle('find-steam-id', async (event, title, developer) => {
 
 ipcMain.handle('start-steam-scan', async (event, params) => {
   return await startSteamScan(db, params, event);
+});
+
+ipcMain.handle('open-import-source-dialog', () => {
+  if (!importSourceDialog) {
+    createImportSourceDialog();
+  } else {
+    importSourceDialog.focus();
+  }
 });
 
 // UTIL FUNCTIONS

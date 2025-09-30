@@ -14,7 +14,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkDbUpdates: () => ipcRenderer.invoke('check-db-updates'),
   minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
   maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
-  closeWindow: () => ipcRenderer.invoke('close-window'),
+  closeWindow: () => {
+    console.log('Invoking closeWindow');
+    return ipcRenderer.invoke('close-window');
+  },
   selectFile: () => {
     console.log('Invoking selectFile');
     return ipcRenderer.invoke('select-file');
@@ -25,7 +28,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getVersion: () => ipcRenderer.invoke('get-version'),
   openSettings: () => ipcRenderer.invoke('open-settings'),
-  openImporter: () => ipcRenderer.invoke('open-importer'),
+  openImporter: () => {
+    console.log('Invoking openImporter');
+    return ipcRenderer.invoke('open-importer');
+  },
   getConfig: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   startScan: (params) => ipcRenderer.invoke('start-scan', params),
@@ -115,4 +121,5 @@ removeGameDetailsImportProgressListener: (callback) => {
   console.log('Removing game-details-import-progress listener');
   ipcRenderer.removeListener('game-details-import-progress', callback);
 },
+openImportSourceDialog: () => ipcRenderer.invoke('open-import-source-dialog'),
 });
