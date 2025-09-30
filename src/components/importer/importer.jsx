@@ -4,7 +4,7 @@ const { createRoot } = window.ReactDOM;
 
 const Importer = () => {
   const [view, setView] = useState('settings');
-  const [importSource, setImportSource] = useState('local'); // Track local or steam
+  const [importSource, setImportSource] = useState('local');
   const [folder, setFolder] = useState('');
   const [useUnstructured, setUseUnstructured] = useState(true);
   const [customFormat, setCustomFormat] = useState('{creator}/{title}/{version}');
@@ -23,31 +23,57 @@ const Importer = () => {
   const [gamesList, setGamesList] = useState([]);
   const [isMaximized, setIsMaximized] = useState(false);
 
-   useEffect(() => {
+ useEffect(() => {
     console.log('Importer component mounted');
     window.electronAPI.log('Importer component mounted');
-    window.electronAPI.onWindowStateChanged((state) => {
+
+    const handleWindowStateChanged = (state) => {
       console.log(`Window state changed: ${state}`);
       window.electronAPI.log(`Window state changed: ${state}`);
       setIsMaximized(state === 'maximized');
-    });
-    window.electronAPI.onScanProgress((prog) => {
+    };
+
+    const handleScanProgress = (prog) => {
       console.log(`Scan progress: ${JSON.stringify(prog)}`);
       setProgress(prog);
-    });
-    window.electronAPI.onScanComplete((game) => {
+    };
+
+    const handleScanComplete = (game) => {
       console.log(`Received incremental game: ${JSON.stringify(game)}`);
-      setGamesList(prev => [...prev, game]);
-    });
-    window.electronAPI.onScanCompleteFinal((games) => {
-      console.log(`Scan complete, received ${games.length} games`);
+      setGamesList(prev => {
+        const newList = [...prev, game];
+        console.log(`Updated gamesList: ${JSON.stringify(newList)}`);
+        return newList;
+      });
+    };
+
+    const handleScanCompleteFinal = (games) => {
+      console.log(`Scan complete, received ${games.length} games: ${JSON.stringify(games)}`);
       setGamesList(games);
-      setView('scan'); // Always switch to scan view on final results
-    });
-    window.electronAPI.onUpdateProgress((prog) => {
+      setView('scan');
+    };
+
+    const handleUpdateProgress = (prog) => {
       console.log(`Update progress: ${JSON.stringify(prog)}`);
       setUpdateProgress(prog);
-    });
+    };
+
+    const handleImportSource = (source) => {
+      console.log(`Received import source: ${source}`);
+      setImportSource(source);
+      if (source === 'steam') {
+        console.log('Setting view to scan for Steam import');
+        setView('scan');
+      }
+    };
+
+    window.electronAPI.onWindowStateChanged(handleWindowStateChanged);
+    window.electronAPI.onScanProgress(handleScanProgress);
+    window.electronAPI.onScanComplete(handleScanComplete);
+    window.electronAPI.onScanCompleteFinal(handleScanCompleteFinal);
+    window.electronAPI.onUpdateProgress(handleUpdateProgress);
+    window.electronAPI.onImportSource(handleImportSource);
+
     window.electronAPI.getConfig().then((config) => {
       console.log(`Config loaded: ${JSON.stringify(config)}`);
       window.electronAPI.log(`Config loaded: ${JSON.stringify(config)}`);
@@ -59,17 +85,12 @@ const Importer = () => {
       window.electronAPI.log(`Error loading config: ${err.message}`);
     });
 
-    // Listen for import source from main process
-    window.electronAPI.onImportSource((source) => {
-      console.log(`Received import source: ${source}`);
-      setImportSource(source);
-      if (source === 'steam') {
-        setView('scan'); // Set to scan view for Steam imports
-      }
-    });
-
     return () => {
-      // Cleanup listeners
+      window.electronAPI.removeAllListeners('window-state-changed');
+      window.electronAPI.removeAllListeners('scan-progress');
+      window.electronAPI.removeAllListeners('scan-complete');
+      window.electronAPI.removeAllListeners('scan-complete-final');
+      window.electronAPI.removeAllListeners('update-progress');
       window.electronAPI.removeAllListeners('import-source');
     };
   }, []);
