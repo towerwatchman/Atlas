@@ -5,7 +5,7 @@ const sharp = require('sharp');
 const axios = require('axios');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
-const { initializeDatabase, addGame, updateGame, addVersion, updateVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord, getPreviews, deleteBanner, deletePreviews } = require('./database');
+const { initializeDatabase, addGame, updateGame, addVersion, updateVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord, getPreviews, deleteBanner, deletePreviews, db } = require('./database');
 const { Menu, shell } = require('electron');
 const cp = require('child_process');
 const contextMenuData = new Map();
@@ -972,6 +972,26 @@ ipcMain.handle('start-steam-scan', async (event, params) => {
   return await startSteamScan(db, params, event);
 });
 
+ipcMain.handle('select-steam-directory', async () => {
+  console.log('IPC select-steam-directory called');
+  try {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+      title: 'Select Steam Directory',
+      defaultPath: path.join('C:', 'Program Files (x86)', 'Steam')
+    });
+    if (result.canceled) {
+      console.log('User canceled Steam directory selection');
+      return null;
+    }
+    const selectedPath = result.filePaths[0];
+    console.log(`User selected Steam directory: ${selectedPath}`);
+    return selectedPath;
+  } catch (err) {
+    console.error('Error selecting Steam directory:', err);
+    return null;
+  }
+});
 ipcMain.handle('open-import-source-dialog', () => {
   if (!importSourceDialog) {
     createImportSourceDialog();

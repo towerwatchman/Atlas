@@ -8,15 +8,16 @@
 <body>
   <div class="h-full flex flex-col bg-primary p-4 rounded-lg border border-accent">
     <div class="flex flex-col space-y-2">
-      <button onclick="console.log('Atlas button clicked');window.electronAPI.openImporter().then(response => {console.log('openImporter response:', response);window.electronAPI.closeWindow().then(() => console.log('Window closed')).catch(err => console.error('Close window error:', err));}).catch(err => console.error('Atlas error:', err));" 
+      <button onclick="console.log('Atlas button clicked');window.electronAPI.openImporter().then(response => {console.log('openImporter response:', response);setTimeout(() => {window.electronAPI.closeWindow().then(res => console.log('closeWindow response:', res)).catch(err => console.error('Close window error:', err));}, 1000);}).catch(err => console.error('Atlas error:', err));" 
               class="bg-secondary hover:bg-selected text-text p-2 rounded">
         Atlas Game Importer
       </button>
-      <button onclick="console.log('Steam button clicked');window.electronAPI.startSteamScan({downloadBannerImages:false,downloadPreviewImages:false,previewLimit:'5',downloadVideos:false}).then(result => {console.log('Steam scan result:', result);if(result.success){window.electronAPI.openSteamImportWindow().then(() => window.electronAPI.closeWindow()).catch(err => console.error('Open steam window error:', err));}else{alert('Error scanning Steam games: ' + result.error);}}).catch(err => console.error('Steam error:', err));" 
+      <button onclick="console.log('Steam button clicked');window.electronAPI.startSteamScan({downloadBannerImages:false,downloadPreviewImages:false,previewLimit:'5',downloadVideos:false}).then(result => {console.log('Steam scan result:', result);if(result.success){window.electronAPI.openSteamImportWindow().then(() => {setTimeout(() => {window.electronAPI.closeWindow().then(res => console.log('closeWindow response:', res)).catch(err => console.error('Close window error:', err));}, 1000);}).catch(err => console.error('Open steam window error:', err));}else{alert('Error scanning Steam games: ' + result.error);}}).catch(err => console.error('Steam error:', err));" 
               class="bg-secondary hover:bg-selected text-text p-2 rounded">
         Import Steam Games
       </button>
     </div>
   </div>
+  <script>console.log('import-source.html script context loaded');</script>
 </body>
 </html>

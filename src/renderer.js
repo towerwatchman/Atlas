@@ -122,4 +122,17 @@ removeGameDetailsImportProgressListener: (callback) => {
   ipcRenderer.removeListener('game-details-import-progress', callback);
 },
 openImportSourceDialog: () => ipcRenderer.invoke('open-import-source-dialog'),
+startSteamScan: (params) => ipcRenderer.invoke('start-steam-scan', params),
+selectSteamDirectory: () => {
+    console.log('Invoking selectSteamDirectory');
+    return ipcRenderer.invoke('select-steam-directory');
+  },
+  onPromptSteamDirectory: (callback) => {
+    console.log('Registering onPromptSteamDirectory listener');
+    ipcRenderer.on('prompt-steam-directory', (event) => callback());
+  },
+  openSteamImportWindow: () => {
+    console.log('Invoking openSteamImportWindow');
+    return ipcRenderer.invoke('open-steam-import-window');
+  },
 });
