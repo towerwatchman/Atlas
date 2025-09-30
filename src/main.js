@@ -3,13 +3,16 @@ const path = require('path');
 const fs = require('fs');
 const sharp = require('sharp');
 const axios = require('axios');
-const { startScan } = require('./components/scanners/f95scanner');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
 const { initializeDatabase, addGame, updateGame, addVersion, updateVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord, getPreviews, deleteBanner, deletePreviews } = require('./database');
 const { Menu, shell } = require('electron');
 const cp = require('child_process');
 const contextMenuData = new Map();
+
+// SCANNERS
+const { startSteamScan } = require('./components/scanners/steamscanner');
+const { startScan } = require('./components/scanners/f95scanner');
 
 let contextMenuId = 0;
 let mainWindow;
@@ -901,6 +904,11 @@ ipcMain.handle('find-steam-id', async (event, title, developer) => {
     throw err;
   }
 });
+
+ipcMain.handle('start-steam-scan', async (event, params) => {
+  return await startSteamScan(db, params, event);
+});
+
 // UTIL FUNCTIONS
 const engineMap = {
   rpgm: ['rpgmv.exe', 'rpgmk.exe', 'rpgvx.exe', 'rpgvxace.exe', 'rpgmktranspatch.exe'],
@@ -1085,12 +1093,19 @@ async function downloadImages(recordId, atlasId, onImageProgress, downloadBanner
     }
   }
 }
-async function launchGame({ execPath, extension }) {
+
+async function launchGame({ execPath, extension, recordId }) {
+  if (recordId) {
+    const steamId = await getSteamIDbyRecord(recordId);
+    if (steamId) {
+      shell.openExternal(`steam://run/${steamId}`);
+      return;
+    }
+  }
   if (!fs.existsSync(execPath)) {
     console.error(`Executable not found: ${execPath}`);
     return;
   }
-
   const emulator = await getEmulatorByExtension(extension);
   if (emulator) {
     const args = emulator.parameters ? emulator.parameters.split(' ') : [];
@@ -1101,6 +1116,8 @@ async function launchGame({ execPath, extension }) {
     shell.openPath(execPath);
   }
 }
+
+
 function handleContextAction(data, sender) {
   if (!data || typeof data.action === 'undefined') {
     console.error('handleContextAction: Invalid or missing data object', data);
