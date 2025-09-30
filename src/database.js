@@ -200,6 +200,48 @@ const initializeDatabase = (dataDir) => {
         parameters TEXT
       );
     `);
+    db.run(`
+  CREATE TABLE IF NOT EXISTS steam_data
+  (
+    steam_id INTEGER PRIMARY KEY,
+    atlas_id INTEGER REFERENCES atlas_data (atlas_id),
+    title TEXT,
+    category TEXT,
+    engine TEXT,
+    developer TEXT,
+    publisher TEXT,
+    overview TEXT,
+    censored TEXT,
+    language TEXT,
+    translations TEXT,
+    genre TEXT,
+    tags TEXT,
+    voice TEXT,
+    os TEXT,
+    release_state TEXT,
+    release_date TEXT,
+    header TEXT,
+    library_hero TEXT,
+    logo TEXT,
+    last_record_update TEXT
+  );
+`);
+db.run(`
+  CREATE TABLE IF NOT EXISTS steam_screens
+  (
+    steam_id INTEGER REFERENCES steam_data (steam_id),
+    screen_url TEXT NOT NULL,
+    UNIQUE (steam_id, screen_url)
+  );
+`);
+db.run(`
+  CREATE TABLE IF NOT EXISTS steam_mappings
+  (
+    record_id INTEGER REFERENCES games (record_id) PRIMARY KEY,
+    steam_id INTEGER REFERENCES steam_data (steam_id),
+    UNIQUE (record_id, steam_id)
+  );
+`);
   });
 };
 
@@ -1164,6 +1206,43 @@ const getEmulatorByExtension = (extension) => {
   });
 };
 
+//STEAM SPECIFIC FUNCTIONS
+const getSteamIDbyRecord = (recordId) => {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT steam_id FROM steam_mappings WHERE record_id = ?`, [recordId], (err, row) => {
+      if (err) reject(err);
+      else resolve(row ? row.steam_id : null);
+    });
+  });
+};
+
+const addSteamMapping = (recordId, steamId) => {
+  return new Promise((resolve, reject) => {
+    db.run(`INSERT OR IGNORE INTO steam_mappings (record_id, steam_id) VALUES (?, ?)`, [recordId, steamId], (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+};
+
+const getSteamBannerUrl = (steamId) => {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT header FROM steam_data WHERE steam_id = ?`, [steamId], (err, row) => {
+      if (err) reject(err);
+      else resolve(row ? row.header : null);
+    });
+  });
+};
+
+const getSteamScreensUrlList = (steamId) => {
+  return new Promise((resolve, reject) => {
+    db.all(`SELECT screen_url FROM steam_screens WHERE steam_id = ?`, [steamId], (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows.map(row => row.screen_url));
+    });
+  });
+};
+
 module.exports = {
   initializeDatabase,
   addGame,
@@ -1195,5 +1274,9 @@ module.exports = {
   getBanners,
   updateGame,
   updateVersion,
+  getSteamIDbyRecord,
+  addSteamMapping,
+  getSteamBannerUrl,
+  getSteamScreensUrlList,
   db // Export db instance
 };
