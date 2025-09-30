@@ -94,7 +94,8 @@ function createSettingsWindow() {
 }
 // IMPORTER WINDOW
 function createImporterWindow() {
-  importerWindow = new BrowserWindow({
+  console.log('Creating importer window');
+  const importerWindow = new BrowserWindow({
     width: 1280,
     height: 720,
     minWidth: 1280,
@@ -111,22 +112,24 @@ function createImporterWindow() {
     }
   });
 
-  importerWindow.loadFile(path.join(__dirname, 'importer.html'));
-
-  // Force DevTools open for debugging
-  importerWindow.webContents.openDevTools();
+  importerWindow.loadFile(path.join(__dirname, './components/ui/windows/importer.html'));
 
   importerWindow.on('maximize', () => {
+    console.log('Importer window maximized');
     importerWindow.webContents.send('window-state-changed', 'maximized');
   });
   importerWindow.on('unmaximize', () => {
+    console.log('Importer window unmaximized');
     importerWindow.webContents.send('window-state-changed', 'restored');
   });
 
   importerWindow.on('closed', () => {
-    importerWindow = null;
+    console.log('Importer window closed');
+    //importerWindow = null;
   });
 }
+
+
 // GAME DETAILS WINDOW
 function createGameDetailsWindow(recordId) {
   const gameDetailsWindow = new BrowserWindow({
@@ -177,8 +180,7 @@ function createGameDetailsWindow(recordId) {
     //gameDetailsWindow = null;
   });
 }
-
-  // IMPORTER SOURCE WINDOW
+// IMPORTER SOURCE WINDOW
 function createImportSourceDialog() {
   const importSourceDialog = new BrowserWindow({
     width: 400,
@@ -207,10 +209,7 @@ function createImportSourceDialog() {
   });
   if (process.argv.includes('--dev') || appConfig?.Interface?.showDebugConsole) {
     importSourceDialog.webContents.openDevTools();
-  }
-    importSourceDialog.on('closed', () => {
-    importSourceDialog = null;
-  });
+  }    
 }
 
 // Create data folders
@@ -379,12 +378,26 @@ ipcMain.handle('maximize-window', () => {
 ipcMain.handle('close-window', async () => {
   console.log('IPC close-window called');
   try {
-    const win = BrowserWindow.getFocusedWindow();
-    if (win) {
-      win.close();
+    const windows = BrowserWindow.getAllWindows();
+    const importSourceWindow = windows.find(w => w.webContents.getURL().includes('import-source.html'));
+    if (importSourceWindow) {
+      console.log('Closing import-source window');
+      
+        importSourceWindow.close();
+        console.log('import-source window closed');
+      // Increased delay to ensure importer window loads
       return { success: true };
     }
-    return { success: false, error: 'No focused window' };
+    console.log('No import-source window found, closing focused window');
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (focusedWindow) {
+      
+        focusedWindow.close();
+        console.log('Focused window closed');
+     
+      return { success: true };
+    }
+    return { success: false, error: 'No import-source or focused window found' };
   } catch (err) {
     console.error('Error in close-window:', err);
     return { success: false, error: err.message };
@@ -445,6 +458,7 @@ ipcMain.handle('open-importer', async () => {
     return { success: false, error: err.message };
   }
 });
+
 ipcMain.handle('start-scan', async (event, params) => {
   const window = BrowserWindow.fromWebContents(event.sender);
   try {
