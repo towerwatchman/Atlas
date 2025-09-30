@@ -93,8 +93,8 @@ function createSettingsWindow() {
   });
 }
 // IMPORTER WINDOW
-function createImporterWindow() {
-  console.log('Creating importer window');
+function createImporterWindow(source = 'local') {
+  console.log(`Creating importer window with source: ${source}`);
   const importerWindow = new BrowserWindow({
     width: 1280,
     height: 720,
@@ -112,7 +112,15 @@ function createImporterWindow() {
     }
   });
 
-  importerWindow.loadFile(path.join(__dirname, './components/ui/windows/importer.html'));
+  const filePath = path.join(__dirname, 'components/ui/windows/importer.html');
+  console.log('Loading importer file:', filePath);
+  importerWindow.loadFile(filePath).then(() => {
+    console.log('importer.html loaded successfully');
+    // Emit import source after window loads
+    importerWindow.webContents.send('import-source', source);
+  }).catch(err => {
+    console.error('Failed to load importer.html:', err);
+  });
 
   importerWindow.on('maximize', () => {
     console.log('Importer window maximized');
@@ -125,10 +133,9 @@ function createImporterWindow() {
 
   importerWindow.on('closed', () => {
     console.log('Importer window closed');
-    //importerWindow = null;
+    importerWindow = null;
   });
 }
-
 
 // GAME DETAILS WINDOW
 function createGameDetailsWindow(recordId) {
@@ -448,10 +455,10 @@ ipcMain.handle('save-settings', async (event, settings) => {
   }
 });
 
-ipcMain.handle('open-importer', async () => {
-  console.log('IPC open-importer called');
+ipcMain.handle('open-importer', async (event, source = 'local') => {
+  console.log(`IPC open-importer called with source: ${source}`);
   try {
-    createImporterWindow();
+    createImporterWindow(source);
     return { success: true };
   } catch (err) {
     console.error('Error in open-importer:', err);

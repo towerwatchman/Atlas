@@ -28,9 +28,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getVersion: () => ipcRenderer.invoke('get-version'),
   openSettings: () => ipcRenderer.invoke('open-settings'),
-  openImporter: () => {
-    console.log('Invoking openImporter');
-    return ipcRenderer.invoke('open-importer');
+  openImporter: (source) => {
+    console.log(`Invoking openImporter with source: ${source}`);
+    return ipcRenderer.invoke('open-importer', source);
+  },
+  onImportSource: (callback) => {
+    console.log('Registering onImportSource listener');
+    ipcRenderer.on('import-source', (event, source) => callback(source));
   },
   getConfig: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),

@@ -36,6 +36,8 @@ function parseVDF(text) {
           currentKey = parts[1];
           current[currentKey] = {};
         }
+      } else {
+        console.log(`Skipping malformed VDF line: ${line}`);
       }
     }
   }

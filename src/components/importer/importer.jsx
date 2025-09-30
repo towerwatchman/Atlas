@@ -4,6 +4,7 @@ const { createRoot } = window.ReactDOM;
 
 const Importer = () => {
   const [view, setView] = useState('settings');
+  const [importSource, setImportSource] = useState('local'); // Track local or steam
   const [folder, setFolder] = useState('');
   const [useUnstructured, setUseUnstructured] = useState(true);
   const [customFormat, setCustomFormat] = useState('{creator}/{title}/{version}');
@@ -22,7 +23,7 @@ const Importer = () => {
   const [gamesList, setGamesList] = useState([]);
   const [isMaximized, setIsMaximized] = useState(false);
 
-  useEffect(() => {
+   useEffect(() => {
     console.log('Importer component mounted');
     window.electronAPI.log('Importer component mounted');
     window.electronAPI.onWindowStateChanged((state) => {
@@ -32,22 +33,19 @@ const Importer = () => {
     });
     window.electronAPI.onScanProgress((prog) => {
       console.log(`Scan progress: ${JSON.stringify(prog)}`);
-      //window.electronAPI.log(`Scan progress: ${JSON.stringify(prog)}`);
       setProgress(prog);
     });
     window.electronAPI.onScanComplete((game) => {
       console.log(`Received incremental game: ${JSON.stringify(game)}`);
-      //window.electronAPI.log(`Received incremental game: ${JSON.stringify(game)}`);
-      setGamesList(prev => [...prev, game]); // Append new game incrementally
+      setGamesList(prev => [...prev, game]);
     });
     window.electronAPI.onScanCompleteFinal((games) => {
       console.log(`Scan complete, received ${games.length} games`);
-      //window.electronAPI.log(`Scan complete, received ${games.length} games`);
-      setGamesList(games); // Set final games list to ensure all are included
+      setGamesList(games);
+      setView('scan'); // Always switch to scan view on final results
     });
     window.electronAPI.onUpdateProgress((prog) => {
       console.log(`Update progress: ${JSON.stringify(prog)}`);
-      window.electronAPI.log(`Update progress: ${JSON.stringify(prog)}`);
       setUpdateProgress(prog);
     });
     window.electronAPI.getConfig().then((config) => {
@@ -60,6 +58,20 @@ const Importer = () => {
       console.error('Error loading config:', err);
       window.electronAPI.log(`Error loading config: ${err.message}`);
     });
+
+    // Listen for import source from main process
+    window.electronAPI.onImportSource((source) => {
+      console.log(`Received import source: ${source}`);
+      setImportSource(source);
+      if (source === 'steam') {
+        setView('scan'); // Set to scan view for Steam imports
+      }
+    });
+
+    return () => {
+      // Cleanup listeners
+      window.electronAPI.removeAllListeners('import-source');
+    };
   }, []);
 
   const selectFolder = async () => {
@@ -79,9 +91,9 @@ const Importer = () => {
       window.electronAPI.log('No folder selected');
       return alert('Select a folder');
     }
+    setView('scan')
     console.log('Starting scan');
-    window.electronAPI.log('Starting scan');
-    setView('scan');
+    window.electronAPI.log('Starting scan');    
     setGamesList([]); // Clear gamesList to start fresh
     const params = {
       folder,
@@ -219,7 +231,7 @@ const Importer = () => {
   };
 
   console.log('Rendering Importer component, view:', view);
-  //window.electronAPI.log(`Rendering Importer component, view: ${view}`);
+  // Default game
   return (
     <div className="h-screen flex flex-col fixed w-full">
       {/* Window Controls */}
@@ -250,7 +262,7 @@ const Importer = () => {
         </div>
       </div>
       <div className="flex-1 p-4 bg-secondary overflow-y-auto">
-        {view === 'settings' ? (
+        {view === 'settings' && importSource === 'local' && (
           <div className="space-y-4 flex-1">
             <div className="flex items-center">
               <label>Game Path:</label>
@@ -293,14 +305,13 @@ const Importer = () => {
                 onChange={(e) => setGameExt(e.target.value)}
                 className="ml-2 flex-1 bg-secondary border border-border p-1"
               />
-             <input
+              <input
                 type="checkbox"
                 checked={isCompressed}
                 onChange={(e) => setIsCompressed(e.target.checked)}
                 className="ml-2"
               />
               <label>Extract Games</label>
-              
             </div>
             {isCompressed && (
               <div className="flex items-center">
@@ -403,128 +414,129 @@ const Importer = () => {
               </button>
             </div>
           </div>
-        ) : (
-          <div className="h-full flex flex-col">
-            <div className="shrink-0">
-              <h2 className="text-xl mb-4">Scan Results</h2>
-              <div className="flex items-center mb-4">
-                <progress value={progress.value} max={progress.total} className="w-96" />
-                <span className="ml-2">{progress.value}/{progress.total} Folders Scanned</span>
-              </div>
-              <span className="mb-4">Found {progress.potential} Games</span>
+        )}
+      {view === 'scan' && (
+        <div className="h-full flex flex-col">
+          <div className="shrink-0">
+            <h2 className="text-xl mb-4">Scan Results</h2>
+            <div className="flex items-center mb-4">
+              <progress value={progress.value} max={progress.total} className="w-96" />
+              <span className="ml-2">{progress.value}/{progress.total} {importSource === 'steam' ? 'Games Scanned' : 'Folders Scanned'}</span>
             </div>
-            <div className="flex-1 overflow-y-auto">
-              <table className="w-full border-collapse border border-border">
-                <thead>
-                  <tr className="bg-secondary sticky top-0">
-                    <th className="border border-border p-1">Atlas ID</th>
-                    <th className="border border-border p-1">F95 ID</th>
-                    <th className="border border-border p-1">Title</th>
-                    <th className="border border-border p-1">Creator</th>
-                    <th className="border border-border p-1">Engine</th>
-                    <th className="border border-border p-1">Version</th>
-                    <th className="border border-border p-1">Executable</th>
-                    <th className="border border-border p-1">Possible Database Matches</th>
-                    <th className="border border-border p-1">Folder</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {gamesList.map((game, index) => (
-                    <tr key={index} className="bg-primary">
-                      <td className="border border-border p-1">{game.atlasId}</td>
-                      <td className="border border-border p-1">{game.f95Id}</td>
-                      <td className="border border-border p-1">
-                        <input
-                          value={game.title}
-                          onChange={(e) => updateGame(index, 'title', e.target.value)}
+            <span className="mb-4">Found {progress.potential} Games</span>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            <table className="w-full border-collapse border border-border">
+              <thead>
+                <tr className="bg-secondary sticky top-0">
+                  <th className="border border-border p-1">Atlas ID</th>
+                  <th className="border border-border p-1">F95 ID</th>
+                  <th className="border border-border p-1">Title</th>
+                  <th className="border border-border p-1">Creator</th>
+                  <th className="border border-border p-1">Engine</th>
+                  <th className="border border-border p-1">Version</th>
+                  <th className="border border-border p-1">Executable</th>
+                  <th className="border border-border p-1">Possible Database Matches</th>
+                  <th className="border border-border p-1">Folder</th>
+                </tr>
+              </thead>
+              <tbody>
+                {gamesList.map((game, index) => (
+                  <tr key={index} className="bg-primary">
+                    <td className="border border-border p-1">{game.atlasId}</td>
+                    <td className="border border-border p-1">{game.f95Id}</td>
+                    <td className="border border-border p-1">
+                      <input
+                        value={game.title}
+                        onChange={(e) => updateGame(index, 'title', e.target.value)}
+                        className="w-full bg-secondary border border-border p-1"
+                      />
+                    </td>
+                    <td className="border border-border p-1">
+                      <input
+                        value={game.creator}
+                        onChange={(e) => updateGame(index, 'creator', e.target.value)}
+                        className="w-full bg-secondary border border-border p-1"
+                      />
+                    </td>
+                    <td className="border border-border p-1">
+                      <input
+                        value={game.engine}
+                        onChange={(e) => updateGame(index, 'engine', e.target.value)}
+                        className="w-full bg-secondary border border-border p-1"
+                      />
+                    </td>
+                    <td className="border border-border p-1">
+                      <input
+                        value={game.version}
+                        onChange={(e) => updateGame(index, 'version', e.target.value)}
+                        className="w-full bg-secondary border border-border p-1"
+                      />
+                    </td>
+                    <td className="border border-border p-1">
+                      {game.multipleVisible === 'visible' ? (
+                        <select
+                          value={game.selectedValue}
+                          onChange={(e) => updateGame(index, 'selectedValue', e.target.value)}
                           className="w-full bg-secondary border border-border p-1"
-                        />
-                      </td>
-                      <td className="border border-border p-1">
-                        <input
-                          value={game.creator}
-                          onChange={(e) => updateGame(index, 'creator', e.target.value)}
-                          className="w-full bg-secondary border border-border p-1"
-                        />
-                      </td>
-                      <td className="border border-border p-1">
-                        <input
-                          value={game.engine}
-                          onChange={(e) => updateGame(index, 'engine', e.target.value)}
-                          className="w-full bg-secondary border border-border p-1"
-                        />
-                      </td>
-                      <td className="border border-border p-1">
-                        <input
-                          value={game.version}
-                          onChange={(e) => updateGame(index, 'version', e.target.value)}
-                          className="w-full bg-secondary border border-border p-1"
-                        />
-                      </td>
-                      <td className="border border-border p-1">
-                        {game.multipleVisible === 'visible' ? (
+                        >
+                          {game.executables.map((opt) => (
+                            <option key={opt.key} value={opt.key}>{opt.value}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        game.singleExecutable
+                      )}
+                    </td>
+                    <td className="border border-border p-1" style={{ visibility: game.resultVisibility }}>
+                      {game.results.length === 1 && game.results[0].key === 'match' ? (
+                        <span className="text-text select-none">{game.results[0].value}</span>
+                      ) : (
+                        game.results.length > 1 && (
                           <select
-                            value={game.selectedValue}
-                            onChange={(e) => updateGame(index, 'selectedValue', e.target.value)}
+                            value={game.resultSelectedValue}
+                            onChange={(e) => handleResultChange(index, e.target.value)}
                             className="w-full bg-secondary border border-border p-1"
                           >
-                            {game.executables.map((opt) => (
+                            {game.results.map((opt) => (
                               <option key={opt.key} value={opt.key}>{opt.value}</option>
                             ))}
                           </select>
-                        ) : (
-                          game.singleExecutable
-                        )}
-                      </td>
-                      <td className="border border-border p-1" style={{ visibility: game.resultVisibility }}>
-                        {game.results.length === 1 && game.results[0].key === 'match' ? (
-                          <span className="text-text select-none">{game.results[0].value}</span>
-                        ) : (
-                          game.results.length > 1 && (
-                            <select
-                              value={game.resultSelectedValue}
-                              onChange={(e) => handleResultChange(index, e.target.value)}
-                              className="w-full bg-secondary border border-border p-1"
-                            >
-                              {game.results.map((opt) => (
-                                <option key={opt.key} value={opt.key}>{opt.value}</option>
-                              ))}
-                            </select>
-                          )
-                        )}
-                      </td>
-                      <td className="border border-border p-1">{game.folder}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="shrink-0 mt-4 flex justify-end space-x-2">
-              <button
-                onClick={handleUpdateClick}
-                className="bg-elementNormal hover:bg-elementSelected text-text p-2 rounded"
-                style={{ pointerEvents: 'auto', zIndex: 1000 }}
-              >
-                Update
-              </button>
-              <button
-                onClick={importGamesFunc}
-                className="bg-elementNormal hover:bg-elementSelected text-text p-2 rounded"
-                style={{ pointerEvents: 'auto', zIndex: 1000 }}
-              >
-                Import
-              </button>
-              <button
-                onClick={() => window.electronAPI.closeWindow()}
-                className="bg-elementNormal hover:bg-elementSelected text-text p-2 rounded"
-                style={{ pointerEvents: 'auto', zIndex: 1000 }}
-              >
-                Cancel
-              </button>
-            </div>
+                        )
+                      )}
+                    </td>
+                    <td className="border border-border p-1">{game.folder}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
-      </div>
+          <div className="shrink-0 mt-4 flex justify-end space-x-2">
+            <button
+              onClick={handleUpdateClick}
+              className="bg-accent p-2"
+              style={{ pointerEvents: 'auto', zIndex: 1000 }}
+            >
+              Update
+            </button>
+            <button
+              onClick={importGamesFunc}
+              className="bg-accent p-2"
+              style={{ pointerEvents: 'auto', zIndex: 1000 }}
+            >
+              Import
+            </button>
+            <button
+              onClick={() => window.electronAPI.closeWindow()}
+              className="bg-accent p-2"
+              style={{ pointerEvents: 'auto', zIndex: 1000 }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
     </div>
   );
 };
