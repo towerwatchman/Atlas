@@ -23,77 +23,50 @@ const Importer = () => {
   const [gamesList, setGamesList] = useState([]);
   const [isMaximized, setIsMaximized] = useState(false);
 
- useEffect(() => {
-    console.log('Importer component mounted');
-    window.electronAPI.log('Importer component mounted');
+useEffect(() => {
+  console.log('Importer component mounted');
+  window.electronAPI.log('Importer component mounted');
+  window.electronAPI.onWindowStateChanged((state) => {
+    console.log(`Window state changed: ${state}`);
+    window.electronAPI.log(`Window state changed: ${state}`);
+    setIsMaximized(state === 'maximized');
+  });
+  window.electronAPI.onScanProgress((prog) => {
+    console.log(`Scan progress: ${JSON.stringify(prog)}`);
+    setProgress(prog);
+  });
+  window.electronAPI.onScanComplete((game) => {
+    console.log(`Received incremental game: ${JSON.stringify(game)}`);
+    setGamesList(prev => [...prev, game]);
+  });
+  window.electronAPI.onScanCompleteFinal((games) => {
+    console.log(`Scan complete, received ${games.length} games`);
+    setGamesList(games);
+    setView('scan');
+  });
+  window.electronAPI.onUpdateProgress((prog) => {
+    console.log(`Update progress: ${JSON.stringify(prog)}`);
+    setUpdateProgress(prog);
+  });
+  window.electronAPI.getConfig().then((config) => {
+    console.log(`Config loaded: ${JSON.stringify(config)}`);
+    window.electronAPI.log(`Config loaded: ${JSON.stringify(config)}`);
+    const librarySettings = config.Library || {};
+    setGameExt(librarySettings.gameExtensions || 'exe,swf,flv,f4v,rag,cmd,bat,jar,html');
+    setArchiveExt(librarySettings.extractionExtensions || 'zip,7z,rar');
+  }).catch((err) => {
+    console.error('Error loading config:', err);
+    window.electronAPI.log(`Error loading config: ${err.message}`);
+  });
 
-    const handleWindowStateChanged = (state) => {
-      console.log(`Window state changed: ${state}`);
-      window.electronAPI.log(`Window state changed: ${state}`);
-      setIsMaximized(state === 'maximized');
-    };
-
-    const handleScanProgress = (prog) => {
-      console.log(`Scan progress: ${JSON.stringify(prog)}`);
-      setProgress(prog);
-    };
-
-    const handleScanComplete = (game) => {
-      console.log(`Received incremental game: ${JSON.stringify(game)}`);
-      setGamesList(prev => {
-        const newList = [...prev, game];
-        console.log(`Updated gamesList: ${JSON.stringify(newList)}`);
-        return newList;
-      });
-    };
-
-    const handleScanCompleteFinal = (games) => {
-      console.log(`Scan complete, received ${games.length} games: ${JSON.stringify(games)}`);
-      setGamesList(games);
-      setView('scan');
-    };
-
-    const handleUpdateProgress = (prog) => {
-      console.log(`Update progress: ${JSON.stringify(prog)}`);
-      setUpdateProgress(prog);
-    };
-
-    const handleImportSource = (source) => {
-      console.log(`Received import source: ${source}`);
-      setImportSource(source);
-      if (source === 'steam') {
-        console.log('Setting view to scan for Steam import');
-        setView('scan');
-      }
-    };
-
-    window.electronAPI.onWindowStateChanged(handleWindowStateChanged);
-    window.electronAPI.onScanProgress(handleScanProgress);
-    window.electronAPI.onScanComplete(handleScanComplete);
-    window.electronAPI.onScanCompleteFinal(handleScanCompleteFinal);
-    window.electronAPI.onUpdateProgress(handleUpdateProgress);
-    window.electronAPI.onImportSource(handleImportSource);
-
-    window.electronAPI.getConfig().then((config) => {
-      console.log(`Config loaded: ${JSON.stringify(config)}`);
-      window.electronAPI.log(`Config loaded: ${JSON.stringify(config)}`);
-      const librarySettings = config.Library || {};
-      setGameExt(librarySettings.gameExtensions || 'exe,swf,flv,f4v,rag,cmd,bat,jar,html');
-      setArchiveExt(librarySettings.extractionExtensions || 'zip,7z,rar');
-    }).catch((err) => {
-      console.error('Error loading config:', err);
-      window.electronAPI.log(`Error loading config: ${err.message}`);
-    });
-
-    return () => {
-      window.electronAPI.removeAllListeners('window-state-changed');
-      window.electronAPI.removeAllListeners('scan-progress');
-      window.electronAPI.removeAllListeners('scan-complete');
-      window.electronAPI.removeAllListeners('scan-complete-final');
-      window.electronAPI.removeAllListeners('update-progress');
-      window.electronAPI.removeAllListeners('import-source');
-    };
-  }, []);
+  return () => {
+    window.electronAPI.removeAllListeners('window-state-changed');
+    window.electronAPI.removeAllListeners('scan-progress');
+    window.electronAPI.removeAllListeners('scan-complete');
+    window.electronAPI.removeAllListeners('scan-complete-final');
+    window.electronAPI.removeAllListeners('update-progress');
+  };
+}, []);
 
   const selectFolder = async () => {
     console.log('Selecting folder');
@@ -228,22 +201,64 @@ const Importer = () => {
     window.electronAPI.sendUpdateProgress({ value: total, total });
   };
 
-  const importGamesFunc = () => {
-    console.log('Importing games');
-    window.electronAPI.log('Importing games');
-    const params = {
-      games: gamesList,
-      deleteAfter,
-      scanSize,
-      downloadBannerImages,
-      downloadPreviewImages,
-      previewLimit,
-      downloadVideos,
-      gameExt: gameExt.split(',').map(e => e.trim())
-    };
-    window.electronAPI.importGames(params);
+  const importGamesFunc = async () => {
+  console.log('Importing games');
+  window.electronAPI.log('Importing games');
+  const total = gamesList.length;
+  setUpdateProgress({ value: 0, total });
+  window.electronAPI.sendUpdateProgress({ value: 0, total });
+  const updatedGames = [...gamesList];
+
+  for (let index = 0; index < total; index++) {
+    const game = updatedGames[index];
+    if (game.steamId) {
+      const result = await window.electronAPI.getSteamGameData(game.steamId); // Assume you expose getSteamGameData as a tool or IPC
+      if (result) {
+        const { game: data, screenshots } = result;
+        updatedGames[index].creator = data.developer;
+        updatedGames[index].engine = data.engine || 'Unknown';
+        // Update other fields as needed
+        const searchResults = await window.electronAPI.searchAtlas(data.title, data.developer);
+        if (searchResults.length > 0) {
+          // Update results
+          updatedGames[index].results = searchResults.map(r => ({
+            key: r.atlas_id,
+            value: `${r.atlas_id} | ${r.f95_id || ''} | ${r.title} | ${r.creator}`
+          }));
+          if (searchResults.length === 1) {
+            updatedGames[index].atlasId = searchResults[0].atlas_id;
+            updatedGames[index].f95Id = searchResults[0].f95_id || '';
+            updatedGames[index].resultSelectedValue = updatedGames[index].results[0].key;
+            updatedGames[index].resultVisibility = 'hidden';
+          } else {
+            updatedGames[index].results.unshift({ key: 'match', value: 'Multiple matches found' });
+            updatedGames[index].resultSelectedValue = 'match';
+          }
+        }
+        setGamesList(updatedGames);
+      }
+    }
+    setUpdateProgress({ value: index + 1, total });
+    window.electronAPI.sendUpdateProgress({ value: index + 1, total });
+  }
+
+  const result = await window.electronAPI.importGames({
+    games: updatedGames,
+    downloadBannerImages,
+    downloadPreviewImages,
+    previewLimit,
+    downloadVideos
+  });
+  if (result.success) {
+    console.log('Games imported successfully');
+    window.electronAPI.log('Games imported successfully');
     window.electronAPI.closeWindow();
-  };
+  } else {
+    console.error(`Import error: ${result.error}`);
+    window.electronAPI.log(`Import error: ${result.error}`);
+    alert(`Error: ${result.error}`);
+  }
+};
 
   const handleUpdateClick = (event) => {
     console.log('Update button clicked', event);
@@ -253,7 +268,7 @@ const Importer = () => {
 
   console.log('Rendering Importer component, view:', view);
   // Default game
-  return (
+return (
     <div className="h-screen flex flex-col fixed w-full">
       {/* Window Controls */}
       <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
@@ -283,7 +298,38 @@ const Importer = () => {
         </div>
       </div>
       <div className="flex-1 p-4 bg-secondary overflow-y-auto">
-        {view === 'settings' && importSource === 'local' && (
+        {view === 'source' && (
+          <div className="flex items-center justify-center h-full">
+            <div className="flex flex-col space-y-4 max-w-md w-full">
+              <h2 className="text-xl text-center">Select Import Source</h2>
+              <button
+                onClick={() => setView('settings')}
+                className="bg-secondary hover:bg-selected text-text p-2 rounded"
+              >
+                Atlas Game Importer
+              </button>
+              <button
+                onClick={() => {
+                  setView('scan');
+                  setGamesList([]);
+                  window.electronAPI.startSteamScan({
+                    downloadBannerImages: false,
+                    downloadPreviewImages: false,
+                    previewLimit: '5',
+                    downloadVideos: false
+                  }).catch(err => {
+                    console.error('Steam scan error:', err);
+                    alert('Error starting Steam scan');
+                  });
+                }}
+                className="bg-secondary hover:bg-selected text-text p-2 rounded"
+              >
+                Import Steam Games
+              </button>
+            </div>
+          </div>
+        )}
+        {view === 'settings' && (
           <div className="space-y-4 flex-1">
             <div className="flex items-center">
               <label>Game Path:</label>
@@ -436,128 +482,128 @@ const Importer = () => {
             </div>
           </div>
         )}
-      {view === 'scan' && (
-        <div className="h-full flex flex-col">
-          <div className="shrink-0">
-            <h2 className="text-xl mb-4">Scan Results</h2>
-            <div className="flex items-center mb-4">
-              <progress value={progress.value} max={progress.total} className="w-96" />
-              <span className="ml-2">{progress.value}/{progress.total} {importSource === 'steam' ? 'Games Scanned' : 'Folders Scanned'}</span>
+        {view === 'scan' && (
+          <div className="h-full flex flex-col">
+            <div className="shrink-0">
+              <h2 className="text-xl mb-4">Scan Results</h2>
+              <div className="flex items-center mb-4">
+                <progress value={progress.value} max={progress.total} className="w-96" />
+                <span className="ml-2">{progress.value}/{progress.total} {importSource === 'steam' ? 'Games Scanned' : 'Folders Scanned'}</span>
+              </div>
+              <span className="mb-4">Found {progress.potential} Games</span>
             </div>
-            <span className="mb-4">Found {progress.potential} Games</span>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <table className="w-full border-collapse border border-border">
-              <thead>
-                <tr className="bg-secondary sticky top-0">
-                  <th className="border border-border p-1">Atlas ID</th>
-                  <th className="border border-border p-1">F95 ID</th>
-                  <th className="border border-border p-1">Title</th>
-                  <th className="border border-border p-1">Creator</th>
-                  <th className="border border-border p-1">Engine</th>
-                  <th className="border border-border p-1">Version</th>
-                  <th className="border border-border p-1">Executable</th>
-                  <th className="border border-border p-1">Possible Database Matches</th>
-                  <th className="border border-border p-1">Folder</th>
-                </tr>
-              </thead>
-              <tbody>
-                {gamesList.map((game, index) => (
-                  <tr key={index} className="bg-primary">
-                    <td className="border border-border p-1">{game.atlasId}</td>
-                    <td className="border border-border p-1">{game.f95Id}</td>
-                    <td className="border border-border p-1">
-                      <input
-                        value={game.title}
-                        onChange={(e) => updateGame(index, 'title', e.target.value)}
-                        className="w-full bg-secondary border border-border p-1"
-                      />
-                    </td>
-                    <td className="border border-border p-1">
-                      <input
-                        value={game.creator}
-                        onChange={(e) => updateGame(index, 'creator', e.target.value)}
-                        className="w-full bg-secondary border border-border p-1"
-                      />
-                    </td>
-                    <td className="border border-border p-1">
-                      <input
-                        value={game.engine}
-                        onChange={(e) => updateGame(index, 'engine', e.target.value)}
-                        className="w-full bg-secondary border border-border p-1"
-                      />
-                    </td>
-                    <td className="border border-border p-1">
-                      <input
-                        value={game.version}
-                        onChange={(e) => updateGame(index, 'version', e.target.value)}
-                        className="w-full bg-secondary border border-border p-1"
-                      />
-                    </td>
-                    <td className="border border-border p-1">
-                      {game.multipleVisible === 'visible' ? (
-                        <select
-                          value={game.selectedValue}
-                          onChange={(e) => updateGame(index, 'selectedValue', e.target.value)}
+            <div className="flex-1 overflow-y-auto">
+              <table className="w-full border-collapse border border-border">
+                <thead>
+                  <tr className="bg-secondary sticky top-0">
+                    <th className="border border-border p-1">Atlas ID</th>
+                    <th className="border border-border p-1">F95 ID</th>
+                    <th className="border border-border p-1">Title</th>
+                    <th className="border border-border p-1">Creator</th>
+                    <th className="border border-border p-1">Engine</th>
+                    <th className="border border-border p-1">Version</th>
+                    <th className="border border-border p-1">Executable</th>
+                    <th className="border border-border p-1">Possible Database Matches</th>
+                    <th className="border border-border p-1">Folder</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gamesList.map((game, index) => (
+                    <tr key={index} className="bg-primary">
+                      <td className="border border-border p-1">{game.atlasId}</td>
+                      <td className="border border-border p-1">{game.f95Id}</td>
+                      <td className="border border-border p-1">
+                        <input
+                          value={game.title}
+                          onChange={(e) => updateGame(index, 'title', e.target.value)}
                           className="w-full bg-secondary border border-border p-1"
-                        >
-                          {game.executables.map((opt) => (
-                            <option key={opt.key} value={opt.key}>{opt.value}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        game.singleExecutable
-                      )}
-                    </td>
-                    <td className="border border-border p-1" style={{ visibility: game.resultVisibility }}>
-                      {game.results.length === 1 && game.results[0].key === 'match' ? (
-                        <span className="text-text select-none">{game.results[0].value}</span>
-                      ) : (
-                        game.results.length > 1 && (
+                        />
+                      </td>
+                      <td className="border border-border p-1">
+                        <input
+                          value={game.creator}
+                          onChange={(e) => updateGame(index, 'creator', e.target.value)}
+                          className="w-full bg-secondary border border-border p-1"
+                        />
+                      </td>
+                      <td className="border border-border p-1">
+                        <input
+                          value={game.engine}
+                          onChange={(e) => updateGame(index, 'engine', e.target.value)}
+                          className="w-full bg-secondary border border-border p-1"
+                        />
+                      </td>
+                      <td className="border border-border p-1">
+                        <input
+                          value={game.version}
+                          onChange={(e) => updateGame(index, 'version', e.target.value)}
+                          className="w-full bg-secondary border border-border p-1"
+                        />
+                      </td>
+                      <td className="border border-border p-1">
+                        {game.multipleVisible === 'visible' ? (
                           <select
-                            value={game.resultSelectedValue}
-                            onChange={(e) => handleResultChange(index, e.target.value)}
+                            value={game.selectedValue}
+                            onChange={(e) => updateGame(index, 'selectedValue', e.target.value)}
                             className="w-full bg-secondary border border-border p-1"
                           >
-                            {game.results.map((opt) => (
+                            {game.executables.map((opt) => (
                               <option key={opt.key} value={opt.key}>{opt.value}</option>
                             ))}
                           </select>
-                        )
-                      )}
-                    </td>
-                    <td className="border border-border p-1">{game.folder}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        ) : (
+                          game.singleExecutable
+                        )}
+                      </td>
+                      <td className="border border-border p-1" style={{ visibility: game.resultVisibility }}>
+                        {game.results.length === 1 && game.results[0].key === 'match' ? (
+                          <span className="text-text select-none">{game.results[0].value}</span>
+                        ) : (
+                          game.results.length > 1 && (
+                            <select
+                              value={game.resultSelectedValue}
+                              onChange={(e) => handleResultChange(index, e.target.value)}
+                              className="w-full bg-secondary border border-border p-1"
+                            >
+                              {game.results.map((opt) => (
+                                <option key={opt.key} value={opt.key}>{opt.value}</option>
+                              ))}
+                            </select>
+                          )
+                        )}
+                      </td>
+                      <td className="border border-border p-1">{game.folder}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={handleUpdateClick}
+                className="bg-accent p-2"
+                style={{ pointerEvents: 'auto', zIndex: 1000 }}
+              >
+                Update
+              </button>
+              <button
+                onClick={importGamesFunc}
+                className="bg-accent p-2"
+                style={{ pointerEvents: 'auto', zIndex: 1000 }}
+              >
+                Import
+              </button>
+              <button
+                onClick={() => window.electronAPI.closeWindow()}
+                className="bg-accent p-2"
+                style={{ pointerEvents: 'auto', zIndex: 1000 }}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
-          <div className="shrink-0 mt-4 flex justify-end space-x-2">
-            <button
-              onClick={handleUpdateClick}
-              className="bg-accent p-2"
-              style={{ pointerEvents: 'auto', zIndex: 1000 }}
-            >
-              Update
-            </button>
-            <button
-              onClick={importGamesFunc}
-              className="bg-accent p-2"
-              style={{ pointerEvents: 'auto', zIndex: 1000 }}
-            >
-              Import
-            </button>
-            <button
-              onClick={() => window.electronAPI.closeWindow()}
-              className="bg-accent p-2"
-              style={{ pointerEvents: 'auto', zIndex: 1000 }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
     </div>
   );
 };

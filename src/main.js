@@ -93,8 +93,8 @@ function createSettingsWindow() {
   });
 }
 // IMPORTER WINDOW
-function createImporterWindow(source = 'local') {
-  console.log(`Creating importer window with source: ${source}`);
+function createImporterWindow() {
+  console.log('Creating importer window');
   const importerWindow = new BrowserWindow({
     width: 1280,
     height: 720,
@@ -116,8 +116,6 @@ function createImporterWindow(source = 'local') {
   console.log('Loading importer file:', filePath);
   importerWindow.loadFile(filePath).then(() => {
     console.log('importer.html loaded successfully');
-    // Emit import source after window loads
-    importerWindow.webContents.send('import-source', source);
   }).catch(err => {
     console.error('Failed to load importer.html:', err);
   });
@@ -188,36 +186,7 @@ function createGameDetailsWindow(recordId) {
   });
 }
 // IMPORTER SOURCE WINDOW
-function createImportSourceDialog() {
-  const importSourceDialog = new BrowserWindow({
-    width: 400,
-    height: 200,
-    modal: false,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    center: true,
-    resizable: true,
-    minimizable: false,
-    maximizable: false,
-    webPreferences: {
-      preload: path.join(__dirname, 'renderer.js'),
-      contextIsolation: true,
-      enableRemoteModule: false,
-      nodeIntegration: false
-    }
-  });
 
-  const filePath = path.join(__dirname, 'components/ui/dialogs/import-source.html');
-  console.log('Attempting to load file:', filePath);
-  
-  importSourceDialog.loadFile(filePath).catch(err => {
-    console.error('Failed to load import-source.html:', err);
-  });
-  if (process.argv.includes('--dev') || appConfig?.Interface?.showDebugConsole) {
-    importSourceDialog.webContents.openDevTools();
-  }    
-}
 
 // Create data folders
 var dataDir = "";
@@ -455,10 +424,10 @@ ipcMain.handle('save-settings', async (event, settings) => {
   }
 });
 
-ipcMain.handle('open-importer', async (event, source = 'local') => {
-  console.log(`IPC open-importer called with source: ${source}`);
+ipcMain.handle('open-importer', async () => {
+  console.log('IPC open-importer called');
   try {
-    createImporterWindow(source);
+    createImporterWindow();
     return { success: true };
   } catch (err) {
     console.error('Error in open-importer:', err);
@@ -476,15 +445,11 @@ ipcMain.handle('start-scan', async (event, params) => {
   }
 });
 
-ipcMain.handle('search-atlas', async (event, { title, creator }) => {
-  try {
-    const { searchAtlas } = require('./database');
-    const data = await searchAtlas(title, creator);
-    return data;
-  } catch (err) {
-    console.error('Error in search-atlas:', err);
-    return [];
-  }
+ipcMain.handle('get-steam-game-data', async (event, steamId) => {
+  return await getSteamGameData(steamId);
+});
+ipcMain.handle('search-atlas', async (event, params) => {
+  return await searchAtlas(params.title, params.developer);
 });
 
   ipcMain.handle('add-atlas-mapping', async (event, { recordId, atlasId }) => {
@@ -997,13 +962,6 @@ ipcMain.handle('select-steam-directory', async () => {
   } catch (err) {
     console.error('Error selecting Steam directory:', err);
     return null;
-  }
-});
-ipcMain.handle('open-import-source-dialog', () => {
-  if (!importSourceDialog) {
-    createImportSourceDialog();
-  } else {
-    importSourceDialog.focus();
   }
 });
 

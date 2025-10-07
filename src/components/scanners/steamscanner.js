@@ -236,19 +236,11 @@ async function startSteamScan(db, params, event) {
     let potential = 0;
     event.sender.send('scan-progress', { value, total, potential });
     for (const steamGame of installedGames) {
-      const result = await getSteamGameData(steamGame.appid);
-      if (!result) {
-        console.log(`Skipping appid ${steamGame.appid} due to null response`);
-        continue;
-      }
-      const { game: data, screenshots } = result;
-      potential++;
-      event.sender.send('scan-progress', { value, total, potential });
-      const searchResults = await searchAtlas(data.title, data.developer);
+      // Use local .acf data only
       const game = {
-        title: data.title,
-        creator: data.developer,
-        engine: data.engine || 'Unknown',
+        title: steamGame.name,
+        creator: 'Unknown',
+        engine: 'Unknown',
         version: 'Steam',
         folder: steamGame.installDir,
         executables: [{ key: 'steam', value: 'Launch via Steam' }],
@@ -257,33 +249,16 @@ async function startSteamScan(db, params, event) {
         singleExecutable: 'Launch via Steam',
         atlasId: '',
         f95Id: '',
-        steamId: data.steam_id,
+        steamId: parseInt(steamGame.appid),
         folderSize: steamGame.size,
-        results: [],
-        resultVisibility: 'visible',
+        results: [{ key: 'match', value: 'No match found - Added as Steam game' }],
+        resultVisibility: 'hidden',
         resultSelectedValue: 'match'
       };
-      if (searchResults.length === 0) {
-        game.results = [{ key: 'match', value: 'No match found - Added as Steam game' }];
-        game.resultVisibility = 'hidden';
-      } else {
-        game.results = searchResults.map(r => ({
-          key: r.atlas_id,
-          value: `${r.atlas_id} | ${r.f95_id || ''} | ${r.title} | ${r.creator}`
-        }));
-        if (searchResults.length === 1) {
-          game.atlasId = searchResults[0].atlas_id;
-          game.f95Id = searchResults[0].f95_id || '';
-          game.resultSelectedValue = game.results[0].key;
-          game.resultVisibility = 'hidden';
-        } else {
-          game.results.unshift({ key: 'match', value: 'Multiple matches found' });
-          game.resultSelectedValue = 'match';
-        }
-      }
       gamesList.push(game);
       event.sender.send('scan-complete', game);
       value++;
+      potential++;
       event.sender.send('scan-progress', { value, total, potential });
     }
     event.sender.send('scan-complete-final', gamesList);
