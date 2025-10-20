@@ -201,20 +201,15 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
   let gameEngine = '';
   let isArchive = false;
 
-  try {
+ try {
     if (!isFile) {
       if (potentialExecutables.length === 0) {
         console.log(`No executable files provided for ${t}`);
         return false;
       }
-      potentialExecutables = potentialExecutables.map(f => path.basename(f));
-      potentialExecutables.sort((a, b) => {
-        const aIs32 = a.includes('-32');
-        const bIs32 = b.includes('-32');
-        if (aIs32 && !bIs32) return 1;
-        if (!aIs32 && bIs32) return -1;
-        return 0;
-      });
+      potentialExecutables = potentialExecutables
+        .map(f => path.basename(f))
+        .filter(f => !f.includes('-32')); // Exclude files with "-32" in the name
       for (const exec of potentialExecutables) {
         for (const [engine, patterns] of Object.entries(engineMap)) {
           if (patterns.some(p => exec.toLowerCase().includes(p))) {
@@ -232,7 +227,7 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
       } else if (potentialExecutables.length > 1) {
         multipleVisible = 'visible';
         selectedValue = potentialExecutables[0];
-      }
+      }    
     } else {
       const ext = path.extname(t).toLowerCase().slice(1);
       console.log(`Checking file ${t}, Extension: ${ext}, Blacklisted: ${blacklist.includes(path.basename(t))}`);
