@@ -13,7 +13,7 @@
     "dev": "npm run build:css && electron . --dev",
     "build:css": "postcss src/assets/css/tailwind.css -o src/assets/css/tailwind.output.css",
     "rebuild": "npx electron-rebuild --version=37.0.0",
-    "structure": "node generate-structure.js > project-structure.txt",
+    "structure": "node scripts/generate-structure.js > scripts/project-structure.txt",
     "publish": "npm run build:css && electron-builder --win -p always"
   },
   "build": {
