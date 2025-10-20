@@ -35,7 +35,7 @@
 │   │   │       └── f95.js (7625 bytes)
 │   │   └── themes
 │   │       (empty directory)
-│   ├── components
+│   ├── core
 │   │   ├── banner
 │   │   │   └── GameDetailsWindow.jsx (38950 bytes)
 │   │   ├── GameBanner.js (11469 bytes)

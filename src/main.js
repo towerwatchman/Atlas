@@ -11,8 +11,8 @@ const cp = require('child_process');
 const contextMenuData = new Map();
 
 // SCANNERS
-const { startSteamScan } = require('./components/scanners/steamscanner');
-const { startScan } = require('./components/scanners/f95scanner');
+const { startSteamScan } = require('./core/scanners/steamscanner');
+const { startScan } = require('./core/scanners/f95scanner');
 
 let contextMenuId = 0;
 let mainWindow;
@@ -112,7 +112,7 @@ function createImporterWindow() {
     }
   });
 
-  const filePath = path.join(__dirname, 'components/ui/windows/importer.html');
+  const filePath = path.join(__dirname, 'core/ui/windows/importer.html');
   console.log('Loading importer file:', filePath);
   importerWindow.loadFile(filePath).then(() => {
     console.log('importer.html loaded successfully');
@@ -134,7 +134,6 @@ function createImporterWindow() {
     importerWindow = null;
   });
 }
-
 // GAME DETAILS WINDOW
 function createGameDetailsWindow(recordId) {
   const gameDetailsWindow = new BrowserWindow({
@@ -185,8 +184,6 @@ function createGameDetailsWindow(recordId) {
     //gameDetailsWindow = null;
   });
 }
-// IMPORTER SOURCE WINDOW
-
 
 // Create data folders
 var dataDir = "";
