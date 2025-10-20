@@ -5,7 +5,7 @@ const sharp = require('sharp');
 const axios = require('axios');
 const { autoUpdater } = require('electron-updater');
 const ini = require('ini');
-const { initializeDatabase, addGame, updateGame, addVersion, updateVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord, getPreviews, deleteBanner, deletePreviews, db } = require('./database');
+const { initializeDatabase, addGame, updateGame, addVersion, updateVersion, addAtlasMapping, getGame, getGames, removeGame, checkDbUpdates, updateFolderSize, getBannerUrl, getScreensUrlList, getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension, GetAtlasIDbyRecord, getPreviews, deleteBanner, deletePreviews, searchAtlas, db } = require('./database');
 const { Menu, shell } = require('electron');
 const cp = require('child_process');
 const contextMenuData = new Map();
@@ -131,7 +131,6 @@ function createImporterWindow() {
 
   importerWindow.on('closed', () => {
     console.log('Importer window closed');
-    importerWindow = null;
   });
 }
 // GAME DETAILS WINDOW

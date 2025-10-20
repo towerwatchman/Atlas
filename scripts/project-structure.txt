@@ -1,25 +1,23 @@
 ├── build
 │   ├── installer.nsh (651 bytes)
 │   └── installerSidebar.bmp (154542 bytes)
-├── extraction
-│   (empty directory)
-├── GL_Infos.ini (99 bytes)
 ├── LICENSE (35802 bytes)
 ├── package-lock.json (263914 bytes)
-├── package.json (3010 bytes)
+├── package.json (2980 bytes)
 ├── postcss.config.js (85 bytes)
 ├── README.md (3742 bytes)
 ├── scripts
 │   ├── create_dummy_games.py (10615 bytes)
 │   ├── generate-structure.js (1962 bytes)
+│   ├── GL_Infos.ini (99 bytes)
 │   ├── project-structure.txt (0 bytes)
 │   └── update-version.js (598 bytes)
 ├── src
-│   ├── App.jsx (36913 bytes)
+│   ├── App.jsx (36766 bytes)
 │   ├── assets
 │   │   ├── css
 │   │   │   ├── main.css (154 bytes)
-│   │   │   ├── tailwind.css (60 bytes)
+│   │   │   ├── tailwind.css (54 bytes)
 │   │   │   └── tailwind.output.css (27087 bytes)
 │   │   ├── icons
 │   │   │   ├── atlas_logo.svg (977 bytes)
@@ -41,7 +39,7 @@
 │   │   ├── GameBanner.js (11469 bytes)
 │   │   ├── GameDetails.js (730 bytes)
 │   │   ├── importer
-│   │   │   └── importer.jsx (27397 bytes)
+│   │   │   └── importer.jsx (25254 bytes)
 │   │   ├── scanners
 │   │   │   ├── f95scanner.js (14911 bytes)
 │   │   │   └── steamscanner.js (10865 bytes)
@@ -59,35 +57,417 @@
 │   │       ├── dialogs
 │   │       │   (empty directory)
 │   │       └── windows
-│   │           └── importer.html (782 bytes)
+│   │           └── importer.html (776 bytes)
 │   ├── data
-│   │   ├── config.ini (286 bytes)
-│   │   ├── data.db (57241600 bytes)
-│   │   ├── images
+│   │   ├── config.ini (287 bytes)
+│   │   ├── data.db (57577472 bytes)
+│   │   ├── games
 │   │   │   (empty directory)
+│   │   ├── images
+│   │   │   ├── 1
+│   │   │   │   ├── banner_mc.webp (66892 bytes)
+│   │   │   │   └── banner_sc.webp (24992 bytes)
+│   │   │   ├── 10
+│   │   │   │   ├── banner_mc.webp (66616 bytes)
+│   │   │   │   └── banner_sc.webp (22762 bytes)
+│   │   │   ├── 100
+│   │   │   │   ├── banner_mc.webp (77916 bytes)
+│   │   │   │   └── banner_sc.webp (27530 bytes)
+│   │   │   ├── 101
+│   │   │   │   ├── banner_mc.webp (160328 bytes)
+│   │   │   │   └── banner_sc.webp (57842 bytes)
+│   │   │   ├── 102
+│   │   │   │   ├── banner_mc.webp (227110 bytes)
+│   │   │   │   └── banner_sc.webp (84808 bytes)
+│   │   │   ├── 103
+│   │   │   │   ├── banner_mc.webp (170940 bytes)
+│   │   │   │   └── banner_sc.webp (56188 bytes)
+│   │   │   ├── 104
+│   │   │   │   ├── banner_mc.webp (65318 bytes)
+│   │   │   │   └── banner_sc.webp (17398 bytes)
+│   │   │   ├── 105
+│   │   │   │   ├── banner_mc.webp (15468 bytes)
+│   │   │   │   └── banner_sc.webp (15468 bytes)
+│   │   │   ├── 106
+│   │   │   │   ├── banner_mc.webp (59090 bytes)
+│   │   │   │   └── banner_sc.webp (20692 bytes)
+│   │   │   ├── 107
+│   │   │   │   ├── banner_mc.webp (127750 bytes)
+│   │   │   │   └── banner_sc.webp (52346 bytes)
+│   │   │   ├── 108
+│   │   │   │   ├── banner_mc.webp (28934 bytes)
+│   │   │   │   └── banner_sc.webp (28934 bytes)
+│   │   │   ├── 109
+│   │   │   │   ├── banner_mc.webp (139248 bytes)
+│   │   │   │   └── banner_sc.webp (45688 bytes)
+│   │   │   ├── 11
+│   │   │   │   ├── banner_mc.webp (83344 bytes)
+│   │   │   │   └── banner_sc.webp (19440 bytes)
+│   │   │   ├── 110
+│   │   │   │   ├── banner_mc.webp (113038 bytes)
+│   │   │   │   └── banner_sc.webp (45168 bytes)
+│   │   │   ├── 111
+│   │   │   │   ├── banner_mc.webp (63082 bytes)
+│   │   │   │   └── banner_sc.webp (20762 bytes)
+│   │   │   ├── 112
+│   │   │   │   ├── banner_mc.webp (59240 bytes)
+│   │   │   │   └── banner_sc.webp (20468 bytes)
+│   │   │   ├── 113
+│   │   │   │   ├── banner_mc.webp (95168 bytes)
+│   │   │   │   └── banner_sc.webp (31412 bytes)
+│   │   │   ├── 114
+│   │   │   │   ├── banner_mc.webp (20906 bytes)
+│   │   │   │   └── banner_sc.webp (7622 bytes)
+│   │   │   ├── 115
+│   │   │   │   ├── banner_mc.webp (66846 bytes)
+│   │   │   │   └── banner_sc.webp (25450 bytes)
+│   │   │   ├── 116
+│   │   │   │   ├── banner_mc.webp (67664 bytes)
+│   │   │   │   └── banner_sc.webp (63478 bytes)
+│   │   │   ├── 117
+│   │   │   │   ├── banner_mc.webp (56802 bytes)
+│   │   │   │   └── banner_sc.webp (51564 bytes)
+│   │   │   ├── 118
+│   │   │   │   ├── banner_mc.webp (77934 bytes)
+│   │   │   │   └── banner_sc.webp (27520 bytes)
+│   │   │   ├── 12
+│   │   │   │   ├── banner_mc.webp (104448 bytes)
+│   │   │   │   └── banner_sc.webp (33648 bytes)
+│   │   │   ├── 120
+│   │   │   │   ├── banner_mc.webp (145218 bytes)
+│   │   │   │   └── banner_sc.webp (51760 bytes)
+│   │   │   ├── 121
+│   │   │   │   ├── banner_mc.webp (101494 bytes)
+│   │   │   │   └── banner_sc.webp (31342 bytes)
+│   │   │   ├── 122
+│   │   │   │   ├── banner_mc.webp (107192 bytes)
+│   │   │   │   └── banner_sc.webp (34140 bytes)
+│   │   │   ├── 123
+│   │   │   │   (empty directory)
+│   │   │   ├── 124
+│   │   │   │   ├── banner_mc.webp (45630 bytes)
+│   │   │   │   └── banner_sc.webp (16602 bytes)
+│   │   │   ├── 125
+│   │   │   │   ├── banner_mc.webp (70284 bytes)
+│   │   │   │   └── banner_sc.webp (23470 bytes)
+│   │   │   ├── 126
+│   │   │   │   ├── banner_mc.webp (57074 bytes)
+│   │   │   │   └── banner_sc.webp (21092 bytes)
+│   │   │   ├── 127
+│   │   │   │   ├── banner_mc.webp (118350 bytes)
+│   │   │   │   └── banner_sc.webp (37498 bytes)
+│   │   │   ├── 128
+│   │   │   │   ├── banner_mc.webp (105914 bytes)
+│   │   │   │   └── banner_sc.webp (42424 bytes)
+│   │   │   ├── 129
+│   │   │   │   ├── banner_mc.webp (63064 bytes)
+│   │   │   │   └── banner_sc.webp (21066 bytes)
+│   │   │   ├── 13
+│   │   │   │   ├── banner_mc.webp (123872 bytes)
+│   │   │   │   └── banner_sc.webp (36036 bytes)
+│   │   │   ├── 130
+│   │   │   │   ├── banner_mc.webp (81792 bytes)
+│   │   │   │   └── banner_sc.webp (75572 bytes)
+│   │   │   ├── 131
+│   │   │   │   ├── banner_mc.webp (101726 bytes)
+│   │   │   │   └── banner_sc.webp (33046 bytes)
+│   │   │   ├── 132
+│   │   │   │   ├── banner_mc.webp (70234 bytes)
+│   │   │   │   └── banner_sc.webp (31602 bytes)
+│   │   │   ├── 133
+│   │   │   │   ├── banner_mc.webp (37820 bytes)
+│   │   │   │   └── banner_sc.webp (14000 bytes)
+│   │   │   ├── 134
+│   │   │   │   ├── banner_mc.webp (104480 bytes)
+│   │   │   │   └── banner_sc.webp (28024 bytes)
+│   │   │   ├── 135
+│   │   │   │   ├── banner_mc.webp (138652 bytes)
+│   │   │   │   └── banner_sc.webp (44574 bytes)
+│   │   │   ├── 14
+│   │   │   │   ├── banner_mc.webp (70244 bytes)
+│   │   │   │   └── banner_sc.webp (23982 bytes)
+│   │   │   ├── 15
+│   │   │   │   ├── banner_mc.webp (55564 bytes)
+│   │   │   │   └── banner_sc.webp (19198 bytes)
+│   │   │   ├── 16
+│   │   │   │   ├── banner_mc.webp (52560 bytes)
+│   │   │   │   └── banner_sc.webp (27016 bytes)
+│   │   │   ├── 17
+│   │   │   │   ├── banner_mc.webp (187538 bytes)
+│   │   │   │   └── banner_sc.webp (56806 bytes)
+│   │   │   ├── 18
+│   │   │   │   ├── banner_mc.webp (47368 bytes)
+│   │   │   │   └── banner_sc.webp (18418 bytes)
+│   │   │   ├── 19
+│   │   │   │   ├── banner_mc.webp (58710 bytes)
+│   │   │   │   └── banner_sc.webp (25670 bytes)
+│   │   │   ├── 2
+│   │   │   │   ├── banner_mc.webp (82520 bytes)
+│   │   │   │   └── banner_sc.webp (29524 bytes)
+│   │   │   ├── 20
+│   │   │   │   ├── banner_mc.webp (90022 bytes)
+│   │   │   │   └── banner_sc.webp (34770 bytes)
+│   │   │   ├── 21
+│   │   │   │   ├── banner_mc.webp (51154 bytes)
+│   │   │   │   └── banner_sc.webp (20386 bytes)
+│   │   │   ├── 22
+│   │   │   │   ├── banner_mc.webp (64454 bytes)
+│   │   │   │   └── banner_sc.webp (23114 bytes)
+│   │   │   ├── 23
+│   │   │   │   (empty directory)
+│   │   │   ├── 24
+│   │   │   │   ├── banner_mc.webp (24754 bytes)
+│   │   │   │   └── banner_sc.webp (8578 bytes)
+│   │   │   ├── 25
+│   │   │   │   ├── banner_mc.webp (91328 bytes)
+│   │   │   │   └── banner_sc.webp (31998 bytes)
+│   │   │   ├── 26
+│   │   │   │   (empty directory)
+│   │   │   ├── 27
+│   │   │   │   ├── banner_mc.webp (75070 bytes)
+│   │   │   │   └── banner_sc.webp (28230 bytes)
+│   │   │   ├── 28
+│   │   │   │   ├── banner_mc.webp (32378 bytes)
+│   │   │   │   └── banner_sc.webp (10544 bytes)
+│   │   │   ├── 29
+│   │   │   │   ├── banner_mc.webp (62244 bytes)
+│   │   │   │   └── banner_sc.webp (22674 bytes)
+│   │   │   ├── 3
+│   │   │   │   ├── banner_mc.webp (76056 bytes)
+│   │   │   │   └── banner_sc.webp (26544 bytes)
+│   │   │   ├── 30
+│   │   │   │   ├── banner_mc.webp (62602 bytes)
+│   │   │   │   └── banner_sc.webp (23094 bytes)
+│   │   │   ├── 31
+│   │   │   │   ├── banner_mc.webp (113448 bytes)
+│   │   │   │   └── banner_sc.webp (37480 bytes)
+│   │   │   ├── 32
+│   │   │   │   ├── banner_mc.webp (341314 bytes)
+│   │   │   │   └── banner_sc.webp (127328 bytes)
+│   │   │   ├── 33
+│   │   │   │   ├── banner_mc.webp (93950 bytes)
+│   │   │   │   └── banner_sc.webp (49782 bytes)
+│   │   │   ├── 34
+│   │   │   │   ├── banner_mc.webp (137198 bytes)
+│   │   │   │   └── banner_sc.webp (49752 bytes)
+│   │   │   ├── 35
+│   │   │   │   ├── banner_mc.webp (60118 bytes)
+│   │   │   │   └── banner_sc.webp (25734 bytes)
+│   │   │   ├── 36
+│   │   │   │   ├── banner_mc.webp (102850 bytes)
+│   │   │   │   └── banner_sc.webp (37232 bytes)
+│   │   │   ├── 37
+│   │   │   │   ├── banner_mc.webp (152792 bytes)
+│   │   │   │   └── banner_sc.webp (52224 bytes)
+│   │   │   ├── 38
+│   │   │   │   ├── banner_mc.webp (117024 bytes)
+│   │   │   │   └── banner_sc.webp (30992 bytes)
+│   │   │   ├── 39
+│   │   │   │   ├── banner_mc.webp (54140 bytes)
+│   │   │   │   └── banner_sc.webp (29822 bytes)
+│   │   │   ├── 4
+│   │   │   │   ├── banner_mc.webp (130348 bytes)
+│   │   │   │   └── banner_sc.webp (37066 bytes)
+│   │   │   ├── 40
+│   │   │   │   ├── banner_mc.webp (86488 bytes)
+│   │   │   │   └── banner_sc.webp (31202 bytes)
+│   │   │   ├── 41
+│   │   │   │   ├── banner_mc.webp (47810 bytes)
+│   │   │   │   └── banner_sc.webp (15318 bytes)
+│   │   │   ├── 42
+│   │   │   │   ├── banner_mc.webp (101978 bytes)
+│   │   │   │   └── banner_sc.webp (38108 bytes)
+│   │   │   ├── 43
+│   │   │   │   ├── banner_mc.webp (54052 bytes)
+│   │   │   │   └── banner_sc.webp (31314 bytes)
+│   │   │   ├── 44
+│   │   │   │   ├── banner_mc.webp (36606 bytes)
+│   │   │   │   └── banner_sc.webp (14912 bytes)
+│   │   │   ├── 45
+│   │   │   │   ├── banner_mc.webp (96238 bytes)
+│   │   │   │   └── banner_sc.webp (29732 bytes)
+│   │   │   ├── 46
+│   │   │   │   ├── banner_mc.webp (104314 bytes)
+│   │   │   │   └── banner_sc.webp (51012 bytes)
+│   │   │   ├── 47
+│   │   │   │   ├── banner_mc.webp (208660 bytes)
+│   │   │   │   └── banner_sc.webp (68896 bytes)
+│   │   │   ├── 48
+│   │   │   │   ├── banner_mc.webp (96986 bytes)
+│   │   │   │   └── banner_sc.webp (32030 bytes)
+│   │   │   ├── 49
+│   │   │   │   ├── banner_mc.webp (141504 bytes)
+│   │   │   │   └── banner_sc.webp (47166 bytes)
+│   │   │   ├── 5
+│   │   │   │   ├── banner_mc.webp (72194 bytes)
+│   │   │   │   └── banner_sc.webp (65922 bytes)
+│   │   │   ├── 50
+│   │   │   │   ├── banner_mc.webp (126082 bytes)
+│   │   │   │   └── banner_sc.webp (44528 bytes)
+│   │   │   ├── 51
+│   │   │   │   ├── banner_mc.webp (51880 bytes)
+│   │   │   │   └── banner_sc.webp (24662 bytes)
+│   │   │   ├── 52
+│   │   │   │   ├── banner_mc.webp (124568 bytes)
+│   │   │   │   └── banner_sc.webp (39806 bytes)
+│   │   │   ├── 53
+│   │   │   │   ├── banner_mc.webp (131344 bytes)
+│   │   │   │   └── banner_sc.webp (51986 bytes)
+│   │   │   ├── 54
+│   │   │   │   ├── banner_mc.webp (125332 bytes)
+│   │   │   │   └── banner_sc.webp (48508 bytes)
+│   │   │   ├── 55
+│   │   │   │   (empty directory)
+│   │   │   ├── 57
+│   │   │   │   ├── banner_mc.webp (85748 bytes)
+│   │   │   │   └── banner_sc.webp (25148 bytes)
+│   │   │   ├── 58
+│   │   │   │   ├── banner_mc.webp (36428 bytes)
+│   │   │   │   └── banner_sc.webp (15546 bytes)
+│   │   │   ├── 59
+│   │   │   │   ├── banner_mc.webp (43910 bytes)
+│   │   │   │   └── banner_sc.webp (12148 bytes)
+│   │   │   ├── 6
+│   │   │   │   ├── banner_mc.webp (111602 bytes)
+│   │   │   │   └── banner_sc.webp (33620 bytes)
+│   │   │   ├── 60
+│   │   │   │   ├── banner_mc.webp (92088 bytes)
+│   │   │   │   └── banner_sc.webp (31668 bytes)
+│   │   │   ├── 61
+│   │   │   │   ├── banner_mc.webp (95164 bytes)
+│   │   │   │   └── banner_sc.webp (31806 bytes)
+│   │   │   ├── 62
+│   │   │   │   ├── banner_mc.webp (79150 bytes)
+│   │   │   │   └── banner_sc.webp (20538 bytes)
+│   │   │   ├── 63
+│   │   │   │   ├── banner_mc.webp (40792 bytes)
+│   │   │   │   └── banner_sc.webp (17082 bytes)
+│   │   │   ├── 64
+│   │   │   │   ├── banner_mc.webp (76036 bytes)
+│   │   │   │   └── banner_sc.webp (35956 bytes)
+│   │   │   ├── 65
+│   │   │   │   (empty directory)
+│   │   │   ├── 66
+│   │   │   │   ├── banner_mc.webp (145852 bytes)
+│   │   │   │   └── banner_sc.webp (51742 bytes)
+│   │   │   ├── 67
+│   │   │   │   ├── banner_mc.webp (166232 bytes)
+│   │   │   │   └── banner_sc.webp (60804 bytes)
+│   │   │   ├── 68
+│   │   │   │   ├── banner_mc.webp (83706 bytes)
+│   │   │   │   └── banner_sc.webp (21682 bytes)
+│   │   │   ├── 69
+│   │   │   │   ├── banner_mc.webp (92028 bytes)
+│   │   │   │   └── banner_sc.webp (50462 bytes)
+│   │   │   ├── 7
+│   │   │   │   ├── banner_mc.webp (69950 bytes)
+│   │   │   │   └── banner_sc.webp (25820 bytes)
+│   │   │   ├── 70
+│   │   │   │   ├── banner_mc.webp (67744 bytes)
+│   │   │   │   └── banner_sc.webp (67744 bytes)
+│   │   │   ├── 71
+│   │   │   │   ├── banner_mc.webp (191544 bytes)
+│   │   │   │   └── banner_sc.webp (64686 bytes)
+│   │   │   ├── 72
+│   │   │   │   ├── banner_mc.webp (25608 bytes)
+│   │   │   │   └── banner_sc.webp (9824 bytes)
+│   │   │   ├── 73
+│   │   │   │   ├── banner_mc.webp (144530 bytes)
+│   │   │   │   └── banner_sc.webp (41462 bytes)
+│   │   │   ├── 74
+│   │   │   │   ├── banner_mc.webp (42356 bytes)
+│   │   │   │   └── banner_sc.webp (15984 bytes)
+│   │   │   ├── 75
+│   │   │   │   ├── banner_mc.webp (92836 bytes)
+│   │   │   │   └── banner_sc.webp (36738 bytes)
+│   │   │   ├── 76
+│   │   │   │   ├── banner_mc.webp (55766 bytes)
+│   │   │   │   └── banner_sc.webp (18094 bytes)
+│   │   │   ├── 77
+│   │   │   │   ├── banner_mc.webp (261266 bytes)
+│   │   │   │   └── banner_sc.webp (114564 bytes)
+│   │   │   ├── 78
+│   │   │   │   ├── banner_mc.webp (124734 bytes)
+│   │   │   │   └── banner_sc.webp (39056 bytes)
+│   │   │   ├── 79
+│   │   │   │   ├── banner_mc.webp (80064 bytes)
+│   │   │   │   └── banner_sc.webp (24604 bytes)
+│   │   │   ├── 8
+│   │   │   │   ├── banner_mc.webp (133602 bytes)
+│   │   │   │   └── banner_sc.webp (45850 bytes)
+│   │   │   ├── 80
+│   │   │   │   ├── banner_mc.webp (162772 bytes)
+│   │   │   │   └── banner_sc.webp (56708 bytes)
+│   │   │   ├── 81
+│   │   │   │   ├── banner_mc.webp (87192 bytes)
+│   │   │   │   └── banner_sc.webp (30876 bytes)
+│   │   │   ├── 82
+│   │   │   │   ├── banner_mc.webp (90342 bytes)
+│   │   │   │   └── banner_sc.webp (30338 bytes)
+│   │   │   ├── 83
+│   │   │   │   (empty directory)
+│   │   │   ├── 84
+│   │   │   │   ├── banner_mc.webp (238284 bytes)
+│   │   │   │   └── banner_sc.webp (76858 bytes)
+│   │   │   ├── 85
+│   │   │   │   ├── banner_mc.webp (29164 bytes)
+│   │   │   │   └── banner_sc.webp (10660 bytes)
+│   │   │   ├── 86
+│   │   │   │   ├── banner_mc.webp (94066 bytes)
+│   │   │   │   └── banner_sc.webp (28354 bytes)
+│   │   │   ├── 87
+│   │   │   │   (empty directory)
+│   │   │   ├── 89
+│   │   │   │   ├── banner_mc.webp (39000 bytes)
+│   │   │   │   └── banner_sc.webp (15306 bytes)
+│   │   │   ├── 9
+│   │   │   │   ├── banner_mc.webp (75628 bytes)
+│   │   │   │   └── banner_sc.webp (26796 bytes)
+│   │   │   ├── 90
+│   │   │   │   ├── banner_mc.webp (57776 bytes)
+│   │   │   │   └── banner_sc.webp (28708 bytes)
+│   │   │   ├── 91
+│   │   │   │   ├── banner_mc.webp (90390 bytes)
+│   │   │   │   └── banner_sc.webp (32792 bytes)
+│   │   │   ├── 92
+│   │   │   │   ├── banner_mc.webp (83510 bytes)
+│   │   │   │   └── banner_sc.webp (27690 bytes)
+│   │   │   ├── 93
+│   │   │   │   ├── banner_mc.webp (107706 bytes)
+│   │   │   │   └── banner_sc.webp (40648 bytes)
+│   │   │   ├── 94
+│   │   │   │   ├── banner_mc.webp (116728 bytes)
+│   │   │   │   └── banner_sc.webp (38446 bytes)
+│   │   │   ├── 95
+│   │   │   │   ├── banner_mc.webp (72162 bytes)
+│   │   │   │   └── banner_sc.webp (50302 bytes)
+│   │   │   ├── 96
+│   │   │   │   ├── banner_mc.webp (100608 bytes)
+│   │   │   │   └── banner_sc.webp (27728 bytes)
+│   │   │   ├── 97
+│   │   │   │   ├── banner_mc.webp (236692 bytes)
+│   │   │   │   └── banner_sc.webp (73124 bytes)
+│   │   │   ├── 98
+│   │   │   │   ├── banner_mc.webp (121808 bytes)
+│   │   │   │   └── banner_sc.webp (36016 bytes)
+│   │   │   └── 99
+│   │   │       ├── banner_mc.webp (48014 bytes)
+│   │   │       └── banner_sc.webp (44108 bytes)
 │   │   ├── templates
 │   │   │   └── banner
 │   │   │       (empty directory)
 │   │   └── updates
-│   │       ├── 1759204806.update (16706315 bytes)
-│   │       ├── 1759216587.update (799946 bytes)
-│   │       ├── 1759238556.update (961678 bytes)
-│   │       ├── 1759260330.update (981164 bytes)
-│   │       ├── 1759809605.update (16766818 bytes)
-│   │       ├── 1759821880.update (950458 bytes)
-│   │       ├── 1759843352.update (926275 bytes)
 │   │       ├── 1760932806.update (16903373 bytes)
 │   │       ├── 1760944927.update (944220 bytes)
 │   │       ├── 1760966372.update (867044 bytes)
 │   │       └── 1760988232.update (940978 bytes)
 │   ├── database.js (40785 bytes)
-│   ├── gamedetails.html (768 bytes)
-│   ├── index.html (1351 bytes)
+│   ├── gamedetails.html (762 bytes)
+│   ├── index.html (1282 bytes)
 │   ├── launchers
-│   │   └── flash
-│   │       └── ruffle.exe (24856576 bytes)
-│   ├── main.js (46063 bytes)
+│   │   (empty directory)
+│   ├── main.js (46027 bytes)
 │   ├── renderer.js (7362 bytes)
-│   └── settings.html (1298 bytes)
+│   └── settings.html (1250 bytes)
 └── tailwind.config.js (574 bytes)
 

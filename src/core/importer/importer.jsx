@@ -249,15 +249,7 @@ useEffect(() => {
     previewLimit,
     downloadVideos
   });
-  if (result.success) {
-    console.log('Games imported successfully');
-    window.electronAPI.log('Games imported successfully');
-    window.electronAPI.closeWindow();
-  } else {
-    console.error(`Import error: ${result.error}`);
-    window.electronAPI.log(`Import error: ${result.error}`);
-    alert(`Error: ${result.error}`);
-  }
+  await window.electronAPI.closeWindow();
 };
 
   const handleUpdateClick = (event) => {
@@ -409,60 +401,6 @@ return (
                 />
                 <label>Download Banner Images</label>
               </div>
-              {/*
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={downloadPreviewImages}
-                  onChange={(e) => setDownloadPreviewImages(e.target.checked)}
-                />
-                <label className="mr-2">Download Preview Images</label>
-                <select
-                  value={previewLimit}
-                  onChange={(e) => setPreviewLimit(e.target.value)}
-                  className="bg-secondary border border-border p-1"
-                >
-                  <option value="5">5</option>
-                  <option value="10">10</option>
-                  <option value="Unlimited">Unlimited</option>
-                </select>
-                <label className="ml-2">Amount of Previews to Download</label>
-              </div>
-              <div>
-                <input
-                  type="checkbox"
-                  checked={downloadVideos}
-                  onChange={(e) => setDownloadVideos(e.target.checked)}
-                />
-                <label>Download Videos (.gif, .mp4, .webm)</label>
-              </div>
-              <div>
-                <input
-                  type="checkbox"
-                  checked={moveGame}
-                  onChange={(e) => setMoveGame(e.target.checked)}
-                  disabled
-                />
-                <label>Move to Atlas game folder</label>
-              </div>
-              <div>
-                <input
-                  type="checkbox"
-                  checked={scanSize}
-                  onChange={(e) => setScanSize(e.target.checked)}
-                />
-                <label>Scan folder size during import</label>
-              </div>
-              {isCompressed && (
-                <div>
-                  <input
-                    type="checkbox"
-                    checked={deleteAfter}
-                    onChange={(e) => setDeleteAfter(e.target.checked)}
-                  />
-                  <label>Delete Folder After Extraction</label>
-                </div>
-              )}*/}
             </div>
             <div className="flex justify-end space-x-2">
               <button

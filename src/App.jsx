@@ -533,10 +533,7 @@ const addGame = async () => {
                   );
                 }}
               </AutoSizer>
-            )}
-            {selectedGame && (
-              <window.GameDetails game={selectedGame} onRemove={() => removeGame(selectedGame.record_id)} />
-            )}
+            )}           
           </div>
         </div>
       </div>
