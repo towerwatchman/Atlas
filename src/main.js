@@ -70,10 +70,7 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, "index.html"));
 
-  if (
-    process.defaultApp ||
-    appConfig?.Interface?.showDebugConsole
-  ) {
+  if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
     mainWindow.webContents.openDevTools();
   }
 
@@ -106,10 +103,7 @@ function createSettingsWindow() {
 
   settingsWindow.loadFile(path.join(__dirname, "settings.html"));
 
-  if (
-    process.defaultApp ||
-    appConfig?.Interface?.showDebugConsole
-  ) {
+  if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
     settingsWindow.webContents.openDevTools();
   }
 
@@ -205,10 +199,7 @@ function createGameDetailsWindow(recordId) {
       });
   });
 
-  if (
-    process.defaultApp ||
-    appConfig?.Interface?.showDebugConsole
-  ) {
+  if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
     gameDetailsWindow.webContents.openDevTools();
   }
 
@@ -618,11 +609,13 @@ ipcMain.handle("open-external-url", async (event, url) => {
   }
 });
 
-ipcMain.handle('search-atlas-by-f95-id', async (event, f95Id) => {
+ipcMain.handle("search-atlas-by-f95-id", async (event, f95Id) => {
   console.log(`IPC search-atlas-by-f95-id received f95Id: ${f95Id}`);
   try {
     const result = await searchAtlasByF95Id(f95Id);
-    console.log(`IPC search-atlas-by-f95-id result for ${f95Id}: ${JSON.stringify(result)}`);
+    console.log(
+      `IPC search-atlas-by-f95-id result for ${f95Id}: ${JSON.stringify(result)}`,
+    );
     return result;
   } catch (err) {
     console.error(`Error in search-atlas-by-f95-id for ${f95Id}:`, err);
@@ -839,8 +832,6 @@ ipcMain.handle("import-games", async (event, params) => {
   return results;
 });
 
-
-
 ipcMain.handle("save-emulator-config", async (event, emulator) => {
   try {
     await initializeDatabase(dataDir); // Ensure DB is initialized
@@ -926,7 +917,12 @@ ipcMain.handle("update-banners", async (event, recordId) => {
       false,
     );
 
-    const bannerPath = await getBanner(recordId, app.getAppPath(), process.defaultApp, "large");
+    const bannerPath = await getBanner(
+      recordId,
+      app.getAppPath(),
+      process.defaultApp,
+      "large",
+    );
     event.sender.send("game-updated", recordId);
     progress++;
     event.sender.send("game-details-import-progress", {
@@ -1042,11 +1038,7 @@ ipcMain.handle("delete-banner", async (event, recordId) => {
   await initializeDatabase(dataDir);
   console.log("Handling delete-banner for recordId:", recordId);
   try {
-    await deleteBanner(
-      recordId,
-      app.getAppPath(),
-      process.defaultApp,
-    );
+    await deleteBanner(recordId, app.getAppPath(), process.defaultApp);
     mainWindow.webContents.send("game-updated", recordId);
     return { success: true };
   } catch (err) {
@@ -1059,11 +1051,7 @@ ipcMain.handle("delete-previews", async (event, recordId) => {
   await initializeDatabase(dataDir);
   console.log("Handling delete-previews for recordId:", recordId);
   try {
-    await deletePreviews(
-      recordId,
-      app.getAppPath(),
-      process.defaultApp,
-    );
+    await deletePreviews(recordId, app.getAppPath(), process.defaultApp);
     mainWindow.webContents.send("game-updated", recordId);
     return { success: true };
   } catch (err) {
@@ -1329,40 +1317,40 @@ async function downloadImages(
           recordId.toString(),
           baseName,
         );
-        
-              let imageBytes;
-      let downloaded = false;
-      if ([".gif", ".mp4", ".webm"].includes(ext) && downloadVideos) {
-        const animatedPath = `${imagePath}${ext}`;
-        if (!fs.existsSync(animatedPath)) {
-          const response = await axios.get(url, {
-            responseType: "arraybuffer",
-          });
-          imageBytes = Buffer.from(response.data);
-          fs.writeFileSync(animatedPath, imageBytes);
-          downloaded = true;
-        }
-        await updatePreviews(recordId, `${relativePath}${ext}`);
-      }
 
-      const targetPath = `${imagePath}_pr.webp`;
-      if (!fs.existsSync(targetPath)) {
-        if (!imageBytes) {
-          const response = await axios.get(url, {
-            responseType: "arraybuffer",
-          });
-          imageBytes = Buffer.from(response.data);
-          downloaded = true;
+        let imageBytes;
+        let downloaded = false;
+        if ([".gif", ".mp4", ".webm"].includes(ext) && downloadVideos) {
+          const animatedPath = `${imagePath}${ext}`;
+          if (!fs.existsSync(animatedPath)) {
+            const response = await axios.get(url, {
+              responseType: "arraybuffer",
+            });
+            imageBytes = Buffer.from(response.data);
+            fs.writeFileSync(animatedPath, imageBytes);
+            downloaded = true;
+          }
+          await updatePreviews(recordId, `${relativePath}${ext}`);
         }
-        await sharp(imageBytes)
-          .webp({ quality: 90 })
-          .resize({ width: 1260, withoutEnlargement: true })
-          .toFile(targetPath);
-      }
-      await updatePreviews(recordId, `${relativePath}_pr.webp`);
-      imageProgress++;
-      onImageProgress(imageProgress, totalImages);
-        
+
+        const targetPath = `${imagePath}_pr.webp`;
+        if (!fs.existsSync(targetPath)) {
+          if (!imageBytes) {
+            const response = await axios.get(url, {
+              responseType: "arraybuffer",
+            });
+            imageBytes = Buffer.from(response.data);
+            downloaded = true;
+          }
+          await sharp(imageBytes)
+            .webp({ quality: 90 })
+            .resize({ width: 1260, withoutEnlargement: true })
+            .toFile(targetPath);
+        }
+        await updatePreviews(recordId, `${relativePath}_pr.webp`);
+        imageProgress++;
+        onImageProgress(imageProgress, totalImages);
+
         console.log(`Screen ${i + 1} updated`);
         if (downloaded) {
           require("electron")

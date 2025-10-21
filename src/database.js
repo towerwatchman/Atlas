@@ -930,7 +930,7 @@ const checkRecordExist = (title, creator, engine, version, path) => {
        LEFT JOIN versions v ON g.record_id = v.record_id
        WHERE TRIM(g.title) = ? AND TRIM(g.creator) = ? AND TRIM(v.version) = ?
        OR v.game_path = ?`,
-      [escapedTitle, escapedCreator, escapedVersion,escapedVPath],
+      [escapedTitle, escapedCreator, escapedVersion, escapedVPath],
       (err, row) => {
         if (err) {
           console.error("Error checking record existence:", err);
@@ -1123,7 +1123,7 @@ const getPreviews = (recordId, appPath, isDev) => {
           console.error("Error fetching previews:", err);
           reject(err);
         } else {
-          console.log(rows)
+          console.log(rows);
           const previews = rows.map(
             (row) =>
               `${path.join(baseImagePath, row.path).replace(/\\/g, "/")}`,
@@ -1168,7 +1168,7 @@ const getBanner = (recordId, appPath, isDev, type) => {
       : path.resolve(appPath, "../../");
     db.all(
       `SELECT path FROM banners WHERE record_id = ? AND type=?`,
-      [recordId,type],
+      [recordId, type],
       (err, rows) => {
         if (err) {
           console.error("Error fetching banners:", err);
@@ -1440,7 +1440,7 @@ const searchAtlasByF95Id = (f95Id) => {
           console.log(`Found ${rows.length} results for f95_id ${f95Id}`);
           resolve(rows || []);
         }
-      }
+      },
     );
   });
 };
