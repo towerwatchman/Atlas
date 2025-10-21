@@ -331,24 +331,22 @@ const Importer = () => {
     for (let index = 0; index < total; index++) {
       const game = updatedGames[index];
       if (game.steamId) {
-        const result = await window.electronAPI.getSteamGameData(game.steamId); // Assume you expose getSteamGameData as a tool or IPC
+        const result = await window.electronAPI.getSteamGameData(game.steamId);
         if (result) {
           const { game: data, screenshots } = result;
           updatedGames[index].creator = data.developer;
           updatedGames[index].engine = data.engine || "Unknown";
-          // Update other fields as needed
           const searchResults = await window.electronAPI.searchAtlas(
             data.title,
             data.developer,
           );
           if (searchResults.length > 0) {
-            // Update results
             updatedGames[index].results = searchResults.map((r) => ({
               key: String(r.atlas_id),
               value: `${r.atlas_id} | ${r.f95_id || ""} | ${r.title} | ${r.creator}`,
             }));
             if (searchResults.length === 1) {
-              updatedGames[index].atlasId = searchResults[0].atlas_id;
+              updatedGames[index].atlasId = String(searchResults[0].atlas_id);
               updatedGames[index].f95Id = searchResults[0].f95_id || "";
               updatedGames[index].resultSelectedValue =
                 updatedGames[index].results[0].key;
@@ -368,13 +366,19 @@ const Importer = () => {
       window.electronAPI.sendUpdateProgress({ value: index + 1, total });
     }
 
-    const result = await window.electronAPI.importGames({
-      games: updatedGames,
-      downloadBannerImages,
-      downloadPreviewImages,
-      previewLimit,
-      downloadVideos,
-    });
+    // Trigger import asynchronously and close window immediately
+    window.electronAPI
+      .importGames({
+        games: updatedGames,
+        downloadBannerImages,
+        downloadPreviewImages,
+        previewLimit,
+        downloadVideos,
+      })
+      .catch((err) => {
+        console.error("Error during import:", err);
+        window.electronAPI.log(`Error during import: ${err.message}`);
+      });
     await window.electronAPI.closeWindow();
   };
 
