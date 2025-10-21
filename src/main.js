@@ -546,6 +546,7 @@ ipcMain.handle(
       creator,
       engine,
       version,
+      path,
     );
     if (existsByDetails) return true;
     return checkPathExist(path, title);

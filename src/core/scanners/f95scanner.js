@@ -471,9 +471,9 @@ async function findGame(
     const engine = gameEngine || "Unknown";
     let recordExist = false;
     try {
-      recordExist = await checkRecordExist(title, creator, version);
+      recordExist = await checkRecordExist(title, creator, engine, version, t);
       console.log(
-        `checkRecordExist for ${title}, ${creator}, ${version}: ${recordExist}`,
+        `checkRecordExist for ${title}, ${creator}, ${version}, ${t}: ${recordExist}`,
       );
     } catch (err) {
       console.error(`checkRecordExist error for ${title}: ${err.message}`);

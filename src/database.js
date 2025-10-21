@@ -918,17 +918,19 @@ const GetAtlasIDbyRecord = (recordId) => {
   });
 };
 
-const checkRecordExist = (title, creator, version) => {
+const checkRecordExist = (title, creator, engine, version, path) => {
   return new Promise((resolve, reject) => {
-    const escapedTitle = title.replace(/'/g, "''");
-    const escapedCreator = creator.replace(/'/g, "''");
-    const escapedVersion = version.replace(/'/g, "''");
+    const escapedTitle = title.trim().replace(/'/g, "''");
+    const escapedCreator = creator.trim().replace(/'/g, "''");
+    const escapedVersion = version.trim().replace(/'/g, "''");
+    const escapedVPath = path.trim().replace(/'/g, "''");
     db.get(
       `SELECT g.record_id
        FROM games g
        LEFT JOIN versions v ON g.record_id = v.record_id
-       WHERE g.title = ? AND g.creator = ? AND v.version = ?`,
-      [escapedTitle, escapedCreator, escapedVersion],
+       WHERE TRIM(g.title) = ? AND TRIM(g.creator) = ? AND TRIM(v.version) = ?
+       OR v.game_path = ?`,
+      [escapedTitle, escapedCreator, escapedVersion,escapedVPath],
       (err, row) => {
         if (err) {
           console.error("Error checking record existence:", err);
