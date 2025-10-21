@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getConfig: () => ipcRenderer.invoke("get-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("save-settings", settings),
   startScan: (params) => ipcRenderer.invoke("start-scan", params),
+    searchAtlasByF95Id: (f95Id) => 
+    ipcRenderer.invoke('search-atlas-by-f95-id', f95Id),
   searchAtlas: (title, creator) =>
     ipcRenderer.invoke("search-atlas", { title, creator }),
   addAtlasMapping: (recordId, atlasId) =>

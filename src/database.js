@@ -1426,6 +1426,25 @@ const getSteamScreensUrlList = (steamId) => {
   });
 };
 
+const searchAtlasByF95Id = (f95Id) => {
+  return new Promise((resolve, reject) => {
+    db.all(
+      `SELECT a.atlas_id, f.f95_id, a.title, a.creator, a.engine FROM atlas_data a
+        LEFT JOIN f95_zone_data f ON a.atlas_id = f.atlas_id WHERE f.f95_id =?`,
+      [f95Id],
+      (err, rows) => {
+        if (err) {
+          console.error(`Error querying atlas_data for f95_id ${f95Id}:`, err);
+          reject(err);
+        } else {
+          console.log(`Found ${rows.length} results for f95_id ${f95Id}`);
+          resolve(rows || []);
+        }
+      }
+    );
+  });
+};
+
 module.exports = {
   initializeDatabase,
   addGame,
@@ -1462,5 +1481,6 @@ module.exports = {
   addSteamMapping,
   getSteamBannerUrl,
   getSteamScreensUrlList,
+  searchAtlasByF95Id,
   db, // Export db instance
 };

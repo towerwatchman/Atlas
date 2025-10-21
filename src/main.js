@@ -29,6 +29,7 @@ const {
   deleteBanner,
   deletePreviews,
   searchAtlas,
+  searchAtlasByF95Id,
   db,
 } = require("./database");
 const { Menu, shell } = require("electron");
@@ -617,6 +618,18 @@ ipcMain.handle("open-external-url", async (event, url) => {
   }
 });
 
+ipcMain.handle('search-atlas-by-f95-id', async (event, f95Id) => {
+  console.log(`IPC search-atlas-by-f95-id received f95Id: ${f95Id}`);
+  try {
+    const result = await searchAtlasByF95Id(f95Id);
+    console.log(`IPC search-atlas-by-f95-id result for ${f95Id}: ${JSON.stringify(result)}`);
+    return result;
+  } catch (err) {
+    console.error(`Error in search-atlas-by-f95-id for ${f95Id}:`, err);
+    return [];
+  }
+});
+
 ipcMain.handle("import-games", async (event, params) => {
   const {
     games,
@@ -825,6 +838,8 @@ ipcMain.handle("import-games", async (event, params) => {
   mainWindow.webContents.send("import-complete");
   return results;
 });
+
+
 
 ipcMain.handle("save-emulator-config", async (event, emulator) => {
   try {
