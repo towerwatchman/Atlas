@@ -446,7 +446,9 @@ ipcMain.handle("select-file", async () => {
 });
 
 ipcMain.handle("select-directory", async () => {
-  const result = await dialog.showOpenDialog({ properties: ["openDirectory"] });
+  const result = await dialog.showOpenDialog(importerWindow, {
+    properties: ["openDirectory"],
+  });
   return result.filePaths[0] || null;
 });
 

@@ -46,12 +46,72 @@ const Importer = () => {
     });
     window.electronAPI.onScanComplete((game) => {
       console.log(`Received incremental game: ${JSON.stringify(game)}`);
-      setGamesList((prev) => [...prev, game]);
+      if (
+        game.results.length > 1 &&
+        game.resultSelectedValue &&
+        game.resultSelectedValue !== "match"
+      ) {
+        const selected = game.results.find(
+          (r) => r.key === game.resultSelectedValue,
+        );
+        if (selected) {
+          const parts = selected.value.split(" | ");
+          game.atlasId = parts[0];
+          game.f95Id = parts[1] || "";
+          game.title = parts[2];
+          game.creator = parts[3];
+          window.electronAPI.getAtlasData(game.atlasId).then((atlasData) => {
+            game.engine = atlasData.engine || "Unknown";
+            setGamesList((prev) => [...prev, game]);
+            console.log(`Updated game on scan: ${JSON.stringify(game)}`);
+            window.electronAPI.log(
+              `Updated game on scan: ${JSON.stringify(game)}`,
+            );
+          });
+        } else {
+          setGamesList((prev) => [...prev, game]);
+        }
+      } else {
+        setGamesList((prev) => [...prev, game]);
+      }
     });
     window.electronAPI.onScanCompleteFinal((games) => {
       console.log(`Scan complete, received ${games.length} games`);
-      setGamesList(games);
-      setView("scan");
+      const updatedGames = games.map((game) => {
+        if (
+          game.results.length > 1 &&
+          game.resultSelectedValue &&
+          game.resultSelectedValue !== "match"
+        ) {
+          const selected = game.results.find(
+            (r) => r.key === game.resultSelectedValue,
+          );
+          if (selected) {
+            const parts = selected.value.split(" | ");
+            game.atlasId = parts[0];
+            game.f95Id = parts[1] || "";
+            game.title = parts[2];
+            game.creator = parts[3];
+            return window.electronAPI
+              .getAtlasData(game.atlasId)
+              .then((atlasData) => {
+                game.engine = atlasData.engine || "Unknown";
+                return game;
+              });
+          }
+        }
+        return game;
+      });
+      Promise.all(updatedGames).then((newGamesList) => {
+        setGamesList(newGamesList);
+        setView("scan");
+        console.log(
+          `Updated gamesList on scan complete: ${JSON.stringify(newGamesList)}`,
+        );
+        window.electronAPI.log(
+          `Updated gamesList on scan complete: ${JSON.stringify(newGamesList)}`,
+        );
+      });
     });
     window.electronAPI.onUpdateProgress((prog) => {
       console.log(`Update progress: ${JSON.stringify(prog)}`);
@@ -204,7 +264,7 @@ const Importer = () => {
         game.title,
         game.creator,
       );
-      window.electronAPI.log(data)
+      window.electronAPI.log(data);
       console.log(`Search results for ${game.title}: ${JSON.stringify(data)}`);
       window.electronAPI.log(
         `Search results for ${game.title}: ${JSON.stringify(data)}`,
@@ -530,22 +590,43 @@ const Importer = () => {
               </div>
               <span className="mb-4">Found {progress.potential} Games</span>
             </div>
-            <div className="flex-1 overflow-y-auto">
-              <table className="w-full border-collapse border border-border">
+            <div className="flex-1 overflow-x-auto">
+              <table
+                className="border-collapse border border-border"
+                style={{ minWidth: "1200px" }}
+              >
                 <thead>
                   <tr className="bg-secondary sticky top-0">
-                    <th className="border border-border p-1">Atlas ID</th>
-                    <th className="border border-border p-1">F95 ID</th>
-                    <th className="border border-border p-1">Title</th>
-                    <th className="border border-border p-1">Creator</th>
-                    <th className="border border-border p-1">Engine</th>
-                    <th className="border border-border p-1">Version</th>
-                    <th className="border border-border p-1">Executable</th>
-                    <th className="border border-border p-1">
+                    <th className="border border-border p-1 min-w-[80px]">
+                      Atlas ID
+                    </th>
+                    <th className="border border-border p-1 min-w-[80px]">
+                      F95 ID
+                    </th>
+                    <th className="border border-border p-1 min-w-[200px]">
+                      Title
+                    </th>
+                    <th className="border border-border p-1 min-w-[150px]">
+                      Creator
+                    </th>
+                    <th className="border border-border p-1 min-w-[100px]">
+                      Engine
+                    </th>
+                    <th className="border border-border p-1 min-w-[200px]">
+                      Version
+                    </th>
+                    <th className="border border-border p-1 min-w-[180px]">
+                      Executable
+                    </th>
+                    <th className="border border-border p-1 min-w-[220px] !max-w-[220px]">
                       Possible Database Matches
                     </th>
-                    <th className="border border-border p-1">Folder</th>
-                    <th className="border border-border p-1">Actions</th>
+                    <th className="border border-border p-1 min-w-[250px]">
+                      Folder
+                    </th>
+                    <th className="border border-border p-1 min-w-[150px]">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -555,15 +636,24 @@ const Importer = () => {
                       game.results.length === 1 &&
                       game.results[0].value === "Match Found"
                     ) {
-                      return null; // Skip rendering hidden rows
+                      return null;
                     }
                     return (
                       <tr key={originalIndex} className="bg-primary">
-                        <td className="border border-border p-1">
+                        <td className="border border-border p-1 min-w-[100px]">
+                          {game.results.length > 1 && (
+                            <i className="fa-solid fa-triangle-exclamation text-yellow-400 mr-1"></i>
+                          )}
                           {game.atlasId}
                         </td>
-                        <td className="border border-border p-1">
-                          {game.f95Id}
+                        <td className="border border-border p-1 min-w-[100px]">
+                          <input
+                            value={game.f95Id}
+                            onChange={(e) =>
+                              updateGame(originalIndex, "f95Id", e.target.value)
+                            }
+                            className="w-full bg-secondary border border-border p-1"
+                          />
                         </td>
                         <td className="border border-border p-1">
                           <input
@@ -669,13 +759,22 @@ const Importer = () => {
                         <td className="border border-border p-1">
                           {game.folder}
                         </td>
-                        <td className="border border-border p-1">
+                        <td className="border border-border p-1 min-w-[150px] flex space-x-2">
                           <button
                             onClick={() => deleteGame(originalIndex)}
-                            className="bg-red-600 hover:bg-red-700 text-text p-1 rounded"
-                            style={{ pointerEvents: "auto", zIndex: 1000 }}
+                            className="bg-red-600 hover:bg-red-700 text-text text-xs p-1 rounded whitespace-nowrap"
+                            style={{ pointerEvents: "auto" }}
                           >
                             Delete
+                          </button>
+                          <button
+                            onClick={() =>
+                              window.electronAPI.openDirectory(game.folder)
+                            }
+                            className="bg-accent hover:bg-selected text-text text-xs p-1 rounded whitespace-nowrap"
+                            style={{ pointerEvents: "auto" }}
+                          >
+                            Open Folder
                           </button>
                         </td>
                       </tr>
