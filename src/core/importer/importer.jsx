@@ -204,6 +204,7 @@ const Importer = () => {
         game.title,
         game.creator,
       );
+      window.electronAPI.log(data)
       console.log(`Search results for ${game.title}: ${JSON.stringify(data)}`);
       window.electronAPI.log(
         `Search results for ${game.title}: ${JSON.stringify(data)}`,

@@ -500,7 +500,7 @@ ipcMain.handle("get-steam-game-data", async (event, steamId) => {
   return await getSteamGameData(steamId);
 });
 ipcMain.handle("search-atlas", async (event, params) => {
-  return await searchAtlas(params.title, params.developer);
+  return await searchAtlas(params.title, params.creator);
 });
 
 ipcMain.handle("add-atlas-mapping", async (event, { recordId, atlasId }) => {
