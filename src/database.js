@@ -1121,6 +1121,7 @@ const getPreviews = (recordId, appPath, isDev) => {
           console.error("Error fetching previews:", err);
           reject(err);
         } else {
+          console.log(rows)
           const previews = rows.map(
             (row) =>
               `${path.join(baseImagePath, row.path).replace(/\\/g, "/")}`,
@@ -1141,6 +1142,31 @@ const getBanners = (recordId, appPath, isDev) => {
     db.all(
       `SELECT path FROM banners WHERE record_id = ?`,
       [recordId],
+      (err, rows) => {
+        if (err) {
+          console.error("Error fetching banners:", err);
+          reject(err);
+        } else {
+          const banners = rows.map(
+            (row) =>
+              `${path.join(baseImagePath, row.path).replace(/\\/g, "/")}`,
+          );
+          console.log("Banners fetched for recordId:", recordId, banners);
+          resolve(banners);
+        }
+      },
+    );
+  });
+};
+
+const getBanner = (recordId, appPath, isDev, type) => {
+  return new Promise((resolve, reject) => {
+    const baseImagePath = isDev
+      ? path.join(appPath, "src")
+      : path.resolve(appPath, "../../");
+    db.all(
+      `SELECT path FROM banners WHERE record_id = ? AND type=?`,
+      [recordId,type],
       (err, rows) => {
         if (err) {
           console.error("Error fetching banners:", err);
@@ -1427,6 +1453,7 @@ module.exports = {
   deleteBanner,
   deletePreviews,
   getBanners,
+  getBanner,
   updateGame,
   updateVersion,
   getSteamIDbyRecord,

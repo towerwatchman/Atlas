@@ -25,6 +25,7 @@ const {
   getEmulatorByExtension,
   GetAtlasIDbyRecord,
   getPreviews,
+  getBanner,
   deleteBanner,
   deletePreviews,
   searchAtlas,
@@ -906,10 +907,10 @@ ipcMain.handle("update-banners", async (event, recordId) => {
       true,
       false,
       1,
-      true,
+      false,
     );
 
-    const bannerUrl = await getBannerUrl(atlas_id);
+    const bannerPath = await getBanner(recordId, app.getAppPath(), process.defaultApp, "large");
     event.sender.send("game-updated", recordId);
     progress++;
     event.sender.send("game-details-import-progress", {
@@ -917,8 +918,8 @@ ipcMain.handle("update-banners", async (event, recordId) => {
       progress,
       total: imageTotal,
     });
-    console.log(bannerUrl);
-    return bannerUrl;
+    console.log(bannerPath);
+    return bannerPath;
   } catch (err) {
     console.error("Error downloading banner:", err);
     throw err;
@@ -945,7 +946,7 @@ ipcMain.handle("update-previews", async (event, recordId) => {
       false,
       true,
       100,
-      true,
+      false,
     );
 
     const previewUrls = await getPreviews(
@@ -1312,34 +1313,40 @@ async function downloadImages(
           recordId.toString(),
           baseName,
         );
-        //Download regualr
-        const targetPath =
-          [".gif", ".mp4", ".webm"].includes(ext) && downloadVideos
-            ? `${imagePath}${ext}`
-            : `${imagePath}_pr.webp`;
-        let downloaded = false;
-        //----------------------------------------------
-        if (!fs.existsSync(targetPath)) {
+        
+              let imageBytes;
+      let downloaded = false;
+      if ([".gif", ".mp4", ".webm"].includes(ext) && downloadVideos) {
+        const animatedPath = `${imagePath}${ext}`;
+        if (!fs.existsSync(animatedPath)) {
           const response = await axios.get(url, {
             responseType: "arraybuffer",
           });
-          const imageBytes = Buffer.from(response.data);
-
-          if ([".gif", ".mp4", ".webm"].includes(ext) && downloadVideos) {
-            fs.writeFileSync(targetPath, imageBytes);
-            await updatePreviews(recordId, `${relativePath}${ext}`);
-          } else if (![".gif", ".mp4", ".webm"].includes(ext)) {
-            await sharp(imageBytes)
-              .webp({ quality: 90 })
-              .resize({ width: 1260, withoutEnlargement: true })
-              .toFile(targetPath);
-          }
+          imageBytes = Buffer.from(response.data);
+          fs.writeFileSync(animatedPath, imageBytes);
           downloaded = true;
         }
-        await updatePreviews(recordId, `${relativePath}_pr.webp`);
+        await updatePreviews(recordId, `${relativePath}${ext}`);
+      }
+
+      const targetPath = `${imagePath}_pr.webp`;
+      if (!fs.existsSync(targetPath)) {
+        if (!imageBytes) {
+          const response = await axios.get(url, {
+            responseType: "arraybuffer",
+          });
+          imageBytes = Buffer.from(response.data);
+          downloaded = true;
+        }
+        await sharp(imageBytes)
+          .webp({ quality: 90 })
+          .resize({ width: 1260, withoutEnlargement: true })
+          .toFile(targetPath);
+      }
+      await updatePreviews(recordId, `${relativePath}_pr.webp`);
+      imageProgress++;
+      onImageProgress(imageProgress, totalImages);
         
-        imageProgress++;
-        onImageProgress(imageProgress, totalImages);
         console.log(`Screen ${i + 1} updated`);
         if (downloaded) {
           require("electron")

@@ -18,7 +18,7 @@ const Importer = () => {
   const [downloadBannerImages, setDownloadBannerImages] = useState(false);
   const [downloadPreviewImages, setDownloadPreviewImages] = useState(false);
   const [previewLimit, setPreviewLimit] = useState("5");
-  const [downloadVideos, setDownloadVideos] = useState(true);
+  const [downloadVideos, setDownloadVideos] = useState(false);
   const [scanSize, setScanSize] = useState(false);
   const [deleteAfter, setDeleteAfter] = useState(false);
   const [moveGame, setMoveGame] = useState(false);
@@ -441,7 +441,7 @@ const Importer = () => {
                       downloadBannerImages: false,
                       downloadPreviewImages: false,
                       previewLimit: "5",
-                      downloadVideos: true,
+                      downloadVideos: false,
                     })
                     .catch((err) => {
                       console.error("Steam scan error:", err);
