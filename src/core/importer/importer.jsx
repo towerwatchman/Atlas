@@ -126,26 +126,38 @@ useEffect(() => {
     setGamesList((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleResultChange = async (index, value) => {
-    console.log(`Handling result change for index ${index}, value ${value}`);
-    window.electronAPI.log(`Handling result change for index ${index}, value ${value}`);
-    const updated = [...gamesList];
-    const game = updated[index];
-    game.resultSelectedValue = value;
-    const selected = game.results.find(r => r.key === value);
-    if (selected && value !== 'match') {
-      const parts = selected.value.split(' | ');
-      game.atlasId = parts[0];
-      game.f95Id = parts[1] || '';
-      game.title = parts[2];
-      game.creator = parts[3];
-      const atlasData = await window.electronAPI.getAtlasData(game.atlasId);
-      game.engine = atlasData.engine || 'Unknown';
-      console.log(`Updated game: ${JSON.stringify(game)}`);
-      window.electronAPI.log(`Updated game: ${JSON.stringify(game)}`);
+const handleResultChange = async (index, value) => {
+  console.log(`Handling result change for index ${index}, value ${value}`);
+  window.electronAPI.log(`Handling result change for index ${index}, value ${value}`);
+  const updatedGames = gamesList.map((game, i) => {
+    if (i === index) {
+      const updatedGame = { ...game, resultSelectedValue: value };
+      const selected = game.results.find(r => r.key === value);
+      if (selected && value !== 'match') {
+        const parts = selected.value.split(' | ');
+        updatedGame.atlasId = parts[0];
+        updatedGame.f95Id = parts[1] || '';
+        updatedGame.title = parts[2];
+        updatedGame.creator = parts[3];
+        return window.electronAPI.getAtlasData(updatedGame.atlasId).then(atlasData => {
+          updatedGame.engine = atlasData.engine || 'Unknown';
+          console.log(`Updated game at index ${index}: ${JSON.stringify(updatedGame)}`);
+          window.electronAPI.log(`Updated game at index ${index}: ${JSON.stringify(updatedGame)}`);
+          return updatedGame;
+        });
+      }
+      return updatedGame;
     }
-    setGamesList(updated);
-  };
+    return game;
+  });
+
+  // Wait for all promises to resolve
+  Promise.all(updatedGames).then(newGamesList => {
+    setGamesList(newGamesList);
+    console.log(`New gamesList set: ${JSON.stringify(newGamesList[index])}`);
+    window.electronAPI.log(`New gamesList set: ${JSON.stringify(newGamesList[index])}`);
+  });
+};
 
   const updateMatches = async () => {
     console.log('Updating games');
@@ -170,25 +182,24 @@ useEffect(() => {
         game.results = [{ key: 'match', value: 'Match Found' }];
         game.resultSelectedValue = 'match';
         game.resultVisibility = 'visible';
-      } else if (data.length > 1) {
-        game.results = data.map(d => ({
-          key: d.atlas_id,
-          value: `${d.atlas_id} | ${d.f95_id || ''} | ${d.title} | ${d.creator}`
-        }));
-        // Preserve existing selection if still valid
-        const currentSelection = game.resultSelectedValue;
-        const validSelection = game.results.find(r => r.key === currentSelection);
-        game.resultSelectedValue = validSelection ? currentSelection : game.results[0].key;
-        game.resultVisibility = 'visible';
-        const selectedResult = game.results.find(r => r.key === game.resultSelectedValue) || game.results[0];
-        const parts = selectedResult.value.split(' | ');
-        game.atlasId = parts[0];
-        game.f95Id = parts[1] || '';
-        game.title = parts[2];
-        game.creator = parts[3];
-        const atlasData = await window.electronAPI.getAtlasData(parts[0]);
-        game.engine = atlasData.engine || game.engine || 'Unknown';
-      } else {
+} else if (data.length > 1) {
+      game.results = data.map(d => ({
+        key: String(d.atlas_id),
+        value: `${d.atlas_id} | ${d.f95_id || ''} | ${d.title} | ${d.creator}`
+      }));
+      const currentSelection = game.resultSelectedValue;
+      const validSelection = game.results.find(r => r.key === currentSelection);
+      game.resultSelectedValue = validSelection ? currentSelection : game.results[0].key;
+      game.resultVisibility = 'visible';
+      const selectedResult = game.results.find(r => r.key === game.resultSelectedValue) || game.results[0];
+      const parts = selectedResult.value.split(' | ');
+      game.atlasId = parts[0];
+      game.f95Id = parts[1] || '';
+      game.title = parts[2];
+      game.creator = parts[3];
+      const atlasData = await window.electronAPI.getAtlasData(parts[0]);
+      game.engine = atlasData.engine || game.engine || 'Unknown';
+    } else {
         game.atlasId = '';
         game.f95Id = '';
         game.results = [];
@@ -225,10 +236,10 @@ useEffect(() => {
         updatedGames[index].engine = data.engine || 'Unknown';
         // Update other fields as needed
         const searchResults = await window.electronAPI.searchAtlas(data.title, data.developer);
-        if (searchResults.length > 0) {
+if (searchResults.length > 0) {
           // Update results
           updatedGames[index].results = searchResults.map(r => ({
-            key: r.atlas_id,
+            key: String(r.atlas_id),
             value: `${r.atlas_id} | ${r.f95_id || ''} | ${r.title} | ${r.creator}`
           }));
           if (searchResults.length === 1) {
@@ -453,85 +464,88 @@ return (
           </tr>
         </thead>
         <tbody>
-          {gamesList
-            .filter((game) => !hideMatches || !(game.results.length === 1 && game.results[0].value === 'Match Found'))
-            .map((game, index) => (
-              <tr key={index} className="bg-primary">
-                <td className="border border-border p-1">{game.atlasId}</td>
-                <td className="border border-border p-1">{game.f95Id}</td>
-                <td className="border border-border p-1">
-                  <input
-                    value={game.title}
-                    onChange={(e) => updateGame(index, 'title', e.target.value)}
-                    className="w-full bg-secondary border border-border p-1"
-                  />
-                </td>
-                <td className="border border-border p-1">
-                  <input
-                    value={game.creator}
-                    onChange={(e) => updateGame(index, 'creator', e.target.value)}
-                    className="w-full bg-secondary border border-border p-1"
-                  />
-                </td>
-                <td className="border border-border p-1">
-                  <input
-                    value={game.engine}
-                    onChange={(e) => updateGame(index, 'engine', e.target.value)}
-                    className="w-full bg-secondary border border-border p-1"
-                  />
-                </td>
-                <td className="border border-border p-1">
-                  <input
-                    value={game.version}
-                    onChange={(e) => updateGame(index, 'version', e.target.value)}
-                    className="w-full bg-secondary border border-border p-1"
-                  />
-                </td>
-                <td className="border border-border p-1">
-                  {game.multipleVisible === 'visible' ? (
-                    <select
-                      value={game.selectedValue}
-                      onChange={(e) => updateGame(index, 'selectedValue', e.target.value)}
-                      className="w-full bg-secondary border border-border p-1"
-                    >
-                      {game.executables.map((opt) => (
-                        <option key={opt.key} value={opt.key}>{opt.value}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    game.singleExecutable
-                  )}
-                </td>
-                <td className="border border-border p-1" style={{ visibility: game.resultVisibility }}>
-                  {game.results.length === 1 && game.results[0].key === 'match' ? (
-                    <span className="text-text select-none">{game.results[0].value}</span>
-                  ) : (
-                    game.results.length > 1 && (
-                      <select
-                        value={game.resultSelectedValue}
-                        onChange={(e) => handleResultChange(index, e.target.value)}
-                        className="w-full bg-secondary border border-border p-1"
-                      >
-                        {game.results.map((opt) => (
-                          <option key={opt.key} value={opt.key}>{opt.value}</option>
-                        ))}
-                      </select>
-                    )
-                  )}
-                </td>
-                <td className="border border-border p-1">{game.folder}</td>
-                <td className="border border-border p-1">
-                  <button
-                    onClick={() => deleteGame(index)}
-                    className="bg-red-600 hover:bg-red-700 text-text p-1 rounded"
-                    style={{ pointerEvents: 'auto', zIndex: 1000 }}
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-        </tbody>
+  {gamesList.map((game, originalIndex) => {
+    if (hideMatches && game.results.length === 1 && game.results[0].value === 'Match Found') {
+      return null; // Skip rendering hidden rows
+    }
+    return (
+      <tr key={originalIndex} className="bg-primary">
+        <td className="border border-border p-1">{game.atlasId}</td>
+        <td className="border border-border p-1">{game.f95Id}</td>
+        <td className="border border-border p-1">
+          <input
+            value={game.title}
+            onChange={(e) => updateGame(originalIndex, 'title', e.target.value)}
+            className="w-full bg-secondary border border-border p-1"
+          />
+        </td>
+        <td className="border border-border p-1">
+          <input
+            value={game.creator}
+            onChange={(e) => updateGame(originalIndex, 'creator', e.target.value)}
+            className="w-full bg-secondary border border-border p-1"
+          />
+        </td>
+        <td className="border border-border p-1">
+          <input
+            value={game.engine}
+            onChange={(e) => updateGame(originalIndex, 'engine', e.target.value)}
+            className="w-full bg-secondary border border-border p-1"
+          />
+        </td>
+        <td className="border border-border p-1">
+          <input
+            value={game.version}
+            onChange={(e) => updateGame(originalIndex, 'version', e.target.value)}
+            className="w-full bg-secondary border border-border p-1"
+          />
+        </td>
+        <td className="border border-border p-1">
+          {game.multipleVisible === 'visible' ? (
+            <select
+              value={game.selectedValue}
+              onChange={(e) => updateGame(originalIndex, 'selectedValue', e.target.value)}
+              className="w-full bg-secondary border border-border p-1"
+            >
+              {game.executables.map((opt) => (
+                <option key={opt.key} value={opt.key}>{opt.value}</option>
+              ))}
+            </select>
+          ) : (
+            game.singleExecutable
+          )}
+        </td>
+        <td className="border border-border p-1" style={{ visibility: game.resultVisibility }}>
+          {game.results.length === 1 && game.results[0].key === 'match' ? (
+            <span className="text-text select-none">{game.results[0].value}</span>
+          ) : (
+            game.results.length > 1 && (
+              <select
+                value={game.resultSelectedValue}
+                onChange={(e) => handleResultChange(originalIndex, e.target.value)}
+                className="w-full bg-secondary border border-border p-1"
+              >
+                {game.results.map((opt) => (
+                  <option key={opt.key} value={opt.key}>{opt.value}</option>
+                ))}
+              </select>
+            )
+          )}
+        </td>
+        <td className="border border-border p-1">{game.folder}</td>
+        <td className="border border-border p-1">
+          <button
+            onClick={() => deleteGame(originalIndex)}
+            className="bg-red-600 hover:bg-red-700 text-text p-1 rounded"
+            style={{ pointerEvents: 'auto', zIndex: 1000 }}
+          >
+            Delete
+          </button>
+        </td>
+      </tr>
+    );
+  })}
+</tbody>
       </table>
     </div>
     <div className="flex justify-between space-x-2">

@@ -299,29 +299,28 @@ async function findGame(t, format, extensions, rootPath, stopLevel, isFile, game
     }
 
     console.log(`Processing game: ${title}, Creator: ${creator}, Version: ${version}, Engine: ${gameEngine}`);
-    let data;
-    try {
-      data = await searchAtlas(title, creator);
-      console.log(`searchAtlas returned: ${JSON.stringify(data)}`);
-    } catch (err) {
-      console.error(`searchAtlas error for ${title}: ${err.message}`);
-      data = [];
-    }
+let data;
+try {
+  data = await searchAtlas(title, creator);
+  console.log(`searchAtlas returned: ${JSON.stringify(data)}`);
+} catch (err) {
+  console.error(`searchAtlas error for ${title}: ${err.message}`);
+  data = [];
+}
 
-    let atlasId = '';
-    let f95Id = '';
-    let results = [];
-    if (data.length === 1) {
-      atlasId = data[0].atlas_id;
-      f95Id = data[0].f95_id || '';
-      title = data[0].title;
-      creator = data[0].creator;
-      gameEngine = data[0].engine || gameEngine;
-      results = [{ key: 'match', value: 'Match Found' }];
-    } else if (data.length > 1) {
-      results = data.map(d => ({ key: d.atlas_id, value: `${d.atlas_id} | ${d.f95_id || ''} | ${d.title} | ${d.creator}` }));
-    }
-
+let atlasId = '';
+let f95Id = '';
+let results = [];
+if (data.length === 1) {
+  atlasId = data[0].atlas_id;
+  f95Id = data[0].f95_id || '';
+  title = data[0].title;
+  creator = data[0].creator;
+  gameEngine = data[0].engine || gameEngine;
+  results = [{ key: 'match', value: 'Match Found' }];
+} else if (data.length > 1) {
+  results = data.map(d => ({ key: String(d.atlas_id), value: `${d.atlas_id} | ${d.f95_id || ''} | ${d.title} | ${d.creator}` }));
+}
     const engine = gameEngine || 'Unknown';
     let recordExist = false;
     try {
