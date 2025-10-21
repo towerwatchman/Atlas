@@ -189,7 +189,7 @@ function createGameDetailsWindow(recordId) {
 
   gameDetailsWindow.webContents.on("did-finish-load", () => {
     console.log("Fetching game data for recordId:", recordId);
-    getGame(recordId, app.getAppPath(), process.argv.includes("--dev"))
+    getGame(recordId, app.getAppPath(), process.defaultApp)
       .then((game) => {
         //console.log('Sending game data:', game);
         // Reduced delay to 400ms to minimize latency

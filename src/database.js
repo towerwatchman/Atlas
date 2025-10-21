@@ -381,7 +381,8 @@ const getGame = (recordId, appPath, isDev) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = isDev
       ? path.join(appPath, "src")
-      : path.resolve(appPath, "../../");
+      : path.resolve(appPath, "../");
+      console.log(baseImagePath);
     const query = `
       SELECT
         games.record_id as record_id,
@@ -500,7 +501,7 @@ const getGames = (appPath, isDev, offset = 0, limit = null) => {
     const baseImagePath = isDev
       ? path.join(appPath, "src")
       : path.resolve(appPath, "../../");
-
+console.log(baseImagePath);
     // Main query with OFFSET and LIMIT
     let mainQuery = `
       SELECT
