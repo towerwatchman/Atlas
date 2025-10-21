@@ -69,7 +69,7 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "index.html"));
 
   if (
-    process.argv.includes("--dev") ||
+    process.defaultApp ||
     appConfig?.Interface?.showDebugConsole
   ) {
     mainWindow.webContents.openDevTools();
@@ -105,7 +105,7 @@ function createSettingsWindow() {
   settingsWindow.loadFile(path.join(__dirname, "settings.html"));
 
   if (
-    process.argv.includes("--dev") ||
+    process.defaultApp ||
     appConfig?.Interface?.showDebugConsole
   ) {
     settingsWindow.webContents.openDevTools();
@@ -204,7 +204,7 @@ function createGameDetailsWindow(recordId) {
   });
 
   if (
-    process.argv.includes("--dev") ||
+    process.defaultApp ||
     appConfig?.Interface?.showDebugConsole
   ) {
     gameDetailsWindow.webContents.openDevTools();
@@ -332,6 +332,7 @@ ipcMain.handle("add-game", async (event, game) => {
 });
 
 ipcMain.handle("get-game", async (event, recordId) => {
+  console.log("Default app state", app.getAppPath());
   return await getGame(recordId, app.getAppPath(), process.defaultApp);
 });
 
@@ -905,7 +906,7 @@ ipcMain.handle("update-banners", async (event, recordId) => {
       true,
       false,
       1,
-      false,
+      true,
     );
 
     const bannerUrl = await getBannerUrl(atlas_id);
@@ -944,13 +945,13 @@ ipcMain.handle("update-previews", async (event, recordId) => {
       false,
       true,
       100,
-      false,
+      true,
     );
 
     const previewUrls = await getPreviews(
       recordId,
       app.getAppPath(),
-      process.argv.includes("--dev"),
+      process.defaultApp,
     );
     event.sender.send("game-updated", recordId);
     progress++;
@@ -1027,7 +1028,7 @@ ipcMain.handle("delete-banner", async (event, recordId) => {
     await deleteBanner(
       recordId,
       app.getAppPath(),
-      process.argv.includes("--dev"),
+      process.defaultApp,
     );
     mainWindow.webContents.send("game-updated", recordId);
     return { success: true };
@@ -1044,7 +1045,7 @@ ipcMain.handle("delete-previews", async (event, recordId) => {
     await deletePreviews(
       recordId,
       app.getAppPath(),
-      process.argv.includes("--dev"),
+      process.defaultApp,
     );
     mainWindow.webContents.send("game-updated", recordId);
     return { success: true };
@@ -1311,12 +1312,13 @@ async function downloadImages(
           recordId.toString(),
           baseName,
         );
-
+        //Download regualr
         const targetPath =
           [".gif", ".mp4", ".webm"].includes(ext) && downloadVideos
             ? `${imagePath}${ext}`
             : `${imagePath}_pr.webp`;
         let downloaded = false;
+        //----------------------------------------------
         if (!fs.existsSync(targetPath)) {
           const response = await axios.get(url, {
             responseType: "arraybuffer",
@@ -1335,6 +1337,7 @@ async function downloadImages(
           downloaded = true;
         }
         await updatePreviews(recordId, `${relativePath}_pr.webp`);
+        
         imageProgress++;
         onImageProgress(imageProgress, totalImages);
         console.log(`Screen ${i + 1} updated`);
