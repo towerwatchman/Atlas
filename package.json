@@ -15,7 +15,7 @@
     "rebuild": "npx electron-rebuild --version=37.0.0",
     "structure": "node scripts/generate-structure.js > scripts/project-structure.txt",
     "publish": "npm run build:css && electron-builder --win -p always",
-    "format": "prettier --write public/**/*.{js,jsx,css} && prettier --write routes/**/*.{js,jsx,css}"
+    "format": "prettier --write src/**/*.{js,jsx,css} && prettier --write src/assets/**/*.{js,jsx,css}"
   },
   "build": {
     "appId": "com.towerwatchman.atlas",

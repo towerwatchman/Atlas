@@ -10,7 +10,10 @@ const Metadata = () => {
 
   const saveSettings = (updatedSettings) => {
     window.electronAPI.getConfig().then((config) => {
-      const newConfig = { ...config, Metadata: { ...config.Metadata, ...updatedSettings } };
+      const newConfig = {
+        ...config,
+        Metadata: { ...config.Metadata, ...updatedSettings },
+      };
       window.electronAPI.saveSettings(newConfig);
     });
   };
@@ -31,7 +34,10 @@ const Metadata = () => {
           onChange={handleDownloadPreviewsChange}
         />
       </div>
-      <p className="text-xs opacity-50 mb-2">This will grab all preview images when adding or updating existing games.</p>
+      <p className="text-xs opacity-50 mb-2">
+        This will grab all preview images when adding or updating existing
+        games.
+      </p>
       <div className="border-t border-text opacity-25 my-2"></div>
     </div>
   );

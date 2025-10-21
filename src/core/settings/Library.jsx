@@ -1,22 +1,33 @@
 const Library = () => {
-  const [rootPath, setRootPath] = React.useState('');
-  const [gameFolder, setGameFolder] = React.useState('');
-  const [gameExtensions, setGameExtensions] = React.useState('exe,swf,flv,f4v,rag,cmd,bat,jar,html');
-  const [extractionExtensions, setExtractionExtensions] = React.useState('zip,7z,rar');
+  const [rootPath, setRootPath] = React.useState("");
+  const [gameFolder, setGameFolder] = React.useState("");
+  const [gameExtensions, setGameExtensions] = React.useState(
+    "exe,swf,flv,f4v,rag,cmd,bat,jar,html",
+  );
+  const [extractionExtensions, setExtractionExtensions] =
+    React.useState("zip,7z,rar");
 
   React.useEffect(() => {
     window.electronAPI.getConfig().then((config) => {
       const librarySettings = config.Library || {};
-      setRootPath(librarySettings.rootPath || './data');
-      setGameFolder(librarySettings.gameFolder || '');
-      setGameExtensions(librarySettings.gameExtensions || 'exe,swf,flv,f4v,rag,cmd,bat,jar,html');
-      setExtractionExtensions(librarySettings.extractionExtensions || 'zip,7z,rar');
+      setRootPath(librarySettings.rootPath || "./data");
+      setGameFolder(librarySettings.gameFolder || "");
+      setGameExtensions(
+        librarySettings.gameExtensions ||
+          "exe,swf,flv,f4v,rag,cmd,bat,jar,html",
+      );
+      setExtractionExtensions(
+        librarySettings.extractionExtensions || "zip,7z,rar",
+      );
     });
   }, []);
 
   const saveSettings = (updatedSettings) => {
     window.electronAPI.getConfig().then((config) => {
-      const newConfig = { ...config, Library: { ...config.Library, ...updatedSettings } };
+      const newConfig = {
+        ...config,
+        Library: { ...config.Library, ...updatedSettings },
+      };
       window.electronAPI.saveSettings(newConfig);
     });
   };
@@ -55,7 +66,10 @@ const Library = () => {
           readOnly
         />
       </div>
-      <p className="text-xs opacity-50 mb-2">Atlas local path. This is dynamic and will change if you move the program.</p>
+      <p className="text-xs opacity-50 mb-2">
+        Atlas local path. This is dynamic and will change if you move the
+        program.
+      </p>
       <div className="border-t border-text opacity-25 my-2"></div>
       <div className="flex items-center mb-2 h-8">
         <label className="w-24 text-left mr-2">Game Folder:</label>
@@ -72,7 +86,9 @@ const Library = () => {
           Set Folder
         </button>
       </div>
-      <p className="text-xs opacity-50 mb-2">All extracted or moved games will go here</p>
+      <p className="text-xs opacity-50 mb-2">
+        All extracted or moved games will go here
+      </p>
       <div className="border-t border-text opacity-25 my-2"></div>
       <div className="flex items-center mb-2 h-8">
         <label className="w-24 text-left mr-2">Game Extensions:</label>
@@ -83,7 +99,10 @@ const Library = () => {
           onChange={handleGameExtensionsChange}
         />
       </div>
-      <p className="text-xs opacity-50 mb-2">Comma-separated list of game executable extensions (without dots, e.g., exe,html,swf)</p>
+      <p className="text-xs opacity-50 mb-2">
+        Comma-separated list of game executable extensions (without dots, e.g.,
+        exe,html,swf)
+      </p>
       <div className="border-t border-text opacity-25 my-2"></div>
       <div className="flex items-center mb-2 h-8">
         <label className="w-24 text-left mr-2">Extraction Extensions:</label>
@@ -94,7 +113,10 @@ const Library = () => {
           onChange={handleExtractionExtensionsChange}
         />
       </div>
-      <p className="text-xs opacity-50 mb-2">Comma-separated list of archive extensions (without dots, e.g., zip,7z,rar)</p>
+      <p className="text-xs opacity-50 mb-2">
+        Comma-separated list of archive extensions (without dots, e.g.,
+        zip,7z,rar)
+      </p>
       <div className="border-t border-text opacity-25 my-2"></div>
     </div>
   );

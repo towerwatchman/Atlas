@@ -5,14 +5,29 @@ const { AutoSizer, Grid } = window.ReactVirtualized;
 const App = () => {
   const [games, setGames] = useState([]);
   const [selectedGame, setSelectedGame] = useState(null);
-  const [filter, setFilter] = useState('');
-  const [version, setVersion] = useState('0.0.0');
-  const [importStatus, setImportStatus] = useState({ text: '', progress: 0, total: 0 });
-  const [dbUpdateStatus, setDbUpdateStatus] = useState({ text: '', progress: 0, total: 0 });
-  const [importProgress, setImportProgress] = useState({ text: '', progress: 0, total: 0 });
+  const [filter, setFilter] = useState("");
+  const [version, setVersion] = useState("0.0.0");
+  const [importStatus, setImportStatus] = useState({
+    text: "",
+    progress: 0,
+    total: 0,
+  });
+  const [dbUpdateStatus, setDbUpdateStatus] = useState({
+    text: "",
+    progress: 0,
+    total: 0,
+  });
+  const [importProgress, setImportProgress] = useState({
+    text: "",
+    progress: 0,
+    total: 0,
+  });
   const [isMaximized, setIsMaximized] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [bannerSize, setBannerSize] = useState({ bannerWidth: 537, bannerHeight: 251 });
+  const [bannerSize, setBannerSize] = useState({
+    bannerWidth: 537,
+    bannerHeight: 251,
+  });
   const [columnCount, setColumnCount] = useState(1);
   const [totalVersions, setTotalVersions] = useState(0);
   const gridRef = useRef(null);
@@ -28,34 +43,53 @@ const App = () => {
   };
 
   // Debounced refresh for game updates
-  const refreshGame = useCallback(debounce((recordId) => {
-    console.log(`refreshGame called for recordId: ${recordId}`);
-    window.electronAPI.getGame(recordId).then(updatedGame => {
-      if (updatedGame) {
-        console.log(`Updated game data for recordId ${recordId}:`, {
-          record_id: updatedGame.record_id,
-          title: updatedGame.title,
-          banner_url: updatedGame.banner_url
-        });
-        setGames(prev => {
-          const newGames = prev.map(g => g.record_id === updatedGame.record_id ? updatedGame : g);
-          setTotalVersions(newGames.reduce((sum, game) => sum + (game.versionCount || 0), 0));
-          return newGames;
-        });
-        // Force grid re-render for the updated game
-        if (gridRef.current) {
-          console.log(`Forcing grid update for recordId: ${recordId}`);
-          gridRef.current.forceUpdate();
-        }
-      } else {
-        console.warn(`No game data returned for recordId: ${recordId}`);
-      }
-    }).catch(error => console.error(`Failed to update game for recordId ${recordId}:`, error));
-  }, 100), []);
+  const refreshGame = useCallback(
+    debounce((recordId) => {
+      console.log(`refreshGame called for recordId: ${recordId}`);
+      window.electronAPI
+        .getGame(recordId)
+        .then((updatedGame) => {
+          if (updatedGame) {
+            console.log(`Updated game data for recordId ${recordId}:`, {
+              record_id: updatedGame.record_id,
+              title: updatedGame.title,
+              banner_url: updatedGame.banner_url,
+            });
+            setGames((prev) => {
+              const newGames = prev.map((g) =>
+                g.record_id === updatedGame.record_id ? updatedGame : g,
+              );
+              setTotalVersions(
+                newGames.reduce(
+                  (sum, game) => sum + (game.versionCount || 0),
+                  0,
+                ),
+              );
+              return newGames;
+            });
+            // Force grid re-render for the updated game
+            if (gridRef.current) {
+              console.log(`Forcing grid update for recordId: ${recordId}`);
+              gridRef.current.forceUpdate();
+            }
+          } else {
+            console.warn(`No game data returned for recordId: ${recordId}`);
+          }
+        })
+        .catch((error) =>
+          console.error(
+            `Failed to update game for recordId ${recordId}:`,
+            error,
+          ),
+        );
+    }, 100),
+    [],
+  );
 
   // Handle resize with debounce for smoother updates
   const debounceResize = debounce(() => {
-    const containerWidth = gameGridRef.current?.clientWidth || window.innerWidth - 260;
+    const containerWidth =
+      gameGridRef.current?.clientWidth || window.innerWidth - 260;
     const scrollbarWidth = getScrollbarWidth();
     const adjustedWidth = Math.max(0, containerWidth - scrollbarWidth);
     const newColumnCount = getColumnCount(adjustedWidth);
@@ -68,104 +102,177 @@ const App = () => {
 
   useEffect(() => {
     // Fetch games only once on mount
-    window.electronAPI.getGames().then((allGames) => {
-      const gamesArray = Array.isArray(allGames) ? allGames : [];
-      console.log(`Initial fetch: ${gamesArray.length} games loaded`);
-      setGames(gamesArray);
-      setTotalVersions(gamesArray.reduce((sum, game) => sum + (game.versionCount || 0), 0));
-    }).catch((error) => {
-      console.error('Failed to fetch games:', error);
-      setGames([]);
-      setTotalVersions(0);
-    });
+    window.electronAPI
+      .getGames()
+      .then((allGames) => {
+        const gamesArray = Array.isArray(allGames) ? allGames : [];
+        console.log(`Initial fetch: ${gamesArray.length} games loaded`);
+        setGames(gamesArray);
+        setTotalVersions(
+          gamesArray.reduce((sum, game) => sum + (game.versionCount || 0), 0),
+        );
+      })
+      .catch((error) => {
+        console.error("Failed to fetch games:", error);
+        setGames([]);
+        setTotalVersions(0);
+      });
 
     // Load banner size from template
-    window.electronAPI.getTemplate?.().then((template) => {
-      if (template && template.bannerWidth && template.bannerHeight) {
-        setBannerSize({ bannerWidth: template.bannerWidth, bannerHeight: template.bannerHeight });
-      }
-    }).catch((error) => {
-      console.error('Failed to load template:', error);
-    });
+    window.electronAPI
+      .getTemplate?.()
+      .then((template) => {
+        if (template && template.bannerWidth && template.bannerHeight) {
+          setBannerSize({
+            bannerWidth: template.bannerWidth,
+            bannerHeight: template.bannerHeight,
+          });
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load template:", error);
+      });
 
     // Check for updates
-    window.electronAPI.checkUpdates().then(({ latestVersion, currentVersion }) => {
-      if (latestVersion !== currentVersion) {
-        alert(`New version ${latestVersion} available!`);
-      }
-    }).catch((error) => {
-      console.error('Failed to check updates:', error);
-    });
+    window.electronAPI
+      .checkUpdates()
+      .then(({ latestVersion, currentVersion }) => {
+        if (latestVersion !== currentVersion) {
+          alert(`New version ${latestVersion} available!`);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to check updates:", error);
+      });
 
     window.electronAPI.getVersion().then((v) => setVersion(v));
 
-    window.electronAPI.checkDbUpdates().then((result) => {
-      if (!result.success) {
-        setDbUpdateStatus({ text: `Error: ${result.error}`, progress: 0, total: 100 });
-        setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
-      } else if (result.total === 0) {
-        setDbUpdateStatus({ text: result.message, progress: 0, total: 0 });
-        setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
-      }
-    }).catch((error) => {
-      console.error('Failed to check database updates:', error);
-      setDbUpdateStatus({ text: `Error: ${error.message}`, progress: 0, total: 100 });
-      setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
-    });
+    window.electronAPI
+      .checkDbUpdates()
+      .then((result) => {
+        if (!result.success) {
+          setDbUpdateStatus({
+            text: `Error: ${result.error}`,
+            progress: 0,
+            total: 100,
+          });
+          setTimeout(
+            () => setDbUpdateStatus({ text: "", progress: 0, total: 0 }),
+            2000,
+          );
+        } else if (result.total === 0) {
+          setDbUpdateStatus({ text: result.message, progress: 0, total: 0 });
+          setTimeout(
+            () => setDbUpdateStatus({ text: "", progress: 0, total: 0 }),
+            2000,
+          );
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to check database updates:", error);
+        setDbUpdateStatus({
+          text: `Error: ${error.message}`,
+          progress: 0,
+          total: 100,
+        });
+        setTimeout(
+          () => setDbUpdateStatus({ text: "", progress: 0, total: 0 }),
+          2000,
+        );
+      });
 
     // Set up IPC listeners
-    const handleWindowStateChanged = (state) => setIsMaximized(state === 'maximized');
+    const handleWindowStateChanged = (state) =>
+      setIsMaximized(state === "maximized");
     const handleDbUpdateProgress = (progress) => {
       setDbUpdateStatus(progress);
       if (progress.progress >= progress.total && progress.total > 0) {
-        setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000);
+        setTimeout(
+          () => setDbUpdateStatus({ text: "", progress: 0, total: 0 }),
+          2000,
+        );
       }
     };
     const handleImportProgress = (progress) => {
       setImportProgress(progress);
-      if (progress.progress >= progress.total && progress.total > 0 && progress.text.includes('Import complete')) {
-        setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000);
+      if (
+        progress.progress >= progress.total &&
+        progress.total > 0 &&
+        progress.text.includes("Import complete")
+      ) {
+        setTimeout(
+          () => setImportProgress({ text: "", progress: 0, total: 0 }),
+          2000,
+        );
       }
     };
     const handleGameImported = (event, recordId) => {
       console.log(`Game imported: recordId ${recordId}`);
-      window.electronAPI.getGame(recordId).then(game => {
-        if (game) {
-          setGames(prev => {
-            const newGames = [...prev, game].sort((a, b) => a.title.localeCompare(b.title));
-            setTotalVersions(newGames.reduce((sum, game) => sum + (game.versionCount || 0), 0));
-            return newGames;
-          });
-        }
-      }).catch(error => console.error(`Failed to get game for recordId ${recordId}:`, error));
+      window.electronAPI
+        .getGame(recordId)
+        .then((game) => {
+          if (game) {
+            setGames((prev) => {
+              const newGames = [...prev, game].sort((a, b) =>
+                a.title.localeCompare(b.title),
+              );
+              setTotalVersions(
+                newGames.reduce(
+                  (sum, game) => sum + (game.versionCount || 0),
+                  0,
+                ),
+              );
+              return newGames;
+            });
+          }
+        })
+        .catch((error) =>
+          console.error(`Failed to get game for recordId ${recordId}:`, error),
+        );
     };
     const handleGameUpdated = (event, recordId) => {
       console.log(`Game updated event received for recordId: ${recordId}`);
       refreshGame(recordId);
     };
     const handleImportComplete = () => {
-      console.log('Import complete: fetching all games');
-      window.electronAPI.getGames().then((allGames) => {
-        const gamesArray = Array.isArray(allGames) ? allGames : [];
-        console.log(`Import complete: ${gamesArray.length} games loaded`);
-        setGames(gamesArray);
-        setTotalVersions(gamesArray.reduce((sum, game) => sum + (game.versionCount || 0), 0));
-      }).catch((error) => {
-        console.error('Failed to fetch games on import complete:', error);
-        setGames([]);
-        setTotalVersions(0);
-      });
-      setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000);
+      console.log("Import complete: fetching all games");
+      window.electronAPI
+        .getGames()
+        .then((allGames) => {
+          const gamesArray = Array.isArray(allGames) ? allGames : [];
+          console.log(`Import complete: ${gamesArray.length} games loaded`);
+          setGames(gamesArray);
+          setTotalVersions(
+            gamesArray.reduce((sum, game) => sum + (game.versionCount || 0), 0),
+          );
+        })
+        .catch((error) => {
+          console.error("Failed to fetch games on import complete:", error);
+          setGames([]);
+          setTotalVersions(0);
+        });
+      setTimeout(
+        () => setImportProgress({ text: "", progress: 0, total: 0 }),
+        2000,
+      );
     };
     const handleUpdateStatus = (status) => {
-      console.log('Update status:', status);
-      if (status.status === 'available') {
-        alert(`New app version ${status.version} is available and will be downloaded.`);
-      } else if (status.status === 'downloading') {
-        setDbUpdateStatus({ text: `Downloading update: ${status.percent.toFixed(0)}%`, progress: status.percent, total: 100 });
-      } else if (status.status === 'downloaded') {
-        alert(`Update ${status.version} downloaded. Restarting app to install.`);
-      } else if (status.status === 'error') {
+      console.log("Update status:", status);
+      if (status.status === "available") {
+        alert(
+          `New app version ${status.version} is available and will be downloaded.`,
+        );
+      } else if (status.status === "downloading") {
+        setDbUpdateStatus({
+          text: `Downloading update: ${status.percent.toFixed(0)}%`,
+          progress: status.percent,
+          total: 100,
+        });
+      } else if (status.status === "downloaded") {
+        alert(
+          `Update ${status.version} downloaded. Restarting app to install.`,
+        );
+      } else if (status.status === "error") {
         alert(`Update error: ${status.error}`);
       }
     };
@@ -180,21 +287,26 @@ const App = () => {
 
     //banner context menu
     window.electronAPI.onContextMenuCommand((event, data) => {
-      if (data.action === 'properties') {
-        window.electronAPI.getGame(data.recordId).then(updatedGame => {
-          setSelectedGame(updatedGame);
-        }).catch(error => console.error('Failed to get game for properties:', error));
+      if (data.action === "properties") {
+        window.electronAPI
+          .getGame(data.recordId)
+          .then((updatedGame) => {
+            setSelectedGame(updatedGame);
+          })
+          .catch((error) =>
+            console.error("Failed to get game for properties:", error),
+          );
       }
     });
 
     // Set up resize listener
-    window.addEventListener('resize', debounceResize);
+    window.addEventListener("resize", debounceResize);
     debounceResize(); // Initial resize calculation
 
     // Cleanup
     return () => {
       window.electronAPI.removeUpdateStatusListener?.();
-      window.removeEventListener('resize', debounceResize);
+      window.removeEventListener("resize", debounceResize);
       window.electronAPI.onWindowStateChanged(() => {});
       window.electronAPI.onDbUpdateProgress(() => {});
       window.electronAPI.onImportProgress(() => {});
@@ -205,21 +317,23 @@ const App = () => {
     };
   }, []);
 
-const addGame = async () => {
-  window.electronAPI.openImporter();
-};
+  const addGame = async () => {
+    window.electronAPI.openImporter();
+  };
 
   const removeGame = async (id) => {
     try {
       await window.electronAPI.removeGame(id);
-      setGames(prev => {
-        const newGames = prev.filter(g => g.record_id !== id);
-        setTotalVersions(newGames.reduce((sum, game) => sum + (game.versionCount || 0), 0));
+      setGames((prev) => {
+        const newGames = prev.filter((g) => g.record_id !== id);
+        setTotalVersions(
+          newGames.reduce((sum, game) => sum + (game.versionCount || 0), 0),
+        );
         return newGames;
       });
       if (selectedGame?.record_id === id) setSelectedGame(null);
     } catch (error) {
-      console.error('Failed to remove game:', error);
+      console.error("Failed to remove game:", error);
     }
   };
 
@@ -227,32 +341,50 @@ const addGame = async () => {
     const zipPath = await window.electronAPI.selectFile();
     const extractPath = await window.electronAPI.selectDirectory();
     if (!zipPath || !extractPath) return;
-    setImportStatus({ text: 'Unzipping game', progress: 50, total: 100 });
+    setImportStatus({ text: "Unzipping game", progress: 50, total: 100 });
     try {
-      const result = await window.electronAPI.unzipGame({ zipPath, extractPath });
-      setImportStatus({
-        text: result.success ? 'Unzip complete' : `Error: ${result.error}`,
-        progress: result.success ? 100 : 50,
-        total: 100
+      const result = await window.electronAPI.unzipGame({
+        zipPath,
+        extractPath,
       });
-      setTimeout(() => setImportStatus({ text: '', progress: 0, total: 0 }), 2000);
+      setImportStatus({
+        text: result.success ? "Unzip complete" : `Error: ${result.error}`,
+        progress: result.success ? 100 : 50,
+        total: 100,
+      });
+      setTimeout(
+        () => setImportStatus({ text: "", progress: 0, total: 0 }),
+        2000,
+      );
     } catch (error) {
-      console.error('Failed to unzip game:', error);
-      setImportStatus({ text: `Error: ${error.message}`, progress: 50, total: 100 });
-      setTimeout(() => setImportStatus({ text: '', progress: 0, total: 0 }), 2000);
+      console.error("Failed to unzip game:", error);
+      setImportStatus({
+        text: `Error: ${error.message}`,
+        progress: 50,
+        total: 100,
+      });
+      setTimeout(
+        () => setImportStatus({ text: "", progress: 0, total: 0 }),
+        2000,
+      );
     }
   };
 
-  const filteredGames = games.filter((game) =>
-    game.title.toLowerCase().includes(filter.toLowerCase()) ||
-    game.creator.toLowerCase().includes(filter.toLowerCase())
+  const filteredGames = games.filter(
+    (game) =>
+      game.title.toLowerCase().includes(filter.toLowerCase()) ||
+      game.creator.toLowerCase().includes(filter.toLowerCase()),
   );
 
   const getColumnCount = (width) => {
-    const containerWidth = width || (gameGridRef.current?.clientWidth || window.innerWidth - 260);
+    const containerWidth =
+      width || gameGridRef.current?.clientWidth || window.innerWidth - 260;
     const scrollbarWidth = getScrollbarWidth();
     const adjustedWidth = containerWidth - scrollbarWidth;
-    return Math.max(1, Math.floor(adjustedWidth / (bannerSize.bannerWidth + 8)));
+    return Math.max(
+      1,
+      Math.floor(adjustedWidth / (bannerSize.bannerWidth + 8)),
+    );
   };
 
   const getScrollbarWidth = () => {
@@ -269,7 +401,13 @@ const addGame = async () => {
     return (
       <div
         key={game.record_id}
-        style={{ ...style, display: 'flex', justifyContent: 'center', padding: '8px 4px', maxWidth: '100%' }}
+        style={{
+          ...style,
+          display: "flex",
+          justifyContent: "center",
+          padding: "8px 4px",
+          maxWidth: "100%",
+        }}
       >
         <window.GameBanner game={game} onSelect={() => setSelectedGame(game)} />
       </div>
@@ -283,18 +421,26 @@ const addGame = async () => {
           <svg
             className="w-[50px] h-[50px] text-atlasLogo"
             viewBox="0 0 24 24"
-            style={{ shapeRendering: 'geometricPrecision' }}
+            style={{ shapeRendering: "geometricPrecision" }}
             fill="currentColor"
             dangerouslySetInnerHTML={{ __html: window.atlasLogo.path }}
           />
         </div>
         <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)]">
           <div className="absolute top-0 left-[50px] right-[110px] h-[10px] bg-accentBar"></div>
-          <div className="absolute top-0 left-[40px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 100% 100%)' }}></div>
-          <div className="absolute top-0 right-[100px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 0% 100%)' }}></div>
+          <div
+            className="absolute top-0 left-[40px] w-[10px] h-[10px] bg-accentBar"
+            style={{ clipPath: "polygon(0% 0%, 100% 0%, 100% 100%)" }}
+          ></div>
+          <div
+            className="absolute top-0 right-[100px] w-[10px] h-[10px] bg-accentBar"
+            style={{ clipPath: "polygon(0% 0%, 100% 0%, 0% 100%)" }}
+          ></div>
           <div className="w-full flex h-[70px]">
             <div className="flex items-center ml-5 mt-3">
-              <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag">Games</div>
+              <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag">
+                Games
+              </div>
             </div>
             <div className="flex justify-center w-full">
               <div className="flex bg-secondary h-10 w-[400px] items-center rounded mt-[20px] -webkit-app-region-no-drag border border-border hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent relative">
@@ -317,38 +463,106 @@ const addGame = async () => {
                     <div className="p-2 grid grid-cols-2 gap-2">
                       <div>
                         <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">PLAYERS</h3>
+                          <h3 className="text-xs text-text font-bold">
+                            PLAYERS
+                          </h3>
                           <div className="flex flex-col gap-1 text-[11px] text-text">
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Single player</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Single player</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Multiplayer</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Multiplayer</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Cooperative</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Cooperative</span>
                             </label>
                           </div>
                         </div>
                       </div>
                       <div>
                         <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">PLAY STATE</h3>
+                          <h3 className="text-xs text-text font-bold">
+                            PLAY STATE
+                          </h3>
                           <div className="flex flex-col gap-1 text-[11px] text-text">
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Ready to play</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Ready to play</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Installed locally</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Installed locally</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Played</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Played</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Unplayed</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Unplayed</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Private</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Private</span>
                             </label>
                           </div>
                         </div>
@@ -358,85 +572,251 @@ const addGame = async () => {
                           <h3 className="text-xs text-text font-bold">GENRE</h3>
                           <div className="flex flex-col gap-1 text-[11px] text-text">
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Action</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Action</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Adventure</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Adventure</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Casual</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Casual</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Indie</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Indie</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Massively Multiplayer</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Massively Multiplayer</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Racing</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Racing</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>RPG</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>RPG</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Simulation</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Simulation</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Sports</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Sports</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Strategy</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Strategy</span>
                             </label>
                           </div>
                         </div>
                       </div>
                       <div>
                         <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">HARDWARE SUPPORT</h3>
+                          <h3 className="text-xs text-text font-bold">
+                            HARDWARE SUPPORT
+                          </h3>
                           <div className="flex flex-col gap-1 text-[11px] text-text">
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Controller Preferred</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Controller Preferred</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Full Controller Support</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Full Controller Support</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>VR</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>VR</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Gamepads</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Gamepads</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Steam Deck</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Steam Deck</span>
                             </label>
                           </div>
                         </div>
                       </div>
                       <div>
                         <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">FEATURES</h3>
+                          <h3 className="text-xs text-text font-bold">
+                            FEATURES
+                          </h3>
                           <div className="flex flex-col gap-1 text-[11px] text-text">
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Trading cards</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Trading cards</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Workshop</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Workshop</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Achievements</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Achievements</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Remote Play Together</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Remote Play Together</span>
                             </label>
                             <label className="flex items-center space-x-2">
-                              <input type="checkbox" className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent" style={{ outlineColor: '#2C8EA9', accentColor: '#2C8EA9' }} /> <span>Family Sharing</span>
+                              <input
+                                type="checkbox"
+                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
+                                style={{
+                                  outlineColor: "#2C8EA9",
+                                  accentColor: "#2C8EA9",
+                                }}
+                              />{" "}
+                              <span>Family Sharing</span>
                             </label>
                           </div>
                         </div>
                       </div>
                       <div className="col-span-2">
                         <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">STORE TAGS</h3>
+                          <h3 className="text-xs text-text font-bold">
+                            STORE TAGS
+                          </h3>
                           <div className="flex flex-col text-[11px] text-text">
                             <input
                               type="text"
@@ -446,7 +826,9 @@ const addGame = async () => {
                           </div>
                         </div>
                         <div>
-                          <h3 className="text-xs text-text font-bold">FRIENDS</h3>
+                          <h3 className="text-xs text-text font-bold">
+                            FRIENDS
+                          </h3>
                           <div className="flex flex-col text-[11px] text-text">
                             <input
                               type="text"
@@ -473,7 +855,13 @@ const addGame = async () => {
               onClick={() => window.electronAPI.maximizeWindow()}
               className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
             >
-              <i className={isMaximized ? "fas fa-window-restore text-text fa-sm" : "fas fa-window-maximize text-text fa-sm"}></i>
+              <i
+                className={
+                  isMaximized
+                    ? "fas fa-window-restore text-text fa-sm"
+                    : "fas fa-window-maximize text-text fa-sm"
+                }
+              ></i>
             </button>
             <button
               onClick={() => window.electronAPI.closeWindow()}
@@ -483,7 +871,9 @@ const addGame = async () => {
             </button>
           </div>
           <div className="absolute mt-10 top-0 right-0 flex h-[10px]">
-            <span className="text-text text-xs mr-4">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
+            <span className="text-text text-xs mr-4">
+              Version: {version} <span style={{ color: "Goldenrod" }}>α</span>
+            </span>
           </div>
         </div>
       </div>
@@ -497,7 +887,7 @@ const addGame = async () => {
               filteredGames.map((game) => (
                 <div
                   key={game.record_id}
-                  className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? 'bg-selected' : ''}`}
+                  className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? "bg-selected" : ""}`}
                   onClick={() => setSelectedGame(game)}
                 >
                   {game.title}
@@ -505,22 +895,30 @@ const addGame = async () => {
               ))
             )}
           </div>
-          <div id="gameGrid" className="flex-1 bg-tertiary ml-[200px] overflow-y-auto" ref={gameGridRef} style={{ overflowX: 'hidden' }}>
+          <div
+            id="gameGrid"
+            className="flex-1 bg-tertiary ml-[200px] overflow-y-auto"
+            ref={gameGridRef}
+            style={{ overflowX: "hidden" }}
+          >
             {filteredGames.length === 0 ? (
               <div className="text-center text-text">No games available</div>
             ) : (
               <AutoSizer>
                 {({ height, width }) => {
-                  const adjustedWidth = Math.max(0, width - getScrollbarWidth());
+                  const adjustedWidth = Math.max(
+                    0,
+                    width - getScrollbarWidth(),
+                  );
                   return (
                     <Grid
                       ref={gridRef}
                       columnCount={columnCount}
                       columnWidth={() => {
                         if (columnCount > 1) {
-                          return (adjustedWidth / columnCount) - 8;
+                          return adjustedWidth / columnCount - 8;
                         } else {
-                          return (adjustedWidth / columnCount) - 14;
+                          return adjustedWidth / columnCount - 14;
                         }
                       }}
                       rowCount={Math.ceil(filteredGames.length / columnCount)}
@@ -528,24 +926,28 @@ const addGame = async () => {
                       height={height}
                       width={adjustedWidth}
                       cellRenderer={cellRenderer}
-                      style={{ overflowX: 'hidden' }}
+                      style={{ overflowX: "hidden" }}
                     />
                   );
                 }}
               </AutoSizer>
-            )}           
+            )}
           </div>
         </div>
       </div>
       {dbUpdateStatus.text && (
         <div className="absolute bottom-[44px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border opacity-95">
           <div className="flex items-center w-[540px]">
-            <span className="w-[300px] text-[10px] text-text">{dbUpdateStatus.text}</span>
+            <span className="w-[300px] text-[10px] text-text">
+              {dbUpdateStatus.text}
+            </span>
             <div className="relative w-[300px]">
               <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
                 <div
                   className="h-full bg-accent"
-                  style={{ width: `${(dbUpdateStatus.progress / (dbUpdateStatus.total || 1)) * 100}%` }}
+                  style={{
+                    width: `${(dbUpdateStatus.progress / (dbUpdateStatus.total || 1)) * 100}%`,
+                  }}
                 ></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
@@ -558,12 +960,16 @@ const addGame = async () => {
       {importStatus.text && (
         <div className="absolute bottom-[60px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500]">
           <div className="flex items-center w-[540px]">
-            <span className="w-[300px] text-[10px] text-text">{importStatus.text}</span>
+            <span className="w-[300px] text-[10px] text-text">
+              {importStatus.text}
+            </span>
             <div className="relative w-[300px]">
               <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
                 <div
                   className="h-full bg-accent"
-                  style={{ width: `${(importStatus.progress / importStatus.total) * 100}%` }}
+                  style={{
+                    width: `${(importStatus.progress / importStatus.total) * 100}%`,
+                  }}
                 ></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
@@ -571,19 +977,29 @@ const addGame = async () => {
               </span>
             </div>
           </div>
-          <div className="absolute left-[200px] bottom-0 w-[20px] h-[20px] bg-accent" style={{ clipPath: 'polygon(0% 100%, 100% 0%, 100% 100%)' }}></div>
-          <div className="absolute right-[200px] bottom-0 w-[20px] h-[20px] bg-accent" style={{ clipPath: 'polygon(0% 0%, 100% 100%, 0% 100%)' }}></div>
+          <div
+            className="absolute left-[200px] bottom-0 w-[20px] h-[20px] bg-accent"
+            style={{ clipPath: "polygon(0% 100%, 100% 0%, 100% 100%)" }}
+          ></div>
+          <div
+            className="absolute right-[200px] bottom-0 w-[20px] h-[20px] bg-accent"
+            style={{ clipPath: "polygon(0% 0%, 100% 100%, 0% 100%)" }}
+          ></div>
         </div>
       )}
       {importProgress.text && (
         <div className="absolute bottom-[60px] left-1/2 transform -translate-x-1/2 w-[800px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border opacity-95">
           <div className="flex items-center w-[800px]">
-            <span className="w-[450px] text-[10px] text-text">{importProgress.text}</span>
+            <span className="w-[450px] text-[10px] text-text">
+              {importProgress.text}
+            </span>
             <div className="relative w-[300px]">
               <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
                 <div
                   className="h-full bg-accent"
-                  style={{ width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%` }}
+                  style={{
+                    width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%`,
+                  }}
                 ></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
@@ -607,7 +1023,9 @@ const addGame = async () => {
         </div>
         <div className="flex items-center">
           <i className="fas fa-download mr-2 text-text"></i>
-          <span className="cursor-pointer" onClick={unzipGame}>Downloads</span>
+          <span className="cursor-pointer" onClick={unzipGame}>
+            Downloads
+          </span>
         </div>
       </div>
       <div className="hidden bg-canvas h-full w-full" id="updater">
@@ -618,5 +1036,5 @@ const addGame = async () => {
   );
 };
 
-const root = createRoot(document.getElementById('root'));
+const root = createRoot(document.getElementById("root"));
 root.render(<App />);

@@ -2,40 +2,50 @@ const { useState, useEffect } = window.React;
 
 const EmulatorLauncher = () => {
   const [emulators, setEmulators] = useState([]);
-  const [extension, setExtension] = useState('');
-  const [programPath, setProgramPath] = useState('');
-  const [parameters, setParameters] = useState('');
+  const [extension, setExtension] = useState("");
+  const [programPath, setProgramPath] = useState("");
+  const [parameters, setParameters] = useState("");
 
   // Load existing emulator configurations from database
   useEffect(() => {
-    window.electronAPI.getEmulatorConfig().then((emulators) => {
-      setEmulators(emulators);
-    }).catch((err) => {
-      console.error('Error loading emulator config:', err);
-    });
+    window.electronAPI
+      .getEmulatorConfig()
+      .then((emulators) => {
+        setEmulators(emulators);
+      })
+      .catch((err) => {
+        console.error("Error loading emulator config:", err);
+      });
   }, []);
 
   // Handle adding a new emulator configuration
   const handleAddEmulator = async (e) => {
     e.preventDefault();
     if (!extension || !programPath) {
-      alert('Please provide both an extension and a program path.');
+      alert("Please provide both an extension and a program path.");
       return;
     }
 
-    const newEmulator = { extension: extension.toLowerCase(), program_path: programPath, parameters };
-    const updatedEmulators = [...emulators.filter(emu => emu.extension !== newEmulator.extension), newEmulator];
+    const newEmulator = {
+      extension: extension.toLowerCase(),
+      program_path: programPath,
+      parameters,
+    };
+    const updatedEmulators = [
+      ...emulators.filter((emu) => emu.extension !== newEmulator.extension),
+      newEmulator,
+    ];
     setEmulators(updatedEmulators);
 
     // Save to database
     try {
       await window.electronAPI.saveEmulatorConfig(newEmulator);
-      setExtension('');
-      setProgramPath('');
-      setParameters('');
+      setExtension("");
+      setProgramPath("");
+      setParameters("");
     } catch (err) {
-      console.error('Error saving emulator config:', err);
-      alert('Failed to save emulator configuration.');
+      console.error("Error saving emulator config:", err);
+      alert("Failed to save emulator configuration.");
     }
   };
 
@@ -47,7 +57,7 @@ const EmulatorLauncher = () => {
         setProgramPath(filePath);
       }
     } catch (err) {
-      console.error('Error selecting program:', err);
+      console.error("Error selecting program:", err);
     }
   };
 
@@ -59,18 +69,22 @@ const EmulatorLauncher = () => {
     try {
       await window.electronAPI.removeEmulatorConfig(ext);
     } catch (err) {
-      console.error('Error removing emulator config:', err);
-      alert('Failed to remove emulator configuration.');
+      console.error("Error removing emulator config:", err);
+      alert("Failed to remove emulator configuration.");
     }
   };
 
   return (
     <div className="p-5 text-text">
-      <h2 className="text-xl font-bold mb-4 text-aliceblue">Emulator/Launcher Settings</h2>
+      <h2 className="text-xl font-bold mb-4 text-aliceblue">
+        Emulator/Launcher Settings
+      </h2>
       <form onSubmit={handleAddEmulator} className="mb-6">
         <div className="flex flex-col space-y-4">
           <div>
-            <label className="block text-sm font-medium text-text mb-1">File Extension (e.g., exe, py)</label>
+            <label className="block text-sm font-medium text-text mb-1">
+              File Extension (e.g., exe, py)
+            </label>
             <input
               type="text"
               value={extension}
@@ -80,7 +94,9 @@ const EmulatorLauncher = () => {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-text mb-1">Program Path</label>
+            <label className="block text-sm font-medium text-text mb-1">
+              Program Path
+            </label>
             <div className="flex space-x-2">
               <input
                 type="text"
@@ -99,7 +115,9 @@ const EmulatorLauncher = () => {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-text mb-1">Parameters (optional)</label>
+            <label className="block text-sm font-medium text-text mb-1">
+              Parameters (optional)
+            </label>
             <input
               type="text"
               value={parameters}
@@ -116,7 +134,9 @@ const EmulatorLauncher = () => {
           </button>
         </div>
       </form>
-      <h3 className="text-lg font-semibold mb-2 text-text">Configured Emulators/Launchers</h3>
+      <h3 className="text-lg font-semibold mb-2 text-text">
+        Configured Emulators/Launchers
+      </h3>
       {emulators.length === 0 ? (
         <p className="text-text">No emulators or launchers configured.</p>
       ) : (
@@ -127,7 +147,8 @@ const EmulatorLauncher = () => {
               className="flex justify-between items-center p-2 bg-primary border border-border rounded"
             >
               <div>
-                <span className="font-medium">.{emu.extension}</span>: {emu.program_path}
+                <span className="font-medium">.{emu.extension}</span>:{" "}
+                {emu.program_path}
                 {emu.parameters && <span> (Parameters: {emu.parameters})</span>}
               </div>
               <button

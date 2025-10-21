@@ -1,13 +1,13 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
-const fs = require('fs').promises;
+const sqlite3 = require("sqlite3").verbose();
+const path = require("path");
+const fs = require("fs").promises;
 
 let db;
 
 const initializeDatabase = (dataDir) => {
-  const dbPath = path.join(dataDir, 'data.db');
+  const dbPath = path.join(dataDir, "data.db");
   db = new sqlite3.Database(dbPath, (err) => {
-    if (err) console.error('Database error:', err);
+    if (err) console.error("Database error:", err);
   });
 
   db.serialize(() => {
@@ -192,7 +192,7 @@ const initializeDatabase = (dataDir) => {
         f95_id INTEGER REFERENCES f95_zone_data(f95_id)
       );
     `);
-     db.run(`
+    db.run(`
       CREATE TABLE IF NOT EXISTS emulators
       (
         extension TEXT PRIMARY KEY,
@@ -226,7 +226,7 @@ const initializeDatabase = (dataDir) => {
     last_record_update TEXT
   );
 `);
-db.run(`
+    db.run(`
   CREATE TABLE IF NOT EXISTS steam_screens
   (
     steam_id INTEGER REFERENCES steam_data (steam_id),
@@ -234,7 +234,7 @@ db.run(`
     UNIQUE (steam_id, screen_url)
   );
 `);
-db.run(`
+    db.run(`
   CREATE TABLE IF NOT EXISTS steam_mappings
   (
     record_id INTEGER REFERENCES games (record_id) PRIMARY KEY,
@@ -258,13 +258,15 @@ const addGame = (game) => {
       [escapedTitle, escapedCreator],
       (err, row) => {
         if (err) {
-          console.error('Error checking existing game:', err);
+          console.error("Error checking existing game:", err);
           reject(err);
           return;
         }
         if (row) {
           // Game exists, return existing record_id
-          console.log(`Game ${title} by ${creator} already exists with record_id: ${row.record_id}`);
+          console.log(
+            `Game ${title} by ${creator} already exists with record_id: ${row.record_id}`,
+          );
           resolve(row.record_id);
           return;
         }
@@ -275,16 +277,18 @@ const addGame = (game) => {
           [escapedTitle, escapedCreator, escapedEngine],
           function (err) {
             if (err) {
-              console.error('Error inserting game:', err);
+              console.error("Error inserting game:", err);
               reject(err);
               return;
             }
             // Return the new record_id
-            console.log(`Inserted new game ${title} by ${creator} with record_id: ${this.lastID}`);
+            console.log(
+              `Inserted new game ${title} by ${creator} with record_id: ${this.lastID}`,
+            );
             resolve(this.lastID);
-          }
+          },
         );
-      }
+      },
     );
   });
 };
@@ -295,46 +299,58 @@ const updateGame = (game) => {
     const escapedTitle = title.replace(/'/g, "''");
     const escapedCreator = creator.replace(/'/g, "''");
     const escapedEngine = engine.replace(/'/g, "''");
-      db.run(
-        `INSERT OR REPLACE INTO games (record_id, title, creator, engine)
+    db.run(
+      `INSERT OR REPLACE INTO games (record_id, title, creator, engine)
           VALUES (?, ?, ?, ?)`,
-        [game.record_id, escapedTitle, escapedCreator, escapedEngine],
-        function (err) {
-          if (err) {
-            console.error('Error inserting game:', err);
-            reject(err);
-            return;
-          }
-          // Return the new record_id
-          console.log(`Inserted new game ${title} by ${creator} with record_id: ${game.record_id}`);
-          resolve(game.record_id);
+      [game.record_id, escapedTitle, escapedCreator, escapedEngine],
+      function (err) {
+        if (err) {
+          console.error("Error inserting game:", err);
+          reject(err);
+          return;
         }
-      );
-    }
-  );
+        // Return the new record_id
+        console.log(
+          `Inserted new game ${title} by ${creator} with record_id: ${game.record_id}`,
+        );
+        resolve(game.record_id);
+      },
+    );
+  });
 };
 
 const addVersion = (game, recordId) => {
   const { version, folder, executables, folderSize = 0 } = game;
-  const executable = executables && executables.length > 0 ? executables[0].value : '';
+  const executable =
+    executables && executables.length > 0 ? executables[0].value : "";
   const escapedVersion = version.replace(/'/g, "''");
   const escapedFolder = folder.replace(/'/g, "''");
-  const escapedExecPath = executable ? path.join(folder, executable).replace(/'/g, "''") : '';
+  const escapedExecPath = executable
+    ? path.join(folder, executable).replace(/'/g, "''")
+    : "";
   const dateAdded = Math.floor(Date.now() / 1000);
 
-  console.log('adding version')
+  console.log("adding version");
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT OR REPLACE INTO versions (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)`,
-      [recordId, escapedVersion, escapedFolder, escapedExecPath, true, dateAdded, folderSize],
+      [
+        recordId,
+        escapedVersion,
+        escapedFolder,
+        escapedExecPath,
+        true,
+        dateAdded,
+        folderSize,
+      ],
       (err) => {
         if (err) {
-          console.error('Error adding or updating version:', err);
+          console.error("Error adding or updating version:", err);
           reject(err);
         } else {
           resolve();
         }
-      }
+      },
     );
   });
 };
@@ -344,19 +360,19 @@ const updateVersion = (version, record_id) => {
   const escapedFolder = version.game_path.replace(/'/g, "''");
   const escapedExecPath = version.exec_path.replace(/'/g, "''");
 
-  console.log('updating version with id:', record_id)
+  console.log("updating version with id:", record_id);
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT OR REPLACE INTO versions (record_id, version, game_path, exec_path) VALUES (?, ?, ?, ?)`,
       [record_id, escapedVersion, escapedFolder, escapedExecPath],
       (err) => {
         if (err) {
-          console.error('Error updating version:', err);
+          console.error("Error updating version:", err);
           reject(err);
         } else {
           resolve();
         }
-      }
+      },
     );
   });
 };
@@ -364,8 +380,8 @@ const updateVersion = (version, record_id) => {
 const getGame = (recordId, appPath, isDev) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = isDev
-      ? path.join(appPath, 'src')
-      : path.resolve(appPath, '../../');
+      ? path.join(appPath, "src")
+      : path.resolve(appPath, "../../");
     const query = `
       SELECT
         games.record_id as record_id,
@@ -413,7 +429,7 @@ const getGame = (recordId, appPath, isDev) => {
     `;
     db.get(query, [recordId], (err, row) => {
       if (err) {
-        console.error('Error fetching game:', err);
+        console.error("Error fetching game:", err);
         reject(err);
         return;
       }
@@ -429,14 +445,14 @@ const getGame = (recordId, appPath, isDev) => {
         [recordId],
         (err, versionRows) => {
           if (err) {
-            console.error('Error fetching versions:', err);
+            console.error("Error fetching versions:", err);
             reject(err);
             return;
           }
           const game = {
             ...row,
             engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
-            versions: versionRows.map(v => ({
+            versions: versionRows.map((v) => ({
               version: v.version,
               game_path: v.game_path,
               exec_path: v.exec_path,
@@ -444,23 +460,23 @@ const getGame = (recordId, appPath, isDev) => {
               last_played: v.last_played,
               version_playtime: v.version_playtime,
               folder_size: v.folder_size,
-              date_added: v.date_added
+              date_added: v.date_added,
             })),
             versionCount: versionRows.length,
-            isUpdateAvailable: false
+            isUpdateAvailable: false,
           };
           // Compute isUpdateAvailable
           if (row.latestVersion && game.versions.length > 0) {
             let latest;
             try {
-              latest = parseInt(row.latestVersion.replace(/[^0-9]/g, ''), 10);
+              latest = parseInt(row.latestVersion.replace(/[^0-9]/g, ""), 10);
             } catch {
               latest = 0;
             }
             for (const version of game.versions) {
               let current;
               try {
-                current = parseInt(version.version.replace(/[^0-9]/g, ''), 10);
+                current = parseInt(version.version.replace(/[^0-9]/g, ""), 10);
               } catch {
                 current = 0;
               }
@@ -473,7 +489,7 @@ const getGame = (recordId, appPath, isDev) => {
             }
           }
           resolve(game);
-        }
+        },
       );
     });
   });
@@ -482,8 +498,8 @@ const getGame = (recordId, appPath, isDev) => {
 const getGames = (appPath, isDev, offset = 0, limit = null) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = isDev
-      ? path.join(appPath, 'src')
-      : path.resolve(appPath, '../../');
+      ? path.join(appPath, "src")
+      : path.resolve(appPath, "../../");
 
     // Main query with OFFSET and LIMIT
     let mainQuery = `
@@ -549,7 +565,7 @@ const getGames = (appPath, isDev, offset = 0, limit = null) => {
     // Execute main query
     db.all(mainQuery, params, (err, rows) => {
       if (err) {
-        console.error('Error fetching games:', err);
+        console.error("Error fetching games:", err);
         reject(err);
         return;
       }
@@ -557,7 +573,7 @@ const getGames = (appPath, isDev, offset = 0, limit = null) => {
       // Execute versions query
       db.all(versionsQuery, [], (err, versionRows) => {
         if (err) {
-          console.error('Error fetching versions:', err);
+          console.error("Error fetching versions:", err);
           reject(err);
           return;
         }
@@ -576,7 +592,7 @@ const getGames = (appPath, isDev, offset = 0, limit = null) => {
             last_played: row.last_played,
             version_playtime: row.version_playtime,
             folder_size: row.folder_size,
-            date_added: row.date_added
+            date_added: row.date_added,
           });
         });
 
@@ -588,14 +604,14 @@ const getGames = (appPath, isDev, offset = 0, limit = null) => {
           if (row.latestVersion && versions.length > 0) {
             let latest;
             try {
-              latest = parseInt(row.latestVersion.replace(/[^0-9]/g, ''), 10);
+              latest = parseInt(row.latestVersion.replace(/[^0-9]/g, ""), 10);
             } catch {
               latest = 0;
             }
             for (const version of versions) {
               let current;
               try {
-                current = parseInt(version.version.replace(/[^0-9]/g, ''), 10);
+                current = parseInt(version.version.replace(/[^0-9]/g, ""), 10);
               } catch {
                 current = 0;
               }
@@ -614,7 +630,7 @@ const getGames = (appPath, isDev, offset = 0, limit = null) => {
             engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
             versions,
             versionCount: versions.length, // Add versionCount
-            isUpdateAvailable
+            isUpdateAvailable,
           };
         });
 
@@ -627,7 +643,7 @@ const getGames = (appPath, isDev, offset = 0, limit = null) => {
 
 const removeGame = async (record_id) => {
   return new Promise((resolve, reject) => {
-    db.run('DELETE FROM games WHERE record_id = ?', [record_id], (err) => {
+    db.run("DELETE FROM games WHERE record_id = ?", [record_id], (err) => {
       if (err) reject(err);
       else resolve({ success: true });
     });
@@ -635,30 +651,42 @@ const removeGame = async (record_id) => {
 };
 
 const checkDbUpdates = async (updatesDir, mainWindow) => {
-  const axios = require('axios');
-  const fs = require('fs');
-  const lz4 = require('lz4js');
+  const axios = require("axios");
+  const fs = require("fs");
+  const lz4 = require("lz4js");
 
   try {
-    const url = 'https://atlas-gamesdb.com/api/updates';
+    const url = "https://atlas-gamesdb.com/api/updates";
     const response = await axios.get(url);
     const updates = response.data;
-    if (!Array.isArray(updates)) throw new Error('Invalid updates data');
+    if (!Array.isArray(updates)) throw new Error("Invalid updates data");
 
     // Get last update version
     const lastUpdateVersion = await new Promise((resolve, reject) => {
-      db.get('SELECT MAX(update_time) as last_update FROM updates', [], (err, row) => {
-        if (err) reject(err);
-        else resolve(row.last_update ? parseInt(row.last_update) : 0);
-      });
+      db.get(
+        "SELECT MAX(update_time) as last_update FROM updates",
+        [],
+        (err, row) => {
+          if (err) reject(err);
+          else resolve(row.last_update ? parseInt(row.last_update) : 0);
+        },
+      );
     });
 
     // Filter updates newer than lastUpdateVersion
-    const newUpdates = updates.filter(update => parseInt(update.date) > lastUpdateVersion || lastUpdateVersion === 0);
+    const newUpdates = updates.filter(
+      (update) =>
+        parseInt(update.date) > lastUpdateVersion || lastUpdateVersion === 0,
+    );
     const total = newUpdates.length;
 
     if (total === 0) {
-      return { success: true, message: 'No new updates available', total: 0, processed: 0 };
+      return {
+        success: true,
+        message: "No new updates available",
+        total: 0,
+        processed: 0,
+      };
     }
 
     let processed = 0;
@@ -668,46 +696,69 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
       const outputPath = path.join(updatesDir, name);
 
       // Download update
-      mainWindow.webContents.send('db-update-progress', { text: `Downloading Database Update ${processed + 1}/${total}`, progress: processed, total });
-      const response = await axios.get(downloadUrl, { responseType: 'arraybuffer' });
+      mainWindow.webContents.send("db-update-progress", {
+        text: `Downloading Database Update ${processed + 1}/${total}`,
+        progress: processed,
+        total,
+      });
+      const response = await axios.get(downloadUrl, {
+        responseType: "arraybuffer",
+      });
       fs.writeFileSync(outputPath, response.data);
 
       // Decompress LZ4
       const compressedData = fs.readFileSync(outputPath);
       const decompressedData = Buffer.from(lz4.decompress(compressedData));
-      const data = JSON.parse(decompressedData.toString('utf8'));      
+      const data = JSON.parse(decompressedData.toString("utf8"));
       // Process atlas_data
-      mainWindow.webContents.send('db-update-progress', { text: `Processing Atlas Metadata ${processed + 1}/${total}`, progress: processed, total });
+      mainWindow.webContents.send("db-update-progress", {
+        text: `Processing Atlas Metadata ${processed + 1}/${total}`,
+        progress: processed,
+        total,
+      });
       if (data.atlas && data.atlas.length > 0) {
-        await insertJsonData(data.atlas, 'atlas_data');
+        await insertJsonData(data.atlas, "atlas_data");
       }
 
       // Process f95_zone_data
-      mainWindow.webContents.send('db-update-progress', { text: `Processing F95 Metadata ${processed + 1}/${total}`, progress: processed, total });
-      if (data.f95_zone && data.f95_zone.length >0 ) {
-        await insertJsonData(data.f95_zone, 'f95_zone_data');
+      mainWindow.webContents.send("db-update-progress", {
+        text: `Processing F95 Metadata ${processed + 1}/${total}`,
+        progress: processed,
+        total,
+      });
+      if (data.f95_zone && data.f95_zone.length > 0) {
+        await insertJsonData(data.f95_zone, "f95_zone_data");
       }
 
       // Insert update record
       const processedTime = Math.floor(Date.now() / 1000);
       await new Promise((resolve, reject) => {
         db.run(
-          'INSERT INTO updates (update_time, processed_time, md5) VALUES (?, ?, ?)',
+          "INSERT INTO updates (update_time, processed_time, md5) VALUES (?, ?, ?)",
           [date, processedTime, md5],
           (err) => {
             if (err) reject(err);
             else resolve();
-          }
+          },
         );
       });
 
       processed++;
-      mainWindow.webContents.send('db-update-progress', { text: `Processed Update ${processed}/${total}`, progress: processed, total });
+      mainWindow.webContents.send("db-update-progress", {
+        text: `Processed Update ${processed}/${total}`,
+        progress: processed,
+        total,
+      });
     }
 
-    return { success: true, message: `Processed ${processed} updates`, total, processed };
+    return {
+      success: true,
+      message: `Processed ${processed} updates`,
+      total,
+      processed,
+    };
   } catch (err) {
-    console.error('Error checking database updates:', err);
+    console.error("Error checking database updates:", err);
     return { success: false, error: err.message, total: 0, processed: 0 };
   }
 };
@@ -722,12 +773,12 @@ const searchAtlas = async (title, creator) => {
           (err, rows) => {
             if (err) reject(err);
             else resolve(rows);
-          }
+          },
         );
       });
     },
     async () => {
-      const shortName = title.replace(/[\W_]+/g, '').toUpperCase();
+      const shortName = title.replace(/[\W_]+/g, "").toUpperCase();
       const queryTitle = `
         SELECT
           atlas_id,
@@ -746,12 +797,14 @@ const searchAtlas = async (title, creator) => {
           (err, rows) => {
             if (err) reject(err);
             else resolve(rows);
-          }
+          },
         );
       });
     },
     async () => {
-      const fullName = `${title}${creator}`.replace(/[\W_]+/g, '').toUpperCase();
+      const fullName = `${title}${creator}`
+        .replace(/[\W_]+/g, "")
+        .toUpperCase();
       const queryFull = `
         WITH data_0 AS (
           SELECT
@@ -781,7 +834,7 @@ const searchAtlas = async (title, creator) => {
           (err, rows) => {
             if (err) reject(err);
             else resolve(rows);
-          }
+          },
         );
       });
     },
@@ -794,10 +847,10 @@ const searchAtlas = async (title, creator) => {
           (err, rows) => {
             if (err) reject(err);
             else resolve(rows);
-          }
+          },
         );
       });
-    }
+    },
   ];
 
   const allResults = new Map(); // Use Map to store unique results by atlas_id
@@ -814,42 +867,54 @@ const searchAtlas = async (title, creator) => {
           hasF95Id = true;
         }
         if (!allResults.has(row.atlas_id)) {
-          allResults.set(row.atlas_id, { ...row, f95_id: f95Id || '' });
+          allResults.set(row.atlas_id, { ...row, f95_id: f95Id || "" });
         }
-        enrichedRows.push({ ...row, f95_id: f95Id || '' });
+        enrichedRows.push({ ...row, f95_id: f95Id || "" });
       }
       if (hasF95Id) {
         // Return results from this query if any have f95_id
-        const filteredRows = enrichedRows.filter(row =>findF95Id(row.atlas_id));
+        const filteredRows = enrichedRows.filter((row) =>
+          findF95Id(row.atlas_id),
+        );
         console.log(`Query found ${filteredRows.length} results with f95_id`);
         return filteredRows.length > 0 ? filteredRows : enrichedRows;
       }
     } catch (err) {
-      console.error('Error in searchAtlas query:', err);
+      console.error("Error in searchAtlas query:", err);
     }
   }
 
   // If no results with f95_id, return all unique results from all queries
   const finalResults = Array.from(allResults.values());
-  console.log(`Returning ${finalResults.length} unique results from all queries`);
+  console.log(
+    `Returning ${finalResults.length} unique results from all queries`,
+  );
   return finalResults;
 };
 
 const findF95Id = (atlasId) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT f95_id FROM f95_zone_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
-      if (err) reject(err);
-      else resolve(row ? row.f95_id : null);
-    });
+    db.get(
+      `SELECT f95_id FROM f95_zone_data WHERE atlas_id = ?`,
+      [atlasId],
+      (err, row) => {
+        if (err) reject(err);
+        else resolve(row ? row.f95_id : null);
+      },
+    );
   });
 };
 
 const GetAtlasIDbyRecord = (recordId) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT atlas_id FROM atlas_mappings WHERE record_id = ?`, [recordId], (err, row) => {
-      if (err) reject(err);
-      else resolve(row ? row.atlas_id : null);
-    });
+    db.get(
+      `SELECT atlas_id FROM atlas_mappings WHERE record_id = ?`,
+      [recordId],
+      (err, row) => {
+        if (err) reject(err);
+        else resolve(row ? row.atlas_id : null);
+      },
+    );
   });
 };
 
@@ -866,110 +931,143 @@ const checkRecordExist = (title, creator, version) => {
       [escapedTitle, escapedCreator, escapedVersion],
       (err, row) => {
         if (err) {
-          console.error('Error checking record existence:', err);
+          console.error("Error checking record existence:", err);
           reject(err);
         } else {
           resolve(!!row);
         }
-      }
+      },
     );
   });
 };
 
 const checkPathExist = (gamePath, title) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT v.record_id FROM games g JOIN versions v ON g.record_id = v.record_id WHERE g.title = ? AND v.game_path = ?`, [title, gamePath], (err, row) => {
-      if (err) reject(err);
-      resolve(!!row);
-    });
+    db.get(
+      `SELECT v.record_id FROM games g JOIN versions v ON g.record_id = v.record_id WHERE g.title = ? AND v.game_path = ?`,
+      [title, gamePath],
+      (err, row) => {
+        if (err) reject(err);
+        resolve(!!row);
+      },
+    );
   });
 };
 
 const addAtlasMapping = (recordId, atlasId) => {
   return new Promise((resolve, reject) => {
-    console.log("Updating Atlas Mapping")
+    console.log("Updating Atlas Mapping");
     // Validate inputs
     if (!recordId || !atlasId) {
-      const error = new Error(`Invalid input: recordId=${recordId}, atlasId=${atlasId}`);
-      console.error('addAtlasMapping error:', error.message);
+      const error = new Error(
+        `Invalid input: recordId=${recordId}, atlasId=${atlasId}`,
+      );
+      console.error("addAtlasMapping error:", error.message);
       return reject(error);
     }
 
     // Check if record_id exists in games
-    db.get(`SELECT record_id FROM games WHERE record_id = ?`, [recordId], (err, row) => {
-      if (err) {
-        console.error('Error checking games table:', err);
-        return reject(err);
-      }
-      if (!row) {
-        const error = new Error(`record_id ${recordId} does not exist in games table`);
-        console.error('addAtlasMapping error:', error.message);
-        return reject(error);
-      }
-
-      // Check if atlas_id exists in atlas_data
-      db.get(`SELECT atlas_id FROM atlas_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
+    db.get(
+      `SELECT record_id FROM games WHERE record_id = ?`,
+      [recordId],
+      (err, row) => {
         if (err) {
-          console.error('Error checking atlas_data table:', err);
+          console.error("Error checking games table:", err);
           return reject(err);
         }
         if (!row) {
-          const error = new Error(`atlas_id ${atlasId} does not exist in atlas_data table`);
-          console.error('addAtlasMapping error:', error.message);
+          const error = new Error(
+            `record_id ${recordId} does not exist in games table`,
+          );
+          console.error("addAtlasMapping error:", error.message);
           return reject(error);
         }
 
-        // Insert or ignore mapping
-        db.run(
-          `INSERT OR REPLACE INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)`,
-          [recordId, atlasId],
-          (err) => {
+        // Check if atlas_id exists in atlas_data
+        db.get(
+          `SELECT atlas_id FROM atlas_data WHERE atlas_id = ?`,
+          [atlasId],
+          (err, row) => {
             if (err) {
-              console.error('Error inserting into atlas_mappings:', err);
-              reject(err);
-            } else {
-              resolve();
+              console.error("Error checking atlas_data table:", err);
+              return reject(err);
             }
-          }
+            if (!row) {
+              const error = new Error(
+                `atlas_id ${atlasId} does not exist in atlas_data table`,
+              );
+              console.error("addAtlasMapping error:", error.message);
+              return reject(error);
+            }
+
+            // Insert or ignore mapping
+            db.run(
+              `INSERT OR REPLACE INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)`,
+              [recordId, atlasId],
+              (err) => {
+                if (err) {
+                  console.error("Error inserting into atlas_mappings:", err);
+                  reject(err);
+                } else {
+                  resolve();
+                }
+              },
+            );
+          },
         );
-      });
-    });
+      },
+    );
   });
 };
 
 const updateFolderSize = (recordId, version, size) => {
   return new Promise((resolve, reject) => {
-    db.run(`UPDATE versions SET folder_size = ? WHERE record_id = ? AND version = ?`, [size, recordId, version], (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
+    db.run(
+      `UPDATE versions SET folder_size = ? WHERE record_id = ? AND version = ?`,
+      [size, recordId, version],
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      },
+    );
   });
 };
 
 const getBannerUrl = (atlasId) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT banner_url FROM f95_zone_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
-      if (err) {
-        console.error('Error fetching banner_url:', err);
-        reject(err);
-      } else {
-        resolve(row ? row.banner_url : '');
-      }
-    });
+    db.get(
+      `SELECT banner_url FROM f95_zone_data WHERE atlas_id = ?`,
+      [atlasId],
+      (err, row) => {
+        if (err) {
+          console.error("Error fetching banner_url:", err);
+          reject(err);
+        } else {
+          resolve(row ? row.banner_url : "");
+        }
+      },
+    );
   });
 };
 
 const getScreensUrlList = (atlasId) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT screens FROM f95_zone_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
-      if (err) {
-        console.error('Error fetching screens:', err);
-        reject(err);
-      } else {
-        const screens = row && row.screens ? row.screens.split(',').map(s => s.trim()) : [];
-        resolve(screens);
-      }
-    });
+    db.get(
+      `SELECT screens FROM f95_zone_data WHERE atlas_id = ?`,
+      [atlasId],
+      (err, row) => {
+        if (err) {
+          console.error("Error fetching screens:", err);
+          reject(err);
+        } else {
+          const screens =
+            row && row.screens
+              ? row.screens.split(",").map((s) => s.trim())
+              : [];
+          resolve(screens);
+        }
+      },
+    );
   });
 };
 
@@ -982,12 +1080,12 @@ const updateBanners = (recordId, bannerPath, type) => {
       [recordId, escapedPath, escapedType],
       (err) => {
         if (err) {
-          console.error('Error updating banners:', err);
+          console.error("Error updating banners:", err);
           reject(err);
         } else {
           resolve();
         }
-      }
+      },
     );
   });
 };
@@ -1000,12 +1098,12 @@ const updatePreviews = (recordId, previewPath) => {
       [recordId, escapedPath],
       (err) => {
         if (err) {
-          console.error('Error updating previews:', err);
+          console.error("Error updating previews:", err);
           reject(err);
         } else {
           resolve();
         }
-      }
+      },
     );
   });
 };
@@ -1013,67 +1111,91 @@ const updatePreviews = (recordId, previewPath) => {
 const getPreviews = (recordId, appPath, isDev) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = isDev
-      ? path.join(appPath, 'src')
-      : path.resolve(appPath, '../../');
-    db.all(`SELECT path FROM previews WHERE record_id = ?`, [recordId], (err, rows) => {
-      if (err) {
-        console.error('Error fetching previews:', err);
-        reject(err);
-      } else {
-        const previews = rows.map(row => `${path.join(baseImagePath, row.path).replace(/\\/g, '/')}`);
-        console.log('Previews fetched for recordId:', recordId, previews);
-        resolve(previews);
-      }
-    });
+      ? path.join(appPath, "src")
+      : path.resolve(appPath, "../../");
+    db.all(
+      `SELECT path FROM previews WHERE record_id = ?`,
+      [recordId],
+      (err, rows) => {
+        if (err) {
+          console.error("Error fetching previews:", err);
+          reject(err);
+        } else {
+          const previews = rows.map(
+            (row) =>
+              `${path.join(baseImagePath, row.path).replace(/\\/g, "/")}`,
+          );
+          console.log("Previews fetched for recordId:", recordId, previews);
+          resolve(previews);
+        }
+      },
+    );
   });
 };
 
 const getBanners = (recordId, appPath, isDev) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = isDev
-      ? path.join(appPath, 'src')
-      : path.resolve(appPath, '../../');
-    db.all(`SELECT path FROM banners WHERE record_id = ?`, [recordId], (err, rows) => {
-      if (err) {
-        console.error('Error fetching banners:', err);
-        reject(err);
-      } else {
-        const banners = rows.map(row => `${path.join(baseImagePath, row.path).replace(/\\/g, '/')}`);
-        console.log('Banners fetched for recordId:', recordId, banners);
-        resolve(banners);
-      }
-    });
+      ? path.join(appPath, "src")
+      : path.resolve(appPath, "../../");
+    db.all(
+      `SELECT path FROM banners WHERE record_id = ?`,
+      [recordId],
+      (err, rows) => {
+        if (err) {
+          console.error("Error fetching banners:", err);
+          reject(err);
+        } else {
+          const banners = rows.map(
+            (row) =>
+              `${path.join(baseImagePath, row.path).replace(/\\/g, "/")}`,
+          );
+          console.log("Banners fetched for recordId:", recordId, banners);
+          resolve(banners);
+        }
+      },
+    );
   });
 };
 
 const getAtlasData = (atlasId) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT title, creator, engine FROM atlas_data WHERE atlas_id = ?`, [atlasId], (err, row) => {
-      if (err) reject(err);
-      else resolve(row || {});
-    });
+    db.get(
+      `SELECT title, creator, engine FROM atlas_data WHERE atlas_id = ?`,
+      [atlasId],
+      (err, row) => {
+        if (err) reject(err);
+        else resolve(row || {});
+      },
+    );
   });
 };
 
 const insertJsonData = async (jsonData, tableName) => {
   return new Promise((resolve, reject) => {
     db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-      const stmt = db.prepare(`INSERT OR REPLACE INTO ${tableName} (${Object.keys(jsonData[0]).join(', ')}) VALUES (${Object.keys(jsonData[0]).map(() => '?').join(', ')})`);
+      db.run("BEGIN TRANSACTION");
+      const stmt = db.prepare(
+        `INSERT OR REPLACE INTO ${tableName} (${Object.keys(jsonData[0]).join(", ")}) VALUES (${Object.keys(
+          jsonData[0],
+        )
+          .map(() => "?")
+          .join(", ")})`,
+      );
       for (const item of jsonData) {
         stmt.run(Object.values(item), (err) => {
           if (err) {
-            db.run('ROLLBACK');
+            db.run("ROLLBACK");
             reject(err);
           }
         });
       }
       stmt.finalize((err) => {
         if (err) {
-          db.run('ROLLBACK');
+          db.run("ROLLBACK");
           reject(err);
         } else {
-          db.run('COMMIT', (err) => {
+          db.run("COMMIT", (err) => {
             if (err) reject(err);
             else resolve();
           });
@@ -1087,29 +1209,33 @@ const saveEmulatorConfig = (emulator) => {
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT OR REPLACE INTO emulators (extension, program_path, parameters) VALUES (?, ?, ?)`,
-      [emulator.extension, emulator.program_path, emulator.parameters || ''],
+      [emulator.extension, emulator.program_path, emulator.parameters || ""],
       (err) => {
         if (err) {
-          console.error('Error saving emulator config:', err);
+          console.error("Error saving emulator config:", err);
           reject(err);
         } else {
           resolve();
         }
-      }
+      },
     );
   });
 };
 
 const getEmulatorConfig = () => {
   return new Promise((resolve, reject) => {
-    db.all(`SELECT extension, program_path, parameters FROM emulators`, [], (err, rows) => {
-      if (err) {
-        console.error('Error fetching emulator config:', err);
-        reject(err);
-      } else {
-        resolve(rows || []);
-      }
-    });
+    db.all(
+      `SELECT extension, program_path, parameters FROM emulators`,
+      [],
+      (err, rows) => {
+        if (err) {
+          console.error("Error fetching emulator config:", err);
+          reject(err);
+        } else {
+          resolve(rows || []);
+        }
+      },
+    );
   });
 };
 
@@ -1117,7 +1243,7 @@ const removeEmulatorConfig = (extension) => {
   return new Promise((resolve, reject) => {
     db.run(`DELETE FROM emulators WHERE extension = ?`, [extension], (err) => {
       if (err) {
-        console.error('Error removing emulator config:', err);
+        console.error("Error removing emulator config:", err);
         reject(err);
       } else {
         resolve();
@@ -1127,119 +1253,148 @@ const removeEmulatorConfig = (extension) => {
 };
 
 const deleteBanner = (recordId, appPath, isDev) => {
- return new Promise(async (resolve, reject) => {    
+  return new Promise(async (resolve, reject) => {
     try {
       const banners = await getBanners(recordId, appPath, isDev);
       for (const banner_path of banners) {
-        const filePath = banner_path.replace('file://', ''); // Adjust to data/images
-        console.log('Attempting to delete preview file:', filePath);
+        const filePath = banner_path.replace("file://", ""); // Adjust to data/images
+        console.log("Attempting to delete preview file:", filePath);
         try {
-          if (await fs.access(filePath).then(() => true).catch(() => false)) {
+          if (
+            await fs
+              .access(filePath)
+              .then(() => true)
+              .catch(() => false)
+          ) {
             await fs.unlink(filePath);
-            console.log('Deleted preview file:', filePath);
+            console.log("Deleted preview file:", filePath);
           } else {
-            console.log('Preview file does not exist:', filePath);
+            console.log("Preview file does not exist:", filePath);
           }
         } catch (fileErr) {
-          console.error('Error deleting preview file:', fileErr);
+          console.error("Error deleting preview file:", fileErr);
           // Continue with next file
         }
       }
       db.run(`DELETE FROM banners WHERE record_id = ?`, [recordId], (err) => {
         if (err) {
-          console.error('Error removing banners from database:', err);
+          console.error("Error removing banners from database:", err);
           reject(err);
         } else {
-          console.log('banners removed from database for recordId:', recordId);
+          console.log("banners removed from database for recordId:", recordId);
           resolve();
         }
       });
     } catch (err) {
-      console.error('Error deleting banners:', err);
+      console.error("Error deleting banners:", err);
       reject(err);
     }
   });
 };
 
 const deletePreviews = (recordId, appPath, isDev) => {
-  return new Promise(async (resolve, reject) => {   
+  return new Promise(async (resolve, reject) => {
     try {
       const previews = await getPreviews(recordId, appPath, isDev);
       for (const previewUrl of previews) {
-        const filePath = previewUrl.replace('file://', ''); // Adjust to data/images
-        console.log('Attempting to delete preview file:', filePath);
+        const filePath = previewUrl.replace("file://", ""); // Adjust to data/images
+        console.log("Attempting to delete preview file:", filePath);
         try {
-          if (await fs.access(filePath).then(() => true).catch(() => false)) {
+          if (
+            await fs
+              .access(filePath)
+              .then(() => true)
+              .catch(() => false)
+          ) {
             await fs.unlink(filePath);
-            console.log('Deleted preview file:', filePath);
+            console.log("Deleted preview file:", filePath);
           } else {
-            console.log('Preview file does not exist:', filePath);
+            console.log("Preview file does not exist:", filePath);
           }
         } catch (fileErr) {
-          console.error('Error deleting preview file:', fileErr);
+          console.error("Error deleting preview file:", fileErr);
           // Continue with next file
         }
       }
       db.run(`DELETE FROM previews WHERE record_id = ?`, [recordId], (err) => {
         if (err) {
-          console.error('Error removing previews from database:', err);
+          console.error("Error removing previews from database:", err);
           reject(err);
         } else {
-          console.log('Previews removed from database for recordId:', recordId);
+          console.log("Previews removed from database for recordId:", recordId);
           resolve();
         }
       });
     } catch (err) {
-      console.error('Error deleting previews:', err);
+      console.error("Error deleting previews:", err);
       reject(err);
     }
   });
 };
 
-
 const getEmulatorByExtension = (extension) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT * FROM emulators WHERE extension = ?`, [extension], (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
+    db.get(
+      `SELECT * FROM emulators WHERE extension = ?`,
+      [extension],
+      (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      },
+    );
   });
 };
 
 //STEAM SPECIFIC FUNCTIONS
 const getSteamIDbyRecord = (recordId) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT steam_id FROM steam_mappings WHERE record_id = ?`, [recordId], (err, row) => {
-      if (err) reject(err);
-      else resolve(row ? row.steam_id : null);
-    });
+    db.get(
+      `SELECT steam_id FROM steam_mappings WHERE record_id = ?`,
+      [recordId],
+      (err, row) => {
+        if (err) reject(err);
+        else resolve(row ? row.steam_id : null);
+      },
+    );
   });
 };
 
 const addSteamMapping = (recordId, steamId) => {
   return new Promise((resolve, reject) => {
-    db.run(`INSERT OR IGNORE INTO steam_mappings (record_id, steam_id) VALUES (?, ?)`, [recordId, steamId], (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
+    db.run(
+      `INSERT OR IGNORE INTO steam_mappings (record_id, steam_id) VALUES (?, ?)`,
+      [recordId, steamId],
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      },
+    );
   });
 };
 
 const getSteamBannerUrl = (steamId) => {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT header FROM steam_data WHERE steam_id = ?`, [steamId], (err, row) => {
-      if (err) reject(err);
-      else resolve(row ? row.header : null);
-    });
+    db.get(
+      `SELECT header FROM steam_data WHERE steam_id = ?`,
+      [steamId],
+      (err, row) => {
+        if (err) reject(err);
+        else resolve(row ? row.header : null);
+      },
+    );
   });
 };
 
 const getSteamScreensUrlList = (steamId) => {
   return new Promise((resolve, reject) => {
-    db.all(`SELECT screen_url FROM steam_screens WHERE steam_id = ?`, [steamId], (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows.map(row => row.screen_url));
-    });
+    db.all(
+      `SELECT screen_url FROM steam_screens WHERE steam_id = ?`,
+      [steamId],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows.map((row) => row.screen_url));
+      },
+    );
   });
 };
 
@@ -1265,7 +1420,7 @@ module.exports = {
   getGame,
   saveEmulatorConfig,
   getEmulatorConfig,
-  removeEmulatorConfig, 
+  removeEmulatorConfig,
   getEmulatorByExtension,
   GetAtlasIDbyRecord,
   getPreviews,
@@ -1278,5 +1433,5 @@ module.exports = {
   addSteamMapping,
   getSteamBannerUrl,
   getSteamScreensUrlList,
-  db // Export db instance
+  db, // Export db instance
 };
