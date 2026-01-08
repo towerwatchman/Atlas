@@ -262,7 +262,8 @@ const Importer = () => {
       );
       let data;
       if (game.f95Id && game.f95Id.trim() !== "") {
-        data = await window.electronAPI.searchAtlasByF95Id(game.f95Id);
+        data = await window.electronAPI.searchAtlasByF95Id(game.f95Id.trim());
+        console.log("Searching by f95_id")
       } else {
         data = await window.electronAPI.searchAtlas(game.title, game.creator);
       }
