@@ -172,4 +172,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   getSteamGameData: (steamId) =>
     ipcRenderer.invoke("get-steam-game-data", steamId),
+
+  // ────────────────────────────────────────────────────────────────
+  //     NEW METHODS ADDED FOR THE MOVE-TO-LIBRARY FEATURE
+  // ────────────────────────────────────────────────────────────────
+  getDefaultGameFolder: () => ipcRenderer.invoke("get-default-game-folder"),
+  setDefaultGameFolder: (newPath) =>
+    ipcRenderer.invoke("set-default-game-folder", newPath),
+  moveFolderToLibrary: (args) =>
+    ipcRenderer.invoke("move-folder-to-library", args),
+
+  // Optional: better feedback during long imports/moves
+  onImportWarning: (callback) =>
+    ipcRenderer.on("import-warning", (event, data) => callback(data)),
 });

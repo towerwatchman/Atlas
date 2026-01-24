@@ -30,6 +30,8 @@ const {
   deletePreviews,
   searchAtlas,
   searchAtlasByF95Id,
+  updateBanners,
+  updatePreviews,
   db,
 } = require("./database");
 const { Menu, shell } = require("electron");
@@ -49,7 +51,10 @@ let appConfig;
 
 app.commandLine.appendSwitch("force-color-profile", "srgb");
 
-// MAIN WINDOW
+// ────────────────────────────────────────────────
+// WINDOW CREATION FUNCTIONS
+// ────────────────────────────────────────────────
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -81,7 +86,7 @@ function createWindow() {
     mainWindow.webContents.send("window-state-changed", "restored");
   });
 }
-// SETTINGS WINDOW
+
 function createSettingsWindow() {
   settingsWindow = new BrowserWindow({
     width: 850,
@@ -118,7 +123,7 @@ function createSettingsWindow() {
     settingsWindow = null;
   });
 }
-// IMPORTER WINDOW
+
 function createImporterWindow() {
   console.log("Creating importer window");
   const importerWindow = new BrowserWindow({
@@ -162,7 +167,7 @@ function createImporterWindow() {
     console.log("Importer window closed");
   });
 }
-// GAME DETAILS WINDOW
+
 function createGameDetailsWindow(recordId) {
   const gameDetailsWindow = new BrowserWindow({
     width: 1400,
@@ -187,8 +192,6 @@ function createGameDetailsWindow(recordId) {
     console.log("Fetching game data for recordId:", recordId);
     getGame(recordId, app.getAppPath(), process.defaultApp)
       .then((game) => {
-        //console.log('Sending game data:', game);
-        // Reduced delay to 400ms to minimize latency
         setTimeout(() => {
           gameDetailsWindow.webContents.send("send-game-data", game);
         }, 400);
@@ -319,7 +322,10 @@ const defaultConfig = {
   },
 };
 
-// IPC HANDLERS SECTION
+// ────────────────────────────────────────────────
+// IPC HANDLERS
+// ────────────────────────────────────────────────
+
 ipcMain.handle("add-game", async (event, game) => {
   return addGame(game);
 });
@@ -401,10 +407,8 @@ ipcMain.handle("close-window", async () => {
     );
     if (importSourceWindow) {
       console.log("Closing import-source window");
-
       importSourceWindow.close();
       console.log("import-source window closed");
-      // Increased delay to ensure importer window loads
       return { success: true };
     }
     console.log("No import-source window found, closing focused window");
@@ -412,7 +416,6 @@ ipcMain.handle("close-window", async () => {
     if (focusedWindow) {
       focusedWindow.close();
       console.log("Focused window closed");
-
       return { success: true };
     }
     return {
@@ -429,7 +432,7 @@ ipcMain.handle("select-file", async () => {
   try {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ["openFile"],
-      filters: [], // Allow all file types
+      filters: [],
     });
     if (result.canceled) return null;
     return result.filePaths[0];
@@ -495,13 +498,13 @@ ipcMain.handle("start-scan", async (event, params) => {
 ipcMain.handle("get-steam-game-data", async (event, steamId) => {
   return await getSteamGameData(steamId);
 });
+
 ipcMain.handle("search-atlas", async (event, params) => {
   return await searchAtlas(params.title, params.creator);
 });
 
 ipcMain.handle("add-atlas-mapping", async (event, { recordId, atlasId }) => {
   try {
-    const { addAtlasMapping } = require("./database");
     return await addAtlasMapping(recordId, atlasId);
   } catch (err) {
     console.error("Error in add-atlas-mapping:", err);
@@ -511,7 +514,6 @@ ipcMain.handle("add-atlas-mapping", async (event, { recordId, atlasId }) => {
 
 ipcMain.handle("find-f95-id", async (event, atlasId) => {
   try {
-    const { findF95Id } = require("./database");
     return await findF95Id(atlasId);
   } catch (err) {
     console.error("Error in find-f95-id:", err);
@@ -521,7 +523,6 @@ ipcMain.handle("find-f95-id", async (event, atlasId) => {
 
 ipcMain.handle("get-atlas-data", async (event, atlasId) => {
   try {
-    const { getAtlasData } = require("./database");
     return await getAtlasData(atlasId);
   } catch (err) {
     console.error("Error in get-atlas-data:", err);
@@ -532,16 +533,20 @@ ipcMain.handle("get-atlas-data", async (event, atlasId) => {
 ipcMain.handle(
   "check-record-exist",
   async (event, { title, creator, engine, version, path }) => {
-    const { checkRecordExist } = require("./database");
-    const existsByDetails = await checkRecordExist(
-      title,
-      creator,
-      engine,
-      version,
-      path,
-    );
-    if (existsByDetails) return true;
-    return checkPathExist(path, title);
+    try {
+      const existsByDetails = await checkRecordExist(
+        title,
+        creator,
+        engine,
+        version,
+        path,
+      );
+      if (existsByDetails) return true;
+      return await checkPathExist(path, title);
+    } catch (err) {
+      console.error("check-record-exist error:", err);
+      return false;
+    }
   },
 );
 
@@ -556,72 +561,63 @@ ipcMain.handle("update-progress", async (event, progress) => {
   }
 });
 
-ipcMain.handle("get-available-banner-templates", async () => {
-  const templatesDir = path.join(__dirname, "data", "templates", "banner");
+// ─── Default game folder management ────────────────────────────────
+
+ipcMain.handle("get-default-game-folder", async () => {
+  return appConfig?.Library?.gameFolder || null;
+});
+
+ipcMain.handle("set-default-game-folder", async (event, newPath) => {
+  if (!newPath || typeof newPath !== "string" || !fs.existsSync(newPath)) {
+    return { success: false, error: "Invalid or non-existing path" };
+  }
+
   try {
-    if (!fs.existsSync(templatesDir)) {
-      fs.mkdirSync(templatesDir, { recursive: true });
-      console.log(`Created templates directory: ${templatesDir}`);
+    if (!appConfig.Library) appConfig.Library = {};
+    appConfig.Library.gameFolder = newPath;
+
+    fs.writeFileSync(configPath, ini.stringify(appConfig));
+    return { success: true, path: newPath };
+  } catch (err) {
+    console.error("Failed to save default game folder:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("move-folder-to-library", async (event, { sourceFolder, newName }) => {
+  return moveFolderToLibraryImpl({ sourceFolder, newName });
+});
+
+// Helper for simple move (used as fallback)
+async function moveFolderToLibraryImpl({ sourceFolder, newName }) {
+  try {
+    const targetDir = appConfig?.Library?.gameFolder;
+    if (!targetDir || !fs.existsSync(targetDir)) {
+      return { success: false, error: "No valid default library folder set" };
     }
-    const files = fs
-      .readdirSync(templatesDir)
-      .filter((file) => file.endsWith(".js"));
-    return files.map((file) => path.basename(file, ".js"));
-  } catch (err) {
-    console.error("Error reading templates directory:", err);
-    return [];
-  }
-});
 
-ipcMain.handle("get-selected-banner-template", async () => {
-  const configPath = path.join(__dirname, "data", "config.ini");
-  try {
-    const configData = fs.readFileSync(configPath, "utf-8");
-    const match = configData.match(/bannerTemplate=(.*)/);
-    return match ? match[1] : "Default";
-  } catch (err) {
-    console.error("Error reading selected banner template:", err);
-    return "Default";
-  }
-});
+    let folderName = newName || path.basename(sourceFolder);
+    let destPath = path.join(targetDir, folderName);
 
-ipcMain.handle("set-selected-banner-template", async (event, template) => {
-  const configPath = path.join(__dirname, "data", "config.ini");
-  try {
-    let configData = fs.existsSync(configPath)
-      ? fs.readFileSync(configPath, "utf-8")
-      : "";
-    configData =
-      configData.replace(/bannerTemplate=.*/g, "") +
-      `\nbannerTemplate=${template}`;
-    fs.writeFileSync(configPath, configData.trim());
-  } catch (err) {
-    console.error("Error saving selected banner template:", err);
-    throw err;
-  }
-});
+    let counter = 1;
+    while (fs.existsSync(destPath)) {
+      destPath = path.join(targetDir, `${folderName} (${counter++})`);
+    }
 
-ipcMain.handle("open-external-url", async (event, url) => {
-  try {
-    await require("electron").shell.openExternal(url);
-  } catch (err) {
-    console.error("Error opening external URL:", err);
-  }
-});
+    await fs.promises.rename(sourceFolder, destPath);
 
-ipcMain.handle("search-atlas-by-f95-id", async (event, f95Id) => {
-  console.log(`IPC search-atlas-by-f95-id received f95Id: ${f95Id}`);
-  try {
-    const result = await searchAtlasByF95Id(f95Id);
-    console.log(
-      `IPC search-atlas-by-f95-id result for ${f95Id}: ${JSON.stringify(result)}`,
-    );
-    return result;
+    return {
+      success: true,
+      newPath: destPath,
+      movedName: path.basename(destPath),
+    };
   } catch (err) {
-    console.error(`Error in search-atlas-by-f95-id for ${f95Id}:`, err);
-    return [];
+    console.error("Simple move failed:", sourceFolder, "→", err);
+    return { success: false, error: err.message };
   }
-});
+}
+
+// ─── Updated import-games handler with structured move ──────────────────────
 
 ipcMain.handle("import-games", async (event, params) => {
   const {
@@ -633,20 +629,36 @@ ipcMain.handle("import-games", async (event, params) => {
     previewLimit,
     downloadVideos,
     gameExt,
+    moveToDefaultFolder = false,
+    format = customFormat,  // ← NEW: folder structure format from renderer
   } = params;
+
   const gamesDir = path.join(dataDir, "games");
   if (!fs.existsSync(gamesDir)) fs.mkdirSync(gamesDir, { recursive: true });
 
   const total = games.length;
   let progress = 0;
+
   mainWindow.webContents.send("import-progress", {
     text: `Starting import of ${total} games...`,
     progress,
     total,
   });
 
+  let targetLibrary = null;
+  if (moveToDefaultFolder) {
+    targetLibrary = appConfig?.Library?.gameFolder;
+    if (!targetLibrary || !fs.existsSync(targetLibrary)) {
+      console.warn("Move requested but no valid default library folder set");
+      mainWindow.webContents.send("import-warning", {
+        message: "Move to library skipped — no default folder configured"
+      });
+      moveToDefaultFolder = false;
+    }
+  }
+
   const results = [];
-  // Phase 1: Import all games
+
   for (const game of games) {
     try {
       mainWindow.webContents.send("import-progress", {
@@ -660,6 +672,89 @@ ipcMain.handle("import-games", async (event, params) => {
         ? path.join(gamePath, game.selectedValue)
         : "";
       let size = 0;
+
+      // ── Structured move if requested and format provided ──
+      if (moveToDefaultFolder && targetLibrary && format.trim()) {
+        try {
+          const formatStr = format.trim();
+          const parts = formatStr.split("/").map(p => p.replace(/[{}]/g, "").trim());
+
+          const pathSegments = [];
+          for (const part of parts) {
+            let value = "";
+            if (part.toLowerCase() === "creator") value = game.creator || "Unknown";
+            else if (part.toLowerCase() === "title") value = game.title || "Untitled";
+            else if (part.toLowerCase() === "version") value = game.version || "v1";
+            else if (part.toLowerCase() === "engine") value = game.engine || "Unknown";
+            else value = "Unknown";
+
+            // Sanitize segment
+            value = value
+              .replace(/[\/\\:*?"<>|]/g, "_")
+              .replace(/\s+/g, " ")
+              .trim();
+
+            if (!value || value === ".") value = "Unknown";
+
+            pathSegments.push(value);
+          }
+
+          const relativeDest = path.join(...pathSegments);
+          let destPath = path.join(targetLibrary, relativeDest);
+
+          // Handle final folder name conflict
+          let counter = 1;
+          const originalDest = destPath;
+          while (fs.existsSync(destPath)) {
+            destPath = `${originalDest} (${counter++})`;
+          }
+
+          // Create parent directories
+          await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+
+          // Move source → new structured location
+          await fs.promises.rename(gamePath, destPath);
+
+          gamePath = destPath;
+          execPath = path.join(gamePath, game.selectedValue || "");
+
+          console.log(`Moved ${game.title} to structured path: ${destPath}`);
+          mainWindow.webContents.send("import-progress", {
+            text: `Moved to structured folder: ${relativeDest}`,
+            progress,
+            total,
+          });
+        } catch (moveErr) {
+          console.error("Structured move failed:", moveErr);
+          mainWindow.webContents.send("import-progress", {
+            text: `Structured move failed for ${game.title}: ${moveErr.message}`,
+            progress,
+            total,
+          });
+          // Continue import anyway
+        }
+      } 
+      // Optional fallback: simple move if no format
+      else if (moveToDefaultFolder && targetLibrary) {
+        try {
+          const suggestedName = `${game.title} - ${game.version || "v1"}`
+            .replace(/[\/\\:*?"<>|]/g, "_")
+            .trim();
+
+          const moveResult = await moveFolderToLibraryImpl({
+            sourceFolder: gamePath,
+            newName: suggestedName,
+          });
+
+          if (moveResult.success) {
+            gamePath = moveResult.newPath;
+            execPath = path.join(gamePath, game.selectedValue || "");
+            console.log(`Simple move to: ${moveResult.newPath}`);
+          }
+        } catch (moveErr) {
+          console.error("Fallback simple move failed:", moveErr);
+        }
+      }
 
       if (game.isArchive) {
         const extractPath = path.join(
@@ -728,7 +823,6 @@ ipcMain.handle("import-games", async (event, params) => {
         progress,
         total,
       });
-      //mainWindow.webContents.send('game-imported', recordId);
     } catch (err) {
       console.error("Error importing game:", err);
       results.push({ success: false, error: err.message });
@@ -827,14 +921,13 @@ ipcMain.handle("import-games", async (event, params) => {
     });
   }
 
-  // Reload the UI to show all games
   mainWindow.webContents.send("import-complete");
   return results;
 });
 
 ipcMain.handle("save-emulator-config", async (event, emulator) => {
   try {
-    await initializeDatabase(dataDir); // Ensure DB is initialized
+    await initializeDatabase(dataDir);
     await saveEmulatorConfig(emulator);
     return { success: true };
   } catch (err) {
@@ -845,7 +938,7 @@ ipcMain.handle("save-emulator-config", async (event, emulator) => {
 
 ipcMain.handle("get-emulator-config", async () => {
   try {
-    await initializeDatabase(dataDir); // Ensure DB is initialized
+    await initializeDatabase(dataDir);
     return await getEmulatorConfig();
   } catch (err) {
     console.error("Error fetching emulator config:", err);
@@ -855,7 +948,7 @@ ipcMain.handle("get-emulator-config", async () => {
 
 ipcMain.handle("remove-emulator-config", async (event, extension) => {
   try {
-    await initializeDatabase(dataDir); // Ensure DB is initialized
+    await initializeDatabase(dataDir);
     await removeEmulatorConfig(extension);
     return { success: true };
   } catch (err) {
@@ -872,7 +965,6 @@ ipcMain.handle("show-context-menu", (event, template) => {
   }
 
   const processedTemplate = processTemplate(template, event.sender);
-  //console.log('Processed context menu template:', JSON.stringify(processedTemplate, null, 2));
   const menu = Menu.buildFromTemplate(processedTemplate);
   menu.popup({ window: senderWindow });
 });
@@ -880,13 +972,11 @@ ipcMain.handle("show-context-menu", (event, template) => {
 ipcMain.handle("get-previews", async (event, recordId) => {
   console.log("Handling get-previews for recordId:", recordId);
   try {
-    // Assuming a database function to retrieve preview URLs
     const previews = await getPreviews(
       recordId,
       app.getAppPath(),
       process.defaultApp,
-    ); // Implement this based on your database schema
-    //console.log(previews)
+    );
     return Array.isArray(previews) ? previews : [];
   } catch (err) {
     console.error("Error fetching preview URLs:", err);
@@ -898,7 +988,6 @@ ipcMain.handle("update-banners", async (event, recordId) => {
   console.log("Handling update-banners for recordId:", recordId);
   try {
     const atlas_id = await GetAtlasIDbyRecord(recordId);
-    console.log(atlas_id);
     let progress = 0;
     let imageTotal = 1;
     await downloadImages(
@@ -930,7 +1019,6 @@ ipcMain.handle("update-banners", async (event, recordId) => {
       progress,
       total: imageTotal,
     });
-    console.log(bannerPath);
     return bannerPath;
   } catch (err) {
     console.error("Error downloading banner:", err);
@@ -942,7 +1030,6 @@ ipcMain.handle("update-previews", async (event, recordId) => {
   console.log("Handling update-previews for recordId:", recordId);
   try {
     const atlasId = await GetAtlasIDbyRecord(recordId);
-    console.log("Atlas ID:", atlasId);
     let progress = 0;
     let imageTotal = 1;
     await downloadImages(
@@ -973,7 +1060,6 @@ ipcMain.handle("update-previews", async (event, recordId) => {
       progress,
       total: imageTotal,
     });
-    console.log("Preview URLs:", previewUrls);
     return Array.isArray(previewUrls) ? previewUrls : [];
   } catch (err) {
     console.error("Error downloading previews:", err);
@@ -1013,8 +1099,7 @@ ipcMain.handle(
 ipcMain.handle("update-game", async (event, game) => {
   console.log("Handling update-game:", game);
   try {
-    // Assuming a database update function
-    await updateGame(game); // Implement this based on your database schema
+    await updateGame(game);
     console.log("Game updated in database");
   } catch (err) {
     console.error("Error updating game:", err);
@@ -1025,8 +1110,7 @@ ipcMain.handle("update-game", async (event, game) => {
 ipcMain.handle("update-version", async (event, version, record_id) => {
   console.log("Handling update-version:", version);
   try {
-    // Assuming a database update function for versions
-    await updateVersion(version, record_id); // Implement this based on your database schema
+    await updateVersion(version, record_id);
     console.log("Version updated in database");
   } catch (err) {
     console.error("Error updating version:", err);
@@ -1062,7 +1146,6 @@ ipcMain.handle("delete-previews", async (event, recordId) => {
 
 ipcMain.handle("open-directory", async (event, path) => {
   try {
-    const { shell } = require("electron");
     console.log("Opening directory:", path);
     await shell.openPath(require("path").dirname(path));
     return { success: true };
@@ -1084,7 +1167,7 @@ ipcMain.handle("get-steam-data", async (event, steam_id) => {
 });
 
 ipcMain.handle("find-steam-id", async (event, title, developer) => {
-  console.log("Handling get-steam-data:", title, developer);
+  console.log("Handling find-steam-id:", title, developer);
   try {
     await findSteamId(title, developer);
     console.log("Steam Game id found");
@@ -1119,7 +1202,10 @@ ipcMain.handle("select-steam-directory", async () => {
   }
 });
 
+// ────────────────────────────────────────────────
 // UTIL FUNCTIONS
+// ────────────────────────────────────────────────
+
 const engineMap = {
   rpgm: [
     "rpgmv.exe",
@@ -1133,6 +1219,7 @@ const engineMap = {
   html: ["index.html"],
   flash: [".swf"],
 };
+
 function loadConfig() {
   try {
     if (fs.existsSync(configPath)) {
@@ -1147,6 +1234,7 @@ function loadConfig() {
     appConfig = defaultConfig;
   }
 }
+
 function getFolderSize(dir) {
   let size = 0;
   const stack = [dir];
@@ -1161,6 +1249,7 @@ function getFolderSize(dir) {
   }
   return size;
 }
+
 function findExecutables(dir, extensions) {
   const execs = [];
   const stack = [dir];
@@ -1181,6 +1270,7 @@ function findExecutables(dir, extensions) {
   }
   return execs;
 }
+
 async function downloadImages(
   recordId,
   atlasId,
@@ -1190,17 +1280,6 @@ async function downloadImages(
   previewLimit,
   downloadVideos,
 ) {
-  const sharp = require("sharp");
-  const axios = require("axios");
-  const {
-    getBannerUrl,
-    getScreensUrlList,
-    updateBanners,
-    updatePreviews,
-  } = require("./database");
-  const path = require("path");
-  const fs = require("fs");
-
   const imgDir = path.join(dataDir, "images", recordId.toString());
   if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
 
@@ -1214,9 +1293,8 @@ async function downloadImages(
       ? screenUrls.length
       : Math.min(parseInt(previewLimit), screenUrls.length)
     : 0;
-  const totalImages = (bannerUrl ? 3 : 0) + previewCount; // 3 for banner (animated, high-res, low-res)
+  const totalImages = (bannerUrl ? 3 : 0) + previewCount;
 
-  // Delay function to enforce 2 requests per second (500ms per request)
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   if (bannerUrl) {
@@ -1304,69 +1382,69 @@ async function downloadImages(
   }
 
   for (let i = 0; i < previewCount; i++) {
-    const url = screenUrls[i].trim();
-    if (url) {
-      console.log(`Downloading screen ${i + 1} from URL: ${url}`);
-      try {
-        const ext = path.extname(new URL(url).pathname).toLowerCase();
-        const baseName = path.basename(url, ext);
-        const imagePath = path.join(imgDir, baseName);
-        const relativePath = path.join(
-          "data",
-          "images",
-          recordId.toString(),
-          baseName,
-        );
+    const url = screenUrls[i]?.trim();
+    if (!url) continue;
 
-        let imageBytes;
-        let downloaded = false;
-        if ([".gif", ".mp4", ".webm"].includes(ext) && downloadVideos) {
-          const animatedPath = `${imagePath}${ext}`;
-          if (!fs.existsSync(animatedPath)) {
-            const response = await axios.get(url, {
-              responseType: "arraybuffer",
-            });
-            imageBytes = Buffer.from(response.data);
-            fs.writeFileSync(animatedPath, imageBytes);
-            downloaded = true;
-          }
-          await updatePreviews(recordId, `${relativePath}${ext}`);
-        }
+    console.log(`Downloading screen ${i + 1} from URL: ${url}`);
+    try {
+      const ext = path.extname(new URL(url).pathname).toLowerCase();
+      const baseName = path.basename(url, ext);
+      const imagePath = path.join(imgDir, baseName);
+      const relativePath = path.join(
+        "data",
+        "images",
+        recordId.toString(),
+        baseName,
+      );
 
-        const targetPath = `${imagePath}_pr.webp`;
-        if (!fs.existsSync(targetPath)) {
-          if (!imageBytes) {
-            const response = await axios.get(url, {
-              responseType: "arraybuffer",
-            });
-            imageBytes = Buffer.from(response.data);
-            downloaded = true;
-          }
-          await sharp(imageBytes)
-            .webp({ quality: 90 })
-            .resize({ width: 1260, withoutEnlargement: true })
-            .toFile(targetPath);
+      let imageBytes;
+      let downloaded = false;
+      if ([".gif", ".mp4", ".webm"].includes(ext) && downloadVideos) {
+        const animatedPath = `${imagePath}${ext}`;
+        if (!fs.existsSync(animatedPath)) {
+          const response = await axios.get(url, {
+            responseType: "arraybuffer",
+          });
+          imageBytes = Buffer.from(response.data);
+          fs.writeFileSync(animatedPath, imageBytes);
+          downloaded = true;
         }
-        await updatePreviews(recordId, `${relativePath}_pr.webp`);
-        imageProgress++;
-        onImageProgress(imageProgress, totalImages);
-
-        console.log(`Screen ${i + 1} updated`);
-        if (downloaded) {
-          require("electron")
-            .webContents.getAllWebContents()
-            .forEach((wc) => {
-              wc.send("game-details-import-progress", {
-                text: `Completed preview download ${imageProgress}/${totalImages}`,
-                progress: imageProgress,
-                total: totalImages,
-              });
-            });
-          await delay(500);
-        }
-      } catch (err) {
-        console.error(`Error downloading or converting screen ${i + 1}:`, err);
+        await updatePreviews(recordId, `${relativePath}${ext}`);
       }
+
+      const targetPath = `${imagePath}_pr.webp`;
+      if (!fs.existsSync(targetPath)) {
+        if (!imageBytes) {
+          const response = await axios.get(url, {
+            responseType: "arraybuffer",
+          });
+          imageBytes = Buffer.from(response.data);
+          downloaded = true;
+        }
+        await sharp(imageBytes)
+          .webp({ quality: 90 })
+          .resize({ width: 1260, withoutEnlargement: true })
+          .toFile(targetPath);
+      }
+      await updatePreviews(recordId, `${relativePath}_pr.webp`);
+      imageProgress++;
+      onImageProgress(imageProgress, totalImages);
+
+      console.log(`Screen ${i + 1} updated`);
+      if (downloaded) {
+        require("electron")
+          .webContents.getAllWebContents()
+          .forEach((wc) => {
+            wc.send("game-details-import-progress", {
+              text: `Completed preview download ${imageProgress}/${totalImages}`,
+              progress: imageProgress,
+              total: totalImages,
+            });
+          });
+        await delay(500);
+      }
+    } catch (err) {
+      console.error(`Error downloading or converting screen ${i + 1}:`, err);
     }
   }
 }
@@ -1421,6 +1499,7 @@ function handleContextAction(data, sender) {
       console.error(`Unknown action: ${data.action}`);
   }
 }
+
 function processTemplate(items, sender) {
   return items.map((item) => {
     const newItem = { ...item };
@@ -1432,20 +1511,21 @@ function processTemplate(items, sender) {
       contextMenuData.set(id, newItem.data);
       newItem.click = () => {
         const data = contextMenuData.get(id);
-        //console.log('Menu item clicked:', data);
         handleContextAction(data, sender);
-        contextMenuData.delete(id); // Clean up
+        contextMenuData.delete(id);
       };
-      delete newItem.data; // Remove data to prevent serialization issues
+      delete newItem.data;
     }
     return newItem;
   });
 }
 
+// ────────────────────────────────────────────────
 // STEAM FUNCTIONS
+// ────────────────────────────────────────────────
+
 async function getSteamGameData(steamId) {
   try {
-    // Fetch from Steam API
     const steamResponse = await fetch(
       `https://store.steampowered.com/api/appdetails?appids=${steamId}`,
     );
@@ -1455,13 +1535,11 @@ async function getSteamGameData(steamId) {
     }
     const data = steamJson[steamId].data;
 
-    // Fetch from SteamSpy API for tags and additional info
     const spyResponse = await fetch(
       `https://steamspy.com/api.php?request=appdetails&appid=${steamId}`,
     );
     const spy = await spyResponse.json();
 
-    // Parse supported languages
     const langHtml = data.supported_languages || "";
     const languages = langHtml
       .replace(/<strong>\*<\/strong>/g, "*")
@@ -1472,20 +1550,17 @@ async function getSteamGameData(steamId) {
       .map((l) => l.replace(/\*$/, "").trim());
     const textLangs = languages.map((l) => l.replace(/\*$/, "").trim());
 
-    // OS platforms
     const osArr = [];
     if (data.platforms.windows) osArr.push("Windows");
     if (data.platforms.mac) osArr.push("Mac");
     if (data.platforms.linux) osArr.push("Linux");
 
-    // Engine (heuristically from tags, if common engines are present)
     const possibleEngines = ["Unity", "Unreal Engine", "Godot", "RPG Maker"];
     const engine =
       Object.keys(spy.tags || {}).find((tag) =>
         possibleEngines.includes(tag),
       ) || "";
 
-    // Censored (simple heuristic: if required_age > 0 or content descriptors present)
     const censored =
       data.required_age > 0 ||
       (data.content_descriptors &&
@@ -1494,7 +1569,6 @@ async function getSteamGameData(steamId) {
         ? "yes"
         : "no";
 
-    // Construct the game object
     const game = {
       steam_id: parseInt(steamId),
       title: data.name || "",
@@ -1544,7 +1618,6 @@ async function findSteamId(title, developer) {
 
     for (const item of searchJson.items) {
       if (item.name.toLowerCase() === title.toLowerCase()) {
-        // Confirm developer matches
         const detailsResponse = await fetch(
           `https://store.steampowered.com/api/appdetails?appids=${item.id}`,
         );
@@ -1571,12 +1644,16 @@ async function findSteamId(title, developer) {
   }
 }
 
-// APP FUNCTIONS
+// ────────────────────────────────────────────────
+// APP LIFECYCLE
+// ────────────────────────────────────────────────
+
 app.whenReady().then(() => {
   loadConfig();
   createWindow();
   autoUpdater.checkForUpdatesAndNotify();
 });
+
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });

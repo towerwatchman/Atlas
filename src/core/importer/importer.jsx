@@ -22,6 +22,10 @@ const Importer = () => {
   const [scanSize, setScanSize] = useState(false);
   const [deleteAfter, setDeleteAfter] = useState(false);
   const [moveGame, setMoveGame] = useState(false);
+
+  const [defaultLibraryPath, setDefaultLibraryPath] = useState(null);
+  const [askingForLibraryFolder, setAskingForLibraryFolder] = useState(false);
+
   const [progress, setProgress] = useState({
     value: 0,
     total: 0,
@@ -35,15 +39,18 @@ const Importer = () => {
   useEffect(() => {
     console.log("Importer component mounted");
     window.electronAPI.log("Importer component mounted");
+
     window.electronAPI.onWindowStateChanged((state) => {
       console.log(`Window state changed: ${state}`);
       window.electronAPI.log(`Window state changed: ${state}`);
       setIsMaximized(state === "maximized");
     });
+
     window.electronAPI.onScanProgress((prog) => {
       console.log(`Scan progress: ${JSON.stringify(prog)}`);
       setProgress(prog);
     });
+
     window.electronAPI.onScanComplete((game) => {
       console.log(`Received incremental game: ${JSON.stringify(game)}`);
       if (
@@ -75,6 +82,7 @@ const Importer = () => {
         setGamesList((prev) => [...prev, game]);
       }
     });
+
     window.electronAPI.onScanCompleteFinal((games) => {
       console.log(`Scan complete, received ${games.length} games`);
       const updatedGames = games.map((game) => {
@@ -113,10 +121,12 @@ const Importer = () => {
         );
       });
     });
+
     window.electronAPI.onUpdateProgress((prog) => {
       console.log(`Update progress: ${JSON.stringify(prog)}`);
       setUpdateProgress(prog);
     });
+
     window.electronAPI
       .getConfig()
       .then((config) => {
@@ -128,6 +138,11 @@ const Importer = () => {
             "exe,swf,flv,f4v,rag,cmd,bat,jar,html",
         );
         setArchiveExt(librarySettings.extractionExtensions || "zip,7z,rar");
+
+        window.electronAPI.getDefaultGameFolder().then((path) => {
+          setDefaultLibraryPath(path);
+          console.log("Default library folder:", path);
+        });
       })
       .catch((err) => {
         console.error("Error loading config:", err);
@@ -163,7 +178,7 @@ const Importer = () => {
     setView("scan");
     console.log("Starting scan");
     window.electronAPI.log("Starting scan");
-    setGamesList([]); // Clear gamesList to start fresh
+    setGamesList([]);
     const params = {
       folder,
       format: useUnstructured ? "" : customFormat,
@@ -196,6 +211,7 @@ const Importer = () => {
     updated[index][field] = value;
     setGamesList(updated);
   };
+
   const deleteGame = (index) => {
     console.log(`Deleting game at index ${index}`);
     window.electronAPI.log(`Deleting game at index ${index}`);
@@ -235,7 +251,6 @@ const Importer = () => {
       return game;
     });
 
-    // Wait for all promises to resolve
     Promise.all(updatedGames).then((newGamesList) => {
       setGamesList(newGamesList);
       console.log(`New gamesList set: ${JSON.stringify(newGamesList[index])}`);
@@ -263,7 +278,7 @@ const Importer = () => {
       let data;
       if (game.f95Id && game.f95Id.trim() !== "") {
         data = await window.electronAPI.searchAtlasByF95Id(game.f95Id.trim());
-        console.log("Searching by f95_id")
+        console.log("Searching by f95_id");
       } else {
         data = await window.electronAPI.searchAtlas(game.title, game.creator);
       }
@@ -322,65 +337,74 @@ const Importer = () => {
   };
 
   const importGamesFunc = async () => {
-    console.log("Importing games");
-    window.electronAPI.log("Importing games");
-    const total = gamesList.length;
-    setUpdateProgress({ value: 0, total });
-    window.electronAPI.sendUpdateProgress({ value: 0, total });
-    const updatedGames = [...gamesList];
-
-    for (let index = 0; index < total; index++) {
-      const game = updatedGames[index];
-      if (game.steamId) {
-        const result = await window.electronAPI.getSteamGameData(game.steamId);
-        if (result) {
-          const { game: data, screenshots } = result;
-          updatedGames[index].creator = data.developer;
-          updatedGames[index].engine = data.engine || "Unknown";
-          const searchResults = await window.electronAPI.searchAtlas(
-            data.title,
-            data.developer,
-          );
-          if (searchResults.length > 0) {
-            updatedGames[index].results = searchResults.map((r) => ({
-              key: String(r.atlas_id),
-              value: `${r.atlas_id} | ${r.f95_id || ""} | ${r.title} | ${r.creator}`,
-            }));
-            if (searchResults.length === 1) {
-              updatedGames[index].atlasId = String(searchResults[0].atlas_id);
-              updatedGames[index].f95Id = searchResults[0].f95_id || "";
-              updatedGames[index].resultSelectedValue =
-                updatedGames[index].results[0].key;
-              updatedGames[index].resultVisibility = "hidden";
-            } else {
-              updatedGames[index].results.unshift({
-                key: "match",
-                value: "Multiple matches found",
-              });
-              updatedGames[index].resultSelectedValue = "match";
-            }
-          }
-          setGamesList(updatedGames);
-        }
-      }
-      setUpdateProgress({ value: index + 1, total });
-      window.electronAPI.sendUpdateProgress({ value: index + 1, total });
+    if (gamesList.length === 0) {
+      alert("No games to import");
+      return;
     }
 
-    // Trigger import asynchronously and close window immediately
-    window.electronAPI
-      .importGames({
-        games: updatedGames,
-        downloadBannerImages,
-        downloadPreviewImages,
-        previewLimit,
-        downloadVideos,
-      })
-      .catch((err) => {
-        console.error("Error during import:", err);
-        window.electronAPI.log(`Error during import: ${err.message}`);
-      });
-    await window.electronAPI.closeWindow();
+    let finalLibraryPath = defaultLibraryPath;
+
+    if (moveGame && !finalLibraryPath) {
+      setAskingForLibraryFolder(true);
+      const selected = await window.electronAPI.selectDirectory();
+      setAskingForLibraryFolder(false);
+
+      if (!selected) {
+        const proceed = confirm(
+          "No library folder selected.\n\nContinue import without moving folders?"
+        );
+        if (!proceed) return;
+      } else {
+        try {
+          const saveResult = await window.electronAPI.setDefaultGameFolder(selected);
+          if (saveResult.success) {
+            finalLibraryPath = selected;
+            setDefaultLibraryPath(selected);
+            console.log("Saved new default library folder:", selected);
+          } else {
+            alert("Failed to save default library folder.\nImport continues without moving.");
+          }
+        } catch (err) {
+          console.error("Error saving library path:", err);
+          alert("Error saving library path. Import continues without moving.");
+        }
+      }
+    }
+
+    console.log("Importing games");
+    window.electronAPI.log("Importing games");
+
+    const importParams = {
+      games: gamesList,
+      deleteAfter,
+      scanSize,
+      downloadBannerImages,
+      downloadPreviewImages,
+      previewLimit,
+      downloadVideos,
+      gameExt: gameExt.split(",").map(e => e.trim()),
+      moveToDefaultFolder: moveGame && !!finalLibraryPath,
+      format: customFormat,  // ← always send the current format (even if unstructured is checked)
+    };
+
+    // Debug log before sending
+    console.log("=== IMPORT PARAMS BEING SENT ===");
+    console.log("moveToDefaultFolder:", importParams.moveToDefaultFolder);
+    console.log("format:", importParams.format);
+    console.log("defaultLibraryPath:", defaultLibraryPath);
+    console.log("finalLibraryPath:", finalLibraryPath);
+    console.log("useUnstructured:", useUnstructured);
+    console.log("customFormat:", customFormat);
+
+    try {
+      await window.electronAPI.importGames(importParams);
+      console.log("Import triggered successfully");
+      await window.electronAPI.closeWindow();
+    } catch (err) {
+      console.error("Error during import:", err);
+      window.electronAPI.log(`Error during import: ${err.message}`);
+      alert("Import failed: " + (err.message || "Unknown error"));
+    }
   };
 
   const handleUpdateClick = (event) => {
@@ -390,7 +414,7 @@ const Importer = () => {
   };
 
   console.log("Rendering Importer component, view:", view);
-  // Default game
+
   return (
     <div className="h-screen flex flex-col fixed w-full">
       {/* Window Controls */}
@@ -426,6 +450,7 @@ const Importer = () => {
           </button>
         </div>
       </div>
+
       <div className="flex-1 p-4 bg-secondary overflow-y-auto">
         {view === "source" && (
           <div className="flex items-center justify-center h-full">
@@ -460,6 +485,7 @@ const Importer = () => {
             </div>
           </div>
         )}
+
         {view === "settings" && (
           <div className="space-y-4 flex-1">
             <div className="flex items-center">
@@ -478,6 +504,7 @@ const Importer = () => {
                 Set Folder
               </button>
             </div>
+
             <div className="flex items-center">
               <label>Folder Structure:</label>
               <input
@@ -495,6 +522,7 @@ const Importer = () => {
               />
               <label>Unstructured Format</label>
             </div>
+
             <div className="flex items-center">
               <label>Game Extensions:</label>
               <input
@@ -511,6 +539,7 @@ const Importer = () => {
               />
               <label>Extract Games</label>
             </div>
+
             {isCompressed && (
               <div className="flex items-center">
                 <label>Archive formats:</label>
@@ -522,6 +551,7 @@ const Importer = () => {
                 />
               </div>
             )}
+
             <p className="text-sm text-text leading-relaxed">
               Valid folder structure options:{" "}
               <span className="font-semibold">Title</span>,{" "}
@@ -531,9 +561,6 @@ const Importer = () => {
               each option in braces, e.g.,{" "}
               <span className="font-mono">{"{Title}"}</span>. Use{" "}
               <span className="font-mono">/</span> for folder separators.
-              <br />
-              - For unsorted games, check "Unstructured Format" to let the
-              program parse the title and version automatically.
               <br />
               <br />
               Examples:
@@ -548,6 +575,7 @@ const Importer = () => {
               <br />
               <span className="font-mono">{"{title-version}"}</span>
             </p>
+
             <div className="space-y-2">
               <div>
                 <input
@@ -557,7 +585,44 @@ const Importer = () => {
                 />
                 <label>Download Banner Images</label>
               </div>
+              <div>
+                <input
+                  type="checkbox"
+                  checked={downloadPreviewImages}
+                  onChange={(e) => setDownloadPreviewImages(e.target.checked)}
+                />
+                <label>Download Preview Images (limit: {previewLimit})</label>
+              </div>
+
+              <div className="mt-4">
+                <input
+                  type="checkbox"
+                  checked={moveGame}
+                  onChange={(e) => setMoveGame(e.target.checked)}
+                  className="mr-2"
+                />
+                <label className="font-medium">
+                  Move imported games to default library folder (using structure: {customFormat || "title-version"})
+                </label>
+
+                {moveGame && (
+                  <div className="mt-1 ml-6 text-sm">
+                    {defaultLibraryPath ? (
+                      <span className="text-green-400">
+                        Current library: <strong>{defaultLibraryPath}</strong>
+                      </span>
+                    ) : askingForLibraryFolder ? (
+                      <span className="text-yellow-400">Waiting for selection...</span>
+                    ) : (
+                      <span className="text-yellow-400">
+                        No default folder set — you will be asked to choose one
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
+
             <div className="flex justify-end space-x-2">
               <button
                 onClick={startScan}
@@ -576,6 +641,7 @@ const Importer = () => {
             </div>
           </div>
         )}
+
         {view === "scan" && (
           <div className="h-full flex flex-col">
             <div className="shrink-0">
@@ -595,6 +661,7 @@ const Importer = () => {
               </div>
               <span className="mb-4">Found {progress.potential} Games</span>
             </div>
+
             <div className="flex-1 overflow-x-auto">
               <table
                 className="border-collapse border border-border"
@@ -788,7 +855,8 @@ const Importer = () => {
                 </tbody>
               </table>
             </div>
-            <div className="flex justify-between space-x-2">
+
+            <div className="flex justify-between space-x-2 mt-4">
               <button
                 onClick={() => setHideMatches(!hideMatches)}
                 className="bg-accent p-2"
@@ -796,6 +864,7 @@ const Importer = () => {
               >
                 {hideMatches ? "Show All" : "Hide Matches"}
               </button>
+
               <div className="flex space-x-2">
                 <button
                   onClick={handleUpdateClick}
