@@ -57,11 +57,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("update-progress", progress),
   getAvailableBannerTemplates: () =>
     ipcRenderer.invoke("get-available-banner-templates"),
+
+  // ─── FIXED: Added missing banner template getter ────────────────────────
   getSelectedBannerTemplate: () =>
     ipcRenderer.invoke("get-selected-banner-template"),
+
   setSelectedBannerTemplate: (template) =>
     ipcRenderer.invoke("set-selected-banner-template", template),
+
+  // ─── FIXED: Added missing external URL opener for Update Available button ──
   openExternalUrl: (url) => ipcRenderer.invoke("open-external-url", url),
+
   saveEmulatorConfig: (config) =>
     ipcRenderer.invoke("save-emulator-config", config),
   getEmulatorConfig: () => ipcRenderer.invoke("get-emulator-config"),
@@ -174,7 +180,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("get-steam-game-data", steamId),
 
   // ────────────────────────────────────────────────────────────────
-  //     NEW METHODS ADDED FOR THE MOVE-TO-LIBRARY FEATURE
+  //     METHODS FOR MOVE-TO-LIBRARY FEATURE (already added)
   // ────────────────────────────────────────────────────────────────
   getDefaultGameFolder: () => ipcRenderer.invoke("get-default-game-folder"),
   setDefaultGameFolder: (newPath) =>

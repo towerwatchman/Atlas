@@ -1155,6 +1155,78 @@ ipcMain.handle("open-directory", async (event, path) => {
   }
 });
 
+// 1. Get list of available banner templates
+ipcMain.handle("get-available-banner-templates", async () => {
+  const templatesDir = path.join(dataDir, "templates", "banner");
+  try {
+    if (!fs.existsSync(templatesDir)) {
+      fs.mkdirSync(templatesDir, { recursive: true });
+      console.log(`Created templates directory: ${templatesDir}`);
+    }
+    const files = fs
+      .readdirSync(templatesDir)
+      .filter((file) => file.endsWith(".js"));
+    return files.map((file) => path.basename(file, ".js"));
+  } catch (err) {
+    console.error("Error reading templates directory:", err);
+    return [];
+  }
+});
+
+// 2. Get currently selected banner template from config.ini
+ipcMain.handle("get-selected-banner-template", async () => {
+  const configPath = path.join(dataDir, "config.ini");
+  try {
+    if (!fs.existsSync(configPath)) {
+      return "Default";
+    }
+    const configData = fs.readFileSync(configPath, "utf-8");
+    const match = configData.match(/bannerTemplate=(.*)/);
+    return match ? match[1].trim() : "Default";
+  } catch (err) {
+    console.error("Error reading selected banner template:", err);
+    return "Default";
+  }
+});
+
+// 3. Set / save selected banner template to config.ini
+ipcMain.handle("set-selected-banner-template", async (event, template) => {
+  const configPath = path.join(dataDir, "config.ini");
+  try {
+    let configData = fs.existsSync(configPath)
+      ? fs.readFileSync(configPath, "utf-8")
+      : "";
+
+    // Remove any existing bannerTemplate line
+    configData = configData.replace(/bannerTemplate=.*/g, "").trim();
+
+    // Add new one (or just the line if file was empty)
+    configData += (configData ? "\n" : "") + `bannerTemplate=${template}`;
+
+    fs.writeFileSync(configPath, configData.trim());
+    return { success: true };
+  } catch (err) {
+    console.error("Error saving selected banner template:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+// 4. Open external URL (used by Update Available button)
+ipcMain.handle("open-external-url", async (event, url) => {
+  try {
+    if (!url || typeof url !== "string" || !url.startsWith("http")) {
+      console.warn("Invalid URL attempted to open:", url);
+      return { success: false, error: "Invalid URL" };
+    }
+    await shell.openExternal(url);
+    console.log("Opened external URL:", url);
+    return { success: true };
+  } catch (err) {
+    console.error("Error opening external URL:", url, err);
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle("get-steam-data", async (event, steam_id) => {
   console.log("Handling get-steam-data:", steam_id);
   try {
