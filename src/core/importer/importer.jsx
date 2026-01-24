@@ -336,76 +336,77 @@ const Importer = () => {
     window.electronAPI.sendUpdateProgress({ value: total, total });
   };
 
-  const importGamesFunc = async () => {
-    if (gamesList.length === 0) {
-      alert("No games to import");
-      return;
-    }
+const importGamesFunc = async () => {
+  if (gamesList.length === 0) {
+    alert("No games to import");
+    return;
+  }
 
-    let finalLibraryPath = defaultLibraryPath;
+  let finalLibraryPath = defaultLibraryPath;
 
-    if (moveGame && !finalLibraryPath) {
-      setAskingForLibraryFolder(true);
-      const selected = await window.electronAPI.selectDirectory();
-      setAskingForLibraryFolder(false);
+  if (moveGame && !finalLibraryPath) {
+    setAskingForLibraryFolder(true);
+    const selected = await window.electronAPI.selectDirectory();
+    setAskingForLibraryFolder(false);
 
-      if (!selected) {
-        const proceed = confirm(
-          "No library folder selected.\n\nContinue import without moving folders?"
-        );
-        if (!proceed) return;
-      } else {
-        try {
-          const saveResult = await window.electronAPI.setDefaultGameFolder(selected);
-          if (saveResult.success) {
-            finalLibraryPath = selected;
-            setDefaultLibraryPath(selected);
-            console.log("Saved new default library folder:", selected);
-          } else {
-            alert("Failed to save default library folder.\nImport continues without moving.");
-          }
-        } catch (err) {
-          console.error("Error saving library path:", err);
-          alert("Error saving library path. Import continues without moving.");
+    if (!selected) {
+      const proceed = confirm(
+        "No library folder selected.\n\nContinue import without moving folders?"
+      );
+      if (!proceed) return;
+    } else {
+      try {
+        const saveResult = await window.electronAPI.setDefaultGameFolder(selected);
+        if (saveResult.success) {
+          finalLibraryPath = selected;
+          setDefaultLibraryPath(selected);
+          console.log("Saved new default library folder:", selected);
+        } else {
+          alert("Failed to save default library folder.\nImport continues without moving.");
         }
+      } catch (err) {
+        console.error("Error saving library path:", err);
+        alert("Error saving library path. Import continues without moving.");
       }
     }
+  }
 
-    console.log("Importing games");
-    window.electronAPI.log("Importing games");
+  console.log("Importing games");
+  window.electronAPI.log("Importing games");
 
-    const importParams = {
-      games: gamesList,
-      deleteAfter,
-      scanSize,
-      downloadBannerImages,
-      downloadPreviewImages,
-      previewLimit,
-      downloadVideos,
-      gameExt: gameExt.split(",").map(e => e.trim()),
-      moveToDefaultFolder: moveGame && !!finalLibraryPath,
-      format: customFormat,  // ← always send the current format (even if unstructured is checked)
-    };
-
-    // Debug log before sending
-    console.log("=== IMPORT PARAMS BEING SENT ===");
-    console.log("moveToDefaultFolder:", importParams.moveToDefaultFolder);
-    console.log("format:", importParams.format);
-    console.log("defaultLibraryPath:", defaultLibraryPath);
-    console.log("finalLibraryPath:", finalLibraryPath);
-    console.log("useUnstructured:", useUnstructured);
-    console.log("customFormat:", customFormat);
-
-    try {
-      await window.electronAPI.importGames(importParams);
-      console.log("Import triggered successfully");
-      await window.electronAPI.closeWindow();
-    } catch (err) {
-      console.error("Error during import:", err);
-      window.electronAPI.log(`Error during import: ${err.message}`);
-      alert("Import failed: " + (err.message || "Unknown error"));
-    }
+  const importParams = {
+    games: gamesList,
+    deleteAfter,
+    scanSize,
+    downloadBannerImages,
+    downloadPreviewImages,
+    previewLimit,
+    downloadVideos,
+    gameExt: gameExt.split(",").map(e => e.trim()),
+    moveToDefaultFolder: moveGame && !!finalLibraryPath,
+    format: customFormat,
   };
+
+  // Debug log
+  console.log("=== IMPORT PARAMS BEING SENT ===");
+  console.log("moveToDefaultFolder:", importParams.moveToDefaultFolder);
+  console.log("format:", importParams.format);
+
+  // Trigger import in background...
+  window.electronAPI
+    .importGames(importParams)
+    .then(() => {
+      console.log("Import completed successfully (background)");
+    })
+    .catch((err) => {
+      console.error("Background import error:", err);
+      window.electronAPI.log(`Background import error: ${err.message}`);
+      // Optional: show a toast/notification in main window if needed
+    });
+
+  // ...immediately close the importer window
+  await window.electronAPI.closeWindow();
+};
 
   const handleUpdateClick = (event) => {
     console.log("Update button clicked", event);
