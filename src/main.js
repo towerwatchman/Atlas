@@ -32,6 +32,7 @@ const {
   searchAtlasByF95Id,
   updateBanners,
   updatePreviews,
+  getAtlasData,
   db,
 } = require("./database");
 const { Menu, shell } = require("electron");
@@ -501,6 +502,20 @@ ipcMain.handle("get-steam-game-data", async (event, steamId) => {
 
 ipcMain.handle("search-atlas", async (event, params) => {
   return await searchAtlas(params.title, params.creator);
+});
+
+ipcMain.handle("search-atlas-by-f95-id", async (event, f95Id) => {
+  console.log(`IPC search-atlas-by-f95-id received f95Id: ${f95Id}`);
+  try {
+    const result = await searchAtlasByF95Id(f95Id);
+    console.log(
+      `IPC search-atlas-by-f95-id result for ${f95Id}: ${JSON.stringify(result)}`,
+    );
+    return result;
+  } catch (err) {
+    console.error(`Error in search-atlas-by-f95-id for ${f95Id}:`, err);
+    return [];
+  }
 });
 
 ipcMain.handle("add-atlas-mapping", async (event, { recordId, atlasId }) => {

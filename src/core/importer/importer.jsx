@@ -110,6 +110,7 @@ const Importer = () => {
         }
         return game;
       });
+      console.log("Games being processed:", updatedGames.map((g, idx) => `#${idx+1}: ${g.title}`));
       Promise.all(updatedGames).then((newGamesList) => {
         setGamesList(newGamesList);
         setView("scan");
@@ -260,81 +261,139 @@ const Importer = () => {
     });
   };
 
-  const updateMatches = async () => {
-    console.log("Updating games");
-    window.electronAPI.log("Updating games");
-    const total = gamesList.length;
-    setUpdateProgress({ value: 0, total });
-    window.electronAPI.sendUpdateProgress({ value: 0, total });
-    let updated = [...gamesList];
-    for (let i = 0; i < updated.length; i++) {
-      const game = updated[i];
-      console.log(
-        `Searching for game: ${game.title}, Creator: ${game.creator}, F95 ID: ${game.f95Id}`,
-      );
-      window.electronAPI.log(
-        `Searching for game: ${game.title}, Creator: ${game.creator}, F95 ID: ${game.f95Id}`,
-      );
-      let data;
-      if (game.f95Id && game.f95Id.trim() !== "") {
-        data = await window.electronAPI.searchAtlasByF95Id(game.f95Id.trim());
+const updateMatches = async () => {
+  console.log("Starting full update of matches");
+  window.electronAPI.log("Starting full update of matches");
+
+  const total = gamesList.length;
+  if (total === 0) return;
+
+  setUpdateProgress({ value: 0, total });
+  window.electronAPI.sendUpdateProgress({ value: 0, total });
+
+  // Create a fresh immutable copy of the list
+  let updatedGames = gamesList.map(game => ({ ...game }));
+
+  for (let i = 0; i < updatedGames.length; i++) {
+    // Fresh copy of this game object
+    let game = { ...updatedGames[i] };
+
+    // ─── Skip if already has a good match ────────────────────────────────
+    if (
+      game.atlasId &&
+      game.results?.length === 1 &&
+      game.results[0]?.key === "match" &&
+      game.resultVisibility === "visible"
+    ) {
+      console.log(`Skipping already matched game ${i + 1}/${total}: ${game.title}`);
+      window.electronAPI.log(`Skipping already matched game ${i + 1}/${total}: ${game.title}`);
+      updatedGames[i] = game;
+      setUpdateProgress({ value: i + 1, total });
+      window.electronAPI.sendUpdateProgress({ value: i + 1, total });
+      await new Promise(r => setTimeout(r, 50));
+      continue;
+    }
+
+    console.log(
+      `Updating game ${i + 1}/${total}: ${game.title} | Creator: ${game.creator} | F95: ${game.f95Id}`
+    );
+    window.electronAPI.log(
+      `Updating game ${i + 1}/${total}: ${game.title} | Creator: ${game.creator} | F95: ${game.f95Id}`
+    );
+
+    let data;
+    try {
+      // Safe f95Id handling (prevents "trim is not a function")
+      const f95IdStr = String(game.f95Id || "").trim();
+      if (f95IdStr) {
+        data = await window.electronAPI.searchAtlasByF95Id(f95IdStr);
         console.log("Searching by f95_id");
       } else {
         data = await window.electronAPI.searchAtlas(game.title, game.creator);
       }
-      console.log(`Search results for ${game.title}: ${JSON.stringify(data)}`);
-      window.electronAPI.log(
-        `Search results for ${game.title}: ${JSON.stringify(data)}`,
-      );
-      if (data.length === 1) {
-        game.atlasId = String(data[0].atlas_id);
-        game.f95Id = data[0].f95_id || "";
-        game.title = data[0].title;
-        game.creator = data[0].creator;
-        game.engine = data[0].engine || game.engine || "Unknown";
-        game.results = [{ key: "match", value: "Match Found" }];
-        game.resultSelectedValue = "match";
-        game.resultVisibility = "visible";
-      } else if (data.length > 1) {
-        game.results = data.map((d) => ({
-          key: String(d.atlas_id),
-          value: `${d.atlas_id} | ${d.f95_id || ""} | ${d.title} | ${d.creator}`,
-        }));
-        const currentSelection = game.resultSelectedValue;
-        const validSelection = game.results.find(
-          (r) => r.key === currentSelection,
-        );
-        game.resultSelectedValue = validSelection
-          ? currentSelection
-          : game.results[0].key;
-        game.resultVisibility = "visible";
-        const selectedResult =
-          game.results.find((r) => r.key === game.resultSelectedValue) ||
-          game.results[0];
-        const parts = selectedResult.value.split(" | ");
-        game.atlasId = parts[0];
-        game.f95Id = parts[1] || "";
-        game.title = parts[2];
-        game.creator = parts[3];
-        const atlasData = await window.electronAPI.getAtlasData(parts[0]);
-        game.engine = atlasData.engine || game.engine || "Unknown";
-      } else {
-        game.atlasId = "";
-        game.f95Id = "";
-        game.results = [];
-        game.resultSelectedValue = "";
-        game.resultVisibility = "hidden";
-      }
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      setGamesList([...updated]);
-      setUpdateProgress({ value: i + 1, total });
-      window.electronAPI.sendUpdateProgress({ value: i + 1, total });
+    } catch (searchErr) {
+      console.error(`Search failed for game ${i + 1}:`, searchErr);
+      window.electronAPI.log(`Search failed for game ${i + 1}: ${searchErr.message}`);
+      data = [];
     }
-    console.log("Finished updating games");
-    window.electronAPI.log("Finished updating games");
-    setUpdateProgress({ value: total, total });
-    window.electronAPI.sendUpdateProgress({ value: total, total });
-  };
+
+    console.log(`Search results: ${JSON.stringify(data)}`);
+    window.electronAPI.log(`Search results: ${JSON.stringify(data)}`);
+
+    if (data.length === 1) {
+      game = {
+        ...game,
+        atlasId: String(data[0].atlas_id),
+        f95Id: data[0].f95_id || "",
+        title: data[0].title,
+        creator: data[0].creator,
+        engine: data[0].engine || game.engine || "Unknown",
+        results: [{ key: "match", value: "Match Found" }],
+        resultSelectedValue: "match",
+        resultVisibility: "visible",
+      };
+    } else if (data.length > 1) {
+      const results = data.map((d) => ({
+        key: String(d.atlas_id),
+        value: `${d.atlas_id} | ${d.f95_id || ""} | ${d.title} | ${d.creator}`,
+      }));
+
+      const current = game.resultSelectedValue;
+      const valid = results.find(r => r.key === current);
+      const selectedKey = valid ? current : results[0].key;
+
+      const selected = results.find(r => r.key === selectedKey) || results[0];
+      const parts = selected.value.split(" | ");
+
+      game = {
+        ...game,
+        results,
+        resultSelectedValue: selectedKey,
+        resultVisibility: "visible",
+        atlasId: parts[0],
+        f95Id: parts[1] || "",
+        title: parts[2],
+        creator: parts[3],
+      };
+
+      try {
+        const atlasData = await window.electronAPI.getAtlasData(parts[0]);
+        game = { ...game, engine: atlasData.engine || game.engine || "Unknown" };
+      } catch (atlasErr) {
+        console.error(`Failed to fetch atlas data for game ${i + 1} (atlas ${parts[0]}):`, atlasErr);
+        window.electronAPI.log(`Failed to fetch atlas data for game ${i + 1}: ${atlasErr.message}`);
+        // Continue without engine update
+      }
+    } else {
+      game = {
+        ...game,
+        atlasId: "",
+        f95Id: "",
+        results: [],
+        resultSelectedValue: "",
+        resultVisibility: "hidden",
+      };
+    }
+
+    // Put new object back
+    updatedGames[i] = game;
+
+    // Progress
+    setUpdateProgress({ value: i + 1, total });
+    window.electronAPI.sendUpdateProgress({ value: i + 1, total });
+
+    // Breathing room for UI
+    await new Promise(r => setTimeout(r, 50));
+  }
+
+  // One final state update
+  setGamesList(updatedGames);
+  console.log("All matches processed — final list set");
+  window.electronAPI.log("All matches processed — final list set");
+
+  setUpdateProgress({ value: total, total });
+  window.electronAPI.sendUpdateProgress({ value: total, total });
+};
 
 const importGamesFunc = async () => {
   if (gamesList.length === 0) {
