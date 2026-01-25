@@ -728,10 +728,39 @@ ipcMain.handle("import-games", async (event, params) => {
           await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
 
           // Move source → new structured location
-          await fs.promises.rename(gamePath, destPath);
+          await copyFolderWithProgress(gamePath, destPath, (prog) => {
+  let text = `Moving ${game.title}`;
+  if (prog.type === 'total') {
+    text += ` (${(prog.bytes / (1024**3)).toFixed(2)} GB)`;
+  } else if (prog.type === 'progress') {
+    text += `: ${prog.percent}% (${(prog.copied / (1024**3)).toFixed(2)} / ${(prog.total / (1024**3)).toFixed(2)} GB)`;
+  } else if (prog.type === 'done') {
+    text += ` — complete`;
+  } else if (prog.type === 'error') {
+    text += ` — error: ${prog.message}`;
+  }
 
-          gamePath = destPath;
-          execPath = path.join(gamePath, game.selectedValue || "");
+  mainWindow.webContents.send("import-progress", {
+    text,
+    progress,      // main game count
+    total,         // total games
+    subProgress: prog.percent || 0,
+    subTotal: 100
+  });
+});
+
+// Delete source if requested
+if (deleteAfter) {
+  try {
+    await fs.promises.rm(gamePath, { recursive: true, force: true });
+    console.log(`Deleted source: ${gamePath}`);
+  } catch (delErr) {
+    console.warn(`Delete failed: ${gamePath}`, delErr);
+  }
+}
+
+gamePath = destPath;
+execPath = path.join(gamePath, game.selectedValue || "");
 
           console.log(`Moved ${game.title} to structured path: ${destPath}`);
           mainWindow.webContents.send("import-progress", {
@@ -1559,6 +1588,89 @@ async function launchGame({ execPath, extension, recordId }) {
     child.unref();
   } else {
     shell.openPath(execPath);
+  }
+}
+
+async function copyFolderWithProgress(source, destination, onProgress) {
+  let totalBytes = 0;
+  let copiedBytes = 0;
+  let lastReportedPercent = 0;
+  let lastReportTime = Date.now();
+
+  // Step 1: Calculate total size (fast walk)
+  async function calculateSize(dir) {
+    const stat = await fs.promises.stat(dir);
+    if (stat.isFile()) {
+      totalBytes += stat.size;
+      return;
+    }
+    const files = await fs.promises.readdir(dir);
+    await Promise.all(files.map(file => calculateSize(path.join(dir, file))));
+  }
+
+  await calculateSize(source);
+  onProgress?.({ type: 'total', bytes: totalBytes, text: `Preparing move (${(totalBytes / (1024**3)).toFixed(2)} GB)` });
+
+  // Step 2: Recursive copy with streaming + batched progress
+  async function copyRecursive(src, dest) {
+    const stat = await fs.promises.stat(src);
+    if (stat.isDirectory()) {
+      await fs.promises.mkdir(dest, { recursive: true });
+      const files = await fs.promises.readdir(src);
+      // Optional: limit concurrency to 4–8 to avoid opening too many streams
+      await Promise.all(files.map(file => copyRecursive(path.join(src, file), path.join(dest, file))));
+    } else {
+      // Stream copy for files
+      return new Promise((resolve, reject) => {
+        const readStream = fs.createReadStream(src);
+        const writeStream = fs.createWriteStream(dest);
+
+        readStream.on('data', (chunk) => {
+          copiedBytes += chunk.length;
+
+          const currentPercent = Math.floor((copiedBytes / totalBytes) * 100);
+          const now = Date.now();
+
+          // Batch: report only if % changed by ≥5 or ≥3 seconds passed
+          if (
+            currentPercent >= lastReportedPercent + 5 ||
+            now - lastReportTime >= 3000
+          ) {
+            lastReportedPercent = currentPercent;
+            lastReportTime = now;
+
+            onProgress?.({
+              type: 'progress',
+              percent: currentPercent,
+              copied: copiedBytes,
+              total: totalBytes,
+              text: `${currentPercent}% (${(copiedBytes / (1024**3)).toFixed(2)} / ${(totalBytes / (1024**3)).toFixed(2)} GB)`
+            });
+          }
+        });
+
+        readStream.on('end', () => resolve());
+        readStream.on('error', reject);
+        writeStream.on('error', reject);
+
+        readStream.pipe(writeStream);
+      });
+    }
+  }
+
+  try {
+    await copyRecursive(source, destination);
+    onProgress?.({
+      type: 'done',
+      percent: 100,
+      copied: copiedBytes,
+      total: totalBytes,
+      text: 'Move complete'
+    });
+  } catch (err) {
+    console.error('Copy failed:', err);
+    onProgress?.({ type: 'error', message: err.message });
+    throw err;
   }
 }
 
