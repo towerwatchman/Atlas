@@ -110,7 +110,10 @@ const Importer = () => {
         }
         return game;
       });
-      console.log("Games being processed:", updatedGames.map((g, idx) => `#${idx+1}: ${g.title}`));
+      console.log(
+        "Games being processed:",
+        updatedGames.map((g, idx) => `#${idx + 1}: ${g.title}`),
+      );
       Promise.all(updatedGames).then((newGamesList) => {
         setGamesList(newGamesList);
         setView("scan");
@@ -261,211 +264,229 @@ const Importer = () => {
     });
   };
 
-const updateMatches = async () => {
-  console.log("Starting full update of matches");
-  window.electronAPI.log("Starting full update of matches");
+  const updateMatches = async () => {
+    console.log("Starting full update of matches");
+    window.electronAPI.log("Starting full update of matches");
 
-  const total = gamesList.length;
-  if (total === 0) return;
+    const total = gamesList.length;
+    if (total === 0) return;
 
-  setUpdateProgress({ value: 0, total });
-  window.electronAPI.sendUpdateProgress({ value: 0, total });
+    setUpdateProgress({ value: 0, total });
+    window.electronAPI.sendUpdateProgress({ value: 0, total });
 
-  // Create a fresh immutable copy of the list
-  let updatedGames = gamesList.map(game => ({ ...game }));
+    // Create a fresh immutable copy of the list
+    let updatedGames = gamesList.map((game) => ({ ...game }));
 
-  for (let i = 0; i < updatedGames.length; i++) {
-    // Fresh copy of this game object
-    let game = { ...updatedGames[i] };
+    for (let i = 0; i < updatedGames.length; i++) {
+      // Fresh copy of this game object
+      let game = { ...updatedGames[i] };
 
-    // ─── Skip if already has a good match ────────────────────────────────
-    if (
-      game.atlasId &&
-      game.results?.length === 1 &&
-      game.results[0]?.key === "match" &&
-      game.resultVisibility === "visible"
-    ) {
-      console.log(`Skipping already matched game ${i + 1}/${total}: ${game.title}`);
-      window.electronAPI.log(`Skipping already matched game ${i + 1}/${total}: ${game.title}`);
+      // ─── Skip if already has a good match ────────────────────────────────
+      if (
+        game.atlasId &&
+        game.results?.length === 1 &&
+        game.results[0]?.key === "match" &&
+        game.resultVisibility === "visible"
+      ) {
+        console.log(
+          `Skipping already matched game ${i + 1}/${total}: ${game.title}`,
+        );
+        window.electronAPI.log(
+          `Skipping already matched game ${i + 1}/${total}: ${game.title}`,
+        );
+        updatedGames[i] = game;
+        setUpdateProgress({ value: i + 1, total });
+        window.electronAPI.sendUpdateProgress({ value: i + 1, total });
+        await new Promise((r) => setTimeout(r, 50));
+        continue;
+      }
+
+      console.log(
+        `Updating game ${i + 1}/${total}: ${game.title} | Creator: ${game.creator} | F95: ${game.f95Id}`,
+      );
+      window.electronAPI.log(
+        `Updating game ${i + 1}/${total}: ${game.title} | Creator: ${game.creator} | F95: ${game.f95Id}`,
+      );
+
+      let data;
+      try {
+        // Safe f95Id handling (prevents "trim is not a function")
+        const f95IdStr = String(game.f95Id || "").trim();
+        if (f95IdStr) {
+          data = await window.electronAPI.searchAtlasByF95Id(f95IdStr);
+          console.log("Searching by f95_id");
+        } else {
+          data = await window.electronAPI.searchAtlas(game.title, game.creator);
+        }
+      } catch (searchErr) {
+        console.error(`Search failed for game ${i + 1}:`, searchErr);
+        window.electronAPI.log(
+          `Search failed for game ${i + 1}: ${searchErr.message}`,
+        );
+        data = [];
+      }
+
+      console.log(`Search results: ${JSON.stringify(data)}`);
+      window.electronAPI.log(`Search results: ${JSON.stringify(data)}`);
+
+      if (data.length === 1) {
+        game = {
+          ...game,
+          atlasId: String(data[0].atlas_id),
+          f95Id: data[0].f95_id || "",
+          title: data[0].title,
+          creator: data[0].creator,
+          engine: data[0].engine || game.engine || "Unknown",
+          results: [{ key: "match", value: "Match Found" }],
+          resultSelectedValue: "match",
+          resultVisibility: "visible",
+        };
+      } else if (data.length > 1) {
+        const results = data.map((d) => ({
+          key: String(d.atlas_id),
+          value: `${d.atlas_id} | ${d.f95_id || ""} | ${d.title} | ${d.creator}`,
+        }));
+
+        const current = game.resultSelectedValue;
+        const valid = results.find((r) => r.key === current);
+        const selectedKey = valid ? current : results[0].key;
+
+        const selected =
+          results.find((r) => r.key === selectedKey) || results[0];
+        const parts = selected.value.split(" | ");
+
+        game = {
+          ...game,
+          results,
+          resultSelectedValue: selectedKey,
+          resultVisibility: "visible",
+          atlasId: parts[0],
+          f95Id: parts[1] || "",
+          title: parts[2],
+          creator: parts[3],
+        };
+
+        try {
+          const atlasData = await window.electronAPI.getAtlasData(parts[0]);
+          game = {
+            ...game,
+            engine: atlasData.engine || game.engine || "Unknown",
+          };
+        } catch (atlasErr) {
+          console.error(
+            `Failed to fetch atlas data for game ${i + 1} (atlas ${parts[0]}):`,
+            atlasErr,
+          );
+          window.electronAPI.log(
+            `Failed to fetch atlas data for game ${i + 1}: ${atlasErr.message}`,
+          );
+          // Continue without engine update
+        }
+      } else {
+        game = {
+          ...game,
+          atlasId: "",
+          f95Id: "",
+          results: [],
+          resultSelectedValue: "",
+          resultVisibility: "hidden",
+        };
+      }
+
+      // Put new object back
       updatedGames[i] = game;
+
+      // Progress
       setUpdateProgress({ value: i + 1, total });
       window.electronAPI.sendUpdateProgress({ value: i + 1, total });
-      await new Promise(r => setTimeout(r, 50));
-      continue;
+
+      // Breathing room for UI
+      await new Promise((r) => setTimeout(r, 50));
     }
 
-    console.log(
-      `Updating game ${i + 1}/${total}: ${game.title} | Creator: ${game.creator} | F95: ${game.f95Id}`
-    );
-    window.electronAPI.log(
-      `Updating game ${i + 1}/${total}: ${game.title} | Creator: ${game.creator} | F95: ${game.f95Id}`
-    );
+    // One final state update
+    setGamesList(updatedGames);
+    console.log("All matches processed — final list set");
+    window.electronAPI.log("All matches processed — final list set");
 
-    let data;
-    try {
-      // Safe f95Id handling (prevents "trim is not a function")
-      const f95IdStr = String(game.f95Id || "").trim();
-      if (f95IdStr) {
-        data = await window.electronAPI.searchAtlasByF95Id(f95IdStr);
-        console.log("Searching by f95_id");
-      } else {
-        data = await window.electronAPI.searchAtlas(game.title, game.creator);
-      }
-    } catch (searchErr) {
-      console.error(`Search failed for game ${i + 1}:`, searchErr);
-      window.electronAPI.log(`Search failed for game ${i + 1}: ${searchErr.message}`);
-      data = [];
-    }
-
-    console.log(`Search results: ${JSON.stringify(data)}`);
-    window.electronAPI.log(`Search results: ${JSON.stringify(data)}`);
-
-    if (data.length === 1) {
-      game = {
-        ...game,
-        atlasId: String(data[0].atlas_id),
-        f95Id: data[0].f95_id || "",
-        title: data[0].title,
-        creator: data[0].creator,
-        engine: data[0].engine || game.engine || "Unknown",
-        results: [{ key: "match", value: "Match Found" }],
-        resultSelectedValue: "match",
-        resultVisibility: "visible",
-      };
-    } else if (data.length > 1) {
-      const results = data.map((d) => ({
-        key: String(d.atlas_id),
-        value: `${d.atlas_id} | ${d.f95_id || ""} | ${d.title} | ${d.creator}`,
-      }));
-
-      const current = game.resultSelectedValue;
-      const valid = results.find(r => r.key === current);
-      const selectedKey = valid ? current : results[0].key;
-
-      const selected = results.find(r => r.key === selectedKey) || results[0];
-      const parts = selected.value.split(" | ");
-
-      game = {
-        ...game,
-        results,
-        resultSelectedValue: selectedKey,
-        resultVisibility: "visible",
-        atlasId: parts[0],
-        f95Id: parts[1] || "",
-        title: parts[2],
-        creator: parts[3],
-      };
-
-      try {
-        const atlasData = await window.electronAPI.getAtlasData(parts[0]);
-        game = { ...game, engine: atlasData.engine || game.engine || "Unknown" };
-      } catch (atlasErr) {
-        console.error(`Failed to fetch atlas data for game ${i + 1} (atlas ${parts[0]}):`, atlasErr);
-        window.electronAPI.log(`Failed to fetch atlas data for game ${i + 1}: ${atlasErr.message}`);
-        // Continue without engine update
-      }
-    } else {
-      game = {
-        ...game,
-        atlasId: "",
-        f95Id: "",
-        results: [],
-        resultSelectedValue: "",
-        resultVisibility: "hidden",
-      };
-    }
-
-    // Put new object back
-    updatedGames[i] = game;
-
-    // Progress
-    setUpdateProgress({ value: i + 1, total });
-    window.electronAPI.sendUpdateProgress({ value: i + 1, total });
-
-    // Breathing room for UI
-    await new Promise(r => setTimeout(r, 50));
-  }
-
-  // One final state update
-  setGamesList(updatedGames);
-  console.log("All matches processed — final list set");
-  window.electronAPI.log("All matches processed — final list set");
-
-  setUpdateProgress({ value: total, total });
-  window.electronAPI.sendUpdateProgress({ value: total, total });
-};
-
-const importGamesFunc = async () => {
-  if (gamesList.length === 0) {
-    alert("No games to import");
-    return;
-  }
-
-  let finalLibraryPath = defaultLibraryPath;
-
-  if (moveGame && !finalLibraryPath) {
-    setAskingForLibraryFolder(true);
-    const selected = await window.electronAPI.selectDirectory();
-    setAskingForLibraryFolder(false);
-
-    if (!selected) {
-      const proceed = confirm(
-        "No library folder selected.\n\nContinue import without moving folders?"
-      );
-      if (!proceed) return;
-    } else {
-      try {
-        const saveResult = await window.electronAPI.setDefaultGameFolder(selected);
-        if (saveResult.success) {
-          finalLibraryPath = selected;
-          setDefaultLibraryPath(selected);
-          console.log("Saved new default library folder:", selected);
-        } else {
-          alert("Failed to save default library folder.\nImport continues without moving.");
-        }
-      } catch (err) {
-        console.error("Error saving library path:", err);
-        alert("Error saving library path. Import continues without moving.");
-      }
-    }
-  }
-
-  console.log("Importing games");
-  window.electronAPI.log("Importing games");
-
-  const importParams = {
-    games: gamesList,
-    deleteAfter,
-    scanSize,
-    downloadBannerImages,
-    downloadPreviewImages,
-    previewLimit,
-    downloadVideos,
-    gameExt: gameExt.split(",").map(e => e.trim()),
-    moveToDefaultFolder: moveGame && !!finalLibraryPath,
-    format: customFormat,
+    setUpdateProgress({ value: total, total });
+    window.electronAPI.sendUpdateProgress({ value: total, total });
   };
 
-  // Debug log
-  console.log("=== IMPORT PARAMS BEING SENT ===");
-  console.log("moveToDefaultFolder:", importParams.moveToDefaultFolder);
-  console.log("format:", importParams.format);
+  const importGamesFunc = async () => {
+    if (gamesList.length === 0) {
+      alert("No games to import");
+      return;
+    }
 
-  // Trigger import in background...
-  window.electronAPI
-    .importGames(importParams)
-    .then(() => {
-      console.log("Import completed successfully (background)");
-    })
-    .catch((err) => {
-      console.error("Background import error:", err);
-      window.electronAPI.log(`Background import error: ${err.message}`);
-      // Optional: show a toast/notification in main window if needed
-    });
+    let finalLibraryPath = defaultLibraryPath;
 
-  // ...immediately close the importer window
-  await window.electronAPI.closeWindow();
-};
+    if (moveGame && !finalLibraryPath) {
+      setAskingForLibraryFolder(true);
+      const selected = await window.electronAPI.selectDirectory();
+      setAskingForLibraryFolder(false);
+
+      if (!selected) {
+        const proceed = confirm(
+          "No library folder selected.\n\nContinue import without moving folders?",
+        );
+        if (!proceed) return;
+      } else {
+        try {
+          const saveResult =
+            await window.electronAPI.setDefaultGameFolder(selected);
+          if (saveResult.success) {
+            finalLibraryPath = selected;
+            setDefaultLibraryPath(selected);
+            console.log("Saved new default library folder:", selected);
+          } else {
+            alert(
+              "Failed to save default library folder.\nImport continues without moving.",
+            );
+          }
+        } catch (err) {
+          console.error("Error saving library path:", err);
+          alert("Error saving library path. Import continues without moving.");
+        }
+      }
+    }
+
+    console.log("Importing games");
+    window.electronAPI.log("Importing games");
+
+    const importParams = {
+      games: gamesList,
+      deleteAfter,
+      scanSize,
+      downloadBannerImages,
+      downloadPreviewImages,
+      previewLimit,
+      downloadVideos,
+      gameExt: gameExt.split(",").map((e) => e.trim()),
+      moveToDefaultFolder: moveGame && !!finalLibraryPath,
+      format: customFormat,
+    };
+
+    // Debug log
+    console.log("=== IMPORT PARAMS BEING SENT ===");
+    console.log("moveToDefaultFolder:", importParams.moveToDefaultFolder);
+    console.log("format:", importParams.format);
+
+    // Trigger import in background...
+    window.electronAPI
+      .importGames(importParams)
+      .then(() => {
+        console.log("Import completed successfully (background)");
+      })
+      .catch((err) => {
+        console.error("Background import error:", err);
+        window.electronAPI.log(`Background import error: ${err.message}`);
+        // Optional: show a toast/notification in main window if needed
+      });
+
+    // ...immediately close the importer window
+    await window.electronAPI.closeWindow();
+  };
 
   const handleUpdateClick = (event) => {
     console.log("Update button clicked", event);
@@ -662,7 +683,8 @@ const importGamesFunc = async () => {
                   className="mr-2"
                 />
                 <label className="font-medium">
-                  Move imported games to default library folder (using structure: {customFormat || "title-version"})
+                  Move imported games to default library folder (using
+                  structure: {customFormat || "title-version"})
                 </label>
 
                 {moveGame && (
@@ -672,7 +694,9 @@ const importGamesFunc = async () => {
                         Current library: <strong>{defaultLibraryPath}</strong>
                       </span>
                     ) : askingForLibraryFolder ? (
-                      <span className="text-yellow-400">Waiting for selection...</span>
+                      <span className="text-yellow-400">
+                        Waiting for selection...
+                      </span>
                     ) : (
                       <span className="text-yellow-400">
                         No default folder set — you will be asked to choose one

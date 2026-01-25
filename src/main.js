@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const sharp = require("sharp");
@@ -35,7 +35,7 @@ const {
   getAtlasData,
   db,
 } = require("./database");
-const { Menu, shell } = require("electron");
+const { Menu } = require("electron");
 const cp = require("child_process");
 const contextMenuData = new Map();
 
@@ -576,8 +576,74 @@ ipcMain.handle("update-progress", async (event, progress) => {
   }
 });
 
-// ─── Default game folder management ────────────────────────────────
+// Banner Template Handlers
+ipcMain.handle("get-available-banner-templates", async () => {
+  const templatesDir = path.join(dataDir, "templates", "banner");
+  try {
+    if (!fs.existsSync(templatesDir)) {
+      fs.mkdirSync(templatesDir, { recursive: true });
+      console.log(`Created templates directory: ${templatesDir}`);
+    }
+    const files = fs
+      .readdirSync(templatesDir)
+      .filter((file) => file.endsWith(".js"));
+    return files.map((file) => path.basename(file, ".js"));
+  } catch (err) {
+    console.error("Error reading templates directory:", err);
+    return [];
+  }
+});
 
+ipcMain.handle("get-selected-banner-template", async () => {
+  const configPath = path.join(dataDir, "config.ini");
+  try {
+    if (!fs.existsSync(configPath)) {
+      return "Default";
+    }
+    const configData = fs.readFileSync(configPath, "utf-8");
+    const match = configData.match(/bannerTemplate=(.*)/);
+    return match ? match[1].trim() : "Default";
+  } catch (err) {
+    console.error("Error reading selected banner template:", err);
+    return "Default";
+  }
+});
+
+ipcMain.handle("set-selected-banner-template", async (event, template) => {
+  const configPath = path.join(dataDir, "config.ini");
+  try {
+    let configData = fs.existsSync(configPath)
+      ? fs.readFileSync(configPath, "utf-8")
+      : "";
+
+    configData = configData.replace(/bannerTemplate=.*/g, "").trim();
+    configData += (configData ? "\n" : "") + `bannerTemplate=${template}`;
+
+    fs.writeFileSync(configPath, configData.trim());
+    return { success: true };
+  } catch (err) {
+    console.error("Error saving selected banner template:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Open external URL
+ipcMain.handle("open-external-url", async (event, url) => {
+  try {
+    if (!url || typeof url !== "string" || !url.startsWith("http")) {
+      console.warn("Invalid URL attempted to open:", url);
+      return { success: false, error: "Invalid URL" };
+    }
+    await shell.openExternal(url);
+    console.log("Opened external URL:", url);
+    return { success: true };
+  } catch (err) {
+    console.error("Error opening external URL:", url, err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Default game folder management
 ipcMain.handle("get-default-game-folder", async () => {
   return appConfig?.Library?.gameFolder || null;
 });
@@ -597,376 +663,6 @@ ipcMain.handle("set-default-game-folder", async (event, newPath) => {
     console.error("Failed to save default game folder:", err);
     return { success: false, error: err.message };
   }
-});
-
-ipcMain.handle("move-folder-to-library", async (event, { sourceFolder, newName }) => {
-  return moveFolderToLibraryImpl({ sourceFolder, newName });
-});
-
-// Helper for simple move (used as fallback)
-async function moveFolderToLibraryImpl({ sourceFolder, newName }) {
-  try {
-    const targetDir = appConfig?.Library?.gameFolder;
-    if (!targetDir || !fs.existsSync(targetDir)) {
-      return { success: false, error: "No valid default library folder set" };
-    }
-
-    let folderName = newName || path.basename(sourceFolder);
-    let destPath = path.join(targetDir, folderName);
-
-    let counter = 1;
-    while (fs.existsSync(destPath)) {
-      destPath = path.join(targetDir, `${folderName} (${counter++})`);
-    }
-
-    await fs.promises.rename(sourceFolder, destPath);
-
-    return {
-      success: true,
-      newPath: destPath,
-      movedName: path.basename(destPath),
-    };
-  } catch (err) {
-    console.error("Simple move failed:", sourceFolder, "→", err);
-    return { success: false, error: err.message };
-  }
-}
-
-// ─── Updated import-games handler with structured move ──────────────────────
-
-ipcMain.handle("import-games", async (event, params) => {
-  const {
-    games,
-    deleteAfter,
-    scanSize,
-    downloadBannerImages,
-    downloadPreviewImages,
-    previewLimit,
-    downloadVideos,
-    gameExt,
-    moveToDefaultFolder = false,
-    format = customFormat,  // ← NEW: folder structure format from renderer
-  } = params;
-
-  const gamesDir = path.join(dataDir, "games");
-  if (!fs.existsSync(gamesDir)) fs.mkdirSync(gamesDir, { recursive: true });
-
-  const total = games.length;
-  let progress = 0;
-
-  mainWindow.webContents.send("import-progress", {
-    text: `Starting import of ${total} games...`,
-    progress,
-    total,
-  });
-
-  let targetLibrary = null;
-  if (moveToDefaultFolder) {
-    targetLibrary = appConfig?.Library?.gameFolder;
-    if (!targetLibrary || !fs.existsSync(targetLibrary)) {
-      console.warn("Move requested but no valid default library folder set");
-      mainWindow.webContents.send("import-warning", {
-        message: "Move to library skipped — no default folder configured"
-      });
-      moveToDefaultFolder = false;
-    }
-  }
-
-  const results = [];
-
-  for (const game of games) {
-    try {
-      mainWindow.webContents.send("import-progress", {
-        text: `Importing game '${game.title}' ${progress + 1}/${total}`,
-        progress,
-        total,
-      });
-
-      let gamePath = game.folder;
-      let execPath = game.selectedValue
-        ? path.join(gamePath, game.selectedValue)
-        : "";
-      let size = 0;
-
-      // ── Structured move if requested and format provided ──
-      if (moveToDefaultFolder && targetLibrary && format.trim()) {
-        try {
-          const formatStr = format.trim();
-          const parts = formatStr.split("/").map(p => p.replace(/[{}]/g, "").trim());
-
-          const pathSegments = [];
-          for (const part of parts) {
-            let value = "";
-            if (part.toLowerCase() === "creator") value = game.creator || "Unknown";
-            else if (part.toLowerCase() === "title") value = game.title || "Untitled";
-            else if (part.toLowerCase() === "version") value = game.version || "v1";
-            else if (part.toLowerCase() === "engine") value = game.engine || "Unknown";
-            else value = "Unknown";
-
-            // Sanitize segment
-            value = value
-              .replace(/[\/\\:*?"<>|]/g, "_")
-              .replace(/\s+/g, " ")
-              .trim();
-
-            if (!value || value === ".") value = "Unknown";
-
-            pathSegments.push(value);
-          }
-
-          const relativeDest = path.join(...pathSegments);
-          let destPath = path.join(targetLibrary, relativeDest);
-
-          // Handle final folder name conflict
-          let counter = 1;
-          const originalDest = destPath;
-          while (fs.existsSync(destPath)) {
-            destPath = `${originalDest} (${counter++})`;
-          }
-
-          // Create parent directories
-          await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
-
-          // Move source → new structured location
-          await copyFolderWithProgress(gamePath, destPath, (prog) => {
-  let text = `Moving ${game.title}`;
-  if (prog.type === 'total') {
-    text += ` (${(prog.bytes / (1024**3)).toFixed(2)} GB)`;
-  } else if (prog.type === 'progress') {
-    text += `: ${prog.percent}% (${(prog.copied / (1024**3)).toFixed(2)} / ${(prog.total / (1024**3)).toFixed(2)} GB)`;
-  } else if (prog.type === 'done') {
-    text += ` — complete`;
-  } else if (prog.type === 'error') {
-    text += ` — error: ${prog.message}`;
-  }
-
-  mainWindow.webContents.send("import-progress", {
-    text,
-    progress,      // main game count
-    total,         // total games
-    subProgress: prog.percent || 0,
-    subTotal: 100
-  });
-});
-
-// Delete source if requested
-if (deleteAfter) {
-  try {
-    await fs.promises.rm(gamePath, { recursive: true, force: true });
-    console.log(`Deleted source: ${gamePath}`);
-  } catch (delErr) {
-    console.warn(`Delete failed: ${gamePath}`, delErr);
-  }
-}
-
-gamePath = destPath;
-execPath = path.join(gamePath, game.selectedValue || "");
-
-          console.log(`Moved ${game.title} to structured path: ${destPath}`);
-          mainWindow.webContents.send("import-progress", {
-            text: `Moved to structured folder: ${relativeDest}`,
-            progress,
-            total,
-          });
-        } catch (moveErr) {
-          console.error("Structured move failed:", moveErr);
-          mainWindow.webContents.send("import-progress", {
-            text: `Structured move failed for ${game.title}: ${moveErr.message}`,
-            progress,
-            total,
-          });
-          // Continue import anyway
-        }
-      } 
-      // Optional fallback: simple move if no format
-      else if (moveToDefaultFolder && targetLibrary) {
-        try {
-          const suggestedName = `${game.title} - ${game.version || "v1"}`
-            .replace(/[\/\\:*?"<>|]/g, "_")
-            .trim();
-
-          const moveResult = await moveFolderToLibraryImpl({
-            sourceFolder: gamePath,
-            newName: suggestedName,
-          });
-
-          if (moveResult.success) {
-            gamePath = moveResult.newPath;
-            execPath = path.join(gamePath, game.selectedValue || "");
-            console.log(`Simple move to: ${moveResult.newPath}`);
-          }
-        } catch (moveErr) {
-          console.error("Fallback simple move failed:", moveErr);
-        }
-      }
-
-      if (game.isArchive) {
-        const extractPath = path.join(
-          gamesDir,
-          `${game.title}-${game.version}`,
-        );
-        if (!fs.existsSync(extractPath))
-          fs.mkdirSync(extractPath, { recursive: true });
-        await unzipGame({ zipPath: game.folder, extractPath });
-        if (deleteAfter) fs.unlinkSync(game.folder);
-        gamePath = extractPath;
-
-        const execs = findExecutables(extractPath, gameExt);
-        if (execs.length > 0) {
-          const selected = execs[0];
-          execPath = path.join(extractPath, selected);
-          for (const [eng, patterns] of Object.entries(engineMap)) {
-            if (patterns.some((p) => selected.toLowerCase().includes(p))) {
-              game.engine = eng;
-              break;
-            }
-          }
-          game.executables = execs.map((e) => ({ key: e, value: e }));
-          game.selectedValue = selected;
-        }
-      }
-
-      if (scanSize) {
-        size = getFolderSize(gamePath);
-      }
-
-      const add = {
-        title: game.title,
-        creator: game.creator,
-        engine: game.engine,
-        description: game.description || "Imported game",
-      };
-
-      console.log("Adding Game");
-      const recordId = await addGame(add);
-      console.log("game added");
-      console.log("adding version");
-      await addVersion(
-        { ...game, folder: gamePath, execPath, folderSize: size },
-        recordId,
-      );
-      console.log("added version");
-      console.log("adding mapping");
-      console.log("recordId:", recordId, "atlasId:", game.atlasId);
-      if (game.atlasId) {
-        try {
-          await addAtlasMapping(recordId, game.atlasId);
-          console.log("mapping added");
-        } catch (err) {
-          console.error("Failed to add atlas mapping:", err);
-          throw err;
-        }
-      }
-
-      if (size > 0) await updateFolderSize(recordId, game.version, size);
-      results.push({ success: true, recordId, atlasId: game.atlasId });
-
-      progress++;
-      mainWindow.webContents.send("import-progress", {
-        text: `Imported game '${game.title}' ${progress}/${total}`,
-        progress,
-        total,
-      });
-    } catch (err) {
-      console.error("Error importing game:", err);
-      results.push({ success: false, error: err.message });
-      progress++;
-      mainWindow.webContents.send("import-progress", {
-        text: `Error importing game '${game.title}' ${progress}/${total}: ${err.message}`,
-        progress,
-        total,
-      });
-    }
-  }
-
-  mainWindow.webContents.send("import-progress", {
-    text: `Game import complete: ${results.filter((r) => r.success).length} successful`,
-    progress,
-    total,
-  });
-  mainWindow.webContents.send("import-complete");
-
-  // Phase 2: Download images for successful imports
-  if (downloadBannerImages || downloadPreviewImages) {
-    progress = 0;
-    const gamesWithImages = results
-      .filter((r) => r.success && r.atlasId)
-      .map((r) => ({
-        title:
-          games.find((g) => g.atlasId === r.atlasId)?.title || "Unknown Game",
-        atlasId: r.atlasId,
-        recordId: r.recordId,
-      }));
-    const imageTotal = gamesWithImages.length;
-
-    mainWindow.webContents.send("import-progress", {
-      text: `Starting image download for ${imageTotal} games...`,
-      progress,
-      total: imageTotal,
-    });
-
-    for (const game of gamesWithImages) {
-      try {
-        const bannerUrl = await getBannerUrl(game.atlasId);
-        const screenUrls = await getScreensUrlList(game.atlasId);
-        const previewCount = downloadPreviewImages
-          ? previewLimit === "Unlimited"
-            ? screenUrls.length
-            : Math.min(parseInt(previewLimit), screenUrls.length)
-          : 0;
-        const totalImages =
-          (downloadBannerImages && bannerUrl ? 2 : 0) + previewCount;
-
-        mainWindow.webContents.send("import-progress", {
-          text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, 0/${totalImages}`,
-          progress,
-          total: imageTotal,
-        });
-
-        await downloadImages(
-          game.recordId,
-          game.atlasId,
-          (current, totalImages) => {
-            mainWindow.webContents.send("import-progress", {
-              text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, ${current}/${totalImages}`,
-              progress,
-              total: imageTotal,
-            });
-          },
-          downloadBannerImages,
-          downloadPreviewImages,
-          previewLimit,
-          downloadVideos,
-        );
-
-        mainWindow.webContents.send("game-updated", game.recordId);
-
-        progress++;
-        mainWindow.webContents.send("import-progress", {
-          text: `Completed image download for '${game.title}' ${progress}/${imageTotal}, ${totalImages} images downloaded`,
-          progress,
-          total: imageTotal,
-        });
-      } catch (err) {
-        console.error("Error downloading images for game:", err);
-        progress++;
-        mainWindow.webContents.send("import-progress", {
-          text: `Error downloading images for '${game.title}' ${progress}/${imageTotal}: ${err.message}`,
-          progress,
-          total: imageTotal,
-        });
-      }
-    }
-
-    mainWindow.webContents.send("import-progress", {
-      text: `Image download complete for ${progress} games`,
-      progress,
-      total: imageTotal,
-    });
-  }
-
-  mainWindow.webContents.send("import-complete");
-  return results;
 });
 
 ipcMain.handle("save-emulator-config", async (event, emulator) => {
@@ -1199,77 +895,6 @@ ipcMain.handle("open-directory", async (event, path) => {
   }
 });
 
-// 1. Get list of available banner templates
-ipcMain.handle("get-available-banner-templates", async () => {
-  const templatesDir = path.join(dataDir, "templates", "banner");
-  try {
-    if (!fs.existsSync(templatesDir)) {
-      fs.mkdirSync(templatesDir, { recursive: true });
-      console.log(`Created templates directory: ${templatesDir}`);
-    }
-    const files = fs
-      .readdirSync(templatesDir)
-      .filter((file) => file.endsWith(".js"));
-    return files.map((file) => path.basename(file, ".js"));
-  } catch (err) {
-    console.error("Error reading templates directory:", err);
-    return [];
-  }
-});
-
-// 2. Get currently selected banner template from config.ini
-ipcMain.handle("get-selected-banner-template", async () => {
-  const configPath = path.join(dataDir, "config.ini");
-  try {
-    if (!fs.existsSync(configPath)) {
-      return "Default";
-    }
-    const configData = fs.readFileSync(configPath, "utf-8");
-    const match = configData.match(/bannerTemplate=(.*)/);
-    return match ? match[1].trim() : "Default";
-  } catch (err) {
-    console.error("Error reading selected banner template:", err);
-    return "Default";
-  }
-});
-
-// 3. Set / save selected banner template to config.ini
-ipcMain.handle("set-selected-banner-template", async (event, template) => {
-  const configPath = path.join(dataDir, "config.ini");
-  try {
-    let configData = fs.existsSync(configPath)
-      ? fs.readFileSync(configPath, "utf-8")
-      : "";
-
-    // Remove any existing bannerTemplate line
-    configData = configData.replace(/bannerTemplate=.*/g, "").trim();
-
-    // Add new one (or just the line if file was empty)
-    configData += (configData ? "\n" : "") + `bannerTemplate=${template}`;
-
-    fs.writeFileSync(configPath, configData.trim());
-    return { success: true };
-  } catch (err) {
-    console.error("Error saving selected banner template:", err);
-    return { success: false, error: err.message };
-  }
-});
-
-// 4. Open external URL (used by Update Available button)
-ipcMain.handle("open-external-url", async (event, url) => {
-  try {
-    if (!url || typeof url !== "string" || !url.startsWith("http")) {
-      console.warn("Invalid URL attempted to open:", url);
-      return { success: false, error: "Invalid URL" };
-    }
-    await shell.openExternal(url);
-    console.log("Opened external URL:", url);
-    return { success: true };
-  } catch (err) {
-    console.error("Error opening external URL:", url, err);
-    return { success: false, error: err.message };
-  }
-});
 
 ipcMain.handle("get-steam-data", async (event, steam_id) => {
   console.log("Handling get-steam-data:", steam_id);
@@ -1316,6 +941,437 @@ ipcMain.handle("select-steam-directory", async () => {
     console.error("Error selecting Steam directory:", err);
     return null;
   }
+});
+
+// ────────────────────────────────────────────────
+// FAST CROSS-DEVICE COPY WITH BATCHED PROGRESS & RATE
+// ────────────────────────────────────────────────
+
+async function copyFolderWithProgress(source, destination, onProgress) {
+  let totalBytes = 0;
+  let copiedBytes = 0;
+  let lastReportedPercent = 0;
+  let startTime = Date.now();
+  let lastReportTime = startTime;
+  let lastCopiedBytes = 0;
+
+  async function calculateSize(dir) {
+    const stat = await fs.promises.stat(dir);
+    if (stat.isFile()) {
+      totalBytes += stat.size;
+      return;
+    }
+    const files = await fs.promises.readdir(dir);
+    await Promise.all(files.map(file => calculateSize(path.join(dir, file))));
+  }
+
+  await calculateSize(source);
+  onProgress?.({ type: 'total', bytes: totalBytes });
+
+  async function copyRecursive(src, dest) {
+    const stat = await fs.promises.stat(src);
+    if (stat.isDirectory()) {
+      await fs.promises.mkdir(dest, { recursive: true });
+      const files = await fs.promises.readdir(src);
+      await Promise.all(files.map(file => copyRecursive(path.join(src, file), path.join(dest, file))));
+    } else {
+      return new Promise((resolve, reject) => {
+        const readStream = fs.createReadStream(src);
+        const writeStream = fs.createWriteStream(dest);
+
+        readStream.on('data', (chunk) => {
+          copiedBytes += chunk.length;
+
+          const currentPercent = Math.floor((copiedBytes / totalBytes) * 100);
+          const now = Date.now();
+
+          // Only report when % changes
+          if (currentPercent > lastReportedPercent) {
+            const elapsed = (now - startTime) / 1000;
+            const currentSpeed = elapsed > 0 ? (copiedBytes - lastCopiedBytes) / elapsed : 0;
+            const speedText = currentSpeed > 1024 * 1024 * 1024
+              ? `${(currentSpeed / (1024**3)).toFixed(2)} GB/s`
+              : currentSpeed > 1024 * 1024
+                ? `${(currentSpeed / (1024**2)).toFixed(1)} MB/s`
+                : `${(currentSpeed / 1024).toFixed(1)} KB/s`;
+
+            onProgress?.({
+              type: 'progress',
+              percent: currentPercent,
+              copied: copiedBytes,
+              total: totalBytes,
+              speed: speedText
+            });
+
+            lastReportedPercent = currentPercent;
+            lastReportTime = now;
+            lastCopiedBytes = copiedBytes;
+          }
+        });
+
+        readStream.on('end', () => resolve());
+        readStream.on('error', reject);
+        writeStream.on('error', reject);
+
+        readStream.pipe(writeStream);
+      });
+    }
+  }
+
+  try {
+    await copyRecursive(source, destination);
+    const finalPercent = 100;
+    const totalElapsed = (Date.now() - startTime) / 1000;
+    const avgSpeed = totalElapsed > 0 ? (copiedBytes / totalElapsed) : 0;
+    const avgSpeedText = avgSpeed > 1024 * 1024 * 1024
+      ? `${(avgSpeed / (1024**3)).toFixed(2)} GB/s`
+      : avgSpeed > 1024 * 1024
+        ? `${(avgSpeed / (1024**2)).toFixed(1)} MB/s`
+        : `${(avgSpeed / 1024).toFixed(1)} KB/s`;
+
+    onProgress?.({
+      type: 'done',
+      percent: finalPercent,
+      copied: copiedBytes,
+      total: totalBytes,
+      speed: avgSpeedText
+    });
+  } catch (err) {
+    console.error('Copy failed:', err);
+    onProgress?.({ type: 'error', message: err.message });
+    throw err;
+  }
+}
+
+// ────────────────────────────────────────────────
+// IMPORT GAMES HANDLER
+// ────────────────────────────────────────────────
+
+ipcMain.handle("import-games", async (event, params) => {
+  const {
+    games,
+    deleteAfter,
+    scanSize,
+    downloadBannerImages,
+    downloadPreviewImages,
+    previewLimit,
+    downloadVideos,
+    gameExt,
+    moveToDefaultFolder = false,
+    format = "",
+  } = params;
+
+  const gamesDir = path.join(dataDir, "games");
+  if (!fs.existsSync(gamesDir)) fs.mkdirSync(gamesDir, { recursive: true });
+
+  const total = games.length;
+  let progress = 0;
+
+  mainWindow.webContents.send("import-progress", {
+    text: `Starting import of ${total} games...`,
+    progress,
+    total,
+  });
+
+  let targetLibrary = null;
+  if (moveToDefaultFolder) {
+    targetLibrary = appConfig?.Library?.gameFolder;
+    if (!targetLibrary || !fs.existsSync(targetLibrary)) {
+      console.warn("Move requested but no valid default library folder set");
+      mainWindow.webContents.send("import-warning", {
+        message: "Move to library skipped — no default folder configured"
+      });
+    }
+  }
+
+  const results = [];
+
+  for (const game of games) {
+    try {
+      mainWindow.webContents.send("import-progress", {
+        text: `Importing game '${game.title}' ${progress + 1}/${total}`,
+        progress,
+        total,
+      });
+
+      let gamePath = game.folder;
+      let execPath = game.selectedValue
+        ? path.join(gamePath, game.selectedValue)
+        : "";
+      let size = 0;
+
+      // ── Structured move if requested ──
+      if (moveToDefaultFolder && targetLibrary && format.trim()) {
+        try {
+          const formatStr = format.trim();
+          const parts = formatStr.split("/").map(p => p.replace(/[{}]/g, "").trim());
+
+          const pathSegments = [];
+          for (const part of parts) {
+            let value = "";
+            if (part.toLowerCase() === "creator") value = game.creator || "Unknown";
+            else if (part.toLowerCase() === "title") value = game.title || "Untitled";
+            else if (part.toLowerCase() === "version") value = game.version || "v1";
+            else if (part.toLowerCase() === "engine") value = game.engine || "Unknown";
+            else value = "Unknown";
+
+            value = value
+              .replace(/[\/\\:*?"<>|]/g, "_")
+              .replace(/\s+/g, " ")
+              .trim();
+
+            if (!value || value === ".") value = "Unknown";
+
+            pathSegments.push(value);
+          }
+
+          const relativeDest = path.join(...pathSegments);
+          let destPath = path.join(targetLibrary, relativeDest);
+
+          // Handle name conflict
+          let counter = 1;
+          const originalDest = destPath;
+          while (fs.existsSync(destPath)) {
+            destPath = `${originalDest} (${counter++})`;
+          }
+
+          await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+
+          // Preserve ORIGINAL source path
+          const originalSource = gamePath;
+
+          // Copy with progress
+          await copyFolderWithProgress(originalSource, destPath, (prog) => {
+            let text = `Moving ${game.title}`;
+            if (prog.type === 'total') {
+              text += ` (${(prog.bytes / (1024**3)).toFixed(2)} GB total)`;
+            } else if (prog.type === 'progress') {
+              text += `: ${prog.percent}% (${(prog.copied / (1024**3)).toFixed(2)} / ${(prog.total / (1024**3)).toFixed(2)} GB)`;
+            } else if (prog.type === 'done') {
+              text += ` — complete`;
+            }
+
+            mainWindow.webContents.send("import-progress", {
+              text,
+              progress,
+              total,
+              subProgress: prog.percent || 0,
+              subTotal: 100,
+            });
+          });
+
+          // Delete ORIGINAL source after copy (if deleteAfter is true)
+          if (deleteAfter) {
+            try {
+              if (await fs.promises.access(originalSource).then(() => true).catch(() => false)) {
+                await fs.promises.rm(originalSource, { recursive: true, force: true });
+                console.log(`Deleted original source: ${originalSource}`);
+                mainWindow.webContents.send("import-progress", {
+                  text: `Moved ${game.title} and deleted original folder`,
+                  progress,
+                  total,
+                });
+              } else {
+                console.log(`Original source already gone: ${originalSource}`);
+              }
+            } catch (delErr) {
+              console.error(`Failed to delete original source ${originalSource}:`, delErr);
+              mainWindow.webContents.send("import-progress", {
+                text: `Moved ${game.title} but failed to delete original: ${delErr.message}`,
+                progress,
+                total,
+              });
+            }
+          } else {
+            mainWindow.webContents.send("import-progress", {
+              text: `Moved ${game.title} (original kept)`,
+              progress,
+              total,
+            });
+          }
+
+          // Update gamePath to new location for DB
+          gamePath = destPath;
+          execPath = path.join(gamePath, game.selectedValue || "");
+
+          console.log(`Moved ${game.title} to: ${destPath}`);
+        } catch (moveErr) {
+          console.error("Structured move failed:", moveErr);
+          mainWindow.webContents.send("import-progress", {
+            text: `Move failed for ${game.title}: ${moveErr.message}`,
+            progress,
+            total,
+          });
+        }
+      }
+
+      if (game.isArchive) {
+        const extractPath = path.join(
+          gamesDir,
+          `${game.title}-${game.version}`,
+        );
+        if (!fs.existsSync(extractPath))
+          fs.mkdirSync(extractPath, { recursive: true });
+        await unzipGame({ zipPath: game.folder, extractPath });
+        if (deleteAfter) fs.unlinkSync(game.folder);
+        gamePath = extractPath;
+
+        const execs = findExecutables(extractPath, gameExt);
+        if (execs.length > 0) {
+          const selected = execs[0];
+          execPath = path.join(extractPath, selected);
+          for (const [eng, patterns] of Object.entries(engineMap)) {
+            if (patterns.some((p) => selected.toLowerCase().includes(p))) {
+              game.engine = eng;
+              break;
+            }
+          }
+          game.executables = execs.map((e) => ({ key: e, value: e }));
+          game.selectedValue = selected;
+        }
+      }
+
+      if (scanSize) {
+        size = getFolderSize(gamePath);
+      }
+
+      const add = {
+        title: game.title,
+        creator: game.creator,
+        engine: game.engine,
+        description: game.description || "Imported game",
+      };
+
+      console.log("Adding Game");
+      const recordId = await addGame(add);
+      console.log("game added");
+      console.log("adding version");
+      await addVersion(
+        { ...game, folder: gamePath, execPath, folderSize: size },
+        recordId,
+      );
+      console.log("added version");
+      console.log("adding mapping");
+      console.log("recordId:", recordId, "atlasId:", game.atlasId);
+      if (game.atlasId) {
+        try {
+          await addAtlasMapping(recordId, game.atlasId);
+          console.log("mapping added");
+        } catch (err) {
+          console.error("Failed to add atlas mapping:", err);
+          throw err;
+        }
+      }
+
+      if (size > 0) await updateFolderSize(recordId, game.version, size);
+      results.push({ success: true, recordId, atlasId: game.atlasId });
+
+      progress++;
+      mainWindow.webContents.send("import-progress", {
+        text: `Imported game '${game.title}' ${progress}/${total}`,
+        progress,
+        total,
+      });
+    } catch (err) {
+      console.error("Error importing game:", err);
+      results.push({ success: false, error: err.message });
+      progress++;
+      mainWindow.webContents.send("import-progress", {
+        text: `Error importing game '${game.title}' ${progress}/${total}: ${err.message}`,
+        progress,
+        total,
+      });
+    }
+  }
+
+  mainWindow.webContents.send("import-progress", {
+    text: `Game import complete: ${results.filter((r) => r.success).length} successful`,
+    progress,
+    total,
+  });
+  mainWindow.webContents.send("import-complete");
+
+  // Phase 2: Image downloads
+  if (downloadBannerImages || downloadPreviewImages) {
+    progress = 0;
+    const gamesWithImages = results
+      .filter((r) => r.success && r.atlasId)
+      .map((r) => ({
+        title:
+          games.find((g) => g.atlasId === r.atlasId)?.title || "Unknown Game",
+        atlasId: r.atlasId,
+        recordId: r.recordId,
+      }));
+    const imageTotal = gamesWithImages.length;
+
+    mainWindow.webContents.send("import-progress", {
+      text: `Starting image download for ${imageTotal} games...`,
+      progress,
+      total: imageTotal,
+    });
+
+    for (const game of gamesWithImages) {
+      try {
+        const bannerUrl = await getBannerUrl(game.atlasId);
+        const screenUrls = await getScreensUrlList(game.atlasId);
+        const previewCount = downloadPreviewImages
+          ? previewLimit === "Unlimited"
+            ? screenUrls.length
+            : Math.min(parseInt(previewLimit), screenUrls.length)
+          : 0;
+        const totalImages =
+          (downloadBannerImages && bannerUrl ? 2 : 0) + previewCount;
+
+        mainWindow.webContents.send("import-progress", {
+          text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, 0/${totalImages}`,
+          progress,
+          total: imageTotal,
+        });
+
+        await downloadImages(
+          game.recordId,
+          game.atlasId,
+          (current, totalImages) => {
+            mainWindow.webContents.send("import-progress", {
+              text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, ${current}/${totalImages}`,
+              progress,
+              total: imageTotal,
+            });
+          },
+          downloadBannerImages,
+          downloadPreviewImages,
+          previewLimit,
+          downloadVideos,
+        );
+
+        mainWindow.webContents.send("game-updated", game.recordId);
+
+        progress++;
+        mainWindow.webContents.send("import-progress", {
+          text: `Completed image download for '${game.title}' ${progress}/${imageTotal}, ${totalImages} images downloaded`,
+          progress,
+          total: imageTotal,
+        });
+      } catch (err) {
+        console.error("Error downloading images for game:", err);
+        progress++;
+        mainWindow.webContents.send("import-progress", {
+          text: `Error downloading images for '${game.title}' ${progress}/${imageTotal}: ${err.message}`,
+          progress,
+          total: imageTotal,
+        });
+      }
+    }
+
+    mainWindow.webContents.send("import-progress", {
+      text: `Image download complete for ${progress} games`,
+      progress,
+      total: imageTotal,
+    });
+  }
+
+  mainWindow.webContents.send("import-complete");
+  return results;
 });
 
 // ────────────────────────────────────────────────
@@ -1588,89 +1644,6 @@ async function launchGame({ execPath, extension, recordId }) {
     child.unref();
   } else {
     shell.openPath(execPath);
-  }
-}
-
-async function copyFolderWithProgress(source, destination, onProgress) {
-  let totalBytes = 0;
-  let copiedBytes = 0;
-  let lastReportedPercent = 0;
-  let lastReportTime = Date.now();
-
-  // Step 1: Calculate total size (fast walk)
-  async function calculateSize(dir) {
-    const stat = await fs.promises.stat(dir);
-    if (stat.isFile()) {
-      totalBytes += stat.size;
-      return;
-    }
-    const files = await fs.promises.readdir(dir);
-    await Promise.all(files.map(file => calculateSize(path.join(dir, file))));
-  }
-
-  await calculateSize(source);
-  onProgress?.({ type: 'total', bytes: totalBytes, text: `Preparing move (${(totalBytes / (1024**3)).toFixed(2)} GB)` });
-
-  // Step 2: Recursive copy with streaming + batched progress
-  async function copyRecursive(src, dest) {
-    const stat = await fs.promises.stat(src);
-    if (stat.isDirectory()) {
-      await fs.promises.mkdir(dest, { recursive: true });
-      const files = await fs.promises.readdir(src);
-      // Optional: limit concurrency to 4–8 to avoid opening too many streams
-      await Promise.all(files.map(file => copyRecursive(path.join(src, file), path.join(dest, file))));
-    } else {
-      // Stream copy for files
-      return new Promise((resolve, reject) => {
-        const readStream = fs.createReadStream(src);
-        const writeStream = fs.createWriteStream(dest);
-
-        readStream.on('data', (chunk) => {
-          copiedBytes += chunk.length;
-
-          const currentPercent = Math.floor((copiedBytes / totalBytes) * 100);
-          const now = Date.now();
-
-          // Batch: report only if % changed by ≥5 or ≥3 seconds passed
-          if (
-            currentPercent >= lastReportedPercent + 5 ||
-            now - lastReportTime >= 3000
-          ) {
-            lastReportedPercent = currentPercent;
-            lastReportTime = now;
-
-            onProgress?.({
-              type: 'progress',
-              percent: currentPercent,
-              copied: copiedBytes,
-              total: totalBytes,
-              text: `${currentPercent}% (${(copiedBytes / (1024**3)).toFixed(2)} / ${(totalBytes / (1024**3)).toFixed(2)} GB)`
-            });
-          }
-        });
-
-        readStream.on('end', () => resolve());
-        readStream.on('error', reject);
-        writeStream.on('error', reject);
-
-        readStream.pipe(writeStream);
-      });
-    }
-  }
-
-  try {
-    await copyRecursive(source, destination);
-    onProgress?.({
-      type: 'done',
-      percent: 100,
-      copied: copiedBytes,
-      total: totalBytes,
-      text: 'Move complete'
-    });
-  } catch (err) {
-    console.error('Copy failed:', err);
-    onProgress?.({ type: 'error', message: err.message });
-    throw err;
   }
 }
 
