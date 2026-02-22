@@ -276,6 +276,37 @@ const App = () => {
         alert(`Update error: ${status.error}`);
       }
     };
+    const handleGameDeleted = (recordId) => {
+      console.log(`Game deleted event received for recordId: ${recordId}`);
+      setGames((prev) => {
+        const newGames = prev.filter((g) => g.record_id !== recordId);
+        setTotalVersions(
+          newGames.reduce((sum, game) => sum + (game.versionCount || 0), 0),
+        );
+        return newGames;
+      });
+
+      // Optional: if this was the selected game, clear it
+      if (selectedGame?.record_id === recordId) {
+        setSelectedGame(null);
+      }
+
+      // Force grid refresh
+      if (gridRef.current) {
+        gridRef.current.recomputeGridSize();
+        gridRef.current.forceUpdate();
+      }
+    };
+
+    window.electronAPI.onGameDeleted(handleGameDeleted);
+
+    // Cleanup (add to return)
+    return () => {
+      // ... existing cleanup ...
+      // You don't need to removeListener here if using named function reference,
+      // but for completeness you can add:
+      // window.electronAPI.onGameDeleted(() => {}); // dummy to clear
+    };
 
     window.electronAPI.onWindowStateChanged(handleWindowStateChanged);
     window.electronAPI.onDbUpdateProgress(handleDbUpdateProgress);

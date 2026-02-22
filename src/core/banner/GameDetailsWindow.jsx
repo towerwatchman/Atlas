@@ -330,39 +330,122 @@ const GameDetailWindow = () => {
 
   const handleRemoveVersion = async () => {
     if (!selectedVersion) {
-      console.log("No version selected for removal");
+      alert("No version selected.");
       return;
     }
 
-    const confirm = window.confirm(
-      "This will also remove the game folder. Do you want to continue?",
-    );
-    if (!confirm) return;
+    const versionLabel = selectedVersion.version || "this version";
+
+    // Step 1: Check how many versions currently exist
+    const currentCount = await window.electronAPI.countVersions(game.record_id);
+
+    let confirmed = false;
+
+    if (currentCount <= 1) {
+      // Deleting last version → full game removal
+      confirmed = window.confirm(
+        `You are about to delete the last version ("${versionLabel}") of "${game.title}".\n\n` +
+          `This will completely remove the game from your library, including:\n` +
+          `• All metadata & mappings\n` +
+          `• Cached banner and preview images\n\n` +
+          `Continue?`,
+      );
+    } else {
+      // Normal version delete (no folder prompt here)
+      confirmed = window.confirm(
+        `Delete version "${versionLabel}" of "${game.title}"?\n\n` +
+          `The game entry will remain with ${currentCount - 1} other version(s).`,
+      );
+    }
+
+    if (!confirmed) return;
 
     try {
-      console.log("Removing version for recordId:", selectedVersion.recordId);
-      const isDeleted = await window.electronAPI.removeGame(
-        selectedVersion.recordId,
-      );
-      if (isDeleted) {
-        console.log("Version deleted, updating UI");
-        console.log("TODO: Delete game folder at", selectedVersion.gamePath);
-
-        const updatedVersions = versions.filter(
-          (v) => v.version !== selectedVersion.version,
+      if (currentCount <= 1) {
+        // Full game deletion
+        const dbResult = await window.electronAPI.deleteGameCompletely(
+          game.record_id,
         );
-        setVersions(updatedVersions);
-        if (updatedVersions.length > 0) {
-          handleVersionSelect(updatedVersions[0]);
-        } else {
-          setSelectedVersion(null);
-          setVersionData({});
+        if (!dbResult.success) {
+          alert(
+            "Failed to delete game from database: " +
+              (dbResult.error || "Unknown error"),
+          );
+          return;
         }
 
-        console.log("TODO: Update ModelData.GameCollection");
+        // Step 2: Ask about deleting folders (only for last version / full delete)
+        const foldersToDelete = versions
+          .map((v) => v.game_path)
+          .filter(Boolean);
+        let deleteFoldersConfirmed = false;
+
+        if (foldersToDelete.length > 0) {
+          const folderList = foldersToDelete.map((p) => `• ${p}`).join("\n");
+          deleteFoldersConfirmed = window.confirm(
+            `Game database entry removed successfully.\n\n` +
+              `Also delete the game folder(s) from disk?\n\n${folderList}\n\n` +
+              `This cannot be undone!`,
+          );
+        }
+
+        if (deleteFoldersConfirmed) {
+          let allDeleted = true;
+          for (const folderPath of foldersToDelete) {
+            const result =
+              await window.electronAPI.deleteFolderRecursive(folderPath);
+            if (!result.success) {
+              console.error(
+                `Folder deletion failed for ${folderPath}: ${result.error}`,
+              );
+              allDeleted = false;
+            }
+          }
+
+          if (allDeleted) {
+            alert("Game completely removed, including all folders.");
+          } else {
+            alert(
+              "Game removed from library, but some folders could not be deleted (check console).",
+            );
+          }
+        } else {
+          alert(
+            `"${game.title}" has been completely removed from your library (folders kept).`,
+          );
+        }
+
+        // Close the details window
+        window.electronAPI.closeWindow();
+      } else {
+        // Delete single version (no folder deletion here)
+        const result = await window.electronAPI.deleteVersion({
+          recordId: game.record_id,
+          version: selectedVersion.version,
+        });
+
+        if (result.success) {
+          // Refresh local versions
+          const updatedVersions = versions.filter(
+            (v) => v.version !== selectedVersion.version,
+          );
+          setVersions(updatedVersions);
+
+          if (updatedVersions.length > 0) {
+            handleVersionSelect(updatedVersions[0]);
+          } else {
+            setSelectedVersion(null);
+            setVersionData({});
+          }
+
+          alert(`Version "${versionLabel}" deleted.`);
+        } else {
+          alert("Failed to delete version.");
+        }
       }
     } catch (err) {
-      console.error("Error removing version:", err);
+      console.error("Error during version/game deletion:", err);
+      alert("An error occurred: " + err.message);
     }
   };
 

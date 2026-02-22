@@ -691,6 +691,69 @@ const removeGame = async (record_id) => {
   });
 };
 
+// Count versions for a game
+const countVersions = (recordId) =>
+  new Promise((resolve, reject) => {
+    db.get(
+      `SELECT COUNT(*) as count FROM versions WHERE record_id = ?`,
+      [recordId],
+      (err, row) => (err ? reject(err) : resolve(row?.count || 0)),
+    );
+  });
+
+// Delete ONE specific version
+const deleteVersion = (recordId, version) =>
+  new Promise((resolve, reject) => {
+    db.run(
+      `DELETE FROM versions WHERE record_id = ? AND version = ?`,
+      [recordId, version],
+      function (err) {
+        err ? reject(err) : resolve({ changes: this.changes });
+      },
+    );
+  });
+
+// Full cleanup (images + mappings + versions + game record)
+const deleteGameCompletely = async (recordId, appPath, isDev) => {
+  try {
+    await deleteBanner(recordId, appPath, isDev);
+    await deletePreviews(recordId, appPath, isDev);
+
+    const tables = [
+      "atlas_mappings",
+      "steam_mappings",
+      "f95_zone_mappings",
+      "tag_mappings",
+      // add others if you have more
+    ];
+
+    for (const tbl of tables) {
+      await new Promise((r, j) =>
+        db.run(`DELETE FROM ${tbl} WHERE record_id = ?`, [recordId], (e) =>
+          e ? j(e) : r(),
+        ),
+      );
+    }
+
+    await new Promise((r, j) =>
+      db.run(`DELETE FROM versions WHERE record_id = ?`, [recordId], (e) =>
+        e ? j(e) : r(),
+      ),
+    );
+
+    await new Promise((r, j) =>
+      db.run(`DELETE FROM games WHERE record_id = ?`, [recordId], (e) =>
+        e ? j(e) : r(),
+      ),
+    );
+
+    return { success: true };
+  } catch (err) {
+    console.error("deleteGameCompletely failed:", err);
+    return { success: false, error: err.message };
+  }
+};
+
 const checkDbUpdates = async (updatesDir, mainWindow) => {
   const axios = require("axios");
   const fs = require("fs");
@@ -1523,5 +1586,8 @@ module.exports = {
   getSteamBannerUrl,
   getSteamScreensUrlList,
   searchAtlasByF95Id,
+  countVersions,
+  deleteVersion,
+  deleteGameCompletely,
   db, // Export db instance
 };

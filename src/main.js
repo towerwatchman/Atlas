@@ -33,6 +33,9 @@ const {
   updateBanners,
   updatePreviews,
   getAtlasData,
+  countVersions,
+  deleteVersion,
+  deleteGameCompletely,
   db,
 } = require("./database");
 const { Menu } = require("electron");
@@ -329,6 +332,38 @@ const defaultConfig = {
 
 ipcMain.handle("add-game", async (event, game) => {
   return addGame(game);
+});
+
+ipcMain.handle("count-versions", async (_, recordId) => {
+  return await countVersions(recordId);
+});
+
+ipcMain.handle("delete-version", async (_, { recordId, version }) => {
+  const countBefore = await countVersions(recordId);
+  const result = await deleteVersion(recordId, version);
+  const countAfter = countBefore - (result.changes > 0 ? 1 : 0);
+
+  return {
+    success: result.changes > 0,
+    wasLastVersion: countAfter === 0,
+  };
+});
+
+ipcMain.handle("delete-game-completely", async (_, recordId) => {
+  const result = await deleteGameCompletely(
+    recordId,
+    app.getAppPath(),
+    process.defaultApp,
+  );
+
+  if (result.success) {
+    // Notify all renderer windows (main library + any open details)
+    BrowserWindow.getAllWindows().forEach((win) => {
+      win.webContents.send("game-deleted", recordId);
+    });
+  }
+
+  return result;
 });
 
 ipcMain.handle("get-game", async (event, recordId) => {

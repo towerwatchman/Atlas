@@ -191,4 +191,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Optional: better feedback during long imports/moves
   onImportWarning: (callback) =>
     ipcRenderer.on("import-warning", (event, data) => callback(data)),
+
+  // ────────────────────────────────────────────────────────────────
+  //     METHODS TO REMOVE
+  // ────────────────────────────────────────────────────────────────
+  countVersions: (recordId) => ipcRenderer.invoke("count-versions", recordId),
+  deleteVersion: (params) => ipcRenderer.invoke("delete-version", params),
+  deleteGameCompletely: (recordId) =>
+    ipcRenderer.invoke("delete-game-completely", recordId),
+  onGameDeleted: (callback) => {
+    ipcRenderer.on("game-deleted", (event, recordId) => callback(recordId));
+  },
 });
