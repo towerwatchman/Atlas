@@ -3,12 +3,8 @@ const { useState, useEffect, useMemo } = window.React;
 const SearchBar = ({ onFilterChange }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [filter, setFilter] = useState("");
-  const [accordionOpen, setAccordionOpen] = useState({
-    engine: true, // expanded by default
-    status: true, // expanded by default
-    other: false,
-  });
   const [tagSearch, setTagSearch] = useState("");
+  const [highlightedTagIndex, setHighlightedTagIndex] = useState(-1);
   const [selectedFilters, setSelectedFilters] = useState({
     category: [],
     engine: [],
@@ -16,8 +12,9 @@ const SearchBar = ({ onFilterChange }) => {
     censored: [],
     language: [],
     tags: [],
-    sort: "name",
+    sort: "name",           // Default sort by name
     tagLogic: "AND",
+    updateAvailable: false,
   });
   const [options, setOptions] = useState({
     categories: [],
@@ -37,18 +34,18 @@ const SearchBar = ({ onFilterChange }) => {
       .catch((err) => console.error("Failed to load filter options:", err));
   }, []);
 
-  // Stable filter object to prevent infinite loop
+  // Stable filter object
   const currentFilters = useMemo(
     () => ({
       text: filter,
       ...selectedFilters,
     }),
-    [filter, selectedFilters], // only recompute when these change
+    [filter, selectedFilters]
   );
 
   useEffect(() => {
     onFilterChange(currentFilters);
-  }, [currentFilters, onFilterChange]); // safe deps
+  }, [currentFilters, onFilterChange]);
 
   const handleCheckbox = (group, value) => {
     setSelectedFilters((prev) => {
@@ -66,34 +63,42 @@ const SearchBar = ({ onFilterChange }) => {
     });
   };
 
-  const toggleAccordion = (key) => {
-    setAccordionOpen((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
   // Sort tags alphabetically (case-insensitive)
-  const sortedTags = [...options.tags].sort((a, b) =>
-    a.toLowerCase().localeCompare(b.toLowerCase()),
+  const sortedTags = useMemo(
+    () =>
+      [...options.tags].sort((a, b) =>
+        a.toLowerCase().localeCompare(b.toLowerCase())
+      ),
+    [options.tags]
   );
 
-  // Filter the sorted list
-  const filteredTags = sortedTags.filter((tag) =>
-    tag.toLowerCase().includes(tagSearch.toLowerCase()),
+  const filteredTags = useMemo(
+    () =>
+      sortedTags.filter((tag) =>
+        tag.toLowerCase().includes(tagSearch.toLowerCase())
+      ),
+    [sortedTags, tagSearch]
   );
+
+  // Reset highlight when tagSearch changes
+  useEffect(() => {
+    setHighlightedTagIndex(-1);
+  }, [tagSearch]);
 
   return (
     <div className="flex justify-center w-full">
-      <div className="flex bg-secondary h-10 w-[400px] items-center rounded mt-[20px] border border-border hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent relative -webkit-app-region-no-drag">
+      <div className="flex bg-secondary h-10 w-[400px] items-center rounded mt-[20px] border border-border hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent relative">
         <i className="fas fa-search w-6 h-6 text-text pl-2 flex items-center justify-center"></i>
         <input
           type="text"
           placeholder="Search Atlas"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="bg-transparent outline-none text-text flex-1 px-2 focus:outline-none"
+          className="bg-transparent outline-none text-text flex-1 px-2 focus:outline-none -webkit-app-region-no-drag"
         />
         <button
           onClick={() => setIsMenuOpen(!isMenuOpen)}
-          className="w-10 h-10 flex items-center justify-center text-text hover:text-highlight focus:outline-none"
+          className="w-10 h-10 flex items-center justify-center text-text hover:text-highlight focus:outline-none -webkit-app-region-no-drag"
         >
           <i className="fas fa-sliders"></i>
         </button>
@@ -115,8 +120,9 @@ const SearchBar = ({ onFilterChange }) => {
                         censored: [],
                         language: [],
                         tags: [],
-                        sort: "date",
+                        sort: "name",
                         tagLogic: "AND",
+                        updateAvailable: false,
                       });
                       setTagSearch("");
                     }}
@@ -157,12 +163,10 @@ const SearchBar = ({ onFilterChange }) => {
               <div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
                 <h4 className="font-bold mb-2">Sorting</h4>
                 <div className="flex flex-wrap gap-2">
-                  {["date", "likes", "views", "name", "rating"].map((s) => (
+                  {["name", "date", "likes", "views", "rating"].map((s) => (
                     <button
                       key={s}
-                      onClick={() =>
-                        setSelectedFilters((prev) => ({ ...prev, sort: s }))
-                      }
+                      onClick={() => setSelectedFilters((prev) => ({ ...prev, sort: s }))}
                       className={`px-3 py-1 rounded text-sm ${
                         selectedFilters.sort === s
                           ? "bg-accent text-white"
@@ -185,12 +189,7 @@ const SearchBar = ({ onFilterChange }) => {
                 </h4>
                 <div className="flex gap-4 mb-3">
                   <button
-                    onClick={() =>
-                      setSelectedFilters((prev) => ({
-                        ...prev,
-                        tagLogic: "AND",
-                      }))
-                    }
+                    onClick={() => setSelectedFilters((prev) => ({ ...prev, tagLogic: "AND" }))}
                     className={`px-4 py-1 rounded text-sm ${
                       selectedFilters.tagLogic === "AND"
                         ? "bg-accent text-white"
@@ -200,12 +199,7 @@ const SearchBar = ({ onFilterChange }) => {
                     AND
                   </button>
                   <button
-                    onClick={() =>
-                      setSelectedFilters((prev) => ({
-                        ...prev,
-                        tagLogic: "OR",
-                      }))
-                    }
+                    onClick={() => setSelectedFilters((prev) => ({ ...prev, tagLogic: "OR" }))}
                     className={`px-4 py-1 rounded text-sm ${
                       selectedFilters.tagLogic === "OR"
                         ? "bg-accent text-white"
@@ -217,10 +211,31 @@ const SearchBar = ({ onFilterChange }) => {
                 </div>
                 <input
                   type="text"
-                  placeholder="Search tags..."
+                  placeholder="Search tags... (↑↓ highlight, Enter select)"
                   value={tagSearch}
                   onChange={(e) => setTagSearch(e.target.value)}
-                  className="w-full p-2 bg-tertiary border border-border rounded mb-3 text-sm"
+                  onKeyDown={(e) => {
+                    if (filteredTags.length === 0) return;
+
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setHighlightedTagIndex((prev) =>
+                        prev < filteredTags.length - 1 ? prev + 1 : 0
+                      );
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setHighlightedTagIndex((prev) =>
+                        prev > 0 ? prev - 1 : filteredTags.length - 1
+                      );
+                    } else if (e.key === "Enter" && highlightedTagIndex >= 0) {
+                      e.preventDefault();
+                      const selectedTag = filteredTags[highlightedTagIndex];
+                      handleCheckbox("tags", selectedTag);
+                      setTagSearch("");
+                      setHighlightedTagIndex(-1);
+                    }
+                  }}
+                  className="w-full p-2 bg-tertiary border border-border rounded mb-3 text-sm -webkit-app-region-no-drag"
                 />
                 <div className="flex flex-wrap gap-2 mb-3">
                   {selectedFilters.tags.map((tag) => (
@@ -242,10 +257,14 @@ const SearchBar = ({ onFilterChange }) => {
                   {filteredTags.length === 0 ? (
                     <p className="text-sm text-gray-500">No tags found</p>
                   ) : (
-                    filteredTags.map((tag) => (
+                    filteredTags.map((tag, index) => (
                       <label
                         key={tag}
-                        className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
+                        className={`flex items-center space-x-2 py-1 text-sm block px-1 rounded cursor-pointer ${
+                          index === highlightedTagIndex
+                            ? "bg-accent text-white"
+                            : "hover:bg-highlight"
+                        }`}
                       >
                         <input
                           type="checkbox"
@@ -255,6 +274,7 @@ const SearchBar = ({ onFilterChange }) => {
                             selectedFilters.tags.length >= 10 &&
                             !selectedFilters.tags.includes(tag)
                           }
+                          className="-webkit-app-region-no-drag"
                         />
                         <span>{tag}</span>
                       </label>
@@ -263,64 +283,68 @@ const SearchBar = ({ onFilterChange }) => {
                 </div>
               </div>
 
-{/* Engine - Scrollable Checkbox List */}
-<div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
-  <h4 className="font-bold mb-2">Engine</h4>
-  <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
-    {options.engines.length === 0 ? (
-      <p className="text-sm text-gray-500">No engines found</p>
-    ) : (
-      options.engines.map((engine) => (
-        <label key={engine} className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer">
-          <input
-            type="checkbox"
-            checked={selectedFilters.engine.includes(engine)}
-            onChange={() => handleCheckbox("engine", engine)}
-          />
-          <span>{engine}</span>
-        </label>
-      ))
-    )}
-  </div>
-</div>
+              {/* Engine - Scrollable List */}
+              <div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
+                <h4 className="font-bold mb-2">Engine</h4>
+                <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
+                  {options.engines.length === 0 ? (
+                    <p className="text-sm text-gray-500">No engines found</p>
+                  ) : (
+                    options.engines.map((engine) => (
+                      <label key={engine} className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedFilters.engine.includes(engine)}
+                          onChange={() => handleCheckbox("engine", engine)}
+                          className="-webkit-app-region-no-drag"
+                        />
+                        <span>{engine}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
 
-{/* Status - Scrollable Checkbox List */}
-<div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
-  <h4 className="font-bold mb-2">Status</h4>
-  <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
-    {options.statuses.length === 0 ? (
-      <p className="text-sm text-gray-500">No statuses found</p>
-    ) : (
-      options.statuses.map((status) => (
-        <label key={status} className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer">
-          <input
-            type="checkbox"
-            checked={selectedFilters.status.includes(status)}
-            onChange={() => handleCheckbox("status", status)}
-          />
-          <span>{status}</span>
-        </label>
-      ))
-    )}
-  </div>
-</div>
-{/* Update Available Filter */}
-<div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
-  <h4 className="font-bold mb-2">Update Available</h4>
-  <label className="flex items-center space-x-2 text-sm">
-    <input
-      type="checkbox"
-      checked={selectedFilters.updateAvailable || false}
-      onChange={() => setSelectedFilters((prev) => ({
-        ...prev,
-        updateAvailable: !prev.updateAvailable,
-      }))}
-    />
-    <span>Show only games with updates available</span>
-  </label>
-</div>
+              {/* Status - Scrollable List */}
+              <div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
+                <h4 className="font-bold mb-2">Status</h4>
+                <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
+                  {options.statuses.length === 0 ? (
+                    <p className="text-sm text-gray-500">No statuses found</p>
+                  ) : (
+                    options.statuses.map((status) => (
+                      <label key={status} className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedFilters.status.includes(status)}
+                          onChange={() => handleCheckbox("status", status)}
+                          className="-webkit-app-region-no-drag"
+                        />
+                        <span>{status}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
 
-              {/* Optional: Add Language, Censored, etc. here in similar bordered blocks */}
+              {/* Update Available */}
+              <div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
+                <h4 className="font-bold mb-2">Update Available</h4>
+                <label className="flex items-center space-x-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedFilters.updateAvailable || false}
+                    onChange={() =>
+                      setSelectedFilters((prev) => ({
+                        ...prev,
+                        updateAvailable: !prev.updateAvailable,
+                      }))
+                    }
+                    className="-webkit-app-region-no-drag"
+                  />
+                  <span>Show only games with updates available</span>
+                </label>
+              </div>
             </div>
           </div>
         )}
