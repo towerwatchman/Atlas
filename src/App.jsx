@@ -32,6 +32,8 @@ const App = () => {
   const gridRef = useRef(null);
   const gameGridRef = useRef(null);
 
+  const [showSearchSidebar, setShowSearchSidebar] = useState(true); // or false
+
 const [activeFilters, setActiveFilters] = useState({
   text: "",
   type: "title",
@@ -55,6 +57,10 @@ const [activeFilters, setActiveFilters] = useState({
       timeout = setTimeout(() => func(...args), delay);
     };
   };
+
+  const toggleSearchSidebar = () => {
+  setShowSearchSidebar((prev) => !prev);
+};
 
   const handleFilterChange = (filters) => {
     setActiveFilters(filters);
@@ -566,230 +572,250 @@ result.sort((a, b) => {
     );
   };
 
-  return (
-    <div className="flex flex-col h-screen font-sans text-[13px]">
-      <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
-        <div className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50">
-          <svg
-            className="w-[50px] h-[50px] text-atlasLogo"
-            viewBox="0 0 24 24"
-            style={{ shapeRendering: "geometricPrecision" }}
-            fill="currentColor"
-            dangerouslySetInnerHTML={{ __html: window.atlasLogo.path }}
-          />
-        </div>
-        <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)]">
-          <div className="absolute top-0 left-[50px] right-[110px] h-[10px] bg-accentBar"></div>
-          <div
-            className="absolute top-0 left-[40px] w-[10px] h-[10px] bg-accentBar"
-            style={{ clipPath: "polygon(0% 0%, 100% 0%, 100% 100%)" }}
-          ></div>
-          <div
-            className="absolute top-0 right-[100px] w-[10px] h-[10px] bg-accentBar"
-            style={{ clipPath: "polygon(0% 0%, 100% 0%, 0% 100%)" }}
-          ></div>
-          <div className="w-full flex h-[70px]">
-            <div className="flex items-center ml-5 mt-3">
-              <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag">
-                Games
-              </div>
-            </div>
-            <div className="flex justify-center w-full">
-              <window.SearchBar onFilterChange={handleFilterChange} />
-            </div>
-          </div>
-          <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
-            <button
-              onClick={() => window.electronAPI.minimizeWindow()}
-              className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
-            >
-              <i className="fas fa-minus text-text fa-sm"></i>
-            </button>
-            <button
-              onClick={() => window.electronAPI.maximizeWindow()}
-              className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
-            >
-              <i
-                className={
-                  isMaximized
-                    ? "fas fa-window-restore text-text fa-sm"
-                    : "fas fa-window-maximize text-text fa-sm"
-                }
-              ></i>
-            </button>
-            <button
-              onClick={() => window.electronAPI.closeWindow()}
-              className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
-            >
-              <i className="fas fa-times text-text fa-sm"></i>
-            </button>
-          </div>
-          <div className="absolute mt-10 top-0 right-0 flex h-[10px]">
-            <span className="text-text text-xs mr-4">
-              Version: {version} <span style={{ color: "Goldenrod" }}>α</span>
-            </span>
-          </div>
-        </div>
+return (
+  <div className="flex flex-col h-screen font-sans text-[13px]">
+    {/* Header */}
+    <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
+      <div className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50">
+        <svg
+          className="w-[50px] h-[50px] text-atlasLogo"
+          viewBox="0 0 24 24"
+          style={{ shapeRendering: "geometricPrecision" }}
+          fill="currentColor"
+          dangerouslySetInnerHTML={{ __html: window.atlasLogo.path }}
+        />
       </div>
-      <div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
-        {/* Sidebar - ALWAYS visible */}
-        <window.Sidebar onToggleGameList={toggleGameList} />
-
-        {/* Left game list - only when showGameList is true */}
-        {showGameList && (
-          <div className="w-[200px] bg-secondary fixed h-full z-40 overflow-y-auto ml-[60px]">
-            {filteredGames.length === 0 ? (
-              <div className="p-2 text-center text-text">No games found</div>
-            ) : (
-              filteredGames.map((game) => (
-                <div
-                  key={game.record_id}
-                  className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? "bg-selected" : ""}`}
-                  onClick={() => setSelectedGame(game)}
-                >
-                  {game.title}
-                </div>
-              ))
-            )}
-          </div>
-        )}
-
-        {/* Game grid - margin adjusts based on whether game list is shown */}
+      <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)]">
+        <div className="absolute top-0 left-[50px] right-[110px] h-[10px] bg-accentBar"></div>
         <div
-          id="gameGrid"
-          className={`flex-1 bg-tertiary overflow-y-auto ${showGameList ? "ml-[260px]" : "ml-[60px]"}`}
-          ref={gameGridRef}
-          style={{ overflowX: "hidden" }}
-        >
-          {filteredGames.length === 0 ? (
-            <div className="text-center text-text">No games available</div>
-          ) : (
-            <AutoSizer>
-              {({ height, width }) => {
-                const adjustedWidth = Math.max(0, width - getScrollbarWidth());
-                return (
-                  <Grid
-                    ref={gridRef}
-                    columnCount={columnCount}
-                    columnWidth={() => {
-                      if (columnCount > 1) {
-                        return adjustedWidth / columnCount - 8;
-                      } else {
-                        return adjustedWidth / columnCount - 14;
-                      }
-                    }}
-                    rowCount={Math.ceil(filteredGames.length / columnCount)}
-                    rowHeight={bannerSize.bannerHeight + 16}
-                    height={height}
-                    width={adjustedWidth}
-                    cellRenderer={cellRenderer}
-                    style={{ overflowX: "hidden" }}
-                  />
-                );
-              }}
-            </AutoSizer>
-          )}
-        </div>
-      </div>
-      {dbUpdateStatus.text && (
-        <div className="absolute bottom-[44px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border opacity-95">
-          <div className="flex items-center w-[540px]">
-            <span className="w-[300px] text-[10px] text-text">
-              {dbUpdateStatus.text}
-            </span>
-            <div className="relative w-[300px]">
-              <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
-                <div
-                  className="h-full bg-accent"
-                  style={{
-                    width: `${(dbUpdateStatus.progress / (dbUpdateStatus.total || 1)) * 100}%`,
-                  }}
-                ></div>
-              </div>
-              <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
-                Update {dbUpdateStatus.progress}/{dbUpdateStatus.total}
-              </span>
+          className="absolute top-0 left-[40px] w-[10px] h-[10px] bg-accentBar"
+          style={{ clipPath: "polygon(0% 0%, 100% 0%, 100% 100%)" }}
+        ></div>
+        <div
+          className="absolute top-0 right-[100px] w-[10px] h-[10px] bg-accentBar"
+          style={{ clipPath: "polygon(0% 0%, 100% 0%, 0% 100%)" }}
+        ></div>
+        <div className="w-full flex h-[70px]">
+          <div className="flex items-center ml-5 mt-3">
+            <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag">
+              Games
             </div>
           </div>
-        </div>
-      )}
-      {importStatus.text && (
-        <div className="absolute bottom-[60px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500]">
-          <div className="flex items-center w-[540px]">
-            <span className="w-[300px] text-[10px] text-text">
-              {importStatus.text}
-            </span>
-            <div className="relative w-[300px]">
-              <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
-                <div
-                  className="h-full bg-accent"
-                  style={{
-                    width: `${(importStatus.progress / importStatus.total) * 100}%`,
-                  }}
-                ></div>
-              </div>
-              <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
-                File {importStatus.progress}/{importStatus.total}
-              </span>
-            </div>
-          </div>
-          <div
-            className="absolute left-[200px] bottom-0 w-[20px] h-[20px] bg-accent"
-            style={{ clipPath: "polygon(0% 100%, 100% 0%, 100% 100%)" }}
-          ></div>
-          <div
-            className="absolute right-[200px] bottom-0 w-[20px] h-[20px] bg-accent"
-            style={{ clipPath: "polygon(0% 0%, 100% 100%, 0% 100%)" }}
-          ></div>
-        </div>
-      )}
-      {importProgress.text && (
-        <div className="absolute bottom-[60px] left-1/2 transform -translate-x-1/2 w-[800px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border opacity-95">
-          <div className="flex items-center w-[800px]">
-            <span className="w-[450px] text-[10px] text-text">
-              {importProgress.text}
-            </span>
-            <div className="relative w-[300px]">
-              <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
-                <div
-                  className="h-full bg-accent"
-                  style={{
-                    width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%`,
-                  }}
-                ></div>
-              </div>
-              <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
-                Game {importProgress.progress}/{importProgress.total}
-              </span>
-            </div>
+          <div className="flex justify-center w-full">
+            <window.SearchBox onToggleSidebar={toggleSearchSidebar} />
           </div>
         </div>
-      )}
-      <div className="bg-primary h-[40px] flex items-center justify-between px-4 fixed bottom-0 w-full border-t border-accent z-50">
-        <button
-          onClick={addGame}
-          className="flex items-center bg-transparent text-text hover:text-highlight"
-        >
-          <i className="fas fa-plus mr-2 text-text"></i>
-          Add Game
-        </button>
-        <div className="flex items-center">
-          <i className="fas fa-gamepad mr-2 text-text"></i>
-          <span>{`${games.length} Games Installed, ${totalVersions} Total Versions`}</span>
+        <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
+          <button
+            onClick={() => window.electronAPI.minimizeWindow()}
+            className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+          >
+            <i className="fas fa-minus text-text fa-sm"></i>
+          </button>
+          <button
+            onClick={() => window.electronAPI.maximizeWindow()}
+            className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+          >
+            <i
+              className={
+                isMaximized
+                  ? "fas fa-window-restore text-text fa-sm"
+                  : "fas fa-window-maximize text-text fa-sm"
+              }
+            ></i>
+          </button>
+          <button
+            onClick={() => window.electronAPI.closeWindow()}
+            className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
+          >
+            <i className="fas fa-times text-text fa-sm"></i>
+          </button>
         </div>
-        <div className="flex items-center">
-          <i className="fas fa-download mr-2 text-text"></i>
-          <span className="cursor-pointer" onClick={unzipGame}>
-            Downloads
+        <div className="absolute mt-10 top-0 right-0 flex h-[10px]">
+          <span className="text-text text-xs mr-4">
+            Version: {version} <span style={{ color: "Goldenrod" }}>α</span>
           </span>
         </div>
       </div>
-      <div className="hidden bg-canvas h-full w-full" id="updater">
-        <div className="h-[200px] bg-tertiary"></div>
-        <div className="flex-1 bg-primary border-t border-accent"></div>
+    </div>
+
+    {/* Main Content */}
+    <div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
+      {/* Left Sidebar (icons) - always visible */}
+      <window.Sidebar onToggleGameList={toggleGameList} />
+
+      {/* Left Game List (titles) - toggled */}
+      {showGameList && (
+        <div className="w-[200px] bg-secondary fixed h-full z-40 overflow-y-auto ml-[60px]">
+          {filteredGames.length === 0 ? (
+            <div className="p-2 text-center text-text">No games found</div>
+          ) : (
+            filteredGames.map((game) => (
+              <div
+                key={game.record_id}
+                className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? "bg-selected" : ""}`}
+                onClick={() => setSelectedGame(game)}
+              >
+                {game.title}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Game Grid - NO right margin adjustment anymore */}
+      <div
+        id="gameGrid"
+        className={`flex-1 bg-tertiary overflow-y-auto ${showGameList ? "ml-[260px]" : "ml-[60px]"}`}
+        ref={gameGridRef}
+        style={{ overflowX: "hidden" }}
+      >
+        {filteredGames.length === 0 ? (
+          <div className="text-center text-text">No games available</div>
+        ) : (
+          <AutoSizer>
+            {({ height, width }) => {
+              const adjustedWidth = Math.max(0, width - getScrollbarWidth());
+              return (
+                <Grid
+                  ref={gridRef}
+                  columnCount={columnCount}
+                  columnWidth={() => {
+                    if (columnCount > 1) {
+                      return adjustedWidth / columnCount - 8;
+                    } else {
+                      return adjustedWidth / columnCount - 14;
+                    }
+                  }}
+                  rowCount={Math.ceil(filteredGames.length / columnCount)}
+                  rowHeight={bannerSize.bannerHeight + 16}
+                  height={height}
+                  width={adjustedWidth}
+                  cellRenderer={cellRenderer}
+                  style={{ overflowX: "hidden" }}
+                />
+              );
+            }}
+          </AutoSizer>
+        )}
+      </div>
+
+      {/* Right Search Sidebar - overlays on top, toggled */}
+      {showSearchSidebar && (
+        <window.SearchSidebar
+          isVisible={showSearchSidebar}
+          onFilterChange={handleFilterChange}
+          onClose={() => setShowSearchSidebar(false)}
+        />
+      )}
+    </div>
+
+    {/* Status / Progress Bars */}
+    {dbUpdateStatus.text && (
+      <div className="absolute bottom-[44px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border opacity-95">
+        <div className="flex items-center w-[540px]">
+          <span className="w-[300px] text-[10px] text-text">
+            {dbUpdateStatus.text}
+          </span>
+          <div className="relative w-[300px]">
+            <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
+              <div
+                className="h-full bg-accent"
+                style={{
+                  width: `${(dbUpdateStatus.progress / (dbUpdateStatus.total || 1)) * 100}%`,
+                }}
+              ></div>
+            </div>
+            <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
+              Update {dbUpdateStatus.progress}/{dbUpdateStatus.total}
+            </span>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {importStatus.text && (
+      <div className="absolute bottom-[60px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500]">
+        <div className="flex items-center w-[540px]">
+          <span className="w-[300px] text-[10px] text-text">
+            {importStatus.text}
+          </span>
+          <div className="relative w-[300px]">
+            <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
+              <div
+                className="h-full bg-accent"
+                style={{
+                  width: `${(importStatus.progress / importStatus.total) * 100}%`,
+                }}
+              ></div>
+            </div>
+            <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
+              File {importStatus.progress}/{importStatus.total}
+            </span>
+          </div>
+        </div>
+        <div
+          className="absolute left-[200px] bottom-0 w-[20px] h-[20px] bg-accent"
+          style={{ clipPath: "polygon(0% 100%, 100% 0%, 100% 100%)" }}
+        ></div>
+        <div
+          className="absolute right-[200px] bottom-0 w-[20px] h-[20px] bg-accent"
+          style={{ clipPath: "polygon(0% 0%, 100% 0%, 0% 100%)" }}
+        ></div>
+      </div>
+    )}
+
+    {importProgress.text && (
+      <div className="absolute bottom-[60px] left-1/2 transform -translate-x-1/2 w-[800px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border opacity-95">
+        <div className="flex items-center w-[800px]">
+          <span className="w-[450px] text-[10px] text-text">
+            {importProgress.text}
+          </span>
+          <div className="relative w-[300px]">
+            <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
+              <div
+                className="h-full bg-accent"
+                style={{
+                  width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%`,
+                }}
+              ></div>
+            </div>
+            <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
+              Game {importProgress.progress}/{importProgress.total}
+            </span>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Footer */}
+    <div className="bg-primary h-[40px] flex items-center justify-between px-4 fixed bottom-0 w-full border-t border-accent z-50">
+      <button
+        onClick={addGame}
+        className="flex items-center bg-transparent text-text hover:text-highlight"
+      >
+        <i className="fas fa-plus mr-2 text-text"></i>
+        Add Game
+      </button>
+      <div className="flex items-center">
+        <i className="fas fa-gamepad mr-2 text-text"></i>
+        <span>{`${games.length} Games Installed, ${totalVersions} Total Versions`}</span>
+      </div>
+      <div className="flex items-center">
+        <i className="fas fa-download mr-2 text-text"></i>
+        <span className="cursor-pointer" onClick={unzipGame}>
+          Downloads
+        </span>
       </div>
     </div>
-  );
+
+    {/* Updater placeholder */}
+    <div className="hidden bg-canvas h-full w-full" id="updater">
+      <div className="h-[200px] bg-tertiary"></div>
+      <div className="flex-1 bg-primary border-t border-accent"></div>
+    </div>
+  </div>
+);
 };
 
 const root = createRoot(document.getElementById("root"));
