@@ -79,46 +79,55 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
 
   return (
     <div 
-      className="w-[320px] bg-secondary h-full border-l border-border overflow-y-auto shadow-2xl -webkit-app-region-no-drag"
+      className="w-[320px] bg-secondary border border-accent overflow-hidden shadow-2xl -webkit-app-region-no-drag fixed right-0 top-[70px] bottom-[50px]"
       style={{
-        padding: "5px",                    // 5px padding around content
-        borderRadius: "8px 0 0 8px",       // Match dropdown radius (adjust if yours is different)
-        boxShadow: "0 10px 25px rgba(0,0,0,0.5)", // Floating shadow
+        margin: "10px 10px 50px 10px",     // 10px top/right/left, 50px bottom (footer + margin)
+        borderRadius: "8px",                // full rounded corners
+        boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+        height: "calc(100% - 70px - 60px)", // header (70px) + bottom buffer (60px)
+        top: "70px",
+        bottom: "auto",
       }}
     >
-      <div className="p-4">
-        <h3 className="text-lg font-bold mb-4 flex justify-between items-center sticky top-0 bg-secondary z-10 pb-2 border-b border-border">
-          <span><i className="fas fa-filter mr-2"></i>Filters</span>
-          <div className="flex space-x-3">
-            <button
-              onClick={() => {
-                setSelectedFilters({
-                  category: [],
-                  engine: [],
-                  status: [],
-                  censored: [],
-                  language: [],
-                  tags: [],
-                  sort: "name",
-                  tagLogic: "AND",
-                  updateAvailable: false,
-                });
-                setTagSearch("");
-                setFilter("");
-              }}
-              className="text-text hover:text-accent text-sm flex items-center"
-            >
-              <i className="fas fa-undo-alt mr-1"></i> Reset
-            </button>
-            <button
-              onClick={onClose}
-              className="text-text hover:text-accent text-sm flex items-center"
-            >
-              <i className="fas fa-times mr-1"></i> Close
-            </button>
-          </div>
-        </h3>
+      {/* Fixed-height sticky header */}
+      <div 
+        className="h-[60px] bg-secondary border-b border-border flex items-center justify-between px-4 sticky top-0 z-10"
+      >
+        <span className="text-lg font-bold">
+          <i className="fas fa-filter mr-2"></i>Filters
+        </span>
+        <div className="flex space-x-3">
+          <button
+            onClick={() => {
+              setSelectedFilters({
+                category: [],
+                engine: [],
+                status: [],
+                censored: [],
+                language: [],
+                tags: [],
+                sort: "name",
+                tagLogic: "AND",
+                updateAvailable: false,
+              });
+              setTagSearch("");
+              setFilter("");
+            }}
+            className="text-text hover:text-accent text-sm flex items-center"
+          >
+            <i className="fas fa-undo-alt mr-1"></i> Reset
+          </button>
+          <button
+            onClick={onClose}
+            className="text-text hover:text-accent text-sm flex items-center"
+          >
+            <i className="fas fa-times mr-1"></i> Close
+          </button>
+        </div>
+      </div>
 
+      {/* Scrollable content */}
+      <div className="h-[calc(100%-60px)] overflow-y-auto p-4">
         {/* Search Input */}
         <div className="mb-6">
           <div className="flex items-center border border-border rounded bg-tertiary">
