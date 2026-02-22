@@ -32,7 +32,7 @@ const App = () => {
   const gridRef = useRef(null);
   const gameGridRef = useRef(null);
 
-  const [showSearchSidebar, setShowSearchSidebar] = useState(true); // or false
+  const [showSearchSidebar, setShowSearchSidebar] = useState(false); // or false
 
 const [activeFilters, setActiveFilters] = useState({
   text: "",

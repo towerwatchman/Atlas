@@ -1,0 +1,1 @@
+search sidebar: make it so it can go on either side. Also need to adjust for scrollbar if active. 
