@@ -299,7 +299,7 @@ const App = () => {
       }
     };
 
-    window.electronAPI.onGameDeleted(handleGameDeleted);   
+    window.electronAPI.onGameDeleted(handleGameDeleted);
     window.electronAPI.onWindowStateChanged(handleWindowStateChanged);
     window.electronAPI.onDbUpdateProgress(handleDbUpdateProgress);
     window.electronAPI.onImportProgress(handleImportProgress);

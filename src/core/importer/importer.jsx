@@ -22,7 +22,7 @@ const Importer = () => {
   const [scanSize, setScanSize] = useState(false);
   const [deleteAfter, setDeleteAfter] = useState(false);
   const [moveGame, setMoveGame] = useState(false);
-
+  const [forceImport, setForceImport] = useState(false);
   const [defaultLibraryPath, setDefaultLibraryPath] = useState(null);
   const [askingForLibraryFolder, setAskingForLibraryFolder] = useState(false);
 
@@ -35,6 +35,21 @@ const Importer = () => {
   const [gamesList, setGamesList] = useState([]);
   const [isMaximized, setIsMaximized] = useState(false);
   const [hideMatches, setHideMatches] = useState(false);
+
+  const canImport =
+    gamesList.every((game) => {
+      // Skip hidden games if hideMatches is on
+      if (
+        hideMatches &&
+        game.results.length === 1 &&
+        game.results[0].value === "Match Found"
+      ) {
+        return true;
+      }
+      return (
+        game.results.length === 1 && game.results[0].value === "Match Found"
+      );
+    }) || forceImport;
 
   useEffect(() => {
     console.log("Importer component mounted");
@@ -957,33 +972,64 @@ const Importer = () => {
               </table>
             </div>
 
-            <div className="flex justify-between space-x-2 mt-4">
-              <button
-                onClick={() => setHideMatches(!hideMatches)}
-                className="bg-accent p-2"
-                style={{ pointerEvents: "auto", zIndex: 1000 }}
-              >
-                {hideMatches ? "Show All" : "Hide Matches"}
-              </button>
+            <div className="flex justify-between items-center space-x-4 mt-4">
+              {/* Left: Checkbox (preparation toggle) */}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="force-import"
+                  checked={forceImport}
+                  onChange={(e) => setForceImport(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                <label htmlFor="force-import" className="text-sm text-text">
+                  Import anyway (skip unmatched games)
+                </label>
+              </div>
 
-              <div className="flex space-x-2">
+              {/* Right: All buttons grouped together */}
+              <div className="flex items-center space-x-2">
                 <button
                   onClick={handleUpdateClick}
-                  className="bg-accent p-2"
+                  className="bg-accent hover:bg-accent-dark px-4 py-2 rounded text-text"
                   style={{ pointerEvents: "auto", zIndex: 1000 }}
                 >
-                  Update
+                  Update Matches
                 </button>
+
+                <button
+                  onClick={() => setHideMatches(!hideMatches)}
+                  className="bg-tertiary hover:bg-selected px-4 py-2 rounded text-text"
+                  style={{ pointerEvents: "auto", zIndex: 1000 }}
+                >
+                  {hideMatches ? "Show All" : "Hide Matches"}
+                </button>
+
                 <button
                   onClick={importGamesFunc}
-                  className="bg-accent p-2"
-                  style={{ pointerEvents: "auto", zIndex: 1000 }}
+                  disabled={!canImport && !forceImport}
+                  className={`px-6 py-2 rounded font-medium transition-colors ${
+                    canImport
+                      ? "bg-green-600 hover:bg-green-700 text-white"
+                      : forceImport
+                        ? "bg-orange-600 hover:bg-orange-700 text-white"
+                        : "bg-gray-600 cursor-not-allowed opacity-70 text-gray-300"
+                  }`}
+                  title={
+                    !canImport && !forceImport
+                      ? "Some games have no database match — click 'Update' or check 'Import anyway'"
+                      : ""
+                  }
+                  style={{
+                    pointerEvents: canImport || forceImport ? "auto" : "none",
+                  }}
                 >
                   Import
                 </button>
+
                 <button
                   onClick={() => window.electronAPI.closeWindow()}
-                  className="bg-accent p-2"
+                  className="bg-red-700 hover:bg-red-800 px-6 py-2 rounded text-white"
                   style={{ pointerEvents: "auto", zIndex: 1000 }}
                 >
                   Cancel
