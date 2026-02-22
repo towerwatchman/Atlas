@@ -5,7 +5,6 @@ const { AutoSizer, Grid } = window.ReactVirtualized;
 const App = () => {
   const [games, setGames] = useState([]);
   const [selectedGame, setSelectedGame] = useState(null);
-  const [filter, setFilter] = useState("");
   const [version, setVersion] = useState("0.0.0");
   const [importStatus, setImportStatus] = useState({
     text: "",
@@ -33,19 +32,20 @@ const App = () => {
   const gridRef = useRef(null);
   const gameGridRef = useRef(null);
 
-  const [activeFilters, setActiveFilters] = useState({
-    text: "",
-    type: "title",
-    category: [],
-    engine: [],
-    status: [],
-    censored: [],
-    language: [],
-    tags: [],
-    sort: "date",
-    dateLimit: 0,
-    tagLogic: "AND",
-  });
+const [activeFilters, setActiveFilters] = useState({
+  text: "",
+  type: "title",
+  category: [],
+  engine: [],
+  status: [],
+  censored: [],
+  language: [],
+  tags: [],
+  sort: "name",           // ← Changed from "date" to "name"
+  dateLimit: 0,
+  tagLogic: "AND",
+  updateAvailable: false, // if you added this
+});
 
   // Debounce function for game refresh
   const debounce = (func, delay) => {
@@ -517,16 +517,13 @@ const App = () => {
     }
 
     // Sorting
-    result.sort((a, b) => {
-      if (activeFilters.sort === "date") {
-        return (b.release_date || 0) - (a.release_date || 0);
-      }
-      if (activeFilters.sort === "name") {
-        return a.title.localeCompare(b.title);
-      }
-      // Add likes/views/rating if you have those fields
-      return 0;
-    });
+result.sort((a, b) => {
+  if (activeFilters.sort === "date") {
+    return (b.release_date || 0) - (a.release_date || 0);
+  }
+  // Default / explicit name sort
+  return a.title.localeCompare(b.title);
+});
 
     return result;
   }, [games, activeFilters]);

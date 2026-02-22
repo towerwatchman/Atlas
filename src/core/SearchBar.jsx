@@ -16,7 +16,7 @@ const SearchBar = ({ onFilterChange }) => {
     censored: [],
     language: [],
     tags: [],
-    sort: "date",
+    sort: "name",
     tagLogic: "AND",
   });
   const [options, setOptions] = useState({
