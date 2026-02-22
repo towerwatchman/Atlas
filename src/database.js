@@ -1549,6 +1549,77 @@ const searchAtlasByF95Id = (f95Id) => {
   });
 };
 
+const getUniqueFilterOptions = () => {
+  return new Promise((resolve, reject) => {
+    const options = {};
+
+    db.all(
+      "SELECT DISTINCT category FROM atlas_data WHERE category IS NOT NULL",
+      [],
+      (err, rows) => {
+        if (err) return reject(err);
+        options.categories = rows.map((r) => r.category);
+
+        db.all(
+          "SELECT DISTINCT engine FROM atlas_data WHERE engine IS NOT NULL",
+          [],
+          (err, rows) => {
+            if (err) return reject(err);
+            options.engines = rows.map((r) => r.engine);
+
+            db.all(
+              "SELECT DISTINCT status FROM atlas_data WHERE status IS NOT NULL",
+              [],
+              (err, rows) => {
+                if (err) return reject(err);
+                options.statuses = rows.map((r) => r.status);
+
+                db.all(
+                  "SELECT DISTINCT censored FROM atlas_data WHERE censored IS NOT NULL",
+                  [],
+                  (err, rows) => {
+                    if (err) return reject(err);
+                    options.censored = rows.map((r) => r.censored);
+
+                    db.all(
+                      "SELECT DISTINCT language FROM atlas_data WHERE language IS NOT NULL",
+                      [],
+                      (err, rows) => {
+                        if (err) return reject(err);
+                        options.languages = rows.map((r) => r.language);
+
+                        // Tags from f95_zone_data
+                        db.all(
+                          "SELECT tags FROM f95_zone_data WHERE tags IS NOT NULL",
+                          [],
+                          (err, rows) => {
+                            if (err) return reject(err);
+                            const tagsSet = new Set();
+                            rows.forEach((row) => {
+                              if (row.tags) {
+                                row.tags
+                                  .split(",")
+                                  .forEach((tag) => tagsSet.add(tag.trim()));
+                              }
+                            });
+                            options.tags = Array.from(tagsSet);
+
+                            resolve(options);
+                          },
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  });
+};
+
 module.exports = {
   initializeDatabase,
   addGame,
@@ -1589,5 +1660,6 @@ module.exports = {
   countVersions,
   deleteVersion,
   deleteGameCompletely,
+  getUniqueFilterOptions,
   db, // Export db instance
 };

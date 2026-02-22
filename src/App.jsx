@@ -1,4 +1,4 @@
-const { useState, useEffect, useRef, useCallback } = window.React;
+const { useState, useEffect, useRef, useCallback, useMemo } = window.React;
 const { createRoot } = window.ReactDOM;
 const { AutoSizer, Grid } = window.ReactVirtualized;
 
@@ -23,17 +23,29 @@ const App = () => {
     total: 0,
   });
   const [isMaximized, setIsMaximized] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [bannerSize, setBannerSize] = useState({
     bannerWidth: 537,
     bannerHeight: 251,
   });
   const [columnCount, setColumnCount] = useState(1);
   const [totalVersions, setTotalVersions] = useState(0);
-  const [showSidebar, setShowSidebar] = useState(true);
   const [showGameList, setShowGameList] = useState(true);
   const gridRef = useRef(null);
   const gameGridRef = useRef(null);
+
+  const [activeFilters, setActiveFilters] = useState({
+    text: "",
+    type: "title",
+    category: [],
+    engine: [],
+    status: [],
+    censored: [],
+    language: [],
+    tags: [],
+    sort: "date",
+    dateLimit: 0,
+    tagLogic: "AND",
+  });
 
   // Debounce function for game refresh
   const debounce = (func, delay) => {
@@ -44,38 +56,30 @@ const App = () => {
     };
   };
 
-  const toggleSidebar = () => {
-    const newVisible = !showSidebar;
-    setShowSidebar(newVisible);
+  const handleFilterChange = (filters) => {
+    setActiveFilters(filters);
+  };
+
+  const toggleGameList = () => {
+    const newVisible = !showGameList;
+    setShowGameList(newVisible);
+
     window.electronAPI
       .getConfig()
       .then((config) => {
         const newConfig = {
           ...config,
-          Interface: { ...config.Interface, showSidebar: newVisible },
+          Interface: {
+            ...config.Interface,
+            showGameList: newVisible,
+          },
         };
         window.electronAPI.saveSettings(newConfig);
       })
-      .catch((err) => console.error("Failed to save sidebar visibility:", err));
+      .catch((err) =>
+        console.error("Failed to save game list visibility:", err),
+      );
   };
-const toggleGameList = () => {
-  const newVisible = !showGameList;
-  setShowGameList(newVisible);
-
-  window.electronAPI
-    .getConfig()
-    .then((config) => {
-      const newConfig = {
-        ...config,
-        Interface: {
-          ...config.Interface,
-          showGameList: newVisible,
-        },
-      };
-      window.electronAPI.saveSettings(newConfig);
-    })
-    .catch((err) => console.error("Failed to save game list visibility:", err));
-};
   // Debounced refresh for game updates
   const refreshGame = useCallback(
     debounce((recordId) => {
@@ -136,17 +140,17 @@ const toggleGameList = () => {
 
   useEffect(() => {
     // Get Config
-window.electronAPI
-  .getConfig()
-  .then((config) => {
-    const interfaceSettings = config.Interface || {};
-    setShowGameList(interfaceSettings.showGameList ?? true);
-    // If you still have showSidebar from earlier attempts, you can keep it or remove
-  })
-  .catch((error) => {
-    console.error("Failed to load config:", error);
-    setShowGameList(true);
-  });
+    window.electronAPI
+      .getConfig()
+      .then((config) => {
+        const interfaceSettings = config.Interface || {};
+        setShowGameList(interfaceSettings.showGameList ?? true);
+        // If you still have showSidebar from earlier attempts, you can keep it or remove
+      })
+      .catch((error) => {
+        console.error("Failed to load config:", error);
+        setShowGameList(true);
+      });
 
     // Fetch games only once on mount
     window.electronAPI
@@ -440,11 +444,87 @@ window.electronAPI
     }
   };
 
-  const filteredGames = games.filter(
-    (game) =>
-      game.title.toLowerCase().includes(filter.toLowerCase()) ||
-      game.creator.toLowerCase().includes(filter.toLowerCase()),
-  );
+  const filteredGames = useMemo(() => {
+    let result = [...games];
+
+    // Text search
+    if (activeFilters.text) {
+      const lower = activeFilters.text.toLowerCase();
+      result = result.filter((game) =>
+        activeFilters.type === "title"
+          ? game.title.toLowerCase().includes(lower)
+          : game.creator.toLowerCase().includes(lower),
+      );
+    }
+
+    // Category (AND)
+    if (activeFilters.category.length > 0) {
+      result = result.filter((game) =>
+        activeFilters.category.includes(game.category),
+      );
+    }
+
+    // Engine
+    if (activeFilters.engine.length > 0) {
+      result = result.filter((game) =>
+        activeFilters.engine.includes(game.engine),
+      );
+    }
+
+    // Status
+    if (activeFilters.status.length > 0) {
+      result = result.filter((game) =>
+        activeFilters.status.includes(game.status),
+      );
+    }
+
+    // Censored
+    if (activeFilters.censored.length > 0) {
+      result = result.filter((game) =>
+        activeFilters.censored.includes(game.censored),
+      );
+    }
+
+    // Language (partial match)
+    if (activeFilters.language.length > 0) {
+      result = result.filter((game) => {
+        const langs = (game.language || "").split(",").map((l) => l.trim());
+        return activeFilters.language.some((l) => langs.includes(l));
+      });
+    }
+
+    // Tags
+    if (activeFilters.tags.length > 0) {
+      result = result.filter((game) => {
+        const gameTags = (game.f95_tags || "").split(",").map((t) => t.trim());
+        if (activeFilters.tagLogic === "AND") {
+          return activeFilters.tags.every((tag) => gameTags.includes(tag));
+        } else {
+          return activeFilters.tags.some((tag) => gameTags.includes(tag));
+        }
+      });
+    }
+
+    // Date limit (assuming release_date is epoch seconds)
+    if (activeFilters.dateLimit > 0) {
+      const cutoff = Date.now() / 1000 - activeFilters.dateLimit * 86400;
+      result = result.filter((game) => (game.release_date || 0) >= cutoff);
+    }
+
+    // Sorting
+    result.sort((a, b) => {
+      if (activeFilters.sort === "date") {
+        return (b.release_date || 0) - (a.release_date || 0);
+      }
+      if (activeFilters.sort === "name") {
+        return a.title.localeCompare(b.title);
+      }
+      // Add likes/views/rating if you have those fields
+      return 0;
+    });
+
+    return result;
+  }, [games, activeFilters]);
 
   const getColumnCount = (width) => {
     const containerWidth =
@@ -513,405 +593,7 @@ window.electronAPI
               </div>
             </div>
             <div className="flex justify-center w-full">
-              <div className="flex bg-secondary h-10 w-[400px] items-center rounded mt-[20px] -webkit-app-region-no-drag border border-border hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent relative">
-                <i className="fas fa-search w-6 h-6 text-text pl-2 flex items-center justify-center"></i>
-                <input
-                  type="text"
-                  placeholder="Search Atlas"
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                  className="bg-transparent outline-none text-text flex-1 px-2 focus:outline-none"
-                />
-                <button
-                  onClick={() => setIsMenuOpen(!isMenuOpen)}
-                  className="w-10 h-10 flex items-center justify-center text-text hover:text-highlight focus:outline-none"
-                >
-                  <i className="fas fa-sliders"></i>
-                </button>
-                {isMenuOpen && (
-                  <div className="absolute top-full left-0 mt-2 w-[400px] bg-secondary border border-border rounded shadow-lg z-50">
-                    <div className="p-2 grid grid-cols-2 gap-2">
-                      <div>
-                        <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">
-                            PLAYERS
-                          </h3>
-                          <div className="flex flex-col gap-1 text-[11px] text-text">
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Single player</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Multiplayer</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Cooperative</span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">
-                            PLAY STATE
-                          </h3>
-                          <div className="flex flex-col gap-1 text-[11px] text-text">
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Ready to play</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Installed locally</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Played</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Unplayed</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Private</span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">GENRE</h3>
-                          <div className="flex flex-col gap-1 text-[11px] text-text">
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Action</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Adventure</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Casual</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Indie</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Massively Multiplayer</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Racing</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>RPG</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Simulation</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Sports</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Strategy</span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">
-                            HARDWARE SUPPORT
-                          </h3>
-                          <div className="flex flex-col gap-1 text-[11px] text-text">
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Controller Preferred</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Full Controller Support</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>VR</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Gamepads</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Steam Deck</span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">
-                            FEATURES
-                          </h3>
-                          <div className="flex flex-col gap-1 text-[11px] text-text">
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Trading cards</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Workshop</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Achievements</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Remote Play Together</span>
-                            </label>
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-4 w-4 bg-tertiary hover:outline hover:outline-1 hover:outline-accent checked:bg-tertiary checked:border-accent"
-                                style={{
-                                  outlineColor: "#2C8EA9",
-                                  accentColor: "#2C8EA9",
-                                }}
-                              />{" "}
-                              <span>Family Sharing</span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="col-span-2">
-                        <div className="mb-2">
-                          <h3 className="text-xs text-text font-bold">
-                            STORE TAGS
-                          </h3>
-                          <div className="flex flex-col text-[11px] text-text">
-                            <input
-                              type="text"
-                              placeholder="enter a tag"
-                              className="w-full p-1 bg-transparent border border-border rounded text-[11px] text-text mb-2"
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <h3 className="text-xs text-text font-bold">
-                            FRIENDS
-                          </h3>
-                          <div className="flex flex-col text-[11px] text-text">
-                            <input
-                              type="text"
-                              placeholder="enter a friend's name"
-                              className="w-full p-1 bg-transparent border border-border rounded text-[11px] text-text"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <window.SearchBar onFilterChange={handleFilterChange} />
             </div>
           </div>
           <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
@@ -947,66 +629,66 @@ window.electronAPI
           </div>
         </div>
       </div>
-<div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
-  {/* Sidebar - ALWAYS visible */}
-  <window.Sidebar onToggleGameList={toggleGameList} />
+      <div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
+        {/* Sidebar - ALWAYS visible */}
+        <window.Sidebar onToggleGameList={toggleGameList} />
 
-  {/* Left game list - only when showGameList is true */}
-  {showGameList && (
-    <div className="w-[200px] bg-secondary fixed h-full z-40 overflow-y-auto ml-[60px]">
-      {filteredGames.length === 0 ? (
-        <div className="p-2 text-center text-text">No games found</div>
-      ) : (
-        filteredGames.map((game) => (
-          <div
-            key={game.record_id}
-            className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? "bg-selected" : ""}`}
-            onClick={() => setSelectedGame(game)}
-          >
-            {game.title}
+        {/* Left game list - only when showGameList is true */}
+        {showGameList && (
+          <div className="w-[200px] bg-secondary fixed h-full z-40 overflow-y-auto ml-[60px]">
+            {filteredGames.length === 0 ? (
+              <div className="p-2 text-center text-text">No games found</div>
+            ) : (
+              filteredGames.map((game) => (
+                <div
+                  key={game.record_id}
+                  className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? "bg-selected" : ""}`}
+                  onClick={() => setSelectedGame(game)}
+                >
+                  {game.title}
+                </div>
+              ))
+            )}
           </div>
-        ))
-      )}
-    </div>
-  )}
+        )}
 
-  {/* Game grid - margin adjusts based on whether game list is shown */}
-  <div
-    id="gameGrid"
-    className={`flex-1 bg-tertiary overflow-y-auto ${showGameList ? "ml-[260px]" : "ml-[60px]"}`}
-    ref={gameGridRef}
-    style={{ overflowX: "hidden" }}
-  >
-    {filteredGames.length === 0 ? (
-      <div className="text-center text-text">No games available</div>
-    ) : (
-      <AutoSizer>
-        {({ height, width }) => {
-          const adjustedWidth = Math.max(0, width - getScrollbarWidth());
-          return (
-            <Grid
-              ref={gridRef}
-              columnCount={columnCount}
-              columnWidth={() => {
-                if (columnCount > 1) {
-                  return adjustedWidth / columnCount - 8;
-                } else {
-                  return adjustedWidth / columnCount - 14;
-                }
+        {/* Game grid - margin adjusts based on whether game list is shown */}
+        <div
+          id="gameGrid"
+          className={`flex-1 bg-tertiary overflow-y-auto ${showGameList ? "ml-[260px]" : "ml-[60px]"}`}
+          ref={gameGridRef}
+          style={{ overflowX: "hidden" }}
+        >
+          {filteredGames.length === 0 ? (
+            <div className="text-center text-text">No games available</div>
+          ) : (
+            <AutoSizer>
+              {({ height, width }) => {
+                const adjustedWidth = Math.max(0, width - getScrollbarWidth());
+                return (
+                  <Grid
+                    ref={gridRef}
+                    columnCount={columnCount}
+                    columnWidth={() => {
+                      if (columnCount > 1) {
+                        return adjustedWidth / columnCount - 8;
+                      } else {
+                        return adjustedWidth / columnCount - 14;
+                      }
+                    }}
+                    rowCount={Math.ceil(filteredGames.length / columnCount)}
+                    rowHeight={bannerSize.bannerHeight + 16}
+                    height={height}
+                    width={adjustedWidth}
+                    cellRenderer={cellRenderer}
+                    style={{ overflowX: "hidden" }}
+                  />
+                );
               }}
-              rowCount={Math.ceil(filteredGames.length / columnCount)}
-              rowHeight={bannerSize.bannerHeight + 16}
-              height={height}
-              width={adjustedWidth}
-              cellRenderer={cellRenderer}
-              style={{ overflowX: "hidden" }}
-            />
-          );
-        }}
-      </AutoSizer>
-    )}
-  </div>
-</div>
+            </AutoSizer>
+          )}
+        </div>
+      </div>
       {dbUpdateStatus.text && (
         <div className="absolute bottom-[44px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border opacity-95">
           <div className="flex items-center w-[540px]">

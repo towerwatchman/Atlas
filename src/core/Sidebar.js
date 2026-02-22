@@ -1,4 +1,5 @@
-const Sidebar = ({ onToggleGameList }) => {  // Only need toggle prop now
+const Sidebar = ({ onToggleGameList }) => {
+  // Only need toggle prop now
   const [selected, setSelected] = React.useState("Home");
 
   const items = [

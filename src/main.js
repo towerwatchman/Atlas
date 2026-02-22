@@ -36,6 +36,7 @@ const {
   countVersions,
   deleteVersion,
   deleteGameCompletely,
+  getUniqueFilterOptions,  
   db,
 } = require("./database");
 const { Menu } = require("electron");
@@ -493,6 +494,9 @@ ipcMain.handle("open-settings", () => {
   } else {
     settingsWindow.focus();
   }
+});
+ipcMain.handle("get-unique-filter-options", async () => {
+  return await getUniqueFilterOptions();
 });
 
 ipcMain.handle("get-settings", async () => {

@@ -202,4 +202,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onGameDeleted: (callback) => {
     ipcRenderer.on("game-deleted", (event, recordId) => callback(recordId));
   },
+  getUniqueFilterOptions: () => ipcRenderer.invoke("get-unique-filter-options"),
 });
