@@ -28,6 +28,7 @@ const SearchBar = ({ onFilterChange }) => {
     status: false,
   });
 
+  console.log("SearchBar.jsx loaded successfully!");
   useEffect(() => {
     // Fetch unique filter options from DB on mount
     window.electronAPI
@@ -79,7 +80,7 @@ const SearchBar = ({ onFilterChange }) => {
 
   return (
     <div className="flex justify-center w-full">
-      <div className="flex bg-secondary h-10 w-[400px] items-center rounded mt-[20px] border border-border hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent relative">
+      <div className="flex bg-secondary h-10 w-[400px] items-center rounded mt-[20px] border border-border hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent relative -webkit-app-region-no-drag">
         <i className="fas fa-search w-6 h-6 text-text pl-2 flex items-center justify-center"></i>
         <input
           type="text"
@@ -353,5 +354,5 @@ const SearchBar = ({ onFilterChange }) => {
     </div>
   );
 };
-
+console.log("SearchBar component defined and attached to window:", window.SearchBar);
 window.SearchBar = SearchBar;
