@@ -1,72 +1,68 @@
-const { useState, useEffect } = window.React;
+const { useState, useEffect, useMemo } = window.React;
 
 const SearchBar = ({ onFilterChange }) => {
-  const [filter, setFilter] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [searchType, setSearchType] = useState("title"); // "title" or "creator"
-  const [categories, setCategories] = useState([]);
-  const [engines, setEngines] = useState([]);
-  const [statuses, setStatuses] = useState([]);
-  const [censored, setCensored] = useState([]);
-  const [languages, setLanguages] = useState([]);
-  const [tags, setTags] = useState([]);
-  const [selectedFilters, setSelectedFilters] = useState({
-    category: [], // multi-select
-    engine: [], // multi-select
-    status: [], // multi-select
-    censored: [], // multi-select
-    language: [], // multi-select
-    tags: [], // multi-select, max 10
-    sort: "date", // single: date, likes, views, name, rating
-    dateLimit: 0, // 0 = anytime, >0 = days back
-    tagLogic: "AND", // AND/OR for tags
-  });
-  const [tagSearch, setTagSearch] = useState(""); // for filtering tag options
+  const [filter, setFilter] = useState("");
   const [accordionOpen, setAccordionOpen] = useState({
-    engine: false,
+    engine: true, // expanded by default
+    status: true, // expanded by default
     other: false,
-    status: false,
+  });
+  const [tagSearch, setTagSearch] = useState("");
+  const [selectedFilters, setSelectedFilters] = useState({
+    category: [],
+    engine: [],
+    status: [],
+    censored: [],
+    language: [],
+    tags: [],
+    sort: "date",
+    tagLogic: "AND",
+  });
+  const [options, setOptions] = useState({
+    categories: [],
+    engines: [],
+    statuses: [],
+    censored: [],
+    languages: [],
+    tags: [],
   });
 
-  console.log("SearchBar.jsx loaded successfully!");
   useEffect(() => {
-    // Fetch unique filter options from DB on mount
     window.electronAPI
       .getUniqueFilterOptions()
-      .then((options) => {
-        setCategories(options.categories || []);
-        setEngines(options.engines || []);
-        setStatuses(options.statuses || []);
-        setCensored(options.censored || []);
-        setLanguages(options.languages || []);
-        setTags(options.tags || []);
+      .then((data) => {
+        setOptions(data);
       })
-      .catch((err) => {
-        console.error("Failed to load filter options:", err);
-      });
-
-    // Trigger initial filter change
-    onFilterChange({ text: filter, ...selectedFilters });
+      .catch((err) => console.error("Failed to load filter options:", err));
   }, []);
 
-  // Whenever filters change, call parent callback
-  useEffect(() => {
-    onFilterChange({ text: filter, type: searchType, ...selectedFilters });
-  }, [filter, searchType, selectedFilters]);
+  // Stable filter object to prevent infinite loop
+  const currentFilters = useMemo(
+    () => ({
+      text: filter,
+      ...selectedFilters,
+    }),
+    [filter, selectedFilters], // only recompute when these change
+  );
 
-  const handleCheckboxChange = (group, value) => {
+  useEffect(() => {
+    onFilterChange(currentFilters);
+  }, [currentFilters, onFilterChange]); // safe deps
+
+  const handleCheckbox = (group, value) => {
     setSelectedFilters((prev) => {
-      let newGroup = [...prev[group]];
-      if (newGroup.includes(value)) {
-        newGroup = newGroup.filter((v) => v !== value);
+      let newVals = [...prev[group]];
+      if (newVals.includes(value)) {
+        newVals = newVals.filter((v) => v !== value);
       } else {
-        if (group === "tags" && newGroup.length >= 10) {
+        if (group === "tags" && newVals.length >= 10) {
           alert("Max 10 tags allowed.");
           return prev;
         }
-        newGroup.push(value);
+        newVals.push(value);
       }
-      return { ...prev, [group]: newGroup };
+      return { ...prev, [group]: newVals };
     });
   };
 
@@ -74,7 +70,13 @@ const SearchBar = ({ onFilterChange }) => {
     setAccordionOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const filteredTags = tags.filter((tag) =>
+  // Sort tags alphabetically (case-insensitive)
+  const sortedTags = [...options.tags].sort((a, b) =>
+    a.toLowerCase().localeCompare(b.toLowerCase()),
+  );
+
+  // Filter the sorted list
+  const filteredTags = sortedTags.filter((tag) =>
     tag.toLowerCase().includes(tagSearch.toLowerCase()),
   );
 
@@ -95,16 +97,16 @@ const SearchBar = ({ onFilterChange }) => {
         >
           <i className="fas fa-sliders"></i>
         </button>
+
         {isMenuOpen && (
-          <div className="absolute top-full left-0 mt-2 w-[400px] bg-secondary border border-border rounded shadow-lg z-50 p-2">
-            {/* Filters Layout - Similar to provided HTML */}
-            <div className="content-block_filter">
-              <h3 className="content-block_filter-title flex justify-between">
-                <div>
-                  <i className="fas fa-filter"></i> Filters
+          <div className="absolute top-full left-0 mt-2 w-[400px] bg-secondary border border-border rounded shadow-lg z-50 max-h-[70vh] overflow-y-auto -webkit-app-region-no-drag">
+            <div className="content-block_filter p-4">
+              <h3 className="content-block_filter-title flex justify-between items-center mb-4 sticky top-0 bg-secondary z-10 pb-2 border-b border-border">
+                <div className="text-lg font-bold">
+                  <i className="fas fa-filter mr-2"></i>Filters
                 </div>
-                <div className="button-group-small">
-                  <a
+                <div className="flex space-x-3">
+                  <button
                     onClick={() => {
                       setSelectedFilters({
                         category: [],
@@ -114,168 +116,141 @@ const SearchBar = ({ onFilterChange }) => {
                         language: [],
                         tags: [],
                         sort: "date",
-                        dateLimit: 0,
                         tagLogic: "AND",
                       });
+                      setTagSearch("");
                     }}
-                    className="button-icon cursor-pointer"
+                    className="text-text hover:text-accent flex items-center text-sm"
                   >
-                    <i className="fas fa-undo-alt"></i>
-                  </a>
-                  <a
+                    <i className="fas fa-undo-alt mr-1"></i> Reset
+                  </button>
+                  <button
                     onClick={() => setIsMenuOpen(false)}
-                    className="button-icon cursor-pointer"
+                    className="text-text hover:text-accent flex items-center text-sm"
                   >
-                    <i className="fas fa-times"></i>
-                  </a>
+                    <i className="fas fa-times mr-1"></i> Close
+                  </button>
                 </div>
               </h3>
 
-              {/* Category - Button Group */}
-              <div className="filter-block">
-                <h4 className="filter-block_title">Category</h4>
-                <div className="filter-block_content filter-block_h flex flex-wrap gap-2">
-                  {categories.map((cat) => (
-                    <div key={cat} className="filter-block_button-wrap">
-                      <a
-                        onClick={() => handleCheckboxChange("category", cat)}
-                        className={`filter-block_button cursor-pointer ${selectedFilters.category.includes(cat) ? "filter-selected" : ""}`}
-                      >
-                        <i className="fas fa-gamepad"></i>{" "}
-                        {/* Icon placeholder - adjust per cat */}
-                      </a>
-                      <div className="filter-block_button-label">{cat}</div>
-                    </div>
+              {/* Category */}
+              <div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
+                <h4 className="font-bold mb-2">Category</h4>
+                <div className="flex flex-wrap gap-2">
+                  {options.categories.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => handleCheckbox("category", cat)}
+                      className={`px-3 py-1 rounded text-sm ${
+                        selectedFilters.category.includes(cat)
+                          ? "bg-accent text-white"
+                          : "bg-tertiary hover:bg-highlight"
+                      }`}
+                    >
+                      {cat}
+                    </button>
                   ))}
                 </div>
               </div>
 
-              {/* Sorting - Button Group */}
-              <div className="filter-block">
-                <h4 className="filter-block_title">Sorting</h4>
-                <div className="filter-block_content filter-block_h flex flex-wrap gap-2">
-                  {["date", "likes", "views", "name", "rating"].map((sort) => (
-                    <div key={sort} className="filter-block_button-wrap">
-                      <a
-                        onClick={() =>
-                          setSelectedFilters((prev) => ({ ...prev, sort }))
-                        }
-                        className={`filter-block_button cursor-pointer ${selectedFilters.sort === sort ? "filter-selected" : ""}`}
-                      >
-                        <i className="fas fa-clock"></i>{" "}
-                        {/* Icon placeholder - adjust per sort */}
-                      </a>
-                      <div className="filter-block_button-label">
-                        {sort.charAt(0).toUpperCase() + sort.slice(1)}
-                      </div>
-                    </div>
+              {/* Sorting */}
+              <div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
+                <h4 className="font-bold mb-2">Sorting</h4>
+                <div className="flex flex-wrap gap-2">
+                  {["date", "likes", "views", "name", "rating"].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() =>
+                        setSelectedFilters((prev) => ({ ...prev, sort: s }))
+                      }
+                      className={`px-3 py-1 rounded text-sm ${
+                        selectedFilters.sort === s
+                          ? "bg-accent text-white"
+                          : "bg-tertiary hover:bg-highlight"
+                      }`}
+                    >
+                      {s.charAt(0).toUpperCase() + s.slice(1)}
+                    </button>
                   ))}
                 </div>
               </div>
 
-              {/* Date Limit - Slider */}
-              <div className="filter-block range-slider_wrap">
-                <h4 className="filter-block_title">Date Limit</h4>
-                <div className="range-slider_value">
-                  {selectedFilters.dateLimit === 0
-                    ? "Anytime"
-                    : `Last ${selectedFilters.dateLimit} days`}
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="365"
-                  step="1"
-                  value={selectedFilters.dateLimit}
-                  onChange={(e) =>
-                    setSelectedFilters((prev) => ({
-                      ...prev,
-                      dateLimit: parseInt(e.target.value),
-                    }))
-                  }
-                  className="w-full"
-                />
-              </div>
-
-              {/* Search Type Toggle */}
-              <div className="filter-block">
-                <h4 className="filter-block_title">Search</h4>
-                <a
-                  onClick={() =>
-                    setSearchType(searchType === "title" ? "creator" : "title")
-                  }
-                  className="filter-toggle_title cursor-pointer"
-                >
-                  <span
-                    className={`filter-search_type-creator ${searchType === "creator" ? "on" : "off"}`}
-                  >
-                    Creator
+              {/* Tags */}
+              <div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
+                <h4 className="font-bold mb-2 flex justify-between items-center">
+                  Tags (Max 10)
+                  <span className="text-sm font-normal text-gray-400">
+                    {selectedFilters.tagLogic}
                   </span>
-                  <span className="divider">/</span>
-                  <span
-                    className={`filter-search_type-title ${searchType === "title" ? "on" : "off"}`}
-                  >
-                    Title
-                  </span>
-                </a>
-              </div>
-
-              {/* Tags - Multi-select with search, max 10, AND/OR toggle */}
-              <div className="filter-block">
-                <h4 className="filter-block_title">Tags (Max 10)</h4>
-                <a
-                  onClick={() =>
-                    setSelectedFilters((prev) => ({
-                      ...prev,
-                      tagLogic: prev.tagLogic === "AND" ? "OR" : "AND",
-                    }))
-                  }
-                  className="filter-toggle_title cursor-pointer"
-                >
-                  <span
-                    className={`filter-tag_type-or ${selectedFilters.tagLogic === "OR" ? "on" : "off"}`}
-                  >
-                    OR
-                  </span>
-                  <span className="divider">/</span>
-                  <span
-                    className={`filter-tag_type-and ${selectedFilters.tagLogic === "AND" ? "on" : "off"}`}
+                </h4>
+                <div className="flex gap-4 mb-3">
+                  <button
+                    onClick={() =>
+                      setSelectedFilters((prev) => ({
+                        ...prev,
+                        tagLogic: "AND",
+                      }))
+                    }
+                    className={`px-4 py-1 rounded text-sm ${
+                      selectedFilters.tagLogic === "AND"
+                        ? "bg-accent text-white"
+                        : "bg-tertiary hover:bg-highlight"
+                    }`}
                   >
                     AND
-                  </span>
-                </a>
-                <div className="filter-block_content">
-                  <input
-                    type="text"
-                    placeholder="Search tags..."
-                    value={tagSearch}
-                    onChange={(e) => setTagSearch(e.target.value)}
-                    className="w-full p-1 bg-transparent border border-border rounded text-[11px] text-text mb-2"
-                  />
-                  <div className="filter-tags-selected-wrap">
-                    {selectedFilters.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="selected-tag bg-accent px-2 py-1 rounded mr-1 mb-1"
+                  </button>
+                  <button
+                    onClick={() =>
+                      setSelectedFilters((prev) => ({
+                        ...prev,
+                        tagLogic: "OR",
+                      }))
+                    }
+                    className={`px-4 py-1 rounded text-sm ${
+                      selectedFilters.tagLogic === "OR"
+                        ? "bg-accent text-white"
+                        : "bg-tertiary hover:bg-highlight"
+                    }`}
+                  >
+                    OR
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search tags..."
+                  value={tagSearch}
+                  onChange={(e) => setTagSearch(e.target.value)}
+                  className="w-full p-2 bg-tertiary border border-border rounded mb-3 text-sm"
+                />
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {selectedFilters.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="bg-accent px-3 py-1 rounded text-sm flex items-center"
+                    >
+                      {tag}
+                      <button
+                        onClick={() => handleCheckbox("tags", tag)}
+                        className="ml-2 text-white text-xs"
                       >
-                        {tag}{" "}
-                        <i
-                          className="fas fa-times cursor-pointer"
-                          onClick={() => handleCheckboxChange("tags", tag)}
-                        ></i>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="max-h-32 overflow-y-auto">
-                    {filteredTags.map((tag) => (
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
+                  {filteredTags.length === 0 ? (
+                    <p className="text-sm text-gray-500">No tags found</p>
+                  ) : (
+                    filteredTags.map((tag) => (
                       <label
                         key={tag}
-                        className="flex items-center space-x-2 text-sm"
+                        className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
                       >
                         <input
                           type="checkbox"
                           checked={selectedFilters.tags.includes(tag)}
-                          onChange={() => handleCheckboxChange("tags", tag)}
+                          onChange={() => handleCheckbox("tags", tag)}
                           disabled={
                             selectedFilters.tags.length >= 10 &&
                             !selectedFilters.tags.includes(tag)
@@ -283,32 +258,30 @@ const SearchBar = ({ onFilterChange }) => {
                         />
                         <span>{tag}</span>
                       </label>
-                    ))}
-                  </div>
+                    ))
+                  )}
                 </div>
               </div>
 
-              {/* Prefixes - Accordions */}
-              <div className="filter-block accordion-block">
+              {/* Engine - Expanded */}
+              <div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
                 <h4
-                  className="filter-block_title accordion-toggle cursor-pointer"
+                  className="font-bold mb-2 cursor-pointer flex justify-between items-center"
                   onClick={() => toggleAccordion("engine")}
                 >
-                  Prefix: Engine {accordionOpen.engine ? "-" : "+"}
+                  Engine Prefix {accordionOpen.engine ? "▲" : "▼"}
                 </h4>
                 {accordionOpen.engine && (
-                  <div className="filter-block_content accordion-content flex flex-col gap-1">
-                    {engines.map((engine) => (
+                  <div className="grid grid-cols-2 gap-2">
+                    {options.engines.map((engine) => (
                       <label
                         key={engine}
-                        className="flex items-center space-x-2"
+                        className="flex items-center space-x-2 text-sm"
                       >
                         <input
                           type="checkbox"
                           checked={selectedFilters.engine.includes(engine)}
-                          onChange={() =>
-                            handleCheckboxChange("engine", engine)
-                          }
+                          onChange={() => handleCheckbox("engine", engine)}
                         />
                         <span>{engine}</span>
                       </label>
@@ -317,27 +290,25 @@ const SearchBar = ({ onFilterChange }) => {
                 )}
               </div>
 
-              {/* Similar accordions for Other (use category or other fields), Status */}
-              <div className="filter-block accordion-block">
+              {/* Status - Expanded */}
+              <div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
                 <h4
-                  className="filter-block_title accordion-toggle cursor-pointer"
+                  className="font-bold mb-2 cursor-pointer flex justify-between items-center"
                   onClick={() => toggleAccordion("status")}
                 >
-                  Prefix: Status {accordionOpen.status ? "-" : "+"}
+                  Status {accordionOpen.status ? "▲" : "▼"}
                 </h4>
                 {accordionOpen.status && (
-                  <div className="filter-block_content accordion-content flex flex-col gap-1">
-                    {statuses.map((status) => (
+                  <div className="grid grid-cols-2 gap-2">
+                    {options.statuses.map((status) => (
                       <label
                         key={status}
-                        className="flex items-center space-x-2"
+                        className="flex items-center space-x-2 text-sm"
                       >
                         <input
                           type="checkbox"
                           checked={selectedFilters.status.includes(status)}
-                          onChange={() =>
-                            handleCheckboxChange("status", status)
-                          }
+                          onChange={() => handleCheckbox("status", status)}
                         />
                         <span>{status}</span>
                       </label>
@@ -346,7 +317,7 @@ const SearchBar = ({ onFilterChange }) => {
                 )}
               </div>
 
-              {/* Add more accordions as needed, e.g. for Censored, Language */}
+              {/* Optional: Add Language, Censored, etc. here in similar bordered blocks */}
             </div>
           </div>
         )}
@@ -354,5 +325,5 @@ const SearchBar = ({ onFilterChange }) => {
     </div>
   );
 };
-console.log("SearchBar component defined and attached to window:", window.SearchBar);
+
 window.SearchBar = SearchBar;

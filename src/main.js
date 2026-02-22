@@ -36,7 +36,7 @@ const {
   countVersions,
   deleteVersion,
   deleteGameCompletely,
-  getUniqueFilterOptions,  
+  getUniqueFilterOptions,
   db,
 } = require("./database");
 const { Menu } = require("electron");
