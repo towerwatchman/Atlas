@@ -465,26 +465,67 @@ const getGame = (recordId, appPath, isDev) => {
             versionCount: versionRows.length,
             isUpdateAvailable: false,
           };
-          // Compute isUpdateAvailable
+          // Compute isUpdateAvailable (new logic)
+          game.isUpdateAvailable = false;
+
           if (row.latestVersion && game.versions.length > 0) {
-            let latest;
-            try {
-              latest = parseInt(row.latestVersion.replace(/[^0-9]/g, ""), 10);
-            } catch {
-              latest = 0;
-            }
-            for (const version of game.versions) {
-              let current;
-              try {
-                current = parseInt(version.version.replace(/[^0-9]/g, ""), 10);
-              } catch {
-                current = 0;
-              }
-              if (latest > current) {
-                game.isUpdateAvailable = true;
-              } else {
-                game.isUpdateAvailable = false;
-                break;
+            const latestStr = (row.latestVersion || "").trim().toLowerCase();
+
+            // Rule 2: if ANY installed version contains "final" → no update
+            const hasFinal = game.versions.some((v) =>
+              (v.version || "").trim().toLowerCase().includes("final"),
+            );
+
+            if (hasFinal) {
+              game.isUpdateAvailable = false;
+            } else {
+              // Prepare cleaned latest version
+              const cleanLatest = latestStr
+                .replace(/\s+/g, "") // remove all spaces
+                .replace(/[^0-9.]/g, ""); // keep only digits and periods
+
+              // We'll compare each installed version against the cleaned latest
+              for (const v of game.versions) {
+                const verStr = (v.version || "").trim().toLowerCase();
+                const cleanVer = verStr
+                  .replace(/\s+/g, "") // remove all spaces
+                  .replace(/[^0-9.]/g, ""); // keep only digits and periods
+
+                // Skip invalid/empty versions
+                if (!cleanVer || !cleanLatest) continue;
+
+                // Compare as version tuples (better than simple string compare)
+                const latestParts = cleanLatest
+                  .split(".")
+                  .map((n) => parseInt(n, 10) || 0);
+                const currentParts = cleanVer
+                  .split(".")
+                  .map((n) => parseInt(n, 10) || 0);
+
+                // Pad the shorter array with zeros
+                const maxLen = Math.max(
+                  latestParts.length,
+                  currentParts.length,
+                );
+                while (latestParts.length < maxLen) latestParts.push(0);
+                while (currentParts.length < maxLen) currentParts.push(0);
+
+                // Compare part by part
+                let isOlder = false;
+                for (let i = 0; i < maxLen; i++) {
+                  if (currentParts[i] < latestParts[i]) {
+                    isOlder = true;
+                    break;
+                  }
+                  if (currentParts[i] > latestParts[i]) {
+                    break; // current is newer → no update needed from this version
+                  }
+                }
+
+                if (isOlder) {
+                  game.isUpdateAvailable = true;
+                  break; // as soon as we find one version that is older → update exists
+                }
               }
             }
           }

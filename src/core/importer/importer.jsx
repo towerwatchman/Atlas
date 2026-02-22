@@ -706,22 +706,22 @@ const Importer = () => {
                 )}
               </div>
               <div className="mt-4">
-    <input
-      type="checkbox"
-      checked={deleteAfter}
-      onChange={(e) => setDeleteAfter(e.target.checked)}
-      className="mr-2"
-      disabled={!moveGame} // Optional: only enable if move is on
-    />
-    <label className="font-medium">
-      Delete original folder after successful move
-    </label>
-    {!moveGame && (
-      <div className="mt-1 ml-6 text-sm text-gray-500">
-        (Enable "Move imported games" first)
-      </div>
-    )}
-  </div>
+                <input
+                  type="checkbox"
+                  checked={deleteAfter}
+                  onChange={(e) => setDeleteAfter(e.target.checked)}
+                  className="mr-2"
+                  disabled={!moveGame} // Optional: only enable if move is on
+                />
+                <label className="font-medium">
+                  Delete original folder after successful move
+                </label>
+                {!moveGame && (
+                  <div className="mt-1 ml-6 text-sm text-gray-500">
+                    (Enable "Move imported games" first)
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex justify-end space-x-2">

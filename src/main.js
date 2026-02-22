@@ -895,7 +895,6 @@ ipcMain.handle("open-directory", async (event, path) => {
   }
 });
 
-
 ipcMain.handle("get-steam-data", async (event, steam_id) => {
   console.log("Handling get-steam-data:", steam_id);
   try {
@@ -967,11 +966,11 @@ async function copyFolderWithProgress(source, destination, onProgress) {
       return;
     }
     const files = await fs.promises.readdir(dir);
-    await Promise.all(files.map(file => calculateSize(path.join(dir, file))));
+    await Promise.all(files.map((file) => calculateSize(path.join(dir, file))));
   }
 
   await calculateSize(source);
-  onProgress?.({ type: 'total', bytes: totalBytes });
+  onProgress?.({ type: "total", bytes: totalBytes });
 
   // Queue-based concurrent copy
   async function copyRecursive(src, dest) {
@@ -982,7 +981,11 @@ async function copyFolderWithProgress(source, destination, onProgress) {
       // Process in batches to limit concurrency
       for (let i = 0; i < files.length; i += MAX_CONCURRENT) {
         const batch = files.slice(i, i + MAX_CONCURRENT);
-        await Promise.all(batch.map(file => copyRecursive(path.join(src, file), path.join(dest, file))));
+        await Promise.all(
+          batch.map((file) =>
+            copyRecursive(path.join(src, file), path.join(dest, file)),
+          ),
+        );
       }
     } else {
       // File copy with retry on EMFILE
@@ -993,27 +996,31 @@ async function copyFolderWithProgress(source, destination, onProgress) {
             const readStream = fs.createReadStream(src);
             const writeStream = fs.createWriteStream(dest);
 
-            readStream.on('data', (chunk) => {
+            readStream.on("data", (chunk) => {
               copiedBytes += chunk.length;
 
-              const currentPercent = Math.floor((copiedBytes / totalBytes) * 100);
+              const currentPercent = Math.floor(
+                (copiedBytes / totalBytes) * 100,
+              );
               const now = Date.now();
 
               if (currentPercent > lastReportedPercent) {
                 const elapsed = (now - startTime) / 1000;
-                const currentSpeed = elapsed > 0 ? (copiedBytes - lastCopiedBytes) / elapsed : 0;
-                const speedText = currentSpeed > 1024 * 1024 * 1024
-                  ? `${(currentSpeed / (1024**3)).toFixed(2)} GB/s`
-                  : currentSpeed > 1024 * 1024
-                    ? `${(currentSpeed / (1024**2)).toFixed(1)} MB/s`
-                    : `${(currentSpeed / 1024).toFixed(1)} KB/s`;
+                const currentSpeed =
+                  elapsed > 0 ? (copiedBytes - lastCopiedBytes) / elapsed : 0;
+                const speedText =
+                  currentSpeed > 1024 * 1024 * 1024
+                    ? `${(currentSpeed / 1024 ** 3).toFixed(2)} GB/s`
+                    : currentSpeed > 1024 * 1024
+                      ? `${(currentSpeed / 1024 ** 2).toFixed(1)} MB/s`
+                      : `${(currentSpeed / 1024).toFixed(1)} KB/s`;
 
                 onProgress?.({
-                  type: 'progress',
+                  type: "progress",
                   percent: currentPercent,
                   copied: copiedBytes,
                   total: totalBytes,
-                  speed: speedText
+                  speed: speedText,
                 });
 
                 lastReportedPercent = currentPercent;
@@ -1022,17 +1029,17 @@ async function copyFolderWithProgress(source, destination, onProgress) {
               }
             });
 
-            readStream.on('end', () => resolve());
-            readStream.on('error', reject);
-            writeStream.on('error', reject);
+            readStream.on("end", () => resolve());
+            readStream.on("error", reject);
+            writeStream.on("error", reject);
 
             readStream.pipe(writeStream);
           });
         } catch (err) {
-          if (err.code === 'EMFILE' && retries < MAX_RETRIES) {
+          if (err.code === "EMFILE" && retries < MAX_RETRIES) {
             retries++;
             console.warn(`EMFILE retry ${retries}/${MAX_RETRIES} for ${src}`);
-            await new Promise(r => setTimeout(r, RETRY_DELAY * retries)); // exponential backoff
+            await new Promise((r) => setTimeout(r, RETRY_DELAY * retries)); // exponential backoff
             continue;
           }
           throw err;
@@ -1045,23 +1052,24 @@ async function copyFolderWithProgress(source, destination, onProgress) {
     await copyRecursive(source, destination);
     const finalPercent = 100;
     const totalElapsed = (Date.now() - startTime) / 1000;
-    const avgSpeed = totalElapsed > 0 ? (copiedBytes / totalElapsed) : 0;
-    const avgSpeedText = avgSpeed > 1024 * 1024 * 1024
-      ? `${(avgSpeed / (1024**3)).toFixed(2)} GB/s`
-      : avgSpeed > 1024 * 1024
-        ? `${(avgSpeed / (1024**2)).toFixed(1)} MB/s`
-        : `${(avgSpeed / 1024).toFixed(1)} KB/s`;
+    const avgSpeed = totalElapsed > 0 ? copiedBytes / totalElapsed : 0;
+    const avgSpeedText =
+      avgSpeed > 1024 * 1024 * 1024
+        ? `${(avgSpeed / 1024 ** 3).toFixed(2)} GB/s`
+        : avgSpeed > 1024 * 1024
+          ? `${(avgSpeed / 1024 ** 2).toFixed(1)} MB/s`
+          : `${(avgSpeed / 1024).toFixed(1)} KB/s`;
 
     onProgress?.({
-      type: 'done',
+      type: "done",
       percent: finalPercent,
       copied: copiedBytes,
       total: totalBytes,
-      speed: avgSpeedText
+      speed: avgSpeedText,
     });
   } catch (err) {
-    console.error('Copy failed:', err);
-    onProgress?.({ type: 'error', message: err.message });
+    console.error("Copy failed:", err);
+    onProgress?.({ type: "error", message: err.message });
     throw err;
   }
 }
@@ -1102,7 +1110,7 @@ ipcMain.handle("import-games", async (event, params) => {
     if (!targetLibrary || !fs.existsSync(targetLibrary)) {
       console.warn("Move requested but no valid default library folder set");
       mainWindow.webContents.send("import-warning", {
-        message: "Move to library skipped — no default folder configured"
+        message: "Move to library skipped — no default folder configured",
       });
     }
   }
@@ -1124,123 +1132,144 @@ ipcMain.handle("import-games", async (event, params) => {
       let size = 0;
 
       // ── Structured move if requested ──
-// ── Structured move if requested ──
-if (moveToDefaultFolder && targetLibrary && format.trim()) {
-  try {
-    const formatStr = format.trim();
-    const parts = formatStr.split("/").map(p => p.replace(/[{}]/g, "").trim());
+      // ── Structured move if requested ──
+      if (moveToDefaultFolder && targetLibrary && format.trim()) {
+        try {
+          const formatStr = format.trim();
+          const parts = formatStr
+            .split("/")
+            .map((p) => p.replace(/[{}]/g, "").trim());
 
-    const pathSegments = [];
-    for (const part of parts) {
-      let value = "";
-      if (part.toLowerCase() === "creator") value = game.creator || "Unknown";
-      else if (part.toLowerCase() === "title") value = game.title || "Untitled";
-      else if (part.toLowerCase() === "version") value = game.version || "v1";
-      else if (part.toLowerCase() === "engine") value = game.engine || "Unknown";
-      else value = "Unknown";
+          const pathSegments = [];
+          for (const part of parts) {
+            let value = "";
+            if (part.toLowerCase() === "creator")
+              value = game.creator || "Unknown";
+            else if (part.toLowerCase() === "title")
+              value = game.title || "Untitled";
+            else if (part.toLowerCase() === "version")
+              value = game.version || "v1";
+            else if (part.toLowerCase() === "engine")
+              value = game.engine || "Unknown";
+            else value = "Unknown";
 
-      value = value
-        .replace(/[\/\\:*?"<>|]/g, "_")
-        .replace(/\s+/g, " ")
-        .trim();
+            value = value
+              .replace(/[\/\\:*?"<>|]/g, "_")
+              .replace(/\s+/g, " ")
+              .trim();
 
-      if (!value || value === ".") value = "Unknown";
+            if (!value || value === ".") value = "Unknown";
 
-      pathSegments.push(value);
-    }
+            pathSegments.push(value);
+          }
 
-    const relativeDest = path.join(...pathSegments);
-    let destPath = path.join(targetLibrary, relativeDest);
+          const relativeDest = path.join(...pathSegments);
+          let destPath = path.join(targetLibrary, relativeDest);
 
-    // Handle name conflict
-    let counter = 1;
-    const originalDest = destPath;
-    while (fs.existsSync(destPath)) {
-      destPath = `${originalDest} (${counter++})`;
-    }
+          // Handle name conflict
+          let counter = 1;
+          const originalDest = destPath;
+          while (fs.existsSync(destPath)) {
+            destPath = `${originalDest} (${counter++})`;
+          }
 
-    await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+          await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
 
-    // Preserve ORIGINAL source path
-    const originalSource = gamePath;
+          // Preserve ORIGINAL source path
+          const originalSource = gamePath;
 
-    let copySuccess = false;
+          let copySuccess = false;
 
-    // Copy with progress
-    await copyFolderWithProgress(originalSource, destPath, (prog) => {
-      let text = `Moving ${game.title}`;
-      if (prog.type === 'total') {
-        text += ` (${(prog.bytes / (1024**3)).toFixed(2)} GB total)`;
-      } else if (prog.type === 'progress') {
-        text += `: ${prog.percent}% (${(prog.copied / (1024**3)).toFixed(2)} / ${(prog.total / (1024**3)).toFixed(2)} GB)`;
-      } else if (prog.type === 'done') {
-        text += ` — complete`;
-        copySuccess = true; // Flag success for delete
-      } else if (prog.type === 'error') {
-        text += ` — error: ${prog.message}`;
-        copySuccess = false;
-      }
+          // Copy with progress
+          await copyFolderWithProgress(originalSource, destPath, (prog) => {
+            let text = `Moving ${game.title}`;
+            if (prog.type === "total") {
+              text += ` (${(prog.bytes / 1024 ** 3).toFixed(2)} GB total)`;
+            } else if (prog.type === "progress") {
+              text += `: ${prog.percent}% (${(prog.copied / 1024 ** 3).toFixed(2)} / ${(prog.total / 1024 ** 3).toFixed(2)} GB)`;
+            } else if (prog.type === "done") {
+              text += ` — complete`;
+              copySuccess = true; // Flag success for delete
+            } else if (prog.type === "error") {
+              text += ` — error: ${prog.message}`;
+              copySuccess = false;
+            }
 
-      mainWindow.webContents.send("import-progress", {
-        text,
-        progress,
-        total,
-        subProgress: prog.percent || 0,
-        subTotal: 100,
-      });
-    });
+            mainWindow.webContents.send("import-progress", {
+              text,
+              progress,
+              total,
+              subProgress: prog.percent || 0,
+              subTotal: 100,
+            });
+          });
 
-    // Only delete if copy reached 100% success
-    if (deleteAfter && copySuccess) {
-      try {
-        if (await fs.promises.access(originalSource).then(() => true).catch(() => false)) {
-          await fs.promises.rm(originalSource, { recursive: true, force: true });
-          console.log(`Deleted original source after 100% copy: ${originalSource}`);
+          // Only delete if copy reached 100% success
+          if (deleteAfter && copySuccess) {
+            try {
+              if (
+                await fs.promises
+                  .access(originalSource)
+                  .then(() => true)
+                  .catch(() => false)
+              ) {
+                await fs.promises.rm(originalSource, {
+                  recursive: true,
+                  force: true,
+                });
+                console.log(
+                  `Deleted original source after 100% copy: ${originalSource}`,
+                );
+                mainWindow.webContents.send("import-progress", {
+                  text: `Moved ${game.title} and deleted original folder`,
+                  progress,
+                  total,
+                });
+              } else {
+                console.log(`Original source already gone: ${originalSource}`);
+              }
+            } catch (delErr) {
+              console.error(
+                `Failed to delete original source ${originalSource}:`,
+                delErr,
+              );
+              mainWindow.webContents.send("import-progress", {
+                text: `Moved ${game.title} but failed to delete original: ${delErr.message}`,
+                progress,
+                total,
+              });
+            }
+          } else if (deleteAfter && !copySuccess) {
+            console.log(
+              `Delete skipped — copy was not 100% successful for ${game.title}`,
+            );
+            mainWindow.webContents.send("import-progress", {
+              text: `Moved ${game.title} (partial copy — original kept)`,
+              progress,
+              total,
+            });
+          } else {
+            mainWindow.webContents.send("import-progress", {
+              text: `Moved ${game.title} (original kept)`,
+              progress,
+              total,
+            });
+          }
+
+          // Update gamePath to new location for DB
+          gamePath = destPath;
+          execPath = path.join(gamePath, game.selectedValue || "");
+
+          console.log(`Moved ${game.title} to: ${destPath}`);
+        } catch (moveErr) {
+          console.error("Structured move failed:", moveErr);
           mainWindow.webContents.send("import-progress", {
-            text: `Moved ${game.title} and deleted original folder`,
+            text: `Move failed for ${game.title}: ${moveErr.message}`,
             progress,
             total,
           });
-        } else {
-          console.log(`Original source already gone: ${originalSource}`);
         }
-      } catch (delErr) {
-        console.error(`Failed to delete original source ${originalSource}:`, delErr);
-        mainWindow.webContents.send("import-progress", {
-          text: `Moved ${game.title} but failed to delete original: ${delErr.message}`,
-          progress,
-          total,
-        });
       }
-    } else if (deleteAfter && !copySuccess) {
-      console.log(`Delete skipped — copy was not 100% successful for ${game.title}`);
-      mainWindow.webContents.send("import-progress", {
-        text: `Moved ${game.title} (partial copy — original kept)`,
-        progress,
-        total,
-      });
-    } else {
-      mainWindow.webContents.send("import-progress", {
-        text: `Moved ${game.title} (original kept)`,
-        progress,
-        total,
-      });
-    }
-
-    // Update gamePath to new location for DB
-    gamePath = destPath;
-    execPath = path.join(gamePath, game.selectedValue || "");
-
-    console.log(`Moved ${game.title} to: ${destPath}`);
-  } catch (moveErr) {
-    console.error("Structured move failed:", moveErr);
-    mainWindow.webContents.send("import-progress", {
-      text: `Move failed for ${game.title}: ${moveErr.message}`,
-      progress,
-      total,
-    });
-  }
-}
       if (game.isArchive) {
         const extractPath = path.join(
           gamesDir,
