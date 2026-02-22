@@ -457,6 +457,11 @@ const App = () => {
       );
     }
 
+    // Update Available
+    if (activeFilters.updateAvailable) {
+  result = result.filter((game) => game.isUpdateAvailable === true);
+}
+
     // Category (AND)
     if (activeFilters.category.length > 0) {
       result = result.filter((game) =>

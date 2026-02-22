@@ -263,59 +263,62 @@ const SearchBar = ({ onFilterChange }) => {
                 </div>
               </div>
 
-              {/* Engine - Expanded */}
-              <div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
-                <h4
-                  className="font-bold mb-2 cursor-pointer flex justify-between items-center"
-                  onClick={() => toggleAccordion("engine")}
-                >
-                  Engine Prefix {accordionOpen.engine ? "▲" : "▼"}
-                </h4>
-                {accordionOpen.engine && (
-                  <div className="grid grid-cols-2 gap-2">
-                    {options.engines.map((engine) => (
-                      <label
-                        key={engine}
-                        className="flex items-center space-x-2 text-sm"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedFilters.engine.includes(engine)}
-                          onChange={() => handleCheckbox("engine", engine)}
-                        />
-                        <span>{engine}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
+{/* Engine - Scrollable Checkbox List */}
+<div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
+  <h4 className="font-bold mb-2">Engine</h4>
+  <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
+    {options.engines.length === 0 ? (
+      <p className="text-sm text-gray-500">No engines found</p>
+    ) : (
+      options.engines.map((engine) => (
+        <label key={engine} className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer">
+          <input
+            type="checkbox"
+            checked={selectedFilters.engine.includes(engine)}
+            onChange={() => handleCheckbox("engine", engine)}
+          />
+          <span>{engine}</span>
+        </label>
+      ))
+    )}
+  </div>
+</div>
 
-              {/* Status - Expanded */}
-              <div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
-                <h4
-                  className="font-bold mb-2 cursor-pointer flex justify-between items-center"
-                  onClick={() => toggleAccordion("status")}
-                >
-                  Status {accordionOpen.status ? "▲" : "▼"}
-                </h4>
-                {accordionOpen.status && (
-                  <div className="grid grid-cols-2 gap-2">
-                    {options.statuses.map((status) => (
-                      <label
-                        key={status}
-                        className="flex items-center space-x-2 text-sm"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedFilters.status.includes(status)}
-                          onChange={() => handleCheckbox("status", status)}
-                        />
-                        <span>{status}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
+{/* Status - Scrollable Checkbox List */}
+<div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
+  <h4 className="font-bold mb-2">Status</h4>
+  <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
+    {options.statuses.length === 0 ? (
+      <p className="text-sm text-gray-500">No statuses found</p>
+    ) : (
+      options.statuses.map((status) => (
+        <label key={status} className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer">
+          <input
+            type="checkbox"
+            checked={selectedFilters.status.includes(status)}
+            onChange={() => handleCheckbox("status", status)}
+          />
+          <span>{status}</span>
+        </label>
+      ))
+    )}
+  </div>
+</div>
+{/* Update Available Filter */}
+<div className="filter-block mb-4 border border-border rounded-md p-3 bg-primary">
+  <h4 className="font-bold mb-2">Update Available</h4>
+  <label className="flex items-center space-x-2 text-sm">
+    <input
+      type="checkbox"
+      checked={selectedFilters.updateAvailable || false}
+      onChange={() => setSelectedFilters((prev) => ({
+        ...prev,
+        updateAvailable: !prev.updateAvailable,
+      }))}
+    />
+    <span>Show only games with updates available</span>
+  </label>
+</div>
 
               {/* Optional: Add Language, Censored, etc. here in similar bordered blocks */}
             </div>
