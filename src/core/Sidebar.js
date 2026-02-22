@@ -1,4 +1,4 @@
-const Sidebar = () => {
+const Sidebar = ({ onToggleGameList }) => {  // Only need toggle prop now
   const [selected, setSelected] = React.useState("Home");
 
   const items = [
@@ -26,6 +26,11 @@ const Sidebar = () => {
         '<path d="M6 5C4.894531 5 4 5.894531 4 7C4 8.105469 4.894531 9 6 9C7.105469 9 8 8.105469 8 7C8 5.894531 7.105469 5 6 5 Z M 11 6L11 8L28 8L28 6 Z M 6 14C4.894531 14 4 14.894531 4 16C4 17.105469 4.894531 18 6 18C7.105469 18 8 17.105469 8 16C8 14.894531 7.105469 14 6 14 Z M 11 15L11 17L28 17L28 15 Z M 6 23C4.894531 23 4 23.894531 4 25C4 26.105469 4.894531 27 6 27C7.105469 27 8 26.105469 8 25C8 23.894531 7.105469 23 6 23 Z M 11 24L11 26L28 26L28 24Z"/>',
       ],
       viewBox: "0 0 28 28",
+      onClick: () => {
+        if (onToggleGameList) {
+          onToggleGameList();
+        }
+      },
     },
     {
       name: "Updates",
@@ -49,7 +54,7 @@ const Sidebar = () => {
     "div",
     {
       className:
-        "w-[60px] bg-primary flex flex-col items-center min-w-[60px] py-[1px]",
+        "w-[60px] bg-primary flex flex-col items-center min-w-[60px] py-[1px] fixed h-full z-50",
     },
     items.map((item) =>
       React.createElement(
@@ -62,8 +67,11 @@ const Sidebar = () => {
             if (item.name === "Settings") {
               window.electronAPI.openSettings();
             }
-            if (item.name == "Add") {
+            if (item.name === "Add") {
               window.electronAPI.openImporter();
+            }
+            if (item.onClick) {
+              item.onClick();
             }
           },
         },

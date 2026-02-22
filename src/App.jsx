@@ -30,6 +30,8 @@ const App = () => {
   });
   const [columnCount, setColumnCount] = useState(1);
   const [totalVersions, setTotalVersions] = useState(0);
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [showGameList, setShowGameList] = useState(true);
   const gridRef = useRef(null);
   const gameGridRef = useRef(null);
 
@@ -42,6 +44,38 @@ const App = () => {
     };
   };
 
+  const toggleSidebar = () => {
+    const newVisible = !showSidebar;
+    setShowSidebar(newVisible);
+    window.electronAPI
+      .getConfig()
+      .then((config) => {
+        const newConfig = {
+          ...config,
+          Interface: { ...config.Interface, showSidebar: newVisible },
+        };
+        window.electronAPI.saveSettings(newConfig);
+      })
+      .catch((err) => console.error("Failed to save sidebar visibility:", err));
+  };
+const toggleGameList = () => {
+  const newVisible = !showGameList;
+  setShowGameList(newVisible);
+
+  window.electronAPI
+    .getConfig()
+    .then((config) => {
+      const newConfig = {
+        ...config,
+        Interface: {
+          ...config.Interface,
+          showGameList: newVisible,
+        },
+      };
+      window.electronAPI.saveSettings(newConfig);
+    })
+    .catch((err) => console.error("Failed to save game list visibility:", err));
+};
   // Debounced refresh for game updates
   const refreshGame = useCallback(
     debounce((recordId) => {
@@ -101,6 +135,19 @@ const App = () => {
   }, 16); // ~60fps for smoother resize
 
   useEffect(() => {
+    // Get Config
+window.electronAPI
+  .getConfig()
+  .then((config) => {
+    const interfaceSettings = config.Interface || {};
+    setShowGameList(interfaceSettings.showGameList ?? true);
+    // If you still have showSidebar from earlier attempts, you can keep it or remove
+  })
+  .catch((error) => {
+    console.error("Failed to load config:", error);
+    setShowGameList(true);
+  });
+
     // Fetch games only once on mount
     window.electronAPI
       .getGames()
@@ -900,64 +947,66 @@ const App = () => {
           </div>
         </div>
       </div>
-      <div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
-        <window.Sidebar className="fixed w-[60px] h-full z-50" />
-        <div className="flex flex-1 bg-tertiary">
-          <div className="w-[200px] bg-secondary fixed h-full z-40 overflow-y-auto">
-            {filteredGames.length === 0 ? (
-              <div className="p-2 text-center text-text">No games found</div>
-            ) : (
-              filteredGames.map((game) => (
-                <div
-                  key={game.record_id}
-                  className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? "bg-selected" : ""}`}
-                  onClick={() => setSelectedGame(game)}
-                >
-                  {game.title}
-                </div>
-              ))
-            )}
-          </div>
+<div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
+  {/* Sidebar - ALWAYS visible */}
+  <window.Sidebar onToggleGameList={toggleGameList} />
+
+  {/* Left game list - only when showGameList is true */}
+  {showGameList && (
+    <div className="w-[200px] bg-secondary fixed h-full z-40 overflow-y-auto ml-[60px]">
+      {filteredGames.length === 0 ? (
+        <div className="p-2 text-center text-text">No games found</div>
+      ) : (
+        filteredGames.map((game) => (
           <div
-            id="gameGrid"
-            className="flex-1 bg-tertiary ml-[200px] overflow-y-auto"
-            ref={gameGridRef}
-            style={{ overflowX: "hidden" }}
+            key={game.record_id}
+            className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? "bg-selected" : ""}`}
+            onClick={() => setSelectedGame(game)}
           >
-            {filteredGames.length === 0 ? (
-              <div className="text-center text-text">No games available</div>
-            ) : (
-              <AutoSizer>
-                {({ height, width }) => {
-                  const adjustedWidth = Math.max(
-                    0,
-                    width - getScrollbarWidth(),
-                  );
-                  return (
-                    <Grid
-                      ref={gridRef}
-                      columnCount={columnCount}
-                      columnWidth={() => {
-                        if (columnCount > 1) {
-                          return adjustedWidth / columnCount - 8;
-                        } else {
-                          return adjustedWidth / columnCount - 14;
-                        }
-                      }}
-                      rowCount={Math.ceil(filteredGames.length / columnCount)}
-                      rowHeight={bannerSize.bannerHeight + 16}
-                      height={height}
-                      width={adjustedWidth}
-                      cellRenderer={cellRenderer}
-                      style={{ overflowX: "hidden" }}
-                    />
-                  );
-                }}
-              </AutoSizer>
-            )}
+            {game.title}
           </div>
-        </div>
-      </div>
+        ))
+      )}
+    </div>
+  )}
+
+  {/* Game grid - margin adjusts based on whether game list is shown */}
+  <div
+    id="gameGrid"
+    className={`flex-1 bg-tertiary overflow-y-auto ${showGameList ? "ml-[260px]" : "ml-[60px]"}`}
+    ref={gameGridRef}
+    style={{ overflowX: "hidden" }}
+  >
+    {filteredGames.length === 0 ? (
+      <div className="text-center text-text">No games available</div>
+    ) : (
+      <AutoSizer>
+        {({ height, width }) => {
+          const adjustedWidth = Math.max(0, width - getScrollbarWidth());
+          return (
+            <Grid
+              ref={gridRef}
+              columnCount={columnCount}
+              columnWidth={() => {
+                if (columnCount > 1) {
+                  return adjustedWidth / columnCount - 8;
+                } else {
+                  return adjustedWidth / columnCount - 14;
+                }
+              }}
+              rowCount={Math.ceil(filteredGames.length / columnCount)}
+              rowHeight={bannerSize.bannerHeight + 16}
+              height={height}
+              width={adjustedWidth}
+              cellRenderer={cellRenderer}
+              style={{ overflowX: "hidden" }}
+            />
+          );
+        }}
+      </AutoSizer>
+    )}
+  </div>
+</div>
       {dbUpdateStatus.text && (
         <div className="absolute bottom-[44px] left-1/2 transform -translate-x-1/2 w-[600px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border opacity-95">
           <div className="flex items-center w-[540px]">

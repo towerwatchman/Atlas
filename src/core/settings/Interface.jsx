@@ -4,6 +4,7 @@ const Interface = () => {
   const [gameStartup, setGameStartup] = React.useState("Do Nothing");
   const [showDebugConsole, setShowDebugConsole] = React.useState(false);
   const [minimizeToTray, setMinimizeToTray] = React.useState(false);
+  const [showSidebar, setShowSidebar] = React.useState(true);
 
   React.useEffect(() => {
     window.electronAPI.getConfig().then((config) => {
@@ -13,6 +14,7 @@ const Interface = () => {
       setGameStartup(interfaceSettings.gameStartup || "Do Nothing");
       setShowDebugConsole(interfaceSettings.showDebugConsole || false);
       setMinimizeToTray(interfaceSettings.minimizeToTray || false);
+      setShowSidebar(interfaceSettings.showSidebar ?? true);
     });
   }, []);
 
@@ -24,6 +26,12 @@ const Interface = () => {
       };
       window.electronAPI.saveSettings(newConfig);
     });
+  };
+  const handleShowSidebarChange = () => {
+    const newVal = !showSidebar;
+    setShowSidebar(newVal);
+    saveSettings({ showSidebar: newVal });
+    alert("Sidebar visibility change requires app restart.");
   };
 
   const handleLanguageChange = (e) => {
@@ -123,6 +131,19 @@ const Interface = () => {
         </div>
         <div className="border-t border-text opacity-25 my-2"></div>
       </div>
+      <div className="flex items-center mb-2">
+        <label className="flex-1">Show Sidebar</label>
+        <input
+          type="checkbox"
+          className="mr-5"
+          checked={showSidebar}
+          onChange={handleShowSidebarChange}
+        />
+      </div>
+      <p className="text-xs opacity-50 mb-2">
+        Hide/show the left sidebar. Requires restart.
+      </p>
+      <div className="border-t border-text opacity-25 my-2"></div>
     </div>
   );
 };
