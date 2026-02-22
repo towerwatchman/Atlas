@@ -276,6 +276,7 @@ const App = () => {
         alert(`Update error: ${status.error}`);
       }
     };
+
     const handleGameDeleted = (recordId) => {
       console.log(`Game deleted event received for recordId: ${recordId}`);
       setGames((prev) => {
@@ -298,16 +299,7 @@ const App = () => {
       }
     };
 
-    window.electronAPI.onGameDeleted(handleGameDeleted);
-
-    // Cleanup (add to return)
-    return () => {
-      // ... existing cleanup ...
-      // You don't need to removeListener here if using named function reference,
-      // but for completeness you can add:
-      // window.electronAPI.onGameDeleted(() => {}); // dummy to clear
-    };
-
+    window.electronAPI.onGameDeleted(handleGameDeleted);   
     window.electronAPI.onWindowStateChanged(handleWindowStateChanged);
     window.electronAPI.onDbUpdateProgress(handleDbUpdateProgress);
     window.electronAPI.onImportProgress(handleImportProgress);
