@@ -1369,7 +1369,9 @@ ipcMain.handle("import-games", async (event, params) => {
 
       if (size > 0) await updateFolderSize(recordId, game.version, size);
       results.push({ success: true, recordId, atlasId: game.atlasId });
-
+      // Update ui with game now that it has been copied
+      mainWindow.webContents.send("game-updated", recordId);
+      mainWindow.webContents.send("import-complete");
       progress++;
       mainWindow.webContents.send("import-progress", {
         text: `Imported game '${game.title}' ${progress}/${total}`,
