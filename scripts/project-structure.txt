@@ -68,9 +68,21 @@
 │   │   │   (empty directory)
 │   │   ├── images
 │   │   │   ├── 1
-│   │   │   │   (empty directory)
+│   │   │   │   ├── 1894318_Apulaz-988578-Ahsoka_in_Exxxile_release_pr.webp (138686 bytes)
+│   │   │   │   ├── 1894370_screenshot0003_pr.webp (35894 bytes)
+│   │   │   │   ├── 1894374_screenshot0012_pr.webp (32480 bytes)
+│   │   │   │   ├── 1894379_screenshot0032_pr.webp (43832 bytes)
+│   │   │   │   ├── 1894383_screenshot0037_pr.webp (46760 bytes)
+│   │   │   │   ├── banner_mc.webp (138686 bytes)
+│   │   │   │   └── banner_sc.webp (93646 bytes)
 │   │   │   ├── 2
-│   │   │   │   (empty directory)
+│   │   │   │   ├── 4302288_6_TitleF95-ezgif.com-resize_pr.webp (52560 bytes)
+│   │   │   │   ├── 4500583_sheep015_pr.webp (46018 bytes)
+│   │   │   │   ├── 4714702_Unity_NlzSbn2wiv-ezgif.com-video-to-gif-converter_pr.webp (37852 bytes)
+│   │   │   │   ├── 4912968_endergirl_enderbeads_pr.webp (47356 bytes)
+│   │   │   │   ├── 4981356_Bee_pr.webp (68682 bytes)
+│   │   │   │   ├── banner_mc.webp (52560 bytes)
+│   │   │   │   └── banner_sc.webp (27016 bytes)
 │   │   │   └── 3
 │   │   │       (empty directory)
 │   │   ├── templates
@@ -95,7 +107,7 @@
 │   ├── index.html (1422 bytes)
 │   ├── launchers
 │   │   (empty directory)
-│   ├── main.js (61014 bytes)
+│   ├── main.js (64801 bytes)
 │   ├── renderer.js (9680 bytes)
 │   └── settings.html (1250 bytes)
 └── tailwind.config.js (574 bytes)

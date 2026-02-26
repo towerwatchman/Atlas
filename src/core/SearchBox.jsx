@@ -15,7 +15,7 @@ const SearchBox = ({ onToggleSidebar }) => {
           className="bg-transparent outline-none text-text flex-1 px-2 focus:outline-none -webkit-app-region-no-drag"
         />
         <button
-          onClick={onToggleSidebar}  // Now toggles the right sidebar
+          onClick={onToggleSidebar} // Now toggles the right sidebar
           className="w-10 h-10 flex items-center justify-center text-text hover:text-highlight focus:outline-none -webkit-app-region-no-drag"
         >
           <i className="fas fa-sliders"></i>

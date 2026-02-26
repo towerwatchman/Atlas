@@ -10,8 +10,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getGames: (offset, limit) =>
     ipcRenderer.invoke("get-games", { offset, limit }),
   removeGame: (id) => ipcRenderer.invoke("remove-game", id),
-  unzipGame: (zipPath, extractPath) =>
-    ipcRenderer.invoke("unzip-game", { zipPath, extractPath }),
   checkUpdates: () => ipcRenderer.invoke("check-updates"),
   checkDbUpdates: () => ipcRenderer.invoke("check-db-updates"),
   minimizeWindow: () => ipcRenderer.invoke("minimize-window"),

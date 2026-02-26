@@ -482,25 +482,18 @@ const Importer = () => {
       format: customFormat,
     };
 
-    // Debug log
-    console.log("=== IMPORT PARAMS BEING SENT ===");
-    console.log("moveToDefaultFolder:", importParams.moveToDefaultFolder);
-    console.log("format:", importParams.format);
+    try {
+      // Start import in background
+      await window.electronAPI.importGames(importParams);
+      console.log("Import request sent successfully");
 
-    // Trigger import in background...
-    window.electronAPI
-      .importGames(importParams)
-      .then(() => {
-        console.log("Import completed successfully (background)");
-      })
-      .catch((err) => {
-        console.error("Background import error:", err);
-        window.electronAPI.log(`Background import error: ${err.message}`);
-        // Optional: show a toast/notification in main window if needed
-      });
-
-    // ...immediately close the importer window
-    await window.electronAPI.closeWindow();
+      // Immediately close the importer window
+      await window.electronAPI.closeWindow();
+    } catch (err) {
+      console.error("Import failed:", err);
+      window.electronAPI.log(`Import failed: ${err.message}`);
+      alert(`Import failed: ${err.message || "Unknown error"}`);
+    }
   };
 
   const handleUpdateClick = (event) => {

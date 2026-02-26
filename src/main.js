@@ -52,6 +52,7 @@ let mainWindow;
 let settingsWindow;
 let importerWindow;
 let importSourceDialog;
+let executableChooserWindow = null;
 let appConfig;
 
 app.commandLine.appendSwitch("force-color-profile", "srgb");
@@ -171,6 +172,56 @@ function createImporterWindow() {
   importerWindow.on("closed", () => {
     console.log("Importer window closed");
   });
+}
+
+function showExecutableChooser(recordId, gameTitle, gameVersion, executables) {
+  if (executableChooserWindow && !executableChooserWindow.isDestroyed()) {
+    executableChooserWindow.focus();
+    return;
+  }
+
+  executableChooserWindow = new BrowserWindow({
+    width: 520,
+    height: 480,
+    resizable: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    center: true,
+    modal: true,
+    parent: importerWindow || mainWindow,
+    webPreferences: {
+      preload: path.join(__dirname, "renderer.js"),
+      contextIsolation: true,
+      enableRemoteModule: false,
+      nodeIntegration: false,
+    },
+  });
+
+  const filePath = path.join(
+    __dirname,
+    "core/ui/modals/executable-chooser.html",
+  );
+  executableChooserWindow.loadFile(filePath);
+
+  executableChooserWindow.webContents.on("did-finish-load", () => {
+    executableChooserWindow.webContents.send("init-chooser", {
+      title: gameTitle,
+      version: gameVersion || "",
+      executables,
+    });
+    // Pass recordId via a global-like property (since preload exposes ipcRenderer)
+    executableChooserWindow.webContents.executeJavaScript(`
+      window.recordId = ${JSON.stringify(recordId)};
+    `);
+  });
+
+  executableChooserWindow.on("closed", () => {
+    executableChooserWindow = null;
+  });
+
+  // Optional debug
+  // executableChooserWindow.webContents.openDevTools({ mode: 'detach' });
 }
 
 function createGameDetailsWindow(recordId) {
@@ -1144,14 +1195,12 @@ ipcMain.handle("import-games", async (event, params) => {
   });
 
   let targetLibrary = null;
-  if (moveToDefaultFolder) {
-    targetLibrary = appConfig?.Library?.gameFolder;
-    if (!targetLibrary || !fs.existsSync(targetLibrary)) {
-      console.warn("Move requested but no valid default library folder set");
-      mainWindow.webContents.send("import-warning", {
-        message: "Move to library skipped — no default folder configured",
-      });
-    }
+  targetLibrary = appConfig?.Library?.gameFolder;
+  if (!targetLibrary || !fs.existsSync(targetLibrary)) {
+    console.warn("No default library folder configured in settings");
+    mainWindow.webContents.send("import-warning", {
+      message: "You need to set the default library before import can complete",
+    });
   }
 
   const results = [];
@@ -1310,31 +1359,182 @@ ipcMain.handle("import-games", async (event, params) => {
         }
       }
       if (game.isArchive) {
-        const extractPath = path.join(
-          gamesDir,
-          `${game.title}-${game.version}`,
-        );
-        if (!fs.existsSync(extractPath))
-          fs.mkdirSync(extractPath, { recursive: true });
-        await unzipGame({ zipPath: game.folder, extractPath });
-        if (deleteAfter) fs.unlinkSync(game.folder);
-        gamePath = extractPath;
+        // ────────────────────────────────────────────────────────────────
+        // 1. Get the ACTUAL archive file path
+        // ────────────────────────────────────────────────────────────────
+        if (
+          !game.executables ||
+          !Array.isArray(game.executables) ||
+          game.executables.length === 0
+        ) {
+          throw new Error(
+            "No executable/archive specified for this compressed game",
+          );
+        }
 
-        const execs = findExecutables(extractPath, gameExt);
-        if (execs.length > 0) {
-          const selected = execs[0];
-          execPath = path.join(extractPath, selected);
-          for (const [eng, patterns] of Object.entries(engineMap)) {
-            if (patterns.some((p) => selected.toLowerCase().includes(p))) {
-              game.engine = eng;
-              break;
+        const archiveFilename =
+          game.executables[0].value || game.executables[0].key;
+        if (!archiveFilename) {
+          throw new Error("Archive filename could not be determined");
+        }
+
+        const zipPath = path.join(game.folder, archiveFilename);
+        console.log(`Full archive path: ${zipPath}`);
+
+        if (!fs.existsSync(zipPath)) {
+          throw new Error(`Archive file not found: ${zipPath}`);
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        // 2. Build structured extraction path (ALWAYS in default library)
+        // ────────────────────────────────────────────────────────────────
+        if (!targetLibrary || !fs.existsSync(targetLibrary)) {
+          throw new Error("Default library folder not set or does not exist");
+        }
+
+        const formatStr = format.trim();
+        if (!formatStr) {
+          throw new Error(
+            "No folder structure format defined — cannot extract structured",
+          );
+        }
+
+        const parts = formatStr
+          .split("/")
+          .map((p) => p.replace(/[{}]/g, "").trim());
+        const segments = parts.map((part) => {
+          let val = "Unknown";
+          if (part.toLowerCase() === "creator") val = game.creator || "Unknown";
+          if (part.toLowerCase() === "title") val = game.title || "Untitled";
+          if (part.toLowerCase() === "version") val = game.version || "v1";
+          if (part.toLowerCase() === "engine") val = game.engine || "Unknown";
+          return (
+            val
+              .replace(/[\/\\:*?"<>|]/g, "_")
+              .replace(/\s+/g, " ")
+              .trim() || "Unknown"
+          );
+        });
+
+        let extractPath = path.join(targetLibrary, ...segments);
+
+        // Handle name conflict (add (1), (2), etc.)
+        let counter = 1;
+        const basePath = extractPath;
+        while (fs.existsSync(extractPath)) {
+          extractPath = `${basePath} (${counter++})`;
+        }
+
+        fs.mkdirSync(extractPath, { recursive: true });
+        console.log(`Extraction target: ${extractPath}`);
+
+        // Progress feedback
+        mainWindow.webContents.send("import-progress", {
+          text: `Extracting ${game.title} (${archiveFilename}) → library...`,
+          progress,
+          total,
+        });
+
+        // ────────────────────────────────────────────────────────────────
+        // 3. Extract using the local function
+        // ────────────────────────────────────────────────────────────────
+        try {
+          await unzipGame({ zipPath, extractPath });
+          console.log("Extraction successful");
+
+          // Optional: delete original archive if requested
+          if (deleteAfter) {
+            try {
+              fs.unlinkSync(zipPath);
+              console.log(`Deleted original archive: ${zipPath}`);
+            } catch (delErr) {
+              console.warn(
+                `Failed to delete original archive: ${delErr.message}`,
+              );
             }
           }
-          game.executables = execs.map((e) => ({ key: e, value: e }));
-          game.selectedValue = selected;
-        }
-      }
 
+          gamePath = extractPath;
+        } catch (extractErr) {
+          console.error("Extraction failed:", extractErr);
+          throw new Error(`Extraction failed: ${extractErr.message}`);
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        // 4. Find executables + promote single subfolder if needed
+        // ────────────────────────────────────────────────────────────────
+        let execs = findExecutables(extractPath, gameExt);
+
+        if (execs.length === 0) {
+          const items = fs.readdirSync(extractPath, { withFileTypes: true });
+          const dirs = items.filter((i) => i.isDirectory());
+          if (dirs.length === 1) {
+            const subPath = path.join(extractPath, dirs[0].name);
+            const subItems = fs.readdirSync(subPath);
+            for (const item of subItems) {
+              fs.renameSync(
+                path.join(subPath, item),
+                path.join(extractPath, item),
+              );
+            }
+            try {
+              fs.rmdirSync(subPath);
+            } catch {}
+            execs = findExecutables(extractPath, gameExt);
+          }
+        }
+
+        // (rest of your logic: modal if multiple, select if one, error if zero)
+        let selected = null;
+
+        if (execs.length === 0) {
+          throw new Error("No executable found after extraction and promotion");
+        } else if (execs.length === 1) {
+          selected = execs[0];
+        } else {
+          // Show modal (your existing promise + showExecutableChooser logic)
+          selected = await new Promise((resolve) => {
+            showExecutableChooser(game.title, game.version || "", execs);
+
+            const onChosen = (event, data) => {
+              ipcMain.removeAllListeners("executable-chosen");
+              resolve(data.selectedExecutable || null);
+            };
+
+            ipcMain.once("executable-chosen", onChosen);
+
+            // Safety: if window closed without choice
+            executableChooserWindow.on("closed", () => {
+              ipcMain.removeAllListeners("executable-chosen");
+              resolve(null);
+            });
+          });
+
+          if (!selected) {
+            throw new Error("User cancelled executable selection");
+          }
+        }
+
+        execPath = path.join(extractPath, selected);
+
+        // Engine detection (unchanged)
+        for (const [eng, patterns] of Object.entries(engineMap)) {
+          if (patterns.some((p) => selected.toLowerCase().includes(p))) {
+            game.engine = eng;
+            break;
+          }
+        }
+
+        // Update game object so it gets saved correctly
+        game.executables = execs.map((e) => ({ key: e, value: e }));
+        game.selectedValue = selected;
+
+        mainWindow.webContents.send("import-progress", {
+          text: `Extracted ${game.title} – ready for database`,
+          progress,
+          total,
+        });
+      }
       if (scanSize) {
         size = getFolderSize(gamePath);
       }
@@ -1369,7 +1569,7 @@ ipcMain.handle("import-games", async (event, params) => {
 
       if (size > 0) await updateFolderSize(recordId, game.version, size);
       results.push({ success: true, recordId, atlasId: game.atlasId });
-      // Update ui with game now that it has been copied
+      // Update ui with game is added. Do not wait
       mainWindow.webContents.send("game-updated", recordId);
       mainWindow.webContents.send("import-complete");
       progress++;
@@ -1724,6 +1924,60 @@ async function downloadImages(
     } catch (err) {
       console.error(`Error downloading or converting screen ${i + 1}:`, err);
     }
+  }
+}
+
+async function unzipGame({ zipPath, extractPath }) {
+  const AdmZip = require("adm-zip");
+  const sevenZip = require("node-7z");
+  const Unrar = require("unrar");
+
+  try {
+    let ext = path.extname(zipPath).toLowerCase();
+    if (ext.startsWith(".")) ext = ext.slice(1);
+
+    console.log(`Extracting: ${zipPath} (${ext}) → ${extractPath}`);
+
+    if (ext === "zip") {
+      const zip = new AdmZip(zipPath);
+      zip.extractAllTo(extractPath, true);
+    } 
+    else if (ext === "rar") {
+      const unrar = new Unrar(zipPath);
+      await new Promise((resolve, reject) => {
+        unrar.extract(extractPath, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    } 
+    else if (ext === "7z") {
+      await sevenZip(zipPath, {
+        o: extractPath,
+        $bin: sevenZip.path7za,
+      });
+    } 
+    else {
+      throw new Error(`Unsupported format: .${ext}`);
+    }
+
+    // ── Critical: Check if extraction actually put files there ──
+    const filesAfter = fs.readdirSync(extractPath, { recursive: true });
+    console.log(`Files after extraction (${extractPath}):`, filesAfter.length);
+    console.log("Sample files:", filesAfter.slice(0, 5));
+
+    if (filesAfter.length === 0) {
+      throw new Error(
+        "Extraction reported success but target folder is empty. " +
+        "Archive may be password-protected, corrupted, or empty."
+      );
+    }
+
+    console.log("Extraction verified: files present");
+    return { success: true };
+  } catch (err) {
+    console.error("Extraction failed:", err);
+    throw new Error(`Extraction failed: ${err.message}`);
   }
 }
 

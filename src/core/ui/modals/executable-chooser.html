@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Select Executable</title>
+  <link rel="stylesheet" href="../../assets/css/tailwind.output.css" />
+  <style>
+    body { background: transparent; }
+  </style>
+</head>
+<body class="bg-transparent text-text font-sans select-none">
+  <div class="h-screen flex flex-col bg-gradient-to-b from-primary to-secondary rounded-lg overflow-hidden border border-accent shadow-2xl">
+    <!-- Title Bar -->
+    <div class="h-8 bg-primary flex items-center justify-between px-3 -webkit-app-region-drag">
+      <span class="text-sm font-medium">Select Game Executable</span>
+      <button id="close-btn" class="text-text hover:text-red-400 transition-colors -webkit-app-region-no-drag">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <!-- Content -->
+    <div class="flex-1 p-6 flex flex-col">
+      <p class="text-center mb-6">
+        Multiple executables found for <strong id="game-title"></strong><br/>
+        Please choose the main game executable:
+      </p>
+
+      <select id="exe-select" size="10" class="flex-1 bg-tertiary border border-border rounded p-2 text-text focus:outline-none focus:ring-2 focus:ring-accent">
+        <!-- Options filled by JS -->
+      </select>
+
+      <div class="mt-6 flex justify-end space-x-3">
+        <button id="cancel-btn" class="px-5 py-2 bg-gray-700 hover:bg-gray-600 rounded transition">
+          Cancel
+        </button>
+        <button id="confirm-btn" class="px-5 py-2 bg-accent hover:bg-accent-dark text-white rounded transition font-medium">
+          Confirm
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    let selectedExe = null;
+
+    // Receive data from main process
+    ipcRenderer.on('init-chooser', (event, data) => {
+      document.getElementById('game-title').textContent = 
+        `${data.title}${data.version ? ` ${data.version}` : ''}`;
+
+      const select = document.getElementById('exe-select');
+      select.innerHTML = '';
+      data.executables.forEach(exe => {
+        const option = document.createElement('option');
+        option.value = exe;
+        option.textContent = exe;
+        select.appendChild(option);
+      });
+
+      // Auto-select first if only one (but since modal only shows when >1, optional)
+      if (data.executables.length === 1) {
+        select.value = data.executables[0];
+      }
+    });
+
+    // Confirm
+document.getElementById('confirm-btn').addEventListener('click', () => {
+  const select = document.getElementById('exe-select');
+  if (select.value) {
+    ipcRenderer.send('executable-chosen', {
+      selectedExecutable: select.value
+    });
+    window.close();
+  }
+});
+
+    // Cancel
+document.getElementById('cancel-btn').addEventListener('click', () => {
+  ipcRenderer.send('executable-chosen', {
+    selectedExecutable: null
+  });
+  window.close();
+});
+
+    document.getElementById('close-btn').addEventListener('click', () => {
+      ipcRenderer.send('executable-chosen', {
+        recordId: window.recordId,
+        selectedExecutable: null
+      });
+      window.close();
+    });
+
+    // Optional: window controls (minimize/maximize/close) if you want them
+  </script>
+</body>
+</html>
