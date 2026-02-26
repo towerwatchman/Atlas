@@ -30,25 +30,29 @@
     </div>
   </div>
 
-  <script>
-    const { ipcRenderer } = require('electron');
+<script>
+  const { ipcRenderer } = require('electron');
 
-    ipcRenderer.on('init-chooser', (e, data) => {
-      document.getElementById('exe-select').innerHTML = data.executables
-        .map(exe => `<option value="${exe}">${exe}</option>`)
-        .join('');
-    });
+  ipcRenderer.on('init-chooser', (e, data) => {
+    console.log("Received in modal:", data); // ← add this debug
+    const select = document.getElementById('exe-select');
+    select.innerHTML = data.executables
+      .map(exe => `<option value="${exe}">${exe}</option>`)
+      .join('');
+  });
 
-    document.getElementById('confirm').onclick = () => {
-      const val = document.getElementById('exe-select').value;
-      if (val) ipcRenderer.send('executable-chosen', { selectedExecutable: val });
-      window.close();
-    };
+  document.getElementById('confirm').onclick = () => {
+    const val = document.getElementById('exe-select').value;
+    if (val) {
+      ipcRenderer.send('executable-chosen', { selectedExecutable: val });
+    }
+    window.close();
+  };
 
-    document.getElementById('cancel').onclick = () => {
-      ipcRenderer.send('executable-chosen', { selectedExecutable: null });
-      window.close();
-    };
-  </script>
+  document.getElementById('cancel').onclick = () => {
+    ipcRenderer.send('executable-chosen', { selectedExecutable: null });
+    window.close();
+  };
+</script>
 </body>
 </html>

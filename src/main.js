@@ -174,7 +174,7 @@ function createImporterWindow() {
   });
 }
 
-function showExecutableChooser(recordId, gameTitle, gameVersion, executables) {
+function showExecutableChooser(title, version, executables) {
   if (executableChooserWindow && !executableChooserWindow.isDestroyed()) {
     executableChooserWindow.focus();
     return;
@@ -186,42 +186,32 @@ function showExecutableChooser(recordId, gameTitle, gameVersion, executables) {
     resizable: false,
     frame: false,
     transparent: true,
-    backgroundColor: "#00000000",
+    backgroundColor: '#00000000',
     center: true,
     modal: true,
     parent: importerWindow || mainWindow,
     webPreferences: {
-      preload: path.join(__dirname, "renderer.js"),
+      preload: path.join(__dirname, 'renderer.js'),
       contextIsolation: true,
       enableRemoteModule: false,
       nodeIntegration: false,
     },
   });
 
-  const filePath = path.join(
-    __dirname,
-    "core/ui/modals/executable-chooser.html",
-  );
-  executableChooserWindow.loadFile(filePath);
+  executableChooserWindow.loadFile(path.join(__dirname, 'core/ui/modals/executable-chooser.html'));
 
-  executableChooserWindow.webContents.on("did-finish-load", () => {
-    executableChooserWindow.webContents.send("init-chooser", {
-      title: gameTitle,
-      version: gameVersion || "",
-      executables,
+  executableChooserWindow.webContents.on('did-finish-load', () => {
+    executableChooserWindow.webContents.send('init-chooser', {
+      title,
+      version: version || '',
+      executables // ← make sure this is sent!
     });
-    // Pass recordId via a global-like property (since preload exposes ipcRenderer)
-    executableChooserWindow.webContents.executeJavaScript(`
-      window.recordId = ${JSON.stringify(recordId)};
-    `);
+    console.log("Sent executables to modal:", executables); // debug
   });
 
-  executableChooserWindow.on("closed", () => {
+  executableChooserWindow.on('closed', () => {
     executableChooserWindow = null;
   });
-
-  // Optional debug
-  // executableChooserWindow.webContents.openDevTools({ mode: 'detach' });
 }
 
 function createGameDetailsWindow(recordId) {
@@ -1359,6 +1349,9 @@ ipcMain.handle("import-games", async (event, params) => {
         }
       }
       if (game.isArchive) {
+        const {
+          findExecutables,
+        } = require("./core/scanners/executableScanner");
         // ────────────────────────────────────────────────────────────────
         // 1. Get the ACTUAL archive file path
         // ────────────────────────────────────────────────────────────────
@@ -1488,59 +1481,77 @@ ipcMain.handle("import-games", async (event, params) => {
         // ────────────────────────────────────────────────────────────────
         // 4. Find executables + promote single subfolder if needed
         // ────────────────────────────────────────────────────────────────
-        let execs = findExecutables(extractPath, gameExt);
+        let execs;
+        //console.log("execs.length", execs.length);
 
-        if (execs.length === 0) {
-          const items = fs.readdirSync(extractPath, { withFileTypes: true });
-          const dirs = items.filter((i) => i.isDirectory());
-          if (dirs.length === 1) {
-            const subPath = path.join(extractPath, dirs[0].name);
-            const subItems = fs.readdirSync(subPath);
-            for (const item of subItems) {
-              fs.renameSync(
-                path.join(subPath, item),
-                path.join(extractPath, item),
-              );
-            }
-            try {
-              fs.rmdirSync(subPath);
-            } catch {}
-            execs = findExecutables(extractPath, gameExt);
+        const items = fs.readdirSync(extractPath, { withFileTypes: true });
+        const dirs = items.filter((i) => i.isDirectory());
+        const files = items.filter((i) => i.isFile());
+        console.log("dirs.length", dirs.length);
+        console.log("files.length", files.length);
+        if (dirs.length === 1 && files.length <= 0) {
+          const subPath = path.join(extractPath, dirs[0].name);
+          const subItems = fs.readdirSync(subPath);
+          for (const item of subItems) {
+            fs.renameSync(
+              path.join(subPath, item),
+              path.join(extractPath, item),
+            );
           }
+          try {
+            fs.rmdirSync(subPath);
+          } catch {}
+          execs = findExecutables(extractPath, gameExt);
+        } else {
+          execs = findExecutables(extractPath, gameExt);
+          console.log("execs.length", execs.length);
         }
+        console.log(execs);
 
         // (rest of your logic: modal if multiple, select if one, error if zero)
         let selected = null;
 
-        if (execs.length === 0) {
-          throw new Error("No executable found after extraction and promotion");
-        } else if (execs.length === 1) {
-          selected = execs[0];
-        } else {
-          // Show modal (your existing promise + showExecutableChooser logic)
-          selected = await new Promise((resolve) => {
-            showExecutableChooser(game.title, game.version || "", execs);
+        console.log("Executables before modal:", execs); // debug
 
-            const onChosen = (event, data) => {
-              ipcMain.removeAllListeners("executable-chosen");
-              resolve(data.selectedExecutable || null);
-            };
+if (execs.length === 0) {
+  mainWindow.webContents.send("import-progress", {
+    text: `Extracted ${game.title} – no executables found`,
+    progress,
+    total
+  });
+  game.selectedValue = null;
+  execPath = null;
+  // Skip modal
+} else {
+  selected = await new Promise(resolve => {
+    showExecutableChooser(game.title, game.version || "", execs);
 
-            ipcMain.once("executable-chosen", onChosen);
+    const onChosen = (event, data) => {
+      ipcMain.removeAllListeners('executable-chosen');
+      resolve(data.selectedExecutable || null);
+    };
 
-            // Safety: if window closed without choice
-            executableChooserWindow.on("closed", () => {
-              ipcMain.removeAllListeners("executable-chosen");
-              resolve(null);
-            });
-          });
+    ipcMain.once('executable-chosen', onChosen);
 
-          if (!selected) {
-            throw new Error("User cancelled executable selection");
-          }
-        }
+    executableChooserWindow.on('closed', () => {
+      ipcMain.removeAllListeners('executable-chosen');
+      resolve(null);
+    });
+  });
 
-        execPath = path.join(extractPath, selected);
+  if (!selected) {
+    mainWindow.webContents.send("import-progress", {
+      text: `Skipped ${game.title} – no executable selected`,
+      progress,
+      total
+    });
+    continue;
+  }
+
+  execPath = path.join(extractPath, selected);
+  game.selectedValue = selected;
+  game.executables = execs.map(e => ({ key: e, value: e }));
+}
 
         // Engine detection (unchanged)
         for (const [eng, patterns] of Object.entries(engineMap)) {
@@ -1753,27 +1764,6 @@ function getFolderSize(dir) {
   return size;
 }
 
-function findExecutables(dir, extensions) {
-  const execs = [];
-  const stack = [dir];
-  while (stack.length) {
-    const current = stack.pop();
-    const items = fs.readdirSync(current, { withFileTypes: true });
-    for (const item of items) {
-      const full = path.join(current, item.name);
-      if (item.isDirectory()) {
-        stack.push(full);
-      } else {
-        const ext = path.extname(item.name).toLowerCase().slice(1);
-        if (extensions.includes(ext)) {
-          execs.push(full.replace(dir + path.sep, ""));
-        }
-      }
-    }
-  }
-  return execs;
-}
-
 async function downloadImages(
   recordId,
   atlasId,
@@ -1956,12 +1946,13 @@ async function unzipGame({ zipPath, extractPath }) {
   const AdmZip = require("adm-zip");
   const sevenZip = require("node-7z");
   const Unrar = require("unrar");
+  const { Worker } = require("worker_threads");
 
   try {
     let ext = path.extname(zipPath).toLowerCase();
     if (ext.startsWith(".")) ext = ext.slice(1);
 
-    console.log(`Extracting: ${zipPath} (${ext}) → ${extractPath}`);
+    console.log(`Extracting: ${zipPath} (${ext}) -> ${extractPath}`);
 
     if (ext === "zip") {
       const zip = new AdmZip(zipPath);
@@ -1996,27 +1987,6 @@ async function unzipGame({ zipPath, extractPath }) {
       try {
         update(0, "(starting)");
 
-        // === Folder Conflict Handling ===
-        if (fs.existsSync(extractPath)) {
-          const choice = await dialog.showMessageBox(mainWindow, {
-            type: "question",
-            buttons: ["Overwrite", "Cancel"],
-            defaultId: 0,
-            title: "Folder Exists",
-            message: `The target folder already exists:\n${extractPath}\n\nDo you want to overwrite it?`,
-          });
-
-          if (choice.response === 1) {
-            // Cancel
-            clearInterval(heartbeat);
-            throw new Error("User cancelled import");
-          }
-
-          fs.rmSync(extractPath, { recursive: true, force: true });
-        }
-
-        fs.mkdirSync(extractPath, { recursive: true });
-
         // === Run extraction in worker ===
         const worker = new Worker(
           path.join(__dirname, "workers/extractWorker.js"),
@@ -2041,32 +2011,6 @@ async function unzipGame({ zipPath, extractPath }) {
         });
 
         clearInterval(heartbeat);
-
-        // === Improved Subfolder Promotion ===
-        let items = fs.readdirSync(extractPath, { withFileTypes: true });
-        console.log(subDirs.length);
-
-        // If there's exactly one subfolder and no files in root → move everything up
-        const subDirs = items.filter((i) => i.isDirectory());
-        console.log(items.filter((i) => i.isFile()).length);
-        if (
-          subDirs.length === 1 &&
-          items.filter((i) => i.isFile()).length === 0
-        ) {
-          const subFolderPath = path.join(extractPath, subDirs[0].name);
-          console.log(
-            `Single subfolder detected. Moving contents up: ${subFolderPath}`,
-          );
-
-          const subItems = fs.readdirSync(subFolderPath);
-          for (const item of subItems) {
-            fs.renameSync(
-              path.join(subFolderPath, item),
-              path.join(extractPath, item),
-            );
-          }
-          fs.rmdirSync(subFolderPath, { recursive: true });
-        }
 
         // Re-scan after promotion
         const finalItems = fs.readdirSync(extractPath, { withFileTypes: true });
@@ -2104,7 +2048,6 @@ async function unzipGame({ zipPath, extractPath }) {
       throw new Error("Extraction succeeded but folder is empty");
     }
 
-    console.log("Extraction successful");
     return { success: true };
   } catch (err) {
     console.error("Local unzip failed:", err);
