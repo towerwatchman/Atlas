@@ -426,29 +426,6 @@ ipcMain.handle("remove-game", async (event, record_id) => {
   return removeGame(record_id);
 });
 
-ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
-  const AdmZip = require("adm-zip");
-  const Seven = require("node-7z");
-  const Unrar = require("unrar");
-  try {
-    const ext = path.extname(zipPath).toLowerCase();
-    if (ext === ".zip") {
-      const zip = new AdmZip(zipPath);
-      zip.extractAllTo(extractPath, true);
-    } else if (ext === ".rar") {
-      const unrar = new Unrar(zipPath);
-      unrar.extract(extractPath);
-    } else if (ext === ".7z") {
-      await Seven.extractFull(zipPath, extractPath);
-    } else {
-      throw new Error("Unsupported file format");
-    }
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
-
 ipcMain.handle("check-updates", async () => {
   try {
     const response = await axios.get(
@@ -1974,7 +1951,8 @@ async function unzipGame({ zipPath, extractPath }) {
           else resolve();
         });
       });
-    } else if (ext === "7z") {
+    } 
+    else if (ext === "7z") {
   const { Worker } = require('worker_threads');
 
   let extractionProgress = 0;
@@ -1989,9 +1967,19 @@ async function unzipGame({ zipPath, extractPath }) {
     });
   };
 
-  const heartbeat = setInterval(() => {
-    update(extractionProgress, "(working in background...)");
-  }, 800);
+  // Start polling in main thread (lightweight, keeps UI responsive)
+  const pollInterval = setInterval(() => {
+    try {
+      const files = fs.readdirSync(extractPath, { recursive: true });
+      const count = files.length;
+      // Rough estimate: adjust divisor based on your typical archive size
+      // (e.g. 1500 files → ~100%, tune as needed)
+      const estPercent = Math.min(95, 10 + (count / 15));
+      update(estPercent, `(files: ${count})`);
+    } catch (e) {
+      // Silent fail if folder not ready yet
+    }
+  }, 1200); // every 1.2 seconds — enough to feel alive, low CPU
 
   try {
     update(0, "(starting worker)");
@@ -2005,51 +1993,43 @@ async function unzipGame({ zipPath, extractPath }) {
       worker.on('message', (msg) => {
         if (msg.taskId !== taskId) return;
 
-        if (msg.type === 'progress') {
-          update(msg.percent, msg.message || '');
-        } else if (msg.type === 'done') {
-          if (msg.success) {
-            update(100, "complete");
-            resolve();
-          } else {
-            reject(new Error(msg.error));
-          }
+        if (msg.type === 'done') {
+          if (msg.success) resolve();
+          else reject(new Error(msg.error));
           worker.terminate();
         }
       });
 
       worker.on('error', (err) => {
         reject(err);
+        worker.terminate();
+      });
+
+      worker.on('exit', (code) => {
+        if (code !== 0) reject(new Error(`Worker exited with code ${code}`));
       });
     });
 
-    clearInterval(heartbeat);
+    clearInterval(pollInterval);
 
-        // Re-scan after promotion
-        const finalItems = fs.readdirSync(extractPath, { withFileTypes: true });
-        const executables = finalItems.filter(
-          (item) =>
-            !item.isDirectory() &&
-            gameExt.includes(path.extname(item.name).toLowerCase().slice(1)),
-        );
+    // Final check
+    const filesAfter = fs.readdirSync(extractPath, { recursive: true });
+    if (filesAfter.length === 0) {
+      throw new Error("Extraction finished but folder is empty");
+    }
 
-        if (executables.length === 0) {
-          update(100, "complete (no executables found)");
-          console.log(
-            "Extraction complete but no executables found after promotion",
-          );
-          // Do NOT show modal
-          return { success: true, noExecutables: true };
-        }
+    update(100, "complete");
+    console.log(`Extraction done: ${filesAfter.length} files`);
 
-        update(100, "complete");
-        return { success: true };
-      } catch (err) {
-        clearInterval(heartbeat);
-        if (err.message.includes("User cancelled")) throw err;
-        throw new Error(`.7z extraction failed: ${err.message}`);
-      }
-    } else {
+    return { success: true };
+
+  } catch (err) {
+    clearInterval(pollInterval);
+    console.error("Extraction failed:", err);
+    throw new Error(`.7z extraction failed: ${err.message}`);
+  }
+}
+    else {
       throw new Error(`Unsupported archive format: .${ext}`);
     }
 
