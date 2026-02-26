@@ -191,29 +191,34 @@ function showExecutableChooser(title, version, executables) {
     modal: true,
     parent: importerWindow || mainWindow,
     webPreferences: {
-      preload: path.join(__dirname, 'renderer.js'),
+      preload: path.join(__dirname, 'renderer.js'), // Ensure preload is correct
       contextIsolation: true,
       enableRemoteModule: false,
       nodeIntegration: false,
     },
   });
 
-  executableChooserWindow.loadFile(path.join(__dirname, 'core/ui/modals/executable-chooser.html'));
+  const filePath = path.join(__dirname, 'core/ui/modals/executable-chooser.html');
+  executableChooserWindow.loadFile(filePath);
 
-  executableChooserWindow.webContents.on('did-finish-load', () => {
+executableChooserWindow.webContents.on('did-finish-load', () => {
+  setTimeout(() => {
+    console.log("Modal loaded - sending executables:", executables);
     executableChooserWindow.webContents.send('init-chooser', {
-      title,
+      title: title || 'Game',
       version: version || '',
-      executables // ← make sure this is sent!
+      executables: executables || []
     });
-    console.log("Sent executables to modal:", executables); // debug
-  });
+  }, 100); // small delay to ensure script runs
+});
+
+  // Debug: open dev tools for modal
+  // executableChooserWindow.webContents.openDevTools({ mode: 'detach' });
 
   executableChooserWindow.on('closed', () => {
     executableChooserWindow = null;
   });
 }
-
 function createGameDetailsWindow(recordId) {
   const gameDetailsWindow = new BrowserWindow({
     width: 1400,
@@ -476,32 +481,36 @@ ipcMain.handle("maximize-window", () => {
   }
 });
 
-ipcMain.handle("close-window", async () => {
-  console.log("IPC close-window called");
+ipcMain.handle("close-window", async (event) => {
+  console.log("IPC close-window called from:", event.sender.getURL());
+
   try {
-    const windows = BrowserWindow.getAllWindows();
-    const importSourceWindow = windows.find((w) =>
-      w.webContents.getURL().includes("import-source.html"),
-    );
-    if (importSourceWindow) {
-      console.log("Closing import-source window");
-      importSourceWindow.close();
-      console.log("import-source window closed");
+    // 1. Try to close the window that sent the request (most reliable)
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (senderWindow && !senderWindow.isDestroyed()) {
+      console.log("Closing sender window:", senderWindow.getURL());
+      senderWindow.close();
       return { success: true };
     }
-    console.log("No import-source window found, closing focused window");
-    const focusedWindow = BrowserWindow.getFocusedWindow();
-    if (focusedWindow) {
-      focusedWindow.close();
-      console.log("Focused window closed");
+
+    // 2. Fallback: close known importer window if it exists
+    if (importerWindow && !importerWindow.isDestroyed()) {
+      console.log("Closing known importer window");
+      importerWindow.close();
       return { success: true };
     }
-    return {
-      success: false,
-      error: "No import-source or focused window found",
-    };
+
+    // 3. Ultimate fallback: focused window
+    const focused = BrowserWindow.getFocusedWindow();
+    if (focused && !focused.isDestroyed()) {
+      console.log("Closing focused window as fallback:", focused.getURL());
+      focused.close();
+      return { success: true };
+    }
+
+    return { success: false, error: "No window to close" };
   } catch (err) {
-    console.error("Error in close-window:", err);
+    console.error("close-window error:", err);
     return { success: false, error: err.message };
   }
 });
@@ -1966,51 +1975,55 @@ async function unzipGame({ zipPath, extractPath }) {
         });
       });
     } else if (ext === "7z") {
-      const { Worker } = require("worker_threads");
+  const { Worker } = require('worker_threads');
 
-      let extractionProgress = 0;
-      const extractionTotal = 100;
+  let extractionProgress = 0;
+  const extractionTotal = 100;
 
-      const update = (percent, message = "") => {
-        if (percent > extractionProgress) extractionProgress = percent;
-        mainWindow.webContents.send("import-progress", {
-          text: `Extracting archive... ${extractionProgress}% ${message}`,
-          progress: extractionProgress,
-          total: extractionTotal,
-        });
-      };
+  const update = (percent, message = '') => {
+    extractionProgress = Math.max(extractionProgress, percent);
+    mainWindow.webContents.send("import-progress", {
+      text: `Extracting archive... ${extractionProgress}% ${message}`,
+      progress: extractionProgress,
+      total: extractionTotal
+    });
+  };
 
-      const heartbeat = setInterval(() => {
-        update(extractionProgress, "(working...)");
-      }, 800);
+  const heartbeat = setInterval(() => {
+    update(extractionProgress, "(working in background...)");
+  }, 800);
 
-      try {
-        update(0, "(starting)");
+  try {
+    update(0, "(starting worker)");
 
-        // === Run extraction in worker ===
-        const worker = new Worker(
-          path.join(__dirname, "workers/extractWorker.js"),
-        );
-        const taskId = Date.now();
+    const worker = new Worker(path.join(__dirname, 'workers/extractWorker.js'));
+    const taskId = Date.now();
 
-        worker.postMessage({ zipPath, extractPath, taskId });
+    worker.postMessage({ zipPath, extractPath, taskId });
 
-        await new Promise((resolve, reject) => {
-          worker.on("message", (msg) => {
-            if (msg.taskId !== taskId) return;
+    await new Promise((resolve, reject) => {
+      worker.on('message', (msg) => {
+        if (msg.taskId !== taskId) return;
 
-            if (msg.type === "progress") {
-              update(msg.percent, msg.message || "");
-            } else if (msg.type === "done") {
-              if (msg.success) resolve();
-              else reject(new Error(msg.error));
-              worker.terminate();
-            }
-          });
-          worker.on("error", reject);
-        });
+        if (msg.type === 'progress') {
+          update(msg.percent, msg.message || '');
+        } else if (msg.type === 'done') {
+          if (msg.success) {
+            update(100, "complete");
+            resolve();
+          } else {
+            reject(new Error(msg.error));
+          }
+          worker.terminate();
+        }
+      });
 
-        clearInterval(heartbeat);
+      worker.on('error', (err) => {
+        reject(err);
+      });
+    });
+
+    clearInterval(heartbeat);
 
         // Re-scan after promotion
         const finalItems = fs.readdirSync(extractPath, { withFileTypes: true });

@@ -484,11 +484,11 @@ const Importer = () => {
 
     try {
       // Start import in background
-      await window.electronAPI.importGames(importParams);
+      window.electronAPI.importGames(importParams);
       console.log("Import request sent successfully");
 
       // Immediately close the importer window
-      await window.electronAPI.closeWindow();
+      window.electronAPI.closeWindow();
     } catch (err) {
       console.error("Import failed:", err);
       window.electronAPI.log(`Import failed: ${err.message}`);

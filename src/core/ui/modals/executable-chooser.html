@@ -1,58 +1,89 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Select Executable</title>
   <link rel="stylesheet" href="../../../assets/css/tailwind.output.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" integrity="sha512-z3gLpd7yknf1YoNbCzqRKc4qyor8gaKU1qmn+CShxbuBusANI9QpRohGBreCFkKxLhei6S9CQXFEbbKuqLg0DA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
   <link rel="stylesheet" href="../../../assets/css/main.css">
 </head>
-<body class="bg-transparent">
+<body class="bg-transparent font-sans">
   <div class="h-screen flex items-center justify-center bg-gradient-to-b from-primary to-secondary border border-accent rounded-lg">
-    <div class="w-[480px] bg-secondary rounded-lg overflow-hidden shadow-2xl">
-      <!-- Title -->
-      <div class="bg-primary px-4 py-3 border-b border-border flex items-center">
+    <div class="w-[520px] bg-secondary rounded-lg overflow-hidden shadow-2xl">
+      <!-- Title Bar -->
+      <div class="bg-primary px-4 py-3 border-b border-border flex items-center justify-between">
         <span class="font-medium text-text">Select Main Executable</span>
+        <button id="close-btn" class="text-text hover:text-red-400">
+          <i class="fas fa-times"></i>
+        </button>
       </div>
 
       <div class="p-6">
-        <p class="text-text mb-4">Multiple executables found.<br>Please choose the main game launcher:</p>
-        
-        <select id="exe-select" size="8" class="w-full bg-tertiary border border-border rounded p-3 text-text focus:outline-none focus:ring-2 focus:ring-accent">
-          <!-- populated by JS -->
+        <p class="text-text mb-4">
+          Multiple executables found.<br>
+          Please choose the main game launcher:
+        </p>
+
+        <select id="exe-select" size="10" class="w-full bg-tertiary border border-border rounded p-3 text-text focus:outline-none focus:ring-2 focus:ring-accent">
+          <option disabled selected>Loading...</option>
         </select>
       </div>
 
       <div class="flex justify-end gap-3 p-4 border-t border-border">
-        <button id="cancel" class="px-6 py-2 bg-tertiary hover:bg-selected rounded text-text">Cancel</button>
-        <button id="confirm" class="px-6 py-2 bg-accent hover:bg-accent-dark text-white rounded font-medium">Confirm</button>
+        <button id="cancel" class="px-6 py-2 bg-tertiary hover:bg-selected rounded text-text transition">Cancel</button>
+        <button id="confirm" class="px-6 py-2 bg-accent hover:bg-accent-dark text-white rounded font-medium transition">Confirm</button>
       </div>
     </div>
   </div>
 
 <script>
-  const { ipcRenderer } = require('electron');
+  // Wait for DOM + preload to be ready
+  window.addEventListener('DOMContentLoaded', () => {
+    console.log("Modal DOM loaded");
 
-  ipcRenderer.on('init-chooser', (e, data) => {
-    console.log("Received in modal:", data); // ← add this debug
-    const select = document.getElementById('exe-select');
-    select.innerHTML = data.executables
-      .map(exe => `<option value="${exe}">${exe}</option>`)
-      .join('');
+    // Use exposed electronIPC (from preload)
+    electronIPC.on('init-chooser', (data) => {
+      console.log("Received init-chooser:", data);
+
+      const select = document.getElementById('exe-select');
+      select.innerHTML = ''; // clear loading
+
+      if (!data.executables || data.executables.length === 0) {
+        select.innerHTML = '<option disabled>No executables found</option>';
+        return;
+      }
+
+      data.executables.forEach(exe => {
+        const option = document.createElement('option');
+        option.value = exe;
+        option.textContent = exe;
+        select.appendChild(option);
+      });
+
+      console.log("Populated select with", data.executables.length, "options");
+    });
+
+    // Confirm
+    document.getElementById('confirm').onclick = () => {
+      const val = document.getElementById('exe-select').value;
+      if (val) {
+        electronIPC.send('executable-chosen', { selectedExecutable: val });
+      }
+      window.close();
+    };
+
+    // Cancel / close
+    document.getElementById('cancel').onclick = () => {
+      electronIPC.send('executable-chosen', { selectedExecutable: null });
+      window.close();
+    };
+
+    document.getElementById('close-btn').onclick = () => {
+      electronIPC.send('executable-chosen', { selectedExecutable: null });
+      window.close();
+    };
   });
-
-  document.getElementById('confirm').onclick = () => {
-    const val = document.getElementById('exe-select').value;
-    if (val) {
-      ipcRenderer.send('executable-chosen', { selectedExecutable: val });
-    }
-    window.close();
-  };
-
-  document.getElementById('cancel').onclick = () => {
-    ipcRenderer.send('executable-chosen', { selectedExecutable: null });
-    window.close();
-  };
 </script>
 </body>
 </html>

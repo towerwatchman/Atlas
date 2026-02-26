@@ -202,3 +202,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   getUniqueFilterOptions: () => ipcRenderer.invoke("get-unique-filter-options"),
 });
+
+contextBridge.exposeInMainWorld('electronIPC', {
+  on: (channel, func) => {
+    ipcRenderer.on(channel, (event, ...args) => func(...args));
+  },
+  send: (channel, data) => {
+    ipcRenderer.send(channel, data);
+  },
+  // If needed: invoke, etc.
+});
