@@ -6,6 +6,7 @@ const Library = () => {
   );
   const [extractionExtensions, setExtractionExtensions] =
     React.useState("zip,7z,rar");
+  const [sevenZipPath, setSevenZipPath] = React.useState(""); // ← NEW
 
   React.useEffect(() => {
     window.electronAPI.getConfig().then((config) => {
@@ -19,6 +20,7 @@ const Library = () => {
       setExtractionExtensions(
         librarySettings.extractionExtensions || "zip,7z,rar",
       );
+      setSevenZipPath(librarySettings.sevenZipPath || ""); // ← NEW
     });
   }, []);
 
@@ -37,6 +39,15 @@ const Library = () => {
     if (path) {
       setGameFolder(path);
       saveSettings({ gameFolder: path });
+    }
+  };
+
+  const handleSetSevenZipPath = async () => {
+    // ← NEW
+    const path = await window.electronAPI.selectFile();
+    if (path) {
+      setSevenZipPath(path);
+      saveSettings({ sevenZipPath: path });
     }
   };
 
@@ -71,6 +82,7 @@ const Library = () => {
         program.
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
+
       <div className="flex items-center mb-2 h-8">
         <label className="w-24 text-left mr-2">Game Folder:</label>
         <input
@@ -90,6 +102,7 @@ const Library = () => {
         All extracted or moved games will go here
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
+
       <div className="flex items-center mb-2 h-8">
         <label className="w-24 text-left mr-2">Game Extensions:</label>
         <input
@@ -104,6 +117,7 @@ const Library = () => {
         exe,html,swf)
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
+
       <div className="flex items-center mb-2 h-8">
         <label className="w-24 text-left mr-2">Extraction Extensions:</label>
         <input

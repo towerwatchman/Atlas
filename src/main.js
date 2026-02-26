@@ -1418,13 +1418,32 @@ ipcMain.handle("import-games", async (event, params) => {
 
         let extractPath = path.join(targetLibrary, ...segments);
 
-        // Handle name conflict (add (1), (2), etc.)
-        let counter = 1;
-        const basePath = extractPath;
-        while (fs.existsSync(extractPath)) {
-          extractPath = `${basePath} (${counter++})`;
-        }
+        if (fs.existsSync(extractPath)) {
+          const choice = await dialog.showMessageBox(mainWindow, {
+            type: "question",
+            buttons: ["Overwrite", "Skip", "Cancel"],
+            defaultId: 0,
+            title: "Folder Exists",
+            message: `Target folder already exists:\n${extractPath}\n\nWhat do you want to do?`,
+          });
 
+          if (choice.response === 1) {
+            // Skip
+            mainWindow.webContents.send("import-progress", {
+              text: `Skipped ${game.title} (folder exists)`,
+              progress,
+              total,
+            });
+            continue;
+          }
+          if (choice.response === 2) {
+            // Cancel
+            throw new Error("Import cancelled by user");
+          }
+
+          // Overwrite
+          fs.rmSync(extractPath, { recursive: true, force: true });
+        }
         fs.mkdirSync(extractPath, { recursive: true });
         console.log(`Extraction target: ${extractPath}`);
 
@@ -1442,20 +1461,26 @@ ipcMain.handle("import-games", async (event, params) => {
           await unzipGame({ zipPath, extractPath });
           console.log("Extraction successful");
 
-          // Optional: delete original archive if requested
+          // delete original if requested
           if (deleteAfter) {
             try {
               fs.unlinkSync(zipPath);
-              console.log(`Deleted original archive: ${zipPath}`);
-            } catch (delErr) {
-              console.warn(
-                `Failed to delete original archive: ${delErr.message}`,
-              );
-            }
+            } catch {}
           }
 
           gamePath = extractPath;
         } catch (extractErr) {
+          if (extractErr.message.includes("IMPORT_CANCELLED_BY_USER")) {
+            console.log("User cancelled 7-Zip selection → skipping this game");
+            mainWindow.webContents.send("import-progress", {
+              text: `Skipped ${game.title} — 7-Zip path selection cancelled`,
+              progress,
+              total,
+            });
+            continue; // skip to next game
+          }
+
+          // Real error
           console.error("Extraction failed:", extractErr);
           throw new Error(`Extraction failed: ${extractErr.message}`);
         }
@@ -1941,8 +1966,7 @@ async function unzipGame({ zipPath, extractPath }) {
     if (ext === "zip") {
       const zip = new AdmZip(zipPath);
       zip.extractAllTo(extractPath, true);
-    } 
-    else if (ext === "rar") {
+    } else if (ext === "rar") {
       const unrar = new Unrar(zipPath);
       await new Promise((resolve, reject) => {
         unrar.extract(extractPath, (err) => {
@@ -1950,33 +1974,140 @@ async function unzipGame({ zipPath, extractPath }) {
           else resolve();
         });
       });
-    } 
-    else if (ext === "7z") {
-      await sevenZip(zipPath, {
-        o: extractPath,
-        $bin: sevenZip.path7za,
-      });
-    } 
-    else {
-      throw new Error(`Unsupported format: .${ext}`);
+    } else if (ext === "7z") {
+      const { Worker } = require("worker_threads");
+
+      let extractionProgress = 0;
+      const extractionTotal = 100;
+
+      const update = (percent, message = "") => {
+        if (percent > extractionProgress) extractionProgress = percent;
+        mainWindow.webContents.send("import-progress", {
+          text: `Extracting archive... ${extractionProgress}% ${message}`,
+          progress: extractionProgress,
+          total: extractionTotal,
+        });
+      };
+
+      const heartbeat = setInterval(() => {
+        update(extractionProgress, "(working...)");
+      }, 800);
+
+      try {
+        update(0, "(starting)");
+
+        // === Folder Conflict Handling ===
+        if (fs.existsSync(extractPath)) {
+          const choice = await dialog.showMessageBox(mainWindow, {
+            type: "question",
+            buttons: ["Overwrite", "Cancel"],
+            defaultId: 0,
+            title: "Folder Exists",
+            message: `The target folder already exists:\n${extractPath}\n\nDo you want to overwrite it?`,
+          });
+
+          if (choice.response === 1) {
+            // Cancel
+            clearInterval(heartbeat);
+            throw new Error("User cancelled import");
+          }
+
+          fs.rmSync(extractPath, { recursive: true, force: true });
+        }
+
+        fs.mkdirSync(extractPath, { recursive: true });
+
+        // === Run extraction in worker ===
+        const worker = new Worker(
+          path.join(__dirname, "workers/extractWorker.js"),
+        );
+        const taskId = Date.now();
+
+        worker.postMessage({ zipPath, extractPath, taskId });
+
+        await new Promise((resolve, reject) => {
+          worker.on("message", (msg) => {
+            if (msg.taskId !== taskId) return;
+
+            if (msg.type === "progress") {
+              update(msg.percent, msg.message || "");
+            } else if (msg.type === "done") {
+              if (msg.success) resolve();
+              else reject(new Error(msg.error));
+              worker.terminate();
+            }
+          });
+          worker.on("error", reject);
+        });
+
+        clearInterval(heartbeat);
+
+        // === Improved Subfolder Promotion ===
+        let items = fs.readdirSync(extractPath, { withFileTypes: true });
+        console.log(subDirs.length);
+
+        // If there's exactly one subfolder and no files in root → move everything up
+        const subDirs = items.filter((i) => i.isDirectory());
+        console.log(items.filter((i) => i.isFile()).length);
+        if (
+          subDirs.length === 1 &&
+          items.filter((i) => i.isFile()).length === 0
+        ) {
+          const subFolderPath = path.join(extractPath, subDirs[0].name);
+          console.log(
+            `Single subfolder detected. Moving contents up: ${subFolderPath}`,
+          );
+
+          const subItems = fs.readdirSync(subFolderPath);
+          for (const item of subItems) {
+            fs.renameSync(
+              path.join(subFolderPath, item),
+              path.join(extractPath, item),
+            );
+          }
+          fs.rmdirSync(subFolderPath, { recursive: true });
+        }
+
+        // Re-scan after promotion
+        const finalItems = fs.readdirSync(extractPath, { withFileTypes: true });
+        const executables = finalItems.filter(
+          (item) =>
+            !item.isDirectory() &&
+            gameExt.includes(path.extname(item.name).toLowerCase().slice(1)),
+        );
+
+        if (executables.length === 0) {
+          update(100, "complete (no executables found)");
+          console.log(
+            "Extraction complete but no executables found after promotion",
+          );
+          // Do NOT show modal
+          return { success: true, noExecutables: true };
+        }
+
+        update(100, "complete");
+        return { success: true };
+      } catch (err) {
+        clearInterval(heartbeat);
+        if (err.message.includes("User cancelled")) throw err;
+        throw new Error(`.7z extraction failed: ${err.message}`);
+      }
+    } else {
+      throw new Error(`Unsupported archive format: .${ext}`);
     }
 
-    // ── Critical: Check if extraction actually put files there ──
+    // Verify extraction actually worked
     const filesAfter = fs.readdirSync(extractPath, { recursive: true });
-    console.log(`Files after extraction (${extractPath}):`, filesAfter.length);
-    console.log("Sample files:", filesAfter.slice(0, 5));
+    console.log(`Files after extraction: ${filesAfter.length}`);
 
     if (filesAfter.length === 0) {
-      throw new Error(
-        "Extraction reported success but target folder is empty. " +
-        "Archive may be password-protected, corrupted, or empty."
-      );
+      throw new Error("Extraction succeeded but folder is empty");
     }
 
-    console.log("Extraction verified: files present");
+    console.log("Extraction successful");
     return { success: true };
   } catch (err) {
-    console.error("Extraction failed:", err);
+    console.error("Local unzip failed:", err);
     throw new Error(`Extraction failed: ${err.message}`);
   }
 }

@@ -43,6 +43,7 @@
       "src/core/importer/**/*",
       "src/core/settings/**/*",
       "src/core/banner/**/*",
+      "src/core/ui/modals/executable-chooser.html",
       "package.json",
       "node_modules/sqlite3/**/*",
       "node_modules/node-7z/**/*",
@@ -77,6 +78,7 @@
   "dependencies": {
     "@babel/standalone": "^7.25.6",
     "@npmcli/fs": "^3.1.0",
+    "7z-wasm": "^1.2.0",
     "adm-zip": "^0.5.10",
     "axios": "^1.7.2",
     "electron-updater": "^6.6.2",
