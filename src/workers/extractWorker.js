@@ -1,10 +1,10 @@
 // src/workers/extractWorker.js
-const { parentPort } = require('worker_threads');
-const SevenZip = require('7z-wasm');
-const fs = require('fs');
-const path = require('path');
+const { parentPort } = require("worker_threads");
+const SevenZip = require("7z-wasm");
+const fs = require("fs");
+const path = require("path");
 
-parentPort.on('message', async (data) => {
+parentPort.on("message", async (data) => {
   const { zipPath, extractPath, taskId } = data;
 
   try {
@@ -16,16 +16,20 @@ parentPort.on('message', async (data) => {
     sevenZip.FS.mkdir(mountInput);
     sevenZip.FS.mkdir(mountOutput);
 
-    sevenZip.FS.mount(sevenZip.NODEFS, { root: path.dirname(zipPath) }, mountInput);
+    sevenZip.FS.mount(
+      sevenZip.NODEFS,
+      { root: path.dirname(zipPath) },
+      mountInput,
+    );
     sevenZip.FS.mount(sevenZip.NODEFS, { root: extractPath }, mountOutput);
 
     const archiveName = path.basename(zipPath);
 
     sevenZip.callMain([
-      'x',
+      "x",
       `${mountInput}/${archiveName}`,
       `-o${mountOutput}`,
-      '-y'
+      "-y",
     ]);
 
     sevenZip.FS.unlink(`${mountInput}/${archiveName}`).catch(() => {});
@@ -33,17 +37,17 @@ parentPort.on('message', async (data) => {
     const files = fs.readdirSync(extractPath, { recursive: true });
 
     parentPort.postMessage({
-      type: 'done',
+      type: "done",
       success: true,
       taskId,
-      fileCount: files.length
+      fileCount: files.length,
     });
   } catch (err) {
     parentPort.postMessage({
-      type: 'done',
+      type: "done",
       success: false,
       taskId,
-      error: err.message
+      error: err.message,
     });
   }
 });

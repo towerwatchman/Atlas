@@ -2,6 +2,20 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
+  isWindows: () => process.platform === "win32",
+  isLinux: () => process.platform === "linux",
+  // optional
+  getDefault7zPaths: () => {
+    if (process.platform === "win32") {
+      return [
+        "C:\\Program Files\\7-Zip\\7z.exe",
+        "C:\\Program Files (x86)\\7-Zip\\7z.exe",
+      ];
+    } else if (process.platform === "linux") {
+      return ["/usr/bin/7z", "/usr/bin/7zz", "/usr/local/bin/7z"];
+    }
+    return [];
+  },
   addGame: (game) => ipcRenderer.invoke("add-game", game),
   getGame: (id) => {
     console.log("Invoking getGame for recordId:", id);
@@ -203,7 +217,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getUniqueFilterOptions: () => ipcRenderer.invoke("get-unique-filter-options"),
 });
 
-contextBridge.exposeInMainWorld('electronIPC', {
+contextBridge.exposeInMainWorld("electronIPC", {
   on: (channel, func) => {
     ipcRenderer.on(channel, (event, ...args) => func(...args));
   },

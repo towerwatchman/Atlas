@@ -130,10 +130,10 @@ const Sidebar = ({ onToggleGameList, showGameList }) => {
                 }
 
                 return null;
-              })
-        )
-      )
-    )
+              }),
+        ),
+      ),
+    ),
   );
 };
 

@@ -1,3 +1,4 @@
+// Library.jsx  (updated)
 const Library = () => {
   const [rootPath, setRootPath] = React.useState("");
   const [gameFolder, setGameFolder] = React.useState("");
@@ -6,29 +7,29 @@ const Library = () => {
   );
   const [extractionExtensions, setExtractionExtensions] =
     React.useState("zip,7z,rar");
-  const [sevenZipPath, setSevenZipPath] = React.useState(""); // ← NEW
+  const [sevenZipPath, setSevenZipPath] = React.useState(""); // ← added
 
   React.useEffect(() => {
     window.electronAPI.getConfig().then((config) => {
-      const librarySettings = config.Library || {};
-      setRootPath(librarySettings.rootPath || "./data");
-      setGameFolder(librarySettings.gameFolder || "");
+      const lib = config.Library || {};
+      setRootPath(lib.rootPath || "./data");
+      setGameFolder(lib.gameFolder || "");
       setGameExtensions(
-        librarySettings.gameExtensions ||
-          "exe,swf,flv,f4v,rag,cmd,bat,jar,html",
+        lib.gameExtensions || "exe,swf,flv,f4v,rag,cmd,bat,jar,html",
       );
-      setExtractionExtensions(
-        librarySettings.extractionExtensions || "zip,7z,rar",
-      );
-      setSevenZipPath(librarySettings.sevenZipPath || ""); // ← NEW
+      setExtractionExtensions(lib.extractionExtensions || "zip,7z,rar");
+      setSevenZipPath(lib.sevenZipPath || ""); // ← added
     });
   }, []);
 
-  const saveSettings = (updatedSettings) => {
+  const saveLibrarySetting = (key, value) => {
     window.electronAPI.getConfig().then((config) => {
       const newConfig = {
         ...config,
-        Library: { ...config.Library, ...updatedSettings },
+        Library: {
+          ...config.Library,
+          [key]: value,
+        },
       };
       window.electronAPI.saveSettings(newConfig);
     });
@@ -38,100 +39,130 @@ const Library = () => {
     const path = await window.electronAPI.selectDirectory();
     if (path) {
       setGameFolder(path);
-      saveSettings({ gameFolder: path });
+      saveLibrarySetting("gameFolder", path);
     }
   };
 
-  const handleSetSevenZipPath = async () => {
-    // ← NEW
-    const path = await window.electronAPI.selectFile();
-    if (path) {
-      setSevenZipPath(path);
-      saveSettings({ sevenZipPath: path });
+  const handleSetSevenZip = async () => {
+    const filters = [
+      { name: "7z executable", extensions: ["exe"] }, // Windows
+      { name: "All files", extensions: ["*"] }, // Linux/macOS fallback
+    ];
+
+    // On Linux we usually want no extension filter
+    const isWindows = await window.electronAPI.isWindows?.(); // you'll add this helper
+    const result = await window.electronAPI.selectFile(
+      isWindows ? filters : [],
+    );
+
+    if (result) {
+      setSevenZipPath(result);
+      saveLibrarySetting("sevenZipPath", result);
     }
   };
 
-  const handleGameFolderChange = (e) => {
-    setGameFolder(e.target.value);
-    saveSettings({ gameFolder: e.target.value });
-  };
-
+  // ── Handlers for other fields ──
   const handleGameExtensionsChange = (e) => {
-    setGameExtensions(e.target.value);
-    saveSettings({ gameExtensions: e.target.value });
+    const val = e.target.value;
+    setGameExtensions(val);
+    saveLibrarySetting("gameExtensions", val);
   };
 
-  const handleExtractionExtensionsChange = (e) => {
-    setExtractionExtensions(e.target.value);
-    saveSettings({ extractionExtensions: e.target.value });
+  const handleExtractionChange = (e) => {
+    const val = e.target.value;
+    setExtractionExtensions(val);
+    saveLibrarySetting("extractionExtensions", val);
   };
 
   return (
-    <div className="p-5 text-text">
-      <div className="flex items-center mb-2 h-8">
-        <label className="w-24 text-left mr-2">Root Path:</label>
+    <div className="p-5 text-text space-y-6">
+      {/* Root Path */}
+      <div>
+        <label className="block mb-1">Root Path</label>
         <input
           type="text"
-          className="flex-1 bg-secondary border border-border text-text rounded p-1 opacity-75"
+          className="w-full bg-secondary border border-border p-2 rounded opacity-75"
           value={rootPath}
           readOnly
         />
+        <p className="text-xs opacity-60 mt-1">
+          Atlas internal data path (changes if app is moved).
+        </p>
       </div>
-      <p className="text-xs opacity-50 mb-2">
-        Atlas local path. This is dynamic and will change if you move the
-        program.
-      </p>
-      <div className="border-t border-text opacity-25 my-2"></div>
 
-      <div className="flex items-center mb-2 h-8">
-        <label className="w-24 text-left mr-2">Game Folder:</label>
+      {/* Default Game Folder */}
+      <div>
+        <label className="block mb-1">Default Game Folder</label>
+        <div className="flex gap-3">
+          <input
+            type="text"
+            className="flex-1 bg-secondary border border-border p-2 rounded"
+            value={gameFolder}
+            readOnly
+          />
+          <button
+            onClick={handleSetGameFolder}
+            className="bg-accent px-5 py-2 rounded hover:bg-opacity-90"
+          >
+            Set Folder
+          </button>
+        </div>
+        <p className="text-xs opacity-60 mt-1">
+          Newly imported / extracted games will be placed here.
+        </p>
+      </div>
+
+      {/* 7-Zip Path – NEW */}
+      <div>
+        <label className="block mb-1">7-Zip Executable Path</label>
+        <div className="flex gap-3">
+          <input
+            type="text"
+            className="flex-1 bg-secondary border border-border p-2 rounded"
+            value={
+              sevenZipPath ||
+              "(not set — will be asked during first extraction)"
+            }
+            readOnly
+          />
+          <button
+            onClick={handleSetSevenZip}
+            className="bg-accent px-5 py-2 rounded hover:bg-opacity-90"
+          >
+            Select 7z
+          </button>
+        </div>
+        <p className="text-xs opacity-60 mt-1">
+          Required for fast .7z / .rar extraction. Common locations:
+          <br />
+          Windows: C:\Program Files\7-Zip\7z.exe
+          <br />
+          Linux: /usr/bin/7z or /usr/bin/7zz
+        </p>
+      </div>
+
+      {/* Game & Archive Extensions */}
+      <div>
+        <label className="block mb-1">Game Extensions (comma separated)</label>
         <input
           type="text"
-          className="flex-1 bg-secondary border border-border text-text rounded p-1"
-          value={gameFolder}
-          onChange={handleGameFolderChange}
-        />
-        <button
-          className="ml-5 bg-accent text-text px-4 py-1 rounded hover:bg-hover"
-          onClick={handleSetGameFolder}
-        >
-          Set Folder
-        </button>
-      </div>
-      <p className="text-xs opacity-50 mb-2">
-        All extracted or moved games will go here
-      </p>
-      <div className="border-t border-text opacity-25 my-2"></div>
-
-      <div className="flex items-center mb-2 h-8">
-        <label className="w-24 text-left mr-2">Game Extensions:</label>
-        <input
-          type="text"
-          className="flex-1 bg-secondary border border-border text-text rounded p-1"
+          className="w-full bg-secondary border border-border p-2 rounded"
           value={gameExtensions}
           onChange={handleGameExtensionsChange}
         />
       </div>
-      <p className="text-xs opacity-50 mb-2">
-        Comma-separated list of game executable extensions (without dots, e.g.,
-        exe,html,swf)
-      </p>
-      <div className="border-t border-text opacity-25 my-2"></div>
 
-      <div className="flex items-center mb-2 h-8">
-        <label className="w-24 text-left mr-2">Extraction Extensions:</label>
+      <div>
+        <label className="block mb-1">
+          Archive Extensions (comma separated)
+        </label>
         <input
           type="text"
-          className="flex-1 bg-secondary border border-border text-text rounded p-1"
+          className="w-full bg-secondary border border-border p-2 rounded"
           value={extractionExtensions}
-          onChange={handleExtractionExtensionsChange}
+          onChange={handleExtractionChange}
         />
       </div>
-      <p className="text-xs opacity-50 mb-2">
-        Comma-separated list of archive extensions (without dots, e.g.,
-        zip,7z,rar)
-      </p>
-      <div className="border-t border-text opacity-25 my-2"></div>
     </div>
   );
 };

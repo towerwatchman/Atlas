@@ -609,10 +609,10 @@ const App = () => {
       {/* Main Content */}
       <div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
         {/* Left Sidebar (icons) - always visible */}
-        <window.Sidebar 
-  onToggleGameList={toggleGameList} 
-  showGameList={showGameList} 
-/>
+        <window.Sidebar
+          onToggleGameList={toggleGameList}
+          showGameList={showGameList}
+        />
 
         {/* Left Game List (titles) - toggled */}
         {showGameList && (
