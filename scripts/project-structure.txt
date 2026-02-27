@@ -3,8 +3,8 @@
 │   └── installerSidebar.bmp (154542 bytes)
 ├── issues.txt (98 bytes)
 ├── LICENSE (35802 bytes)
-├── package-lock.json (264468 bytes)
-├── package.json (3161 bytes)
+├── package-lock.json (274692 bytes)
+├── package.json (3240 bytes)
 ├── postcss.config.js (85 bytes)
 ├── README.md (3742 bytes)
 ├── scripts
@@ -14,12 +14,12 @@
 │   ├── project-structure.txt (0 bytes)
 │   └── update-version.js (598 bytes)
 ├── src
-│   ├── App.jsx (28492 bytes)
+│   ├── App.jsx (27203 bytes)
 │   ├── assets
 │   │   ├── css
 │   │   │   ├── main.css (149 bytes)
 │   │   │   ├── tailwind.css (53 bytes)
-│   │   │   └── tailwind.output.css (28687 bytes)
+│   │   │   └── tailwind.output.css (29445 bytes)
 │   │   ├── icons
 │   │   │   ├── atlas_logo.svg (977 bytes)
 │   │   │   ├── data.js (658 bytes)
@@ -37,52 +37,64 @@
 │   │       (empty directory)
 │   ├── core
 │   │   ├── banner
-│   │   │   └── GameDetailsWindow.jsx (49013 bytes)
+│   │   │   └── GameDetailsWindow.jsx (47768 bytes)
 │   │   ├── GameBanner.js (11984 bytes)
 │   │   ├── importer
-│   │   │   └── importer.jsx (40770 bytes)
+│   │   │   └── importer.jsx (40486 bytes)
 │   │   ├── scanners
+│   │   │   ├── executableScanner.js (1620 bytes)
 │   │   │   ├── f95scanner.js (15862 bytes)
 │   │   │   └── steamscanner.js (11238 bytes)
-│   │   ├── SearchBox.jsx (1164 bytes)
-│   │   ├── SearchSidebar.jsx (12876 bytes)
+│   │   ├── SearchBox.jsx (1137 bytes)
+│   │   ├── SearchSidebar.jsx (12696 bytes)
 │   │   ├── settings
 │   │   │   ├── Appearance.jsx (3752 bytes)
 │   │   │   ├── EmulatorLauncher.jsx (5513 bytes)
-│   │   │   ├── Interface.jsx (5607 bytes)
-│   │   │   ├── Library.jsx (4237 bytes)
+│   │   │   ├── Interface.jsx (5456 bytes)
+│   │   │   ├── Library.jsx (4601 bytes)
 │   │   │   ├── Metadata.jsx (1360 bytes)
 │   │   │   ├── Platforms.jsx (270 bytes)
 │   │   │   ├── Settings.jsx (3969 bytes)
 │   │   │   └── settingsIcons.js (6768 bytes)
-│   │   ├── Sidebar.js (6150 bytes)
+│   │   ├── Sidebar.js (7058 bytes)
 │   │   └── ui
 │   │       ├── dialogs
 │   │       │   (empty directory)
+│   │       ├── modals
+│   │       │   └── executable-chooser.html (3373 bytes)
 │   │       └── windows
 │   │           └── importer.html (938 bytes)
 │   ├── data
-│   │   ├── config.ini (325 bytes)
-│   │   ├── data.db (60506112 bytes)
+│   │   ├── config.ini (369 bytes)
+│   │   ├── data.db (60547072 bytes)
 │   │   ├── games
-│   │   │   (empty directory)
+│   │   │   ├── Ahsoker -1.0
+│   │   │   │   (empty directory)
+│   │   │   ├── Ahsoker -1.0 (1)
+│   │   │   │   (empty directory)
+│   │   │   ├── Ahsoker -1.0 (10)
+│   │   │   │   (empty directory)
+│   │   │   ├── Ahsoker -1.0 (2)
+│   │   │   │   (empty directory)
+│   │   │   ├── Ahsoker -1.0 (3)
+│   │   │   │   (empty directory)
+│   │   │   ├── Ahsoker -1.0 (4)
+│   │   │   │   (empty directory)
+│   │   │   ├── Ahsoker -1.0 (5)
+│   │   │   │   (empty directory)
+│   │   │   ├── Ahsoker -1.0 (6)
+│   │   │   │   (empty directory)
+│   │   │   ├── Ahsoker -1.0 (7)
+│   │   │   │   (empty directory)
+│   │   │   ├── Ahsoker -1.0 (8)
+│   │   │   │   (empty directory)
+│   │   │   └── Ahsoker -1.0 (9)
+│   │   │       (empty directory)
 │   │   ├── images
 │   │   │   ├── 1
-│   │   │   │   ├── 1894318_Apulaz-988578-Ahsoka_in_Exxxile_release_pr.webp (138686 bytes)
-│   │   │   │   ├── 1894370_screenshot0003_pr.webp (35894 bytes)
-│   │   │   │   ├── 1894374_screenshot0012_pr.webp (32480 bytes)
-│   │   │   │   ├── 1894379_screenshot0032_pr.webp (43832 bytes)
-│   │   │   │   ├── 1894383_screenshot0037_pr.webp (46760 bytes)
-│   │   │   │   ├── banner_mc.webp (138686 bytes)
-│   │   │   │   └── banner_sc.webp (93646 bytes)
+│   │   │   │   (empty directory)
 │   │   │   ├── 2
-│   │   │   │   ├── 4302288_6_TitleF95-ezgif.com-resize_pr.webp (52560 bytes)
-│   │   │   │   ├── 4500583_sheep015_pr.webp (46018 bytes)
-│   │   │   │   ├── 4714702_Unity_NlzSbn2wiv-ezgif.com-video-to-gif-converter_pr.webp (37852 bytes)
-│   │   │   │   ├── 4912968_endergirl_enderbeads_pr.webp (47356 bytes)
-│   │   │   │   ├── 4981356_Bee_pr.webp (68682 bytes)
-│   │   │   │   ├── banner_mc.webp (52560 bytes)
-│   │   │   │   └── banner_sc.webp (27016 bytes)
+│   │   │   │   (empty directory)
 │   │   │   └── 3
 │   │   │       (empty directory)
 │   │   ├── templates
@@ -101,14 +113,22 @@
 │   │       ├── 1771992006.update (18061741 bytes)
 │   │       ├── 1772004373.update (964560 bytes)
 │   │       ├── 1772026014.update (987347 bytes)
-│   │       └── 1772047869.update (1032611 bytes)
-│   ├── database.js (50300 bytes)
+│   │       ├── 1772047869.update (1032611 bytes)
+│   │       ├── 1772066020.update (1045318 bytes)
+│   │       ├── 1772078404.update (18073670 bytes)
+│   │       ├── 1772090662.update (950310 bytes)
+│   │       ├── 1772112466.update (1027372 bytes)
+│   │       ├── 1772134245.update (1088157 bytes)
+│   │       └── 1772152149.update (976291 bytes)
+│   ├── database.js (48635 bytes)
 │   ├── gamedetails.html (762 bytes)
 │   ├── index.html (1422 bytes)
 │   ├── launchers
 │   │   (empty directory)
-│   ├── main.js (64801 bytes)
-│   ├── renderer.js (9680 bytes)
-│   └── settings.html (1250 bytes)
-└── tailwind.config.js (574 bytes)
+│   ├── main.js (70915 bytes)
+│   ├── renderer.js (9620 bytes)
+│   ├── settings.html (1250 bytes)
+│   └── workers
+│       └── extractWorker.js (1195 bytes)
+└── tailwind.config.js (577 bytes)
 

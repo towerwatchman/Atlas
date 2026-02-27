@@ -1,5 +1,4 @@
-const Sidebar = ({ onToggleGameList }) => {
-  // Only need toggle prop now
+const Sidebar = ({ onToggleGameList, showGameList }) => {
   const [selected, setSelected] = React.useState("Home");
 
   const items = [
@@ -22,10 +21,7 @@ const Sidebar = ({ onToggleGameList }) => {
     },
     {
       name: "List",
-      icon: "mygames.svg",
-      path: [
-        '<path d="M6 5C4.894531 5 4 5.894531 4 7C4 8.105469 4.894531 9 6 9C7.105469 9 8 8.105469 8 7C8 5.894531 7.105469 5 6 5 Z M 11 6L11 8L28 8L28 6 Z M 6 14C4.894531 14 4 14.894531 4 16C4 17.105469 4.894531 18 6 18C7.105469 18 8 17.105469 8 16C8 14.894531 7.105469 14 6 14 Z M 11 15L11 17L28 17L28 15 Z M 6 23C4.894531 23 4 23.894531 4 25C4 26.105469 4.894531 27 6 27C7.105469 27 8 26.105469 8 25C8 23.894531 7.105469 23 6 23 Z M 11 24L11 26L28 26L28 24Z"/>',
-      ],
+      // No static path here anymore — we'll handle it dynamically
       viewBox: "0 0 28 28",
       onClick: () => {
         if (onToggleGameList) {
@@ -76,42 +72,68 @@ const Sidebar = ({ onToggleGameList }) => {
             }
           },
         },
+
+        // Left accent bar on hover
         React.createElement("div", {
           className: `absolute left-0 w-[3px] h-full bg-accent transition-opacity opacity-0 group-hover:opacity-100`,
         }),
+
+        // Icon / SVG
         React.createElement(
           "svg",
           {
             className: `w-6 h-6 ${selected === item.name ? "text-accent" : "text-border"}`,
-            viewBox: item.viewBox,
+            viewBox: item.viewBox || "0 0 24 24",
+            fill: "currentColor",
           },
-          item.path.map((pathStr, index) => {
-            if (item.name === "Add" && index === 1) {
-              const rectMatch = pathStr.match(
-                /<rect\s+x="([^"]*)"\s+y="([^"]*)"\s+width="([^"]*)"\s+height="([^"]*)"\s+rx="([^"]*)"\s+ry="([^"]*)"\s+fill="([^"]*)"\s+stroke="([^"]*)"\s+stroke-width="([^"]*)"/,
-              );
-              return React.createElement("rect", {
-                key: index,
-                x: rectMatch[1],
-                y: rectMatch[2],
-                width: rectMatch[3],
-                height: rectMatch[4],
-                rx: rectMatch[5],
-                ry: rectMatch[6],
-                fill: rectMatch[7],
-                stroke: rectMatch[8],
-                strokeWidth: rectMatch[9],
-              });
-            }
-            return React.createElement("path", {
-              key: index,
-              fill: "currentColor",
-              d: pathStr.match(/d="([^"]*)"/)[1],
-            });
-          }),
-        ),
-      ),
-    ),
+
+          // ── Special handling for the List button ───────────────
+          item.name === "List"
+            ? React.createElement("path", {
+                fill: "currentColor",
+                d: showGameList
+                  ? // List is visible → show list icon
+                    "M6 5C4.894531 5 4 5.894531 4 7C4 8.105469 4.894531 9 6 9C7.105469 9 8 8.105469 8 7C8 5.894531 7.105469 5 6 5 Z M 11 6L11 8L28 8L28 6 Z M 6 14C4.894531 14 4 14.894531 4 16C4 17.105469 4.894531 18 6 18C7.105469 18 8 17.105469 8 16C8 14.894531 7.105469 14 6 14 Z M 11 15L11 17L28 17L28 15 Z M 6 23C4.894531 23 4 23.894531 4 25C4 26.105469 4.894531 27 6 27C7.105469 27 8 26.105469 8 25C8 23.894531 7.105469 23 6 23 Z M 11 24L11 26L28 26L28 24Z"
+                  : // List is hidden → show grid icon
+                    "M5 5h6v6H5zM13 5h6v6h-6zM21 5h6v6h-6zM5 13h6v6H5zM13 13h6v6h-6zM21 13h6v6h-6zM5 21h6v6H5zM13 21h6v6h-6zM21 21h6v6h-6z",
+              })
+            : // All other items — use their original path(s)
+              item.path?.map((pathStr, index) => {
+                if (item.name === "Add" && index === 1) {
+                  const rectMatch = pathStr.match(
+                    /<rect\s+x="([^"]*)"\s+y="([^"]*)"\s+width="([^"]*)"\s+height="([^"]*)"\s+rx="([^"]*)"\s+ry="([^"]*)"\s+fill="([^"]*)"\s+stroke="([^"]*)"\s+stroke-width="([^"]*)"/,
+                  );
+                  if (rectMatch) {
+                    return React.createElement("rect", {
+                      key: index,
+                      x: rectMatch[1],
+                      y: rectMatch[2],
+                      width: rectMatch[3],
+                      height: rectMatch[4],
+                      rx: rectMatch[5],
+                      ry: rectMatch[6],
+                      fill: rectMatch[7],
+                      stroke: rectMatch[8],
+                      strokeWidth: rectMatch[9],
+                    });
+                  }
+                  return null;
+                }
+
+                const dMatch = pathStr.match(/d="([^"]*)"/);
+                if (dMatch) {
+                  return React.createElement("path", {
+                    key: index,
+                    fill: "currentColor",
+                    d: dMatch[1],
+                  });
+                }
+
+                return null;
+              })
+        )
+      )
+    )
   );
 };
 

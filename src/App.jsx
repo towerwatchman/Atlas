@@ -609,7 +609,10 @@ const App = () => {
       {/* Main Content */}
       <div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
         {/* Left Sidebar (icons) - always visible */}
-        <window.Sidebar onToggleGameList={toggleGameList} />
+        <window.Sidebar 
+  onToggleGameList={toggleGameList} 
+  showGameList={showGameList} 
+/>
 
         {/* Left Game List (titles) - toggled */}
         {showGameList && (
@@ -638,7 +641,7 @@ const App = () => {
           style={{ overflowX: "hidden" }}
         >
           {filteredGames.length === 0 ? (
-            <div className="text-center text-text">No games available</div>
+            <div className="text-center text-text mt-2">No games available</div>
           ) : (
             <AutoSizer>
               {({ height, width }) => {
