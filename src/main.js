@@ -1385,7 +1385,7 @@ ipcMain.handle("import-games", async (event, params) => {
           archiveInfo = { totalFiles: 0, totalUncompressedBytes: 0 };
         }
 
-        const useFileCount = archiveInfo.totalFiles > 10; // only trust if reasonable count
+        const useFileCount = archiveInfo.totalFiles > 0; // only trust if reasonable count
         const useSize = archiveInfo.totalUncompressedBytes > 1024 * 1024; // >1MB
 
         mainWindow.webContents.send("import-progress", {
@@ -1394,71 +1394,86 @@ ipcMain.handle("import-games", async (event, params) => {
           total: 100,
         });
 
-        let lastPercent = 0;
+        let lastReportedPercent = 0;
 
+        // Progress reporting in the worker (or main if not using worker yet)
         const progressInterval = setInterval(async () => {
           try {
-            const files = await fsp.readdir(extractPath, { recursive: true });
-            const currentFiles = files.length;
+            let currentBytes = 0;
+            let currentFiles = 0;
+
+            // Walk the extracted folder to sum file sizes + count files
+            const files = await fsp.readdir(extractPath, {
+              recursive: true,
+              withFileTypes: true,
+            });
+            currentFiles = files.length;
+
+            for (const file of files) {
+              if (file.isFile()) {
+                try {
+                  const fullPath = path.join(
+                    extractPath,
+                    file.path || file.name,
+                  );
+                  const stat = await fsp.stat(fullPath);
+                  currentBytes += stat.size;
+                } catch {
+                  // skip inaccessible files
+                }
+              }
+            }
 
             let percent = 0;
 
-            // 1. Best: use exact file count from pre-scan
-            if (useFileCount && archiveInfo.totalFiles > 10) {
+            // 1. Primary: use uncompressed bytes if we have a good value
+            if (archiveInfo.totalUncompressedBytes > 1024 * 1024 * 5) {
+              // > ~5 MB to trust it
+              percent = Math.min(
+                95,
+                Math.round(
+                  (currentBytes / archiveInfo.totalUncompressedBytes) * 100,
+                ),
+              );
+            }
+            // 2. Fallback: file count (only if size info is missing/unreliable)
+            else if (archiveInfo.totalFiles > 10) {
               percent = Math.min(
                 95,
                 Math.round((currentFiles / archiveInfo.totalFiles) * 100),
               );
             }
-            // 2. Fallback: size-based (only if we have meaningful uncompressed size)
-            else if (
-              useSize &&
-              archiveInfo.totalUncompressedBytes > 1024 * 1024 * 5
-            ) {
-              // >5MB
-              let currentSize = 0;
-              for (const file of files) {
-                try {
-                  const fullPath = path.join(extractPath, file);
-                  const stat = await fsp.stat(fullPath);
-                  if (stat.isFile()) currentSize += stat.size;
-                } catch {}
-              }
-              percent = Math.min(
-                95,
-                Math.round(
-                  (currentSize / archiveInfo.totalUncompressedBytes) * 100,
-                ),
-              );
-            }
-            // 3. Last resort: very conservative rough estimate (prevents jumping over 50–60% too early)
+            // 3. Very last resort: rough file-based
             else {
-              // Use a higher divisor early on to avoid overestimation
-              percent = Math.min(95, Math.round(currentFiles / 20)); // start slower
-              // Gradually become more aggressive as we get closer
-              if (currentFiles > 300)
-                percent = Math.min(95, Math.round(currentFiles / 15));
+              percent = Math.min(95, Math.round(currentFiles / 20));
             }
 
-            // Only update if meaningfully higher (prevents jitter)
-            if (percent > lastPercent + 1 || percent === 100) {
-              lastPercent = percent;
+            // Only send update if meaningfully changed (prevents spam/jitter)
+            if (percent > lastReportedPercent + 1 || percent === 100) {
+              lastReportedPercent = percent;
+
+              const text =
+                archiveInfo.totalUncompressedBytes > 0
+                  ? `Extracting... ${percent}% (${Math.round(currentBytes / 1024 / 1024)} / ${Math.round(archiveInfo.totalUncompressedBytes / 1024 / 1024)} MiB)`
+                  : `Extracting... ${percent}% (${currentFiles} files)`;
+
               mainWindow?.webContents.send("import-progress", {
-                text: `Extracting... ${percent}% (${currentFiles} files)`,
+                text,
                 progress: percent,
                 total: 100,
               });
+
               console.log(
-                `[extraction progress] ${percent}% (${currentFiles} files)`,
+                `[extraction progress] ${percent}% (${currentBytes} bytes, ${currentFiles} files)`,
               );
             }
-          } catch {
-            // silent fail if folder not ready
+          } catch (err) {
+            // silent fail if folder not ready or access denied
           }
-        }, 1200); // slightly slower interval = smoother feel
+        }, 1500); // 1.5 seconds — good balance for large files (less I/O spam)
 
         try {
-          await extractArchive(zipPath, extractPath, sevenZipPath);
+          await extractArchive(zipPath, extractPath, sevenZipPath, archiveInfo);
 
           clearInterval(progressInterval);
 
@@ -1836,37 +1851,58 @@ async function getArchiveInfo(archivePath, sevenZipBin) {
 
     child.on("close", (code) => {
       if (code !== 0) {
-        return reject(new Error(`7z l failed with code ${code}`));
+        return reject(
+          new Error(`7z l failed with code ${code}\nOutput:\n${output}`),
+        );
       }
 
-      // Parse last line for summary, e.g.: "1112 files, 101 folders"
-      const lines = output.split("\n");
-      const summaryLine = lines.find(
-        (l) => l.includes("files") && l.includes("folders"),
-      );
-      if (!summaryLine) {
-        return reject(new Error("Could not parse archive summary"));
-      }
+      const lines = output
+        .trim()
+        .split("\n")
+        .filter((line) => line.trim());
 
-      const fileMatch = summaryLine.match(/(\d+)\s+files/);
-      const sizeMatch = lines.find(
-        (l) => l.includes("Size:") && l.includes("Compressed:"),
-      );
+      // 1. File count from the very last line (summary)
       let totalFiles = 0;
+      const lastLine = lines[lines.length - 1] || "";
+      const fileMatch = lastLine.match(/(\d+)\s+files/);
+      if (fileMatch) {
+        totalFiles = parseInt(fileMatch[1], 10);
+      }
+
+      // 2. Uncompressed size – from the same last line
       let totalUncompressedBytes = 0;
 
-      if (fileMatch) totalFiles = parseInt(fileMatch[1], 10);
+      // Clean split: remove empty/whitespace-only items
+      const parts = lastLine
+        .split(/\s+/)
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0);
 
-      if (sizeMatch) {
-        const sizeParts = sizeMatch.split(/\s+/);
-        // Look for the uncompressed size (usually the first big number after "Size:")
-        for (let i = 0; i < sizeParts.length; i++) {
-          if (sizeParts[i] === "Size:") {
-            totalUncompressedBytes = parseInt(sizeParts[i + 1], 10) || 0;
-            break;
+      // Expected pattern in last line: [date] [size] [compressed] [files summary...]
+      // So uncompressed size is usually parts[1] if parts[0] looks like a date
+      if (parts.length >= 3) {
+        // Check if parts[0] is a date-like string (contains - or /)
+        if (parts[0].match(/\d{4}[-/]\d{2}[-/]\d{2}/)) {
+          // parts[1] should be the uncompressed size
+          const candidate = parseInt(parts[1], 10);
+          if (!isNaN(candidate) && candidate > 10000) {
+            // reasonable minimum size
+            totalUncompressedBytes = candidate;
+          }
+          // Fallback: if parts[1] is not numeric, try parts[2]
+          else {
+            const fallback = parseInt(parts[2], 10);
+            if (!isNaN(fallback) && fallback > 10000) {
+              totalUncompressedBytes = fallback;
+            }
           }
         }
       }
+
+      console.log(`Parsed archive info:`);
+      console.log(`  Total files: ${totalFiles}`);
+      console.log(`  Uncompressed bytes: ${totalUncompressedBytes}`);
+      console.log(`  Last line: ${lastLine}`);
 
       resolve({
         totalFiles,
@@ -1875,7 +1911,7 @@ async function getArchiveInfo(archivePath, sevenZipBin) {
       });
     });
 
-    child.on("error", reject);
+    child.on("error", (err) => reject(err));
   });
 }
 
@@ -2057,8 +2093,15 @@ async function downloadImages(
   }
 }
 
-async function extractArchive(archivePath, extractPath, sevenZipBin) {
+async function extractArchive(
+  archivePath,
+  extractPath,
+  sevenZipBin,
+  archiveInfo,
+) {
   const workerPath = path.join(__dirname, "workers/extractWorker.js");
+  const totalUncompressedBytes = archiveInfo.totalUncompressedBytes || 0;
+  const totalFiles = archiveInfo.totalFiles || 0;
   console.log("Worker path:", workerPath);
   if (!fs.existsSync(workerPath)) {
     throw new Error(`Worker file not found: ${workerPath}`);
@@ -2067,17 +2110,30 @@ async function extractArchive(archivePath, extractPath, sevenZipBin) {
     const worker = new Worker(
       path.join(__dirname, "workers/extractWorker.js"),
       {
-        workerData: { archivePath, extractPath, sevenZipBin },
+        workerData: {
+          archivePath,
+          extractPath,
+          sevenZipBin,
+          totalUncompressedBytes,
+          totalFiles,
+        },
       },
     );
-    worker.on("message", (msg) => {
-      if (msg.type === "progress") {
-        mainWindow?.webContents.send("import-progress", {
-          text: msg.text,
-          progress: msg.percent,
-          total: 100,
-        });
-      } else if (msg.type === "done") {
+    worker.on('message', (msg) => {
+  console.log('[MAIN → WORKER MSG RECEIVED]', JSON.stringify(msg));  // ← add this
+
+  if (msg.type === 'progress') {
+    console.log('[MAIN → SENDING TO RENDERER]', msg.percent, msg.text);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("import-progress", {
+        text: msg.text,
+        progress: msg.percent,
+        total: 100
+      });
+    } else {
+      console.warn('[MAIN] mainWindow not available for progress send');
+    }
+  } else if (msg.type === 'done') {
         if (msg.success) {
           resolve({ success: true });
         } else {

@@ -14,12 +14,12 @@
 │   ├── project-structure.txt (0 bytes)
 │   └── update-version.js (598 bytes)
 ├── src
-│   ├── App.jsx (27203 bytes)
+│   ├── App.jsx (27224 bytes)
 │   ├── assets
 │   │   ├── css
 │   │   │   ├── main.css (149 bytes)
 │   │   │   ├── tailwind.css (53 bytes)
-│   │   │   └── tailwind.output.css (29445 bytes)
+│   │   │   └── tailwind.output.css (29795 bytes)
 │   │   ├── icons
 │   │   │   ├── atlas_logo.svg (977 bytes)
 │   │   │   ├── data.js (658 bytes)
@@ -40,7 +40,7 @@
 │   │   │   └── GameDetailsWindow.jsx (47768 bytes)
 │   │   ├── GameBanner.js (11984 bytes)
 │   │   ├── importer
-│   │   │   └── importer.jsx (40486 bytes)
+│   │   │   └── importer.jsx (39443 bytes)
 │   │   ├── scanners
 │   │   │   ├── executableScanner.js (1620 bytes)
 │   │   │   ├── f95scanner.js (15862 bytes)
@@ -51,12 +51,12 @@
 │   │   │   ├── Appearance.jsx (3752 bytes)
 │   │   │   ├── EmulatorLauncher.jsx (5513 bytes)
 │   │   │   ├── Interface.jsx (5456 bytes)
-│   │   │   ├── Library.jsx (4601 bytes)
+│   │   │   ├── Library.jsx (5114 bytes)
 │   │   │   ├── Metadata.jsx (1360 bytes)
 │   │   │   ├── Platforms.jsx (270 bytes)
 │   │   │   ├── Settings.jsx (3969 bytes)
 │   │   │   └── settingsIcons.js (6768 bytes)
-│   │   ├── Sidebar.js (7058 bytes)
+│   │   ├── Sidebar.js (7063 bytes)
 │   │   └── ui
 │   │       ├── dialogs
 │   │       │   (empty directory)
@@ -92,11 +92,37 @@
 │   │   │       (empty directory)
 │   │   ├── images
 │   │   │   ├── 1
-│   │   │   │   (empty directory)
+│   │   │   │   ├── banner_mc.webp (106366 bytes)
+│   │   │   │   └── banner_sc.webp (33452 bytes)
 │   │   │   ├── 2
-│   │   │   │   (empty directory)
-│   │   │   └── 3
-│   │   │       (empty directory)
+│   │   │   │   ├── banner_mc.webp (55458 bytes)
+│   │   │   │   └── banner_sc.webp (19888 bytes)
+│   │   │   ├── 3
+│   │   │   │   ├── banner_mc.webp (23134 bytes)
+│   │   │   │   └── banner_sc.webp (13912 bytes)
+│   │   │   ├── 4
+│   │   │   │   ├── banner_mc.webp (17994 bytes)
+│   │   │   │   └── banner_sc.webp (8726 bytes)
+│   │   │   ├── 5
+│   │   │   │   ├── 483313_1_pr.webp (125940 bytes)
+│   │   │   │   ├── 483333_d2n15_pr.webp (72408 bytes)
+│   │   │   │   ├── 483334_d2n30_9_open_pr.webp (108276 bytes)
+│   │   │   │   ├── 483335_d2n31_pr.webp (112194 bytes)
+│   │   │   │   ├── 483336_d2n226_0_pr.webp (64224 bytes)
+│   │   │   │   ├── 483337_d2n255_01_pr.webp (33120 bytes)
+│   │   │   │   ├── 483338_mc35_pr.webp (216632 bytes)
+│   │   │   │   ├── 483339_mc38_pr.webp (232078 bytes)
+│   │   │   │   ├── banner_mc.webp (125940 bytes)
+│   │   │   │   └── banner_sc.webp (37654 bytes)
+│   │   │   ├── 6
+│   │   │   │   ├── banner_mc.webp (11626 bytes)
+│   │   │   │   └── banner_sc.webp (11626 bytes)
+│   │   │   ├── 7
+│   │   │   │   ├── banner_mc.webp (48148 bytes)
+│   │   │   │   └── banner_sc.webp (19568 bytes)
+│   │   │   └── 8
+│   │   │       ├── banner_mc.webp (86692 bytes)
+│   │   │       └── banner_sc.webp (22772 bytes)
 │   │   ├── templates
 │   │   │   └── banner
 │   │   │       (empty directory)
@@ -119,16 +145,17 @@
 │   │       ├── 1772090662.update (950310 bytes)
 │   │       ├── 1772112466.update (1027372 bytes)
 │   │       ├── 1772134245.update (1088157 bytes)
-│   │       └── 1772152149.update (976291 bytes)
+│   │       ├── 1772152149.update (976291 bytes)
+│   │       └── 1772164805.update (18092751 bytes)
 │   ├── database.js (48635 bytes)
 │   ├── gamedetails.html (762 bytes)
 │   ├── index.html (1422 bytes)
 │   ├── launchers
 │   │   (empty directory)
-│   ├── main.js (70915 bytes)
-│   ├── renderer.js (9620 bytes)
+│   ├── main.js (74261 bytes)
+│   ├── renderer.js (10058 bytes)
 │   ├── settings.html (1250 bytes)
 │   └── workers
-│       └── extractWorker.js (1195 bytes)
+│       └── extractWorker.js (3438 bytes)
 └── tailwind.config.js (577 bytes)
 
