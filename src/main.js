@@ -5,7 +5,8 @@ const fsp = require("fs").promises;
 const sharp = require("sharp");
 const axios = require("axios");
 const { autoUpdater } = require("electron-updater");
-const { spawn } = require('child_process');
+const { spawn } = require("child_process");
+const { Worker } = require("worker_threads");
 const ini = require("ini");
 const {
   initializeDatabase,
@@ -1372,14 +1373,168 @@ ipcMain.handle("import-games", async (event, params) => {
         // Now safe to create (either new or just cleared)
         await fsp.mkdir(extractPath, { recursive: true });
 
+        // Pre-scan archive to get exact totals
+        let archiveInfo;
+        try {
+          archiveInfo = await getArchiveInfo(zipPath, sevenZipPath);
+          console.log(
+            `Archive info: ${archiveInfo.totalFiles} files, ${archiveInfo.totalUncompressedBytes} bytes uncompressed`,
+          );
+        } catch (err) {
+          console.warn("Pre-scan failed, falling back to estimation:", err);
+          archiveInfo = { totalFiles: 0, totalUncompressedBytes: 0 };
+        }
+
+        const useFileCount = archiveInfo.totalFiles > 10; // only trust if reasonable count
+        const useSize = archiveInfo.totalUncompressedBytes > 1024 * 1024; // >1MB
+
         mainWindow.webContents.send("import-progress", {
-          text: `Extracting ${game.title} (${archiveFilename}) → ${path.basename(extractPath)}`,
-          progress,
-          total,
+          text: `Preparing extraction for ${game.title}...`,
+          progress: 0,
+          total: 100,
         });
 
-        // Do the actual extraction
-        await extractArchive(zipPath, extractPath, sevenZipPath);
+        let lastPercent = 0;
+
+        const progressInterval = setInterval(async () => {
+          try {
+            const files = await fsp.readdir(extractPath, { recursive: true });
+            const currentFiles = files.length;
+
+            let percent = 0;
+
+            // 1. Best: use exact file count from pre-scan
+            if (useFileCount && archiveInfo.totalFiles > 10) {
+              percent = Math.min(
+                95,
+                Math.round((currentFiles / archiveInfo.totalFiles) * 100),
+              );
+            }
+            // 2. Fallback: size-based (only if we have meaningful uncompressed size)
+            else if (
+              useSize &&
+              archiveInfo.totalUncompressedBytes > 1024 * 1024 * 5
+            ) {
+              // >5MB
+              let currentSize = 0;
+              for (const file of files) {
+                try {
+                  const fullPath = path.join(extractPath, file);
+                  const stat = await fsp.stat(fullPath);
+                  if (stat.isFile()) currentSize += stat.size;
+                } catch {}
+              }
+              percent = Math.min(
+                95,
+                Math.round(
+                  (currentSize / archiveInfo.totalUncompressedBytes) * 100,
+                ),
+              );
+            }
+            // 3. Last resort: very conservative rough estimate (prevents jumping over 50–60% too early)
+            else {
+              // Use a higher divisor early on to avoid overestimation
+              percent = Math.min(95, Math.round(currentFiles / 20)); // start slower
+              // Gradually become more aggressive as we get closer
+              if (currentFiles > 300)
+                percent = Math.min(95, Math.round(currentFiles / 15));
+            }
+
+            // Only update if meaningfully higher (prevents jitter)
+            if (percent > lastPercent + 1 || percent === 100) {
+              lastPercent = percent;
+              mainWindow?.webContents.send("import-progress", {
+                text: `Extracting... ${percent}% (${currentFiles} files)`,
+                progress: percent,
+                total: 100,
+              });
+              console.log(
+                `[extraction progress] ${percent}% (${currentFiles} files)`,
+              );
+            }
+          } catch {
+            // silent fail if folder not ready
+          }
+        }, 1200); // slightly slower interval = smoother feel
+
+        try {
+          await extractArchive(zipPath, extractPath, sevenZipPath);
+
+          clearInterval(progressInterval);
+
+          // Force 100%
+          mainWindow?.webContents.send("import-progress", {
+            text: `Extraction complete — 100% (${game.title})`,
+            progress: 100,
+            total: 100,
+          });
+          // ── NEW: Ask user if they want to delete the original archive ───────
+          // Only ask if deleteAfter is NOT already enabled in global settings
+          if (!deleteAfter) {
+            const { response } = await dialog.showMessageBox(mainWindow, {
+              type: "question",
+              buttons: [
+                "Yes, delete archive",
+                "No, keep it",
+                "Cancel import for this game",
+              ],
+              defaultId: 0, // Yes is default
+              cancelId: 2,
+              title: "Delete Original Archive?",
+              message: `Extraction finished for ${game.title}.\n\nDo you want to delete the original archive file?\n\n${zipPath}`,
+              detail:
+                "This cannot be undone. Keeping it is safer if something goes wrong.",
+            });
+
+            if (response === 0) {
+              // Yes - delete
+              try {
+                await fsp.unlink(zipPath);
+                console.log(`Deleted archive: ${zipPath}`);
+                mainWindow?.webContents.send("import-progress", {
+                  text: `Deleted original archive (${game.title})`,
+                  progress: 100,
+                  total: 100,
+                });
+              } catch (delErr) {
+                console.error(`Failed to delete archive ${zipPath}:`, delErr);
+                mainWindow?.webContents.send("import-progress", {
+                  text: `Failed to delete archive (kept original)`,
+                  progress: 100,
+                  total: 100,
+                });
+              }
+            } else if (response === 1) {
+              // No - keep
+              mainWindow?.webContents.send("import-progress", {
+                text: `Kept original archive (${game.title})`,
+                progress: 100,
+                total: 100,
+              });
+            } else if (response === 2) {
+              // Cancel this game
+              mainWindow?.webContents.send("import-progress", {
+                text: `Skipped remaining steps for ${game.title} (user cancelled)`,
+                progress: 100,
+                total: 100,
+              });
+              continue; // skip DB save / executable scan for this game
+            }
+          } else {
+            // deleteAfter was enabled globally → auto-delete without asking
+            try {
+              await fsp.unlink(zipPath);
+              console.log(
+                `Auto-deleted archive (deleteAfter enabled): ${zipPath}`,
+              );
+            } catch (e) {
+              console.warn(`Auto-delete failed: ${e.message}`);
+            }
+          }
+        } catch (err) {
+          clearInterval(progressInterval);
+          throw err;
+        }
 
         // Optional: delete source archive
         if (deleteAfter) {
@@ -1428,6 +1583,18 @@ ipcMain.handle("import-games", async (event, params) => {
           });
           game.selectedValue = null;
           execPath = null;
+        } else if (execs.length === 1) {
+          // ← NEW: Auto-select the only executable, skip modal
+          selectedExec = execs[0];
+          console.log(
+            `Auto-selected single executable for ${game.title}: ${selectedExec}`,
+          );
+
+          mainWindow.webContents.send("import-progress", {
+            text: `Using single executable: ${selectedExec}`,
+            progress: 100,
+            total: 100,
+          });
         } else {
           selected = await new Promise((resolve) => {
             showExecutableChooser(game.title, game.version || "", execs);
@@ -1651,6 +1818,67 @@ function getFolderSize(dir) {
   return size;
 }
 
+async function getArchiveInfo(archivePath, sevenZipBin) {
+  if (!sevenZipBin || !fs.existsSync(sevenZipBin)) {
+    throw new Error("NO_7ZIP_FOUND");
+  }
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(sevenZipBin, ["l", archivePath, "-y"]);
+
+    let output = "";
+    child.stdout.on("data", (data) => {
+      output += data.toString();
+    });
+    child.stderr.on("data", (data) => {
+      output += data.toString();
+    });
+
+    child.on("close", (code) => {
+      if (code !== 0) {
+        return reject(new Error(`7z l failed with code ${code}`));
+      }
+
+      // Parse last line for summary, e.g.: "1112 files, 101 folders"
+      const lines = output.split("\n");
+      const summaryLine = lines.find(
+        (l) => l.includes("files") && l.includes("folders"),
+      );
+      if (!summaryLine) {
+        return reject(new Error("Could not parse archive summary"));
+      }
+
+      const fileMatch = summaryLine.match(/(\d+)\s+files/);
+      const sizeMatch = lines.find(
+        (l) => l.includes("Size:") && l.includes("Compressed:"),
+      );
+      let totalFiles = 0;
+      let totalUncompressedBytes = 0;
+
+      if (fileMatch) totalFiles = parseInt(fileMatch[1], 10);
+
+      if (sizeMatch) {
+        const sizeParts = sizeMatch.split(/\s+/);
+        // Look for the uncompressed size (usually the first big number after "Size:")
+        for (let i = 0; i < sizeParts.length; i++) {
+          if (sizeParts[i] === "Size:") {
+            totalUncompressedBytes = parseInt(sizeParts[i + 1], 10) || 0;
+            break;
+          }
+        }
+      }
+
+      resolve({
+        totalFiles,
+        totalUncompressedBytes,
+        success: totalFiles > 0,
+      });
+    });
+
+    child.on("error", reject);
+  });
+}
+
 async function downloadImages(
   recordId,
   atlasId,
@@ -1829,202 +2057,45 @@ async function downloadImages(
   }
 }
 
-async function unzipGame({ zipPath, extractPath }) {
-  const AdmZip = require("adm-zip");
-  const sevenZip = require("node-7z");
-  const Unrar = require("unrar");
-  const { Worker } = require("worker_threads");
-
-  try {
-    let ext = path.extname(zipPath).toLowerCase();
-    if (ext.startsWith(".")) ext = ext.slice(1);
-
-    console.log(`Extracting: ${zipPath} (${ext}) -> ${extractPath}`);
-
-    if (ext === "zip") {
-      const zip = new AdmZip(zipPath);
-      zip.extractAllTo(extractPath, true);
-    } else if (ext === "rar") {
-      const unrar = new Unrar(zipPath);
-      await new Promise((resolve, reject) => {
-        unrar.extract(extractPath, (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-    } else if (ext === "7z") {
-      const { Worker } = require("worker_threads");
-
-      let extractionProgress = 0;
-      const extractionTotal = 100;
-
-      const update = (percent, message = "") => {
-        extractionProgress = Math.max(extractionProgress, percent);
-        mainWindow.webContents.send("import-progress", {
-          text: `Extracting archive... ${extractionProgress}% ${message}`,
-          progress: extractionProgress,
-          total: extractionTotal,
-        });
-      };
-
-      // Start polling in main thread (lightweight, keeps UI responsive)
-      const pollInterval = setInterval(() => {
-        try {
-          const files = fs.readdirSync(extractPath, { recursive: true });
-          const count = files.length;
-          // Rough estimate: adjust divisor based on your typical archive size
-          // (e.g. 1500 files → ~100%, tune as needed)
-          const estPercent = Math.min(95, 10 + count / 15);
-          update(estPercent, `(files: ${count})`);
-        } catch (e) {
-          // Silent fail if folder not ready yet
-        }
-      }, 1200); // every 1.2 seconds — enough to feel alive, low CPU
-
-      try {
-        update(0, "(starting worker)");
-
-        const worker = new Worker(
-          path.join(__dirname, "workers/extractWorker.js"),
-        );
-        const taskId = Date.now();
-
-        worker.postMessage({ zipPath, extractPath, taskId });
-
-        await new Promise((resolve, reject) => {
-          worker.on("message", (msg) => {
-            if (msg.taskId !== taskId) return;
-
-            if (msg.type === "done") {
-              if (msg.success) resolve();
-              else reject(new Error(msg.error));
-              worker.terminate();
-            }
-          });
-
-          worker.on("error", (err) => {
-            reject(err);
-            worker.terminate();
-          });
-
-          worker.on("exit", (code) => {
-            if (code !== 0)
-              reject(new Error(`Worker exited with code ${code}`));
-          });
-        });
-
-        clearInterval(pollInterval);
-
-        // Final check
-        const filesAfter = fs.readdirSync(extractPath, { recursive: true });
-        if (filesAfter.length === 0) {
-          throw new Error("Extraction finished but folder is empty");
-        }
-
-        update(100, "complete");
-        console.log(`Extraction done: ${filesAfter.length} files`);
-
-        return { success: true };
-      } catch (err) {
-        clearInterval(pollInterval);
-        console.error("Extraction failed:", err);
-        throw new Error(`.7z extraction failed: ${err.message}`);
-      }
-    } else {
-      throw new Error(`Unsupported archive format: .${ext}`);
-    }
-
-    // Verify extraction actually worked
-    const filesAfter = fs.readdirSync(extractPath, { recursive: true });
-    console.log(`Files after extraction: ${filesAfter.length}`);
-
-    if (filesAfter.length === 0) {
-      throw new Error("Extraction succeeded but folder is empty");
-    }
-
-    return { success: true };
-  } catch (err) {
-    console.error("Local unzip failed:", err);
-    throw new Error(`Extraction failed: ${err.message}`);
+async function extractArchive(archivePath, extractPath, sevenZipBin) {
+  const workerPath = path.join(__dirname, "workers/extractWorker.js");
+  console.log("Worker path:", workerPath);
+  if (!fs.existsSync(workerPath)) {
+    throw new Error(`Worker file not found: ${workerPath}`);
   }
-}
-async function extractArchive(archivePath, extractTo, sevenZipPathFromConfig) {
-  let sevenZipBin = sevenZipPathFromConfig;
-
-  // Try smart fallback if not set
-  if (
-    !sevenZipBin ||
-    !(await fsp
-      .access(sevenZipBin)
-      .then(() => true)
-      .catch(() => false))
-  ) {
-    const defaults = (await window.electronAPI.getDefault7zPaths?.()) || [];
-    for (const candidate of defaults) {
-      if (
-        await fsp
-          .access(candidate)
-          .then(() => true)
-          .catch(() => false)
-      ) {
-        sevenZipBin = candidate;
-        break;
-      }
-    }
-  }
-
-  // Still not found → we will ask user later (handled in import flow)
-  if (!sevenZipBin) {
-    throw new Error("NO_7ZIP_FOUND");
-  }
-
   return new Promise((resolve, reject) => {
-    const args = [
-      "x",
-      archivePath, // extract
-      `-o${extractTo}`, // output dir
-      "-y", // assume Yes to all
-      "-bso1", // stdout
-      "-bsp1", // progress to stderr
-    ];
-
-    const child = spawn(sevenZipBin, args);
-
-    let lastPercent = 0;
-    let buffer = "";
-
-    child.stderr.on("data", (chunk) => {
-      buffer += chunk.toString();
-
-      // Look for percentage (very common format: " 45%   123MiB")
-      const match = buffer.match(/(\d+)%/);
-      if (match) {
-        const percent = parseInt(match[1], 10);
-        if (percent > lastPercent && percent <= 100) {
-          lastPercent = percent;
-          mainWindow?.webContents.send("import-progress", {
-            text: `Extracting archive... ${percent}%`,
-            progress: percent,
-            total: 100,
-          });
+    const worker = new Worker(
+      path.join(__dirname, "workers/extractWorker.js"),
+      {
+        workerData: { archivePath, extractPath, sevenZipBin },
+      },
+    );
+    worker.on("message", (msg) => {
+      if (msg.type === "progress") {
+        mainWindow?.webContents.send("import-progress", {
+          text: msg.text,
+          progress: msg.percent,
+          total: 100,
+        });
+      } else if (msg.type === "done") {
+        if (msg.success) {
+          resolve({ success: true });
+        } else {
+          reject(new Error(msg.error || "Extraction failed"));
         }
-      }
-
-      // Keep buffer from growing too much
-      const lines = buffer.split("\n");
-      buffer = lines.slice(-10).join("\n");
-    });
-
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve({ success: true });
-      } else {
-        reject(new Error(`7z exited with code ${code}`));
+        worker.terminate();
       }
     });
 
-    child.on("error", (err) => {
-      reject(new Error(`Failed to start 7z: ${err.message}`));
+    worker.on("error", (err) => {
+      reject(err);
+      worker.terminate();
+    });
+
+    worker.on("exit", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Worker stopped with exit code ${code}`));
+      }
     });
   });
 }

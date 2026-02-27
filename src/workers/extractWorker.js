@@ -1,53 +1,75 @@
-// src/workers/extractWorker.js
-const { parentPort } = require("worker_threads");
-const SevenZip = require("7z-wasm");
-const fs = require("fs");
+// workers/extractWorker.js
+const { parentPort, workerData } = require("worker_threads");
+const { spawn } = require("child_process");
+const fs = require("fs").promises;
 const path = require("path");
 
-parentPort.on("message", async (data) => {
-  const { zipPath, extractPath, taskId } = data;
+const { archivePath, extractPath, sevenZipBin } = workerData;
 
-  try {
-    const sevenZip = await SevenZip();
+async function extractInWorker() {
+  let lastPercent = 0;
+  let lastFileCount = 0;
 
-    const mountInput = "/input";
-    const mountOutput = "/output";
+  // Progress reporting interval (file count based)
+  const interval = setInterval(async () => {
+    try {
+      const files = await fs.readdir(extractPath, { recursive: true });
+      const count = files.length;
 
-    sevenZip.FS.mkdir(mountInput);
-    sevenZip.FS.mkdir(mountOutput);
+      const estimated = Math.min(95, Math.round(count / 12)); // tune divisor as needed
 
-    sevenZip.FS.mount(
-      sevenZip.NODEFS,
-      { root: path.dirname(zipPath) },
-      mountInput,
-    );
-    sevenZip.FS.mount(sevenZip.NODEFS, { root: extractPath }, mountOutput);
+      if (estimated > lastPercent) {
+        lastPercent = estimated;
+        parentPort.postMessage({
+          type: "progress",
+          percent: estimated,
+          text: `Extracting... ${estimated}% (${count} files)`,
+          fileCount: count,
+        });
+      }
 
-    const archiveName = path.basename(zipPath);
+      lastFileCount = count;
+    } catch {
+      // ignore if folder not ready
+    }
+  }, 1000);
 
-    sevenZip.callMain([
+  return new Promise((resolve, reject) => {
+    const child = spawn(sevenZipBin, [
       "x",
-      `${mountInput}/${archiveName}`,
-      `-o${mountOutput}`,
+      archivePath,
+      `-o${extractPath}`,
       "-y",
     ]);
 
-    sevenZip.FS.unlink(`${mountInput}/${archiveName}`).catch(() => {});
-
-    const files = fs.readdirSync(extractPath, { recursive: true });
-
-    parentPort.postMessage({
-      type: "done",
-      success: true,
-      taskId,
-      fileCount: files.length,
+    child.on("error", (err) => {
+      clearInterval(interval);
+      reject(err);
     });
-  } catch (err) {
+
+    child.on("close", (code) => {
+      clearInterval(interval);
+
+      if (code === 0) {
+        parentPort.postMessage({
+          type: "progress",
+          percent: 100,
+          text: "Extraction complete — 100%",
+        });
+        resolve({ success: true });
+      } else {
+        reject(new Error(`7z exited with code ${code}`));
+      }
+    });
+  });
+}
+
+extractInWorker()
+  .then(() => parentPort.postMessage({ type: "done", success: true }))
+  .catch((err) =>
     parentPort.postMessage({
       type: "done",
       success: false,
-      taskId,
       error: err.message,
-    });
-  }
-});
+    }),
+  );
