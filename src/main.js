@@ -1568,7 +1568,26 @@ ipcMain.handle("import-games", async (event, params) => {
         } = require("./core/scanners/executableScanner");
         let execs = findExecutables(extractPath, gameExt);
 
-        // Handle common single-subfolder case (your original logic)
+        // ── Move Single Folder ────────────────────────────────
+
+        // First: clean up common unwanted root-level folders
+        const foldersToRemove = ["__MACOSX", "__LINUX"];
+
+        for (const folderName of foldersToRemove) {
+          const target = path.join(extractPath, folderName);
+          try {
+            // Check if it exists and is a directory
+            const stat = await fsp.stat(target).catch(() => null);
+            if (stat && stat.isDirectory()) {
+              console.log(`Removing unwanted folder: ${folderName}`);
+              await fsp.rm(target, { recursive: true, force: true });
+            }
+          } catch (err) {
+            console.warn(`Failed to remove ${folderName}: ${err.message}`);
+          }
+        }
+
+        // Now handle common single-subfolder case (your original logic)
         const items = await fsp.readdir(extractPath, { withFileTypes: true });
         const dirs = items.filter((i) => i.isDirectory());
         const files = items.filter((i) => i.isFile());
@@ -1585,11 +1604,13 @@ ipcMain.handle("import-games", async (event, params) => {
           try {
             await fsp.rmdir(subPath);
           } catch {}
+
+          // Re-scan executables after flattening
           execs = findExecutables(extractPath, gameExt);
         }
 
         // ── Executable selection (your existing modal logic) ────────────────
-        let selected = null;
+        
         if (execs.length === 0) {
           mainWindow.webContents.send("import-progress", {
             text: `Extracted ${game.title} – no executables found`,
@@ -1611,7 +1632,7 @@ ipcMain.handle("import-games", async (event, params) => {
             total: 100,
           });
         } else {
-          selected = await new Promise((resolve) => {
+          selectedExec = await new Promise((resolve) => {
             showExecutableChooser(game.title, game.version || "", execs);
             const onChosen = (event, data) => {
               ipcMain.removeAllListeners("executable-chosen");
@@ -1625,7 +1646,7 @@ ipcMain.handle("import-games", async (event, params) => {
             });
           });
 
-          if (!selected) {
+          if (!selectedExec) {
             mainWindow.webContents.send("import-progress", {
               text: `Skipped ${game.title} – no executable selected`,
               progress,
@@ -1633,11 +1654,12 @@ ipcMain.handle("import-games", async (event, params) => {
             });
             continue;
           }
-
-          execPath = path.join(extractPath, selected);
-          game.selectedValue = selected;
-          game.executables = execs.map((e) => ({ key: e, value: e }));
         }
+        execPath = path.join(extractPath, selectedExec);
+          game.selectedValue = selectedExec;
+          console.log(execs)
+          console.log(execPath)
+          game.executables = execs.map((e) => ({ key: e, value: e }));
       }
 
       if (scanSize) {
