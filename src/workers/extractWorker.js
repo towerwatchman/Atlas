@@ -8,8 +8,8 @@ const {
   archivePath,
   extractPath,
   sevenZipBin,
-  totalUncompressedBytes = 0,   // Passed from main
-  totalFiles = 0                // Passed from main (optional fallback)
+  totalUncompressedBytes = 0, // Passed from main
+  totalFiles = 0, // Passed from main (optional fallback)
 } = workerData;
 
 async function extractInWorker() {
@@ -18,7 +18,9 @@ async function extractInWorker() {
   let lastFileCount = 0;
 
   console.log(`[worker] Starting extraction: ${archivePath} → ${extractPath}`);
-  console.log(`[worker] Known totals: ${totalFiles} files, ${totalUncompressedBytes} bytes uncompressed`);
+  console.log(
+    `[worker] Known totals: ${totalFiles} files, ${totalUncompressedBytes} bytes uncompressed`,
+  );
 
   // Progress reporting interval
   const interval = setInterval(async () => {
@@ -27,7 +29,10 @@ async function extractInWorker() {
       let currentFiles = 0;
 
       // Get all entries recursively
-      const entries = await fs.readdir(extractPath, { recursive: true, withFileTypes: true });
+      const entries = await fs.readdir(extractPath, {
+        recursive: true,
+        withFileTypes: true,
+      });
       currentFiles = entries.length;
 
       // Sum file sizes
@@ -47,8 +52,12 @@ async function extractInWorker() {
       let progressText = "";
 
       // 1. Primary: size-based progress (preferred when available)
-      if (totalUncompressedBytes > 1024 * 1024 * 5) { // > ~5 MB to trust
-        percent = Math.min(95, Math.round((currentBytes / totalUncompressedBytes) * 100));
+      if (totalUncompressedBytes > 1024 * 1024 * 5) {
+        // > ~5 MB to trust
+        percent = Math.min(
+          95,
+          Math.round((currentBytes / totalUncompressedBytes) * 100),
+        );
         progressText = `Extracting... ${percent}% (${Math.round(currentBytes / 1024 / 1024)} / ${Math.round(totalUncompressedBytes / 1024 / 1024)} MiB)`;
       }
       // 2. Fallback: file-count based
@@ -71,7 +80,7 @@ async function extractInWorker() {
           percent,
           text: progressText,
           bytes: currentBytes,
-          files: currentFiles
+          files: currentFiles,
         });
 
         console.log(`[worker] Sent progress: ${progressText}`);
@@ -79,7 +88,6 @@ async function extractInWorker() {
 
       lastBytes = currentBytes;
       lastFileCount = currentFiles;
-
     } catch (err) {
       // Folder not ready yet or access denied → skip tick
     }
@@ -112,7 +120,7 @@ async function extractInWorker() {
         parentPort.postMessage({
           type: "progress",
           percent: 100,
-          text: "Extraction complete — 100%"
+          text: "Extraction complete — 100%",
         });
         resolve({ success: true });
       } else {
@@ -132,7 +140,7 @@ extractInWorker()
     parentPort.postMessage({
       type: "done",
       success: false,
-      error: err.message
+      error: err.message,
     });
     console.error(`[worker] Sent done: error - ${err.message}`);
   });

@@ -2119,21 +2119,21 @@ async function extractArchive(
         },
       },
     );
-    worker.on('message', (msg) => {
-  console.log('[MAIN → WORKER MSG RECEIVED]', JSON.stringify(msg));  // ← add this
+    worker.on("message", (msg) => {
+      console.log("[MAIN → WORKER MSG RECEIVED]", JSON.stringify(msg)); // ← add this
 
-  if (msg.type === 'progress') {
-    console.log('[MAIN → SENDING TO RENDERER]', msg.percent, msg.text);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("import-progress", {
-        text: msg.text,
-        progress: msg.percent,
-        total: 100
-      });
-    } else {
-      console.warn('[MAIN] mainWindow not available for progress send');
-    }
-  } else if (msg.type === 'done') {
+      if (msg.type === "progress") {
+        console.log("[MAIN → SENDING TO RENDERER]", msg.percent, msg.text);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("import-progress", {
+            text: msg.text,
+            progress: msg.percent,
+            total: 100,
+          });
+        } else {
+          console.warn("[MAIN] mainWindow not available for progress send");
+        }
+      } else if (msg.type === "done") {
         if (msg.success) {
           resolve({ success: true });
         } else {

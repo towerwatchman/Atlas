@@ -66,7 +66,7 @@
 │   │           └── importer.html (938 bytes)
 │   ├── data
 │   │   ├── config.ini (369 bytes)
-│   │   ├── data.db (60547072 bytes)
+│   │   ├── data.db (60588032 bytes)
 │   │   ├── games
 │   │   │   ├── Ahsoker -1.0
 │   │   │   │   (empty directory)
@@ -146,16 +146,20 @@
 │   │       ├── 1772112466.update (1027372 bytes)
 │   │       ├── 1772134245.update (1088157 bytes)
 │   │       ├── 1772152149.update (976291 bytes)
-│   │       └── 1772164805.update (18092751 bytes)
+│   │       ├── 1772164805.update (18092751 bytes)
+│   │       ├── 1772337605.update (18110556 bytes)
+│   │       ├── 1772349919.update (977425 bytes)
+│   │       ├── 1772371422.update (944737 bytes)
+│   │       └── 1772393549.update (1116048 bytes)
 │   ├── database.js (48635 bytes)
 │   ├── gamedetails.html (762 bytes)
 │   ├── index.html (1422 bytes)
 │   ├── launchers
 │   │   (empty directory)
-│   ├── main.js (74261 bytes)
+│   ├── main.js (74546 bytes)
 │   ├── renderer.js (10058 bytes)
 │   ├── settings.html (1250 bytes)
 │   └── workers
-│       └── extractWorker.js (3438 bytes)
+│       └── extractWorker.js (4150 bytes)
 └── tailwind.config.js (577 bytes)
 
