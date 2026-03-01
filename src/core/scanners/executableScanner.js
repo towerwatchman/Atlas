@@ -36,29 +36,52 @@ function findExecutables(dir, extensions) {
 
   while (stack.length) {
     const current = stack.pop();
-    const items = fs.readdirSync(current, { withFileTypes: true });
+    let foundInThisDir = false;
+
+    let items;
+    try {
+      items = fs.readdirSync(current, { withFileTypes: true });
+    } catch (err) {
+      console.warn(`Cannot read directory ${current}: ${err.message}`);
+      continue;
+    }
 
     for (const item of items) {
       const fullPath = path.join(current, item.name);
 
       if (item.isDirectory()) {
-        stack.push(fullPath);
+        // Only push subdir if we haven't already found an executable in this folder
+        if (!foundInThisDir) {
+          stack.push(fullPath);
+        }
         continue;
       }
 
       const ext = path.extname(item.name).toLowerCase().slice(1);
       const nameLower = item.name.toLowerCase();
 
+      if (!extensions.includes(ext)) continue;
+
+      // Blacklist + -32 check
       if (
-        extensions.includes(ext) &&
-        !blacklist.some((b) => nameLower.includes(b.toLowerCase()))
+        blacklist.some((b) => nameLower.includes(b.toLowerCase())) ||
+        nameLower.includes("-32")
       ) {
-        // Return relative path from dir
-        const relative = fullPath.replace(dir + path.sep, "");
-        execs.push(relative);
-        console.log(`Found executable: ${relative}`);
+        continue;
       }
+
+      // Found a valid executable
+      const relative = path.relative(dir, fullPath);
+      execs.push(relative);
+      console.log(`Found executable: ${relative}`);
+
+      foundInThisDir = true;
+      // We can break early if you only want **one** match per folder
+      // break;
     }
+
+    // Optional: if you want to stop after first match in the whole search, add:
+    // if (execs.length > 0) break;
   }
 
   console.log(`Total executables found: ${execs.length}`);
