@@ -1655,7 +1655,7 @@ ipcMain.handle("import-games", async (event, params) => {
             continue;
           }
         }
-        execPath = path.join(extractPath, selectedExec);
+          execPath = path.join(extractPath, selectedExec);
           game.selectedValue = selectedExec;
           console.log(execs)
           console.log(execPath)
