@@ -35,6 +35,26 @@ const Importer = () => {
   const [gamesList, setGamesList] = useState([]);
   const [isMaximized, setIsMaximized] = useState(false);
   const [hideMatches, setHideMatches] = useState(false);
+  const deletedScanGameKeysRef = React.useRef(new Set());
+
+  const getScanGameKey = (game) => {
+    if (game?.folder) return game.folder;
+
+    return [
+      game?.folder || "",
+      game?.title || "",
+      game?.creator || "",
+      game?.version || "",
+      game?.f95Id || "",
+      game?.atlasId || "",
+    ].join("|");
+  };
+
+  const addScannedGame = (game) => {
+    const gameKey = getScanGameKey(game);
+    if (deletedScanGameKeysRef.current.has(gameKey)) return;
+    setGamesList((prev) => [...prev, game]);
+  };
 
   const canImport =
     gamesList.every((game) => {
@@ -84,17 +104,17 @@ const Importer = () => {
           game.creator = parts[3];
           window.electronAPI.getAtlasData(game.atlasId).then((atlasData) => {
             game.engine = atlasData.engine || "Unknown";
-            setGamesList((prev) => [...prev, game]);
+            addScannedGame(game);
             console.log(`Updated game on scan: ${JSON.stringify(game)}`);
             window.electronAPI.log(
               `Updated game on scan: ${JSON.stringify(game)}`,
             );
           });
         } else {
-          setGamesList((prev) => [...prev, game]);
+          addScannedGame(game);
         }
       } else {
-        setGamesList((prev) => [...prev, game]);
+        addScannedGame(game);
       }
     });
 
@@ -130,13 +150,16 @@ const Importer = () => {
         updatedGames.map((g, idx) => `#${idx + 1}: ${g.title}`),
       );
       Promise.all(updatedGames).then((newGamesList) => {
-        setGamesList(newGamesList);
+        const visibleGamesList = newGamesList.filter(
+          (game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game)),
+        );
+        setGamesList(visibleGamesList);
         setView("scan");
         console.log(
-          `Updated gamesList on scan complete: ${JSON.stringify(newGamesList)}`,
+          `Updated gamesList on scan complete: ${JSON.stringify(visibleGamesList)}`,
         );
         window.electronAPI.log(
-          `Updated gamesList on scan complete: ${JSON.stringify(newGamesList)}`,
+          `Updated gamesList on scan complete: ${JSON.stringify(visibleGamesList)}`,
         );
       });
     });
@@ -197,6 +220,7 @@ const Importer = () => {
     setView("scan");
     console.log("Starting scan");
     window.electronAPI.log("Starting scan");
+    deletedScanGameKeysRef.current.clear();
     setGamesList([]);
     const params = {
       folder,
@@ -234,7 +258,13 @@ const Importer = () => {
   const deleteGame = (index) => {
     console.log(`Deleting game at index ${index}`);
     window.electronAPI.log(`Deleting game at index ${index}`);
-    setGamesList((prev) => prev.filter((_, i) => i !== index));
+    setGamesList((prev) => {
+      const game = prev[index];
+      if (game) {
+        deletedScanGameKeysRef.current.add(getScanGameKey(game));
+      }
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const handleResultChange = async (index, value) => {

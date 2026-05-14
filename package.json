@@ -44,10 +44,18 @@
       "src/core/banner/**/*",
       "package.json",
       "node_modules/sqlite3/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*",
       "node_modules/node-7z/**/*",
       "node_modules/unrar/**/*"
     ],
     "asar": true,
+    "asarUnpack": [
+      "node_modules/**/*.node",
+      "node_modules/sqlite3/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*"
+    ],
     "nodeGypRebuild": false,
     "win": {
       "target": [

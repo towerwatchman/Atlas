@@ -36,7 +36,7 @@ const App = () => {
 
 const [activeFilters, setActiveFilters] = useState({
   text: "",
-  type: "title",
+  type: "all",
   category: [],
   engine: [],
   status: [],
@@ -422,8 +422,10 @@ const [activeFilters, setActiveFilters] = useState({
 
   const unzipGame = async () => {
     const zipPath = await window.electronAPI.selectFile();
+    if (!zipPath) return;
+
     const extractPath = await window.electronAPI.selectDirectory();
-    if (!zipPath || !extractPath) return;
+    if (!extractPath) return;
     setImportStatus({ text: "Unzipping game", progress: 50, total: 100 });
     try {
       const result = await window.electronAPI.unzipGame({
@@ -459,11 +461,14 @@ const [activeFilters, setActiveFilters] = useState({
     // Text search
     if (activeFilters.text) {
       const lower = activeFilters.text.toLowerCase();
-      result = result.filter((game) =>
-        activeFilters.type === "title"
-          ? game.title.toLowerCase().includes(lower)
-          : game.creator.toLowerCase().includes(lower),
-      );
+      result = result.filter((game) => {
+        const title = (game.title || "").toLowerCase();
+        const creator = (game.creator || "").toLowerCase();
+
+        if (activeFilters.type === "title") return title.includes(lower);
+        if (activeFilters.type === "creator") return creator.includes(lower);
+        return title.includes(lower) || creator.includes(lower);
+      });
     }
 
     // Update Available
@@ -525,14 +530,29 @@ const [activeFilters, setActiveFilters] = useState({
       result = result.filter((game) => (game.release_date || 0) >= cutoff);
     }
 
+    const parseMetric = (value) => {
+      if (typeof value === "number") return value;
+      const normalized = String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/,/g, "");
+      const match = normalized.match(/([0-9]+(?:\.[0-9]+)?)\s*([km])?/);
+      if (!match) return 0;
+      const amount = Number(match[1]);
+      const multiplier = match[2] === "m" ? 1000000 : match[2] === "k" ? 1000 : 1;
+      return amount * multiplier;
+    };
+
     // Sorting
-result.sort((a, b) => {
-  if (activeFilters.sort === "date") {
-    return (b.release_date || 0) - (a.release_date || 0);
-  }
-  // Default / explicit name sort
-  return a.title.localeCompare(b.title);
-});
+    result.sort((a, b) => {
+      if (activeFilters.sort === "date") {
+        return (b.release_date || 0) - (a.release_date || 0);
+      }
+      if (["likes", "views", "rating"].includes(activeFilters.sort)) {
+        return parseMetric(b[activeFilters.sort]) - parseMetric(a[activeFilters.sort]);
+      }
+      return (a.title || "").localeCompare(b.title || "");
+    });
 
     return result;
   }, [games, activeFilters]);

@@ -5,6 +5,7 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
   const [tagSearch, setTagSearch] = useState("");
   const [highlightedTagIndex, setHighlightedTagIndex] = useState(-1);
   const [selectedFilters, setSelectedFilters] = useState({
+    type: "all",
     category: [],
     engine: [],
     status: [],
@@ -100,6 +101,7 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
           <button
             onClick={() => {
               setSelectedFilters({
+                type: "all",
                 category: [],
                 engine: [],
                 status: [],

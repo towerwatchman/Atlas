@@ -199,7 +199,7 @@ function createGameDetailsWindow(recordId) {
 
   gameDetailsWindow.webContents.on("did-finish-load", () => {
     console.log("Fetching game data for recordId:", recordId);
-    getGame(recordId, app.getAppPath(), process.defaultApp)
+    getGame(recordId, getAssetBasePath(), process.defaultApp)
       .then((game) => {
         setTimeout(() => {
           gameDetailsWindow.webContents.send("send-game-data", game);
@@ -227,26 +227,51 @@ function createGameDetailsWindow(recordId) {
   });
 }
 
-// Create data folders
-var dataDir = "";
-var launcherDir = "";
-if (process.defaultApp) {
-  console.log("Running in development");
-  dataDir = path.join(__dirname, "data");
-  launcherDir = path.join(__dirname, "launchers");
-} else {
-  const resourcesPath = path.resolve(app.getAppPath(), "../../");
-  dataDir = path.join(resourcesPath, "data");
-  launcherDir = path.join(resourcesPath, "launchers");
-  console.log(`Running in release`);
+function copyDirectoryIfMissing(source, target) {
+  if (!source || !fs.existsSync(source)) return;
+
+  if (fs.existsSync(target)) {
+    const targetStats = fs.statSync(target);
+    if (!targetStats.isDirectory() || fs.readdirSync(target).length > 0) return;
+  }
+
+  try {
+    fs.cpSync(source, target, { recursive: true, errorOnExist: false });
+    console.log(`Migrated ${source} to ${target}`);
+  } catch (err) {
+    console.error(`Failed to migrate ${source} to ${target}:`, err);
+  }
 }
 
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+function getLegacyResourcesPath() {
+  return path.resolve(app.getAppPath(), "../../");
 }
-if (!fs.existsSync(launcherDir)) {
-  fs.mkdirSync(launcherDir, { recursive: true });
+
+function getAssetBasePath() {
+  return process.defaultApp ? app.getAppPath() : app.getPath("userData");
 }
+
+// Create data folders
+const appDataRoot = process.defaultApp ? __dirname : app.getPath("userData");
+const legacyResourcesPath = process.defaultApp ? null : getLegacyResourcesPath();
+var dataDir = path.join(appDataRoot, "data");
+var launcherDir = path.join(appDataRoot, "launchers");
+
+fs.mkdirSync(appDataRoot, { recursive: true });
+
+if (process.defaultApp) {
+  console.log("Running in development");
+} else {
+  console.log("Running in release");
+  copyDirectoryIfMissing(path.join(legacyResourcesPath, "data"), dataDir);
+  copyDirectoryIfMissing(
+    path.join(legacyResourcesPath, "launchers"),
+    launcherDir,
+  );
+}
+
+fs.mkdirSync(dataDir, { recursive: true });
+fs.mkdirSync(launcherDir, { recursive: true });
 const updatesDir = path.join(dataDir, "updates");
 if (!fs.existsSync(updatesDir)) {
   fs.mkdirSync(updatesDir, { recursive: true });
@@ -357,7 +382,7 @@ ipcMain.handle("delete-version", async (_, { recordId, version }) => {
 ipcMain.handle("delete-game-completely", async (_, recordId) => {
   const result = await deleteGameCompletely(
     recordId,
-    app.getAppPath(),
+    getAssetBasePath(),
     process.defaultApp,
   );
 
@@ -373,11 +398,11 @@ ipcMain.handle("delete-game-completely", async (_, recordId) => {
 
 ipcMain.handle("get-game", async (event, recordId) => {
   console.log("Default app state", app.getAppPath());
-  return await getGame(recordId, app.getAppPath(), process.defaultApp);
+  return await getGame(recordId, getAssetBasePath(), process.defaultApp);
 });
 
 ipcMain.handle("get-games", async (event, { offset, limit }) => {
-  return await getGames(app.getAppPath(), process.defaultApp, offset, limit);
+  return await getGames(getAssetBasePath(), process.defaultApp, offset, limit);
 });
 
 ipcMain.handle("remove-game", async (event, record_id) => {
@@ -782,7 +807,7 @@ ipcMain.handle("get-previews", async (event, recordId) => {
   try {
     const previews = await getPreviews(
       recordId,
-      app.getAppPath(),
+      getAssetBasePath(),
       process.defaultApp,
     );
     return Array.isArray(previews) ? previews : [];
@@ -816,7 +841,7 @@ ipcMain.handle("update-banners", async (event, recordId) => {
 
     const bannerPath = await getBanner(
       recordId,
-      app.getAppPath(),
+      getAssetBasePath(),
       process.defaultApp,
       "large",
     );
@@ -858,7 +883,7 @@ ipcMain.handle("update-previews", async (event, recordId) => {
 
     const previewUrls = await getPreviews(
       recordId,
-      app.getAppPath(),
+      getAssetBasePath(),
       process.defaultApp,
     );
     event.sender.send("game-updated", recordId);
@@ -886,8 +911,7 @@ ipcMain.handle(
     );
     try {
       const outputPath = path.join(
-        app.getAppPath(),
-        "src",
+        appDataRoot,
         "data",
         "images",
         `${recordId}`,
@@ -930,7 +954,7 @@ ipcMain.handle("delete-banner", async (event, recordId) => {
   await initializeDatabase(dataDir);
   console.log("Handling delete-banner for recordId:", recordId);
   try {
-    await deleteBanner(recordId, app.getAppPath(), process.defaultApp);
+    await deleteBanner(recordId, getAssetBasePath(), process.defaultApp);
     mainWindow.webContents.send("game-updated", recordId);
     return { success: true };
   } catch (err) {
@@ -943,7 +967,7 @@ ipcMain.handle("delete-previews", async (event, recordId) => {
   await initializeDatabase(dataDir);
   console.log("Handling delete-previews for recordId:", recordId);
   try {
-    await deletePreviews(recordId, app.getAppPath(), process.defaultApp);
+    await deletePreviews(recordId, getAssetBasePath(), process.defaultApp);
     mainWindow.webContents.send("game-updated", recordId);
     return { success: true };
   } catch (err) {

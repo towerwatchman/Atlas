@@ -4,6 +4,9 @@ const fs = require("fs").promises;
 
 let db;
 
+const getAssetBasePath = (appPath, isDev) =>
+  isDev ? path.join(appPath, "src") : appPath;
+
 const initializeDatabase = (dataDir) => {
   const dbPath = path.join(dataDir, "data.db");
   db = new sqlite3.Database(dbPath, (err) => {
@@ -394,9 +397,7 @@ const updateVersion = (version, record_id) => {
 
 const getGame = (recordId, appPath, isDev) => {
   return new Promise((resolve, reject) => {
-    const baseImagePath = isDev
-      ? path.join(appPath, "src")
-      : path.resolve(appPath, "../../");
+    const baseImagePath = getAssetBasePath(appPath, isDev);
     const query = `
       SELECT
         games.record_id as record_id,
@@ -553,9 +554,7 @@ const getGame = (recordId, appPath, isDev) => {
 
 const getGames = (appPath, isDev, offset = 0, limit = null) => {
   return new Promise((resolve, reject) => {
-    const baseImagePath = isDev
-      ? path.join(appPath, "src")
-      : path.resolve(appPath, "../../");
+    const baseImagePath = getAssetBasePath(appPath, isDev);
 
     // Main query with OFFSET and LIMIT
     let mainQuery = `
@@ -1229,9 +1228,7 @@ const updatePreviews = (recordId, previewPath) => {
 
 const getPreviews = (recordId, appPath, isDev) => {
   return new Promise((resolve, reject) => {
-    const baseImagePath = isDev
-      ? path.join(appPath, "src")
-      : path.resolve(appPath, "../../");
+    const baseImagePath = getAssetBasePath(appPath, isDev);
     db.all(
       `SELECT path FROM previews WHERE record_id = ?`,
       [recordId],
@@ -1255,9 +1252,7 @@ const getPreviews = (recordId, appPath, isDev) => {
 
 const getBanners = (recordId, appPath, isDev) => {
   return new Promise((resolve, reject) => {
-    const baseImagePath = isDev
-      ? path.join(appPath, "src")
-      : path.resolve(appPath, "../../");
+    const baseImagePath = getAssetBasePath(appPath, isDev);
     db.all(
       `SELECT path FROM banners WHERE record_id = ?`,
       [recordId],
@@ -1280,9 +1275,7 @@ const getBanners = (recordId, appPath, isDev) => {
 
 const getBanner = (recordId, appPath, isDev, type) => {
   return new Promise((resolve, reject) => {
-    const baseImagePath = isDev
-      ? path.join(appPath, "src")
-      : path.resolve(appPath, "../../");
+    const baseImagePath = getAssetBasePath(appPath, isDev);
     db.all(
       `SELECT path FROM banners WHERE record_id = ? AND type=?`,
       [recordId, type],

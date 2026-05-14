@@ -108,23 +108,6 @@ const GameDetailWindow = () => {
 
     window.electronAPI.onGameData(handleGameData);
 
-    const timeout = setTimeout(() => {
-      if (!dataReceived) {
-        console.warn(
-          "No game data received after 3 seconds, requesting manually",
-        );
-        window.electronAPI
-          .getGame(1)
-          .then((fetchedGame) => {
-            console.log("Received fallback game data:", fetchedGame);
-            handleGameData(null, fetchedGame);
-          })
-          .catch((err) => {
-            console.error("Failed to fetch fallback game data:", err);
-          });
-      }
-    }, 3000);
-
     window.electronAPI.onWindowStateChanged((state) => {
       setIsMaximized(state === "maximized");
     });
@@ -145,12 +128,11 @@ const GameDetailWindow = () => {
 
     return () => {
       console.log("Cleaning up listeners");
-      clearTimeout(timeout);
       window.electronAPI.removeGameDetailsImportProgressListener(
         handleGameDetailsImportProgress,
       );
     };
-  }, [dataReceived]);
+  }, []);
 
   useEffect(() => {
     const updatePreviewHeight = () => {
