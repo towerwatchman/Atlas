@@ -138,6 +138,29 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("update-status", (event, status) => callback(status));
     return () => ipcRenderer.removeAllListeners("update-status");
   },
+  removeUpdateStatusListener: () =>
+    ipcRenderer.removeAllListeners("update-status"),
+  removeAllListeners: (channel) => {
+    const allowedChannels = new Set([
+      "window-state-changed",
+      "db-update-progress",
+      "scan-progress",
+      "scan-complete",
+      "scan-complete-final",
+      "update-progress",
+      "import-progress",
+      "game-imported",
+      "game-updated",
+      "import-complete",
+      "update-status",
+      "context-menu-command",
+      "game-deleted",
+    ]);
+
+    if (allowedChannels.has(channel)) {
+      ipcRenderer.removeAllListeners(channel);
+    }
+  },
   showContextMenu: (template) =>
     ipcRenderer.invoke("show-context-menu", template),
   onContextMenuCommand: (callback) =>
@@ -199,6 +222,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteVersion: (params) => ipcRenderer.invoke("delete-version", params),
   deleteGameCompletely: (recordId) =>
     ipcRenderer.invoke("delete-game-completely", recordId),
+  deleteFolderRecursive: (folderPath) =>
+    ipcRenderer.invoke("delete-folder-recursive", folderPath),
   onGameDeleted: (callback) => {
     ipcRenderer.on("game-deleted", (event, recordId) => callback(recordId));
   },

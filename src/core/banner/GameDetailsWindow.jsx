@@ -482,6 +482,11 @@ const GameDetailWindow = () => {
     for (const version of versions) {
       const updatedVersion = {
         ...version,
+        previousVersion: version.version,
+        version:
+          version.version === selectedVersion?.version
+            ? versionData.game_version
+            : version.version,
         game_path:
           version.version === selectedVersion?.version
             ? versionData.game_path

@@ -30,9 +30,12 @@ const {
   deletePreviews,
   searchAtlas,
   searchAtlasByF95Id,
+  findF95Id,
+  checkPathExist,
   updateBanners,
   updatePreviews,
   getAtlasData,
+  getSteamIDbyRecord,
   countVersions,
   deleteVersion,
   deleteGameCompletely,
@@ -74,7 +77,7 @@ function createWindow() {
       preload: path.join(__dirname, "renderer.js"),
       contextIsolation: true,
       enableRemoteModule: false,
-      nodeIntegration: true,
+      nodeIntegration: false,
     },
   });
 
@@ -131,7 +134,7 @@ function createSettingsWindow() {
 
 function createImporterWindow() {
   console.log("Creating importer window");
-  const importerWindow = new BrowserWindow({
+  importerWindow = new BrowserWindow({
     width: 1280,
     height: 720,
     minWidth: 1280,
@@ -170,6 +173,7 @@ function createImporterWindow() {
 
   importerWindow.on("closed", () => {
     console.log("Importer window closed");
+    importerWindow = null;
   });
 }
 
@@ -260,7 +264,7 @@ if (!fs.existsSync(templatesDir)) {
 // Setup electron-updater events
 autoUpdater.setFeedURL({
   provider: "github",
-  owner: "towerwatchman",
+  owner: "SekhmetAnkh",
   repo: "Atlas",
 });
 autoUpdater.allowDowngrade = true;
@@ -406,7 +410,7 @@ ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
 ipcMain.handle("check-updates", async () => {
   try {
     const response = await axios.get(
-      "https://api.github.com/repos/towerwatchman/Atlas-Electron/releases/latest",
+      "https://api.github.com/repos/SekhmetAnkh/Atlas/releases/latest",
     );
     const latestVersion = response.data.tag_name;
     return { latestVersion, currentVersion: app.getVersion() };
@@ -480,10 +484,35 @@ ipcMain.handle("select-file", async () => {
 });
 
 ipcMain.handle("select-directory", async () => {
-  const result = await dialog.showOpenDialog(importerWindow, {
+  const result = await dialog.showOpenDialog(importerWindow || mainWindow, {
     properties: ["openDirectory"],
   });
   return result.filePaths[0] || null;
+});
+
+ipcMain.handle("delete-folder-recursive", async (event, folderPath) => {
+  try {
+    if (!folderPath || typeof folderPath !== "string") {
+      return { success: false, error: "Invalid folder path" };
+    }
+
+    const resolvedPath = path.resolve(folderPath);
+    const parsedPath = path.parse(resolvedPath);
+    if (resolvedPath === parsedPath.root) {
+      return { success: false, error: "Refusing to delete a drive root" };
+    }
+
+    const stat = await fs.promises.stat(resolvedPath);
+    if (!stat.isDirectory()) {
+      return { success: false, error: "Path is not a directory" };
+    }
+
+    await fs.promises.rm(resolvedPath, { recursive: true, force: true });
+    return { success: true };
+  } catch (err) {
+    console.error("Error deleting folder:", err);
+    return { success: false, error: err.message };
+  }
 });
 
 ipcMain.handle("get-version", () => app.getVersion());
@@ -864,7 +893,7 @@ ipcMain.handle(
         `${recordId}`,
         "banner_sc.webp",
       );
-      await fs.mkdir(path.dirname(outputPath), { recursive: true });
+      await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
       await sharp(filePath).webp({ quality: 80 }).toFile(outputPath);
       console.log("Banner converted and saved:", outputPath);
       return `file://${outputPath}`;

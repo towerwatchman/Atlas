@@ -387,13 +387,16 @@ const [activeFilters, setActiveFilters] = useState({
     return () => {
       window.electronAPI.removeUpdateStatusListener?.();
       window.removeEventListener("resize", debounceResize);
-      window.electronAPI.onWindowStateChanged(() => {});
-      window.electronAPI.onDbUpdateProgress(() => {});
-      window.electronAPI.onImportProgress(() => {});
-      window.electronAPI.onGameImported(() => {});
-      window.electronAPI.onGameUpdated(() => {});
-      window.electronAPI.onImportComplete(() => {});
-      window.electronAPI.onUpdateStatus(() => {});
+      [
+        "window-state-changed",
+        "db-update-progress",
+        "import-progress",
+        "game-imported",
+        "game-updated",
+        "import-complete",
+        "context-menu-command",
+        "game-deleted",
+      ].forEach((channel) => window.electronAPI.removeAllListeners(channel));
     };
   }, []);
 

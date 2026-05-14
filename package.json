@@ -8,7 +8,7 @@
   "description": "Atlas: Open-source game and visual novel manager",
   "main": "src/main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "npm run build:css && electron .",
     "atlas": "npm run build:css && electron .",
     "build": "npm run build:css && electron-builder --win --x64",
     "dev": "npm run build:css && electron . --dev",
@@ -23,7 +23,7 @@
     "productName": "Atlas",
     "publish": {
       "provider": "github",
-      "owner": "towerwatchman",
+      "owner": "SekhmetAnkh",
       "repo": "Atlas",
       "releaseType": "release",
       "vPrefixedTagName": true
@@ -33,7 +33,6 @@
       "src/database.js",
       "src/index.html",
       "src/settings.html",
-      "src/importer.html",
       "src/gamedetails.html",
       "src/renderer.js",
       "src/App.jsx",

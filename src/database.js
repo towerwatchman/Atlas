@@ -299,20 +299,24 @@ const updateGame = (game) => {
     const escapedTitle = title.replace(/'/g, "''");
     const escapedCreator = creator.replace(/'/g, "''");
     const escapedEngine = engine.replace(/'/g, "''");
+    const description = game.description ?? game.overview ?? null;
     db.run(
-      `INSERT OR REPLACE INTO games (record_id, title, creator, engine)
-          VALUES (?, ?, ?, ?)`,
-      [game.record_id, escapedTitle, escapedCreator, escapedEngine],
+      `UPDATE games SET title = ?, creator = ?, engine = ?, description = ?
+       WHERE record_id = ?`,
+      [
+        escapedTitle,
+        escapedCreator,
+        escapedEngine,
+        description,
+        game.record_id,
+      ],
       function (err) {
         if (err) {
-          console.error("Error inserting game:", err);
+          console.error("Error updating game:", err);
           reject(err);
           return;
         }
-        // Return the new record_id
-        console.log(
-          `Inserted new game ${title} by ${creator} with record_id: ${game.record_id}`,
-        );
+        console.log(`Updated game ${title} with record_id: ${game.record_id}`);
         resolve(game.record_id);
       },
     );
@@ -359,12 +363,23 @@ const updateVersion = (version, record_id) => {
   const escapedVersion = version.version.replace(/'/g, "''");
   const escapedFolder = version.game_path.replace(/'/g, "''");
   const escapedExecPath = version.exec_path.replace(/'/g, "''");
+  const previousVersion = (version.previousVersion || version.version).replace(
+    /'/g,
+    "''",
+  );
 
   console.log("updating version with id:", record_id);
   return new Promise((resolve, reject) => {
     db.run(
-      `INSERT OR REPLACE INTO versions (record_id, version, game_path, exec_path) VALUES (?, ?, ?, ?)`,
-      [record_id, escapedVersion, escapedFolder, escapedExecPath],
+      `UPDATE versions SET version = ?, game_path = ?, exec_path = ?
+       WHERE record_id = ? AND version = ?`,
+      [
+        escapedVersion,
+        escapedFolder,
+        escapedExecPath,
+        record_id,
+        previousVersion,
+      ],
       (err) => {
         if (err) {
           console.error("Error updating version:", err);
@@ -977,9 +992,7 @@ const searchAtlas = async (title, creator) => {
       }
       if (hasF95Id) {
         // Return results from this query if any have f95_id
-        const filteredRows = enrichedRows.filter((row) =>
-          findF95Id(row.atlas_id),
-        );
+        const filteredRows = enrichedRows.filter((row) => row.f95_id);
         console.log(`Query found ${filteredRows.length} results with f95_id`);
         return filteredRows.length > 0 ? filteredRows : enrichedRows;
       }
