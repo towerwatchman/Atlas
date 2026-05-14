@@ -1172,7 +1172,7 @@ async function copyFolderWithProgress(source, destination, onProgress) {
 
 ipcMain.handle("import-games", async (event, params) => {
   const {
-    games,
+    games: submittedGames,
     deleteAfter,
     scanSize,
     downloadBannerImages,
@@ -1184,11 +1184,24 @@ ipcMain.handle("import-games", async (event, params) => {
     format = "",
   } = params;
 
+  const games = submittedGames.filter(
+    (game) => (game.scanStatus || "new") === "new",
+  );
   const gamesDir = path.join(dataDir, "games");
   if (!fs.existsSync(gamesDir)) fs.mkdirSync(gamesDir, { recursive: true });
 
   const total = games.length;
   let progress = 0;
+
+  if (total === 0) {
+    mainWindow.webContents.send("import-progress", {
+      text: "No importable games selected",
+      progress,
+      total,
+    });
+    mainWindow.webContents.send("import-complete");
+    return [];
+  }
 
   mainWindow.webContents.send("import-progress", {
     text: `Starting import of ${total} games...`,

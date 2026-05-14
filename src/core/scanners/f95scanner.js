@@ -42,6 +42,88 @@ const blacklist = [
   "CONFIG_dl.exe",
 ];
 
+function isBlacklisted(filePath) {
+  const filename = path.basename(filePath).toLowerCase();
+  return blacklist.some((entry) => entry.toLowerCase() === filename);
+}
+
+function isSupportedFile(filePath, extensions) {
+  return (
+    extensions.includes(path.extname(filePath).toLowerCase().slice(1)) &&
+    !isBlacklisted(filePath)
+  );
+}
+
+function getRelativePath(baseDir, targetPath) {
+  return path.relative(baseDir, targetPath).replace(/\\/g, "/");
+}
+
+function findLaunchables(root, extensions) {
+  const launchables = [];
+  const stack = [root];
+
+  while (stack.length) {
+    const current = stack.pop();
+    const items = fs.readdirSync(current, { withFileTypes: true });
+
+    for (const item of items) {
+      const full = path.join(current, item.name);
+      if (item.isDirectory()) {
+        stack.push(full);
+      } else if (item.isFile() && isSupportedFile(full, extensions)) {
+        launchables.push(getRelativePath(root, full));
+      }
+    }
+  }
+
+  return launchables.sort((a, b) => a.localeCompare(b));
+}
+
+function getScanStats(games) {
+  return {
+    potential: games.filter((game) => game.scanStatus === "new").length,
+    alreadyImported: games.filter(
+      (game) => game.scanStatus === "alreadyImported",
+    ).length,
+    missingLaunchable: games.filter(
+      (game) => game.scanStatus === "missingLaunchable",
+    ).length,
+    totalFound: games.length,
+  };
+}
+
+function sendScanProgress(window, value, total, games) {
+  window.webContents.send("scan-progress", {
+    value,
+    total,
+    ...getScanStats(games),
+  });
+}
+
+function createMissingLaunchableGame(folder) {
+  return {
+    atlasId: "",
+    f95Id: "",
+    title: path.basename(folder),
+    creator: "Unknown",
+    engine: "Unknown",
+    version: "Unknown",
+    singleExecutable: "",
+    executables: [],
+    selectedValue: "",
+    singleVisible: "hidden",
+    multipleVisible: "hidden",
+    folder,
+    results: [],
+    resultSelectedValue: "",
+    resultVisibility: "hidden",
+    recordExist: false,
+    isArchive: false,
+    scanStatus: "missingLaunchable",
+    scanMessage: "No supported launchable found",
+  };
+}
+
 async function startScan(params, window) {
   const {
     folder,
@@ -58,7 +140,6 @@ async function startScan(params, window) {
   } = params;
   const extensions = isCompressed ? archiveExt : gameExt;
   const games = [];
-  let potential = 0;
 
   console.log(
     `Starting scan in folder: ${folder} with extensions: ${extensions.join(", ")}`,
@@ -85,47 +166,44 @@ async function startScan(params, window) {
         [],
       );
       if (success) {
-        potential = games.length;
         window.webContents.send("scan-complete", games[games.length - 1]); // Send each game incrementally
       }
-      window.webContents.send("scan-progress", {
-        value: i,
-        total: totalFiles,
-        potential,
-      });
+      sendScanProgress(window, i, totalFiles, games);
     }
   } else {
     const directories = fs
       .readdirSync(folder, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => path.join(folder, d.name));
-    const totalDirs = directories.length + 1; // Include root folder
+    const rootLaunchables = findLaunchables(folder, extensions).filter(
+      (launchable) => !launchable.includes("/"),
+    );
+    const scanTargets =
+      rootLaunchables.length > 0 ? [folder, ...directories] : directories;
+    const totalDirs = scanTargets.length;
     let ittr = 0;
 
     console.log(
-      `Found ${totalDirs} directories to scan (including root): ${folder}, ${directories.join(", ")}`,
+      `Found ${totalDirs} game folders to scan: ${scanTargets.join(", ")}`,
     );
 
-    // Scan files in the root folder first
-    console.log(`Scanning root directory: ${folder}`);
-    ittr++;
-    const rootFiles = fs
-      .readdirSync(folder, { withFileTypes: true })
-      .filter((f) => f.isFile())
-      .map((f) => path.join(folder, f.name));
-    console.log(`Checking files in ${folder}: ${rootFiles.join(", ")}`);
-    let foundInRoot = false;
-    const rootExecutables = rootFiles.filter(
-      (f) =>
-        extensions.includes(path.extname(f).toLowerCase().slice(1)) &&
-        !blacklist.includes(path.basename(f)),
-    );
-    if (rootExecutables.length > 0) {
-      console.log(
-        `Scanning root directory with executables: ${folder} (isFile: false)`,
-      );
+    for (const target of scanTargets) {
+      console.log(`Scanning game folder: ${target}`);
+      ittr++;
+
+      const launchables =
+        target === folder ? rootLaunchables : findLaunchables(target, extensions);
+
+      if (launchables.length === 0) {
+        const missingGame = createMissingLaunchableGame(target);
+        games.push(missingGame);
+        window.webContents.send("scan-complete", missingGame);
+        sendScanProgress(window, ittr, totalDirs, games);
+        continue;
+      }
+
       const res = await findGame(
-        folder,
+        target,
         format,
         extensions,
         folder,
@@ -134,153 +212,20 @@ async function startScan(params, window) {
         games,
         window,
         params,
-        rootExecutables,
+        launchables,
       );
       if (res) {
-        foundInRoot = true;
-        potential = games.length;
-        window.webContents.send("scan-complete", games[games.length - 1]); // Send each game incrementally
+        window.webContents.send("scan-complete", games[games.length - 1]);
       }
-    }
-    window.webContents.send("scan-progress", {
-      value: ittr,
-      total: totalDirs,
-      potential,
-    });
-
-    // Scan top-level directories if no match in root or deeper scanning is needed
-    if (!foundInRoot) {
-      for (const dir of directories) {
-        console.log(`Scanning directory: ${dir}`);
-        ittr++;
-        // Check files in the current directory
-        const files = fs
-          .readdirSync(dir, { withFileTypes: true })
-          .filter((f) => f.isFile())
-          .map((f) => path.join(dir, f.name));
-        console.log(`Checking files in ${dir}: ${files.join(", ")}`);
-        let found = false;
-        const dirExecutables = files.filter(
-          (f) =>
-            extensions.includes(path.extname(f).toLowerCase().slice(1)) &&
-            !blacklist.includes(path.basename(f)),
-        );
-        if (dirExecutables.length > 0) {
-          console.log(
-            `Scanning directory with executables: ${dir} (isFile: false)`,
-          );
-          const res = await findGame(
-            dir,
-            format,
-            extensions,
-            folder,
-            0,
-            false,
-            games,
-            window,
-            params,
-            dirExecutables,
-          );
-          if (res) {
-            found = true;
-            potential = games.length;
-            window.webContents.send("scan-complete", games[games.length - 1]); // Send each game incrementally
-          }
-        }
-        // Only scan subdirectories if no match was found
-        if (!found) {
-          const maxDepth = format && format.trim() !== "" ? 3 : Infinity; // Limit to 3 levels for structured format
-          const subdirs = getAllSubdirs(dir, folder, maxDepth);
-          // Filter directories matching the expected format (e.g., {creator}/{title}/{version})
-          const formatParts =
-            format && format.trim() !== ""
-              ? format.split("/").map((part) => part.replace(/\{|\}/g, ""))
-              : [];
-          const expectedDepth = formatParts.length || 2; // Default to 2 for unstructured or invalid formats
-          const versionDirs =
-            format && format.trim() !== ""
-              ? subdirs.filter((subdir) => {
-                  const relativePath = subdir.replace(
-                    `${folder}${path.sep}`,
-                    "",
-                  );
-                  const pathParts = relativePath.split(path.sep);
-                  return pathParts.length === expectedDepth; // Use dynamic depth
-                })
-              : subdirs;
-          console.log(
-            `Version directories for ${dir}: ${versionDirs.join(", ")}`,
-          );
-          for (const t of versionDirs) {
-            console.log(`Processing version directory: ${t}`);
-            const filesInSubdir = fs
-              .readdirSync(t, { withFileTypes: true })
-              .filter((f) => f.isFile())
-              .map((f) => path.join(t, f.name));
-            console.log(`Checking files in ${t}: ${filesInSubdir.join(", ")}`);
-            const subdirExecutables = filesInSubdir.filter(
-              (f) =>
-                extensions.includes(path.extname(f).toLowerCase().slice(1)) &&
-                !blacklist.includes(path.basename(f)),
-            );
-            if (subdirExecutables.length > 0) {
-              console.log(
-                `Scanning version Directory with executables: ${t} (isFile: false)`,
-              );
-              const res = await findGame(
-                t,
-                format,
-                extensions,
-                folder,
-                0,
-                false,
-                games,
-                window,
-                params,
-                subdirExecutables,
-              );
-              if (res) {
-                found = true;
-                potential = games.length;
-                window.webContents.send(
-                  "scan-complete",
-                  games[games.length - 1],
-                ); // Send each game incrementally
-              }
-            }
-          }
-        }
-        window.webContents.send("scan-progress", {
-          value: ittr,
-          total: totalDirs,
-          potential,
-        });
-      }
+      sendScanProgress(window, ittr, totalDirs, games);
     }
   }
 
-  console.log(`Scan complete. Total games found: ${games.length}`);
-  // Send final scan-complete to ensure any remaining games are processed
+  const stats = getScanStats(games);
+  console.log(
+    `Scan complete. Total rows: ${games.length}; new: ${stats.potential}; already imported: ${stats.alreadyImported}; missing launchable: ${stats.missingLaunchable}`,
+  );
   window.webContents.send("scan-complete-final", games);
-}
-
-function getAllSubdirs(root, basePath, maxDepth = Infinity) {
-  const dirs = [];
-  const stack = [{ path: root, depth: 0 }];
-  while (stack.length) {
-    const { path: current, depth } = stack.pop();
-    if (depth >= maxDepth) continue; // Skip if depth exceeds limit
-    console.log(`Exploring directory: ${current}`);
-    const items = fs.readdirSync(current, { withFileTypes: true });
-    for (const item of items) {
-      const full = path.join(current, item.name);
-      if (item.isDirectory()) {
-        dirs.push(full);
-        stack.push({ path: full, depth: depth + 1 });
-      }
-    }
-  }
-  return dirs;
 }
 
 function getAllFiles(root, extensions) {
@@ -294,11 +239,7 @@ function getAllFiles(root, extensions) {
       const full = path.join(current, item.name);
       if (item.isDirectory()) {
         stack.push(full);
-      } else if (
-        item.isFile() &&
-        extensions.includes(path.extname(full).toLowerCase().slice(1)) &&
-        !blacklist.includes(path.basename(full))
-      ) {
+      } else if (item.isFile() && isSupportedFile(full, extensions)) {
         files.push(full);
       }
     }
@@ -337,11 +278,12 @@ async function findGame(
         return false;
       }
       potentialExecutables = potentialExecutables
-        .map((f) => path.basename(f))
-        .filter((f) => !f.includes("-32")); // Exclude files with "-32" in the name
+        .map((f) => f.replace(/\\/g, "/"))
+        .filter((f) => !path.basename(f).includes("-32")); // Exclude files with "-32" in the name
       for (const exec of potentialExecutables) {
+        const execName = path.basename(exec);
         for (const [engine, patterns] of Object.entries(engineMap)) {
-          if (patterns.some((p) => exec.toLowerCase().includes(p))) {
+          if (patterns.some((p) => execName.toLowerCase().includes(p))) {
             gameEngine = engine;
             console.log(`Matched engine ${gameEngine} for ${exec}`);
             break;
@@ -480,32 +422,30 @@ async function findGame(
       return false;
     }
 
-    if (!recordExist) {
-      const gd = {
-        atlasId,
-        f95Id,
-        title,
-        creator,
-        engine,
-        version,
-        singleExecutable,
-        executables: potentialExecutables.map((e) => ({ key: e, value: e })),
-        selectedValue,
-        singleVisible,
-        multipleVisible,
-        folder: isFile ? path.dirname(t) : t,
-        results,
-        resultSelectedValue: results[0]?.key || "",
-        resultVisibility: results.length > 0 ? "visible" : "hidden",
-        recordExist,
-        isArchive,
-      };
-      console.log(`Adding game to list: ${JSON.stringify(gd)}`);
-      games.push(gd);
-      return true;
-    }
-    console.log(`Game ${title} already exists or failed to add`);
-    return false;
+    const gd = {
+      atlasId,
+      f95Id,
+      title,
+      creator,
+      engine,
+      version,
+      singleExecutable,
+      executables: potentialExecutables.map((e) => ({ key: e, value: e })),
+      selectedValue,
+      singleVisible,
+      multipleVisible,
+      folder: isFile ? path.dirname(t) : t,
+      results,
+      resultSelectedValue: results[0]?.key || "",
+      resultVisibility: results.length > 0 ? "visible" : "hidden",
+      recordExist,
+      isArchive,
+      scanStatus: recordExist ? "alreadyImported" : "new",
+      scanMessage: recordExist ? "Already imported" : "Ready to import",
+    };
+    console.log(`Adding game to list: ${JSON.stringify(gd)}`);
+    games.push(gd);
+    return true;
   } catch (err) {
     console.error(`Error processing ${t}: ${err.message}, Stack: ${err.stack}`);
     return false;

@@ -30,6 +30,9 @@ const Importer = () => {
     value: 0,
     total: 0,
     potential: 0,
+    alreadyImported: 0,
+    missingLaunchable: 0,
+    totalFound: 0,
   });
   const [updateProgress, setUpdateProgress] = useState({ value: 0, total: 0 });
   const [gamesList, setGamesList] = useState([]);
@@ -56,20 +59,24 @@ const Importer = () => {
     setGamesList((prev) => [...prev, game]);
   };
 
+  const isNewScanRow = (game) => (game.scanStatus || "new") === "new";
+  const hasDatabaseMatch = (game) =>
+    game.results?.length === 1 && game.results[0]?.key === "match";
+  const hasSelectedDatabaseMatch = (game) =>
+    game.results?.length > 1 && !!game.resultSelectedValue;
+  const isImportableGame = (game, includeUnmatched = false) => {
+    if (!isNewScanRow(game)) return false;
+    if (!game.isArchive && !game.selectedValue) return false;
+    if (hasDatabaseMatch(game) || hasSelectedDatabaseMatch(game)) return true;
+    return includeUnmatched && (game.results || []).length === 0;
+  };
+  const newScanRows = gamesList.filter(isNewScanRow);
+  const importableGames = gamesList.filter((game) =>
+    isImportableGame(game, forceImport),
+  );
   const canImport =
-    gamesList.every((game) => {
-      // Skip hidden games if hideMatches is on
-      if (
-        hideMatches &&
-        game.results.length === 1 &&
-        game.results[0].value === "Match Found"
-      ) {
-        return true;
-      }
-      return (
-        game.results.length === 1 && game.results[0].value === "Match Found"
-      );
-    }) || forceImport;
+    importableGames.length > 0 &&
+    (forceImport || newScanRows.every((game) => isImportableGame(game)));
 
   useEffect(() => {
     console.log("Importer component mounted");
@@ -89,7 +96,7 @@ const Importer = () => {
     window.electronAPI.onScanComplete((game) => {
       console.log(`Received incremental game: ${JSON.stringify(game)}`);
       if (
-        game.results.length > 1 &&
+        game.results?.length > 1 &&
         game.resultSelectedValue &&
         game.resultSelectedValue !== "match"
       ) {
@@ -122,7 +129,7 @@ const Importer = () => {
       console.log(`Scan complete, received ${games.length} games`);
       const updatedGames = games.map((game) => {
         if (
-          game.results.length > 1 &&
+          game.results?.length > 1 &&
           game.resultSelectedValue &&
           game.resultSelectedValue !== "match"
         ) {
@@ -326,6 +333,12 @@ const Importer = () => {
       // Fresh copy of this game object
       let game = { ...updatedGames[i] };
 
+      if (!isNewScanRow(game)) {
+        setUpdateProgress({ value: i + 1, total });
+        window.electronAPI.sendUpdateProgress({ value: i + 1, total });
+        continue;
+      }
+
       // ─── Skip if already has a good match ────────────────────────────────
       if (
         game.atlasId &&
@@ -459,7 +472,11 @@ const Importer = () => {
   };
 
   const importGamesFunc = async () => {
-    if (gamesList.length === 0) {
+    const gamesToImport = gamesList.filter((game) =>
+      isImportableGame(game, forceImport),
+    );
+
+    if (gamesToImport.length === 0) {
       alert("No games to import");
       return;
     }
@@ -500,7 +517,7 @@ const Importer = () => {
     window.electronAPI.log("Importing games");
 
     const importParams = {
-      games: gamesList,
+      games: gamesToImport,
       deleteAfter,
       scanSize,
       downloadBannerImages,
@@ -805,7 +822,12 @@ const Importer = () => {
                     : "Folders Scanned"}
                 </span>
               </div>
-              <span className="mb-4">Found {progress.potential} Games</span>
+              <div className="mb-4 flex flex-wrap gap-4 text-sm">
+                <span>Ready {progress.potential || 0}</span>
+                <span>Already imported {progress.alreadyImported || 0}</span>
+                <span>Missing launchable {progress.missingLaunchable || 0}</span>
+                <span>Total rows {progress.totalFound || gamesList.length}</span>
+              </div>
             </div>
 
             <div className="flex-1 overflow-x-auto">
@@ -843,6 +865,9 @@ const Importer = () => {
                       Folder
                     </th>
                     <th className="border border-border p-1 min-w-[150px]">
+                      Status
+                    </th>
+                    <th className="border border-border p-1 min-w-[150px]">
                       Actions
                     </th>
                   </tr>
@@ -851,15 +876,25 @@ const Importer = () => {
                   {gamesList.map((game, originalIndex) => {
                     if (
                       hideMatches &&
-                      game.results.length === 1 &&
-                      game.results[0].value === "Match Found"
+                      game.results?.length === 1 &&
+                      game.results[0]?.value === "Match Found"
                     ) {
                       return null;
                     }
+                    const rowIsNew = isNewScanRow(game);
+                    const statusText =
+                      game.scanMessage ||
+                      (rowIsNew ? "Ready to import" : "Skipped");
+                    const statusClass =
+                      game.scanStatus === "alreadyImported"
+                        ? "text-yellow-300"
+                        : game.scanStatus === "missingLaunchable"
+                          ? "text-red-300"
+                          : "text-green-300";
                     return (
                       <tr key={originalIndex} className="bg-primary">
                         <td className="border border-border p-1 min-w-[100px]">
-                          {game.results.length > 1 && (
+                          {game.results?.length > 1 && (
                             <i className="fa-solid fa-triangle-exclamation text-yellow-400 mr-1"></i>
                           )}
                           {game.atlasId}
@@ -867,6 +902,7 @@ const Importer = () => {
                         <td className="border border-border p-1 min-w-[100px]">
                           <input
                             value={game.f95Id}
+                            disabled={!rowIsNew}
                             onChange={(e) =>
                               updateGame(originalIndex, "f95Id", e.target.value)
                             }
@@ -876,6 +912,7 @@ const Importer = () => {
                         <td className="border border-border p-1">
                           <input
                             value={game.title}
+                            disabled={!rowIsNew}
                             onChange={(e) =>
                               updateGame(originalIndex, "title", e.target.value)
                             }
@@ -885,6 +922,7 @@ const Importer = () => {
                         <td className="border border-border p-1">
                           <input
                             value={game.creator}
+                            disabled={!rowIsNew}
                             onChange={(e) =>
                               updateGame(
                                 originalIndex,
@@ -898,6 +936,7 @@ const Importer = () => {
                         <td className="border border-border p-1">
                           <input
                             value={game.engine}
+                            disabled={!rowIsNew}
                             onChange={(e) =>
                               updateGame(
                                 originalIndex,
@@ -911,6 +950,7 @@ const Importer = () => {
                         <td className="border border-border p-1">
                           <input
                             value={game.version}
+                            disabled={!rowIsNew}
                             onChange={(e) =>
                               updateGame(
                                 originalIndex,
@@ -925,6 +965,7 @@ const Importer = () => {
                           {game.multipleVisible === "visible" ? (
                             <select
                               value={game.selectedValue}
+                              disabled={!rowIsNew}
                               onChange={(e) =>
                                 updateGame(
                                   originalIndex,
@@ -948,15 +989,16 @@ const Importer = () => {
                           className="border border-border p-1"
                           style={{ visibility: game.resultVisibility }}
                         >
-                          {game.results.length === 1 &&
-                          game.results[0].key === "match" ? (
+                          {game.results?.length === 1 &&
+                          game.results[0]?.key === "match" ? (
                             <span className="text-text select-none">
                               {game.results[0].value}
                             </span>
                           ) : (
-                            game.results.length > 1 && (
+                            game.results?.length > 1 && (
                               <select
                                 value={game.resultSelectedValue}
+                                disabled={!rowIsNew}
                                 onChange={(e) =>
                                   handleResultChange(
                                     originalIndex,
@@ -976,6 +1018,9 @@ const Importer = () => {
                         </td>
                         <td className="border border-border p-1">
                           {game.folder}
+                        </td>
+                        <td className={`border border-border p-1 ${statusClass}`}>
+                          {statusText}
                         </td>
                         <td className="border border-border p-1 min-w-[150px] flex space-x-2">
                           <button
@@ -1013,7 +1058,7 @@ const Importer = () => {
                   className="h-4 w-4"
                 />
                 <label htmlFor="force-import" className="text-sm text-text">
-                  Import anyway (skip unmatched games)
+                  Import anyway (include unmatched games)
                 </label>
               </div>
 
@@ -1037,7 +1082,7 @@ const Importer = () => {
 
                 <button
                   onClick={importGamesFunc}
-                  disabled={!canImport && !forceImport}
+                  disabled={!canImport}
                   className={`px-6 py-2 rounded font-medium transition-colors ${
                     canImport
                       ? "bg-green-600 hover:bg-green-700 text-white"
@@ -1051,7 +1096,7 @@ const Importer = () => {
                       : ""
                   }
                   style={{
-                    pointerEvents: canImport || forceImport ? "auto" : "none",
+                    pointerEvents: canImport ? "auto" : "none",
                   }}
                 >
                   Import
