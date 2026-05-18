@@ -22,7 +22,8 @@ const Importer = () => {
   const [scanSize, setScanSize] = useState(false);
   const [deleteAfter, setDeleteAfter] = useState(false);
   const [moveGame, setMoveGame] = useState(false);
-  const [forceImport, setForceImport] = useState(false);
+  const [includeUnmatched, setIncludeUnmatched] = useState(false);
+  const [includeArchives, setIncludeArchives] = useState(false);
   const [defaultLibraryPath, setDefaultLibraryPath] = useState(null);
   const [askingForLibraryFolder, setAskingForLibraryFolder] = useState(false);
 
@@ -30,8 +31,10 @@ const Importer = () => {
     value: 0,
     total: 0,
     potential: 0,
+    archives: 0,
     alreadyImported: 0,
     missingLaunchable: 0,
+    emptyFolder: 0,
     totalFound: 0,
   });
   const [updateProgress, setUpdateProgress] = useState({ value: 0, total: 0 });
@@ -64,19 +67,56 @@ const Importer = () => {
     game.results?.length === 1 && game.results[0]?.key === "match";
   const hasSelectedDatabaseMatch = (game) =>
     game.results?.length > 1 && !!game.resultSelectedValue;
-  const isImportableGame = (game, includeUnmatched = false) => {
+  const isUnmatchedGame = (game) => (game.results || []).length === 0;
+  const isImportableGame = (
+    game,
+    { includeUnmatchedGames = false, includeArchiveGames = false } = {},
+  ) => {
     if (!isNewScanRow(game)) return false;
+    if (game.isArchive && !includeArchiveGames) return false;
     if (!game.isArchive && !game.selectedValue) return false;
     if (hasDatabaseMatch(game) || hasSelectedDatabaseMatch(game)) return true;
-    return includeUnmatched && (game.results || []).length === 0;
+    return includeUnmatchedGames && isUnmatchedGame(game);
   };
-  const newScanRows = gamesList.filter(isNewScanRow);
+  const importOptions = {
+    includeUnmatchedGames: includeUnmatched,
+    includeArchiveGames: includeArchives,
+  };
   const importableGames = gamesList.filter((game) =>
-    isImportableGame(game, forceImport),
+    isImportableGame(game, importOptions),
   );
-  const canImport =
-    importableGames.length > 0 &&
-    (forceImport || newScanRows.every((game) => isImportableGame(game)));
+  const canImport = importableGames.length > 0;
+  const getImportDisabledReason = () => {
+    if (canImport) return "";
+
+    const newRows = gamesList.filter(isNewScanRow);
+    if (newRows.length === 0) return "No new importable scan rows found";
+
+    const hasArchives = newRows.some((game) => game.isArchive);
+    const hasUnmatched = newRows.some(isUnmatchedGame);
+    const hasMatchedArchive = newRows.some(
+      (game) =>
+        game.isArchive &&
+        (hasDatabaseMatch(game) || hasSelectedDatabaseMatch(game)),
+    );
+    const hasUnmatchedArchive = newRows.some(
+      (game) => game.isArchive && isUnmatchedGame(game),
+    );
+
+    if (hasUnmatchedArchive && (!includeArchives || !includeUnmatched)) {
+      return "Archive rows without database matches require both checkboxes";
+    }
+    if (hasMatchedArchive && !includeArchives) {
+      return "Archive rows require 'Extract and import archives'";
+    }
+    if (hasUnmatched && !includeUnmatched) {
+      return "Unmatched rows require 'Import unmatched games'";
+    }
+    if (hasArchives && !includeArchives) {
+      return "Archive rows require 'Extract and import archives'";
+    }
+    return "No eligible rows are ready to import";
+  };
 
   useEffect(() => {
     console.log("Importer component mounted");
@@ -111,6 +151,8 @@ const Importer = () => {
           game.creator = parts[3];
           window.electronAPI.getAtlasData(game.atlasId).then((atlasData) => {
             game.engine = atlasData.engine || "Unknown";
+            game.f95Id = game.f95Id || atlasData.f95_id || "";
+            game.latestVersion = atlasData.latestVersion || "";
             addScannedGame(game);
             console.log(`Updated game on scan: ${JSON.stringify(game)}`);
             window.electronAPI.log(
@@ -146,6 +188,8 @@ const Importer = () => {
               .getAtlasData(game.atlasId)
               .then((atlasData) => {
                 game.engine = atlasData.engine || "Unknown";
+                game.f95Id = game.f95Id || atlasData.f95_id || "";
+                game.latestVersion = atlasData.latestVersion || "";
                 return game;
               });
           }
@@ -293,6 +337,8 @@ const Importer = () => {
             .getAtlasData(updatedGame.atlasId)
             .then((atlasData) => {
               updatedGame.engine = atlasData.engine || "Unknown";
+              updatedGame.f95Id = updatedGame.f95Id || atlasData.f95_id || "";
+              updatedGame.latestVersion = atlasData.latestVersion || "";
               console.log(
                 `Updated game at index ${index}: ${JSON.stringify(updatedGame)}`,
               );
@@ -395,6 +441,7 @@ const Importer = () => {
           title: data[0].title,
           creator: data[0].creator,
           engine: data[0].engine || game.engine || "Unknown",
+          latestVersion: data[0].latestVersion || "",
           results: [{ key: "match", value: "Match Found" }],
           resultSelectedValue: "match",
           resultVisibility: "visible",
@@ -429,6 +476,8 @@ const Importer = () => {
           game = {
             ...game,
             engine: atlasData.engine || game.engine || "Unknown",
+            f95Id: game.f95Id || atlasData.f95_id || "",
+            latestVersion: atlasData.latestVersion || "",
           };
         } catch (atlasErr) {
           console.error(
@@ -473,7 +522,7 @@ const Importer = () => {
 
   const importGamesFunc = async () => {
     const gamesToImport = gamesList.filter((game) =>
-      isImportableGame(game, forceImport),
+      isImportableGame(game, importOptions),
     );
 
     if (gamesToImport.length === 0) {
@@ -824,8 +873,10 @@ const Importer = () => {
               </div>
               <div className="mb-4 flex flex-wrap gap-4 text-sm">
                 <span>Ready {progress.potential || 0}</span>
+                <span>Archives {progress.archives || 0}</span>
                 <span>Already imported {progress.alreadyImported || 0}</span>
                 <span>Missing launchable {progress.missingLaunchable || 0}</span>
+                <span>Empty folders {progress.emptyFolder || 0}</span>
                 <span>Total rows {progress.totalFound || gamesList.length}</span>
               </div>
             </div>
@@ -888,6 +939,10 @@ const Importer = () => {
                     const statusClass =
                       game.scanStatus === "alreadyImported"
                         ? "text-yellow-300"
+                        : game.scanStatus === "emptyFolder"
+                          ? "text-gray-300"
+                        : game.isArchive
+                          ? "text-blue-300"
                         : game.scanStatus === "missingLaunchable"
                           ? "text-red-300"
                           : "text-green-300";
@@ -1048,18 +1103,39 @@ const Importer = () => {
             </div>
 
             <div className="flex justify-between items-center space-x-4 mt-4">
-              {/* Left: Checkbox (preparation toggle) */}
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="force-import"
-                  checked={forceImport}
-                  onChange={(e) => setForceImport(e.target.checked)}
-                  className="h-4 w-4"
-                />
-                <label htmlFor="force-import" className="text-sm text-text">
-                  Import anyway (include unmatched games)
-                </label>
+              {/* Left: Import filters */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="include-unmatched"
+                    checked={includeUnmatched}
+                    onChange={(e) => setIncludeUnmatched(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <label
+                    htmlFor="include-unmatched"
+                    className="text-sm text-text"
+                  >
+                    Import unmatched games
+                  </label>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="include-archives"
+                    checked={includeArchives}
+                    onChange={(e) => setIncludeArchives(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <label
+                    htmlFor="include-archives"
+                    className="text-sm text-text"
+                  >
+                    Extract and import archives
+                  </label>
+                </div>
               </div>
 
               {/* Right: All buttons grouped together */}
@@ -1086,17 +1162,11 @@ const Importer = () => {
                   className={`px-6 py-2 rounded font-medium transition-colors ${
                     canImport
                       ? "bg-green-600 hover:bg-green-700 text-white"
-                      : forceImport
-                        ? "bg-orange-600 hover:bg-orange-700 text-white"
-                        : "bg-gray-600 cursor-not-allowed opacity-70 text-gray-300"
+                      : "bg-gray-600 cursor-not-allowed opacity-70 text-gray-300"
                   }`}
-                  title={
-                    !canImport && !forceImport
-                      ? "Some games have no database match — click 'Update' or check 'Import anyway'"
-                      : ""
-                  }
+                  title={getImportDisabledReason()}
                   style={{
-                    pointerEvents: canImport ? "auto" : "none",
+                    pointerEvents: "auto",
                   }}
                 >
                   Import

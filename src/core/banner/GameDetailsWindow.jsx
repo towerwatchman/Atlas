@@ -215,6 +215,50 @@ const GameDetailWindow = () => {
     });
   };
 
+  const refreshFromGame = (updatedGame, preferredVersion) => {
+    setGame(updatedGame);
+    const mapperNames = [];
+    if (updatedGame.f95_id) mapperNames.push("F95Zone");
+    if (updatedGame.atlas_id) mapperNames.push("Atlas");
+    setFormData({
+      title: updatedGame.title || "",
+      mappings: mapperNames.join(", "),
+      platform: updatedGame.os || "",
+      engine: updatedGame.engine || "",
+      developer: updatedGame.creator || "",
+      publisher: updatedGame.publisher || "",
+      release_date: updatedGame.release_date
+        ? new Date(parseInt(updatedGame.release_date) * 1000)
+            .toISOString()
+            .split("T")[0]
+        : "",
+      status: updatedGame.status || "",
+      tags: updatedGame.f95_tags
+        ? updatedGame.f95_tags.replace(/,/g, " , ")
+        : "",
+      description: updatedGame.overview || "",
+      category: updatedGame.category || "",
+      latest_version: updatedGame.latestVersion || "",
+      censored: updatedGame.censored || "",
+      language: updatedGame.language || "",
+      translations: updatedGame.translations || "",
+      genre: updatedGame.genre || "",
+      voice: updatedGame.voice || "",
+      rating: updatedGame.rating || "",
+    });
+    const updatedVersions = updatedGame.versions || [];
+    setVersions(updatedVersions);
+    const versionToSelect =
+      updatedVersions.find((v) => v.version === preferredVersion) ||
+      updatedVersions[0];
+    if (versionToSelect) {
+      handleVersionSelect(versionToSelect);
+    } else {
+      setSelectedVersion(null);
+      setVersionData({});
+    }
+  };
+
   const handleSetPath = () => {
     if (versionData.game_path) {
       console.log("Opening directory:", versionData.game_path);
@@ -461,6 +505,7 @@ const GameDetailWindow = () => {
     };
     await window.electronAPI.updateGame(updatedGame);
 
+    const savedVersion = versionData.game_version;
     for (const version of versions) {
       const updatedVersion = {
         ...version,
@@ -485,6 +530,11 @@ const GameDetailWindow = () => {
         game.record_id,
       );
       await window.electronAPI.updateVersion(updatedVersion, game.record_id);
+    }
+
+    const refreshedGame = await window.electronAPI.getGame(game.record_id);
+    if (refreshedGame) {
+      refreshFromGame(refreshedGame, savedVersion);
     }
   };
 
@@ -860,9 +910,12 @@ const GameDetailWindow = () => {
                       <li
                         key={index}
                         onClick={() => handleVersionSelect(version)}
-                        className={`p-2 cursor-pointer ${selectedVersion?.version === version.version ? "bg-selected" : "hover:bg-button_hover"}`}
+                        className={`p-2 cursor-pointer ${selectedVersion?.version === version.version ? "bg-selected" : "hover:bg-button_hover"} ${version.isInstalled === false ? "text-red-300" : ""}`}
                       >
                         {version.version}
+                        {version.isInstalled === false && (
+                          <span className="block text-xs">Missing</span>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -883,6 +936,12 @@ const GameDetailWindow = () => {
                 </div>
 
                 <div className="flex-grow p-4 space-y-2">
+                  {selectedVersion?.isInstalled === false && (
+                    <div className="text-red-300 text-sm">
+                      Installed files are missing. Update the game path and
+                      executable, then save to repair this version.
+                    </div>
+                  )}
                   <div className="flex items-center">
                     <label className="w-24">Version</label>
                     <input

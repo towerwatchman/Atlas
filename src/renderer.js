@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   checkRecordExist: (params) =>
     ipcRenderer.invoke("check-record-exist", params),
   importGames: (params) => ipcRenderer.invoke("import-games", params),
+  cancelImport: () => ipcRenderer.invoke("cancel-import"),
   log: (message) => ipcRenderer.invoke("log", message),
   sendUpdateProgress: (progress) =>
     ipcRenderer.invoke("update-progress", progress),
@@ -67,6 +68,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // ─── FIXED: Added missing external URL opener for Update Available button ──
   openExternalUrl: (url) => ipcRenderer.invoke("open-external-url", url),
+  launchGame: (data) => ipcRenderer.invoke("launch-game", data),
+  openGameFolder: (path) => ipcRenderer.invoke("open-game-folder", path),
+  openGameProperties: (recordId) =>
+    ipcRenderer.invoke("open-game-properties", recordId),
 
   saveEmulatorConfig: (config) =>
     ipcRenderer.invoke("save-emulator-config", config),

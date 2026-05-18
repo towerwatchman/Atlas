@@ -56,6 +56,7 @@ let settingsWindow;
 let importerWindow;
 let importSourceDialog;
 let appConfig;
+let activeImportSession = null;
 
 app.commandLine.appendSwitch("force-color-profile", "srgb");
 
@@ -409,27 +410,79 @@ ipcMain.handle("remove-game", async (event, record_id) => {
   return removeGame(record_id);
 });
 
-ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
-  const AdmZip = require("adm-zip");
+function sanitizePathSegment(value, fallback = "Unknown") {
+  const sanitized = String(value || fallback)
+    .replace(/[\/\\:*?"<>|]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return sanitized && sanitized !== "." ? sanitized : fallback;
+}
+
+async function extractArchive(zipPath, extractPath) {
+  const extractZip = require("extract-zip");
   const Seven = require("node-7z");
   const Unrar = require("unrar");
+
+  const ext = path.extname(zipPath).toLowerCase();
+  if (ext === ".zip") {
+    await extractZip(zipPath, { dir: extractPath });
+  } else if (ext === ".rar") {
+    const unrar = new Unrar(zipPath);
+    unrar.extract(extractPath);
+  } else if (ext === ".7z") {
+    await Seven.extractFull(zipPath, extractPath);
+  } else {
+    throw new Error("Unsupported file format");
+  }
+}
+
+function createImportCancelledError() {
+  const err = new Error("Import canceled by user");
+  err.code = "IMPORT_CANCELED";
+  return err;
+}
+
+function isImportCancelledError(err) {
+  return err?.code === "IMPORT_CANCELED";
+}
+
+function throwIfImportCanceled(session) {
+  if (session?.cancelRequested) throw createImportCancelledError();
+}
+
+async function removePathIfExists(targetPath) {
+  if (!targetPath) return;
   try {
-    const ext = path.extname(zipPath).toLowerCase();
-    if (ext === ".zip") {
-      const zip = new AdmZip(zipPath);
-      zip.extractAllTo(extractPath, true);
-    } else if (ext === ".rar") {
-      const unrar = new Unrar(zipPath);
-      unrar.extract(extractPath);
-    } else if (ext === ".7z") {
-      await Seven.extractFull(zipPath, extractPath);
-    } else {
-      throw new Error("Unsupported file format");
-    }
+    await fs.promises.rm(targetPath, { recursive: true, force: true });
+  } catch (err) {
+    console.error(`Failed to remove incomplete import path ${targetPath}:`, err);
+  }
+}
+
+ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
+  try {
+    await extractArchive(zipPath, extractPath);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+
+ipcMain.handle("cancel-import", async () => {
+  if (!activeImportSession) {
+    return { success: false, message: "No import is currently running" };
+  }
+
+  activeImportSession.cancelRequested = true;
+  mainWindow?.webContents.send("import-progress", {
+    text: "Cancel requested. Cleaning up current import...",
+    progress: activeImportSession.progress || 0,
+    total: activeImportSession.total || 0,
+    canceling: true,
+    canCancel: false,
+  });
+  return { success: true };
 });
 
 ipcMain.handle("check-updates", async () => {
@@ -736,6 +789,43 @@ ipcMain.handle("open-external-url", async (event, url) => {
   }
 });
 
+ipcMain.handle("launch-game", async (event, data) => {
+  try {
+    await launchGame(data);
+    return { success: true };
+  } catch (err) {
+    console.error("Error launching game:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("open-game-folder", async (event, targetPath) => {
+  try {
+    if (!targetPath || typeof targetPath !== "string") {
+      return { success: false, error: "Invalid path" };
+    }
+    const openPath =
+      fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()
+        ? targetPath
+        : path.dirname(targetPath);
+    await shell.openPath(openPath);
+    return { success: true };
+  } catch (err) {
+    console.error("Error opening game folder:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("open-game-properties", async (event, recordId) => {
+  try {
+    createGameDetailsWindow(recordId);
+    return { success: true };
+  } catch (err) {
+    console.error("Error opening game properties:", err);
+    return { success: false, error: err.message };
+  }
+});
+
 // Default game folder management
 ipcMain.handle("get-default-game-folder", async () => {
   return appConfig?.Library?.gameFolder || null;
@@ -933,6 +1023,10 @@ ipcMain.handle("update-game", async (event, game) => {
   try {
     await updateGame(game);
     console.log("Game updated in database");
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("game-updated", game.record_id);
+    }
+    return { success: true };
   } catch (err) {
     console.error("Error updating game:", err);
     throw err;
@@ -944,6 +1038,10 @@ ipcMain.handle("update-version", async (event, version, record_id) => {
   try {
     await updateVersion(version, record_id);
     console.log("Version updated in database");
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("game-updated", record_id);
+    }
+    return { success: true };
   } catch (err) {
     console.error("Error updating version:", err);
     throw err;
@@ -1038,7 +1136,12 @@ ipcMain.handle("select-steam-directory", async () => {
 // FAST CROSS-DEVICE COPY WITH BATCHED PROGRESS & RATE
 // ────────────────────────────────────────────────
 
-async function copyFolderWithProgress(source, destination, onProgress) {
+async function copyFolderWithProgress(
+  source,
+  destination,
+  onProgress,
+  shouldCancel = () => false,
+) {
   let totalBytes = 0;
   let copiedBytes = 0;
   let lastReportedPercent = 0;
@@ -1052,6 +1155,7 @@ async function copyFolderWithProgress(source, destination, onProgress) {
 
   // Calculate total size
   async function calculateSize(dir) {
+    if (shouldCancel()) throw createImportCancelledError();
     const stat = await fs.promises.stat(dir);
     if (stat.isFile()) {
       totalBytes += stat.size;
@@ -1066,6 +1170,7 @@ async function copyFolderWithProgress(source, destination, onProgress) {
 
   // Queue-based concurrent copy
   async function copyRecursive(src, dest) {
+    if (shouldCancel()) throw createImportCancelledError();
     const stat = await fs.promises.stat(src);
     if (stat.isDirectory()) {
       await fs.promises.mkdir(dest, { recursive: true });
@@ -1089,6 +1194,12 @@ async function copyFolderWithProgress(source, destination, onProgress) {
             const writeStream = fs.createWriteStream(dest);
 
             readStream.on("data", (chunk) => {
+              if (shouldCancel()) {
+                const cancelErr = createImportCancelledError();
+                readStream.destroy(cancelErr);
+                writeStream.destroy(cancelErr);
+                return;
+              }
               copiedBytes += chunk.length;
 
               const currentPercent = Math.floor(
@@ -1171,6 +1282,13 @@ async function copyFolderWithProgress(source, destination, onProgress) {
 // ────────────────────────────────────────────────
 
 ipcMain.handle("import-games", async (event, params) => {
+  if (activeImportSession) {
+    return {
+      success: false,
+      error: "Another import is already running",
+    };
+  }
+
   const {
     games: submittedGames,
     deleteAfter,
@@ -1192,6 +1310,13 @@ ipcMain.handle("import-games", async (event, params) => {
 
   const total = games.length;
   let progress = 0;
+  const session = {
+    cancelRequested: false,
+    progress,
+    total,
+    cleanupPaths: [],
+  };
+  activeImportSession = session;
 
   if (total === 0) {
     mainWindow.webContents.send("import-progress", {
@@ -1200,6 +1325,7 @@ ipcMain.handle("import-games", async (event, params) => {
       total,
     });
     mainWindow.webContents.send("import-complete");
+    activeImportSession = null;
     return [];
   }
 
@@ -1207,6 +1333,7 @@ ipcMain.handle("import-games", async (event, params) => {
     text: `Starting import of ${total} games...`,
     progress,
     total,
+    canCancel: true,
   });
 
   let targetLibrary = null;
@@ -1224,10 +1351,14 @@ ipcMain.handle("import-games", async (event, params) => {
 
   for (const game of games) {
     try {
+      throwIfImportCanceled(session);
+      session.cleanupPaths = [];
+      session.progress = progress;
       mainWindow.webContents.send("import-progress", {
         text: `Importing game '${game.title}' ${progress + 1}/${total}`,
         progress,
         total,
+        canCancel: true,
       });
 
       let gamePath = game.folder;
@@ -1238,7 +1369,12 @@ ipcMain.handle("import-games", async (event, params) => {
 
       // ── Structured move if requested ──
       // ── Structured move if requested ──
-      if (moveToDefaultFolder && targetLibrary && format.trim()) {
+      if (
+        !game.isArchive &&
+        moveToDefaultFolder &&
+        targetLibrary &&
+        format.trim()
+      ) {
         try {
           const formatStr = format.trim();
           const parts = formatStr
@@ -1279,6 +1415,7 @@ ipcMain.handle("import-games", async (event, params) => {
           }
 
           await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+          session.cleanupPaths = [destPath];
 
           // Preserve ORIGINAL source path
           const originalSource = gamePath;
@@ -1306,8 +1443,10 @@ ipcMain.handle("import-games", async (event, params) => {
               total,
               subProgress: prog.percent || 0,
               subTotal: 100,
+              canCancel: true,
             });
-          });
+          }, () => session.cancelRequested);
+          throwIfImportCanceled(session);
 
           // Only delete if copy reached 100% success
           if (deleteAfter && copySuccess) {
@@ -1364,9 +1503,11 @@ ipcMain.handle("import-games", async (event, params) => {
           // Update gamePath to new location for DB
           gamePath = destPath;
           execPath = path.join(gamePath, game.selectedValue || "");
+          session.cleanupPaths = [gamePath];
 
           console.log(`Moved ${game.title} to: ${destPath}`);
         } catch (moveErr) {
+          if (isImportCancelledError(moveErr)) throw moveErr;
           console.error("Structured move failed:", moveErr);
           mainWindow.webContents.send("import-progress", {
             text: `Move failed for ${game.title}: ${moveErr.message}`,
@@ -1376,13 +1517,22 @@ ipcMain.handle("import-games", async (event, params) => {
         }
       }
       if (game.isArchive) {
-        const extractPath = path.join(
-          gamesDir,
-          `${game.title}-${game.version}`,
+        const extractFolderName = sanitizePathSegment(
+          `${game.title || "Untitled"}-${game.version || "v1"}`,
         );
-        if (!fs.existsSync(extractPath))
-          fs.mkdirSync(extractPath, { recursive: true });
-        await unzipGame({ zipPath: game.folder, extractPath });
+        let extractPath = path.join(
+          gamesDir,
+          extractFolderName,
+        );
+        let extractCounter = 1;
+        const originalExtractPath = extractPath;
+        while (fs.existsSync(extractPath)) {
+          extractPath = `${originalExtractPath} (${extractCounter++})`;
+        }
+        fs.mkdirSync(extractPath, { recursive: true });
+        session.cleanupPaths = [extractPath];
+        await extractArchive(game.folder, extractPath);
+        throwIfImportCanceled(session);
         if (deleteAfter) fs.unlinkSync(game.folder);
         gamePath = extractPath;
 
@@ -1399,9 +1549,99 @@ ipcMain.handle("import-games", async (event, params) => {
           game.executables = execs.map((e) => ({ key: e, value: e }));
           game.selectedValue = selected;
         }
+
+        if (moveToDefaultFolder && targetLibrary && format.trim()) {
+          try {
+            const parts = format
+              .trim()
+              .split("/")
+              .map((p) => p.replace(/[{}]/g, "").trim());
+
+            const pathSegments = parts.map((part) => {
+              let value = "";
+              if (part.toLowerCase() === "creator")
+                value = game.creator || "Unknown";
+              else if (part.toLowerCase() === "title")
+                value = game.title || "Untitled";
+              else if (part.toLowerCase() === "version")
+                value = game.version || "v1";
+              else if (part.toLowerCase() === "engine")
+                value = game.engine || "Unknown";
+              else value = "Unknown";
+
+              value = value
+                .replace(/[\/\\:*?"<>|]/g, "_")
+                .replace(/\s+/g, " ")
+                .trim();
+
+              return !value || value === "." ? "Unknown" : value;
+            });
+
+            const relativeDest = path.join(...pathSegments);
+            let destPath = path.join(targetLibrary, relativeDest);
+            let counter = 1;
+            const originalDest = destPath;
+            while (fs.existsSync(destPath)) {
+              destPath = `${originalDest} (${counter++})`;
+            }
+
+            await fs.promises.mkdir(path.dirname(destPath), {
+              recursive: true,
+            });
+            session.cleanupPaths = [extractPath, destPath];
+
+            let copySuccess = false;
+            await copyFolderWithProgress(extractPath, destPath, (prog) => {
+              let text = `Moving extracted ${game.title}`;
+              if (prog.type === "total") {
+                text += ` (${(prog.bytes / 1024 ** 3).toFixed(2)} GB total)`;
+              } else if (prog.type === "progress") {
+                text += `: ${prog.percent}% (${(prog.copied / 1024 ** 3).toFixed(2)} / ${(prog.total / 1024 ** 3).toFixed(2)} GB)`;
+              } else if (prog.type === "done") {
+                text += ` - complete`;
+                copySuccess = true;
+              } else if (prog.type === "error") {
+                text += ` - error: ${prog.message}`;
+                copySuccess = false;
+              }
+
+              mainWindow.webContents.send("import-progress", {
+                text,
+                progress,
+                total,
+                subProgress: prog.percent || 0,
+                subTotal: 100,
+                canCancel: true,
+              });
+            }, () => session.cancelRequested);
+            throwIfImportCanceled(session);
+
+            if (copySuccess) {
+              await fs.promises.rm(extractPath, {
+                recursive: true,
+                force: true,
+              });
+              gamePath = destPath;
+              execPath = path.join(gamePath, game.selectedValue || "");
+              session.cleanupPaths = [gamePath];
+            }
+          } catch (moveErr) {
+            if (isImportCancelledError(moveErr)) throw moveErr;
+            console.error(
+              "Structured move after archive extraction failed:",
+              moveErr,
+            );
+            mainWindow.webContents.send("import-progress", {
+              text: `Move failed for extracted ${game.title}: ${moveErr.message}`,
+              progress,
+              total,
+            });
+          }
+        }
       }
 
       if (scanSize) {
+        throwIfImportCanceled(session);
         size = getFolderSize(gamePath);
       }
 
@@ -1413,6 +1653,7 @@ ipcMain.handle("import-games", async (event, params) => {
       };
 
       console.log("Adding Game");
+      throwIfImportCanceled(session);
       const recordId = await addGame(add);
       console.log("game added");
       console.log("adding version");
@@ -1435,31 +1676,58 @@ ipcMain.handle("import-games", async (event, params) => {
 
       if (size > 0) await updateFolderSize(recordId, game.version, size);
       results.push({ success: true, recordId, atlasId: game.atlasId });
+      session.cleanupPaths = [];
 
       progress++;
+      session.progress = progress;
       mainWindow.webContents.send("import-progress", {
         text: `Imported game '${game.title}' ${progress}/${total}`,
         progress,
         total,
+        canCancel: true,
       });
     } catch (err) {
+      if (isImportCancelledError(err)) {
+        await Promise.all(
+          [...session.cleanupPaths].reverse().map((targetPath) =>
+            removePathIfExists(targetPath),
+          ),
+        );
+        session.cleanupPaths = [];
+        mainWindow.webContents.send("import-progress", {
+          text: `Import canceled. Kept ${results.filter((r) => r.success).length} completed game(s).`,
+          progress,
+          total,
+          canceled: true,
+          canCancel: false,
+        });
+        break;
+      }
       console.error("Error importing game:", err);
       results.push({ success: false, error: err.message });
       progress++;
+      session.progress = progress;
       mainWindow.webContents.send("import-progress", {
         text: `Error importing game '${game.title}' ${progress}/${total}: ${err.message}`,
         progress,
         total,
+        canCancel: true,
       });
     }
+  }
+
+  if (session.cancelRequested) {
+    mainWindow.webContents.send("import-complete");
+    activeImportSession = null;
+    return results;
   }
 
   mainWindow.webContents.send("import-progress", {
     text: `Game import complete: ${results.filter((r) => r.success).length} successful`,
     progress,
     total,
+    canCancel: false,
   });
-  mainWindow.webContents.send("import-complete");
 
   // Phase 2: Image downloads
   if (downloadBannerImages || downloadPreviewImages) {
@@ -1478,10 +1746,12 @@ ipcMain.handle("import-games", async (event, params) => {
       text: `Starting image download for ${imageTotal} games...`,
       progress,
       total: imageTotal,
+      canCancel: true,
     });
 
     for (const game of gamesWithImages) {
       try {
+        throwIfImportCanceled(session);
         const bannerUrl = await getBannerUrl(game.atlasId);
         const screenUrls = await getScreensUrlList(game.atlasId);
         const previewCount = downloadPreviewImages
@@ -1496,6 +1766,7 @@ ipcMain.handle("import-games", async (event, params) => {
           text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, 0/${totalImages}`,
           progress,
           total: imageTotal,
+          canCancel: true,
         });
 
         await downloadImages(
@@ -1506,6 +1777,7 @@ ipcMain.handle("import-games", async (event, params) => {
               text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, ${current}/${totalImages}`,
               progress,
               total: imageTotal,
+              canCancel: true,
             });
           },
           downloadBannerImages,
@@ -1513,6 +1785,7 @@ ipcMain.handle("import-games", async (event, params) => {
           previewLimit,
           downloadVideos,
         );
+        throwIfImportCanceled(session);
 
         mainWindow.webContents.send("game-updated", game.recordId);
 
@@ -1521,26 +1794,42 @@ ipcMain.handle("import-games", async (event, params) => {
           text: `Completed image download for '${game.title}' ${progress}/${imageTotal}, ${totalImages} images downloaded`,
           progress,
           total: imageTotal,
+          canCancel: true,
         });
       } catch (err) {
+        if (isImportCancelledError(err)) {
+          mainWindow.webContents.send("import-progress", {
+            text: `Import canceled. Kept ${results.filter((r) => r.success).length} completed game(s).`,
+            progress,
+            total: imageTotal,
+            canceled: true,
+            canCancel: false,
+          });
+          break;
+        }
         console.error("Error downloading images for game:", err);
         progress++;
         mainWindow.webContents.send("import-progress", {
           text: `Error downloading images for '${game.title}' ${progress}/${imageTotal}: ${err.message}`,
           progress,
           total: imageTotal,
+          canCancel: true,
         });
       }
     }
 
-    mainWindow.webContents.send("import-progress", {
-      text: `Image download complete for ${progress} games`,
-      progress,
-      total: imageTotal,
-    });
+    if (!session.cancelRequested) {
+      mainWindow.webContents.send("import-progress", {
+        text: `Image download complete for ${progress} games`,
+        progress,
+        total: imageTotal,
+        canCancel: false,
+      });
+    }
   }
 
   mainWindow.webContents.send("import-complete");
+  activeImportSession = null;
   return results;
 });
 

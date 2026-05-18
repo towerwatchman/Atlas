@@ -1,6 +1,7 @@
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
-const fs = require("fs").promises;
+const fs = require("fs");
+const fsPromises = fs.promises;
 
 let db;
 
@@ -395,6 +396,85 @@ const updateVersion = (version, record_id) => {
   });
 };
 
+function normalizeVersionForCompare(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/^v/, "")
+    .replace(/[^0-9.]/g, "");
+}
+
+function compareVersionParts(current, latest) {
+  const currentParts = current.split(".").map((n) => parseInt(n, 10) || 0);
+  const latestParts = latest.split(".").map((n) => parseInt(n, 10) || 0);
+  const maxLen = Math.max(currentParts.length, latestParts.length);
+
+  while (currentParts.length < maxLen) currentParts.push(0);
+  while (latestParts.length < maxLen) latestParts.push(0);
+
+  for (let i = 0; i < maxLen; i++) {
+    if (currentParts[i] < latestParts[i]) return -1;
+    if (currentParts[i] > latestParts[i]) return 1;
+  }
+
+  return 0;
+}
+
+function getIsUpdateAvailable(latestVersion, versions) {
+  if (!latestVersion || !versions || versions.length === 0) return false;
+
+  if (
+    versions.some((version) =>
+      String(version.version || "")
+        .trim()
+        .toLowerCase()
+        .includes("final"),
+    )
+  ) {
+    return false;
+  }
+
+  const latest = normalizeVersionForCompare(latestVersion);
+  if (!latest) return false;
+
+  return versions.some((version) => {
+    const current = normalizeVersionForCompare(version.version);
+    if (!current) return false;
+    return compareVersionParts(current, latest) < 0;
+  });
+}
+
+function isExistingPath(value) {
+  if (!value) return false;
+  if (typeof fs.existsSync !== "function") {
+    console.error("Path validation unavailable: fs.existsSync is not defined");
+    return false;
+  }
+  try {
+    return fs.existsSync(value);
+  } catch {
+    return false;
+  }
+}
+
+function mapVersionRow(row, forceInstalled = false) {
+  const hasGamePath = isExistingPath(row.game_path);
+  const hasExecPath = row.exec_path ? isExistingPath(row.exec_path) : true;
+
+  return {
+    version: row.version,
+    game_path: row.game_path,
+    exec_path: row.exec_path,
+    in_place: row.in_place,
+    last_played: row.last_played,
+    version_playtime: row.version_playtime,
+    folder_size: row.folder_size,
+    date_added: row.date_added,
+    isInstalled: forceInstalled || (hasGamePath && hasExecPath),
+  };
+}
+
 const getGame = (recordId, appPath, isDev) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = getAssetBasePath(appPath, isDev);
@@ -402,6 +482,7 @@ const getGame = (recordId, appPath, isDev) => {
       SELECT
         games.record_id as record_id,
         atlas_mappings.atlas_id as atlas_id,
+        steam_mappings.steam_id as steam_id,
         games.title as title,
         games.creator as creator,
         games.engine as engine,
@@ -435,6 +516,7 @@ const getGame = (recordId, appPath, isDev) => {
       FROM
         games
       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+      LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
       LEFT JOIN banners ON games.record_id = banners.record_id AND banners.type = 'small'
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
@@ -468,16 +550,7 @@ const getGame = (recordId, appPath, isDev) => {
           const game = {
             ...row,
             engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
-            versions: versionRows.map((v) => ({
-              version: v.version,
-              game_path: v.game_path,
-              exec_path: v.exec_path,
-              in_place: v.in_place,
-              last_played: v.last_played,
-              version_playtime: v.version_playtime,
-              folder_size: v.folder_size,
-              date_added: v.date_added,
-            })),
+            versions: versionRows.map((v) => mapVersionRow(v, !!row.steam_id)),
             versionCount: versionRows.length,
             isUpdateAvailable: false,
           };
@@ -545,6 +618,12 @@ const getGame = (recordId, appPath, isDev) => {
               }
             }
           }
+          const installedVersions = game.versions.filter((v) => v.isInstalled);
+          game.installedVersionCount = installedVersions.length;
+          game.isUpdateAvailable = getIsUpdateAvailable(
+            row.latestVersion,
+            installedVersions,
+          );
           resolve(game);
         },
       );
@@ -561,6 +640,7 @@ const getGames = (appPath, isDev, offset = 0, limit = null) => {
       SELECT
         games.record_id as record_id,
         atlas_mappings.atlas_id as atlas_id,
+        steam_mappings.steam_id as steam_id,
         games.title as title,
         games.creator as creator,
         games.engine as engine,
@@ -594,6 +674,7 @@ const getGames = (appPath, isDev, offset = 0, limit = null) => {
       FROM
         games
       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+      LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
       LEFT JOIN banners ON games.record_id = banners.record_id AND banners.type = 'small'
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
@@ -639,55 +720,33 @@ const getGames = (appPath, isDev, offset = 0, limit = null) => {
           if (!versionsByRecordId[row.record_id]) {
             versionsByRecordId[row.record_id] = [];
           }
-          versionsByRecordId[row.record_id].push({
-            version: row.version,
-            game_path: row.game_path,
-            exec_path: row.exec_path,
-            in_place: row.in_place,
-            last_played: row.last_played,
-            version_playtime: row.version_playtime,
-            folder_size: row.folder_size,
-            date_added: row.date_added,
-          });
+          versionsByRecordId[row.record_id].push(row);
         });
 
         // Map rows to include versions array and isUpdateAvailable
-        const games = rows.map((row) => {
-          const versions = versionsByRecordId[row.record_id] || [];
-          // Compute isUpdateAvailable based on C# logic
-          let isUpdateAvailable = false;
-          if (row.latestVersion && versions.length > 0) {
-            let latest;
-            try {
-              latest = parseInt(row.latestVersion.replace(/[^0-9]/g, ""), 10);
-            } catch {
-              latest = 0;
-            }
-            for (const version of versions) {
-              let current;
-              try {
-                current = parseInt(version.version.replace(/[^0-9]/g, ""), 10);
-              } catch {
-                current = 0;
-              }
-              if (latest > current) {
-                isUpdateAvailable = true;
-              } else {
-                isUpdateAvailable = false;
-                break;
-              }
-            }
-          }
+        const games = rows
+          .map((row) => {
+            const allVersions = (versionsByRecordId[row.record_id] || []).map(
+              (version) => mapVersionRow(version, !!row.steam_id),
+            );
+            const versions = allVersions.filter(
+              (version) => version.isInstalled,
+            );
 
-          return {
-            ...row,
-            // Unescape engine to fix 'Ren''Py' issue
-            engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
-            versions,
-            versionCount: versions.length, // Add versionCount
-            isUpdateAvailable,
-          };
-        });
+            return {
+              ...row,
+              // Unescape engine to fix 'Ren''Py' issue
+              engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
+              versions,
+              versionCount: versions.length, // Add versionCount
+              installedVersionCount: versions.length,
+              isUpdateAvailable: getIsUpdateAvailable(
+                row.latestVersion,
+                versions,
+              ),
+            };
+          })
+          .filter((game) => game.versions.length > 0);
 
         console.log(`Fetched ${games.length} games with versions`);
         resolve(games);
@@ -886,7 +945,7 @@ const searchAtlas = async (title, creator) => {
     async () => {
       return new Promise((resolve, reject) => {
         db.all(
-          `SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ? AND creator LIKE ?`,
+          `SELECT atlas_id, title, creator, engine, version as latestVersion FROM atlas_data WHERE title LIKE ? AND creator LIKE ?`,
           [`%${title}%`, `%${creator}%`],
           (err, rows) => {
             if (err) reject(err);
@@ -903,6 +962,7 @@ const searchAtlas = async (title, creator) => {
           title,
           creator,
           engine,
+          version as latestVersion,
           LENGTH(short_name) - LENGTH(?) as difference
         FROM atlas_data
         WHERE short_name LIKE ?
@@ -930,6 +990,7 @@ const searchAtlas = async (title, creator) => {
             title,
             creator,
             engine,
+            version as latestVersion,
             UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
               title || '' || creator,
               '-', ''), '_', ''), '/', ''), '\\', ''), ':', ''), ';', ''), '''', ''), ' ', ''), '.', '')) as full_name
@@ -940,6 +1001,7 @@ const searchAtlas = async (title, creator) => {
           title,
           creator,
           engine,
+          latestVersion,
           LENGTH(full_name) - LENGTH(?) as difference
         FROM data_0
         WHERE full_name LIKE ?
@@ -960,7 +1022,7 @@ const searchAtlas = async (title, creator) => {
       // Title-only search
       return new Promise((resolve, reject) => {
         db.all(
-          `SELECT atlas_id, title, creator, engine FROM atlas_data WHERE title LIKE ?`,
+          `SELECT atlas_id, title, creator, engine, version as latestVersion FROM atlas_data WHERE title LIKE ?`,
           [`%${title}%`],
           (err, rows) => {
             if (err) reject(err);
@@ -1299,7 +1361,15 @@ const getBanner = (recordId, appPath, isDev, type) => {
 const getAtlasData = (atlasId) => {
   return new Promise((resolve, reject) => {
     db.get(
-      `SELECT title, creator, engine FROM atlas_data WHERE atlas_id = ?`,
+      `SELECT
+        a.title,
+        a.creator,
+        a.engine,
+        a.version as latestVersion,
+        f.f95_id
+      FROM atlas_data a
+      LEFT JOIN f95_zone_data f ON a.atlas_id = f.atlas_id
+      WHERE a.atlas_id = ?`,
       [atlasId],
       (err, row) => {
         if (err) reject(err);
@@ -1399,12 +1469,12 @@ const deleteBanner = (recordId, appPath, isDev) => {
         console.log("Attempting to delete preview file:", filePath);
         try {
           if (
-            await fs
+            await fsPromises
               .access(filePath)
               .then(() => true)
               .catch(() => false)
           ) {
-            await fs.unlink(filePath);
+            await fsPromises.unlink(filePath);
             console.log("Deleted preview file:", filePath);
           } else {
             console.log("Preview file does not exist:", filePath);
@@ -1439,12 +1509,12 @@ const deletePreviews = (recordId, appPath, isDev) => {
         console.log("Attempting to delete preview file:", filePath);
         try {
           if (
-            await fs
+            await fsPromises
               .access(filePath)
               .then(() => true)
               .catch(() => false)
           ) {
-            await fs.unlink(filePath);
+            await fsPromises.unlink(filePath);
             console.log("Deleted preview file:", filePath);
           } else {
             console.log("Preview file does not exist:", filePath);
@@ -1539,7 +1609,14 @@ const getSteamScreensUrlList = (steamId) => {
 const searchAtlasByF95Id = (f95Id) => {
   return new Promise((resolve, reject) => {
     db.all(
-      `SELECT a.atlas_id, f.f95_id, a.title, a.creator, a.engine FROM atlas_data a
+      `SELECT
+        a.atlas_id,
+        f.f95_id,
+        a.title,
+        a.creator,
+        a.engine,
+        a.version as latestVersion
+       FROM atlas_data a
         LEFT JOIN f95_zone_data f ON a.atlas_id = f.atlas_id WHERE f.f95_id =?`,
       [f95Id],
       (err, rows) => {
