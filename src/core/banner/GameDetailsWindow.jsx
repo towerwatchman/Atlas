@@ -354,6 +354,38 @@ const GameDetailWindow = () => {
     }
   };
 
+  const handleRefreshMetadataAndImages = async () => {
+    try {
+      setImportProgress({
+        text: "Refreshing metadata and images...",
+        progress: 0,
+        total: 1,
+      });
+      const result = await window.electronAPI.refreshGameMedia(game.record_id);
+      if (result?.success === false) {
+        throw new Error(result.error || "Refresh failed");
+      }
+
+      if (result?.game) {
+        refreshFromGame(result.game, selectedVersion?.version);
+      } else {
+        const refreshedGame = await window.electronAPI.getGame(game.record_id);
+        if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion?.version);
+      }
+
+      if (result?.bannerUrl) {
+        setBannerUrl(result.bannerUrl);
+      }
+      if (Array.isArray(result?.previewUrls)) {
+        setPreviewUrls(result.previewUrls);
+      }
+    } catch (err) {
+      console.error("Failed to refresh metadata and images:", err);
+      alert(`Failed to refresh metadata and images: ${err.message}`);
+      setImportProgress({ text: "", progress: 0, total: 0 });
+    }
+  };
+
   const handleRemoveVersion = async () => {
     if (!selectedVersion) {
       alert("No version selected.");
@@ -1140,10 +1172,16 @@ const GameDetailWindow = () => {
                   </div>
                   <div className="flex space-x-2 mt-2">
                     <button
+                      onClick={handleRefreshMetadataAndImages}
+                      className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                    >
+                      Refresh Metadata & Images
+                    </button>
+                    <button
                       onClick={handleDownloadPreviews}
                       className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
                     >
-                      Download Previews
+                      Download All Previews
                     </button>
                     {Array.isArray(validPreviewUrls) &&
                       validPreviewUrls.length > 0 && (

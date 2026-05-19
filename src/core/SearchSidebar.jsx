@@ -1,6 +1,12 @@
 const { useState, useEffect, useMemo } = window.React;
 
-const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
+const SearchSidebar = ({
+  isVisible,
+  searchText = "",
+  onSearchChange,
+  onFilterChange,
+  onClose,
+}) => {
   const [filter, setFilter] = useState("");
   const [tagSearch, setTagSearch] = useState("");
   const [highlightedTagIndex, setHighlightedTagIndex] = useState(-1);
@@ -15,6 +21,7 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
     sort: "name",
     tagLogic: "AND",
     updateAvailable: false,
+    includeUninstalled: false,
   });
   const [options, setOptions] = useState({
     categories: [],
@@ -31,6 +38,10 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
       .then((data) => setOptions(data))
       .catch((err) => console.error("Failed to load filter options:", err));
   }, []);
+
+  useEffect(() => {
+    setFilter(searchText || "");
+  }, [searchText]);
 
   const currentFilters = useMemo(
     () => ({
@@ -111,9 +122,10 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
                 sort: "name",
                 tagLogic: "AND",
                 updateAvailable: false,
+                includeUninstalled: false,
               });
               setTagSearch("");
-              setFilter("");
+              onSearchChange?.("");
             }}
             className="text-text hover:text-accent text-sm flex items-center"
           >
@@ -138,7 +150,10 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
               type="text"
               placeholder="Search Atlas"
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+              onChange={(e) => {
+                setFilter(e.target.value);
+                onSearchChange?.(e.target.value);
+              }}
               className="bg-transparent outline-none text-text flex-1 px-3 py-2 focus:outline-none -webkit-app-region-no-drag"
             />
           </div>
@@ -347,6 +362,24 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
               className="-webkit-app-region-no-drag"
             />
             <span>Show only games with updates available</span>
+          </label>
+        </div>
+
+        {/* Uninstalled */}
+        <div className="mb-4">
+          <label className="flex items-center space-x-2 text-sm">
+            <input
+              type="checkbox"
+              checked={selectedFilters.includeUninstalled || false}
+              onChange={() =>
+                setSelectedFilters((prev) => ({
+                  ...prev,
+                  includeUninstalled: !prev.includeUninstalled,
+                }))
+              }
+              className="-webkit-app-region-no-drag"
+            />
+            <span>Show uninstalled games</span>
           </label>
         </div>
       </div>

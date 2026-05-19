@@ -7,8 +7,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking getGame for recordId:", id);
     return ipcRenderer.invoke("get-game", id);
   },
-  getGames: (offset, limit) =>
-    ipcRenderer.invoke("get-games", { offset, limit }),
+  getGames: (offset, limit, options) => {
+    if (offset && typeof offset === "object") {
+      return ipcRenderer.invoke("get-games", offset);
+    }
+    return ipcRenderer.invoke("get-games", { offset, limit, options });
+  },
   removeGame: (id) => ipcRenderer.invoke("remove-game", id),
   unzipGame: (zipPath, extractPath) =>
     ipcRenderer.invoke("unzip-game", { zipPath, extractPath }),
@@ -89,6 +93,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   updatePreviews: (recordId) => {
     console.log("Invoking updatePreviews for recordId:", recordId);
     return ipcRenderer.invoke("update-previews", recordId);
+  },
+  refreshGameMedia: (recordId) => {
+    console.log("Invoking refreshGameMedia for recordId:", recordId);
+    return ipcRenderer.invoke("refresh-game-media", recordId);
   },
   convertAndSaveBanner: (recordId, filePath) => {
     console.log(

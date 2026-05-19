@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.61 - 2026-05-20
+
+### Added
+- Added an opt-in `Show uninstalled games` library filter so metadata-only records can be viewed without treating them as installed.
+- Added a Steam-style selected-game detail refresh action that re-downloads banner and all preview images for one game.
+- Added play-session tracking for local launches, updating last played and accumulated playtime from existing version records.
+- Added a manual database update action to the left sidebar Updates button with visible progress feedback.
+
+### Changed
+- Wired the top search bar and filter-sidebar search box to the same title/creator filter state.
+- Changed preview downloads to fetch all available previews by default instead of stopping at five.
+- Improved archive imports so structured archive extraction lands in the final version folder and avoids an extra extract-then-copy pass when possible.
+- Muted and labeled uninstalled library entries in the sidebar, grid, and detail page while keeping repair actions available.
+
+### Fixed
+- Fixed archive imports leaving an extra archive-name wrapper folder between the version folder and executable.
+- Fixed archive import performance by extracting to a temporary final-location folder and renaming when possible.
+- Fixed Play/Open Folder/detail actions for uninstalled records so unavailable actions stay disabled.
+- Fixed game detail refresh and Properties media refresh so updated previews/banners refresh live.
+- Fixed missing playtime and last-played updates after launching games.
+- Fixed the left sidebar Updates icon doing nothing when clicked.
+
 ## 1.0.60 - 2026-05-19
 
 ### Added

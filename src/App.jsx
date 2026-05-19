@@ -23,6 +23,7 @@ const formatPlaytime = (minutes) => {
 const GameDetailPage = ({ game, onBack, onRefresh }) => {
   const [previews, setPreviews] = useState([]);
   const [selectedVersion, setSelectedVersion] = useState(null);
+  const [isRefreshingMedia, setIsRefreshingMedia] = useState(false);
 
   useEffect(() => {
     if (!game?.record_id) return;
@@ -60,7 +61,13 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
     actionVersion?.game_path && actionVersion.isInstalled !== false,
   );
   const latestVersion = game.latestVersion || game.latest_version || "";
-  const localVersion = actionVersion?.version || game.version || "";
+  const localVersion =
+    actionVersion?.version ||
+    selectedVersion?.version ||
+    game.versions?.[0]?.version ||
+    game.version ||
+    "";
+  const hasInstalledVersion = game.hasInstalledVersion !== false;
   const versionOptions = game.versions || [];
   const metadataRows = [
     ["Status", game.status],
@@ -98,6 +105,26 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
     if (game.siteUrl) await window.electronAPI.openExternalUrl(game.siteUrl);
   };
 
+  const refreshMetadataAndImages = async () => {
+    if (!game?.record_id || isRefreshingMedia) return;
+    setIsRefreshingMedia(true);
+    try {
+      const result = await window.electronAPI.refreshGameMedia(game.record_id);
+      if (result?.success === false) {
+        throw new Error(result.error || "Refresh failed");
+      }
+      if (Array.isArray(result?.previewUrls)) {
+        setPreviews(result.previewUrls);
+      }
+      onRefresh?.(game.record_id);
+    } catch (error) {
+      console.error("Failed to refresh metadata and images:", error);
+      alert(`Failed to refresh metadata and images: ${error.message}`);
+    } finally {
+      setIsRefreshingMedia(false);
+    }
+  };
+
   return (
     <div className="min-h-full bg-tertiary text-text">
       <div className="relative min-h-[320px] border-b border-border bg-secondary overflow-hidden">
@@ -105,7 +132,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
           <img
             src={game.banner_url}
             alt=""
-            className="absolute inset-0 w-full h-full object-cover opacity-35"
+            className={`absolute inset-0 w-full h-full object-cover opacity-35 ${hasInstalledVersion ? "" : "grayscale"}`}
           />
         ) : (
           <div className="absolute inset-0 bg-[#1d2734]"></div>
@@ -138,6 +165,11 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
               )}
               {game.status && (
                 <span className="bg-selected px-2 py-1">{game.status}</span>
+              )}
+              {!hasInstalledVersion && (
+                <span className="bg-gray-700 border border-gray-500 px-2 py-1 text-gray-200">
+                  Uninstalled
+                </span>
               )}
               {localVersion && (
                 <span className="bg-primary border border-border px-2 py-1">
@@ -183,6 +215,14 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
                 <i className="fas fa-sliders-h mr-2"></i>
                 Properties
               </button>
+              <button
+                onClick={refreshMetadataAndImages}
+                disabled={isRefreshingMedia}
+                className="bg-primary hover:bg-selected disabled:bg-gray-700 disabled:text-gray-400 border border-border px-4 py-2"
+              >
+                <i className="fas fa-sync-alt mr-2"></i>
+                {isRefreshingMedia ? "Refreshing..." : "Refresh Metadata & Images"}
+              </button>
               {game.siteUrl && (
                 <button
                   onClick={openWebsite}
@@ -207,7 +247,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
           </div>
           {previews.length > 0 ? (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              {previews.slice(0, 8).map((preview, index) => (
+              {previews.map((preview, index) => (
                 <div
                   key={`${preview}-${index}`}
                   className="bg-secondary border border-border aspect-video overflow-hidden"
@@ -347,6 +387,7 @@ const App = () => {
   const [showGameList, setShowGameList] = useState(true);
   const gridRef = useRef(null);
   const gameGridRef = useRef(null);
+  const dbUpdateRunningRef = useRef(false);
 
   const [showSearchSidebar, setShowSearchSidebar] = useState(false); // or false
 
@@ -363,6 +404,7 @@ const [activeFilters, setActiveFilters] = useState({
   dateLimit: 0,
   tagLogic: "AND",
   updateAvailable: false, // if you added this
+  includeUninstalled: false,
 });
 
   // Debounce function for game refresh
@@ -375,11 +417,112 @@ const [activeFilters, setActiveFilters] = useState({
   };
 
   const toggleSearchSidebar = () => {
-  setShowSearchSidebar((prev) => !prev);
-};
+    setShowSearchSidebar((prev) => !prev);
+  };
+
+  const handleSearchChange = useCallback((text) => {
+    setActiveFilters((prev) => ({ ...prev, text }));
+  }, []);
+
+  const includeUninstalledRef = useRef(false);
+
+  const updateGamesState = useCallback((gamesArray) => {
+    setGames(gamesArray);
+    setTotalVersions(
+      gamesArray.reduce((sum, game) => sum + (game.versionCount || 0), 0),
+    );
+  }, []);
+
+  const fetchGames = useCallback(
+    (includeUninstalled = includeUninstalledRef.current) =>
+      window.electronAPI
+        .getGames({ includeUninstalled })
+        .then((allGames) => {
+          const gamesArray = Array.isArray(allGames) ? allGames : [];
+          console.log(
+            `Fetched ${gamesArray.length} games; includeUninstalled=${includeUninstalled}`,
+          );
+          updateGamesState(gamesArray);
+          return gamesArray;
+        })
+        .catch((error) => {
+          console.error("Failed to fetch games:", error);
+          updateGamesState([]);
+          return [];
+        }),
+    [updateGamesState],
+  );
+
+  const clearDbUpdateStatusSoon = useCallback(() => {
+    setTimeout(
+      () => setDbUpdateStatus({ text: "", progress: 0, total: 0 }),
+      2000,
+    );
+  }, []);
+
+  const runDbUpdateCheck = useCallback(async () => {
+    if (dbUpdateRunningRef.current) {
+      setDbUpdateStatus({
+        text: "Database update check already running...",
+        progress: 0,
+        total: 0,
+      });
+      return;
+    }
+
+    dbUpdateRunningRef.current = true;
+    setDbUpdateStatus({
+      text: "Checking database updates...",
+      progress: 0,
+      total: 0,
+    });
+
+    try {
+      const result = await window.electronAPI.checkDbUpdates();
+      if (!result.success) {
+        setDbUpdateStatus({
+          text: `Error: ${result.error}`,
+          progress: 0,
+          total: 100,
+        });
+        clearDbUpdateStatusSoon();
+      } else if (result.total === 0) {
+        setDbUpdateStatus({ text: result.message, progress: 0, total: 0 });
+        clearDbUpdateStatusSoon();
+      } else {
+        setDbUpdateStatus({
+          text: result.message || "Database updates complete",
+          progress: result.processed || result.total,
+          total: result.total,
+        });
+        clearDbUpdateStatusSoon();
+      }
+    } catch (error) {
+      console.error("Failed to check database updates:", error);
+      setDbUpdateStatus({
+        text: `Error: ${error.message}`,
+        progress: 0,
+        total: 100,
+      });
+      clearDbUpdateStatusSoon();
+    } finally {
+      dbUpdateRunningRef.current = false;
+    }
+  }, [clearDbUpdateStatusSoon]);
 
   const handleFilterChange = (filters) => {
-    setActiveFilters(filters);
+    setActiveFilters((prev) => ({ ...filters, text: prev.text }));
+    const nextIncludeUninstalled = filters.includeUninstalled === true;
+    if (includeUninstalledRef.current !== nextIncludeUninstalled) {
+      includeUninstalledRef.current = nextIncludeUninstalled;
+      fetchGames(nextIncludeUninstalled).then(() => {
+        if (!nextIncludeUninstalled) {
+          setSelectedGame((current) =>
+            current?.hasInstalledVersion === false ? null : current,
+          );
+        }
+      });
+    }
   };
 
   const toggleGameList = () => {
@@ -416,9 +559,14 @@ const [activeFilters, setActiveFilters] = useState({
               banner_url: updatedGame.banner_url,
             });
             setGames((prev) => {
-              const newGames = prev.map((g) =>
-                g.record_id === updatedGame.record_id ? updatedGame : g,
-              );
+              const shouldHideMissing =
+                !includeUninstalledRef.current &&
+                updatedGame.hasInstalledVersion === false;
+              const newGames = shouldHideMissing
+                ? prev.filter((g) => g.record_id !== updatedGame.record_id)
+                : prev.map((g) =>
+                    g.record_id === updatedGame.record_id ? updatedGame : g,
+                  );
               setTotalVersions(
                 newGames.reduce(
                   (sum, game) => sum + (game.versionCount || 0),
@@ -428,9 +576,13 @@ const [activeFilters, setActiveFilters] = useState({
               return newGames;
             });
             setSelectedGame((current) =>
-              current?.record_id === updatedGame.record_id
+              current?.record_id === updatedGame.record_id &&
+              (includeUninstalledRef.current ||
+                updatedGame.hasInstalledVersion !== false)
                 ? updatedGame
-                : current,
+              : current?.record_id === updatedGame.record_id
+                  ? null
+                  : current,
             );
             // Force grid re-render for the updated game
             if (gridRef.current) {
@@ -480,21 +632,7 @@ const [activeFilters, setActiveFilters] = useState({
       });
 
     // Fetch games only once on mount
-    window.electronAPI
-      .getGames()
-      .then((allGames) => {
-        const gamesArray = Array.isArray(allGames) ? allGames : [];
-        console.log(`Initial fetch: ${gamesArray.length} games loaded`);
-        setGames(gamesArray);
-        setTotalVersions(
-          gamesArray.reduce((sum, game) => sum + (game.versionCount || 0), 0),
-        );
-      })
-      .catch((error) => {
-        console.error("Failed to fetch games:", error);
-        setGames([]);
-        setTotalVersions(0);
-      });
+    fetchGames(false);
 
     // Load banner size from template
     window.electronAPI
@@ -525,39 +663,7 @@ const [activeFilters, setActiveFilters] = useState({
 
     window.electronAPI.getVersion().then((v) => setVersion(v));
 
-    window.electronAPI
-      .checkDbUpdates()
-      .then((result) => {
-        if (!result.success) {
-          setDbUpdateStatus({
-            text: `Error: ${result.error}`,
-            progress: 0,
-            total: 100,
-          });
-          setTimeout(
-            () => setDbUpdateStatus({ text: "", progress: 0, total: 0 }),
-            2000,
-          );
-        } else if (result.total === 0) {
-          setDbUpdateStatus({ text: result.message, progress: 0, total: 0 });
-          setTimeout(
-            () => setDbUpdateStatus({ text: "", progress: 0, total: 0 }),
-            2000,
-          );
-        }
-      })
-      .catch((error) => {
-        console.error("Failed to check database updates:", error);
-        setDbUpdateStatus({
-          text: `Error: ${error.message}`,
-          progress: 0,
-          total: 100,
-        });
-        setTimeout(
-          () => setDbUpdateStatus({ text: "", progress: 0, total: 0 }),
-          2000,
-        );
-      });
+    runDbUpdateCheck();
 
     // Set up IPC listeners
     const handleWindowStateChanged = (state) =>
@@ -614,21 +720,7 @@ const [activeFilters, setActiveFilters] = useState({
     };
     const handleImportComplete = () => {
       console.log("Import complete: fetching all games");
-      window.electronAPI
-        .getGames()
-        .then((allGames) => {
-          const gamesArray = Array.isArray(allGames) ? allGames : [];
-          console.log(`Import complete: ${gamesArray.length} games loaded`);
-          setGames(gamesArray);
-          setTotalVersions(
-            gamesArray.reduce((sum, game) => sum + (game.versionCount || 0), 0),
-          );
-        })
-        .catch((error) => {
-          console.error("Failed to fetch games on import complete:", error);
-          setGames([]);
-          setTotalVersions(0);
-        });
+      fetchGames();
       setTimeout(
         () => setImportProgress({ text: "", progress: 0, total: 0 }),
         2000,
@@ -892,6 +984,12 @@ const [activeFilters, setActiveFilters] = useState({
     return result;
   }, [games, activeFilters]);
 
+  const installedGameCount = useMemo(
+    () => games.filter((game) => game.hasInstalledVersion !== false).length,
+    [games],
+  );
+  const uninstalledGameCount = Math.max(0, games.length - installedGameCount);
+
   const getColumnCount = (width) => {
     const containerWidth =
       width || gameGridRef.current?.clientWidth || window.innerWidth - 260;
@@ -973,7 +1071,11 @@ return (
             </div>
           </div>
           <div className="flex justify-center w-full">
-            <window.SearchBox onToggleSidebar={toggleSearchSidebar} />
+            <window.SearchBox
+              value={activeFilters.text}
+              onSearchChange={handleSearchChange}
+              onToggleSidebar={toggleSearchSidebar}
+            />
           </div>
         </div>
         <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
@@ -1013,7 +1115,10 @@ return (
     {/* Main Content */}
     <div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
       {/* Left Sidebar (icons) - always visible */}
-      <window.Sidebar onToggleGameList={toggleGameList} />
+      <window.Sidebar
+        onToggleGameList={toggleGameList}
+        onCheckDbUpdates={runDbUpdateCheck}
+      />
 
       {/* Left Game List (titles) - toggled */}
       {showGameList && (
@@ -1024,7 +1129,7 @@ return (
             filteredGames.map((game) => (
               <div
                 key={game.record_id}
-                className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? "bg-selected" : ""}`}
+                className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? "bg-selected" : ""} ${game.hasInstalledVersion === false ? "text-gray-500 italic" : ""}`}
                 onClick={() => selectGame(game)}
               >
                 {game.title}
@@ -1081,6 +1186,8 @@ return (
       {showSearchSidebar && (
         <window.SearchSidebar
           isVisible={showSearchSidebar}
+          searchText={activeFilters.text}
+          onSearchChange={handleSearchChange}
           onFilterChange={handleFilterChange}
           onClose={() => setShowSearchSidebar(false)}
         />
@@ -1184,7 +1291,11 @@ return (
       </button>
       <div className="flex items-center">
         <i className="fas fa-gamepad mr-2 text-text"></i>
-        <span>{`${games.length} Games Installed, ${totalVersions} Total Versions`}</span>
+        <span>
+          {activeFilters.includeUninstalled
+            ? `${installedGameCount} Games Installed, ${uninstalledGameCount} Uninstalled, ${totalVersions} Total Versions`
+            : `${installedGameCount} Games Installed, ${totalVersions} Total Versions`}
+        </span>
       </div>
       <div className="flex items-center">
         <i className="fas fa-download mr-2 text-text"></i>

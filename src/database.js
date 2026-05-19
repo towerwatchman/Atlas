@@ -396,6 +396,73 @@ const updateVersion = (version, record_id) => {
   });
 };
 
+const recordGameLaunchStarted = (recordId, version, timestamp) => {
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run(
+        `UPDATE versions SET last_played = ?
+         WHERE record_id = ? AND version = ?`,
+        [timestamp, recordId, version],
+        (err) => {
+          if (err) {
+            console.error("Error updating version last played:", err);
+            reject(err);
+          }
+        },
+      );
+      db.run(
+        `UPDATE games SET last_played_r = ?, last_played_version = ?
+         WHERE record_id = ?`,
+        [timestamp, version, recordId],
+        function (err) {
+          if (err) {
+            console.error("Error updating game last played:", err);
+            reject(err);
+            return;
+          }
+          resolve({ success: true });
+        },
+      );
+    });
+  });
+};
+
+const recordGamePlaytime = (recordId, version, minutes) => {
+  const playMinutes = Math.max(0, parseInt(minutes, 10) || 0);
+  if (playMinutes <= 0) return Promise.resolve({ success: true });
+
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run(
+        `UPDATE versions
+         SET version_playtime = COALESCE(version_playtime, 0) + ?
+         WHERE record_id = ? AND version = ?`,
+        [playMinutes, recordId, version],
+        (err) => {
+          if (err) {
+            console.error("Error updating version playtime:", err);
+            reject(err);
+          }
+        },
+      );
+      db.run(
+        `UPDATE games
+         SET total_playtime = COALESCE(total_playtime, 0) + ?
+         WHERE record_id = ?`,
+        [playMinutes, recordId],
+        function (err) {
+          if (err) {
+            console.error("Error updating game total playtime:", err);
+            reject(err);
+            return;
+          }
+          resolve({ success: true });
+        },
+      );
+    });
+  });
+};
+
 function normalizeVersionForCompare(value) {
   return String(value || "")
     .trim()
@@ -677,6 +744,9 @@ const getGame = (recordId, appPath, isDev) => {
           }
           const installedVersions = game.versions.filter((v) => v.isInstalled);
           game.installedVersionCount = installedVersions.length;
+          game.hasInstalledVersion = installedVersions.length > 0;
+          game.totalVersionCount = versionRows.length;
+          game.versionCount = installedVersions.length;
           game.isUpdateAvailable = getIsUpdateAvailable(
             row.latestVersion,
             installedVersions,
@@ -688,9 +758,16 @@ const getGame = (recordId, appPath, isDev) => {
   });
 };
 
-const getGames = (appPath, isDev, offset = 0, limit = null) => {
+const getGames = (
+  appPath,
+  isDev,
+  offset = 0,
+  limit = null,
+  options = {},
+) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = getAssetBasePath(appPath, isDev);
+    const includeUninstalled = options.includeUninstalled === true;
 
     // Main query with OFFSET and LIMIT
     let mainQuery = `
@@ -786,24 +863,31 @@ const getGames = (appPath, isDev, offset = 0, limit = null) => {
             const allVersions = (versionsByRecordId[row.record_id] || []).map(
               (version) => mapVersionRow(version, !!row.steam_id),
             );
-            const versions = allVersions.filter(
+            const installedVersions = allVersions.filter(
               (version) => version.isInstalled,
             );
+            const versions = includeUninstalled
+              ? allVersions
+              : installedVersions;
 
             return {
               ...row,
               // Unescape engine to fix 'Ren''Py' issue
               engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
               versions,
-              versionCount: versions.length, // Add versionCount
-              installedVersionCount: versions.length,
+              versionCount: installedVersions.length,
+              installedVersionCount: installedVersions.length,
+              totalVersionCount: allVersions.length,
+              hasInstalledVersion: installedVersions.length > 0,
               isUpdateAvailable: getIsUpdateAvailable(
                 row.latestVersion,
-                versions,
+                installedVersions,
               ),
             };
           })
-          .filter((game) => game.versions.length > 0);
+          .filter(
+            (game) => includeUninstalled || game.hasInstalledVersion,
+          );
 
         console.log(`Fetched ${games.length} games with versions`);
         resolve(games);
@@ -1875,6 +1959,8 @@ module.exports = {
   getBanner,
   updateGame,
   updateVersion,
+  recordGameLaunchStarted,
+  recordGamePlaytime,
   getSteamIDbyRecord,
   addSteamMapping,
   getSteamBannerUrl,

@@ -176,7 +176,7 @@ const GameBanner = ({ game, onSelect }) => {
     const installedVersions = (versions || []).filter(
       (version) => version.isInstalled !== false,
     );
-    if (installedVersions.length === 0) return "V 1.0";
+    if (installedVersions.length === 0) return "Missing";
     let maxVersion = installedVersions[0].version;
     let maxValue = 0;
     for (const version of installedVersions) {
@@ -368,7 +368,30 @@ const GameBanner = ({ game, onSelect }) => {
     return React.createElement("div", null, "Loading template...");
   }
 
-  return React.createElement(template, { game, onSelect });
+  const hasInstalledVersion = game.hasInstalledVersion !== false;
+  const renderedBanner = React.createElement(template, { game, onSelect });
+
+  if (hasInstalledVersion) return renderedBanner;
+
+  return React.createElement(
+    "div",
+    {
+      className: "relative grayscale opacity-60",
+      title: "Uninstalled",
+    },
+    [
+      renderedBanner,
+      React.createElement(
+        "div",
+        {
+          key: `uninstalled-marker-${game.record_id}`,
+          className:
+            "absolute top-2 left-2 z-40 bg-gray-800 border border-gray-500 text-gray-100 text-[10px] px-2 py-1 pointer-events-none",
+        },
+        "Uninstalled",
+      ),
+    ],
+  );
 };
 
 window.GameBanner = GameBanner;

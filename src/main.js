@@ -12,6 +12,8 @@ const {
   updateGame,
   addVersion,
   updateVersion,
+  recordGameLaunchStarted,
+  recordGamePlaytime,
   addAtlasMapping,
   getGame,
   getGames,
@@ -409,8 +411,15 @@ ipcMain.handle("get-game", async (event, recordId) => {
   return await getGame(recordId, getAssetBasePath(), process.defaultApp);
 });
 
-ipcMain.handle("get-games", async (event, { offset, limit }) => {
-  return await getGames(getAssetBasePath(), process.defaultApp, offset, limit);
+ipcMain.handle("get-games", async (event, args = {}) => {
+  const { offset, limit, includeUninstalled, options = {} } = args;
+  return await getGames(
+    getAssetBasePath(),
+    process.defaultApp,
+    offset,
+    limit,
+    { ...options, includeUninstalled: includeUninstalled === true },
+  );
 });
 
 ipcMain.handle("remove-game", async (event, record_id) => {
@@ -424,6 +433,82 @@ function sanitizePathSegment(value, fallback = "Unknown") {
     .trim();
 
   return sanitized && sanitized !== "." ? sanitized : fallback;
+}
+
+function buildStructuredImportPath(targetLibrary, format, game) {
+  const pathSegments = format
+    .trim()
+    .split("/")
+    .map((p) => p.replace(/[{}]/g, "").trim())
+    .map((part) => {
+      let value = "";
+      if (part.toLowerCase() === "creator") value = game.creator || "Unknown";
+      else if (part.toLowerCase() === "title") value = game.title || "Untitled";
+      else if (part.toLowerCase() === "version") value = game.version || "v1";
+      else if (part.toLowerCase() === "engine") value = game.engine || "Unknown";
+      else value = "Unknown";
+
+      return sanitizePathSegment(value);
+    });
+
+  return path.join(targetLibrary, ...pathSegments);
+}
+
+function getUniquePath(basePath) {
+  let uniquePath = basePath;
+  let counter = 1;
+  while (fs.existsSync(uniquePath)) {
+    uniquePath = `${basePath} (${counter++})`;
+  }
+  return uniquePath;
+}
+
+function getUniqueTempPath(basePath) {
+  return getUniquePath(`${basePath}.__atlas_extract_${Date.now()}`);
+}
+
+function getSingleDirectoryChild(dirPath) {
+  const entries = fs
+    .readdirSync(dirPath, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        !entry.name.startsWith("__MACOSX") &&
+        ![".DS_Store", "Thumbs.db", "desktop.ini"].includes(entry.name),
+    );
+  if (entries.length !== 1 || !entries[0].isDirectory()) return null;
+  return path.join(dirPath, entries[0].name);
+}
+
+function getNormalizedArchiveRoot(extractPath, extensions) {
+  const singleChildDir = getSingleDirectoryChild(extractPath);
+
+  if (!singleChildDir) {
+    return { rootPath: extractPath };
+  }
+
+  const childExecs = findExecutables(singleChildDir, extensions);
+  if (childExecs.length === 0) {
+    return { rootPath: extractPath };
+  }
+
+  return { rootPath: singleChildDir };
+}
+
+async function moveFolderFast(source, destination, onProgress, shouldCancel) {
+  if (shouldCancel()) throw createImportCancelledError();
+  await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+
+  try {
+    await fs.promises.rename(source, destination);
+    onProgress?.({ type: "done", percent: 100, copied: 0, total: 0 });
+    return "rename";
+  } catch (err) {
+    if (err.code !== "EXDEV") throw err;
+  }
+
+  await copyFolderWithProgress(source, destination, onProgress, shouldCancel);
+  await fs.promises.rm(source, { recursive: true, force: true });
+  return "copy";
 }
 
 async function extractArchive(zipPath, extractPath) {
@@ -862,7 +947,12 @@ ipcMain.handle("launch-game", async (event, data) => {
     const extension = execPath.includes(".")
       ? execPath.split(".").pop().toLowerCase()
       : "";
-    await launchGame({ execPath, extension, recordId: data.recordId });
+    await launchGame({
+      execPath,
+      extension,
+      recordId: data.recordId,
+      version: selectedVersion.version,
+    });
     return { success: true };
   } catch (err) {
     console.error("Error launching game:", err);
@@ -1023,21 +1113,21 @@ ipcMain.handle("update-previews", async (event, recordId) => {
   console.log("Handling update-previews for recordId:", recordId);
   try {
     const atlasId = await GetAtlasIDbyRecord(recordId);
-    let progress = 0;
     let imageTotal = 1;
     await downloadImages(
       recordId,
       atlasId,
       (current, totalImages) => {
+        imageTotal = totalImages || imageTotal;
         event.sender.send("game-details-import-progress", {
-          text: `Downloading previews  ${current}/${totalImages}`,
-          current,
-          total: totalImages,
+          text: `Downloading previews ${current}/${imageTotal}`,
+          progress: current,
+          total: imageTotal,
         });
       },
       false,
       true,
-      100,
+      "Unlimited",
       false,
     );
 
@@ -1047,10 +1137,9 @@ ipcMain.handle("update-previews", async (event, recordId) => {
       process.defaultApp,
     );
     event.sender.send("game-updated", recordId);
-    progress++;
     event.sender.send("game-details-import-progress", {
       text: `Completed previews download`,
-      progress,
+      progress: imageTotal,
       total: imageTotal,
     });
     return Array.isArray(previewUrls) ? previewUrls : [];
@@ -1100,6 +1189,69 @@ ipcMain.handle("update-game", async (event, game) => {
   } catch (err) {
     console.error("Error updating game:", err);
     throw err;
+  }
+});
+
+ipcMain.handle("refresh-game-media", async (event, recordId) => {
+  console.log("Handling refresh-game-media for recordId:", recordId);
+  try {
+    const atlasId = await GetAtlasIDbyRecord(recordId);
+    if (!atlasId) {
+      return {
+        success: false,
+        error: "This game is not mapped to Atlas/F95 metadata yet.",
+      };
+    }
+
+    let imageTotal = 1;
+    await downloadImages(
+      recordId,
+      atlasId,
+      (current, totalImages) => {
+        imageTotal = totalImages || imageTotal;
+        event.sender.send("game-details-import-progress", {
+          text: `Refreshing metadata and images ${current}/${imageTotal}`,
+          progress: current,
+          total: imageTotal,
+        });
+      },
+      true,
+      true,
+      "Unlimited",
+      false,
+    );
+
+    const game = await getGame(recordId, getAssetBasePath(), process.defaultApp);
+    const bannerUrl = await getBanner(
+      recordId,
+      getAssetBasePath(),
+      process.defaultApp,
+      "large",
+    );
+    const previewUrls = await getPreviews(
+      recordId,
+      getAssetBasePath(),
+      process.defaultApp,
+    );
+
+    event.sender.send("game-details-import-progress", {
+      text: "Completed metadata and image refresh",
+      progress: imageTotal,
+      total: imageTotal,
+    });
+    BrowserWindow.getAllWindows().forEach((win) => {
+      win.webContents.send("game-updated", recordId);
+    });
+
+    return {
+      success: true,
+      game,
+      bannerUrl,
+      previewUrls: Array.isArray(previewUrls) ? previewUrls : [],
+    };
+  } catch (err) {
+    console.error("Error refreshing game media:", err);
+    return { success: false, error: err.message };
   }
 });
 
@@ -1587,29 +1739,76 @@ ipcMain.handle("import-games", async (event, params) => {
         }
       }
       if (game.isArchive) {
-        const extractFolderName = sanitizePathSegment(
+        const defaultFolderName = sanitizePathSegment(
           `${game.title || "Untitled"}-${game.version || "v1"}`,
         );
-        let extractPath = path.join(
-          gamesDir,
-          extractFolderName,
-        );
-        let extractCounter = 1;
-        const originalExtractPath = extractPath;
-        while (fs.existsSync(extractPath)) {
-          extractPath = `${originalExtractPath} (${extractCounter++})`;
-        }
-        fs.mkdirSync(extractPath, { recursive: true });
-        session.cleanupPaths = [extractPath];
-        await extractArchive(game.folder, extractPath);
-        throwIfImportCanceled(session);
-        if (deleteAfter) fs.unlinkSync(game.folder);
-        gamePath = extractPath;
+        const baseDestPath =
+          moveToDefaultFolder && targetLibrary && format.trim()
+            ? buildStructuredImportPath(targetLibrary, format, game)
+            : path.join(gamesDir, defaultFolderName);
+        const destPath = getUniquePath(baseDestPath);
+        const tempExtractPath = getUniqueTempPath(destPath);
 
-        const execs = findExecutables(extractPath, gameExt);
+        await fs.promises.mkdir(path.dirname(tempExtractPath), {
+          recursive: true,
+        });
+        session.cleanupPaths = [tempExtractPath, destPath];
+
+        mainWindow.webContents.send("import-progress", {
+          text: `Extracting ${game.title}...`,
+          progress,
+          total,
+          canCancel: true,
+        });
+
+        await extractArchive(game.folder, tempExtractPath);
+        throwIfImportCanceled(session);
+
+        const normalized = getNormalizedArchiveRoot(tempExtractPath, gameExt);
+        await moveFolderFast(
+          normalized.rootPath,
+          destPath,
+          (prog) => {
+            let text =
+              prog.type === "done"
+                ? `Prepared ${game.title} install folder`
+                : `Moving extracted ${game.title}`;
+            if (prog.type === "total") {
+              text += ` (${(prog.bytes / 1024 ** 3).toFixed(2)} GB total)`;
+            } else if (prog.type === "progress") {
+              text += `: ${prog.percent}% (${(prog.copied / 1024 ** 3).toFixed(2)} / ${(prog.total / 1024 ** 3).toFixed(2)} GB)`;
+            } else if (prog.type === "error") {
+              text += ` - error: ${prog.message}`;
+            }
+
+            mainWindow.webContents.send("import-progress", {
+              text,
+              progress,
+              total,
+              subProgress: prog.percent || 0,
+              subTotal: 100,
+              canCancel: true,
+            });
+          },
+          () => session.cancelRequested,
+        );
+        throwIfImportCanceled(session);
+
+        if (fs.existsSync(tempExtractPath)) {
+          await fs.promises.rm(tempExtractPath, {
+            recursive: true,
+            force: true,
+          });
+        }
+
+        if (deleteAfter) fs.unlinkSync(game.folder);
+        gamePath = destPath;
+        session.cleanupPaths = [gamePath];
+
+        const execs = findExecutables(gamePath, gameExt);
         if (execs.length > 0) {
           const selected = execs[0];
-          execPath = path.join(extractPath, selected);
+          execPath = path.join(gamePath, selected);
           for (const [eng, patterns] of Object.entries(engineMap)) {
             if (patterns.some((p) => selected.toLowerCase().includes(p))) {
               game.engine = eng;
@@ -1618,95 +1817,6 @@ ipcMain.handle("import-games", async (event, params) => {
           }
           game.executables = execs.map((e) => ({ key: e, value: e }));
           game.selectedValue = selected;
-        }
-
-        if (moveToDefaultFolder && targetLibrary && format.trim()) {
-          try {
-            const parts = format
-              .trim()
-              .split("/")
-              .map((p) => p.replace(/[{}]/g, "").trim());
-
-            const pathSegments = parts.map((part) => {
-              let value = "";
-              if (part.toLowerCase() === "creator")
-                value = game.creator || "Unknown";
-              else if (part.toLowerCase() === "title")
-                value = game.title || "Untitled";
-              else if (part.toLowerCase() === "version")
-                value = game.version || "v1";
-              else if (part.toLowerCase() === "engine")
-                value = game.engine || "Unknown";
-              else value = "Unknown";
-
-              value = value
-                .replace(/[\/\\:*?"<>|]/g, "_")
-                .replace(/\s+/g, " ")
-                .trim();
-
-              return !value || value === "." ? "Unknown" : value;
-            });
-
-            const relativeDest = path.join(...pathSegments);
-            let destPath = path.join(targetLibrary, relativeDest);
-            let counter = 1;
-            const originalDest = destPath;
-            while (fs.existsSync(destPath)) {
-              destPath = `${originalDest} (${counter++})`;
-            }
-
-            await fs.promises.mkdir(path.dirname(destPath), {
-              recursive: true,
-            });
-            session.cleanupPaths = [extractPath, destPath];
-
-            let copySuccess = false;
-            await copyFolderWithProgress(extractPath, destPath, (prog) => {
-              let text = `Moving extracted ${game.title}`;
-              if (prog.type === "total") {
-                text += ` (${(prog.bytes / 1024 ** 3).toFixed(2)} GB total)`;
-              } else if (prog.type === "progress") {
-                text += `: ${prog.percent}% (${(prog.copied / 1024 ** 3).toFixed(2)} / ${(prog.total / 1024 ** 3).toFixed(2)} GB)`;
-              } else if (prog.type === "done") {
-                text += ` - complete`;
-                copySuccess = true;
-              } else if (prog.type === "error") {
-                text += ` - error: ${prog.message}`;
-                copySuccess = false;
-              }
-
-              mainWindow.webContents.send("import-progress", {
-                text,
-                progress,
-                total,
-                subProgress: prog.percent || 0,
-                subTotal: 100,
-                canCancel: true,
-              });
-            }, () => session.cancelRequested);
-            throwIfImportCanceled(session);
-
-            if (copySuccess) {
-              await fs.promises.rm(extractPath, {
-                recursive: true,
-                force: true,
-              });
-              gamePath = destPath;
-              execPath = path.join(gamePath, game.selectedValue || "");
-              session.cleanupPaths = [gamePath];
-            }
-          } catch (moveErr) {
-            if (isImportCancelledError(moveErr)) throw moveErr;
-            console.error(
-              "Structured move after archive extraction failed:",
-              moveErr,
-            );
-            mainWindow.webContents.send("import-progress", {
-              text: `Move failed for extracted ${game.title}: ${moveErr.message}`,
-              progress,
-              total,
-            });
-          }
         }
       }
 
@@ -2150,17 +2260,68 @@ async function downloadImages(
   }
 }
 
-async function launchGame({ execPath, extension, recordId }) {
+function emitGameUpdated(recordId) {
+  if (!recordId) return;
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) {
+      win.webContents.send("game-updated", recordId);
+    }
+  });
+}
+
+async function startPlaySession(recordId, version, trackPlaytime = true) {
+  if (!recordId || !version) return null;
+  const startedAtMs = Date.now();
+  const startedAtSeconds = Math.floor(startedAtMs / 1000);
+  await recordGameLaunchStarted(recordId, version, startedAtSeconds);
+  emitGameUpdated(recordId);
+
+  return {
+    finish: async () => {
+      if (!trackPlaytime) return;
+      const elapsedMs = Math.max(0, Date.now() - startedAtMs);
+      if (elapsedMs <= 0) return;
+      const minutes = Math.max(1, Math.ceil(elapsedMs / 60000));
+      await recordGamePlaytime(recordId, version, minutes);
+      emitGameUpdated(recordId);
+    },
+  };
+}
+
+function trackChildPlaySession(child, session, recordId) {
+  if (!child || !session) return;
+  let finalized = false;
+  const finalize = async () => {
+    if (finalized) return;
+    finalized = true;
+    try {
+      await session.finish();
+    } catch (err) {
+      console.error(`Failed to finalize play session for ${recordId}:`, err);
+    }
+  };
+
+  child.once("exit", finalize);
+  child.once("close", finalize);
+  child.once("error", (err) => {
+    if (finalized) return;
+    finalized = true;
+    console.error(`Tracked game process error for ${recordId}:`, err);
+  });
+}
+
+async function launchGame({ execPath, extension, recordId, version }) {
   if (recordId) {
     const steamId = await getSteamIDbyRecord(recordId);
     if (steamId) {
+      await startPlaySession(recordId, version, false);
       shell.openExternal(`steam://run/${steamId}`);
       return;
     }
   }
   if (!fs.existsSync(execPath)) {
     console.error(`Executable not found: ${execPath}`);
-    return;
+    throw new Error(`Executable not found: ${execPath}`);
   }
   const emulator = await getEmulatorByExtension(extension);
   if (emulator) {
@@ -2170,9 +2331,25 @@ async function launchGame({ execPath, extension, recordId }) {
       detached: true,
       stdio: "ignore",
     });
+    const session = await startPlaySession(recordId, version, true);
+    trackChildPlaySession(child, session, recordId);
+    child.unref();
+  } else if (["exe", "bat", "cmd"].includes(extension)) {
+    const child = cp.spawn(execPath, [], {
+      cwd: path.dirname(execPath),
+      detached: true,
+      stdio: "ignore",
+      shell: extension === "bat" || extension === "cmd",
+    });
+    const session = await startPlaySession(recordId, version, true);
+    trackChildPlaySession(child, session, recordId);
     child.unref();
   } else {
-    shell.openPath(execPath);
+    const openResult = await shell.openPath(execPath);
+    if (openResult) {
+      throw new Error(openResult);
+    }
+    await startPlaySession(recordId, version, false);
   }
 }
 
@@ -2190,7 +2367,12 @@ function handleContextAction(data, sender) {
           const extension = execPath.includes(".")
             ? execPath.split(".").pop().toLowerCase()
             : "";
-          return launchGame({ execPath, extension, recordId: data.recordId });
+          return launchGame({
+            execPath,
+            extension,
+            recordId: data.recordId,
+            version: selectedVersion.version,
+          });
         })
         .catch((err) => console.error("Context launch failed:", err));
       break;

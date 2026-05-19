@@ -17,7 +17,7 @@ const Importer = () => {
   const [isCompressed, setIsCompressed] = useState(false);
   const [downloadBannerImages, setDownloadBannerImages] = useState(false);
   const [downloadPreviewImages, setDownloadPreviewImages] = useState(false);
-  const [previewLimit, setPreviewLimit] = useState("5");
+  const [previewLimit, setPreviewLimit] = useState("Unlimited");
   const [downloadVideos, setDownloadVideos] = useState(false);
   const [scanSize, setScanSize] = useState(false);
   const [deleteAfter, setDeleteAfter] = useState(false);
@@ -662,7 +662,7 @@ const Importer = () => {
                     .startSteamScan({
                       downloadBannerImages: false,
                       downloadPreviewImages: false,
-                      previewLimit: "5",
+                      previewLimit: "Unlimited",
                       downloadVideos: false,
                     })
                     .catch((err) => {
@@ -783,7 +783,12 @@ const Importer = () => {
                   checked={downloadPreviewImages}
                   onChange={(e) => setDownloadPreviewImages(e.target.checked)}
                 />
-                <label>Download Preview Images (limit: {previewLimit})</label>
+                <label>
+                  Download Preview Images{" "}
+                  {previewLimit === "Unlimited"
+                    ? "(all available)"
+                    : `(limit: ${previewLimit})`}
+                </label>
               </div>
 
               <div className="mt-4">
