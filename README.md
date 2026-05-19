@@ -1,9 +1,9 @@
 <div align="center">
   <a href="https://atlas-gamesdb.com/">
-    <img height="180px" src="https://github.com/towerwatchman/Atlas/blob/main/src/assets/images/atlas_logo.svg" alt="atlas logo">
+    <img height="180px" src="https://github.com/SekhmetAnkh/Atlas/blob/main/src/assets/images/atlas_logo.svg" alt="atlas logo">
   </a>
   
-<!--![GitHub release (with filter)](https://img.shields.io/github/v/release/towerwatchman/Atlas?style=flat&logo=github&logoColor=white&label=)-->
+<!--![GitHub release (with filter)](https://img.shields.io/github/v/release/SekhmetAnkh/Atlas?style=flat&logo=github&logoColor=white&label=)-->
 [![React](https://img.shields.io/badge/-ReactJs-21222B?&logo=react&logoColor=8ED5FF&style=for-the-badge)](#)
 [![Windows](https://custom-icon-badges.demolab.com/badge/Windows-0078D6?logo=windows11&logoColor=white&style=for-the-badge)](#)
 [![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)](#)
@@ -13,11 +13,11 @@
 
 <!--![Static Badge](https://img.shields.io/badge/-docs-green.svg?logo=Wikipedia)-->
 
-![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/towerwatchman/Atlas/.github%2Fworkflows%2Fmain.yml?event=push&label=release&style=for-the-badge)
-![GitHub issues](https://img.shields.io/github/issues-raw/towerwatchman/Atlas?style=for-the-badge)
-![GitHub pull requests](https://img.shields.io/github/issues-pr-raw/towerwatchman/Atlas?style=for-the-badge)
-![GitHub all releases](https://img.shields.io/github/downloads/towerwatchman/Atlas/total?style=for-the-badge)
-<!--![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/towerwatchman/Atlas/.github%2Fworkflows%2Fpr-test-build.yml?event=push&label=pr)-->
+![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/SekhmetAnkh/Atlas/.github%2Fworkflows%2Fmain.yml?event=push&label=release&style=for-the-badge)
+![GitHub issues](https://img.shields.io/github/issues-raw/SekhmetAnkh/Atlas?style=for-the-badge)
+![GitHub pull requests](https://img.shields.io/github/issues-pr-raw/SekhmetAnkh/Atlas?style=for-the-badge)
+![GitHub all releases](https://img.shields.io/github/downloads/SekhmetAnkh/Atlas/total?style=for-the-badge)
+<!--![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/SekhmetAnkh/Atlas/.github%2Fworkflows%2Fpr-test-build.yml?event=push&label=pr)-->
 </div>
 
 #
@@ -43,11 +43,11 @@ A summary of planned features is listed below. We do not have a timeline for all
 - Compresses all banner and preview images to smaller webp files for storage optimization.
 
 ## Download
-Grab the latest version from the [releases](https://github.com/towerwatchman/Atlas/releases) page. Once installed, Atlas will automatically notify you once there is a new version available. 
+Grab the latest version from the [releases](https://github.com/SekhmetAnkh/Atlas/releases) page. Once installed, Atlas will automatically notify you once there is a new version available.
 
-##Questions & Issues
+## Questions & Issues
 Please report any bugs by filing an issue. Please attach the log in the root of the Atlas directory.
 
 
 ## Roadmap
-All planned versions with their features are listed in the [milstones overview](https://github.com/towerwatchman/Atlas/milestones)
+All planned versions with their features are listed in the [milestones overview](https://github.com/SekhmetAnkh/Atlas/milestones)

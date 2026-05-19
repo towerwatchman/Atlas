@@ -475,6 +475,63 @@ function mapVersionRow(row, forceInstalled = false) {
   };
 }
 
+const getVersionForRecord = (recordId, version) => {
+  return new Promise((resolve, reject) => {
+    const params = [recordId];
+    let versionClause = "";
+    if (version) {
+      versionClause = " AND v.version = ?";
+      params.push(version);
+    }
+
+    db.get(
+      `SELECT
+         v.version,
+         v.game_path,
+         v.exec_path,
+         v.in_place,
+         v.last_played,
+         v.version_playtime,
+         v.folder_size,
+         v.date_added,
+         sm.steam_id
+       FROM versions v
+       LEFT JOIN steam_mappings sm ON v.record_id = sm.record_id
+       WHERE v.record_id = ?${versionClause}
+       ORDER BY v.date_added DESC, v.version DESC
+       LIMIT 1`,
+      params,
+      (err, row) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        if (!row) {
+          resolve(null);
+          return;
+        }
+        resolve(mapVersionRow(row, !!row.steam_id));
+      },
+    );
+  });
+};
+
+const getVersionPathsForRecord = (recordId) => {
+  return new Promise((resolve, reject) => {
+    db.all(
+      `SELECT game_path FROM versions WHERE record_id = ?`,
+      [recordId],
+      (err, rows) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(rows.map((row) => row.game_path).filter(Boolean));
+      },
+    );
+  });
+};
+
 const getGame = (recordId, appPath, isDev) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = getAssetBasePath(appPath, isDev);
@@ -1379,19 +1436,102 @@ const getAtlasData = (atlasId) => {
   });
 };
 
+const updateTableColumns = {
+  atlas_data: new Set([
+    "atlas_id",
+    "id_name",
+    "short_name",
+    "title",
+    "original_name",
+    "category",
+    "engine",
+    "status",
+    "version",
+    "developer",
+    "creator",
+    "overview",
+    "censored",
+    "language",
+    "translations",
+    "genre",
+    "tags",
+    "voice",
+    "os",
+    "release_date",
+    "length",
+    "banner",
+    "banner_wide",
+    "cover",
+    "logo",
+    "wallpaper",
+    "previews",
+    "last_record_update",
+  ]),
+  f95_zone_data: new Set([
+    "f95_id",
+    "atlas_id",
+    "banner_url",
+    "site_url",
+    "last_thread_comment",
+    "thread_publish_date",
+    "last_record_update",
+    "views",
+    "likes",
+    "tags",
+    "rating",
+    "screens",
+    "replies",
+  ]),
+};
+
+function getValidatedUpdateColumns(jsonData, tableName) {
+  const allowedColumns = updateTableColumns[tableName];
+  if (!allowedColumns) {
+    throw new Error(`Unsupported update table: ${tableName}`);
+  }
+
+  if (!Array.isArray(jsonData) || jsonData.length === 0) {
+    throw new Error(`No update rows supplied for ${tableName}`);
+  }
+
+  const columns = Array.from(
+    new Set(jsonData.flatMap((row) => Object.keys(row))),
+  );
+  const invalidColumns = Array.from(
+    new Set(
+      jsonData.flatMap((row) =>
+        Object.keys(row).filter((column) => !allowedColumns.has(column)),
+      ),
+    ),
+  );
+  if (invalidColumns.length > 0) {
+    throw new Error(
+      `Unexpected column(s) for ${tableName}: ${invalidColumns.join(", ")}`,
+    );
+  }
+
+  return columns;
+}
+
 const insertJsonData = async (jsonData, tableName) => {
   return new Promise((resolve, reject) => {
+    let columns;
+    try {
+      columns = getValidatedUpdateColumns(jsonData, tableName);
+    } catch (err) {
+      reject(err);
+      return;
+    }
+
     db.serialize(() => {
       db.run("BEGIN TRANSACTION");
       const stmt = db.prepare(
-        `INSERT OR REPLACE INTO ${tableName} (${Object.keys(jsonData[0]).join(", ")}) VALUES (${Object.keys(
-          jsonData[0],
-        )
+        `INSERT OR REPLACE INTO ${tableName} (${columns.join(", ")}) VALUES (${columns
           .map(() => "?")
           .join(", ")})`,
       );
       for (const item of jsonData) {
-        stmt.run(Object.values(item), (err) => {
+        stmt.run(columns.map((column) => item[column]), (err) => {
           if (err) {
             db.run("ROLLBACK");
             reject(err);
@@ -1744,5 +1884,7 @@ module.exports = {
   deleteVersion,
   deleteGameCompletely,
   getUniqueFilterOptions,
+  getVersionForRecord,
+  getVersionPathsForRecord,
   db, // Export db instance
 };

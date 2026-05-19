@@ -75,21 +75,19 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
 
   const launchSelectedGame = async () => {
     if (!canLaunch) return;
-    const execPath = actionVersion?.exec_path || "";
-    const extension = execPath.includes(".")
-      ? execPath.split(".").pop().toLowerCase()
-      : "";
     await window.electronAPI.launchGame({
-      execPath,
-      extension,
       recordId: game.record_id,
+      version: actionVersion.version,
     });
     onRefresh?.(game.record_id);
   };
 
   const openSelectedFolder = async () => {
     if (!canOpenFolder) return;
-    await window.electronAPI.openGameFolder(actionVersion.game_path);
+    await window.electronAPI.openGameFolder({
+      recordId: game.record_id,
+      version: actionVersion.version,
+    });
   };
 
   const openProperties = async () => {
@@ -516,8 +514,8 @@ const [activeFilters, setActiveFilters] = useState({
     // Check for updates
     window.electronAPI
       .checkUpdates()
-      .then(({ latestVersion, currentVersion }) => {
-        if (latestVersion !== currentVersion) {
+      .then(({ latestVersion, updateAvailable }) => {
+        if (updateAvailable === true) {
           alert(`New version ${latestVersion} available!`);
         }
       })

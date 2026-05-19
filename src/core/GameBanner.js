@@ -89,23 +89,17 @@ const GameBanner = ({ game, onSelect }) => {
     // Play
     if (installedVersions.length === 1) {
       const v = installedVersions[0];
-      const ext = v.exec_path ? v.exec_path.split(".").pop().toLowerCase() : "";
       template.push({
         label: "Play",
-        data: { action: "launch", execPath: v.exec_path, extension: ext },
+        data: { action: "launch", recordId: game.record_id, version: v.version },
       });
     } else if (installedVersions.length > 1) {
       template.push({
         label: "Play",
-        submenu: installedVersions.map((v) => {
-          const ext = v.exec_path
-            ? v.exec_path.split(".").pop().toLowerCase()
-            : "";
-          return {
-            label: v.version,
-            data: { action: "launch", execPath: v.exec_path, extension: ext },
-          };
-        }),
+        submenu: installedVersions.map((v) => ({
+          label: v.version,
+          data: { action: "launch", recordId: game.record_id, version: v.version },
+        })),
       });
     }
 
@@ -114,14 +108,14 @@ const GameBanner = ({ game, onSelect }) => {
       const v = installedVersions[0];
       template.push({
         label: "Open Game Folder",
-        data: { action: "openFolder", gamePath: v.game_path },
+        data: { action: "openFolder", recordId: game.record_id, version: v.version },
       });
     } else if (installedVersions.length > 1) {
       template.push({
         label: "Open Game Folder",
         submenu: installedVersions.map((v) => ({
           label: v.version,
-          data: { action: "openFolder", gamePath: v.game_path },
+          data: { action: "openFolder", recordId: game.record_id, version: v.version },
         })),
       });
     }

@@ -69,7 +69,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // ─── FIXED: Added missing external URL opener for Update Available button ──
   openExternalUrl: (url) => ipcRenderer.invoke("open-external-url", url),
   launchGame: (data) => ipcRenderer.invoke("launch-game", data),
-  openGameFolder: (path) => ipcRenderer.invoke("open-game-folder", path),
+  openGameFolder: (data) => ipcRenderer.invoke("open-game-folder", data),
   openGameProperties: (recordId) =>
     ipcRenderer.invoke("open-game-properties", recordId),
 
@@ -227,8 +227,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteVersion: (params) => ipcRenderer.invoke("delete-version", params),
   deleteGameCompletely: (recordId) =>
     ipcRenderer.invoke("delete-game-completely", recordId),
-  deleteFolderRecursive: (folderPath) =>
-    ipcRenderer.invoke("delete-folder-recursive", folderPath),
+  deleteFolderRecursive: (params) =>
+    ipcRenderer.invoke("delete-folder-recursive", params),
   onGameDeleted: (callback) => {
     ipcRenderer.on("game-deleted", (event, recordId) => callback(recordId));
   },

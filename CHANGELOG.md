@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.60 - 2026-05-19
+
+### Added
+- Added local check tooling for JavaScript, JSX parsing, version-comparison checks, and CI gate preparation.
+- Added Electron native dependency rebuild hooks so native modules are rebuilt consistently after install.
+
+### Changed
+- Upgraded Electron to 42 and refreshed the Electron packaging stack.
+- Upgraded SQLite native bindings to `sqlite3` 6 and rebuilt native modules for the packaged Electron runtime.
+- Removed unused direct dependencies and refreshed lower-risk runtime/build dependencies to reduce package weight.
+- Updated README badges and GitHub links to point at the `SekhmetAnkh/Atlas` fork.
+- Hardened Play, Open Folder, and recursive delete flows so trusted paths are resolved through stored game/version records.
+- Hardened metadata update ingestion by validating update tables and columns before building SQL.
+
+### Fixed
+- Fixed false Atlas update notifications caused by comparing raw `v`-prefixed and non-prefixed version strings.
+- Fixed local installer packaging after enabling Windows Developer Mode, confirming normal signed Windows builds now complete.
+- Cleared npm audit findings across production and development dependencies.
+
 ## 1.0.59 - 2026-05-18
 
 ### Added

@@ -419,7 +419,10 @@ const GameDetailWindow = () => {
           let allDeleted = true;
           for (const folderPath of foldersToDelete) {
             const result =
-              await window.electronAPI.deleteFolderRecursive(folderPath);
+              await window.electronAPI.deleteFolderRecursive({
+                recordId: game.record_id,
+                folderPath,
+              });
             if (!result.success) {
               console.error(
                 `Folder deletion failed for ${folderPath}: ${result.error}`,

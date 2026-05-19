@@ -5,6 +5,7 @@ const sharp = require("sharp");
 const axios = require("axios");
 const { autoUpdater } = require("electron-updater");
 const ini = require("ini");
+const { isNewerVersion } = require("./core/versionUtils");
 const {
   initializeDatabase,
   addGame,
@@ -40,11 +41,14 @@ const {
   deleteVersion,
   deleteGameCompletely,
   getUniqueFilterOptions,
+  getVersionForRecord,
+  getVersionPathsForRecord,
   db,
 } = require("./database");
 const { Menu } = require("electron");
 const cp = require("child_process");
 const contextMenuData = new Map();
+const recentlyDeletedGamePaths = new Map();
 
 // SCANNERS
 const { startSteamScan } = require("./core/scanners/steamscanner");
@@ -293,7 +297,7 @@ autoUpdater.setFeedURL({
   owner: "SekhmetAnkh",
   repo: "Atlas",
 });
-autoUpdater.allowDowngrade = true;
+autoUpdater.allowDowngrade = false;
 autoUpdater.on("checking-for-update", () => {
   console.log("Checking for updates...");
   mainWindow.webContents.send("update-status", { status: "checking" });
@@ -381,6 +385,7 @@ ipcMain.handle("delete-version", async (_, { recordId, version }) => {
 });
 
 ipcMain.handle("delete-game-completely", async (_, recordId) => {
+  const versionPaths = await getVersionPathsForRecord(recordId);
   const result = await deleteGameCompletely(
     recordId,
     getAssetBasePath(),
@@ -388,6 +393,8 @@ ipcMain.handle("delete-game-completely", async (_, recordId) => {
   );
 
   if (result.success) {
+    recentlyDeletedGamePaths.set(recordId, versionPaths);
+    setTimeout(() => recentlyDeletedGamePaths.delete(recordId), 5 * 60 * 1000);
     // Notify all renderer windows (main library + any open details)
     BrowserWindow.getAllWindows().forEach((win) => {
       win.webContents.send("game-deleted", recordId);
@@ -451,6 +458,57 @@ function throwIfImportCanceled(session) {
   if (session?.cancelRequested) throw createImportCancelledError();
 }
 
+function normalizeForPathCompare(targetPath) {
+  return path.resolve(targetPath).toLowerCase();
+}
+
+function isPathInside(parentPath, childPath) {
+  const parent = normalizeForPathCompare(parentPath);
+  const child = normalizeForPathCompare(childPath);
+  const relative = path.relative(parent, child);
+  return (
+    relative === "" ||
+    (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+}
+
+async function getTrustedVersion(recordId, version) {
+  if (!recordId) {
+    throw new Error("Missing record id");
+  }
+
+  const selectedVersion = await getVersionForRecord(recordId, version);
+  if (!selectedVersion) {
+    throw new Error("Version not found");
+  }
+  if (!selectedVersion.isInstalled) {
+    throw new Error("Version is not installed or its paths are missing");
+  }
+  return selectedVersion;
+}
+
+async function isAllowedDeletionPath(recordId, folderPath) {
+  if (!recordId || !folderPath || typeof folderPath !== "string") return false;
+
+  const resolvedPath = path.resolve(folderPath);
+  const knownVersionPaths = await getVersionPathsForRecord(recordId);
+  const recentlyDeletedPaths = recentlyDeletedGamePaths.get(recordId) || [];
+  if (
+    [...knownVersionPaths, ...recentlyDeletedPaths].some(
+      (knownPath) => normalizeForPathCompare(knownPath) === normalizeForPathCompare(resolvedPath),
+    )
+  ) {
+    return true;
+  }
+
+  const libraryRoot = appConfig?.Library?.gameFolder;
+  return Boolean(
+    libraryRoot &&
+      fs.existsSync(libraryRoot) &&
+      isPathInside(libraryRoot, resolvedPath),
+  );
+}
+
 async function removePathIfExists(targetPath) {
   if (!targetPath) return;
   try {
@@ -491,7 +549,12 @@ ipcMain.handle("check-updates", async () => {
       "https://api.github.com/repos/SekhmetAnkh/Atlas/releases/latest",
     );
     const latestVersion = response.data.tag_name;
-    return { latestVersion, currentVersion: app.getVersion() };
+    const currentVersion = app.getVersion();
+    return {
+      latestVersion,
+      currentVersion,
+      updateAvailable: isNewerVersion(latestVersion, currentVersion),
+    };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -568,10 +631,13 @@ ipcMain.handle("select-directory", async () => {
   return result.filePaths[0] || null;
 });
 
-ipcMain.handle("delete-folder-recursive", async (event, folderPath) => {
+ipcMain.handle("delete-folder-recursive", async (event, { recordId, folderPath }) => {
   try {
     if (!folderPath || typeof folderPath !== "string") {
       return { success: false, error: "Invalid folder path" };
+    }
+    if (!(await isAllowedDeletionPath(recordId, folderPath))) {
+      return { success: false, error: "Folder is not linked to this game" };
     }
 
     const resolvedPath = path.resolve(folderPath);
@@ -791,7 +857,12 @@ ipcMain.handle("open-external-url", async (event, url) => {
 
 ipcMain.handle("launch-game", async (event, data) => {
   try {
-    await launchGame(data);
+    const selectedVersion = await getTrustedVersion(data?.recordId, data?.version);
+    const execPath = selectedVersion.exec_path || "";
+    const extension = execPath.includes(".")
+      ? execPath.split(".").pop().toLowerCase()
+      : "";
+    await launchGame({ execPath, extension, recordId: data.recordId });
     return { success: true };
   } catch (err) {
     console.error("Error launching game:", err);
@@ -799,11 +870,10 @@ ipcMain.handle("launch-game", async (event, data) => {
   }
 });
 
-ipcMain.handle("open-game-folder", async (event, targetPath) => {
+ipcMain.handle("open-game-folder", async (event, data) => {
   try {
-    if (!targetPath || typeof targetPath !== "string") {
-      return { success: false, error: "Invalid path" };
-    }
+    const selectedVersion = await getTrustedVersion(data?.recordId, data?.version);
+    const targetPath = selectedVersion.game_path;
     const openPath =
       fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()
         ? targetPath
@@ -2114,10 +2184,20 @@ function handleContextAction(data, sender) {
 
   switch (data.action) {
     case "launch":
-      launchGame(data);
+      getTrustedVersion(data.recordId, data.version)
+        .then((selectedVersion) => {
+          const execPath = selectedVersion.exec_path || "";
+          const extension = execPath.includes(".")
+            ? execPath.split(".").pop().toLowerCase()
+            : "";
+          return launchGame({ execPath, extension, recordId: data.recordId });
+        })
+        .catch((err) => console.error("Context launch failed:", err));
       break;
     case "openFolder":
-      shell.openPath(data.gamePath);
+      getTrustedVersion(data.recordId, data.version)
+        .then((selectedVersion) => shell.openPath(selectedVersion.game_path))
+        .catch((err) => console.error("Context open folder failed:", err));
       break;
     case "openUrl":
       shell.openExternal(data.url);
