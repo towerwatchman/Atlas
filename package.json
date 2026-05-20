@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "1.0.65",
+  "version": "1.0.66",
   "author": {
     "name": "towerwatchman",
     "email": "towerwatchman@atlas.com"
@@ -13,7 +13,7 @@
     "build": "npm run build:css && electron-builder --win --x64",
     "dev": "npm run build:css && electron . --dev",
     "build:css": "postcss src/assets/css/tailwind.css -o src/assets/css/tailwind.output.css",
-    "check": "node --check src/main.js && node --check src/database.js && node --check src/renderer.js && node --check src/core/versionUtils.js && node scripts/check-jsx.js && node scripts/check-version-utils.js && git diff --check",
+    "check": "node --check src/main.js && node --check src/database.js && node --check src/renderer.js && node --check src/core/versionUtils.js && node scripts/check-jsx.js && node scripts/check-version-utils.js && node scripts/check-library-resync.js && git diff --check",
     "rebuild": "electron-builder install-app-deps",
     "structure": "node scripts/generate-structure.js > scripts/project-structure.txt",
     "publish": "npm run build:css && electron-builder --win -p always",

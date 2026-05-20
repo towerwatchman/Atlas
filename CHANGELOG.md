@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.66 - 2026-05-20
+
+### Changed
+- `src/core/scanners/f95scanner.js`: changed existing-library resync root detection so runtime folders such as `lib/windows-i686`, `renpy/windows-x86_64`, architecture folders, and web/runtime folders are grouped under the real version install folder.
+- `src/core/scanners/f95scanner.js`: changed resync executable selection to prefer primary/root launchers over duplicate runtime launchers while keeping nested launchers when they are the only valid option.
+
+### Added
+- `scripts/check-library-resync.js`: added a regression check for structured library scans with nested runtime executables, and wired it into `npm run check`.
+
+### Fixed
+- `src/core/scanners/f95scanner.js`: fixed `Scan Existing Library` returning thousands of false candidates like `lib/windows-i686` when scanning large migrated libraries.
+
 ## 1.0.65 - 2026-05-20
 
 ### Fixed

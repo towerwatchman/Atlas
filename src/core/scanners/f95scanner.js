@@ -108,7 +108,53 @@ function findLaunchables(root, extensions) {
     }
   }
 
-  return launchables.sort((a, b) => a.localeCompare(b));
+  return preferPrimaryLaunchables(launchables);
+}
+
+function isRuntimeFolderName(name) {
+  const normalized = String(name || "").toLowerCase();
+  return (
+    /^(game|lib|renpy|www|wwwroot|program files)$/i.test(normalized) ||
+    /^(windows|win|linux|mac|darwin|osx)([-_].*)?$/i.test(normalized) ||
+    /^(x86|x64|x86_64|i386|i686|amd64|arm64)$/i.test(normalized)
+  );
+}
+
+function isRuntimeLaunchable(relativePath) {
+  const parts = String(relativePath || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean);
+  return parts.slice(0, -1).some(isRuntimeFolderName);
+}
+
+function sortLaunchables(a, b) {
+  const depthA = String(a || "").split("/").length;
+  const depthB = String(b || "").split("/").length;
+  if (depthA !== depthB) return depthA - depthB;
+  return String(a || "").localeCompare(String(b || ""));
+}
+
+function preferPrimaryLaunchables(launchables) {
+  const unique = Array.from(new Set(launchables.map((f) => f.replace(/\\/g, "/"))));
+  const primary = unique.filter((launchable) => !isRuntimeLaunchable(launchable));
+  return (primary.length > 0 ? primary : unique).sort(sortLaunchables);
+}
+
+function isInsideRoot(root, target) {
+  const relative = path.relative(root, target);
+  return !!relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function getLibraryCandidateRoot(root, folder) {
+  let candidateRoot = folder;
+  while (path.dirname(candidateRoot) !== candidateRoot) {
+    const parent = path.dirname(candidateRoot);
+    if (!isInsideRoot(root, parent)) break;
+    if (!isRuntimeFolderName(path.basename(candidateRoot))) break;
+    candidateRoot = parent;
+  }
+  return candidateRoot;
 }
 
 function getScanStats(games) {
@@ -274,17 +320,7 @@ async function scanLibraryGameRoots(root, extensions, onCandidate, cancelToken) 
 
     if (launchables.length === 0) continue;
 
-    let candidateRoot = current;
-    while (path.dirname(candidateRoot) !== candidateRoot) {
-      const parent = path.dirname(candidateRoot);
-      if (!parent.startsWith(root) || parent === root) break;
-      const relativeName = path.basename(candidateRoot).toLowerCase();
-      if (/^(game|lib|renpy|www|wwwroot|program files)$/i.test(relativeName)) {
-        candidateRoot = parent;
-        continue;
-      }
-      break;
-    }
+    const candidateRoot = getLibraryCandidateRoot(root, current);
 
     if (!roots.has(candidateRoot)) {
       roots.add(candidateRoot);
