@@ -20,6 +20,7 @@ const {
   addAtlasMapping,
   getGame,
   getGames,
+  getGameRecordIds,
   removeGame,
   checkDbUpdates,
   updateFolderSize,
@@ -68,6 +69,8 @@ let importerWindow;
 let importSourceDialog;
 let appConfig;
 let activeImportSession = null;
+let activeLibraryValidation = null;
+let activeScanSession = null;
 
 app.commandLine.appendSwitch("force-color-profile", "srgb");
 
@@ -425,6 +428,50 @@ ipcMain.handle("get-games", async (event, args = {}) => {
     limit,
     { ...options, includeUninstalled: includeUninstalled === true },
   );
+});
+
+ipcMain.handle("validate-library-paths", async (event) => {
+  if (activeLibraryValidation?.running) {
+    return { success: true, alreadyRunning: true };
+  }
+
+  const sender = event.sender;
+  activeLibraryValidation = { running: true, canceled: false };
+
+  setImmediate(async () => {
+    try {
+      const recordIds = await getGameRecordIds();
+      let processed = 0;
+      for (const recordId of recordIds) {
+        if (activeLibraryValidation?.canceled) break;
+        const game = await getGame(recordId, getAssetBasePath(), process.defaultApp);
+        processed++;
+        if (!sender.isDestroyed()) {
+          sender.send("library-validation-progress", {
+            processed,
+            total: recordIds.length,
+          });
+          if (game) sender.send("game-updated", game);
+        }
+        if (processed % 25 === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      }
+    } catch (err) {
+      console.error("Library path validation failed:", err);
+      if (!sender.isDestroyed()) {
+        sender.send("library-validation-progress", {
+          error: err.message,
+          processed: 0,
+          total: 0,
+        });
+      }
+    } finally {
+      activeLibraryValidation = null;
+    }
+  });
+
+  return { success: true };
 });
 
 ipcMain.handle("remove-game", async (event, record_id) => {
@@ -989,12 +1036,22 @@ ipcMain.handle("open-importer", async () => {
 
 ipcMain.handle("start-scan", async (event, params) => {
   const window = BrowserWindow.fromWebContents(event.sender);
+  activeScanSession = { canceled: false };
   try {
-    await startScan(params, window);
+    await startScan(params, window, activeScanSession);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
+  } finally {
+    activeScanSession = null;
   }
+});
+
+ipcMain.handle("cancel-scan", async () => {
+  if (activeScanSession) {
+    activeScanSession.canceled = true;
+  }
+  return { success: true };
 });
 
 ipcMain.handle("scan-game-list-infos", async (event, targetPath) => {
@@ -1026,6 +1083,133 @@ ipcMain.handle("get-steam-game-data", async (event, steamId) => {
 
 ipcMain.handle("search-atlas", async (event, params) => {
   return await searchAtlas(params.title, params.creator);
+});
+
+const hydrateImportMatch = async (game, selectedValue) => {
+  let updatedGame = { ...game, resultSelectedValue: selectedValue };
+  const selected = game.results?.find((result) => result.key === selectedValue);
+
+  if (selected && selectedValue !== "match") {
+    const parts = selected.value.split(" | ");
+    updatedGame = {
+      ...updatedGame,
+      atlasId: parts[0],
+      f95Id: parts[1] || "",
+      title: parts[2],
+      creator: parts[3],
+    };
+    const atlasData = await getAtlasData(updatedGame.atlasId);
+    updatedGame = {
+      ...updatedGame,
+      engine: atlasData.engine || updatedGame.engine || "Unknown",
+      f95Id: updatedGame.f95Id || atlasData.f95_id || "",
+      latestVersion: atlasData.latestVersion || "",
+    };
+  }
+
+  const status = updatedGame.metadataOnly
+    ? null
+    : await getImportRecordStatus(updatedGame);
+  const recordExist = status?.status === "alreadyImported";
+  return {
+    ...updatedGame,
+    recordExist,
+    existingRecordId: status?.recordId || "",
+    scanStatus: recordExist
+      ? "alreadyImported"
+      : status?.status === "repairPath"
+        ? "repairPath"
+        : "new",
+    scanMessage: recordExist
+      ? "Already imported"
+      : status?.status === "repairPath"
+        ? "Repair path"
+        : updatedGame.isArchive
+          ? "Archive"
+          : "Ready to import",
+  };
+};
+
+const chooseInstalledImportMatch = async (game, results) => {
+  for (const result of results) {
+    const candidate = await hydrateImportMatch({ ...game, results }, result.key);
+    if (["alreadyImported", "repairPath"].includes(candidate.scanStatus)) {
+      return candidate;
+    }
+  }
+  return hydrateImportMatch({ ...game, results }, results[0]?.key || "");
+};
+
+ipcMain.handle("resolve-import-matches", async (event, games = []) => {
+  const searchCache = new Map();
+  const resolved = [];
+
+  for (const game of games) {
+    if (!game || game.metadataOnly || game.scanStatus !== "pendingMatch") {
+      resolved.push(game);
+      continue;
+    }
+
+    let data = [];
+    const f95Id = String(game.f95Id || "").trim();
+    const cacheKey = f95Id
+      ? `f95:${f95Id}`
+      : `atlas:${game.lookupTitle || game.title}|${game.creator}`;
+
+    try {
+      if (searchCache.has(cacheKey)) {
+        data = searchCache.get(cacheKey);
+      } else {
+        data = f95Id
+          ? await searchAtlasByF95Id(f95Id)
+          : await searchAtlas(game.lookupTitle || game.title, game.creator);
+        searchCache.set(cacheKey, data);
+      }
+
+      if (data.length === 1) {
+        resolved.push(
+          await hydrateImportMatch({
+            ...game,
+            atlasId: String(data[0].atlas_id),
+            f95Id: data[0].f95_id || "",
+            title: data[0].title,
+            creator: data[0].creator,
+            engine: data[0].engine || game.engine || "Unknown",
+            latestVersion: data[0].latestVersion || "",
+            results: [{ key: "match", value: "Match Found" }],
+            resultSelectedValue: "match",
+            resultVisibility: "visible",
+          }, "match"),
+        );
+      } else if (data.length > 1) {
+        const results = data.map((match) => ({
+          key: String(match.atlas_id),
+          value: `${match.atlas_id} | ${match.f95_id || ""} | ${match.title} | ${match.creator}`,
+        }));
+        resolved.push(await chooseInstalledImportMatch({ ...game, results }, results));
+      } else {
+        resolved.push(
+          await hydrateImportMatch({
+            ...game,
+            atlasId: "",
+            f95Id: "",
+            results: [],
+            resultSelectedValue: "",
+            resultVisibility: "hidden",
+          }, ""),
+        );
+      }
+    } catch (err) {
+      console.error("resolve-import-matches row failed:", err);
+      resolved.push({
+        ...game,
+        scanStatus: "new",
+        scanMessage: game.isArchive ? "Archive" : "Ready to import",
+      });
+    }
+  }
+
+  return resolved;
 });
 
 ipcMain.handle("search-atlas-by-f95-id", async (event, f95Id) => {

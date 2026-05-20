@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }
     return ipcRenderer.invoke("get-games", { offset, limit, options });
   },
+  validateLibraryPaths: () => ipcRenderer.invoke("validate-library-paths"),
   removeGame: (id) => ipcRenderer.invoke("remove-game", id),
   unzipGame: (zipPath, extractPath) =>
     ipcRenderer.invoke("unzip-game", { zipPath, extractPath }),
@@ -46,6 +47,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getConfig: () => ipcRenderer.invoke("get-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("save-settings", settings),
   startScan: (params) => ipcRenderer.invoke("start-scan", params),
+  cancelScan: () => ipcRenderer.invoke("cancel-scan"),
   scanGameListInfos: (targetPath) =>
     ipcRenderer.invoke("scan-game-list-infos", targetPath),
   searchAtlasByF95Id: (f95Id) =>
@@ -60,6 +62,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("check-record-exist", params),
   getImportRecordStatus: (game) =>
     ipcRenderer.invoke("get-import-record-status", game),
+  resolveImportMatches: (games) =>
+    ipcRenderer.invoke("resolve-import-matches", games),
   importGames: (params) => ipcRenderer.invoke("import-games", params),
   cancelImport: () => ipcRenderer.invoke("cancel-import"),
   log: (message) => ipcRenderer.invoke("log", message),
@@ -152,6 +156,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onGameImported: (callback) => ipcRenderer.on("game-imported", callback),
   onGameUpdated: (callback) => ipcRenderer.on("game-updated", callback),
   onImportComplete: (callback) => ipcRenderer.on("import-complete", callback),
+  onLibraryValidationProgress: (callback) =>
+    ipcRenderer.on("library-validation-progress", (event, progress) =>
+      callback(progress),
+    ),
   onUpdateStatus: (callback) => {
     ipcRenderer.on("update-status", (event, status) => callback(status));
     return () => ipcRenderer.removeAllListeners("update-status");
@@ -173,6 +181,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "update-status",
       "context-menu-command",
       "game-deleted",
+      "library-validation-progress",
     ]);
 
     if (allowedChannels.has(channel)) {

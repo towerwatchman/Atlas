@@ -4,6 +4,7 @@ const fs = require("fs");
 const fsPromises = fs.promises;
 
 let db;
+let cachedFilterOptions = null;
 
 const getAssetBasePath = (appPath, isDev) =>
   isDev ? path.join(appPath, "src") : appPath;
@@ -246,6 +247,10 @@ const initializeDatabase = (dataDir) => {
     UNIQUE (record_id, steam_id)
   );
 `);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_versions_game_path ON versions(game_path);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_versions_record_version ON versions(record_id, version);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_mappings_atlas_id ON atlas_mappings(atlas_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_banners_record_type ON banners(record_id, type);`);
   });
 };
 
@@ -901,9 +906,16 @@ function isExistingPath(value) {
   }
 }
 
-function mapVersionRow(row, forceInstalled = false) {
-  const hasGamePath = isExistingPath(row.game_path);
-  const hasExecPath = row.exec_path ? isExistingPath(row.exec_path) : true;
+function mapVersionRow(row, forceInstalled = false, options = {}) {
+  const skipPathValidation = options.skipPathValidation === true;
+  const hasPathValue = !!row.game_path;
+  const hasGamePath = skipPathValidation ? hasPathValue : isExistingPath(row.game_path);
+  const hasExecPath = skipPathValidation
+    ? !row.exec_path || hasPathValue
+    : row.exec_path
+      ? isExistingPath(row.exec_path)
+      : true;
+  const isInstalled = forceInstalled || (hasGamePath && hasExecPath);
 
   return {
     version: row.version,
@@ -914,7 +926,12 @@ function mapVersionRow(row, forceInstalled = false) {
     version_playtime: row.version_playtime,
     folder_size: row.folder_size,
     date_added: row.date_added,
-    isInstalled: forceInstalled || (hasGamePath && hasExecPath),
+    isInstalled,
+    installState: skipPathValidation && hasPathValue && !forceInstalled
+      ? "pending"
+      : isInstalled
+        ? "installed"
+        : "missing",
   };
 }
 
@@ -1144,6 +1161,7 @@ const getGames = (
   return new Promise((resolve, reject) => {
     const baseImagePath = getAssetBasePath(appPath, isDev);
     const includeUninstalled = options.includeUninstalled === true;
+    const skipPathValidation = options.skipPathValidation !== false;
 
     // Main query with OFFSET and LIMIT
     let mainQuery = `
@@ -1237,7 +1255,8 @@ const getGames = (
         const games = rows
           .map((row) => {
             const allVersions = (versionsByRecordId[row.record_id] || []).map(
-              (version) => mapVersionRow(version, !!row.steam_id),
+              (version) =>
+                mapVersionRow(version, !!row.steam_id, { skipPathValidation }),
             );
             const installedVersions = allVersions.filter(
               (version) => version.isInstalled,
@@ -1268,6 +1287,15 @@ const getGames = (
         console.log(`Fetched ${games.length} games with versions`);
         resolve(games);
       });
+    });
+  });
+};
+
+const getGameRecordIds = () => {
+  return new Promise((resolve, reject) => {
+    db.all(`SELECT record_id FROM games ORDER BY title COLLATE NOCASE`, [], (err, rows) => {
+      if (err) reject(err);
+      else resolve((rows || []).map((row) => row.record_id));
     });
   });
 };
@@ -2118,7 +2146,10 @@ const insertJsonData = async (jsonData, tableName) => {
         } else {
           db.run("COMMIT", (err) => {
             if (err) reject(err);
-            else resolve();
+            else {
+              cachedFilterOptions = null;
+              resolve();
+            }
           });
         }
       });
@@ -2347,6 +2378,11 @@ const searchAtlasByF95Id = (f95Id) => {
 
 const getUniqueFilterOptions = () => {
   return new Promise((resolve, reject) => {
+    if (cachedFilterOptions) {
+      resolve(cachedFilterOptions);
+      return;
+    }
+
     const options = {};
 
     db.all(
@@ -2399,7 +2435,7 @@ const getUniqueFilterOptions = () => {
                               }
                             });
                             options.tags = Array.from(tagsSet);
-
+                            cachedFilterOptions = options;
                             resolve(options);
                           },
                         );
@@ -2424,6 +2460,7 @@ module.exports = {
   addVersion,
   upsertVersion,
   getGames,
+  getGameRecordIds,
   removeGame,
   checkDbUpdates,
   insertJsonData,

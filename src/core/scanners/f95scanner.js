@@ -114,6 +114,8 @@ function findLaunchables(root, extensions) {
 function getScanStats(games) {
   return {
     potential: games.filter((game) => game.scanStatus === "new").length,
+    pendingMatch: games.filter((game) => game.scanStatus === "pendingMatch")
+      .length,
     archives: games.filter(
       (game) => game.isArchive && game.scanStatus === "new",
     ).length,
@@ -241,13 +243,24 @@ function getCandidateMetadata(target, rootPath) {
   return rootMetadata;
 }
 
-function findLibraryGameRoots(root, extensions) {
-  const roots = new Map();
+function safeReadDir(folder) {
+  try {
+    return fs.readdirSync(folder, { withFileTypes: true });
+  } catch (err) {
+    console.warn(`Unable to read folder ${folder}:`, err.message);
+    return [];
+  }
+}
+
+async function scanLibraryGameRoots(root, extensions, onCandidate, cancelToken) {
+  const roots = new Set();
   const stack = [root];
+  let visited = 0;
 
   while (stack.length) {
+    if (cancelToken.canceled) break;
     const current = stack.pop();
-    const items = fs.readdirSync(current, { withFileTypes: true });
+    const items = safeReadDir(current);
     const launchables = [];
 
     for (const item of items) {
@@ -273,20 +286,19 @@ function findLibraryGameRoots(root, extensions) {
       break;
     }
 
-    if (!roots.has(candidateRoot)) roots.set(candidateRoot, []);
-    roots
-      .get(candidateRoot)
-      .push(...launchables.map((file) => getRelativePath(candidateRoot, file)));
-  }
+    if (!roots.has(candidateRoot)) {
+      roots.add(candidateRoot);
+      await onCandidate({
+        folder: candidateRoot,
+        launchables: findLaunchables(candidateRoot, extensions),
+      });
+    }
 
-  return Array.from(roots.entries())
-    .map(([folder, launchables]) => ({
-      folder,
-      launchables: Array.from(new Set(launchables)).sort((a, b) =>
-        a.localeCompare(b),
-      ),
-    }))
-    .sort((a, b) => a.folder.localeCompare(b.folder));
+    visited++;
+    if (visited % 50 === 0) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
 }
 
 function getRootFiles(root, extensions) {
@@ -297,7 +309,7 @@ function getRootFiles(root, extensions) {
     .filter((file) => isSupportedFile(file, extensions));
 }
 
-async function startScan(params, window) {
+async function startScan(params, window, cancelToken = {}) {
   const {
     folder,
     format,
@@ -321,11 +333,10 @@ async function startScan(params, window) {
   );
 
   if (mode === "libraryResync") {
-    const candidates = findLibraryGameRoots(folder, extensions);
-    const totalCandidates = candidates.length;
     let i = 0;
 
-    for (const candidate of candidates) {
+    await scanLibraryGameRoots(folder, extensions, async (candidate) => {
+      if (cancelToken.canceled) return;
       i++;
       console.log(`Scanning existing library folder: ${candidate.folder}`);
       const res = await findGame(
@@ -343,14 +354,15 @@ async function startScan(params, window) {
       if (res) {
         window.webContents.send("scan-complete", games[games.length - 1]);
       }
-      sendScanProgress(window, i, totalCandidates, games);
-    }
+      sendScanProgress(window, i, i, games);
+    }, cancelToken);
   } else if (isCompressed) {
     // Get all files recursively, including subdirectories
     const allFiles = getAllFiles(folder, extensions);
     const totalFiles = allFiles.length;
     let i = 0;
     for (const file of allFiles) {
+      if (cancelToken.canceled) break;
       i++;
       console.log(`Scanning file: ${file} (isFile: true)`);
       const success = await findGame(
@@ -389,6 +401,7 @@ async function startScan(params, window) {
     );
 
     for (const archive of rootArchives) {
+      if (cancelToken.canceled) break;
       console.log(`Scanning archive file: ${archive}`);
       ittr++;
       const success = await findGame(
@@ -410,6 +423,7 @@ async function startScan(params, window) {
     }
 
     for (const target of scanTargets) {
+      if (cancelToken.canceled) break;
       console.log(`Scanning game folder: ${target}`);
       ittr++;
 
@@ -602,7 +616,9 @@ async function findGame(
     );
     let data;
     try {
-      data = await searchAtlas(lookupTitle || title, creator);
+      data = params.deferMatching
+        ? []
+        : await searchAtlas(lookupTitle || title, creator);
       console.log(`searchAtlas returned: ${JSON.stringify(data)}`);
     } catch (err) {
       console.error(`searchAtlas error for ${title}: ${err.message}`);
@@ -630,7 +646,9 @@ async function findGame(
     let importRecordStatus = null;
     try {
       importRecordStatus =
-        params.mode === "libraryResync"
+        params.deferMatching
+          ? null
+          : params.mode === "libraryResync"
           ? await getImportRecordStatus({
               atlasId,
               title,
@@ -640,9 +658,11 @@ async function findGame(
               folder: isArchive ? t : isFile ? path.dirname(t) : t,
             })
           : null;
-      recordExist = importRecordStatus
-        ? importRecordStatus.status === "alreadyImported"
-        : await checkRecordExist(title, creator, engine, version, t);
+      recordExist = params.deferMatching
+        ? false
+        : importRecordStatus
+          ? importRecordStatus.status === "alreadyImported"
+          : await checkRecordExist(title, creator, engine, version, t);
       console.log(
         `checkRecordExist for ${title}, ${creator}, ${version}, ${t}: ${recordExist}`,
       );
@@ -673,12 +693,16 @@ async function findGame(
       recordExist,
       isArchive,
       existingRecordId: importRecordStatus?.recordId || "",
-      scanStatus: recordExist
+      scanStatus: params.deferMatching
+        ? "pendingMatch"
+        : recordExist
         ? "alreadyImported"
         : importRecordStatus?.status === "repairPath"
           ? "repairPath"
           : "new",
-      scanMessage: recordExist
+      scanMessage: params.deferMatching
+        ? "Pending match"
+        : recordExist
         ? "Already imported"
         : importRecordStatus?.status === "repairPath"
           ? "Repair path"

@@ -32,6 +32,7 @@ const Importer = () => {
     value: 0,
     total: 0,
     potential: 0,
+    pendingMatch: 0,
     archives: 0,
     alreadyImported: 0,
     repairPath: 0,
@@ -43,7 +44,9 @@ const Importer = () => {
   const [gamesList, setGamesList] = useState([]);
   const [isMaximized, setIsMaximized] = useState(false);
   const [hideMatches, setHideMatches] = useState(false);
+  const [isResolvingMatches, setIsResolvingMatches] = useState(false);
   const deletedScanGameKeysRef = React.useRef(new Set());
+  const matchCancelRef = React.useRef(false);
 
   const getScanGameKey = (game) => {
     if (game?.folder) return game.folder;
@@ -202,6 +205,45 @@ const Importer = () => {
     return applySelectedMatch({ ...game, results }, results[0]?.key || "");
   };
 
+  const resolvePendingMatches = async (rows) => {
+    const pendingRows = rows.filter((game) => game.scanStatus === "pendingMatch");
+    if (pendingRows.length === 0) return;
+
+    matchCancelRef.current = false;
+    setIsResolvingMatches(true);
+    setUpdateProgress({ value: 0, total: pendingRows.length });
+
+    const chunkSize = 50;
+    let resolvedCount = 0;
+    for (let i = 0; i < pendingRows.length; i += chunkSize) {
+      if (matchCancelRef.current) break;
+      const chunk = pendingRows.slice(i, i + chunkSize);
+      const resolvedChunk = await window.electronAPI.resolveImportMatches(chunk);
+      resolvedCount += resolvedChunk.length;
+      const resolvedByKey = new Map(
+        resolvedChunk.map((game) => [getScanGameKey(game), game]),
+      );
+
+      setGamesList((prev) =>
+        prev.map((game) => resolvedByKey.get(getScanGameKey(game)) || game),
+      );
+      setUpdateProgress({ value: resolvedCount, total: pendingRows.length });
+      window.electronAPI.sendUpdateProgress({
+        value: resolvedCount,
+        total: pendingRows.length,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    setIsResolvingMatches(false);
+  };
+
+  const cancelScanOrMatch = () => {
+    matchCancelRef.current = true;
+    window.electronAPI.cancelScan?.();
+    setIsResolvingMatches(false);
+  };
+
   useEffect(() => {
     console.log("Importer component mounted");
     window.electronAPI.log("Importer component mounted");
@@ -219,6 +261,10 @@ const Importer = () => {
 
     window.electronAPI.onScanComplete(async (game) => {
       console.log(`Received incremental game: ${JSON.stringify(game)}`);
+      if (game.scanStatus === "pendingMatch") {
+        addScannedGame(game);
+        return;
+      }
       if (
         game.results?.length > 1 &&
         game.resultSelectedValue &&
@@ -237,33 +283,18 @@ const Importer = () => {
 
     window.electronAPI.onScanCompleteFinal((games) => {
       console.log(`Scan complete, received ${games.length} games`);
-      const updatedGames = games.map(async (game) => {
-        if (
-          game.results?.length > 1 &&
-          game.resultSelectedValue &&
-          game.resultSelectedValue !== "match"
-        ) {
-          return chooseInstalledMatch(game, game.results);
-        }
-        return applyImportStatus(game);
-      });
-      console.log(
-        "Games being processed:",
-        updatedGames.map((g, idx) => `#${idx + 1}: ${g.title}`),
+      const visibleGamesList = games.filter(
+        (game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game)),
       );
-      Promise.all(updatedGames).then((newGamesList) => {
-        const visibleGamesList = newGamesList.filter(
-          (game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game)),
-        );
-        setGamesList(visibleGamesList);
-        setView("scan");
-        console.log(
-          `Updated gamesList on scan complete: ${JSON.stringify(visibleGamesList)}`,
-        );
-        window.electronAPI.log(
-          `Updated gamesList on scan complete: ${JSON.stringify(visibleGamesList)}`,
-        );
-      });
+      setGamesList(visibleGamesList);
+      setView("scan");
+      resolvePendingMatches(visibleGamesList);
+      console.log(
+        `Updated gamesList on scan complete: ${JSON.stringify(visibleGamesList)}`,
+      );
+      window.electronAPI.log(
+        `Updated gamesList on scan complete: ${JSON.stringify(visibleGamesList)}`,
+      );
     });
 
     window.electronAPI.onUpdateProgress((prog) => {
@@ -343,6 +374,7 @@ const Importer = () => {
     const params = {
       folder: libraryPath,
       mode: "libraryResync",
+      deferMatching: true,
       format: "",
       gameExt: gameExt.split(",").map((e) => e.trim()),
       archiveExt: archiveExt.split(",").map((e) => e.trim()),
@@ -398,6 +430,7 @@ const Importer = () => {
     const params = {
       folder,
       mode: "local",
+      deferMatching: true,
       format: useUnstructured ? "" : customFormat,
       gameExt: gameExt.split(",").map((e) => e.trim()),
       archiveExt: archiveExt.split(",").map((e) => e.trim()),
@@ -487,7 +520,7 @@ const Importer = () => {
       // Fresh copy of this game object
       let game = { ...updatedGames[i] };
 
-      if (!isNewScanRow(game)) {
+      if (!isNewScanRow(game) && game.scanStatus !== "pendingMatch") {
         setUpdateProgress({ value: i + 1, total });
         window.electronAPI.sendUpdateProgress({ value: i + 1, total });
         continue;
@@ -962,6 +995,7 @@ const Importer = () => {
               </div>
               <div className="mb-4 flex flex-wrap gap-4 text-sm">
                 <span>Ready {progress.potential || 0}</span>
+                <span>Pending matches {progress.pendingMatch || 0}</span>
                 <span>Archives {progress.archives || 0}</span>
                 <span>Already imported {progress.alreadyImported || 0}</span>
                 <span>Repairs {progress.repairPath || 0}</span>
@@ -1029,6 +1063,8 @@ const Importer = () => {
                     const statusClass =
                       game.scanStatus === "alreadyImported"
                         ? "text-yellow-300"
+                        : game.scanStatus === "pendingMatch"
+                          ? "text-blue-200"
                         : game.scanStatus === "emptyFolder"
                           ? "text-gray-300"
                         : game.scanStatus === "repairPath"
@@ -1255,11 +1291,22 @@ const Importer = () => {
               <div className="flex items-center space-x-2">
                 <button
                   onClick={handleUpdateClick}
+                  disabled={isResolvingMatches}
                   className="bg-accent hover:bg-accent-dark px-4 py-2 rounded text-text"
                   style={{ pointerEvents: "auto", zIndex: 1000 }}
                 >
-                  Update Matches
+                  {isResolvingMatches ? "Resolving..." : "Update Matches"}
                 </button>
+
+                {isResolvingMatches && (
+                  <button
+                    onClick={cancelScanOrMatch}
+                    className="bg-red-700 hover:bg-red-800 px-4 py-2 rounded text-white"
+                    style={{ pointerEvents: "auto", zIndex: 1000 }}
+                  >
+                    Stop Matching
+                  </button>
+                )}
 
                 <button
                   onClick={() => setHideMatches(!hideMatches)}

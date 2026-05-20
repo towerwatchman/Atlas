@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.64 - 2026-05-20
+
+### Changed
+- `src/database.js`: changed initial library loading to skip synchronous path validation, mark path-backed versions as pending, and let background validation confirm installed or missing state after the grid appears.
+- `src/database.js`: added non-destructive indexes for hot large-library lookups on version paths, record/version pairs, Atlas mappings, and banner records.
+- `src/database.js`: cached filter option loading so opening the filter panel does not repeatedly parse large metadata sets.
+- `src/core/scanners/f95scanner.js`: changed existing-library resync to stream discovered game roots as they are found instead of building the full candidate list before updating the importer table.
+- `src/core/scanners/f95scanner.js`: changed scan output so large imports can emit pending-match rows first, then resolve Atlas/F95 matches later.
+- `src/core/importer/importer.jsx`: changed importer matching to resolve pending rows progressively in batches while keeping the table interactive.
+
+### Added
+- `src/main.js` and `src/renderer.js`: added background installed-path validation IPC with progress events and live game refresh updates.
+- `src/main.js` and `src/renderer.js`: added batched import match/status resolution IPC to avoid thousands of individual matcher/status calls during large scans.
+- `src/main.js`, `src/renderer.js`, and `src/core/importer/importer.jsx`: added scan/match cancellation support for large import and library-resync jobs.
+- `src/App.jsx`: added visible `Validating installed paths...` feedback while the background path validator confirms large libraries.
+
+### Fixed
+- `src/App.jsx`: fixed startup freezes on very large databases by allowing the main grid/sidebar to render from pending installed-path state before slower filesystem checks finish.
+- `src/core/importer/importer.jsx`: fixed huge scans doing a second full renderer-side status recheck after final scan completion.
+- `src/core/scanners/f95scanner.js`: fixed library-resync usability for thousands of folders by yielding during traversal and sending rows progressively.
+- `src/main.js`: fixed repeated manual scan/match work from starting overlapping jobs when cancellation or matching is already active.
+
 ## 1.0.63 - 2026-05-20
 
 ### Changed

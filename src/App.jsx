@@ -633,8 +633,10 @@ const App = () => {
         setShowGameList(true);
       });
 
-    // Fetch games only once on mount
-    fetchGames(false);
+    // Fetch games quickly, then validate large-library paths in the background.
+    fetchGames(false).then(() => {
+      window.electronAPI.validateLibraryPaths?.();
+    });
 
     // Load banner size from template
     window.electronAPI
@@ -733,9 +735,61 @@ const App = () => {
           console.error(`Failed to get game for recordId ${recordId}:`, error),
         );
     };
-    const handleGameUpdated = (event, recordId) => {
-      console.log(`Game updated event received for recordId: ${recordId}`);
-      refreshGame(recordId);
+    const replaceGameInState = (game) => {
+      if (!game?.record_id) return;
+      setGames((prev) => {
+        const shouldHideMissing =
+          !includeUninstalledRef.current && game.hasInstalledVersion === false;
+        const exists = prev.some((existing) => existing.record_id === game.record_id);
+        const newGames = shouldHideMissing
+          ? prev.filter((existing) => existing.record_id !== game.record_id)
+          : exists
+            ? prev.map((existing) =>
+                existing.record_id === game.record_id ? game : existing,
+              )
+            : [...prev, game].sort((a, b) =>
+                (a.title || "").localeCompare(b.title || ""),
+              );
+        setTotalVersions(
+          newGames.reduce((sum, game) => sum + (game.versionCount || 0), 0),
+        );
+        return newGames;
+      });
+      setSelectedGame((current) =>
+        current?.record_id === game.record_id
+          ? game.hasInstalledVersion === false && !includeUninstalledRef.current
+            ? null
+            : game
+          : current,
+      );
+    };
+
+    const handleGameUpdated = (event, payload) => {
+      if (payload && typeof payload === "object") {
+        replaceGameInState(payload);
+        return;
+      }
+      console.log(`Game updated event received for recordId: ${payload}`);
+      refreshGame(payload);
+    };
+    const handleLibraryValidationProgress = (progress) => {
+      if (progress?.error) {
+        console.error("Library validation error:", progress.error);
+        return;
+      }
+      if (progress?.total) {
+        setDbUpdateStatus({
+          text: "Validating installed paths...",
+          progress: progress.processed,
+          total: progress.total,
+        });
+        if (progress.processed >= progress.total) {
+          setTimeout(
+            () => setDbUpdateStatus({ text: "", progress: 0, total: 0 }),
+            1200,
+          );
+        }
+      }
     };
     const handleImportComplete = () => {
       console.log("Import complete: fetching all games");
@@ -794,6 +848,9 @@ const App = () => {
     window.electronAPI.onImportProgress(handleImportProgress);
     window.electronAPI.onGameImported(handleGameImported);
     window.electronAPI.onGameUpdated(handleGameUpdated);
+    window.electronAPI.onLibraryValidationProgress?.(
+      handleLibraryValidationProgress,
+    );
     window.electronAPI.onImportComplete(handleImportComplete);
     window.electronAPI.onUpdateStatus(handleUpdateStatus);
 
@@ -825,6 +882,7 @@ const App = () => {
         "import-progress",
         "game-imported",
         "game-updated",
+        "library-validation-progress",
         "import-complete",
         "context-menu-command",
         "game-deleted",
