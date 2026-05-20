@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.65 - 2026-05-20
+
+### Fixed
+- `src/database.js`: fixed a packaged main-process crash when a user's local Atlas/F95 metadata returned `latestVersion` as a non-string value.
+- `src/database.js`: removed the older hand-written `getGame(...)` update comparison path so Properties/detail refreshes use the same safe installed-version comparison as the main library grid.
+
 ## 1.0.64 - 2026-05-20
 
 ### Changed
