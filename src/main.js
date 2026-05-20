@@ -1,9 +1,12 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const fsp = require("fs").promises;
 const sharp = require("sharp");
 const axios = require("axios");
 const { autoUpdater } = require("electron-updater");
+const { spawn } = require("child_process");
+const { Worker } = require("worker_threads");
 const ini = require("ini");
 const { isNewerVersion } = require("./core/versionUtils");
 const {
@@ -67,6 +70,7 @@ let mainWindow;
 let settingsWindow;
 let importerWindow;
 let importSourceDialog;
+let executableChooserWindow = null;
 let appConfig;
 let activeImportSession = null;
 let activeLibraryValidation = null;
@@ -192,6 +196,54 @@ function createImporterWindow() {
   });
 }
 
+function showExecutableChooser(title, version, executables) {
+  if (executableChooserWindow && !executableChooserWindow.isDestroyed()) {
+    executableChooserWindow.focus();
+    return;
+  }
+
+  executableChooserWindow = new BrowserWindow({
+    width: 520,
+    height: 480,
+    resizable: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    center: true,
+    modal: true,
+    parent: importerWindow || mainWindow,
+    webPreferences: {
+      preload: path.join(__dirname, "renderer.js"), // Ensure preload is correct
+      contextIsolation: true,
+      enableRemoteModule: false,
+      nodeIntegration: false,
+    },
+  });
+
+  const filePath = path.join(
+    __dirname,
+    "core/ui/modals/executable-chooser.html",
+  );
+  executableChooserWindow.loadFile(filePath);
+
+  executableChooserWindow.webContents.on("did-finish-load", () => {
+    setTimeout(() => {
+      console.log("Modal loaded - sending executables:", executables);
+      executableChooserWindow.webContents.send("init-chooser", {
+        title: title || "Game",
+        version: version || "",
+        executables: executables || [],
+      });
+    }, 100); // small delay to ensure script runs
+  });
+
+  // Debug: open dev tools for modal
+  // executableChooserWindow.webContents.openDevTools({ mode: 'detach' });
+
+  executableChooserWindow.on("closed", () => {
+    executableChooserWindow = null;
+  });
+}
 function createGameDetailsWindow(recordId) {
   const gameDetailsWindow = new BrowserWindow({
     width: 1400,
@@ -902,32 +954,36 @@ ipcMain.handle("maximize-window", () => {
   }
 });
 
-ipcMain.handle("close-window", async () => {
-  console.log("IPC close-window called");
+ipcMain.handle("close-window", async (event) => {
+  console.log("IPC close-window called from:", event.sender.getURL());
+
   try {
-    const windows = BrowserWindow.getAllWindows();
-    const importSourceWindow = windows.find((w) =>
-      w.webContents.getURL().includes("import-source.html"),
-    );
-    if (importSourceWindow) {
-      console.log("Closing import-source window");
-      importSourceWindow.close();
-      console.log("import-source window closed");
+    // 1. Try to close the window that sent the request (most reliable)
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (senderWindow && !senderWindow.isDestroyed()) {
+      console.log("Closing sender window:", senderWindow.getURL());
+      senderWindow.close();
       return { success: true };
     }
-    console.log("No import-source window found, closing focused window");
-    const focusedWindow = BrowserWindow.getFocusedWindow();
-    if (focusedWindow) {
-      focusedWindow.close();
-      console.log("Focused window closed");
+
+    // 2. Fallback: close known importer window if it exists
+    if (importerWindow && !importerWindow.isDestroyed()) {
+      console.log("Closing known importer window");
+      importerWindow.close();
       return { success: true };
     }
-    return {
-      success: false,
-      error: "No import-source or focused window found",
-    };
+
+    // 3. Ultimate fallback: focused window
+    const focused = BrowserWindow.getFocusedWindow();
+    if (focused && !focused.isDestroyed()) {
+      console.log("Closing focused window as fallback:", focused.getURL());
+      focused.close();
+      return { success: true };
+    }
+
+    return { success: false, error: "No window to close" };
   } catch (err) {
-    console.error("Error in close-window:", err);
+    console.error("close-window error:", err);
     return { success: false, error: err.message };
   }
 });
@@ -1803,7 +1859,7 @@ async function copyFolderWithProgress(
       totalBytes += stat.size;
       return;
     }
-    const files = await fs.promises.readdir(dir);
+    const files = await fsp.readdir(dir);
     await Promise.all(files.map((file) => calculateSize(path.join(dir, file))));
   }
 
@@ -1815,8 +1871,8 @@ async function copyFolderWithProgress(
     if (shouldCancel()) throw createImportCancelledError();
     const stat = await fs.promises.stat(src);
     if (stat.isDirectory()) {
-      await fs.promises.mkdir(dest, { recursive: true });
-      const files = await fs.promises.readdir(src);
+      await fsp.mkdir(dest, { recursive: true });
+      const files = await fsp.readdir(src);
       // Process in batches to limit concurrency
       for (let i = 0; i < files.length; i += MAX_CONCURRENT) {
         const batch = files.slice(i, i + MAX_CONCURRENT);
@@ -2005,31 +2061,111 @@ ipcMain.handle("import-games", async (event, params) => {
 
   mainWindow.webContents.send("import-progress", {
     text: `Starting import of ${total} games...`,
-    progress,
+    progress: 0,
     total,
     canCancel: true,
   });
 
-  let targetLibrary = null;
-  if (moveToDefaultFolder) {
-    targetLibrary = appConfig?.Library?.gameFolder;
-    if (!targetLibrary || !fs.existsSync(targetLibrary)) {
-      console.warn("Move requested but no valid default library folder set");
-      mainWindow.webContents.send("import-warning", {
-        message: "Move to library skipped — no default folder configured",
+  let targetLibrary = appConfig?.Library?.gameFolder;
+  if (!targetLibrary || !fs.existsSync(targetLibrary)) {
+    console.warn("No default library folder configured");
+    mainWindow.webContents.send("import-warning", {
+      message:
+        "Default library folder not set — games will be imported to data/games",
+    });
+    targetLibrary = gamesDir; // fallback
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  //  Prepare 7-Zip path – check once at the beginning
+  // ────────────────────────────────────────────────────────────────
+  let sevenZipPath = appConfig?.Library?.sevenZipPath;
+
+  const needsExtraction = games.some((g) => g.isArchive === true);
+
+  if (needsExtraction) {
+    // Try to auto-detect if not set
+    if (!sevenZipPath || !fs.existsSync(sevenZipPath)) {
+      const possiblePaths = [];
+      if (process.platform === "win32") {
+        possiblePaths.push(
+          "C:\\Program Files\\7-Zip\\7z.exe",
+          "C:\\Program Files (x86)\\7-Zip\\7z.exe",
+        );
+      } else if (process.platform === "linux") {
+        possiblePaths.push("/usr/bin/7z", "/usr/bin/7zz", "/usr/local/bin/7z");
+      }
+
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+          sevenZipPath = p;
+          // Auto-save it
+          const newConfig = {
+            ...appConfig,
+            Library: { ...appConfig.Library, sevenZipPath: p },
+          };
+          fs.writeFileSync(configPath, ini.stringify(newConfig));
+          appConfig = newConfig; // update in-memory
+          mainWindow.webContents.send("import-progress", {
+            text: `Auto-detected 7-Zip: ${path.basename(p)}`,
+            progress: 0,
+            total: 0,
+          });
+          break;
+        }
+      }
+    }
+
+    // Still not found → ask user
+    if (!sevenZipPath || !fs.existsSync(sevenZipPath)) {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: "Select 7-Zip executable (7z or 7zz)",
+        properties: ["openFile"],
+        filters: [
+          {
+            name: "7-Zip Executable",
+            extensions: process.platform === "win32" ? ["exe"] : ["*"],
+          },
+          { name: "All Files", extensions: ["*"] },
+        ],
       });
+
+      if (!result.canceled && result.filePaths?.length > 0) {
+        sevenZipPath = result.filePaths[0];
+        // Save to config
+        const newConfig = {
+          ...appConfig,
+          Library: { ...appConfig.Library, sevenZipPath },
+        };
+        fs.writeFileSync(configPath, ini.stringify(newConfig));
+        appConfig = newConfig;
+        mainWindow.webContents.send("import-progress", {
+          text: `Using selected 7-Zip: ${path.basename(sevenZipPath)}`,
+          progress: 0,
+          total: 0,
+        });
+      } else {
+        // User cancelled → warn but continue (extraction will be skipped)
+        mainWindow.webContents.send("import-progress", {
+          text: "7-Zip not selected → archive extraction will be skipped",
+          progress: 0,
+          total: 0,
+        });
+        sevenZipPath = null;
+      }
     }
   }
 
   const results = [];
 
   for (const game of games) {
+    progress++;
     try {
       throwIfImportCanceled(session);
       session.cleanupPaths = [];
       session.progress = progress;
       mainWindow.webContents.send("import-progress", {
-        text: `Importing game '${game.title}' ${progress + 1}/${total}`,
+        text: `Processing ${game.title} (${progress}/${total})`,
         progress,
         total,
         canCancel: true,
@@ -2037,8 +2173,9 @@ ipcMain.handle("import-games", async (event, params) => {
 
       let gamePath = game.folder;
       let execPath = game.selectedValue
-        ? path.join(gamePath, game.selectedValue)
+        ? path.join(game.folder, game.selectedValue)
         : "";
+
       let size = 0;
 
       // ── Structured move if requested ──
@@ -2057,31 +2194,35 @@ ipcMain.handle("import-games", async (event, params) => {
             .split("/")
             .map((p) => p.replace(/[{}]/g, "").trim());
 
-          const pathSegments = [];
-          for (const part of parts) {
-            let value = "";
-            if (part.toLowerCase() === "creator")
-              value = game.creator || "Unknown";
-            else if (part.toLowerCase() === "title")
-              value = game.title || "Untitled";
-            else if (part.toLowerCase() === "version")
-              value = game.version || "v1";
-            else if (part.toLowerCase() === "engine")
-              value = game.engine || "Unknown";
-            else value = "Unknown";
+      // ── Archive extraction ───────────────────────────────────────
+      if (game.isArchive && sevenZipPath) {
+        const archiveFilename =
+          game.executables?.[0]?.value || game.executables?.[0]?.key;
+        if (!archiveFilename) {
+          throw new Error("No archive file specified");
+        }
 
-            value = value
-              .replace(/[\/\\:*?"<>|]/g, "_")
-              .replace(/\s+/g, " ")
-              .trim();
+        const zipPath = path.join(game.folder, archiveFilename);
+        if (!fs.existsSync(zipPath)) {
+          throw new Error(`Archive not found: ${zipPath}`);
+        }
 
-            if (!value || value === ".") value = "Unknown";
+        // Build target extraction path (same logic you had before)
+        const parts = format
+          .trim()
+          .split("/")
+          .map((p) => p.replace(/[{}]/g, "").trim());
 
-            pathSegments.push(value);
-          }
+        const segments = parts.map((part) => {
+          let val = "Unknown";
+          if (part.toLowerCase() === "creator") val = game.creator || "Unknown";
+          if (part.toLowerCase() === "title") val = game.title || "Untitled";
+          if (part.toLowerCase() === "version") val = game.version || "v1.0";
+          if (part.toLowerCase() === "engine") val = game.engine || "Unknown";
+          return val.replace(/[\/\\:*?"<>|]/g, "_").trim() || "Unknown";
+        });
 
-          const relativeDest = path.join(...pathSegments);
-          let destPath = path.join(targetLibrary, relativeDest);
+        let extractPath = path.join(targetLibrary, ...segments);
 
           // Handle name conflict
           let counter = 1;
@@ -2124,57 +2265,43 @@ ipcMain.handle("import-games", async (event, params) => {
           }, () => session.cancelRequested);
           throwIfImportCanceled(session);
 
-          // Only delete if copy reached 100% success
-          if (deleteAfter && copySuccess) {
-            try {
-              if (
-                await fs.promises
-                  .access(originalSource)
-                  .then(() => true)
-                  .catch(() => false)
-              ) {
-                await fs.promises.rm(originalSource, {
-                  recursive: true,
-                  force: true,
-                });
-                console.log(
-                  `Deleted original source after 100% copy: ${originalSource}`,
-                );
-                mainWindow.webContents.send("import-progress", {
-                  text: `Moved ${game.title} and deleted original folder`,
-                  progress,
-                  total,
-                });
-              } else {
-                console.log(`Original source already gone: ${originalSource}`);
-              }
-            } catch (delErr) {
-              console.error(
-                `Failed to delete original source ${originalSource}:`,
-                delErr,
-              );
-              mainWindow.webContents.send("import-progress", {
-                text: `Moved ${game.title} but failed to delete original: ${delErr.message}`,
-                progress,
-                total,
-              });
-            }
-          } else if (deleteAfter && !copySuccess) {
-            console.log(
-              `Delete skipped — copy was not 100% successful for ${game.title}`,
-            );
+          if (response === 1) {
+            // Skip
             mainWindow.webContents.send("import-progress", {
-              text: `Moved ${game.title} (partial copy — original kept)`,
+              text: `Skipped ${game.title} — folder already exists`,
               progress,
               total,
             });
-          } else {
+            continue; // next game
+          }
+
+          if (response === 2) {
+            // Cancel whole import
             mainWindow.webContents.send("import-progress", {
-              text: `Moved ${game.title} (original kept)`,
+              text: `Import cancelled by user`,
+              progress,
+              total,
+            });
+            return results; // early exit from import-games
+          }
+
+          // response === 0 → Overwrite
+          try {
+            await fsp.rm(extractPath, { recursive: true, force: true });
+            mainWindow.webContents.send("import-progress", {
+              text: `Deleting old folder for ${game.title} (overwrite)`,
+              progress,
+              total,
+            });
+          } catch (rmErr) {
+            console.error("Failed to delete existing folder:", rmErr);
+            mainWindow.webContents.send("import-progress", {
+              text: `Warning: Could not delete old folder — may fail to extract`,
               progress,
               total,
             });
           }
+        }
 
           // Update gamePath to new location for DB
           gamePath = destPath;
@@ -2186,7 +2313,7 @@ ipcMain.handle("import-games", async (event, params) => {
           if (isImportCancelledError(moveErr)) throw moveErr;
           console.error("Structured move failed:", moveErr);
           mainWindow.webContents.send("import-progress", {
-            text: `Move failed for ${game.title}: ${moveErr.message}`,
+            text: `Extracted ${game.title} – no executables found`,
             progress,
             total,
           });
@@ -2269,9 +2396,12 @@ ipcMain.handle("import-games", async (event, params) => {
               break;
             }
           }
-          game.executables = execs.map((e) => ({ key: e, value: e }));
-          game.selectedValue = selected;
         }
+          execPath = path.join(extractPath, selectedExec);
+          game.selectedValue = selectedExec;
+          console.log(execs)
+          console.log(execPath)
+          game.executables = execs.map((e) => ({ key: e, value: e }));
       }
 
       if (scanSize) {

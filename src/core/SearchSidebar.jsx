@@ -64,13 +64,13 @@ const SearchSidebar = ({
   const sortedTags = useMemo(
     () =>
       [...options.tags].sort((a, b) =>
-        a.toLowerCase().localeCompare(b.toLowerCase())
+        a.toLowerCase().localeCompare(b.toLowerCase()),
       ),
-    [options.tags]
+    [options.tags],
   );
 
   const filteredTags = sortedTags.filter((tag) =>
-    tag.toLowerCase().includes(tagSearch.toLowerCase())
+    tag.toLowerCase().includes(tagSearch.toLowerCase()),
   );
 
   useEffect(() => {
@@ -80,11 +80,11 @@ const SearchSidebar = ({
   if (!isVisible) return null;
 
   return (
-    <div 
+    <div
       className="w-[320px] bg-secondary border border-accent overflow-hidden shadow-2xl -webkit-app-region-no-drag fixed right-0 top-[70px] bottom-[50px]"
       style={{
-        margin: "10px 10px 50px 10px",     // 10px top/right/left, 50px bottom (footer + margin)
-        borderRadius: "8px",                // full rounded corners
+        margin: "10px 10px 50px 10px", // 10px top/right/left, 50px bottom (footer + margin)
+        borderRadius: "8px", // full rounded corners
         boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
         height: "calc(100% - 70px - 60px)", // header (70px) + bottom buffer (60px)
         top: "70px",
@@ -92,9 +92,7 @@ const SearchSidebar = ({
       }}
     >
       {/* Fixed-height sticky header */}
-      <div 
-        className="h-[60px] bg-secondary border-b border-border flex items-center justify-between px-4 sticky top-0 z-10"
-      >
+      <div className="h-[60px] bg-secondary border-b border-border flex items-center justify-between px-4 sticky top-0 z-10">
         <span className="text-lg font-bold">
           <i className="fas fa-filter mr-2"></i>Filters
         </span>
@@ -217,12 +215,12 @@ const SearchSidebar = ({
               if (e.key === "ArrowDown") {
                 e.preventDefault();
                 setHighlightedTagIndex((prev) =>
-                  prev < filteredTags.length - 1 ? prev + 1 : 0
+                  prev < filteredTags.length - 1 ? prev + 1 : 0,
                 );
               } else if (e.key === "ArrowUp") {
                 e.preventDefault();
                 setHighlightedTagIndex((prev) =>
-                  prev > 0 ? prev - 1 : filteredTags.length - 1
+                  prev > 0 ? prev - 1 : filteredTags.length - 1,
                 );
               } else if (e.key === "Enter" && highlightedTagIndex >= 0) {
                 e.preventDefault();
@@ -288,7 +286,10 @@ const SearchSidebar = ({
               <p className="text-sm text-gray-500">No engines found</p>
             ) : (
               options.engines.map((engine) => (
-                <label key={engine} className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer">
+                <label
+                  key={engine}
+                  className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
+                >
                   <input
                     type="checkbox"
                     checked={selectedFilters.engine.includes(engine)}
@@ -310,7 +311,10 @@ const SearchSidebar = ({
               <p className="text-sm text-gray-500">No statuses found</p>
             ) : (
               options.statuses.map((status) => (
-                <label key={status} className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer">
+                <label
+                  key={status}
+                  className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
+                >
                   <input
                     type="checkbox"
                     checked={selectedFilters.status.includes(status)}

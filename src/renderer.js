@@ -2,6 +2,20 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
+  isWindows: () => process.platform === "win32",
+  isLinux: () => process.platform === "linux",
+  // optional
+  getDefault7zPaths: () => {
+    if (process.platform === "win32") {
+      return [
+        "C:\\Program Files\\7-Zip\\7z.exe",
+        "C:\\Program Files (x86)\\7-Zip\\7z.exe",
+      ];
+    } else if (process.platform === "linux") {
+      return ["/usr/bin/7z", "/usr/bin/7zz", "/usr/local/bin/7z"];
+    }
+    return [];
+  },
   addGame: (game) => ipcRenderer.invoke("add-game", game),
   getGame: (id) => {
     console.log("Invoking getGame for recordId:", id);
@@ -15,8 +29,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   validateLibraryPaths: () => ipcRenderer.invoke("validate-library-paths"),
   removeGame: (id) => ipcRenderer.invoke("remove-game", id),
-  unzipGame: (zipPath, extractPath) =>
-    ipcRenderer.invoke("unzip-game", { zipPath, extractPath }),
   checkUpdates: () => ipcRenderer.invoke("check-updates"),
   checkDbUpdates: () => ipcRenderer.invoke("check-db-updates"),
   minimizeWindow: () => ipcRenderer.invoke("minimize-window"),
@@ -255,4 +267,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("game-deleted", (event, recordId) => callback(recordId));
   },
   getUniqueFilterOptions: () => ipcRenderer.invoke("get-unique-filter-options"),
+});
+
+contextBridge.exposeInMainWorld("electronIPC", {
+  on: (channel, func) => {
+    ipcRenderer.on(channel, (event, ...args) => func(...args));
+  },
+  send: (channel, data) => {
+    ipcRenderer.send(channel, data);
+  },
+  // If needed: invoke, etc.
 });
