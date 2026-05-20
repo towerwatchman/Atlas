@@ -109,7 +109,7 @@
 - Upgraded Electron to 42 and refreshed the Electron packaging stack.
 - Upgraded SQLite native bindings to `sqlite3` 6 and rebuilt native modules for the packaged Electron runtime.
 - Removed unused direct dependencies and refreshed lower-risk runtime/build dependencies to reduce package weight.
-- Updated README badges and GitHub links to point at the `SekhmetAnkh/Atlas` fork.
+- Updated README badges and GitHub links to point at the `towerwatchman/Atlas` fork.
 - Hardened Play, Open Folder, and recursive delete flows so trusted paths are resolved through stored game/version records.
 - Hardened metadata update ingestion by validating update tables and columns before building SQL.
 

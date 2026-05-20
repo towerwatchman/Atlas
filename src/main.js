@@ -304,7 +304,7 @@ if (!fs.existsSync(templatesDir)) {
 // Setup electron-updater events
 autoUpdater.setFeedURL({
   provider: "github",
-  owner: "SekhmetAnkh",
+  owner: "towerwatchman",
   repo: "Atlas",
 });
 autoUpdater.allowDowngrade = false;
@@ -868,7 +868,7 @@ ipcMain.handle("cancel-import", async () => {
 ipcMain.handle("check-updates", async () => {
   try {
     const response = await axios.get(
-      "https://api.github.com/repos/SekhmetAnkh/Atlas/releases/latest",
+      "https://api.github.com/repos/towerwatchman/Atlas/releases/latest",
     );
     const latestVersion = response.data.tag_name;
     const currentVersion = app.getVersion();
