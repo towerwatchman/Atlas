@@ -391,21 +391,23 @@ const App = () => {
 
   const [showSearchSidebar, setShowSearchSidebar] = useState(false); // or false
 
-const [activeFilters, setActiveFilters] = useState({
-  text: "",
-  type: "all",
-  category: [],
-  engine: [],
-  status: [],
-  censored: [],
-  language: [],
-  tags: [],
-  sort: "name",           // ← Changed from "date" to "name"
-  dateLimit: 0,
-  tagLogic: "AND",
-  updateAvailable: false, // if you added this
-  includeUninstalled: false,
-});
+  const defaultFilters = {
+    text: "",
+    type: "all",
+    category: [],
+    engine: [],
+    status: [],
+    censored: [],
+    language: [],
+    tags: [],
+    sort: "name",
+    dateLimit: 0,
+    tagLogic: "AND",
+    updateAvailable: false,
+    includeUninstalled: false,
+  };
+
+  const [activeFilters, setActiveFilters] = useState(defaultFilters);
 
   // Debounce function for game refresh
   const debounce = (func, delay) => {
@@ -511,7 +513,7 @@ const [activeFilters, setActiveFilters] = useState({
   }, [clearDbUpdateStatusSoon]);
 
   const handleFilterChange = (filters) => {
-    setActiveFilters((prev) => ({ ...filters, text: prev.text }));
+    setActiveFilters((prev) => ({ ...prev, ...filters, text: prev.text }));
     const nextIncludeUninstalled = filters.includeUninstalled === true;
     if (includeUninstalledRef.current !== nextIncludeUninstalled) {
       includeUninstalledRef.current = nextIncludeUninstalled;
@@ -1139,7 +1141,7 @@ return (
 
       {/* Left Game List (titles) - toggled */}
       {showGameList && (
-        <div className="w-[200px] bg-secondary fixed h-full z-40 overflow-y-auto ml-[60px]">
+        <div className="w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ml-[60px]">
           {filteredGames.length === 0 ? (
             <div className="p-2 text-center text-text">No games found</div>
           ) : (
@@ -1204,6 +1206,7 @@ return (
         <window.SearchSidebar
           isVisible={showSearchSidebar}
           searchText={activeFilters.text}
+          activeFilters={activeFilters}
           onSearchChange={handleSearchChange}
           onFilterChange={handleFilterChange}
           onClose={() => setShowSearchSidebar(false)}

@@ -147,7 +147,7 @@ function cleanDisplayTitle(value) {
 
 function stripReleaseSuffixes(value) {
   const suffixPattern =
-    /(?:[-_\s.]+(?:pc|win|win64|linux|mac|patreon|public|elite|free|revamp|compressed|crunched|uncensored|steam|itch|fixed|hotfix|update))+$/i;
+    /(?:[-_\s.]+(?:pc|win|win64|windows|windows64|linux|mac|patreon|public|elite|free|market|demo|fl|revamp|compressed|crunched|uncensored|steam|itch|fixed|hotfix|update))+$/i;
   let result = value;
   let next = result.replace(suffixPattern, "");
   while (next !== result) {
@@ -164,7 +164,8 @@ function parseNameMetadata(rawName) {
     .trim();
   const normalized = stripReleaseSuffixes(withoutExt);
   const patterns = [
-    /^(.*?)[-_\s]+((?:ch|chapter)\.?\s*[_-]?\d+(?:[-_\s]*(?:part|p)\s*\d+)?)(?:[-_\s].*)?$/i,
+    /^(.*?)[-_\s.]*((?:ep|episode|ch|chapter)\.?\s*[_-]?\d+[a-z]*(?:[-_\s]*(?:part|p)\s*\d+)?)(?:[-_\s].*)?$/i,
+    /^(.*?)[-_\s]+v?(\d+(?:\.\d+)*[a-z]*(?:[-_\s]*(?:part|p)\s*\d+)?)(?:[-_\s].*)?$/i,
     /^(.*?)[-_\s]+v?(\d+(?:\.\d+)*[a-z]*)(?:[-_\s].*)?$/i,
     /^(.*?)[-_\s]+(\d+(?:\.\d+)*[a-z]*)(?:[-_\s].*)?$/i,
   ];

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.63 - 2026-05-20
+
+### Changed
+- `src/database.js`: improved local Atlas/F95 importer matching by ranking normalized title and `short_name` matches in both directions, while filtering weak accidental matches from very short catalog names.
+- `src/core/scanners/f95scanner.js`: improved archive/folder name parsing for episode, chapter, part, version, platform, and channel suffixes before lookup while preserving the installed version value.
+- `src/core/SearchSidebar.jsx`: changed the filter sidebar to use the main app's active filter state instead of resetting its own state every time the panel opens.
+
+### Fixed
+- `src/App.jsx`: fixed the left game-title sidebar so large libraries scroll inside the header/footer bounds instead of extending under the footer.
+- `src/App.jsx` and `src/core/SearchSidebar.jsx`: fixed filters resetting after closing and reopening the filter sidebar during the same app session.
+- `src/database.js`: fixed compressed/imported names such as `ALT_CTRL_DEL_Ep._12-pc`, `MLTAwayFromHomeEp.30FL`, `HoteloftheDamnedDesires-DEMOv0.02-win`, and `YouOnlyDieTwice-.06-Part1-pc` failing to match local Atlas/F95 records.
+
 ## 1.0.62 - 2026-05-20
 
 ### Added

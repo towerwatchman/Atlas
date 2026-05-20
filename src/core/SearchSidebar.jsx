@@ -3,14 +3,14 @@ const { useState, useEffect, useMemo } = window.React;
 const SearchSidebar = ({
   isVisible,
   searchText = "",
+  activeFilters = {},
   onSearchChange,
   onFilterChange,
   onClose,
 }) => {
-  const [filter, setFilter] = useState("");
   const [tagSearch, setTagSearch] = useState("");
   const [highlightedTagIndex, setHighlightedTagIndex] = useState(-1);
-  const [selectedFilters, setSelectedFilters] = useState({
+  const defaultFilters = {
     type: "all",
     category: [],
     engine: [],
@@ -22,7 +22,8 @@ const SearchSidebar = ({
     tagLogic: "AND",
     updateAvailable: false,
     includeUninstalled: false,
-  });
+  };
+  const selectedFilters = { ...defaultFilters, ...activeFilters };
   const [options, setOptions] = useState({
     categories: [],
     engines: [],
@@ -39,36 +40,25 @@ const SearchSidebar = ({
       .catch((err) => console.error("Failed to load filter options:", err));
   }, []);
 
-  useEffect(() => {
-    setFilter(searchText || "");
-  }, [searchText]);
-
-  const currentFilters = useMemo(
-    () => ({
-      text: filter,
-      ...selectedFilters,
-    }),
-    [filter, selectedFilters]
-  );
-
-  useEffect(() => {
-    onFilterChange(currentFilters);
-  }, [currentFilters, onFilterChange]);
+  const updateFilters = (changes) => {
+    onFilterChange?.({ ...selectedFilters, ...changes });
+  };
 
   const handleCheckbox = (group, value) => {
-    setSelectedFilters((prev) => {
-      let newVals = [...prev[group]];
-      if (newVals.includes(value)) {
-        newVals = newVals.filter((v) => v !== value);
-      } else {
-        if (group === "tags" && newVals.length >= 10) {
-          alert("Max 10 tags allowed.");
-          return prev;
-        }
-        newVals.push(value);
+    const currentValues = Array.isArray(selectedFilters[group])
+      ? selectedFilters[group]
+      : [];
+    let newVals = [...currentValues];
+    if (newVals.includes(value)) {
+      newVals = newVals.filter((v) => v !== value);
+    } else {
+      if (group === "tags" && newVals.length >= 10) {
+        alert("Max 10 tags allowed.");
+        return;
       }
-      return { ...prev, [group]: newVals };
-    });
+      newVals.push(value);
+    }
+    updateFilters({ [group]: newVals });
   };
 
   const sortedTags = useMemo(
@@ -111,19 +101,7 @@ const SearchSidebar = ({
         <div className="flex space-x-3">
           <button
             onClick={() => {
-              setSelectedFilters({
-                type: "all",
-                category: [],
-                engine: [],
-                status: [],
-                censored: [],
-                language: [],
-                tags: [],
-                sort: "name",
-                tagLogic: "AND",
-                updateAvailable: false,
-                includeUninstalled: false,
-              });
+              onFilterChange?.(defaultFilters);
               setTagSearch("");
               onSearchChange?.("");
             }}
@@ -149,9 +127,8 @@ const SearchSidebar = ({
             <input
               type="text"
               placeholder="Search Atlas"
-              value={filter}
+              value={searchText}
               onChange={(e) => {
-                setFilter(e.target.value);
                 onSearchChange?.(e.target.value);
               }}
               className="bg-transparent outline-none text-text flex-1 px-3 py-2 focus:outline-none -webkit-app-region-no-drag"
@@ -186,7 +163,7 @@ const SearchSidebar = ({
             {["name", "date", "likes", "views", "rating"].map((s) => (
               <button
                 key={s}
-                onClick={() => setSelectedFilters((prev) => ({ ...prev, sort: s }))}
+                onClick={() => updateFilters({ sort: s })}
                 className={`px-3 py-1 rounded text-sm ${
                   selectedFilters.sort === s
                     ? "bg-accent text-white"
@@ -209,7 +186,7 @@ const SearchSidebar = ({
           </h4>
           <div className="flex gap-4 mb-3">
             <button
-              onClick={() => setSelectedFilters((prev) => ({ ...prev, tagLogic: "AND" }))}
+              onClick={() => updateFilters({ tagLogic: "AND" })}
               className={`px-4 py-1 rounded text-sm ${
                 selectedFilters.tagLogic === "AND"
                   ? "bg-accent text-white"
@@ -219,7 +196,7 @@ const SearchSidebar = ({
               AND
             </button>
             <button
-              onClick={() => setSelectedFilters((prev) => ({ ...prev, tagLogic: "OR" }))}
+              onClick={() => updateFilters({ tagLogic: "OR" })}
               className={`px-4 py-1 rounded text-sm ${
                 selectedFilters.tagLogic === "OR"
                   ? "bg-accent text-white"
@@ -354,10 +331,9 @@ const SearchSidebar = ({
               type="checkbox"
               checked={selectedFilters.updateAvailable || false}
               onChange={() =>
-                setSelectedFilters((prev) => ({
-                  ...prev,
-                  updateAvailable: !prev.updateAvailable,
-                }))
+                updateFilters({
+                  updateAvailable: !selectedFilters.updateAvailable,
+                })
               }
               className="-webkit-app-region-no-drag"
             />
@@ -372,10 +348,9 @@ const SearchSidebar = ({
               type="checkbox"
               checked={selectedFilters.includeUninstalled || false}
               onChange={() =>
-                setSelectedFilters((prev) => ({
-                  ...prev,
-                  includeUninstalled: !prev.includeUninstalled,
-                }))
+                updateFilters({
+                  includeUninstalled: !selectedFilters.includeUninstalled,
+                })
               }
               className="-webkit-app-region-no-drag"
             />

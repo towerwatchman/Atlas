@@ -1457,132 +1457,152 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
   }
 };
 
-const searchAtlas = async (title, creator) => {
-  const queries = [
-    async () => {
-      return new Promise((resolve, reject) => {
-        db.all(
-          `SELECT atlas_id, title, creator, engine, version as latestVersion FROM atlas_data WHERE title LIKE ? AND creator LIKE ?`,
-          [`%${title}%`, `%${creator}%`],
-          (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows);
-          },
-        );
-      });
-    },
-    async () => {
-      const shortName = title.replace(/[\W_]+/g, "").toUpperCase();
-      const queryTitle = `
-        SELECT
-          atlas_id,
-          title,
-          creator,
-          engine,
-          version as latestVersion,
-          LENGTH(short_name) - LENGTH(?) as difference
-        FROM atlas_data
-        WHERE short_name LIKE ?
-        ORDER BY LENGTH(short_name) - LENGTH(?)
-      `;
-      return new Promise((resolve, reject) => {
-        db.all(
-          queryTitle,
-          [shortName, `%${shortName}%`, shortName],
-          (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows);
-          },
-        );
-      });
-    },
-    async () => {
-      const fullName = `${title}${creator}`
-        .replace(/[\W_]+/g, "")
-        .toUpperCase();
-      const queryFull = `
-        WITH data_0 AS (
-          SELECT
-            atlas_id,
-            title,
-            creator,
-            engine,
-            version as latestVersion,
-            UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-              title || '' || creator,
-              '-', ''), '_', ''), '/', ''), '\\', ''), ':', ''), ';', ''), '''', ''), ' ', ''), '.', '')) as full_name
-          FROM atlas_data
-        )
-        SELECT
-          atlas_id,
-          title,
-          creator,
-          engine,
-          latestVersion,
-          LENGTH(full_name) - LENGTH(?) as difference
-        FROM data_0
-        WHERE full_name LIKE ?
-        ORDER BY LENGTH(full_name) - LENGTH(?)
-      `;
-      return new Promise((resolve, reject) => {
-        db.all(
-          queryFull,
-          [fullName, `%${fullName}%`, fullName],
-          (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows);
-          },
-        );
-      });
-    },
-    async () => {
-      // Title-only search
-      return new Promise((resolve, reject) => {
-        db.all(
-          `SELECT atlas_id, title, creator, engine, version as latestVersion FROM atlas_data WHERE title LIKE ?`,
-          [`%${title}%`],
-          (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows);
-          },
-        );
-      });
-    },
-  ];
+const normalizeSearchKey = (value) =>
+  String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/gi, "")
+    .toUpperCase();
 
-  const allResults = new Map(); // Use Map to store unique results by atlas_id
+const normalizeSearchWords = (value) =>
+  String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .filter((word) => word.length >= 3);
 
-  for (const queryFn of queries) {
-    try {
-      const rows = await queryFn();
-      console.log(`Query returned ${rows.length} results`);
-      let hasF95Id = false;
-      const enrichedRows = [];
-      for (const row of rows) {
-        const f95Id = await findF95Id(row.atlas_id);
-        if (f95Id) {
-          hasF95Id = true;
-        }
-        if (!allResults.has(row.atlas_id)) {
-          allResults.set(row.atlas_id, { ...row, f95_id: f95Id || "" });
-        }
-        enrichedRows.push({ ...row, f95_id: f95Id || "" });
-      }
-      if (hasF95Id) {
-        // Return results from this query if any have f95_id
-        const filteredRows = enrichedRows.filter((row) => row.f95_id);
-        console.log(`Query found ${filteredRows.length} results with f95_id`);
-        return filteredRows.length > 0 ? filteredRows : enrichedRows;
-      }
-    } catch (err) {
-      console.error("Error in searchAtlas query:", err);
+const buildAtlasSearchKeys = (title) => {
+  const raw = String(title || "").replace(/\.(zip|rar|7z)$/i, "");
+  const keys = new Set();
+  const addKey = (value) => {
+    const key = normalizeSearchKey(value);
+    if (key.length >= 3) keys.add(key);
+  };
+
+  addKey(raw);
+  addKey(
+    raw
+      .replace(/\[(.*?)\]/g, "$1")
+      .replace(/\b(early\s*access|market|patreon|public|elite|free|demo|compressed|crunched|uncensored)\b/gi, " ")
+      .replace(/\b(pc|win|windows|windows64|win64|linux|mac|fl)\b/gi, " ")
+      .replace(/\b(?:ep|episode|ch|chapter)\.?\s*\d+[a-z]*\b/gi, " ")
+      .replace(/\bpart\s*\d+[a-z]*\b/gi, " ")
+      .replace(/\bv?\d+(?:\.\d+)*[a-z]*\b/gi, " "),
+  );
+
+  return Array.from(keys);
+};
+
+const scoreAtlasSearchRow = (row, searchKeys, title, creator) => {
+  const rowShortName = normalizeSearchKey(row.short_name || row.title);
+  const rowTitle = normalizeSearchKey(row.title);
+  const queryWords = new Set(normalizeSearchWords(title));
+  const rowWords = normalizeSearchWords(row.title);
+  const creatorKey = normalizeSearchKey(creator);
+  const rowCreatorKey = normalizeSearchKey(row.creator);
+  let score = 0;
+
+  for (const key of searchKeys) {
+    if (!key || !rowShortName) continue;
+    if (rowShortName === key) score = Math.max(score, 1000);
+    else if (
+      rowShortName.length >= 8 &&
+      key.includes(rowShortName) &&
+      rowShortName.length / key.length >= 0.45
+    ) {
+      score = Math.max(score, 860 - Math.abs(key.length - rowShortName.length));
+    } else if (key.length >= 5 && rowShortName.includes(key)) {
+      score = Math.max(score, 720 - Math.abs(rowShortName.length - key.length));
+    }
+
+    if (rowTitle && rowTitle === key) score = Math.max(score, 900);
+    else if (
+      rowTitle.length >= 8 &&
+      key.includes(rowTitle) &&
+      rowTitle.length / key.length >= 0.45
+    ) {
+      score = Math.max(score, 780 - Math.abs(key.length - rowTitle.length));
     }
   }
 
-  // If no results with f95_id, return all unique results from all queries
-  const finalResults = Array.from(allResults.values());
+  const overlap = rowWords.filter((word) => queryWords.has(word)).length;
+  if (overlap > 0) {
+    score = Math.max(score, 500 + overlap * 60);
+  }
+
+  if (creatorKey && creatorKey !== "UNKNOWN" && rowCreatorKey.includes(creatorKey)) {
+    score += 60;
+  }
+  if (row.f95_id) score += 20;
+
+  return score;
+};
+
+const searchAtlas = async (title, creator) => {
+  const searchKeys = buildAtlasSearchKeys(title);
+  if (searchKeys.length === 0) return [];
+
+  const rowsByAtlasId = new Map();
+  const sql = `
+    SELECT
+      a.atlas_id,
+      a.title,
+      a.creator,
+      a.engine,
+      a.version as latestVersion,
+      a.short_name,
+      f.f95_id
+    FROM atlas_data a
+    LEFT JOIN f95_zone_data f ON f.atlas_id = a.atlas_id
+    WHERE
+      a.title LIKE ?
+      OR a.creator LIKE ?
+      OR a.short_name LIKE ?
+      OR ? LIKE '%' || a.short_name || '%'
+      OR UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+        a.title,
+        '-', ''), '_', ''), '/', ''), '\\', ''), ':', ''), ';', ''), '''', ''), ' ', ''), '.', '')) LIKE ?
+  `;
+
+  for (const key of searchKeys) {
+    const rows = await new Promise((resolve, reject) => {
+      db.all(
+        sql,
+        [`%${title}%`, `%${creator}%`, `%${key}%`, key, `%${key}%`],
+        (err, resultRows) => {
+          if (err) reject(err);
+          else resolve(resultRows || []);
+        },
+      );
+    });
+    console.log(`Search key ${key} returned ${rows.length} results`);
+
+    for (const row of rows) {
+      const score = scoreAtlasSearchRow(row, searchKeys, title, creator);
+      if (score < 650) continue;
+
+      const existing = rowsByAtlasId.get(row.atlas_id);
+      if (!existing || score > existing._matchScore) {
+        rowsByAtlasId.set(row.atlas_id, {
+          ...row,
+          f95_id: row.f95_id || "",
+          difference: Math.abs(
+            normalizeSearchKey(row.short_name || row.title).length - key.length,
+          ),
+          _matchScore: score,
+        });
+      }
+    }
+  }
+
+  const finalResults = Array.from(rowsByAtlasId.values())
+    .sort((a, b) => b._matchScore - a._matchScore || a.difference - b.difference)
+    .slice(0, 12)
+    .map(({ _matchScore, short_name, ...row }) => row);
+
   console.log(
-    `Returning ${finalResults.length} unique results from all queries`,
+    `Returning ${finalResults.length} ranked Atlas search results for ${title}`,
   );
   return finalResults;
 };
