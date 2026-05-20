@@ -1,4 +1,4 @@
-const Sidebar = ({ onToggleGameList, onCheckDbUpdates }) => {
+const Sidebar = ({ onToggleGameList, onCheckDbUpdates, showGameList  }) => {
   // Only need toggle prop now
   const [selected, setSelected] = React.useState("Home");
 
