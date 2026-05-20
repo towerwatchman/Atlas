@@ -424,9 +424,9 @@ async function startScan(params, window, cancelToken = {}) {
       .filter((d) => d.isDirectory())
       .map((d) => path.join(folder, d.name));
     const rootArchives = getRootFiles(folder, archiveExtensions);
-    const rootLaunchables = findLaunchables(folder, extensions).filter(
-      (launchable) => !launchable.includes("/"),
-    );
+
+    // Check root folder for launchables (shallow only)
+    const rootLaunchables = getRootFiles(folder, extensions);
     const scanTargets =
       rootLaunchables.length > 0 ? [folder, ...directories] : directories;
     const totalDirs = scanTargets.length + rootArchives.length;
@@ -463,10 +463,81 @@ async function startScan(params, window, cancelToken = {}) {
       console.log(`Scanning game folder: ${target}`);
       ittr++;
 
-      const launchables =
-        target === folder ? rootLaunchables : findLaunchables(target, extensions);
+      // ── Shallow check: look for launchables directly in this folder ──────
+      const shallowLaunchables =
+        target === folder
+          ? rootLaunchables.map((f) => path.basename(f))
+          : getRootFiles(target, extensions).map((f) => path.basename(f));
 
-      if (launchables.length === 0) {
+      if (shallowLaunchables.length > 0) {
+        // Found launchables at this level — treat this as the game root
+        const res = await findGame(
+          target,
+          format,
+          extensions,
+          folder,
+          0,
+          false,
+          games,
+          window,
+          params,
+          shallowLaunchables,
+        );
+        if (res) {
+          window.webContents.send("scan-complete", games[games.length - 1]);
+        }
+        sendScanProgress(window, ittr, totalDirs, games);
+        continue;
+      }
+
+      // ── Deep check: nothing at top level, scan one level of subdirs ───────
+      let foundInSubdir = false;
+      const maxDepth = format && format.trim() !== "" ? 3 : Infinity;
+      const subdirs = getAllSubdirs(target, folder, maxDepth);
+
+      // If structured format, filter to expected depth only
+      const formatParts =
+        format && format.trim() !== ""
+          ? format.split("/").map((part) => part.replace(/\{|\}/g, ""))
+          : [];
+      const expectedDepth = formatParts.length || 2;
+      const versionDirs =
+        format && format.trim() !== ""
+          ? subdirs.filter((subdir) => {
+              const relativePath = subdir.replace(`${folder}${path.sep}`, "");
+              const pathParts = relativePath.split(path.sep);
+              return pathParts.length === expectedDepth;
+            })
+          : subdirs;
+
+      for (const subdir of versionDirs) {
+        if (cancelToken.canceled) break;
+        const subdirLaunchables = getRootFiles(subdir, extensions).map((f) =>
+          path.basename(f),
+        );
+        if (subdirLaunchables.length > 0) {
+          console.log(`Scanning version directory: ${subdir}`);
+          const res = await findGame(
+            subdir,
+            format,
+            extensions,
+            folder,
+            0,
+            false,
+            games,
+            window,
+            params,
+            subdirLaunchables,
+          );
+          if (res) {
+            foundInSubdir = true;
+            window.webContents.send("scan-complete", games[games.length - 1]);
+          }
+        }
+      }
+
+      if (!foundInSubdir) {
+        // Nothing found at any depth — report as missing/empty
         const hasFiles = hasAnyFile(target);
         const missingGame = createSkippedGame(
           target,
@@ -475,25 +546,8 @@ async function startScan(params, window, cancelToken = {}) {
         );
         games.push(missingGame);
         window.webContents.send("scan-complete", missingGame);
-        sendScanProgress(window, ittr, totalDirs, games);
-        continue;
       }
 
-      const res = await findGame(
-        target,
-        format,
-        extensions,
-        folder,
-        0,
-        false,
-        games,
-        window,
-        params,
-        launchables,
-      );
-      if (res) {
-        window.webContents.send("scan-complete", games[games.length - 1]);
-      }
       sendScanProgress(window, ittr, totalDirs, games);
     }
   }
@@ -505,12 +559,29 @@ async function startScan(params, window, cancelToken = {}) {
   window.webContents.send("scan-complete-final", games);
 }
 
+function getAllSubdirs(root, basePath, maxDepth = Infinity) {
+  const dirs = [];
+  const stack = [{ path: root, depth: 0 }];
+  while (stack.length) {
+    const { path: current, depth } = stack.pop();
+    if (depth >= maxDepth) continue;
+    const items = safeReadDir(current);
+    for (const item of items) {
+      const full = path.join(current, item.name);
+      if (item.isDirectory()) {
+        dirs.push(full);
+        stack.push({ path: full, depth: depth + 1 });
+      }
+    }
+  }
+  return dirs;
+}
+
 function getAllFiles(root, extensions) {
   const files = [];
   const stack = [root];
   while (stack.length) {
     const current = stack.pop();
-    console.log(`Exploring directory for files: ${current}`);
     const items = fs.readdirSync(current, { withFileTypes: true });
     for (const item of items) {
       const full = path.join(current, item.name);

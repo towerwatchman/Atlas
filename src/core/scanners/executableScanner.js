@@ -27,8 +27,17 @@ const blacklist = [
   "CONFIG_dl.exe",
 ];
 
+// Blacklist check is case-insensitive exact match on filename
+function isBlacklisted(name) {
+  const lower = name.toLowerCase();
+  return blacklist.some((b) => b.toLowerCase() === lower);
+}
+
 function findExecutables(dir, extensions) {
   const execs = [];
+  // Each stack entry is { path, isRoot } — only descend into subdirs if no
+  // executables were found directly in the current directory (same logic as old
+  // scanner, but correctly applied: collect files and dirs separately per level).
   const stack = [dir];
 
   console.log(`Scanning for executables in: ${dir}`);
@@ -36,7 +45,6 @@ function findExecutables(dir, extensions) {
 
   while (stack.length) {
     const current = stack.pop();
-    let foundInThisDir = false;
 
     let items;
     try {
@@ -46,42 +54,41 @@ function findExecutables(dir, extensions) {
       continue;
     }
 
+    // Separate files and subdirs in one pass
+    const subdirs = [];
+    let foundInThisDir = false;
+
     for (const item of items) {
       const fullPath = path.join(current, item.name);
 
       if (item.isDirectory()) {
-        // Only push subdir if we haven't already found an executable in this folder
-        if (!foundInThisDir) {
-          stack.push(fullPath);
-        }
+        subdirs.push(fullPath);
         continue;
       }
+
+      if (!item.isFile()) continue;
 
       const ext = path.extname(item.name).toLowerCase().slice(1);
       const nameLower = item.name.toLowerCase();
 
       if (!extensions.includes(ext)) continue;
+      if (isBlacklisted(item.name) || nameLower.includes("-32")) continue;
 
-      // Blacklist + -32 check
-      if (
-        blacklist.some((b) => nameLower.includes(b.toLowerCase())) ||
-        nameLower.includes("-32")
-      ) {
-        continue;
-      }
-
-      // Found a valid executable
+      // Valid executable found
       const relative = path.relative(dir, fullPath);
       execs.push(relative);
       console.log(`Found executable: ${relative}`);
-
       foundInThisDir = true;
-      // We can break early if you only want **one** match per folder
-      // break;
     }
 
-    // Optional: if you want to stop after first match in the whole search, add:
-    // if (execs.length > 0) break;
+    // Only descend into subdirectories if this directory had no matches.
+    // This matches the original fast behaviour: game root contains the exe,
+    // so we don't need to recurse into runtime subdirs (www, game, lib, etc.)
+    if (!foundInThisDir) {
+      for (const subdir of subdirs) {
+        stack.push(subdir);
+      }
+    }
   }
 
   console.log(`Total executables found: ${execs.length}`);
