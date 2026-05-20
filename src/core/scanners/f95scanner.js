@@ -1,6 +1,11 @@
 const fs = require("fs");
 const path = require("path");
-const { searchAtlas, findF95Id, checkRecordExist } = require("../../database");
+const {
+  searchAtlas,
+  findF95Id,
+  checkRecordExist,
+  getImportRecordStatus,
+} = require("../../database");
 
 const engineMap = {
   rpgm: [
@@ -42,13 +47,312 @@ const blacklist = [
   "CONFIG_dl.exe",
 ];
 
-async function startScan(params, window) {
+function isBlacklisted(filePath) {
+  const filename = path.basename(filePath).toLowerCase();
+  return blacklist.some((entry) => entry.toLowerCase() === filename);
+}
+
+function normalizeExtensions(extensions) {
+  const values = Array.isArray(extensions)
+    ? extensions
+    : String(extensions || "").split(",");
+
+  return values
+    .map((ext) => String(ext || "").trim().toLowerCase().replace(/^\./, ""))
+    .filter(Boolean);
+}
+
+function isSupportedFile(filePath, extensions) {
+  return (
+    extensions.includes(path.extname(filePath).toLowerCase().slice(1)) &&
+    !isBlacklisted(filePath)
+  );
+}
+
+function getRelativePath(baseDir, targetPath) {
+  return path.relative(baseDir, targetPath).replace(/\\/g, "/");
+}
+
+function hasAnyFile(root) {
+  const stack = [root];
+
+  while (stack.length) {
+    const current = stack.pop();
+    const items = fs.readdirSync(current, { withFileTypes: true });
+
+    for (const item of items) {
+      const full = path.join(current, item.name);
+      if (item.isFile()) return true;
+      if (item.isDirectory()) stack.push(full);
+    }
+  }
+
+  return false;
+}
+
+function findLaunchables(root, extensions) {
+  const launchables = [];
+  const stack = [root];
+
+  while (stack.length) {
+    const current = stack.pop();
+    const items = fs.readdirSync(current, { withFileTypes: true });
+
+    for (const item of items) {
+      const full = path.join(current, item.name);
+      if (item.isDirectory()) {
+        stack.push(full);
+      } else if (item.isFile() && isSupportedFile(full, extensions)) {
+        launchables.push(getRelativePath(root, full));
+      }
+    }
+  }
+
+  return preferPrimaryLaunchables(launchables);
+}
+
+function isRuntimeFolderName(name) {
+  const normalized = String(name || "").toLowerCase();
+  return (
+    /^(game|lib|renpy|www|wwwroot|program files)$/i.test(normalized) ||
+    /^(windows|win|linux|mac|darwin|osx)([-_].*)?$/i.test(normalized) ||
+    /^(x86|x64|x86_64|i386|i686|amd64|arm64)$/i.test(normalized)
+  );
+}
+
+function isRuntimeLaunchable(relativePath) {
+  const parts = String(relativePath || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean);
+  return parts.slice(0, -1).some(isRuntimeFolderName);
+}
+
+function sortLaunchables(a, b) {
+  const depthA = String(a || "").split("/").length;
+  const depthB = String(b || "").split("/").length;
+  if (depthA !== depthB) return depthA - depthB;
+  return String(a || "").localeCompare(String(b || ""));
+}
+
+function preferPrimaryLaunchables(launchables) {
+  const unique = Array.from(new Set(launchables.map((f) => f.replace(/\\/g, "/"))));
+  const primary = unique.filter((launchable) => !isRuntimeLaunchable(launchable));
+  return (primary.length > 0 ? primary : unique).sort(sortLaunchables);
+}
+
+function isInsideRoot(root, target) {
+  const relative = path.relative(root, target);
+  return !!relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function getLibraryCandidateRoot(root, folder) {
+  let candidateRoot = folder;
+  while (path.dirname(candidateRoot) !== candidateRoot) {
+    const parent = path.dirname(candidateRoot);
+    if (!isInsideRoot(root, parent)) break;
+    if (!isRuntimeFolderName(path.basename(candidateRoot))) break;
+    candidateRoot = parent;
+  }
+  return candidateRoot;
+}
+
+function getScanStats(games) {
+  return {
+    potential: games.filter((game) => game.scanStatus === "new").length,
+    pendingMatch: games.filter((game) => game.scanStatus === "pendingMatch")
+      .length,
+    archives: games.filter(
+      (game) => game.isArchive && game.scanStatus === "new",
+    ).length,
+    alreadyImported: games.filter(
+      (game) => game.scanStatus === "alreadyImported",
+    ).length,
+    repairPath: games.filter((game) => game.scanStatus === "repairPath").length,
+    missingLaunchable: games.filter(
+      (game) => game.scanStatus === "missingLaunchable",
+    ).length,
+    emptyFolder: games.filter((game) => game.scanStatus === "emptyFolder")
+      .length,
+    totalFound: games.length,
+  };
+}
+
+function sendScanProgress(window, value, total, games) {
+  window.webContents.send("scan-progress", {
+    value,
+    total,
+    ...getScanStats(games),
+  });
+}
+
+function cleanDisplayTitle(value) {
+  return String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripReleaseSuffixes(value) {
+  const suffixPattern =
+    /(?:[-_\s.]+(?:pc|win|win64|windows|windows64|linux|mac|patreon|public|elite|free|market|demo|fl|revamp|compressed|crunched|uncensored|steam|itch|fixed|hotfix|update))+$/i;
+  let result = value;
+  let next = result.replace(suffixPattern, "");
+  while (next !== result) {
+    result = next;
+    next = result.replace(suffixPattern, "");
+  }
+  return result.replace(/[-_\s.]+$/g, "");
+}
+
+function parseNameMetadata(rawName) {
+  const withoutExt = String(rawName || "")
+    .replace(/\.(zip|rar|7z)$/i, "")
+    .replace(/\[(.*?)\]/g, "$1")
+    .trim();
+  const normalized = stripReleaseSuffixes(withoutExt);
+  const patterns = [
+    /^(.*?)[-_\s.]*((?:ep|episode|ch|chapter)\.?\s*[_-]?\d+[a-z]*(?:[-_\s]*(?:part|p)\s*\d+)?)(?:[-_\s].*)?$/i,
+    /^(.*?)[-_\s]+v?(\d+(?:\.\d+)*[a-z]*(?:[-_\s]*(?:part|p)\s*\d+)?)(?:[-_\s].*)?$/i,
+    /^(.*?)[-_\s]+v?(\d+(?:\.\d+)*[a-z]*)(?:[-_\s].*)?$/i,
+    /^(.*?)[-_\s]+(\d+(?:\.\d+)*[a-z]*)(?:[-_\s].*)?$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (match && match[1]?.trim() && match[2]?.trim()) {
+      return {
+        title: cleanDisplayTitle(match[1]),
+        lookupTitle: cleanDisplayTitle(match[1]),
+        version: match[2].replace(/\s+/g, ""),
+      };
+    }
+  }
+
+  return {
+    title: cleanDisplayTitle(normalized || withoutExt),
+    lookupTitle: cleanDisplayTitle(normalized || withoutExt),
+    version: "Unknown",
+  };
+}
+
+function createSkippedGame(folder, scanStatus, scanMessage) {
+  const metadata = parseNameMetadata(path.basename(folder));
+  return {
+    atlasId: "",
+    f95Id: "",
+    title: metadata.title,
+    lookupTitle: metadata.lookupTitle,
+    creator: "Unknown",
+    engine: "Unknown",
+    version: metadata.version,
+    singleExecutable: "",
+    executables: [],
+    selectedValue: "",
+    singleVisible: "hidden",
+    multipleVisible: "hidden",
+    folder,
+    results: [],
+    resultSelectedValue: "",
+    resultVisibility: "hidden",
+    recordExist: false,
+    isArchive: false,
+    scanStatus,
+    scanMessage,
+  };
+}
+
+function getCandidateMetadata(target, rootPath) {
+  const rootName = path.basename(target);
+  const rootMetadata = parseNameMetadata(rootName);
+  if (rootMetadata.version && rootMetadata.version !== "Unknown") {
+    return rootMetadata;
+  }
+
+  const relativeParts = getRelativePath(rootPath, target)
+    .split("/")
+    .filter(Boolean);
+  const parentName =
+    relativeParts.length >= 2 ? relativeParts[relativeParts.length - 2] : "";
+  const grandParentName =
+    relativeParts.length >= 3 ? relativeParts[relativeParts.length - 3] : "";
+
+  if (parentName && rootName && rootName.toLowerCase() !== parentName.toLowerCase()) {
+    return {
+      title: cleanDisplayTitle(parentName),
+      lookupTitle: cleanDisplayTitle(parentName),
+      version: cleanDisplayTitle(rootName) || rootMetadata.version || "Unknown",
+      creator: grandParentName ? cleanDisplayTitle(grandParentName) : undefined,
+    };
+  }
+
+  return rootMetadata;
+}
+
+function safeReadDir(folder) {
+  try {
+    return fs.readdirSync(folder, { withFileTypes: true });
+  } catch (err) {
+    console.warn(`Unable to read folder ${folder}:`, err.message);
+    return [];
+  }
+}
+
+async function scanLibraryGameRoots(root, extensions, onCandidate, cancelToken) {
+  const roots = new Set();
+  const stack = [root];
+  let visited = 0;
+
+  while (stack.length) {
+    if (cancelToken.canceled) break;
+    const current = stack.pop();
+    const items = safeReadDir(current);
+    const launchables = [];
+
+    for (const item of items) {
+      const full = path.join(current, item.name);
+      if (item.isDirectory()) {
+        stack.push(full);
+      } else if (item.isFile() && isSupportedFile(full, extensions)) {
+        launchables.push(full);
+      }
+    }
+
+    if (launchables.length === 0) continue;
+
+    const candidateRoot = getLibraryCandidateRoot(root, current);
+
+    if (!roots.has(candidateRoot)) {
+      roots.add(candidateRoot);
+      await onCandidate({
+        folder: candidateRoot,
+        launchables: findLaunchables(candidateRoot, extensions),
+      });
+    }
+
+    visited++;
+    if (visited % 50 === 0) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
+}
+
+function getRootFiles(root, extensions) {
+  return fs
+    .readdirSync(root, { withFileTypes: true })
+    .filter((item) => item.isFile())
+    .map((item) => path.join(root, item.name))
+    .filter((file) => isSupportedFile(file, extensions));
+}
+
+async function startScan(params, window, cancelToken = {}) {
   const {
     folder,
     format,
     gameExt,
     archiveExt,
     isCompressed,
+    mode,
     deleteAfter,
     scanSize,
     downloadBannerImages,
@@ -56,20 +360,45 @@ async function startScan(params, window) {
     previewLimit,
     downloadVideos,
   } = params;
-  const extensions = isCompressed ? archiveExt : gameExt;
+  const archiveExtensions = normalizeExtensions(archiveExt);
+  const extensions = normalizeExtensions(isCompressed ? archiveExt : gameExt);
   const games = [];
-  let potential = 0;
 
   console.log(
     `Starting scan in folder: ${folder} with extensions: ${extensions.join(", ")}`,
   );
 
-  if (isCompressed) {
+  if (mode === "libraryResync") {
+    let i = 0;
+
+    await scanLibraryGameRoots(folder, extensions, async (candidate) => {
+      if (cancelToken.canceled) return;
+      i++;
+      console.log(`Scanning existing library folder: ${candidate.folder}`);
+      const res = await findGame(
+        candidate.folder,
+        "",
+        extensions,
+        folder,
+        0,
+        false,
+        games,
+        window,
+        params,
+        candidate.launchables,
+      );
+      if (res) {
+        window.webContents.send("scan-complete", games[games.length - 1]);
+      }
+      sendScanProgress(window, i, i, games);
+    }, cancelToken);
+  } else if (isCompressed) {
     // Get all files recursively, including subdirectories
-    const allFiles = getAllFiles(folder, params.archiveExt);
+    const allFiles = getAllFiles(folder, extensions);
     const totalFiles = allFiles.length;
     let i = 0;
     for (const file of allFiles) {
+      if (cancelToken.canceled) break;
       i++;
       console.log(`Scanning file: ${file} (isFile: true)`);
       const success = await findGame(
@@ -85,47 +414,73 @@ async function startScan(params, window) {
         [],
       );
       if (success) {
-        potential = games.length;
         window.webContents.send("scan-complete", games[games.length - 1]); // Send each game incrementally
       }
-      window.webContents.send("scan-progress", {
-        value: i,
-        total: totalFiles,
-        potential,
-      });
+      sendScanProgress(window, i, totalFiles, games);
     }
   } else {
     const directories = fs
       .readdirSync(folder, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => path.join(folder, d.name));
-    const totalDirs = directories.length + 1; // Include root folder
+    const rootArchives = getRootFiles(folder, archiveExtensions);
+    const rootLaunchables = findLaunchables(folder, extensions).filter(
+      (launchable) => !launchable.includes("/"),
+    );
+    const scanTargets =
+      rootLaunchables.length > 0 ? [folder, ...directories] : directories;
+    const totalDirs = scanTargets.length + rootArchives.length;
     let ittr = 0;
 
     console.log(
-      `Found ${totalDirs} directories to scan (including root): ${folder}, ${directories.join(", ")}`,
+      `Found ${totalDirs} game folders to scan: ${scanTargets.join(", ")}`,
     );
 
-    // Scan files in the root folder first
-    console.log(`Scanning root directory: ${folder}`);
-    ittr++;
-    const rootFiles = fs
-      .readdirSync(folder, { withFileTypes: true })
-      .filter((f) => f.isFile())
-      .map((f) => path.join(folder, f.name));
-    console.log(`Checking files in ${folder}: ${rootFiles.join(", ")}`);
-    let foundInRoot = false;
-    const rootExecutables = rootFiles.filter(
-      (f) =>
-        extensions.includes(path.extname(f).toLowerCase().slice(1)) &&
-        !blacklist.includes(path.basename(f)),
-    );
-    if (rootExecutables.length > 0) {
-      console.log(
-        `Scanning root directory with executables: ${folder} (isFile: false)`,
-      );
-      const res = await findGame(
+    for (const archive of rootArchives) {
+      if (cancelToken.canceled) break;
+      console.log(`Scanning archive file: ${archive}`);
+      ittr++;
+      const success = await findGame(
+        archive,
+        "",
+        archiveExtensions,
         folder,
+        5,
+        true,
+        games,
+        window,
+        { ...params, isCompressed: true },
+        [],
+      );
+      if (success) {
+        window.webContents.send("scan-complete", games[games.length - 1]);
+      }
+      sendScanProgress(window, ittr, totalDirs, games);
+    }
+
+    for (const target of scanTargets) {
+      if (cancelToken.canceled) break;
+      console.log(`Scanning game folder: ${target}`);
+      ittr++;
+
+      const launchables =
+        target === folder ? rootLaunchables : findLaunchables(target, extensions);
+
+      if (launchables.length === 0) {
+        const hasFiles = hasAnyFile(target);
+        const missingGame = createSkippedGame(
+          target,
+          hasFiles ? "missingLaunchable" : "emptyFolder",
+          hasFiles ? "No supported launchable found" : "Empty folder",
+        );
+        games.push(missingGame);
+        window.webContents.send("scan-complete", missingGame);
+        sendScanProgress(window, ittr, totalDirs, games);
+        continue;
+      }
+
+      const res = await findGame(
+        target,
         format,
         extensions,
         folder,
@@ -134,153 +489,20 @@ async function startScan(params, window) {
         games,
         window,
         params,
-        rootExecutables,
+        launchables,
       );
       if (res) {
-        foundInRoot = true;
-        potential = games.length;
-        window.webContents.send("scan-complete", games[games.length - 1]); // Send each game incrementally
+        window.webContents.send("scan-complete", games[games.length - 1]);
       }
-    }
-    window.webContents.send("scan-progress", {
-      value: ittr,
-      total: totalDirs,
-      potential,
-    });
-
-    // Scan top-level directories if no match in root or deeper scanning is needed
-    if (!foundInRoot) {
-      for (const dir of directories) {
-        console.log(`Scanning directory: ${dir}`);
-        ittr++;
-        // Check files in the current directory
-        const files = fs
-          .readdirSync(dir, { withFileTypes: true })
-          .filter((f) => f.isFile())
-          .map((f) => path.join(dir, f.name));
-        console.log(`Checking files in ${dir}: ${files.join(", ")}`);
-        let found = false;
-        const dirExecutables = files.filter(
-          (f) =>
-            extensions.includes(path.extname(f).toLowerCase().slice(1)) &&
-            !blacklist.includes(path.basename(f)),
-        );
-        if (dirExecutables.length > 0) {
-          console.log(
-            `Scanning directory with executables: ${dir} (isFile: false)`,
-          );
-          const res = await findGame(
-            dir,
-            format,
-            extensions,
-            folder,
-            0,
-            false,
-            games,
-            window,
-            params,
-            dirExecutables,
-          );
-          if (res) {
-            found = true;
-            potential = games.length;
-            window.webContents.send("scan-complete", games[games.length - 1]); // Send each game incrementally
-          }
-        }
-        // Only scan subdirectories if no match was found
-        if (!found) {
-          const maxDepth = format && format.trim() !== "" ? 3 : Infinity; // Limit to 3 levels for structured format
-          const subdirs = getAllSubdirs(dir, folder, maxDepth);
-          // Filter directories matching the expected format (e.g., {creator}/{title}/{version})
-          const formatParts =
-            format && format.trim() !== ""
-              ? format.split("/").map((part) => part.replace(/\{|\}/g, ""))
-              : [];
-          const expectedDepth = formatParts.length || 2; // Default to 2 for unstructured or invalid formats
-          const versionDirs =
-            format && format.trim() !== ""
-              ? subdirs.filter((subdir) => {
-                  const relativePath = subdir.replace(
-                    `${folder}${path.sep}`,
-                    "",
-                  );
-                  const pathParts = relativePath.split(path.sep);
-                  return pathParts.length === expectedDepth; // Use dynamic depth
-                })
-              : subdirs;
-          console.log(
-            `Version directories for ${dir}: ${versionDirs.join(", ")}`,
-          );
-          for (const t of versionDirs) {
-            console.log(`Processing version directory: ${t}`);
-            const filesInSubdir = fs
-              .readdirSync(t, { withFileTypes: true })
-              .filter((f) => f.isFile())
-              .map((f) => path.join(t, f.name));
-            console.log(`Checking files in ${t}: ${filesInSubdir.join(", ")}`);
-            const subdirExecutables = filesInSubdir.filter(
-              (f) =>
-                extensions.includes(path.extname(f).toLowerCase().slice(1)) &&
-                !blacklist.includes(path.basename(f)),
-            );
-            if (subdirExecutables.length > 0) {
-              console.log(
-                `Scanning version Directory with executables: ${t} (isFile: false)`,
-              );
-              const res = await findGame(
-                t,
-                format,
-                extensions,
-                folder,
-                0,
-                false,
-                games,
-                window,
-                params,
-                subdirExecutables,
-              );
-              if (res) {
-                found = true;
-                potential = games.length;
-                window.webContents.send(
-                  "scan-complete",
-                  games[games.length - 1],
-                ); // Send each game incrementally
-              }
-            }
-          }
-        }
-        window.webContents.send("scan-progress", {
-          value: ittr,
-          total: totalDirs,
-          potential,
-        });
-      }
+      sendScanProgress(window, ittr, totalDirs, games);
     }
   }
 
-  console.log(`Scan complete. Total games found: ${games.length}`);
-  // Send final scan-complete to ensure any remaining games are processed
+  const stats = getScanStats(games);
+  console.log(
+    `Scan complete. Total rows: ${games.length}; new: ${stats.potential}; archives: ${stats.archives}; already imported: ${stats.alreadyImported}; missing launchable: ${stats.missingLaunchable}`,
+  );
   window.webContents.send("scan-complete-final", games);
-}
-
-function getAllSubdirs(root, basePath, maxDepth = Infinity) {
-  const dirs = [];
-  const stack = [{ path: root, depth: 0 }];
-  while (stack.length) {
-    const { path: current, depth } = stack.pop();
-    if (depth >= maxDepth) continue; // Skip if depth exceeds limit
-    console.log(`Exploring directory: ${current}`);
-    const items = fs.readdirSync(current, { withFileTypes: true });
-    for (const item of items) {
-      const full = path.join(current, item.name);
-      if (item.isDirectory()) {
-        dirs.push(full);
-        stack.push({ path: full, depth: depth + 1 });
-      }
-    }
-  }
-  return dirs;
 }
 
 function getAllFiles(root, extensions) {
@@ -294,11 +516,7 @@ function getAllFiles(root, extensions) {
       const full = path.join(current, item.name);
       if (item.isDirectory()) {
         stack.push(full);
-      } else if (
-        item.isFile() &&
-        extensions.includes(path.extname(full).toLowerCase().slice(1)) &&
-        !blacklist.includes(path.basename(full))
-      ) {
+      } else if (item.isFile() && isSupportedFile(full, extensions)) {
         files.push(full);
       }
     }
@@ -337,11 +555,12 @@ async function findGame(
         return false;
       }
       potentialExecutables = potentialExecutables
-        .map((f) => path.basename(f))
-        .filter((f) => !f.includes("-32")); // Exclude files with "-32" in the name
+        .map((f) => f.replace(/\\/g, "/"))
+        .filter((f) => !path.basename(f).includes("-32")); // Exclude files with "-32" in the name
       for (const exec of potentialExecutables) {
+        const execName = path.basename(exec);
         for (const [engine, patterns] of Object.entries(engineMap)) {
-          if (patterns.some((p) => exec.toLowerCase().includes(p))) {
+          if (patterns.some((p) => execName.toLowerCase().includes(p))) {
             gameEngine = engine;
             console.log(`Matched engine ${gameEngine} for ${exec}`);
             break;
@@ -360,9 +579,9 @@ async function findGame(
     } else {
       const ext = path.extname(t).toLowerCase().slice(1);
       console.log(
-        `Checking file ${t}, Extension: ${ext}, Blacklisted: ${blacklist.includes(path.basename(t))}`,
+        `Checking file ${t}, Extension: ${ext}, Blacklisted: ${isBlacklisted(t)}`,
       );
-      if (!extensions.includes(ext) || blacklist.includes(path.basename(t))) {
+      if (!extensions.includes(ext) || isBlacklisted(t)) {
         console.log(
           `File ${t} has unsupported extension ${ext} or is blacklisted`,
         );
@@ -376,6 +595,7 @@ async function findGame(
     }
 
     let title = "";
+    let lookupTitle = "";
     let creator = "Unknown";
     let version = "";
 
@@ -407,28 +627,15 @@ async function findGame(
         ? path.basename(t, path.extname(t))
         : path.basename(t);
       console.log(`Parsing filename: ${filename}`);
-      filename = filename
-        .replace(/[^\w\s.-]/g, "")
-        .replace(/\[(.*?)\]/g, "$1")
-        .trim();
-      const parts = filename.split("-").map((p) => p.trim());
-      if (parts.length > 0) {
-        let versionIndex = -1;
-        for (let i = parts.length - 1; i >= 0; i--) {
-          if (/^\d+(\.\d+)?$/.test(parts[i])) {
-            versionIndex = i;
-            break;
-          }
-        }
-        if (versionIndex >= 0) {
-          version = parts[versionIndex];
-          title = parts.slice(0, versionIndex).join(" ");
-        } else {
-          title = parts.join(" ");
-          version = "1.0";
-        }
-        console.log(`Parsed: title=${title}, version=${version}`);
-      }
+      const metadata =
+        params.mode === "libraryResync" && !isFile
+          ? getCandidateMetadata(t, rootPath)
+          : parseNameMetadata(filename);
+      title = metadata.title;
+      lookupTitle = metadata.lookupTitle;
+      version = metadata.version;
+      if (metadata.creator) creator = metadata.creator;
+      console.log(`Parsed: title=${title}, version=${version}`);
       if (!title || title.trim() === "") {
         title = filename;
         version = "Unknown";
@@ -445,7 +652,9 @@ async function findGame(
     );
     let data;
     try {
-      data = await searchAtlas(title, creator);
+      data = params.deferMatching
+        ? []
+        : await searchAtlas(lookupTitle || title, creator);
       console.log(`searchAtlas returned: ${JSON.stringify(data)}`);
     } catch (err) {
       console.error(`searchAtlas error for ${title}: ${err.message}`);
@@ -470,8 +679,26 @@ async function findGame(
     }
     const engine = gameEngine || "Unknown";
     let recordExist = false;
+    let importRecordStatus = null;
     try {
-      recordExist = await checkRecordExist(title, creator, engine, version, t);
+      importRecordStatus =
+        params.deferMatching
+          ? null
+          : params.mode === "libraryResync"
+          ? await getImportRecordStatus({
+              atlasId,
+              title,
+              creator,
+              engine,
+              version,
+              folder: isArchive ? t : isFile ? path.dirname(t) : t,
+            })
+          : null;
+      recordExist = params.deferMatching
+        ? false
+        : importRecordStatus
+          ? importRecordStatus.status === "alreadyImported"
+          : await checkRecordExist(title, creator, engine, version, t);
       console.log(
         `checkRecordExist for ${title}, ${creator}, ${version}, ${t}: ${recordExist}`,
       );
@@ -480,32 +707,50 @@ async function findGame(
       return false;
     }
 
-    if (!recordExist) {
-      const gd = {
-        atlasId,
-        f95Id,
-        title,
-        creator,
-        engine,
-        version,
-        singleExecutable,
-        executables: potentialExecutables.map((e) => ({ key: e, value: e })),
-        selectedValue,
-        singleVisible,
-        multipleVisible,
-        folder: isFile ? path.dirname(t) : t,
-        results,
-        resultSelectedValue: results[0]?.key || "",
-        resultVisibility: results.length > 0 ? "visible" : "hidden",
-        recordExist,
-        isArchive,
-      };
-      console.log(`Adding game to list: ${JSON.stringify(gd)}`);
-      games.push(gd);
-      return true;
-    }
-    console.log(`Game ${title} already exists or failed to add`);
-    return false;
+    const gd = {
+      atlasId,
+      f95Id,
+      title,
+      lookupTitle: lookupTitle || title,
+      creator,
+      engine,
+      version,
+      latestVersion:
+        data.length === 1 ? data[0].latestVersion || data[0].version || "" : "",
+      singleExecutable,
+      executables: potentialExecutables.map((e) => ({ key: e, value: e })),
+      selectedValue,
+      singleVisible,
+      multipleVisible,
+      folder: isArchive ? t : isFile ? path.dirname(t) : t,
+      results,
+      resultSelectedValue: results[0]?.key || "",
+      resultVisibility: results.length > 0 ? "visible" : "hidden",
+      recordExist,
+      isArchive,
+      existingRecordId: importRecordStatus?.recordId || "",
+      scanStatus: params.deferMatching
+        ? "pendingMatch"
+        : recordExist
+        ? "alreadyImported"
+        : importRecordStatus?.status === "repairPath"
+          ? "repairPath"
+          : "new",
+      scanMessage: params.deferMatching
+        ? "Pending match"
+        : recordExist
+        ? "Already imported"
+        : importRecordStatus?.status === "repairPath"
+          ? "Repair path"
+          : isArchive
+            ? "Archive"
+            : params.mode === "libraryResync"
+              ? "Ready to register"
+              : "Ready to import",
+    };
+    console.log(`Adding game to list: ${JSON.stringify(gd)}`);
+    games.push(gd);
+    return true;
   } catch (err) {
     console.error(`Error processing ${t}: ${err.message}, Stack: ${err.stack}`);
     return false;

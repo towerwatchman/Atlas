@@ -7,8 +7,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking getGame for recordId:", id);
     return ipcRenderer.invoke("get-game", id);
   },
-  getGames: (offset, limit) =>
-    ipcRenderer.invoke("get-games", { offset, limit }),
+  getGames: (offset, limit, options) => {
+    if (offset && typeof offset === "object") {
+      return ipcRenderer.invoke("get-games", offset);
+    }
+    return ipcRenderer.invoke("get-games", { offset, limit, options });
+  },
+  validateLibraryPaths: () => ipcRenderer.invoke("validate-library-paths"),
   removeGame: (id) => ipcRenderer.invoke("remove-game", id),
   unzipGame: (zipPath, extractPath) =>
     ipcRenderer.invoke("unzip-game", { zipPath, extractPath }),
@@ -24,6 +29,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking selectFile");
     return ipcRenderer.invoke("select-file");
   },
+  selectFileOrDirectory: () => ipcRenderer.invoke("select-file-or-directory"),
   selectDirectory: () => {
     console.log("Invoking selectDirectory");
     return ipcRenderer.invoke("select-directory");
@@ -41,6 +47,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getConfig: () => ipcRenderer.invoke("get-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("save-settings", settings),
   startScan: (params) => ipcRenderer.invoke("start-scan", params),
+  cancelScan: () => ipcRenderer.invoke("cancel-scan"),
+  scanGameListInfos: (targetPath) =>
+    ipcRenderer.invoke("scan-game-list-infos", targetPath),
   searchAtlasByF95Id: (f95Id) =>
     ipcRenderer.invoke("search-atlas-by-f95-id", f95Id),
   searchAtlas: (title, creator) =>
@@ -51,7 +60,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getAtlasData: (atlasId) => ipcRenderer.invoke("get-atlas-data", atlasId),
   checkRecordExist: (params) =>
     ipcRenderer.invoke("check-record-exist", params),
+  getImportRecordStatus: (game) =>
+    ipcRenderer.invoke("get-import-record-status", game),
+  resolveImportMatches: (games) =>
+    ipcRenderer.invoke("resolve-import-matches", games),
   importGames: (params) => ipcRenderer.invoke("import-games", params),
+  cancelImport: () => ipcRenderer.invoke("cancel-import"),
   log: (message) => ipcRenderer.invoke("log", message),
   sendUpdateProgress: (progress) =>
     ipcRenderer.invoke("update-progress", progress),
@@ -67,6 +81,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // ─── FIXED: Added missing external URL opener for Update Available button ──
   openExternalUrl: (url) => ipcRenderer.invoke("open-external-url", url),
+  launchGame: (data) => ipcRenderer.invoke("launch-game", data),
+  openGameFolder: (data) => ipcRenderer.invoke("open-game-folder", data),
+  openGameProperties: (recordId) =>
+    ipcRenderer.invoke("open-game-properties", recordId),
 
   saveEmulatorConfig: (config) =>
     ipcRenderer.invoke("save-emulator-config", config),
@@ -84,6 +102,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   updatePreviews: (recordId) => {
     console.log("Invoking updatePreviews for recordId:", recordId);
     return ipcRenderer.invoke("update-previews", recordId);
+  },
+  refreshGameMedia: (recordId) => {
+    console.log("Invoking refreshGameMedia for recordId:", recordId);
+    return ipcRenderer.invoke("refresh-game-media", recordId);
   },
   convertAndSaveBanner: (recordId, filePath) => {
     console.log(
@@ -134,9 +156,37 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onGameImported: (callback) => ipcRenderer.on("game-imported", callback),
   onGameUpdated: (callback) => ipcRenderer.on("game-updated", callback),
   onImportComplete: (callback) => ipcRenderer.on("import-complete", callback),
+  onLibraryValidationProgress: (callback) =>
+    ipcRenderer.on("library-validation-progress", (event, progress) =>
+      callback(progress),
+    ),
   onUpdateStatus: (callback) => {
     ipcRenderer.on("update-status", (event, status) => callback(status));
     return () => ipcRenderer.removeAllListeners("update-status");
+  },
+  removeUpdateStatusListener: () =>
+    ipcRenderer.removeAllListeners("update-status"),
+  removeAllListeners: (channel) => {
+    const allowedChannels = new Set([
+      "window-state-changed",
+      "db-update-progress",
+      "scan-progress",
+      "scan-complete",
+      "scan-complete-final",
+      "update-progress",
+      "import-progress",
+      "game-imported",
+      "game-updated",
+      "import-complete",
+      "update-status",
+      "context-menu-command",
+      "game-deleted",
+      "library-validation-progress",
+    ]);
+
+    if (allowedChannels.has(channel)) {
+      ipcRenderer.removeAllListeners(channel);
+    }
   },
   showContextMenu: (template) =>
     ipcRenderer.invoke("show-context-menu", template),
@@ -199,6 +249,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteVersion: (params) => ipcRenderer.invoke("delete-version", params),
   deleteGameCompletely: (recordId) =>
     ipcRenderer.invoke("delete-game-completely", recordId),
+  deleteFolderRecursive: (params) =>
+    ipcRenderer.invoke("delete-folder-recursive", params),
   onGameDeleted: (callback) => {
     ipcRenderer.on("game-deleted", (event, recordId) => callback(recordId));
   },

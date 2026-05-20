@@ -41,8 +41,18 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
 
+      - name: Run checks
+        run: npm run check
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+
       - name: Install dependencies (Linux)
         run: npm ci
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+
+      - name: Run checks (Linux)
+        run: npm run check
         if: matrix.os == 'ubuntu-latest'
         shell: bash
 

@@ -1,10 +1,17 @@
 const { useState, useEffect, useMemo } = window.React;
 
-const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
-  const [filter, setFilter] = useState("");
+const SearchSidebar = ({
+  isVisible,
+  searchText = "",
+  activeFilters = {},
+  onSearchChange,
+  onFilterChange,
+  onClose,
+}) => {
   const [tagSearch, setTagSearch] = useState("");
   const [highlightedTagIndex, setHighlightedTagIndex] = useState(-1);
-  const [selectedFilters, setSelectedFilters] = useState({
+  const defaultFilters = {
+    type: "all",
     category: [],
     engine: [],
     status: [],
@@ -14,7 +21,9 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
     sort: "name",
     tagLogic: "AND",
     updateAvailable: false,
-  });
+    includeUninstalled: false,
+  };
+  const selectedFilters = { ...defaultFilters, ...activeFilters };
   const [options, setOptions] = useState({
     categories: [],
     engines: [],
@@ -31,32 +40,25 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
       .catch((err) => console.error("Failed to load filter options:", err));
   }, []);
 
-  const currentFilters = useMemo(
-    () => ({
-      text: filter,
-      ...selectedFilters,
-    }),
-    [filter, selectedFilters]
-  );
-
-  useEffect(() => {
-    onFilterChange(currentFilters);
-  }, [currentFilters, onFilterChange]);
+  const updateFilters = (changes) => {
+    onFilterChange?.({ ...selectedFilters, ...changes });
+  };
 
   const handleCheckbox = (group, value) => {
-    setSelectedFilters((prev) => {
-      let newVals = [...prev[group]];
-      if (newVals.includes(value)) {
-        newVals = newVals.filter((v) => v !== value);
-      } else {
-        if (group === "tags" && newVals.length >= 10) {
-          alert("Max 10 tags allowed.");
-          return prev;
-        }
-        newVals.push(value);
+    const currentValues = Array.isArray(selectedFilters[group])
+      ? selectedFilters[group]
+      : [];
+    let newVals = [...currentValues];
+    if (newVals.includes(value)) {
+      newVals = newVals.filter((v) => v !== value);
+    } else {
+      if (group === "tags" && newVals.length >= 10) {
+        alert("Max 10 tags allowed.");
+        return;
       }
-      return { ...prev, [group]: newVals };
-    });
+      newVals.push(value);
+    }
+    updateFilters({ [group]: newVals });
   };
 
   const sortedTags = useMemo(
@@ -99,19 +101,9 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
         <div className="flex space-x-3">
           <button
             onClick={() => {
-              setSelectedFilters({
-                category: [],
-                engine: [],
-                status: [],
-                censored: [],
-                language: [],
-                tags: [],
-                sort: "name",
-                tagLogic: "AND",
-                updateAvailable: false,
-              });
+              onFilterChange?.(defaultFilters);
               setTagSearch("");
-              setFilter("");
+              onSearchChange?.("");
             }}
             className="text-text hover:text-accent text-sm flex items-center"
           >
@@ -135,8 +127,10 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
             <input
               type="text"
               placeholder="Search Atlas"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+              value={searchText}
+              onChange={(e) => {
+                onSearchChange?.(e.target.value);
+              }}
               className="bg-transparent outline-none text-text flex-1 px-3 py-2 focus:outline-none -webkit-app-region-no-drag"
             />
           </div>
@@ -169,7 +163,7 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
             {["name", "date", "likes", "views", "rating"].map((s) => (
               <button
                 key={s}
-                onClick={() => setSelectedFilters((prev) => ({ ...prev, sort: s }))}
+                onClick={() => updateFilters({ sort: s })}
                 className={`px-3 py-1 rounded text-sm ${
                   selectedFilters.sort === s
                     ? "bg-accent text-white"
@@ -192,7 +186,7 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
           </h4>
           <div className="flex gap-4 mb-3">
             <button
-              onClick={() => setSelectedFilters((prev) => ({ ...prev, tagLogic: "AND" }))}
+              onClick={() => updateFilters({ tagLogic: "AND" })}
               className={`px-4 py-1 rounded text-sm ${
                 selectedFilters.tagLogic === "AND"
                   ? "bg-accent text-white"
@@ -202,7 +196,7 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
               AND
             </button>
             <button
-              onClick={() => setSelectedFilters((prev) => ({ ...prev, tagLogic: "OR" }))}
+              onClick={() => updateFilters({ tagLogic: "OR" })}
               className={`px-4 py-1 rounded text-sm ${
                 selectedFilters.tagLogic === "OR"
                   ? "bg-accent text-white"
@@ -337,14 +331,30 @@ const SearchSidebar = ({ isVisible, onFilterChange, onClose }) => {
               type="checkbox"
               checked={selectedFilters.updateAvailable || false}
               onChange={() =>
-                setSelectedFilters((prev) => ({
-                  ...prev,
-                  updateAvailable: !prev.updateAvailable,
-                }))
+                updateFilters({
+                  updateAvailable: !selectedFilters.updateAvailable,
+                })
               }
               className="-webkit-app-region-no-drag"
             />
             <span>Show only games with updates available</span>
+          </label>
+        </div>
+
+        {/* Uninstalled */}
+        <div className="mb-4">
+          <label className="flex items-center space-x-2 text-sm">
+            <input
+              type="checkbox"
+              checked={selectedFilters.includeUninstalled || false}
+              onChange={() =>
+                updateFilters({
+                  includeUninstalled: !selectedFilters.includeUninstalled,
+                })
+              }
+              className="-webkit-app-region-no-drag"
+            />
+            <span>Show uninstalled games</span>
           </label>
         </div>
       </div>

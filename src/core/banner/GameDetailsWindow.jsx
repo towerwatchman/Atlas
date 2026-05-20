@@ -108,23 +108,6 @@ const GameDetailWindow = () => {
 
     window.electronAPI.onGameData(handleGameData);
 
-    const timeout = setTimeout(() => {
-      if (!dataReceived) {
-        console.warn(
-          "No game data received after 3 seconds, requesting manually",
-        );
-        window.electronAPI
-          .getGame(1)
-          .then((fetchedGame) => {
-            console.log("Received fallback game data:", fetchedGame);
-            handleGameData(null, fetchedGame);
-          })
-          .catch((err) => {
-            console.error("Failed to fetch fallback game data:", err);
-          });
-      }
-    }, 3000);
-
     window.electronAPI.onWindowStateChanged((state) => {
       setIsMaximized(state === "maximized");
     });
@@ -145,12 +128,11 @@ const GameDetailWindow = () => {
 
     return () => {
       console.log("Cleaning up listeners");
-      clearTimeout(timeout);
       window.electronAPI.removeGameDetailsImportProgressListener(
         handleGameDetailsImportProgress,
       );
     };
-  }, [dataReceived]);
+  }, []);
 
   useEffect(() => {
     const updatePreviewHeight = () => {
@@ -231,6 +213,50 @@ const GameDetailWindow = () => {
       version_size: version.folder_size?.toString() || "",
       date_added: version.date_added?.toString() || "",
     });
+  };
+
+  const refreshFromGame = (updatedGame, preferredVersion) => {
+    setGame(updatedGame);
+    const mapperNames = [];
+    if (updatedGame.f95_id) mapperNames.push("F95Zone");
+    if (updatedGame.atlas_id) mapperNames.push("Atlas");
+    setFormData({
+      title: updatedGame.title || "",
+      mappings: mapperNames.join(", "),
+      platform: updatedGame.os || "",
+      engine: updatedGame.engine || "",
+      developer: updatedGame.creator || "",
+      publisher: updatedGame.publisher || "",
+      release_date: updatedGame.release_date
+        ? new Date(parseInt(updatedGame.release_date) * 1000)
+            .toISOString()
+            .split("T")[0]
+        : "",
+      status: updatedGame.status || "",
+      tags: updatedGame.f95_tags
+        ? updatedGame.f95_tags.replace(/,/g, " , ")
+        : "",
+      description: updatedGame.overview || "",
+      category: updatedGame.category || "",
+      latest_version: updatedGame.latestVersion || "",
+      censored: updatedGame.censored || "",
+      language: updatedGame.language || "",
+      translations: updatedGame.translations || "",
+      genre: updatedGame.genre || "",
+      voice: updatedGame.voice || "",
+      rating: updatedGame.rating || "",
+    });
+    const updatedVersions = updatedGame.versions || [];
+    setVersions(updatedVersions);
+    const versionToSelect =
+      updatedVersions.find((v) => v.version === preferredVersion) ||
+      updatedVersions[0];
+    if (versionToSelect) {
+      handleVersionSelect(versionToSelect);
+    } else {
+      setSelectedVersion(null);
+      setVersionData({});
+    }
   };
 
   const handleSetPath = () => {
@@ -328,6 +354,38 @@ const GameDetailWindow = () => {
     }
   };
 
+  const handleRefreshMetadataAndImages = async () => {
+    try {
+      setImportProgress({
+        text: "Refreshing metadata and images...",
+        progress: 0,
+        total: 1,
+      });
+      const result = await window.electronAPI.refreshGameMedia(game.record_id);
+      if (result?.success === false) {
+        throw new Error(result.error || "Refresh failed");
+      }
+
+      if (result?.game) {
+        refreshFromGame(result.game, selectedVersion?.version);
+      } else {
+        const refreshedGame = await window.electronAPI.getGame(game.record_id);
+        if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion?.version);
+      }
+
+      if (result?.bannerUrl) {
+        setBannerUrl(result.bannerUrl);
+      }
+      if (Array.isArray(result?.previewUrls)) {
+        setPreviewUrls(result.previewUrls);
+      }
+    } catch (err) {
+      console.error("Failed to refresh metadata and images:", err);
+      alert(`Failed to refresh metadata and images: ${err.message}`);
+      setImportProgress({ text: "", progress: 0, total: 0 });
+    }
+  };
+
   const handleRemoveVersion = async () => {
     if (!selectedVersion) {
       alert("No version selected.");
@@ -393,7 +451,10 @@ const GameDetailWindow = () => {
           let allDeleted = true;
           for (const folderPath of foldersToDelete) {
             const result =
-              await window.electronAPI.deleteFolderRecursive(folderPath);
+              await window.electronAPI.deleteFolderRecursive({
+                recordId: game.record_id,
+                folderPath,
+              });
             if (!result.success) {
               console.error(
                 `Folder deletion failed for ${folderPath}: ${result.error}`,
@@ -479,9 +540,15 @@ const GameDetailWindow = () => {
     };
     await window.electronAPI.updateGame(updatedGame);
 
+    const savedVersion = versionData.game_version;
     for (const version of versions) {
       const updatedVersion = {
         ...version,
+        previousVersion: version.version,
+        version:
+          version.version === selectedVersion?.version
+            ? versionData.game_version
+            : version.version,
         game_path:
           version.version === selectedVersion?.version
             ? versionData.game_path
@@ -498,6 +565,11 @@ const GameDetailWindow = () => {
         game.record_id,
       );
       await window.electronAPI.updateVersion(updatedVersion, game.record_id);
+    }
+
+    const refreshedGame = await window.electronAPI.getGame(game.record_id);
+    if (refreshedGame) {
+      refreshFromGame(refreshedGame, savedVersion);
     }
   };
 
@@ -873,9 +945,12 @@ const GameDetailWindow = () => {
                       <li
                         key={index}
                         onClick={() => handleVersionSelect(version)}
-                        className={`p-2 cursor-pointer ${selectedVersion?.version === version.version ? "bg-selected" : "hover:bg-button_hover"}`}
+                        className={`p-2 cursor-pointer ${selectedVersion?.version === version.version ? "bg-selected" : "hover:bg-button_hover"} ${version.isInstalled === false ? "text-red-300" : ""}`}
                       >
                         {version.version}
+                        {version.isInstalled === false && (
+                          <span className="block text-xs">Missing</span>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -896,6 +971,12 @@ const GameDetailWindow = () => {
                 </div>
 
                 <div className="flex-grow p-4 space-y-2">
+                  {selectedVersion?.isInstalled === false && (
+                    <div className="text-red-300 text-sm">
+                      Installed files are missing. Update the game path and
+                      executable, then save to repair this version.
+                    </div>
+                  )}
                   <div className="flex items-center">
                     <label className="w-24">Version</label>
                     <input
@@ -1091,10 +1172,16 @@ const GameDetailWindow = () => {
                   </div>
                   <div className="flex space-x-2 mt-2">
                     <button
+                      onClick={handleRefreshMetadataAndImages}
+                      className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                    >
+                      Refresh Metadata & Images
+                    </button>
+                    <button
                       onClick={handleDownloadPreviews}
                       className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
                     >
-                      Download Previews
+                      Download All Previews
                     </button>
                     {Array.isArray(validPreviewUrls) &&
                       validPreviewUrls.length > 0 && (

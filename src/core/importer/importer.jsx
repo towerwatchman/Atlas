@@ -3,7 +3,7 @@ const ReactDOM = window.ReactDOM || {};
 const { createRoot } = window.ReactDOM;
 
 const Importer = () => {
-  const [view, setView] = useState("settings");
+  const [view, setView] = useState("source");
   const [importSource, setImportSource] = useState("local");
   const [folder, setFolder] = useState("");
   const [useUnstructured, setUseUnstructured] = useState(true);
@@ -17,12 +17,14 @@ const Importer = () => {
   const [isCompressed, setIsCompressed] = useState(false);
   const [downloadBannerImages, setDownloadBannerImages] = useState(false);
   const [downloadPreviewImages, setDownloadPreviewImages] = useState(false);
-  const [previewLimit, setPreviewLimit] = useState("5");
+  const [previewLimit, setPreviewLimit] = useState("Unlimited");
   const [downloadVideos, setDownloadVideos] = useState(false);
   const [scanSize, setScanSize] = useState(false);
   const [deleteAfter, setDeleteAfter] = useState(false);
   const [moveGame, setMoveGame] = useState(false);
-  const [forceImport, setForceImport] = useState(false);
+  const [includeUnmatched, setIncludeUnmatched] = useState(false);
+  const [includeArchives, setIncludeArchives] = useState(false);
+  const [forceReimport, setForceReimport] = useState(false);
   const [defaultLibraryPath, setDefaultLibraryPath] = useState(null);
   const [askingForLibraryFolder, setAskingForLibraryFolder] = useState(false);
 
@@ -30,26 +32,217 @@ const Importer = () => {
     value: 0,
     total: 0,
     potential: 0,
+    pendingMatch: 0,
+    archives: 0,
+    alreadyImported: 0,
+    repairPath: 0,
+    missingLaunchable: 0,
+    emptyFolder: 0,
+    totalFound: 0,
   });
   const [updateProgress, setUpdateProgress] = useState({ value: 0, total: 0 });
   const [gamesList, setGamesList] = useState([]);
   const [isMaximized, setIsMaximized] = useState(false);
   const [hideMatches, setHideMatches] = useState(false);
+  const [isResolvingMatches, setIsResolvingMatches] = useState(false);
+  const deletedScanGameKeysRef = React.useRef(new Set());
+  const matchCancelRef = React.useRef(false);
 
-  const canImport =
-    gamesList.every((game) => {
-      // Skip hidden games if hideMatches is on
-      if (
-        hideMatches &&
-        game.results.length === 1 &&
-        game.results[0].value === "Match Found"
-      ) {
-        return true;
+  const getScanGameKey = (game) => {
+    if (game?.folder) return game.folder;
+
+    return [
+      game?.folder || "",
+      game?.title || "",
+      game?.creator || "",
+      game?.version || "",
+      game?.f95Id || "",
+      game?.atlasId || "",
+    ].join("|");
+  };
+
+  const addScannedGame = (game) => {
+    const gameKey = getScanGameKey(game);
+    if (deletedScanGameKeysRef.current.has(gameKey)) return;
+    setGamesList((prev) => [...prev, game]);
+  };
+
+  const isLibraryResync = importSource === "libraryResync";
+  const isGameListMetadata = importSource === "gameListMetadata";
+  const isNewScanRow = (game) =>
+    ["new", "repairPath"].includes(game.scanStatus || "new");
+  const isExistingImportRow = (game) =>
+    game.scanStatus === "alreadyImported" &&
+    (forceReimport ||
+      (isLibraryResync && (downloadBannerImages || downloadPreviewImages)));
+  const hasDatabaseMatch = (game) =>
+    game.results?.length === 1 && game.results[0]?.key === "match";
+  const hasSelectedDatabaseMatch = (game) =>
+    game.results?.length > 1 && !!game.resultSelectedValue;
+  const isUnmatchedGame = (game) => (game.results || []).length === 0;
+  const isImportableGame = (
+    game,
+    { includeUnmatchedGames = false, includeArchiveGames = false } = {},
+  ) => {
+    if (!isNewScanRow(game) && !isExistingImportRow(game)) return false;
+    if (game.isArchive && !includeArchiveGames) return false;
+    if (!game.isArchive && !game.metadataOnly && !game.selectedValue) {
+      return false;
+    }
+    if (hasDatabaseMatch(game) || hasSelectedDatabaseMatch(game)) return true;
+    return includeUnmatchedGames && isUnmatchedGame(game);
+  };
+  const importOptions = {
+    includeUnmatchedGames: includeUnmatched,
+    includeArchiveGames: includeArchives,
+  };
+  const importableGames = gamesList.filter((game) =>
+    isImportableGame(game, importOptions),
+  );
+  const canImport = importableGames.length > 0;
+  const getImportDisabledReason = () => {
+    if (canImport) return "";
+
+    const newRows = gamesList.filter(
+      (game) => isNewScanRow(game) || isExistingImportRow(game),
+    );
+    if (newRows.length === 0) return "No new importable scan rows found";
+
+    const hasArchives = newRows.some((game) => game.isArchive);
+    const hasUnmatched = newRows.some(isUnmatchedGame);
+    const hasMatchedArchive = newRows.some(
+      (game) =>
+        game.isArchive &&
+        (hasDatabaseMatch(game) || hasSelectedDatabaseMatch(game)),
+    );
+    const hasUnmatchedArchive = newRows.some(
+      (game) => game.isArchive && isUnmatchedGame(game),
+    );
+
+    if (hasUnmatchedArchive && (!includeArchives || !includeUnmatched)) {
+      return "Archive rows without database matches require both checkboxes";
+    }
+    if (hasMatchedArchive && !includeArchives) {
+      return "Archive rows require 'Extract and import archives'";
+    }
+    if (hasUnmatched && !includeUnmatched) {
+      return "Unmatched rows require 'Import unmatched games'";
+    }
+    if (hasArchives && !includeArchives) {
+      return "Archive rows require 'Extract and import archives'";
+    }
+    return "No eligible rows are ready to import";
+  };
+
+  const applyImportStatus = async (game) => {
+    if (!game || game.metadataOnly) return game;
+
+    try {
+      const status = await window.electronAPI.getImportRecordStatus(game);
+      const recordExist = status?.status === "alreadyImported";
+      return {
+        ...game,
+        recordExist,
+        existingRecordId: status?.recordId || "",
+        scanStatus: recordExist
+          ? "alreadyImported"
+          : status?.status === "repairPath"
+            ? "repairPath"
+            : "new",
+        scanMessage: recordExist
+          ? "Already imported"
+          : status?.status === "repairPath"
+            ? "Repair path"
+            : game.scanMessage || (game.isArchive ? "Archive" : "Ready to import"),
+      };
+    } catch (err) {
+      console.error("Failed to refresh import status:", err);
+      return game;
+    }
+  };
+
+  const applySelectedMatch = async (game, value) => {
+    let updatedGame = { ...game, resultSelectedValue: value };
+    const selected = game.results?.find((r) => r.key === value);
+
+    if (selected && value !== "match") {
+      const parts = selected.value.split(" | ");
+      updatedGame = {
+        ...updatedGame,
+        atlasId: parts[0],
+        f95Id: parts[1] || "",
+        title: parts[2],
+        creator: parts[3],
+      };
+      try {
+        const atlasData = await window.electronAPI.getAtlasData(
+          updatedGame.atlasId,
+        );
+        updatedGame = {
+          ...updatedGame,
+          engine: atlasData.engine || "Unknown",
+          f95Id: updatedGame.f95Id || atlasData.f95_id || "",
+          latestVersion: atlasData.latestVersion || "",
+        };
+      } catch (err) {
+        console.error("Failed to hydrate selected match:", err);
       }
-      return (
-        game.results.length === 1 && game.results[0].value === "Match Found"
+    }
+
+    return applyImportStatus(updatedGame);
+  };
+
+  const chooseInstalledMatch = async (game, results) => {
+    for (const result of results) {
+      const candidate = await applySelectedMatch(
+        { ...game, results },
+        result.key,
       );
-    }) || forceImport;
+      if (["alreadyImported", "repairPath"].includes(candidate.scanStatus)) {
+        return candidate;
+      }
+    }
+    return applySelectedMatch({ ...game, results }, results[0]?.key || "");
+  };
+
+  const resolvePendingMatches = async (rows) => {
+    const pendingRows = rows.filter((game) => game.scanStatus === "pendingMatch");
+    if (pendingRows.length === 0) return;
+
+    matchCancelRef.current = false;
+    setIsResolvingMatches(true);
+    setUpdateProgress({ value: 0, total: pendingRows.length });
+
+    const chunkSize = 50;
+    let resolvedCount = 0;
+    for (let i = 0; i < pendingRows.length; i += chunkSize) {
+      if (matchCancelRef.current) break;
+      const chunk = pendingRows.slice(i, i + chunkSize);
+      const resolvedChunk = await window.electronAPI.resolveImportMatches(chunk);
+      resolvedCount += resolvedChunk.length;
+      const resolvedByKey = new Map(
+        resolvedChunk.map((game) => [getScanGameKey(game), game]),
+      );
+
+      setGamesList((prev) =>
+        prev.map((game) => resolvedByKey.get(getScanGameKey(game)) || game),
+      );
+      setUpdateProgress({ value: resolvedCount, total: pendingRows.length });
+      window.electronAPI.sendUpdateProgress({
+        value: resolvedCount,
+        total: pendingRows.length,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    setIsResolvingMatches(false);
+  };
+
+  const cancelScanOrMatch = () => {
+    matchCancelRef.current = true;
+    window.electronAPI.cancelScan?.();
+    setIsResolvingMatches(false);
+  };
 
   useEffect(() => {
     console.log("Importer component mounted");
@@ -66,79 +259,42 @@ const Importer = () => {
       setProgress(prog);
     });
 
-    window.electronAPI.onScanComplete((game) => {
+    window.electronAPI.onScanComplete(async (game) => {
       console.log(`Received incremental game: ${JSON.stringify(game)}`);
+      if (game.scanStatus === "pendingMatch") {
+        addScannedGame(game);
+        return;
+      }
       if (
-        game.results.length > 1 &&
+        game.results?.length > 1 &&
         game.resultSelectedValue &&
         game.resultSelectedValue !== "match"
       ) {
-        const selected = game.results.find(
-          (r) => r.key === game.resultSelectedValue,
+        const updatedGame = await chooseInstalledMatch(game, game.results);
+        addScannedGame(updatedGame);
+        console.log(`Updated game on scan: ${JSON.stringify(updatedGame)}`);
+        window.electronAPI.log(
+          `Updated game on scan: ${JSON.stringify(updatedGame)}`,
         );
-        if (selected) {
-          const parts = selected.value.split(" | ");
-          game.atlasId = parts[0];
-          game.f95Id = parts[1] || "";
-          game.title = parts[2];
-          game.creator = parts[3];
-          window.electronAPI.getAtlasData(game.atlasId).then((atlasData) => {
-            game.engine = atlasData.engine || "Unknown";
-            setGamesList((prev) => [...prev, game]);
-            console.log(`Updated game on scan: ${JSON.stringify(game)}`);
-            window.electronAPI.log(
-              `Updated game on scan: ${JSON.stringify(game)}`,
-            );
-          });
-        } else {
-          setGamesList((prev) => [...prev, game]);
-        }
       } else {
-        setGamesList((prev) => [...prev, game]);
+        addScannedGame(await applyImportStatus(game));
       }
     });
 
     window.electronAPI.onScanCompleteFinal((games) => {
       console.log(`Scan complete, received ${games.length} games`);
-      const updatedGames = games.map((game) => {
-        if (
-          game.results.length > 1 &&
-          game.resultSelectedValue &&
-          game.resultSelectedValue !== "match"
-        ) {
-          const selected = game.results.find(
-            (r) => r.key === game.resultSelectedValue,
-          );
-          if (selected) {
-            const parts = selected.value.split(" | ");
-            game.atlasId = parts[0];
-            game.f95Id = parts[1] || "";
-            game.title = parts[2];
-            game.creator = parts[3];
-            return window.electronAPI
-              .getAtlasData(game.atlasId)
-              .then((atlasData) => {
-                game.engine = atlasData.engine || "Unknown";
-                return game;
-              });
-          }
-        }
-        return game;
-      });
-      console.log(
-        "Games being processed:",
-        updatedGames.map((g, idx) => `#${idx + 1}: ${g.title}`),
+      const visibleGamesList = games.filter(
+        (game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game)),
       );
-      Promise.all(updatedGames).then((newGamesList) => {
-        setGamesList(newGamesList);
-        setView("scan");
-        console.log(
-          `Updated gamesList on scan complete: ${JSON.stringify(newGamesList)}`,
-        );
-        window.electronAPI.log(
-          `Updated gamesList on scan complete: ${JSON.stringify(newGamesList)}`,
-        );
-      });
+      setGamesList(visibleGamesList);
+      setView("scan");
+      resolvePendingMatches(visibleGamesList);
+      console.log(
+        `Updated gamesList on scan complete: ${JSON.stringify(visibleGamesList)}`,
+      );
+      window.electronAPI.log(
+        `Updated gamesList on scan complete: ${JSON.stringify(visibleGamesList)}`,
+      );
     });
 
     window.electronAPI.onUpdateProgress((prog) => {
@@ -188,6 +344,78 @@ const Importer = () => {
     }
   };
 
+  const startLibraryResync = async () => {
+    let libraryPath =
+      defaultLibraryPath || (await window.electronAPI.getDefaultGameFolder());
+    if (!libraryPath) {
+      setAskingForLibraryFolder(true);
+      const selected = await window.electronAPI.selectDirectory();
+      setAskingForLibraryFolder(false);
+      if (!selected) return;
+
+      const saveResult = await window.electronAPI.setDefaultGameFolder(selected);
+      if (!saveResult?.success) {
+        alert("Failed to save the selected library folder.");
+        return;
+      }
+      libraryPath = selected;
+      setDefaultLibraryPath(selected);
+    }
+
+    setImportSource("libraryResync");
+    setFolder(libraryPath);
+    setView("scan");
+    deletedScanGameKeysRef.current.clear();
+    setGamesList([]);
+    setIncludeArchives(false);
+    setMoveGame(false);
+    setDeleteAfter(false);
+
+    const params = {
+      folder: libraryPath,
+      mode: "libraryResync",
+      deferMatching: true,
+      format: "",
+      gameExt: gameExt.split(",").map((e) => e.trim()),
+      archiveExt: archiveExt.split(",").map((e) => e.trim()),
+      isCompressed: false,
+      deleteAfter: false,
+      scanSize,
+      downloadBannerImages,
+      downloadPreviewImages,
+      previewLimit,
+      downloadVideos,
+    };
+
+    const result = await window.electronAPI.startScan(params);
+    if (!result.success) {
+      console.error(`Library resync error: ${result.error}`);
+      window.electronAPI.log(`Library resync error: ${result.error}`);
+      alert(`Error: ${result.error}`);
+    }
+  };
+
+  const startGameListImport = async () => {
+    const selected = await window.electronAPI.selectFileOrDirectory();
+    if (!selected) return;
+
+    setImportSource("gameListMetadata");
+    setFolder(selected);
+    setView("scan");
+    deletedScanGameKeysRef.current.clear();
+    setGamesList([]);
+    setIncludeArchives(false);
+    setMoveGame(false);
+    setDeleteAfter(false);
+
+    const result = await window.electronAPI.scanGameListInfos(selected);
+    if (!result.success) {
+      console.error(`Game-List import scan error: ${result.error}`);
+      window.electronAPI.log(`Game-List import scan error: ${result.error}`);
+      alert(`Error: ${result.error}`);
+    }
+  };
+
   const startScan = async () => {
     if (!folder) {
       console.log("No folder selected");
@@ -197,9 +425,12 @@ const Importer = () => {
     setView("scan");
     console.log("Starting scan");
     window.electronAPI.log("Starting scan");
+    deletedScanGameKeysRef.current.clear();
     setGamesList([]);
     const params = {
       folder,
+      mode: "local",
+      deferMatching: true,
       format: useUnstructured ? "" : customFormat,
       gameExt: gameExt.split(",").map((e) => e.trim()),
       archiveExt: archiveExt.split(",").map((e) => e.trim()),
@@ -234,7 +465,13 @@ const Importer = () => {
   const deleteGame = (index) => {
     console.log(`Deleting game at index ${index}`);
     window.electronAPI.log(`Deleting game at index ${index}`);
-    setGamesList((prev) => prev.filter((_, i) => i !== index));
+    setGamesList((prev) => {
+      const game = prev[index];
+      if (game) {
+        deletedScanGameKeysRef.current.add(getScanGameKey(game));
+      }
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const handleResultChange = async (index, value) => {
@@ -244,28 +481,15 @@ const Importer = () => {
     );
     const updatedGames = gamesList.map((game, i) => {
       if (i === index) {
-        const updatedGame = { ...game, resultSelectedValue: value };
-        const selected = game.results.find((r) => r.key === value);
-        if (selected && value !== "match") {
-          const parts = selected.value.split(" | ");
-          updatedGame.atlasId = parts[0];
-          updatedGame.f95Id = parts[1] || "";
-          updatedGame.title = parts[2];
-          updatedGame.creator = parts[3];
-          return window.electronAPI
-            .getAtlasData(updatedGame.atlasId)
-            .then((atlasData) => {
-              updatedGame.engine = atlasData.engine || "Unknown";
-              console.log(
-                `Updated game at index ${index}: ${JSON.stringify(updatedGame)}`,
-              );
-              window.electronAPI.log(
-                `Updated game at index ${index}: ${JSON.stringify(updatedGame)}`,
-              );
-              return updatedGame;
-            });
-        }
-        return updatedGame;
+        return applySelectedMatch(game, value).then((updatedGame) => {
+          console.log(
+            `Updated game at index ${index}: ${JSON.stringify(updatedGame)}`,
+          );
+          window.electronAPI.log(
+            `Updated game at index ${index}: ${JSON.stringify(updatedGame)}`,
+          );
+          return updatedGame;
+        });
       }
       return game;
     });
@@ -295,6 +519,12 @@ const Importer = () => {
     for (let i = 0; i < updatedGames.length; i++) {
       // Fresh copy of this game object
       let game = { ...updatedGames[i] };
+
+      if (!isNewScanRow(game) && game.scanStatus !== "pendingMatch") {
+        setUpdateProgress({ value: i + 1, total });
+        window.electronAPI.sendUpdateProgress({ value: i + 1, total });
+        continue;
+      }
 
       // ─── Skip if already has a good match ────────────────────────────────
       if (
@@ -345,17 +575,18 @@ const Importer = () => {
       window.electronAPI.log(`Search results: ${JSON.stringify(data)}`);
 
       if (data.length === 1) {
-        game = {
+        game = await applyImportStatus({
           ...game,
           atlasId: String(data[0].atlas_id),
           f95Id: data[0].f95_id || "",
           title: data[0].title,
           creator: data[0].creator,
           engine: data[0].engine || game.engine || "Unknown",
+          latestVersion: data[0].latestVersion || "",
           results: [{ key: "match", value: "Match Found" }],
           resultSelectedValue: "match",
           resultVisibility: "visible",
-        };
+        });
       } else if (data.length > 1) {
         const results = data.map((d) => ({
           key: String(d.atlas_id),
@@ -366,46 +597,19 @@ const Importer = () => {
         const valid = results.find((r) => r.key === current);
         const selectedKey = valid ? current : results[0].key;
 
-        const selected =
-          results.find((r) => r.key === selectedKey) || results[0];
-        const parts = selected.value.split(" | ");
-
-        game = {
-          ...game,
+        game = await chooseInstalledMatch(
+          { ...game, resultSelectedValue: selectedKey },
           results,
-          resultSelectedValue: selectedKey,
-          resultVisibility: "visible",
-          atlasId: parts[0],
-          f95Id: parts[1] || "",
-          title: parts[2],
-          creator: parts[3],
-        };
-
-        try {
-          const atlasData = await window.electronAPI.getAtlasData(parts[0]);
-          game = {
-            ...game,
-            engine: atlasData.engine || game.engine || "Unknown",
-          };
-        } catch (atlasErr) {
-          console.error(
-            `Failed to fetch atlas data for game ${i + 1} (atlas ${parts[0]}):`,
-            atlasErr,
-          );
-          window.electronAPI.log(
-            `Failed to fetch atlas data for game ${i + 1}: ${atlasErr.message}`,
-          );
-          // Continue without engine update
-        }
+        );
       } else {
-        game = {
+        game = await applyImportStatus({
           ...game,
           atlasId: "",
           f95Id: "",
           results: [],
           resultSelectedValue: "",
           resultVisibility: "hidden",
-        };
+        });
       }
 
       // Put new object back
@@ -429,7 +633,11 @@ const Importer = () => {
   };
 
   const importGamesFunc = async () => {
-    if (gamesList.length === 0) {
+    const gamesToImport = gamesList.filter((game) =>
+      isImportableGame(game, importOptions),
+    );
+
+    if (gamesToImport.length === 0) {
       alert("No games to import");
       return;
     }
@@ -470,7 +678,7 @@ const Importer = () => {
     window.electronAPI.log("Importing games");
 
     const importParams = {
-      games: gamesList,
+      games: gamesToImport,
       deleteAfter,
       scanSize,
       downloadBannerImages,
@@ -479,6 +687,9 @@ const Importer = () => {
       downloadVideos,
       gameExt: gameExt.split(",").map((e) => e.trim()),
       moveToDefaultFolder: moveGame && !!finalLibraryPath,
+      registerInPlace: isLibraryResync,
+      metadataOnly: isGameListMetadata,
+      forceReimport,
       format: customFormat,
     };
 
@@ -553,30 +764,25 @@ const Importer = () => {
             <div className="flex flex-col space-y-4 max-w-md w-full">
               <h2 className="text-xl text-center">Select Import Source</h2>
               <button
-                onClick={() => setView("settings")}
+                onClick={() => {
+                  setImportSource("local");
+                  setView("settings");
+                }}
                 className="bg-secondary hover:bg-selected text-text p-2 rounded"
               >
                 Atlas Game Importer
               </button>
               <button
-                onClick={() => {
-                  setView("scan");
-                  setGamesList([]);
-                  window.electronAPI
-                    .startSteamScan({
-                      downloadBannerImages: false,
-                      downloadPreviewImages: false,
-                      previewLimit: "5",
-                      downloadVideos: false,
-                    })
-                    .catch((err) => {
-                      console.error("Steam scan error:", err);
-                      alert("Error starting Steam scan");
-                    });
-                }}
+                onClick={startLibraryResync}
                 className="bg-secondary hover:bg-selected text-text p-2 rounded"
               >
-                Import Steam Games
+                Scan Existing Library
+              </button>
+              <button
+                onClick={startGameListImport}
+                className="bg-secondary hover:bg-selected text-text p-2 rounded"
+              >
+                Import Game-List Data
               </button>
             </div>
           </div>
@@ -615,8 +821,11 @@ const Importer = () => {
                 checked={useUnstructured}
                 onChange={(e) => setUseUnstructured(e.target.checked)}
                 className="ml-2"
+                title="When enabled, Atlas infers title and version from folder/archive names. When disabled, Atlas reads the path using the Folder Structure template."
               />
-              <label>Unstructured Format</label>
+              <label title="When enabled, Atlas infers title and version from folder/archive names. When disabled, Atlas reads the path using the Folder Structure template.">
+                Unstructured Format
+              </label>
             </div>
 
             <div className="flex items-center">
@@ -687,7 +896,12 @@ const Importer = () => {
                   checked={downloadPreviewImages}
                   onChange={(e) => setDownloadPreviewImages(e.target.checked)}
                 />
-                <label>Download Preview Images (limit: {previewLimit})</label>
+                <label>
+                  Download Preview Images{" "}
+                  {previewLimit === "Unlimited"
+                    ? "(all available)"
+                    : `(limit: ${previewLimit})`}
+                </label>
               </div>
 
               <div className="mt-4">
@@ -772,10 +986,23 @@ const Importer = () => {
                   {progress.value}/{progress.total}{" "}
                   {importSource === "steam"
                     ? "Games Scanned"
+                    : isLibraryResync
+                      ? "Library Folders Scanned"
+                      : isGameListMetadata
+                        ? "Game-List Records Scanned"
                     : "Folders Scanned"}
                 </span>
               </div>
-              <span className="mb-4">Found {progress.potential} Games</span>
+              <div className="mb-4 flex flex-wrap gap-4 text-sm">
+                <span>Ready {progress.potential || 0}</span>
+                <span>Pending matches {progress.pendingMatch || 0}</span>
+                <span>Archives {progress.archives || 0}</span>
+                <span>Already imported {progress.alreadyImported || 0}</span>
+                <span>Repairs {progress.repairPath || 0}</span>
+                <span>Missing launchable {progress.missingLaunchable || 0}</span>
+                <span>Empty folders {progress.emptyFolder || 0}</span>
+                <span>Total rows {progress.totalFound || gamesList.length}</span>
+              </div>
             </div>
 
             <div className="flex-1 overflow-x-auto">
@@ -813,6 +1040,9 @@ const Importer = () => {
                       Folder
                     </th>
                     <th className="border border-border p-1 min-w-[150px]">
+                      Status
+                    </th>
+                    <th className="border border-border p-1 min-w-[150px]">
                       Actions
                     </th>
                   </tr>
@@ -821,15 +1051,33 @@ const Importer = () => {
                   {gamesList.map((game, originalIndex) => {
                     if (
                       hideMatches &&
-                      game.results.length === 1 &&
-                      game.results[0].value === "Match Found"
+                      game.results?.length === 1 &&
+                      game.results[0]?.value === "Match Found"
                     ) {
                       return null;
                     }
+                    const rowIsNew = isNewScanRow(game);
+                    const statusText =
+                      game.scanMessage ||
+                      (rowIsNew ? "Ready to import" : "Skipped");
+                    const statusClass =
+                      game.scanStatus === "alreadyImported"
+                        ? "text-yellow-300"
+                        : game.scanStatus === "pendingMatch"
+                          ? "text-blue-200"
+                        : game.scanStatus === "emptyFolder"
+                          ? "text-gray-300"
+                        : game.scanStatus === "repairPath"
+                          ? "text-cyan-300"
+                        : game.isArchive
+                          ? "text-blue-300"
+                        : game.scanStatus === "missingLaunchable"
+                          ? "text-red-300"
+                          : "text-green-300";
                     return (
                       <tr key={originalIndex} className="bg-primary">
                         <td className="border border-border p-1 min-w-[100px]">
-                          {game.results.length > 1 && (
+                          {game.results?.length > 1 && (
                             <i className="fa-solid fa-triangle-exclamation text-yellow-400 mr-1"></i>
                           )}
                           {game.atlasId}
@@ -837,6 +1085,7 @@ const Importer = () => {
                         <td className="border border-border p-1 min-w-[100px]">
                           <input
                             value={game.f95Id}
+                            disabled={!rowIsNew}
                             onChange={(e) =>
                               updateGame(originalIndex, "f95Id", e.target.value)
                             }
@@ -846,6 +1095,7 @@ const Importer = () => {
                         <td className="border border-border p-1">
                           <input
                             value={game.title}
+                            disabled={!rowIsNew}
                             onChange={(e) =>
                               updateGame(originalIndex, "title", e.target.value)
                             }
@@ -855,6 +1105,7 @@ const Importer = () => {
                         <td className="border border-border p-1">
                           <input
                             value={game.creator}
+                            disabled={!rowIsNew}
                             onChange={(e) =>
                               updateGame(
                                 originalIndex,
@@ -868,6 +1119,7 @@ const Importer = () => {
                         <td className="border border-border p-1">
                           <input
                             value={game.engine}
+                            disabled={!rowIsNew}
                             onChange={(e) =>
                               updateGame(
                                 originalIndex,
@@ -881,6 +1133,7 @@ const Importer = () => {
                         <td className="border border-border p-1">
                           <input
                             value={game.version}
+                            disabled={!rowIsNew}
                             onChange={(e) =>
                               updateGame(
                                 originalIndex,
@@ -895,6 +1148,7 @@ const Importer = () => {
                           {game.multipleVisible === "visible" ? (
                             <select
                               value={game.selectedValue}
+                              disabled={!rowIsNew}
                               onChange={(e) =>
                                 updateGame(
                                   originalIndex,
@@ -918,15 +1172,16 @@ const Importer = () => {
                           className="border border-border p-1"
                           style={{ visibility: game.resultVisibility }}
                         >
-                          {game.results.length === 1 &&
-                          game.results[0].key === "match" ? (
+                          {game.results?.length === 1 &&
+                          game.results[0]?.key === "match" ? (
                             <span className="text-text select-none">
                               {game.results[0].value}
                             </span>
                           ) : (
-                            game.results.length > 1 && (
+                            game.results?.length > 1 && (
                               <select
                                 value={game.resultSelectedValue}
+                                disabled={!rowIsNew}
                                 onChange={(e) =>
                                   handleResultChange(
                                     originalIndex,
@@ -945,7 +1200,10 @@ const Importer = () => {
                           )}
                         </td>
                         <td className="border border-border p-1">
-                          {game.folder}
+                          {game.folder || game.sourceFile || "Metadata only"}
+                        </td>
+                        <td className={`border border-border p-1 ${statusClass}`}>
+                          {statusText}
                         </td>
                         <td className="border border-border p-1 min-w-[150px] flex space-x-2">
                           <button
@@ -957,7 +1215,9 @@ const Importer = () => {
                           </button>
                           <button
                             onClick={() =>
-                              window.electronAPI.openDirectory(game.folder)
+                              window.electronAPI.openDirectory(
+                                game.folder || game.sourceFile,
+                              )
                             }
                             className="bg-accent hover:bg-selected text-text text-xs p-1 rounded whitespace-nowrap"
                             style={{ pointerEvents: "auto" }}
@@ -973,29 +1233,80 @@ const Importer = () => {
             </div>
 
             <div className="flex justify-between items-center space-x-4 mt-4">
-              {/* Left: Checkbox (preparation toggle) */}
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="force-import"
-                  checked={forceImport}
-                  onChange={(e) => setForceImport(e.target.checked)}
-                  className="h-4 w-4"
-                />
-                <label htmlFor="force-import" className="text-sm text-text">
-                  Import anyway (skip unmatched games)
-                </label>
+              {/* Left: Import filters */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="include-unmatched"
+                    checked={includeUnmatched}
+                    onChange={(e) => setIncludeUnmatched(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <label
+                    htmlFor="include-unmatched"
+                    className="text-sm text-text"
+                  >
+                    Import unmatched games
+                  </label>
+                </div>
+
+                {!isLibraryResync && !isGameListMetadata && (
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="include-archives"
+                      checked={includeArchives}
+                      onChange={(e) => setIncludeArchives(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    <label
+                      htmlFor="include-archives"
+                      className="text-sm text-text"
+                    >
+                      Extract and import archives
+                    </label>
+                  </div>
+                )}
+
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="force-reimport"
+                    checked={forceReimport}
+                    onChange={(e) => setForceReimport(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <label
+                    htmlFor="force-reimport"
+                    className="text-sm text-text"
+                    title="Safely repairs existing rows and refreshes selected media without creating duplicate game records."
+                  >
+                    Force re-import existing games
+                  </label>
+                </div>
               </div>
 
               {/* Right: All buttons grouped together */}
               <div className="flex items-center space-x-2">
                 <button
                   onClick={handleUpdateClick}
+                  disabled={isResolvingMatches}
                   className="bg-accent hover:bg-accent-dark px-4 py-2 rounded text-text"
                   style={{ pointerEvents: "auto", zIndex: 1000 }}
                 >
-                  Update Matches
+                  {isResolvingMatches ? "Resolving..." : "Update Matches"}
                 </button>
+
+                {isResolvingMatches && (
+                  <button
+                    onClick={cancelScanOrMatch}
+                    className="bg-red-700 hover:bg-red-800 px-4 py-2 rounded text-white"
+                    style={{ pointerEvents: "auto", zIndex: 1000 }}
+                  >
+                    Stop Matching
+                  </button>
+                )}
 
                 <button
                   onClick={() => setHideMatches(!hideMatches)}
@@ -1007,24 +1318,18 @@ const Importer = () => {
 
                 <button
                   onClick={importGamesFunc}
-                  disabled={!canImport && !forceImport}
+                  disabled={!canImport}
                   className={`px-6 py-2 rounded font-medium transition-colors ${
                     canImport
                       ? "bg-green-600 hover:bg-green-700 text-white"
-                      : forceImport
-                        ? "bg-orange-600 hover:bg-orange-700 text-white"
-                        : "bg-gray-600 cursor-not-allowed opacity-70 text-gray-300"
+                      : "bg-gray-600 cursor-not-allowed opacity-70 text-gray-300"
                   }`}
-                  title={
-                    !canImport && !forceImport
-                      ? "Some games have no database match — click 'Update' or check 'Import anyway'"
-                      : ""
-                  }
+                  title={getImportDisabledReason()}
                   style={{
-                    pointerEvents: canImport || forceImport ? "auto" : "none",
+                    pointerEvents: "auto",
                   }}
                 >
-                  Import
+                  {isLibraryResync || isGameListMetadata ? "Register" : "Import"}
                 </button>
 
                 <button

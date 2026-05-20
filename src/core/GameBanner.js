@@ -80,45 +80,42 @@ const GameBanner = ({ game, onSelect }) => {
       console.log("No versions available for context menu:", game.record_id);
       return;
     }
+    const installedVersions = game.versions.filter(
+      (version) => version.isInstalled !== false,
+    );
 
     const template = [];
 
     // Play
-    if (game.versions.length === 1) {
-      const v = game.versions[0];
-      const ext = v.exec_path ? v.exec_path.split(".").pop().toLowerCase() : "";
+    if (installedVersions.length === 1) {
+      const v = installedVersions[0];
       template.push({
         label: "Play",
-        data: { action: "launch", execPath: v.exec_path, extension: ext },
+        data: { action: "launch", recordId: game.record_id, version: v.version },
       });
-    } else {
+    } else if (installedVersions.length > 1) {
       template.push({
         label: "Play",
-        submenu: game.versions.map((v) => {
-          const ext = v.exec_path
-            ? v.exec_path.split(".").pop().toLowerCase()
-            : "";
-          return {
-            label: v.version,
-            data: { action: "launch", execPath: v.exec_path, extension: ext },
-          };
-        }),
+        submenu: installedVersions.map((v) => ({
+          label: v.version,
+          data: { action: "launch", recordId: game.record_id, version: v.version },
+        })),
       });
     }
 
     // Open Game Folder
-    if (game.versions.length === 1) {
-      const v = game.versions[0];
+    if (installedVersions.length === 1) {
+      const v = installedVersions[0];
       template.push({
         label: "Open Game Folder",
-        data: { action: "openFolder", gamePath: v.game_path },
+        data: { action: "openFolder", recordId: game.record_id, version: v.version },
       });
-    } else {
+    } else if (installedVersions.length > 1) {
       template.push({
         label: "Open Game Folder",
-        submenu: game.versions.map((v) => ({
+        submenu: installedVersions.map((v) => ({
           label: v.version,
-          data: { action: "openFolder", gamePath: v.game_path },
+          data: { action: "openFolder", recordId: game.record_id, version: v.version },
         })),
       });
     }
@@ -176,10 +173,13 @@ const GameBanner = ({ game, onSelect }) => {
 
   // Find the newest version for the game
   const getNewestVersion = (versions) => {
-    if (!versions || versions.length === 0) return "V 1.0";
-    let maxVersion = versions[0].version;
+    const installedVersions = (versions || []).filter(
+      (version) => version.isInstalled !== false,
+    );
+    if (installedVersions.length === 0) return "Missing";
+    let maxVersion = installedVersions[0].version;
     let maxValue = 0;
-    for (const version of versions) {
+    for (const version of installedVersions) {
       let current;
       try {
         current = parseInt(version.version.replace(/[^0-9]/g, ""), 10);
@@ -368,7 +368,30 @@ const GameBanner = ({ game, onSelect }) => {
     return React.createElement("div", null, "Loading template...");
   }
 
-  return React.createElement(template, { game, onSelect });
+  const hasInstalledVersion = game.hasInstalledVersion !== false;
+  const renderedBanner = React.createElement(template, { game, onSelect });
+
+  if (hasInstalledVersion) return renderedBanner;
+
+  return React.createElement(
+    "div",
+    {
+      className: "relative grayscale opacity-60",
+      title: "Uninstalled",
+    },
+    [
+      renderedBanner,
+      React.createElement(
+        "div",
+        {
+          key: `uninstalled-marker-${game.record_id}`,
+          className:
+            "absolute top-2 left-2 z-40 bg-gray-800 border border-gray-500 text-gray-100 text-[10px] px-2 py-1 pointer-events-none",
+        },
+        "Uninstalled",
+      ),
+    ],
+  );
 };
 
 window.GameBanner = GameBanner;
