@@ -216,7 +216,7 @@ const Importer = () => {
     setProgress((prev) => ({ ...prev, value: 0, total: pendingRows.length }));
     await new Promise((r) => setTimeout(r, 16));
 
-    const chunkSize = 1;
+    const chunkSize = 10;
     let resolvedCount = 0;
     for (let i = 0; i < pendingRows.length; i += chunkSize) {
       if (matchCancelRef.current) break;

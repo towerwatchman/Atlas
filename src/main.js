@@ -1278,74 +1278,91 @@ const chooseInstalledImportMatch = async (game, results) => {
 
 ipcMain.handle("resolve-import-matches", async (event, games = []) => {
   const searchCache = new Map();
-  const resolved = [];
 
-  for (const game of games) {
+  // ── Pre-warm search cache for all unique keys in parallel ──────────────
+  const pending = games.filter(
+    (g) => g && !g.metadataOnly && g.scanStatus === "pendingMatch",
+  );
+
+  const uniqueSearches = new Map();
+  for (const game of pending) {
+    const f95Id = String(game.f95Id || "").trim();
+    const cacheKey = f95Id
+      ? `f95:${f95Id}`
+      : `atlas:${game.lookupTitle || game.title}|${game.creator}`;
+    if (!uniqueSearches.has(cacheKey)) {
+      uniqueSearches.set(cacheKey, { f95Id, game });
+    }
+  }
+
+  await Promise.all(
+    Array.from(uniqueSearches.entries()).map(async ([cacheKey, { f95Id, game }]) => {
+      try {
+        const data = f95Id
+          ? await searchAtlasByF95Id(f95Id)
+          : await searchAtlas(game.lookupTitle || game.title, game.creator);
+        searchCache.set(cacheKey, data);
+      } catch (err) {
+        console.error("resolve-import-matches pre-warm failed:", err);
+        searchCache.set(cacheKey, []);
+      }
+    }),
+  );
+
+  // ── Resolve all games in parallel using the warmed cache ───────────────
+  const resolveGame = async (game) => {
     if (!game || game.metadataOnly || game.scanStatus !== "pendingMatch") {
-      resolved.push(game);
-      continue;
+      return game;
     }
 
-    let data = [];
     const f95Id = String(game.f95Id || "").trim();
     const cacheKey = f95Id
       ? `f95:${f95Id}`
       : `atlas:${game.lookupTitle || game.title}|${game.creator}`;
 
     try {
-      if (searchCache.has(cacheKey)) {
-        data = searchCache.get(cacheKey);
-      } else {
-        data = f95Id
-          ? await searchAtlasByF95Id(f95Id)
-          : await searchAtlas(game.lookupTitle || game.title, game.creator);
-        searchCache.set(cacheKey, data);
-      }
+      const data = searchCache.get(cacheKey) || [];
 
       if (data.length === 1) {
-        resolved.push(
-          await hydrateImportMatch({
-            ...game,
-            atlasId: String(data[0].atlas_id),
-            f95Id: data[0].f95_id || "",
-            title: data[0].title,
-            creator: data[0].creator,
-            engine: data[0].engine || game.engine || "Unknown",
-            latestVersion: data[0].latestVersion || "",
-            results: [{ key: "match", value: "Match Found" }],
-            resultSelectedValue: "match",
-            resultVisibility: "visible",
-          }, "match"),
-        );
+        return await hydrateImportMatch({
+          ...game,
+          atlasId: String(data[0].atlas_id),
+          f95Id: data[0].f95_id || "",
+          title: data[0].title,
+          creator: data[0].creator,
+          engine: data[0].engine || game.engine || "Unknown",
+          latestVersion: data[0].latestVersion || "",
+          results: [{ key: "match", value: "Match Found" }],
+          resultSelectedValue: "match",
+          resultVisibility: "visible",
+        }, "match");
       } else if (data.length > 1) {
         const results = data.map((match) => ({
           key: String(match.atlas_id),
           value: `${match.atlas_id} | ${match.f95_id || ""} | ${match.title} | ${match.creator}`,
         }));
-        resolved.push(await chooseInstalledImportMatch({ ...game, results }, results));
+        return await chooseInstalledImportMatch({ ...game, results }, results);
       } else {
-        resolved.push(
-          await hydrateImportMatch({
-            ...game,
-            atlasId: "",
-            f95Id: "",
-            results: [],
-            resultSelectedValue: "",
-            resultVisibility: "hidden",
-          }, ""),
-        );
+        return await hydrateImportMatch({
+          ...game,
+          atlasId: "",
+          f95Id: "",
+          results: [],
+          resultSelectedValue: "",
+          resultVisibility: "hidden",
+        }, "");
       }
     } catch (err) {
       console.error("resolve-import-matches row failed:", err);
-      resolved.push({
+      return {
         ...game,
         scanStatus: "new",
         scanMessage: game.isArchive ? "Archive" : "Ready to import",
-      });
+      };
     }
-  }
+  };
 
-  return resolved;
+  return Promise.all(games.map(resolveGame));
 });
 
 ipcMain.handle("search-atlas-by-f95-id", async (event, f95Id) => {
