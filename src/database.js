@@ -251,6 +251,25 @@ const initializeDatabase = (dataDir) => {
     db.run(`CREATE INDEX IF NOT EXISTS idx_versions_record_version ON versions(record_id, version);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_mappings_atlas_id ON atlas_mappings(atlas_id);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_banners_record_type ON banners(record_id, type);`);
+
+    // Search performance indexes
+    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_title ON atlas_data(title);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_short_name ON atlas_data(short_name);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_creator ON atlas_data(creator);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_data_atlas_id ON f95_zone_data(atlas_id);`);
+
+    // Add pre-computed normalized_title column if it doesn't exist, then populate and index it
+    db.run(`ALTER TABLE atlas_data ADD COLUMN normalized_title TEXT;`, () => {
+      // Runs whether or not the column already existed — populate any nulls
+      db.run(`
+        UPDATE atlas_data SET normalized_title =
+          UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+            COALESCE(short_name, title),
+            '-',''),'_',''),'/',''),'\\',''),':',''),';',''),'''',''),' ',''),'.',''))
+        WHERE normalized_title IS NULL;
+      `);
+    });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_normalized_title ON atlas_data(normalized_title);`);
   });
 };
 
@@ -1507,7 +1526,15 @@ const searchAtlas = async (title, creator) => {
   const searchKeys = buildAtlasSearchKeys(title);
   if (searchKeys.length === 0) return [];
 
-  const rowsByAtlasId = new Map();
+  // Single query covering all keys at once using the pre-computed indexed
+  // normalized_title column — no per-row REPLACE/UPPER at query time,
+  // no serial loop of separate DB calls per key.
+  const keyConditions = searchKeys
+    .map(() => `a.normalized_title = ? OR a.normalized_title LIKE ? OR ? LIKE a.normalized_title || '%'`)
+    .join(" OR ");
+
+  const keyParams = searchKeys.flatMap((key) => [key, `${key}%`, key]);
+
   const sql = `
     SELECT
       a.atlas_id,
@@ -1516,59 +1543,47 @@ const searchAtlas = async (title, creator) => {
       a.engine,
       a.version as latestVersion,
       a.short_name,
+      a.normalized_title,
       f.f95_id
     FROM atlas_data a
     LEFT JOIN f95_zone_data f ON f.atlas_id = a.atlas_id
     WHERE
       a.title LIKE ?
       OR a.creator LIKE ?
-      OR a.short_name LIKE ?
-      OR ? LIKE '%' || a.short_name || '%'
-      OR UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-        a.title,
-        '-', ''), '_', ''), '/', ''), '\\', ''), ':', ''), ';', ''), '''', ''), ' ', ''), '.', '')) LIKE ?
+      OR ${keyConditions}
   `;
 
-  for (const key of searchKeys) {
-    const rows = await new Promise((resolve, reject) => {
-      db.all(
-        sql,
-        [`%${title}%`, `%${creator}%`, `%${key}%`, key, `%${key}%`],
-        (err, resultRows) => {
-          if (err) reject(err);
-          else resolve(resultRows || []);
-        },
-      );
+  const params = [`%${title}%`, `%${creator}%`, ...keyParams];
+
+  const rows = await new Promise((resolve, reject) => {
+    db.all(sql, params, (err, resultRows) => {
+      if (err) reject(err);
+      else resolve(resultRows || []);
     });
-    console.log(`Search key ${key} returned ${rows.length} results`);
+  });
 
-    for (const row of rows) {
-      const score = scoreAtlasSearchRow(row, searchKeys, title, creator);
-      if (score < 650) continue;
+  const rowsByAtlasId = new Map();
+  for (const row of rows) {
+    const score = scoreAtlasSearchRow(row, searchKeys, title, creator);
+    if (score < 650) continue;
 
-      const existing = rowsByAtlasId.get(row.atlas_id);
-      if (!existing || score > existing._matchScore) {
-        rowsByAtlasId.set(row.atlas_id, {
-          ...row,
-          f95_id: row.f95_id || "",
-          difference: Math.abs(
-            normalizeSearchKey(row.short_name || row.title).length - key.length,
-          ),
-          _matchScore: score,
-        });
-      }
+    const existing = rowsByAtlasId.get(row.atlas_id);
+    if (!existing || score > existing._matchScore) {
+      rowsByAtlasId.set(row.atlas_id, {
+        ...row,
+        f95_id: row.f95_id || "",
+        difference: Math.abs(
+          normalizeSearchKey(row.short_name || row.title).length - searchKeys[0].length,
+        ),
+        _matchScore: score,
+      });
     }
   }
 
-  const finalResults = Array.from(rowsByAtlasId.values())
+  return Array.from(rowsByAtlasId.values())
     .sort((a, b) => b._matchScore - a._matchScore || a.difference - b.difference)
     .slice(0, 12)
-    .map(({ _matchScore, short_name, ...row }) => row);
-
-  console.log(
-    `Returning ${finalResults.length} ranked Atlas search results for ${title}`,
-  );
-  return finalResults;
+    .map(({ _matchScore, short_name, normalized_title, ...row }) => row);
 };
 
 const findF95Id = (atlasId) => {
