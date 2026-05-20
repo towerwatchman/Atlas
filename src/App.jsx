@@ -697,9 +697,17 @@ const [activeFilters, setActiveFilters] = useState({
         .then((game) => {
           if (game) {
             setGames((prev) => {
-              const newGames = [...prev, game].sort((a, b) =>
-                a.title.localeCompare(b.title),
+              const shouldHideMissing =
+                !includeUninstalledRef.current &&
+                game.hasInstalledVersion === false;
+              const withoutDuplicate = prev.filter(
+                (existing) => existing.record_id !== game.record_id,
               );
+              const newGames = shouldHideMissing
+                ? withoutDuplicate
+                : [...withoutDuplicate, game].sort((a, b) =>
+                    a.title.localeCompare(b.title),
+                  );
               setTotalVersions(
                 newGames.reduce(
                   (sum, game) => sum + (game.versionCount || 0),
@@ -708,6 +716,15 @@ const [activeFilters, setActiveFilters] = useState({
               );
               return newGames;
             });
+            setSelectedGame((current) =>
+              current?.record_id === game.record_id &&
+              (includeUninstalledRef.current ||
+                game.hasInstalledVersion !== false)
+                ? game
+                : current?.record_id === game.record_id
+                  ? null
+                  : current,
+            );
           }
         })
         .catch((error) =>

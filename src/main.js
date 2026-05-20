@@ -8,9 +8,12 @@ const ini = require("ini");
 const { isNewerVersion } = require("./core/versionUtils");
 const {
   initializeDatabase,
+  repairDoubledApostropheRows,
+  repairStaleVersionExecutables,
   addGame,
   updateGame,
   addVersion,
+  upsertVersion,
   updateVersion,
   recordGameLaunchStarted,
   recordGamePlaytime,
@@ -35,6 +38,8 @@ const {
   searchAtlasByF95Id,
   findF95Id,
   checkPathExist,
+  findExistingRecordForImport,
+  getImportRecordStatus,
   updateBanners,
   updatePreviews,
   getAtlasData,
@@ -454,6 +459,121 @@ function buildStructuredImportPath(targetLibrary, format, game) {
   return path.join(targetLibrary, ...pathSegments);
 }
 
+function extractF95ThreadId(threadUrl) {
+  const match = String(threadUrl || "").match(/threads\/(?:[^./]+[.-])?(\d+)/i);
+  return match ? match[1] : "";
+}
+
+function findGameListInfoFiles(targetPath) {
+  if (!targetPath || !fs.existsSync(targetPath)) return [];
+  const stat = fs.statSync(targetPath);
+  if (stat.isFile()) {
+    return path.basename(targetPath).toLowerCase() === "gl_infos.ini"
+      ? [targetPath]
+      : [];
+  }
+
+  const files = [];
+  const stack = [targetPath];
+  while (stack.length) {
+    const current = stack.pop();
+    const items = fs.readdirSync(current, { withFileTypes: true });
+    for (const item of items) {
+      const full = path.join(current, item.name);
+      if (item.isDirectory()) {
+        stack.push(full);
+      } else if (
+        item.isFile() &&
+        item.name.toLowerCase() === "gl_infos.ini"
+      ) {
+        files.push(full);
+      }
+    }
+  }
+  return files.sort((a, b) => a.localeCompare(b));
+}
+
+async function buildGameListImportRows(targetPath) {
+  const files = findGameListInfoFiles(targetPath);
+  const rows = [];
+
+  for (const file of files) {
+    try {
+      const parsed = ini.parse(fs.readFileSync(file, "utf8"));
+      const data = parsed.GameList || parsed.gamelist || parsed;
+      const title = String(data.Name || "").trim();
+      const version = String(data.Version || "Unknown").trim() || "Unknown";
+      const thread = String(data.Thread || "").trim();
+      const f95Id = extractF95ThreadId(thread);
+
+      if (!title) continue;
+
+      let matches = [];
+      if (f95Id) {
+        matches = await searchAtlasByF95Id(f95Id);
+      }
+      if (matches.length === 0) {
+        matches = await searchAtlas(title, "Unknown");
+      }
+
+      let atlasId = "";
+      let creator = "Unknown";
+      let engine = "Unknown";
+      let latestVersion = "";
+      let results = [];
+      let resultSelectedValue = "";
+
+      if (matches.length === 1) {
+        const match = matches[0];
+        atlasId = match.atlas_id || "";
+        creator = match.creator || creator;
+        engine = match.engine || engine;
+        latestVersion = match.latestVersion || match.version || "";
+        results = [{ key: "match", value: "Match Found" }];
+        resultSelectedValue = "match";
+      } else if (matches.length > 1) {
+        results = matches.map((match) => ({
+          key: String(match.atlas_id),
+          value: `${match.atlas_id} | ${match.f95_id || ""} | ${match.title} | ${match.creator}`,
+        }));
+        resultSelectedValue = results[0]?.key || "";
+      }
+
+      rows.push({
+        atlasId,
+        f95Id,
+        title,
+        lookupTitle: title,
+        creator,
+        engine,
+        version,
+        latestVersion,
+        singleExecutable: "",
+        executables: [],
+        selectedValue: "",
+        singleVisible: "hidden",
+        multipleVisible: "hidden",
+        folder: "",
+        sourceFile: file,
+        gameListId: data.ID || "",
+        gameListThread: thread,
+        results,
+        resultSelectedValue,
+        resultVisibility: results.length > 0 ? "visible" : "hidden",
+        recordExist: false,
+        isArchive: false,
+        metadataOnly: true,
+        scanStatus: "new",
+        scanMessage: "Metadata only",
+      });
+    } catch (err) {
+      console.error(`Failed to parse Game-List file ${file}:`, err);
+    }
+  }
+
+  return rows;
+}
+
 function getUniquePath(basePath) {
   let uniquePath = basePath;
   let counter = 1;
@@ -513,20 +633,90 @@ async function moveFolderFast(source, destination, onProgress, shouldCancel) {
 
 async function extractArchive(zipPath, extractPath) {
   const extractZip = require("extract-zip");
-  const Seven = require("node-7z");
-  const Unrar = require("unrar");
 
   const ext = path.extname(zipPath).toLowerCase();
   if (ext === ".zip") {
     await extractZip(zipPath, { dir: extractPath });
   } else if (ext === ".rar") {
-    const unrar = new Unrar(zipPath);
-    unrar.extract(extractPath);
+    await extractRarArchive(zipPath, extractPath);
   } else if (ext === ".7z") {
-    await Seven.extractFull(zipPath, extractPath);
+    await extractArchiveWithSevenZip(zipPath, extractPath);
   } else {
     throw new Error("Unsupported file format");
   }
+}
+
+async function extractRarArchive(archivePath, extractPath) {
+  const { createExtractorFromFile } = require("node-unrar-js");
+  const wasmPath = resolvePackagedModulePath(
+    require.resolve("node-unrar-js/dist/js/unrar.wasm"),
+  );
+  const wasmBinary = await fs.promises.readFile(wasmPath);
+  const extractor = await createExtractorFromFile({
+    filepath: archivePath,
+    targetPath: extractPath,
+    wasmBinary,
+  });
+  const extracted = extractor.extract();
+  let extractedCount = 0;
+
+  for (const file of extracted.files) {
+    if (!file.fileHeader.flags.directory) {
+      extractedCount += 1;
+    }
+  }
+
+  if (extractedCount === 0) {
+    throw new Error("RAR extraction completed but no files were extracted");
+  }
+}
+
+function resolvePackagedModulePath(modulePath) {
+  if (app.isPackaged && modulePath.includes(`${path.sep}app.asar${path.sep}`)) {
+    return modulePath.replace(
+      `${path.sep}app.asar${path.sep}`,
+      `${path.sep}app.asar.unpacked${path.sep}`,
+    );
+  }
+  return modulePath;
+}
+
+function getSevenZipExecutablePath() {
+  return resolvePackagedModulePath(require("7zip-bin").path7za);
+}
+
+function extractArchiveWithSevenZip(archivePath, extractPath) {
+  return new Promise((resolve, reject) => {
+    const sevenZipPath = getSevenZipExecutablePath();
+    const child = cp.spawn(
+      sevenZipPath,
+      ["x", archivePath, `-o${extractPath}`, "-y"],
+      { windowsHide: true },
+    );
+    let stderr = "";
+    let stdout = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `7-Zip extraction failed with exit code ${code}: ${
+            stderr || stdout || "No output"
+          }`,
+        ),
+      );
+    });
+  });
 }
 
 function createImportCancelledError() {
@@ -709,6 +899,20 @@ ipcMain.handle("select-file", async () => {
   }
 });
 
+ipcMain.handle("select-file-or-directory", async () => {
+  try {
+    const result = await dialog.showOpenDialog(importerWindow || mainWindow, {
+      properties: ["openFile", "openDirectory"],
+      filters: [{ name: "Game-List Info", extensions: ["ini"] }],
+    });
+    if (result.canceled) return null;
+    return result.filePaths[0];
+  } catch (err) {
+    console.error("Error selecting file or directory:", err);
+    return null;
+  }
+});
+
 ipcMain.handle("select-directory", async () => {
   const result = await dialog.showOpenDialog(importerWindow || mainWindow, {
     properties: ["openDirectory"],
@@ -793,6 +997,29 @@ ipcMain.handle("start-scan", async (event, params) => {
   }
 });
 
+ipcMain.handle("scan-game-list-infos", async (event, targetPath) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  try {
+    const rows = await buildGameListImportRows(targetPath);
+    window?.webContents.send("scan-progress", {
+      value: rows.length,
+      total: rows.length,
+      potential: rows.length,
+      archives: 0,
+      alreadyImported: 0,
+      repairPath: 0,
+      missingLaunchable: 0,
+      emptyFolder: 0,
+      totalFound: rows.length,
+    });
+    window?.webContents.send("scan-complete-final", rows);
+    return { success: true, rows };
+  } catch (err) {
+    console.error("Game-List scan failed:", err);
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle("get-steam-game-data", async (event, steamId) => {
   return await getSteamGameData(steamId);
 });
@@ -861,6 +1088,15 @@ ipcMain.handle(
     }
   },
 );
+
+ipcMain.handle("get-import-record-status", async (event, game) => {
+  try {
+    return await getImportRecordStatus(game);
+  } catch (err) {
+    console.error("get-import-record-status error:", err);
+    return { status: "new", recordId: null, exactPath: false };
+  }
+});
 
 ipcMain.handle("log", async (event, message) => {
   console.log(`Renderer: ${message}`);
@@ -1521,12 +1757,44 @@ ipcMain.handle("import-games", async (event, params) => {
     downloadVideos,
     gameExt,
     moveToDefaultFolder = false,
+    registerInPlace = false,
+    metadataOnly = false,
+    forceReimport = false,
     format = "",
   } = params;
 
+  const allowExistingMediaRefresh =
+    registerInPlace && (downloadBannerImages || downloadPreviewImages);
   const games = submittedGames.filter(
-    (game) => (game.scanStatus || "new") === "new",
+    (game) =>
+      ["new", "repairPath"].includes(game.scanStatus || "new") ||
+      ((forceReimport || allowExistingMediaRefresh) &&
+        game.scanStatus === "alreadyImported"),
   );
+  if (metadataOnly) {
+    for (const game of games) {
+      if (game.resultSelectedValue && game.resultSelectedValue !== "match") {
+        const selected = (game.results || []).find(
+          (result) => result.key === game.resultSelectedValue,
+        );
+        if (selected) {
+          const parts = selected.value.split(" | ");
+          game.atlasId = parts[0] || game.atlasId;
+          game.f95Id = parts[1] || game.f95Id;
+          game.title = parts[2] || game.title;
+          game.creator = parts[3] || game.creator;
+          try {
+            const atlasData = await getAtlasData(game.atlasId);
+            game.engine = atlasData.engine || game.engine || "Unknown";
+            game.latestVersion =
+              atlasData.latestVersion || game.latestVersion || "";
+          } catch (err) {
+            console.error("Failed to hydrate selected Game-List match:", err);
+          }
+        }
+      }
+    }
+  }
   const gamesDir = path.join(dataDir, "games");
   if (!fs.existsSync(gamesDir)) fs.mkdirSync(gamesDir, { recursive: true });
 
@@ -1593,6 +1861,8 @@ ipcMain.handle("import-games", async (event, params) => {
       // ── Structured move if requested ──
       if (
         !game.isArchive &&
+        !registerInPlace &&
+        !metadataOnly &&
         moveToDefaultFolder &&
         targetLibrary &&
         format.trim()
@@ -1738,7 +2008,7 @@ ipcMain.handle("import-games", async (event, params) => {
           });
         }
       }
-      if (game.isArchive) {
+      if (!registerInPlace && !metadataOnly && game.isArchive) {
         const defaultFolderName = sanitizePathSegment(
           `${game.title || "Untitled"}-${game.version || "v1"}`,
         );
@@ -1832,15 +2102,50 @@ ipcMain.handle("import-games", async (event, params) => {
         description: game.description || "Imported game",
       };
 
-      console.log("Adding Game");
+      console.log(registerInPlace ? "Registering in-place game" : "Adding Game");
       throwIfImportCanceled(session);
-      const recordId = await addGame(add);
+      const shouldUpsertExisting = registerInPlace || metadataOnly || forceReimport;
+      let recordId =
+        shouldUpsertExisting && game.existingRecordId
+          ? game.existingRecordId
+          : shouldUpsertExisting
+            ? await findExistingRecordForImport(game)
+            : null;
+      if (game.scanStatus === "alreadyImported" && !recordId) {
+        console.warn(
+          `Skipping already imported row without resolvable record: ${game.title}`,
+        );
+        results.push({
+          success: false,
+          skipped: true,
+          error: "Existing record could not be resolved",
+        });
+        progress++;
+        session.progress = progress;
+        mainWindow.webContents.send("import-progress", {
+          text: `Skipped existing game '${game.title}' ${progress}/${total}: record could not be resolved`,
+          progress,
+          total,
+          canCancel: true,
+        });
+        continue;
+      }
+      if (!recordId) {
+        recordId = await addGame(add);
+      }
       console.log("game added");
       console.log("adding version");
-      await addVersion(
-        { ...game, folder: gamePath, execPath, folderSize: size },
-        recordId,
-      );
+      if (shouldUpsertExisting) {
+        await upsertVersion(
+          { ...game, folder: gamePath, execPath, folderSize: size },
+          recordId,
+        );
+      } else {
+        await addVersion(
+          { ...game, folder: gamePath, execPath, folderSize: size },
+          recordId,
+        );
+      }
       console.log("added version");
       console.log("adding mapping");
       console.log("recordId:", recordId, "atlasId:", game.atlasId);
@@ -1861,11 +2166,13 @@ ipcMain.handle("import-games", async (event, params) => {
       progress++;
       session.progress = progress;
       mainWindow.webContents.send("import-progress", {
-        text: `Imported game '${game.title}' ${progress}/${total}`,
+        text: `${registerInPlace || metadataOnly ? "Registered" : "Imported"} game '${game.title}' ${progress}/${total}`,
         progress,
         total,
         canCancel: true,
       });
+      mainWindow.webContents.send("game-imported", recordId);
+      mainWindow.webContents.send("game-updated", recordId);
     } catch (err) {
       if (isImportCancelledError(err)) {
         await Promise.all(
@@ -2062,6 +2369,36 @@ function getFolderSize(dir) {
 }
 
 function findExecutables(dir, extensions) {
+  const blacklist = new Set(
+    [
+      "UnityCrashHandler64.exe",
+      "UnityCrashHandler32.exe",
+      "payload.exe",
+      "nwjc.exe",
+      "notification_helper.exe",
+      "nacl64.exe",
+      "chromedriver.exe",
+      "Squirrel.exe",
+      "zsync.exe",
+      "zsyncmake.exe",
+      "cmake.exe",
+      "pythonw.exe",
+      "python.exe",
+      "dxwebsetup.exe",
+      "README.html",
+      "manual.htm",
+      "unins000.exe",
+      "UE4PrereqSetup_X64.exe",
+      "UEPrereqSetup_x64.exe",
+      "credits.html",
+      "LICENSES.chromium.html",
+      "Uninstall.exe",
+      "CONFIG_dl.exe",
+    ].map((name) => name.toLowerCase()),
+  );
+  const normalizedExtensions = extensions.map((ext) =>
+    String(ext || "").trim().toLowerCase().replace(/^\./, ""),
+  );
   const execs = [];
   const stack = [dir];
   while (stack.length) {
@@ -2073,13 +2410,25 @@ function findExecutables(dir, extensions) {
         stack.push(full);
       } else {
         const ext = path.extname(item.name).toLowerCase().slice(1);
-        if (extensions.includes(ext)) {
+        const filename = path.basename(item.name).toLowerCase();
+        if (normalizedExtensions.includes(ext) && !blacklist.has(filename)) {
           execs.push(full.replace(dir + path.sep, ""));
         }
       }
     }
   }
-  return execs;
+  return execs.sort((a, b) => {
+    const depthDiff = a.split(path.sep).length - b.split(path.sep).length;
+    if (depthDiff !== 0) return depthDiff;
+    const extRank = (candidate) => {
+      const ext = path.extname(candidate).replace(/^\./, "").toLowerCase();
+      if (ext === "exe") return 0;
+      if (ext === "html") return 1;
+      return 2;
+    };
+    const rankDiff = extRank(a) - extRank(b);
+    return rankDiff || a.localeCompare(b);
+  });
 }
 
 async function downloadImages(
@@ -2541,8 +2890,18 @@ async function findSteamId(title, developer) {
 // APP LIFECYCLE
 // ────────────────────────────────────────────────
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   loadConfig();
+  try {
+    await repairDoubledApostropheRows();
+  } catch (err) {
+    console.error("Doubled apostrophe repair failed:", err);
+  }
+  try {
+    await repairStaleVersionExecutables();
+  } catch (err) {
+    console.error("Stale executable repair failed:", err);
+  }
   createWindow();
   autoUpdater.checkForUpdatesAndNotify();
 });

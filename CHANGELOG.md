@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.0.62 - 2026-05-20
+
+### Added
+- `src/core/importer/importer.jsx`: added `Scan Existing Library` and `Import Game-List Data` importer entry points for migration and repair workflows.
+- `src/core/importer/importer.jsx`: added `Force re-import existing games` so users can explicitly repair existing rows or refresh selected media without default duplicate imports.
+- `src/main.js` and `src/renderer.js`: added IPC support for Game-List scans, default library folder selection, import-status rechecks, and selected-game media refresh.
+- `src/main.js`: added bundled RAR5 extraction through `node-unrar-js` so RAR archives import without requiring system WinRAR, 7-Zip, or `unrar`.
+- `src/database.js`: added startup-safe repair passes for doubled-apostrophe DB text/path corruption and stale executable paths.
+
+### Changed
+- `package.json` and `package-lock.json`: added direct runtime dependencies for `7zip-bin` and `node-unrar-js`, removed the old `unrar` dependency, and updated Electron Builder packaging/unpack rules for extractor/native assets.
+- `src/core/scanners/f95scanner.js`: expanded importer scanning to support library resync, metadata-only Game-List rows, archive visibility, nested launchable discovery, exact-path repair statuses, and cleaner folder/archive title-version parsing.
+- `src/core/importer/importer.jsx`: wired scan-result eligibility around separate unmatched/archive/force options and recalculates install status after `Update Matches` or manual match changes.
+- `src/main.js`: changed archive import layout to normalize single wrapper folders and move extracted contents directly into the final version folder when possible.
+- `src/database.js`: made import dedupe prefer exact `game_path` before Atlas/title matches and compare archive candidates by Atlas mapping plus installed version.
+- `src/App.jsx`: replaced imported or updated games in existing React state instead of appending duplicate cards.
+
+### Fixed
+- `src/main.js`: fixed RAR5 imports such as `Apocalypse with Femboy` failing because bundled `7za.exe` cannot open RAR archives.
+- `src/main.js`: fixed post-extraction executable selection so runtime helper files such as `python.exe` and `zsync.exe` are ignored.
+- `src/core/importer/importer.jsx` and `src/database.js`: fixed archives like `Slut Phone` remaining importable after `Update Matches` selected an already-installed Atlas/F95 record.
+- `src/database.js`: fixed installed games disappearing when `game_path` existed but `exec_path` still pointed at an old archive-wrapper folder.
+- `src/core/importer/importer.jsx`: fixed library resync media refresh so already-imported matched rows can download or refresh media when media options are checked.
+- `src/main.js`: fixed already-imported and repair rows creating duplicate records instead of updating existing version paths.
+
 ## 1.0.61 - 2026-05-20
 
 ### Added

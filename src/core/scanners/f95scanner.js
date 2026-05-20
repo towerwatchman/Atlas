@@ -1,6 +1,11 @@
 const fs = require("fs");
 const path = require("path");
-const { searchAtlas, findF95Id, checkRecordExist } = require("../../database");
+const {
+  searchAtlas,
+  findF95Id,
+  checkRecordExist,
+  getImportRecordStatus,
+} = require("../../database");
 
 const engineMap = {
   rpgm: [
@@ -115,6 +120,7 @@ function getScanStats(games) {
     alreadyImported: games.filter(
       (game) => game.scanStatus === "alreadyImported",
     ).length,
+    repairPath: games.filter((game) => game.scanStatus === "repairPath").length,
     missingLaunchable: games.filter(
       (game) => game.scanStatus === "missingLaunchable",
     ).length,
@@ -207,6 +213,81 @@ function createSkippedGame(folder, scanStatus, scanMessage) {
   };
 }
 
+function getCandidateMetadata(target, rootPath) {
+  const rootName = path.basename(target);
+  const rootMetadata = parseNameMetadata(rootName);
+  if (rootMetadata.version && rootMetadata.version !== "Unknown") {
+    return rootMetadata;
+  }
+
+  const relativeParts = getRelativePath(rootPath, target)
+    .split("/")
+    .filter(Boolean);
+  const parentName =
+    relativeParts.length >= 2 ? relativeParts[relativeParts.length - 2] : "";
+  const grandParentName =
+    relativeParts.length >= 3 ? relativeParts[relativeParts.length - 3] : "";
+
+  if (parentName && rootName && rootName.toLowerCase() !== parentName.toLowerCase()) {
+    return {
+      title: cleanDisplayTitle(parentName),
+      lookupTitle: cleanDisplayTitle(parentName),
+      version: cleanDisplayTitle(rootName) || rootMetadata.version || "Unknown",
+      creator: grandParentName ? cleanDisplayTitle(grandParentName) : undefined,
+    };
+  }
+
+  return rootMetadata;
+}
+
+function findLibraryGameRoots(root, extensions) {
+  const roots = new Map();
+  const stack = [root];
+
+  while (stack.length) {
+    const current = stack.pop();
+    const items = fs.readdirSync(current, { withFileTypes: true });
+    const launchables = [];
+
+    for (const item of items) {
+      const full = path.join(current, item.name);
+      if (item.isDirectory()) {
+        stack.push(full);
+      } else if (item.isFile() && isSupportedFile(full, extensions)) {
+        launchables.push(full);
+      }
+    }
+
+    if (launchables.length === 0) continue;
+
+    let candidateRoot = current;
+    while (path.dirname(candidateRoot) !== candidateRoot) {
+      const parent = path.dirname(candidateRoot);
+      if (!parent.startsWith(root) || parent === root) break;
+      const relativeName = path.basename(candidateRoot).toLowerCase();
+      if (/^(game|lib|renpy|www|wwwroot|program files)$/i.test(relativeName)) {
+        candidateRoot = parent;
+        continue;
+      }
+      break;
+    }
+
+    if (!roots.has(candidateRoot)) roots.set(candidateRoot, []);
+    roots
+      .get(candidateRoot)
+      .push(...launchables.map((file) => getRelativePath(candidateRoot, file)));
+  }
+
+  return Array.from(roots.entries())
+    .map(([folder, launchables]) => ({
+      folder,
+      launchables: Array.from(new Set(launchables)).sort((a, b) =>
+        a.localeCompare(b),
+      ),
+    }))
+    .sort((a, b) => a.folder.localeCompare(b.folder));
+}
+
 function getRootFiles(root, extensions) {
   return fs
     .readdirSync(root, { withFileTypes: true })
@@ -222,6 +303,7 @@ async function startScan(params, window) {
     gameExt,
     archiveExt,
     isCompressed,
+    mode,
     deleteAfter,
     scanSize,
     downloadBannerImages,
@@ -237,7 +319,32 @@ async function startScan(params, window) {
     `Starting scan in folder: ${folder} with extensions: ${extensions.join(", ")}`,
   );
 
-  if (isCompressed) {
+  if (mode === "libraryResync") {
+    const candidates = findLibraryGameRoots(folder, extensions);
+    const totalCandidates = candidates.length;
+    let i = 0;
+
+    for (const candidate of candidates) {
+      i++;
+      console.log(`Scanning existing library folder: ${candidate.folder}`);
+      const res = await findGame(
+        candidate.folder,
+        "",
+        extensions,
+        folder,
+        0,
+        false,
+        games,
+        window,
+        params,
+        candidate.launchables,
+      );
+      if (res) {
+        window.webContents.send("scan-complete", games[games.length - 1]);
+      }
+      sendScanProgress(window, i, totalCandidates, games);
+    }
+  } else if (isCompressed) {
     // Get all files recursively, including subdirectories
     const allFiles = getAllFiles(folder, extensions);
     const totalFiles = allFiles.length;
@@ -469,10 +576,14 @@ async function findGame(
         ? path.basename(t, path.extname(t))
         : path.basename(t);
       console.log(`Parsing filename: ${filename}`);
-      const metadata = parseNameMetadata(filename);
+      const metadata =
+        params.mode === "libraryResync" && !isFile
+          ? getCandidateMetadata(t, rootPath)
+          : parseNameMetadata(filename);
       title = metadata.title;
       lookupTitle = metadata.lookupTitle;
       version = metadata.version;
+      if (metadata.creator) creator = metadata.creator;
       console.log(`Parsed: title=${title}, version=${version}`);
       if (!title || title.trim() === "") {
         title = filename;
@@ -515,8 +626,22 @@ async function findGame(
     }
     const engine = gameEngine || "Unknown";
     let recordExist = false;
+    let importRecordStatus = null;
     try {
-      recordExist = await checkRecordExist(title, creator, engine, version, t);
+      importRecordStatus =
+        params.mode === "libraryResync"
+          ? await getImportRecordStatus({
+              atlasId,
+              title,
+              creator,
+              engine,
+              version,
+              folder: isArchive ? t : isFile ? path.dirname(t) : t,
+            })
+          : null;
+      recordExist = importRecordStatus
+        ? importRecordStatus.status === "alreadyImported"
+        : await checkRecordExist(title, creator, engine, version, t);
       console.log(
         `checkRecordExist for ${title}, ${creator}, ${version}, ${t}: ${recordExist}`,
       );
@@ -546,12 +671,21 @@ async function findGame(
       resultVisibility: results.length > 0 ? "visible" : "hidden",
       recordExist,
       isArchive,
-      scanStatus: recordExist ? "alreadyImported" : "new",
+      existingRecordId: importRecordStatus?.recordId || "",
+      scanStatus: recordExist
+        ? "alreadyImported"
+        : importRecordStatus?.status === "repairPath"
+          ? "repairPath"
+          : "new",
       scanMessage: recordExist
         ? "Already imported"
-        : isArchive
-          ? "Archive"
-          : "Ready to import",
+        : importRecordStatus?.status === "repairPath"
+          ? "Repair path"
+          : isArchive
+            ? "Archive"
+            : params.mode === "libraryResync"
+              ? "Ready to register"
+              : "Ready to import",
     };
     console.log(`Adding game to list: ${JSON.stringify(gd)}`);
     games.push(gd);

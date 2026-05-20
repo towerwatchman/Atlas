@@ -249,17 +249,248 @@ const initializeDatabase = (dataDir) => {
   });
 };
 
+function normalizeDoubledApostrophes(value) {
+  return typeof value === "string" ? value.replace(/''/g, "'") : value;
+}
+
+function shouldRepairPath(value) {
+  if (!value || typeof value !== "string" || !value.includes("''")) {
+    return false;
+  }
+  const repaired = normalizeDoubledApostrophes(value);
+  return !fs.existsSync(value) || fs.existsSync(repaired);
+}
+
+const DEFAULT_LAUNCHABLE_EXTENSIONS = [
+  "exe",
+  "swf",
+  "flv",
+  "f4v",
+  "rag",
+  "cmd",
+  "bat",
+  "jar",
+  "html",
+];
+
+const LAUNCHABLE_NAME_BLACKLIST = new Set([
+  "unitycrashhandler.exe",
+  "unitycrashhandler64.exe",
+  "unitycrashhandler32.exe",
+  "unins000.exe",
+  "uninstall.exe",
+  "uninst.exe",
+  "python.exe",
+  "pythonw.exe",
+]);
+
+function normalizePathForCompare(value) {
+  return path.normalize(String(value || "")).toLowerCase();
+}
+
+function normalizeExtensions(extensions = DEFAULT_LAUNCHABLE_EXTENSIONS) {
+  return new Set(
+    extensions
+      .map((ext) => String(ext || "").trim().replace(/^\./, "").toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+function isLaunchableFile(filePath, allowedExtensions) {
+  const ext = path.extname(filePath).replace(/^\./, "").toLowerCase();
+  const base = path.basename(filePath).toLowerCase();
+  return allowedExtensions.has(ext) && !LAUNCHABLE_NAME_BLACKLIST.has(base);
+}
+
+function findLaunchablesInFolder(rootPath, extensions) {
+  if (!rootPath || !fs.existsSync(rootPath)) return [];
+
+  const allowedExtensions = normalizeExtensions(extensions);
+  const results = [];
+  const stack = [rootPath];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+      } else if (entry.isFile() && isLaunchableFile(fullPath, allowedExtensions)) {
+        results.push(path.relative(rootPath, fullPath));
+      }
+    }
+  }
+
+  return results.sort((a, b) => {
+    const depthDiff = a.split(path.sep).length - b.split(path.sep).length;
+    if (depthDiff !== 0) return depthDiff;
+    const extRank = (candidate) => {
+      const ext = path.extname(candidate).replace(/^\./, "").toLowerCase();
+      if (ext === "exe") return 0;
+      if (ext === "html") return 1;
+      return 2;
+    };
+    const rankDiff = extRank(a) - extRank(b);
+    return rankDiff || a.localeCompare(b);
+  });
+}
+
+function chooseLaunchableForRepair(gamePath, staleExecPath, extensions) {
+  const launchables = findLaunchablesInFolder(gamePath, extensions);
+  if (launchables.length === 0) return null;
+
+  const staleBase = path.basename(String(staleExecPath || "")).toLowerCase();
+  if (staleBase) {
+    const matchingName = launchables.find(
+      (candidate) => path.basename(candidate).toLowerCase() === staleBase,
+    );
+    if (matchingName) return matchingName;
+  }
+
+  return launchables[0];
+}
+
+const repairDoubledApostropheRows = () => {
+  if (!db) return Promise.resolve();
+
+  const run = (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      db.run(sql, params, (err) => (err ? reject(err) : resolve()));
+    });
+  const all = (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      db.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+    });
+
+  return new Promise((resolve, reject) => {
+    db.serialize(async () => {
+      try {
+        const gameRows = await all(
+          `SELECT record_id, title, creator, engine
+           FROM games
+           WHERE title LIKE ? OR creator LIKE ? OR engine LIKE ?`,
+          ["%''%", "%''%", "%''%"],
+        );
+        for (const row of gameRows) {
+          await run(
+            `UPDATE games SET title = ?, creator = ?, engine = ? WHERE record_id = ?`,
+            [
+              normalizeDoubledApostrophes(row.title),
+              normalizeDoubledApostrophes(row.creator),
+              normalizeDoubledApostrophes(row.engine),
+              row.record_id,
+            ],
+          );
+        }
+
+        const versionRows = await all(
+          `SELECT rowid, version, game_path, exec_path
+           FROM versions
+           WHERE version LIKE ? OR game_path LIKE ? OR exec_path LIKE ?`,
+          ["%''%", "%''%", "%''%"],
+        );
+        for (const row of versionRows) {
+          const repairedGamePath = shouldRepairPath(row.game_path)
+            ? normalizeDoubledApostrophes(row.game_path)
+            : row.game_path;
+          const repairedExecPath = shouldRepairPath(row.exec_path)
+            ? normalizeDoubledApostrophes(row.exec_path)
+            : row.exec_path;
+          await run(
+            `UPDATE versions SET version = ?, game_path = ?, exec_path = ? WHERE rowid = ?`,
+            [
+              normalizeDoubledApostrophes(row.version),
+              repairedGamePath,
+              repairedExecPath,
+              row.rowid,
+            ],
+          );
+        }
+
+        resolve();
+      } catch (err) {
+        console.error("Error repairing doubled apostrophe rows:", err);
+        reject(err);
+      }
+    });
+  });
+};
+
+const repairStaleVersionExecutables = (
+  extensions = DEFAULT_LAUNCHABLE_EXTENSIONS,
+) => {
+  if (!db) return Promise.resolve();
+
+  const run = (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      db.run(sql, params, function (err) {
+        if (err) reject(err);
+        else resolve(this.changes || 0);
+      });
+    });
+  const all = (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      db.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+    });
+
+  return new Promise((resolve, reject) => {
+    db.serialize(async () => {
+      try {
+        const rows = await all(
+          `SELECT rowid, record_id, version, game_path, exec_path
+           FROM versions
+           WHERE game_path IS NOT NULL AND TRIM(game_path) != ''`,
+        );
+        let repaired = 0;
+
+        for (const row of rows) {
+          const gamePath = String(row.game_path || "");
+          const execPath = String(row.exec_path || "");
+          if (!fs.existsSync(gamePath)) continue;
+          if (execPath && fs.existsSync(execPath)) continue;
+
+          const launchable = chooseLaunchableForRepair(
+            gamePath,
+            execPath,
+            extensions,
+          );
+          if (!launchable) continue;
+
+          const nextExecPath = path.join(gamePath, launchable);
+          await run(`UPDATE versions SET exec_path = ? WHERE rowid = ?`, [
+            nextExecPath,
+            row.rowid,
+          ]);
+          repaired += 1;
+          console.log(
+            `Repaired stale executable for record ${row.record_id} ${row.version}: ${nextExecPath}`,
+          );
+        }
+
+        resolve(repaired);
+      } catch (err) {
+        console.error("Error repairing stale executable paths:", err);
+        reject(err);
+      }
+    });
+  });
+};
+
 const addGame = (game) => {
   return new Promise((resolve, reject) => {
     const { title, creator, engine } = game;
-    const escapedTitle = title.replace(/'/g, "''");
-    const escapedCreator = creator.replace(/'/g, "''");
-    const escapedEngine = engine.replace(/'/g, "''");
 
     // Check if game already exists
     db.get(
       `SELECT record_id FROM games WHERE title = ? AND creator = ?`,
-      [escapedTitle, escapedCreator],
+      [title, creator],
       (err, row) => {
         if (err) {
           console.error("Error checking existing game:", err);
@@ -278,7 +509,7 @@ const addGame = (game) => {
         db.run(
           `INSERT INTO games (title, creator, engine, last_played_r, total_playtime)
            VALUES (?, ?, ?, 0, 0)`,
-          [escapedTitle, escapedCreator, escapedEngine],
+          [title, creator, engine],
           function (err) {
             if (err) {
               console.error("Error inserting game:", err);
@@ -300,17 +531,14 @@ const addGame = (game) => {
 const updateGame = (game) => {
   return new Promise((resolve, reject) => {
     const { title, creator, engine } = game;
-    const escapedTitle = title.replace(/'/g, "''");
-    const escapedCreator = creator.replace(/'/g, "''");
-    const escapedEngine = engine.replace(/'/g, "''");
     const description = game.description ?? game.overview ?? null;
     db.run(
       `UPDATE games SET title = ?, creator = ?, engine = ?, description = ?
        WHERE record_id = ?`,
       [
-        escapedTitle,
-        escapedCreator,
-        escapedEngine,
+        title,
+        creator,
+        engine,
         description,
         game.record_id,
       ],
@@ -331,11 +559,8 @@ const addVersion = (game, recordId) => {
   const { version, folder, executables, folderSize = 0 } = game;
   const executable =
     executables && executables.length > 0 ? executables[0].value : "";
-  const escapedVersion = version.replace(/'/g, "''");
-  const escapedFolder = folder.replace(/'/g, "''");
-  const escapedExecPath = executable
-    ? path.join(folder, executable).replace(/'/g, "''")
-    : "";
+  const gamePath = String(folder || "");
+  const execPath = executable ? path.join(gamePath, executable) : "";
   const dateAdded = Math.floor(Date.now() / 1000);
 
   console.log("adding version");
@@ -344,9 +569,9 @@ const addVersion = (game, recordId) => {
       `INSERT OR REPLACE INTO versions (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)`,
       [
         recordId,
-        escapedVersion,
-        escapedFolder,
-        escapedExecPath,
+        version,
+        gamePath,
+        execPath,
         true,
         dateAdded,
         folderSize,
@@ -363,14 +588,84 @@ const addVersion = (game, recordId) => {
   });
 };
 
+const upsertVersion = (game, recordId) => {
+  const version = String(game.version || "Unknown");
+  const folder = String(game.folder || game.game_path || "");
+  const executable =
+    game.execPath ||
+    game.exec_path ||
+    (game.selectedValue ? path.join(folder, game.selectedValue) : "");
+  const folderSize = game.folderSize || game.folder_size || 0;
+  const dateAdded = Math.floor(Date.now() / 1000);
+
+  return new Promise((resolve, reject) => {
+    const writeVersion = () => {
+      db.run(
+        `INSERT INTO versions
+         (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size)
+         VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)
+         ON CONFLICT(record_id, version) DO UPDATE SET
+           game_path = excluded.game_path,
+           exec_path = excluded.exec_path,
+           in_place = excluded.in_place,
+           folder_size = CASE
+             WHEN excluded.folder_size > 0 THEN excluded.folder_size
+             ELSE versions.folder_size
+           END`,
+        [recordId, version, folder, executable, true, dateAdded, folderSize],
+        (err) => {
+          if (err) {
+            console.error("Error upserting version:", err);
+            reject(err);
+          } else {
+            resolve();
+          }
+        },
+      );
+    };
+
+    if (!folder) {
+      writeVersion();
+      return;
+    }
+
+    db.get(
+      `SELECT rowid FROM versions WHERE game_path = ? LIMIT 1`,
+      [folder],
+      (pathErr, row) => {
+        if (pathErr) {
+          reject(pathErr);
+          return;
+        }
+        if (!row?.rowid) {
+          writeVersion();
+          return;
+        }
+
+        db.run(
+          `UPDATE versions
+           SET record_id = ?, version = ?, exec_path = ?, in_place = ?, folder_size = CASE
+             WHEN ? > 0 THEN ?
+             ELSE folder_size
+           END
+           WHERE rowid = ?`,
+          [recordId, version, executable, true, folderSize, folderSize, row.rowid],
+          (err) => {
+            if (err) {
+              console.error("Error repairing version by exact path:", err);
+              reject(err);
+            } else {
+              resolve();
+            }
+          },
+        );
+      },
+    );
+  });
+};
+
 const updateVersion = (version, record_id) => {
-  const escapedVersion = version.version.replace(/'/g, "''");
-  const escapedFolder = version.game_path.replace(/'/g, "''");
-  const escapedExecPath = version.exec_path.replace(/'/g, "''");
-  const previousVersion = (version.previousVersion || version.version).replace(
-    /'/g,
-    "''",
-  );
+  const previousVersion = version.previousVersion || version.version;
 
   console.log("updating version with id:", record_id);
   return new Promise((resolve, reject) => {
@@ -378,9 +673,9 @@ const updateVersion = (version, record_id) => {
       `UPDATE versions SET version = ?, game_path = ?, exec_path = ?
        WHERE record_id = ? AND version = ?`,
       [
-        escapedVersion,
-        escapedFolder,
-        escapedExecPath,
+        version.version,
+        version.game_path,
+        version.exec_path,
         record_id,
         previousVersion,
       ],
@@ -393,6 +688,87 @@ const updateVersion = (version, record_id) => {
         }
       },
     );
+  });
+};
+
+const findExistingRecordForImport = (game) => {
+  const atlasId = game.atlasId || game.atlas_id || null;
+  const title = String(game.title || "").trim();
+  const creator = String(game.creator || "").trim();
+  const version = String(game.version || "").trim();
+  const gamePath = String(game.folder || game.game_path || "").trim();
+
+  return new Promise((resolve, reject) => {
+    if (gamePath) {
+      db.get(
+        `SELECT record_id FROM versions WHERE game_path = ? LIMIT 1`,
+        [gamePath],
+        (pathErr, pathRow) => {
+          if (pathErr) {
+            reject(pathErr);
+            return;
+          }
+          if (pathRow?.record_id) {
+            resolve(pathRow.record_id);
+            return;
+          }
+          findByAtlasMapping();
+        },
+      );
+      return;
+    }
+
+    findByAtlasMapping();
+
+    function findByAtlasMapping() {
+    if (atlasId) {
+      db.get(
+        `SELECT record_id FROM atlas_mappings WHERE atlas_id = ? LIMIT 1`,
+        [atlasId],
+        (err, row) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          if (row?.record_id) {
+            resolve(row.record_id);
+            return;
+          }
+          findByTitleCreatorVersion();
+        },
+      );
+      return;
+    }
+
+    findByTitleCreatorVersion();
+    }
+
+    function findByTitleCreatorVersion() {
+      if (!title || !creator) {
+        resolve(null);
+        return;
+      }
+
+      const params = [title, creator];
+      let versionClause = "";
+      if (version) {
+        versionClause = ` OR (TRIM(g.title) = ? AND TRIM(g.creator) = ? AND TRIM(v.version) = ?)`;
+        params.push(title, creator, version);
+      }
+
+      db.get(
+        `SELECT g.record_id
+         FROM games g
+         LEFT JOIN versions v ON g.record_id = v.record_id
+         WHERE (TRIM(g.title) = ? AND TRIM(g.creator) = ?)${versionClause}
+         LIMIT 1`,
+        params,
+        (err, row) => {
+          if (err) reject(err);
+          else resolve(row?.record_id || null);
+        },
+      );
+    }
   });
 };
 
@@ -1239,17 +1615,13 @@ const GetAtlasIDbyRecord = (recordId) => {
 
 const checkRecordExist = (title, creator, engine, version, path) => {
   return new Promise((resolve, reject) => {
-    const escapedTitle = title.trim().replace(/'/g, "''");
-    const escapedCreator = creator.trim().replace(/'/g, "''");
-    const escapedVersion = version.trim().replace(/'/g, "''");
-    const escapedVPath = path.trim().replace(/'/g, "''");
     db.get(
       `SELECT g.record_id
        FROM games g
        LEFT JOIN versions v ON g.record_id = v.record_id
        WHERE TRIM(g.title) = ? AND TRIM(g.creator) = ? AND TRIM(v.version) = ?
        OR v.game_path = ?`,
-      [escapedTitle, escapedCreator, escapedVersion, escapedVPath],
+      [title.trim(), creator.trim(), version.trim(), path.trim()],
       (err, row) => {
         if (err) {
           console.error("Error checking record existence:", err);
@@ -1394,11 +1766,9 @@ const getScreensUrlList = (atlasId) => {
 
 const updateBanners = (recordId, bannerPath, type) => {
   return new Promise((resolve, reject) => {
-    const escapedPath = bannerPath.replace(/'/g, "''");
-    const escapedType = type.replace(/'/g, "''");
     db.run(
       `INSERT OR REPLACE INTO banners (record_id, path, type) VALUES (?, ?, ?)`,
-      [recordId, escapedPath, escapedType],
+      [recordId, bannerPath, type],
       (err) => {
         if (err) {
           console.error("Error updating banners:", err);
@@ -1413,10 +1783,9 @@ const updateBanners = (recordId, bannerPath, type) => {
 
 const updatePreviews = (recordId, previewPath) => {
   return new Promise((resolve, reject) => {
-    const escapedPath = previewPath.replace(/'/g, "''");
     db.run(
       `INSERT OR REPLACE INTO previews (record_id, path) VALUES (?, ?)`,
-      [recordId, escapedPath],
+      [recordId, previewPath],
       (err) => {
         if (err) {
           console.error("Error updating previews:", err);
@@ -1566,6 +1935,106 @@ const updateTableColumns = {
     "screens",
     "replies",
   ]),
+};
+
+const getImportRecordStatus = (game) => {
+  const gamePath = String(game.folder || game.game_path || "").trim();
+  const selectedValue = String(game.selectedValue || "").trim();
+  const selectedExecPath =
+    gamePath && selectedValue ? path.join(gamePath, selectedValue) : "";
+  const atlasId = game.atlasId || game.atlas_id || null;
+  const version = String(game.version || "").trim();
+
+  const normalizeImportVersion = (value) =>
+    String(value || "")
+      .trim()
+      .replace(/^v/i, "")
+      .toLowerCase();
+
+  const statusForVersionRow = (row, exactPath = false) => {
+    const storedExecPath = String(row.exec_path || "");
+    const storedExecValid = storedExecPath && fs.existsSync(storedExecPath);
+    const selectedExecValid = selectedExecPath && fs.existsSync(selectedExecPath);
+    const selectedDiffers =
+      exactPath &&
+      selectedExecValid &&
+      normalizePathForCompare(selectedExecPath) !==
+        normalizePathForCompare(storedExecPath);
+
+    return {
+      status: !storedExecValid || selectedDiffers ? "repairPath" : "alreadyImported",
+      recordId: row.record_id,
+      exactPath,
+    };
+  };
+
+  return new Promise((resolve, reject) => {
+    if (gamePath) {
+      db.get(
+        `SELECT record_id, exec_path FROM versions WHERE game_path = ? LIMIT 1`,
+        [gamePath],
+        (pathErr, pathRow) => {
+          if (pathErr) {
+            reject(pathErr);
+            return;
+          }
+          if (pathRow?.record_id) {
+            resolve(statusForVersionRow(pathRow, true));
+            return;
+          }
+          resolveByAtlasVersionMatch();
+        },
+      );
+      return;
+    }
+
+    resolveByAtlasVersionMatch();
+
+    function resolveByAtlasVersionMatch() {
+      if (!atlasId || !version) {
+        resolveByRecordMatch();
+        return;
+      }
+
+      db.all(
+        `SELECT v.record_id, v.version, v.exec_path
+         FROM atlas_mappings am
+         JOIN versions v ON am.record_id = v.record_id
+         WHERE am.atlas_id = ?`,
+        [atlasId],
+        (err, rows) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          const matchingVersion = (rows || []).find(
+            (row) =>
+              normalizeImportVersion(row.version) ===
+              normalizeImportVersion(version),
+          );
+          if (matchingVersion) {
+            resolve(statusForVersionRow(matchingVersion, false));
+            return;
+          }
+
+          resolve({ status: "new", recordId: rows?.[0]?.record_id || null, exactPath: false });
+        },
+      );
+    }
+
+    function resolveByRecordMatch() {
+      findExistingRecordForImport(game)
+        .then((recordId) => {
+          if (recordId) {
+            resolve({ status: "repairPath", recordId, exactPath: false });
+          } else {
+            resolve({ status: "new", recordId: null, exactPath: false });
+          }
+        })
+        .catch(reject);
+    }
+  });
 };
 
 function getValidatedUpdateColumns(jsonData, tableName) {
@@ -1929,8 +2398,11 @@ const getUniqueFilterOptions = () => {
 
 module.exports = {
   initializeDatabase,
+  repairDoubledApostropheRows,
+  repairStaleVersionExecutables,
   addGame,
   addVersion,
+  upsertVersion,
   getGames,
   removeGame,
   checkDbUpdates,
@@ -1938,6 +2410,8 @@ module.exports = {
   searchAtlas,
   findF95Id,
   checkRecordExist,
+  getImportRecordStatus,
+  findExistingRecordForImport,
   checkPathExist,
   addAtlasMapping,
   updateFolderSize,

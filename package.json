@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "1.0.61",
+  "version": "1.0.62",
   "author": {
     "name": "towerwatchman",
     "email": "towerwatchman@atlas.com"
@@ -49,14 +49,17 @@
       "node_modules/sharp/**/*",
       "node_modules/@img/**/*",
       "node_modules/node-7z/**/*",
-      "node_modules/unrar/**/*"
+      "node_modules/7zip-bin/**/*",
+      "node_modules/node-unrar-js/**/*"
     ],
     "asar": true,
     "asarUnpack": [
       "node_modules/**/*.node",
       "node_modules/sqlite3/**/*",
       "node_modules/sharp/**/*",
-      "node_modules/@img/**/*"
+      "node_modules/@img/**/*",
+      "node_modules/7zip-bin/**/*",
+      "node_modules/node-unrar-js/**/*"
     ],
     "nodeGypRebuild": false,
     "win": {
@@ -85,17 +88,18 @@
   },
   "dependencies": {
     "@babel/standalone": "^7.29.4",
+    "7zip-bin": "^5.2.0",
     "axios": "^1.7.2",
     "electron-updater": "^6.8.3",
     "extract-zip": "^2.0.1",
     "ini": "^5.0.0",
     "lz4js": "^0.2.0",
     "node-7z": "^0.4.0",
+    "node-unrar-js": "^2.0.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "sharp": "^0.34.5",
-    "sqlite3": "^6.0.1",
-    "unrar": "^0.2.0"
+    "sqlite3": "^6.0.1"
   },
   "devDependencies": {
     "autoprefixer": "^10.5.0",

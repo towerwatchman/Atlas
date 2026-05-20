@@ -3,7 +3,7 @@ const ReactDOM = window.ReactDOM || {};
 const { createRoot } = window.ReactDOM;
 
 const Importer = () => {
-  const [view, setView] = useState("settings");
+  const [view, setView] = useState("source");
   const [importSource, setImportSource] = useState("local");
   const [folder, setFolder] = useState("");
   const [useUnstructured, setUseUnstructured] = useState(true);
@@ -24,6 +24,7 @@ const Importer = () => {
   const [moveGame, setMoveGame] = useState(false);
   const [includeUnmatched, setIncludeUnmatched] = useState(false);
   const [includeArchives, setIncludeArchives] = useState(false);
+  const [forceReimport, setForceReimport] = useState(false);
   const [defaultLibraryPath, setDefaultLibraryPath] = useState(null);
   const [askingForLibraryFolder, setAskingForLibraryFolder] = useState(false);
 
@@ -33,6 +34,7 @@ const Importer = () => {
     potential: 0,
     archives: 0,
     alreadyImported: 0,
+    repairPath: 0,
     missingLaunchable: 0,
     emptyFolder: 0,
     totalFound: 0,
@@ -62,7 +64,14 @@ const Importer = () => {
     setGamesList((prev) => [...prev, game]);
   };
 
-  const isNewScanRow = (game) => (game.scanStatus || "new") === "new";
+  const isLibraryResync = importSource === "libraryResync";
+  const isGameListMetadata = importSource === "gameListMetadata";
+  const isNewScanRow = (game) =>
+    ["new", "repairPath"].includes(game.scanStatus || "new");
+  const isExistingImportRow = (game) =>
+    game.scanStatus === "alreadyImported" &&
+    (forceReimport ||
+      (isLibraryResync && (downloadBannerImages || downloadPreviewImages)));
   const hasDatabaseMatch = (game) =>
     game.results?.length === 1 && game.results[0]?.key === "match";
   const hasSelectedDatabaseMatch = (game) =>
@@ -72,9 +81,11 @@ const Importer = () => {
     game,
     { includeUnmatchedGames = false, includeArchiveGames = false } = {},
   ) => {
-    if (!isNewScanRow(game)) return false;
+    if (!isNewScanRow(game) && !isExistingImportRow(game)) return false;
     if (game.isArchive && !includeArchiveGames) return false;
-    if (!game.isArchive && !game.selectedValue) return false;
+    if (!game.isArchive && !game.metadataOnly && !game.selectedValue) {
+      return false;
+    }
     if (hasDatabaseMatch(game) || hasSelectedDatabaseMatch(game)) return true;
     return includeUnmatchedGames && isUnmatchedGame(game);
   };
@@ -89,7 +100,9 @@ const Importer = () => {
   const getImportDisabledReason = () => {
     if (canImport) return "";
 
-    const newRows = gamesList.filter(isNewScanRow);
+    const newRows = gamesList.filter(
+      (game) => isNewScanRow(game) || isExistingImportRow(game),
+    );
     if (newRows.length === 0) return "No new importable scan rows found";
 
     const hasArchives = newRows.some((game) => game.isArchive);
@@ -118,6 +131,77 @@ const Importer = () => {
     return "No eligible rows are ready to import";
   };
 
+  const applyImportStatus = async (game) => {
+    if (!game || game.metadataOnly) return game;
+
+    try {
+      const status = await window.electronAPI.getImportRecordStatus(game);
+      const recordExist = status?.status === "alreadyImported";
+      return {
+        ...game,
+        recordExist,
+        existingRecordId: status?.recordId || "",
+        scanStatus: recordExist
+          ? "alreadyImported"
+          : status?.status === "repairPath"
+            ? "repairPath"
+            : "new",
+        scanMessage: recordExist
+          ? "Already imported"
+          : status?.status === "repairPath"
+            ? "Repair path"
+            : game.scanMessage || (game.isArchive ? "Archive" : "Ready to import"),
+      };
+    } catch (err) {
+      console.error("Failed to refresh import status:", err);
+      return game;
+    }
+  };
+
+  const applySelectedMatch = async (game, value) => {
+    let updatedGame = { ...game, resultSelectedValue: value };
+    const selected = game.results?.find((r) => r.key === value);
+
+    if (selected && value !== "match") {
+      const parts = selected.value.split(" | ");
+      updatedGame = {
+        ...updatedGame,
+        atlasId: parts[0],
+        f95Id: parts[1] || "",
+        title: parts[2],
+        creator: parts[3],
+      };
+      try {
+        const atlasData = await window.electronAPI.getAtlasData(
+          updatedGame.atlasId,
+        );
+        updatedGame = {
+          ...updatedGame,
+          engine: atlasData.engine || "Unknown",
+          f95Id: updatedGame.f95Id || atlasData.f95_id || "",
+          latestVersion: atlasData.latestVersion || "",
+        };
+      } catch (err) {
+        console.error("Failed to hydrate selected match:", err);
+      }
+    }
+
+    return applyImportStatus(updatedGame);
+  };
+
+  const chooseInstalledMatch = async (game, results) => {
+    for (const result of results) {
+      const candidate = await applySelectedMatch(
+        { ...game, results },
+        result.key,
+      );
+      if (["alreadyImported", "repairPath"].includes(candidate.scanStatus)) {
+        return candidate;
+      }
+    }
+    return applySelectedMatch({ ...game, results }, results[0]?.key || "");
+  };
+
   useEffect(() => {
     console.log("Importer component mounted");
     window.electronAPI.log("Importer component mounted");
@@ -133,68 +217,35 @@ const Importer = () => {
       setProgress(prog);
     });
 
-    window.electronAPI.onScanComplete((game) => {
+    window.electronAPI.onScanComplete(async (game) => {
       console.log(`Received incremental game: ${JSON.stringify(game)}`);
       if (
         game.results?.length > 1 &&
         game.resultSelectedValue &&
         game.resultSelectedValue !== "match"
       ) {
-        const selected = game.results.find(
-          (r) => r.key === game.resultSelectedValue,
+        const updatedGame = await chooseInstalledMatch(game, game.results);
+        addScannedGame(updatedGame);
+        console.log(`Updated game on scan: ${JSON.stringify(updatedGame)}`);
+        window.electronAPI.log(
+          `Updated game on scan: ${JSON.stringify(updatedGame)}`,
         );
-        if (selected) {
-          const parts = selected.value.split(" | ");
-          game.atlasId = parts[0];
-          game.f95Id = parts[1] || "";
-          game.title = parts[2];
-          game.creator = parts[3];
-          window.electronAPI.getAtlasData(game.atlasId).then((atlasData) => {
-            game.engine = atlasData.engine || "Unknown";
-            game.f95Id = game.f95Id || atlasData.f95_id || "";
-            game.latestVersion = atlasData.latestVersion || "";
-            addScannedGame(game);
-            console.log(`Updated game on scan: ${JSON.stringify(game)}`);
-            window.electronAPI.log(
-              `Updated game on scan: ${JSON.stringify(game)}`,
-            );
-          });
-        } else {
-          addScannedGame(game);
-        }
       } else {
-        addScannedGame(game);
+        addScannedGame(await applyImportStatus(game));
       }
     });
 
     window.electronAPI.onScanCompleteFinal((games) => {
       console.log(`Scan complete, received ${games.length} games`);
-      const updatedGames = games.map((game) => {
+      const updatedGames = games.map(async (game) => {
         if (
           game.results?.length > 1 &&
           game.resultSelectedValue &&
           game.resultSelectedValue !== "match"
         ) {
-          const selected = game.results.find(
-            (r) => r.key === game.resultSelectedValue,
-          );
-          if (selected) {
-            const parts = selected.value.split(" | ");
-            game.atlasId = parts[0];
-            game.f95Id = parts[1] || "";
-            game.title = parts[2];
-            game.creator = parts[3];
-            return window.electronAPI
-              .getAtlasData(game.atlasId)
-              .then((atlasData) => {
-                game.engine = atlasData.engine || "Unknown";
-                game.f95Id = game.f95Id || atlasData.f95_id || "";
-                game.latestVersion = atlasData.latestVersion || "";
-                return game;
-              });
-          }
+          return chooseInstalledMatch(game, game.results);
         }
-        return game;
+        return applyImportStatus(game);
       });
       console.log(
         "Games being processed:",
@@ -262,6 +313,77 @@ const Importer = () => {
     }
   };
 
+  const startLibraryResync = async () => {
+    let libraryPath =
+      defaultLibraryPath || (await window.electronAPI.getDefaultGameFolder());
+    if (!libraryPath) {
+      setAskingForLibraryFolder(true);
+      const selected = await window.electronAPI.selectDirectory();
+      setAskingForLibraryFolder(false);
+      if (!selected) return;
+
+      const saveResult = await window.electronAPI.setDefaultGameFolder(selected);
+      if (!saveResult?.success) {
+        alert("Failed to save the selected library folder.");
+        return;
+      }
+      libraryPath = selected;
+      setDefaultLibraryPath(selected);
+    }
+
+    setImportSource("libraryResync");
+    setFolder(libraryPath);
+    setView("scan");
+    deletedScanGameKeysRef.current.clear();
+    setGamesList([]);
+    setIncludeArchives(false);
+    setMoveGame(false);
+    setDeleteAfter(false);
+
+    const params = {
+      folder: libraryPath,
+      mode: "libraryResync",
+      format: "",
+      gameExt: gameExt.split(",").map((e) => e.trim()),
+      archiveExt: archiveExt.split(",").map((e) => e.trim()),
+      isCompressed: false,
+      deleteAfter: false,
+      scanSize,
+      downloadBannerImages,
+      downloadPreviewImages,
+      previewLimit,
+      downloadVideos,
+    };
+
+    const result = await window.electronAPI.startScan(params);
+    if (!result.success) {
+      console.error(`Library resync error: ${result.error}`);
+      window.electronAPI.log(`Library resync error: ${result.error}`);
+      alert(`Error: ${result.error}`);
+    }
+  };
+
+  const startGameListImport = async () => {
+    const selected = await window.electronAPI.selectFileOrDirectory();
+    if (!selected) return;
+
+    setImportSource("gameListMetadata");
+    setFolder(selected);
+    setView("scan");
+    deletedScanGameKeysRef.current.clear();
+    setGamesList([]);
+    setIncludeArchives(false);
+    setMoveGame(false);
+    setDeleteAfter(false);
+
+    const result = await window.electronAPI.scanGameListInfos(selected);
+    if (!result.success) {
+      console.error(`Game-List import scan error: ${result.error}`);
+      window.electronAPI.log(`Game-List import scan error: ${result.error}`);
+      alert(`Error: ${result.error}`);
+    }
+  };
+
   const startScan = async () => {
     if (!folder) {
       console.log("No folder selected");
@@ -275,6 +397,7 @@ const Importer = () => {
     setGamesList([]);
     const params = {
       folder,
+      mode: "local",
       format: useUnstructured ? "" : customFormat,
       gameExt: gameExt.split(",").map((e) => e.trim()),
       archiveExt: archiveExt.split(",").map((e) => e.trim()),
@@ -325,30 +448,15 @@ const Importer = () => {
     );
     const updatedGames = gamesList.map((game, i) => {
       if (i === index) {
-        const updatedGame = { ...game, resultSelectedValue: value };
-        const selected = game.results.find((r) => r.key === value);
-        if (selected && value !== "match") {
-          const parts = selected.value.split(" | ");
-          updatedGame.atlasId = parts[0];
-          updatedGame.f95Id = parts[1] || "";
-          updatedGame.title = parts[2];
-          updatedGame.creator = parts[3];
-          return window.electronAPI
-            .getAtlasData(updatedGame.atlasId)
-            .then((atlasData) => {
-              updatedGame.engine = atlasData.engine || "Unknown";
-              updatedGame.f95Id = updatedGame.f95Id || atlasData.f95_id || "";
-              updatedGame.latestVersion = atlasData.latestVersion || "";
-              console.log(
-                `Updated game at index ${index}: ${JSON.stringify(updatedGame)}`,
-              );
-              window.electronAPI.log(
-                `Updated game at index ${index}: ${JSON.stringify(updatedGame)}`,
-              );
-              return updatedGame;
-            });
-        }
-        return updatedGame;
+        return applySelectedMatch(game, value).then((updatedGame) => {
+          console.log(
+            `Updated game at index ${index}: ${JSON.stringify(updatedGame)}`,
+          );
+          window.electronAPI.log(
+            `Updated game at index ${index}: ${JSON.stringify(updatedGame)}`,
+          );
+          return updatedGame;
+        });
       }
       return game;
     });
@@ -434,7 +542,7 @@ const Importer = () => {
       window.electronAPI.log(`Search results: ${JSON.stringify(data)}`);
 
       if (data.length === 1) {
-        game = {
+        game = await applyImportStatus({
           ...game,
           atlasId: String(data[0].atlas_id),
           f95Id: data[0].f95_id || "",
@@ -445,7 +553,7 @@ const Importer = () => {
           results: [{ key: "match", value: "Match Found" }],
           resultSelectedValue: "match",
           resultVisibility: "visible",
-        };
+        });
       } else if (data.length > 1) {
         const results = data.map((d) => ({
           key: String(d.atlas_id),
@@ -456,48 +564,19 @@ const Importer = () => {
         const valid = results.find((r) => r.key === current);
         const selectedKey = valid ? current : results[0].key;
 
-        const selected =
-          results.find((r) => r.key === selectedKey) || results[0];
-        const parts = selected.value.split(" | ");
-
-        game = {
-          ...game,
+        game = await chooseInstalledMatch(
+          { ...game, resultSelectedValue: selectedKey },
           results,
-          resultSelectedValue: selectedKey,
-          resultVisibility: "visible",
-          atlasId: parts[0],
-          f95Id: parts[1] || "",
-          title: parts[2],
-          creator: parts[3],
-        };
-
-        try {
-          const atlasData = await window.electronAPI.getAtlasData(parts[0]);
-          game = {
-            ...game,
-            engine: atlasData.engine || game.engine || "Unknown",
-            f95Id: game.f95Id || atlasData.f95_id || "",
-            latestVersion: atlasData.latestVersion || "",
-          };
-        } catch (atlasErr) {
-          console.error(
-            `Failed to fetch atlas data for game ${i + 1} (atlas ${parts[0]}):`,
-            atlasErr,
-          );
-          window.electronAPI.log(
-            `Failed to fetch atlas data for game ${i + 1}: ${atlasErr.message}`,
-          );
-          // Continue without engine update
-        }
+        );
       } else {
-        game = {
+        game = await applyImportStatus({
           ...game,
           atlasId: "",
           f95Id: "",
           results: [],
           resultSelectedValue: "",
           resultVisibility: "hidden",
-        };
+        });
       }
 
       // Put new object back
@@ -575,6 +654,9 @@ const Importer = () => {
       downloadVideos,
       gameExt: gameExt.split(",").map((e) => e.trim()),
       moveToDefaultFolder: moveGame && !!finalLibraryPath,
+      registerInPlace: isLibraryResync,
+      metadataOnly: isGameListMetadata,
+      forceReimport,
       format: customFormat,
     };
 
@@ -649,30 +731,25 @@ const Importer = () => {
             <div className="flex flex-col space-y-4 max-w-md w-full">
               <h2 className="text-xl text-center">Select Import Source</h2>
               <button
-                onClick={() => setView("settings")}
+                onClick={() => {
+                  setImportSource("local");
+                  setView("settings");
+                }}
                 className="bg-secondary hover:bg-selected text-text p-2 rounded"
               >
                 Atlas Game Importer
               </button>
               <button
-                onClick={() => {
-                  setView("scan");
-                  setGamesList([]);
-                  window.electronAPI
-                    .startSteamScan({
-                      downloadBannerImages: false,
-                      downloadPreviewImages: false,
-                      previewLimit: "Unlimited",
-                      downloadVideos: false,
-                    })
-                    .catch((err) => {
-                      console.error("Steam scan error:", err);
-                      alert("Error starting Steam scan");
-                    });
-                }}
+                onClick={startLibraryResync}
                 className="bg-secondary hover:bg-selected text-text p-2 rounded"
               >
-                Import Steam Games
+                Scan Existing Library
+              </button>
+              <button
+                onClick={startGameListImport}
+                className="bg-secondary hover:bg-selected text-text p-2 rounded"
+              >
+                Import Game-List Data
               </button>
             </div>
           </div>
@@ -711,8 +788,11 @@ const Importer = () => {
                 checked={useUnstructured}
                 onChange={(e) => setUseUnstructured(e.target.checked)}
                 className="ml-2"
+                title="When enabled, Atlas infers title and version from folder/archive names. When disabled, Atlas reads the path using the Folder Structure template."
               />
-              <label>Unstructured Format</label>
+              <label title="When enabled, Atlas infers title and version from folder/archive names. When disabled, Atlas reads the path using the Folder Structure template.">
+                Unstructured Format
+              </label>
             </div>
 
             <div className="flex items-center">
@@ -873,6 +953,10 @@ const Importer = () => {
                   {progress.value}/{progress.total}{" "}
                   {importSource === "steam"
                     ? "Games Scanned"
+                    : isLibraryResync
+                      ? "Library Folders Scanned"
+                      : isGameListMetadata
+                        ? "Game-List Records Scanned"
                     : "Folders Scanned"}
                 </span>
               </div>
@@ -880,6 +964,7 @@ const Importer = () => {
                 <span>Ready {progress.potential || 0}</span>
                 <span>Archives {progress.archives || 0}</span>
                 <span>Already imported {progress.alreadyImported || 0}</span>
+                <span>Repairs {progress.repairPath || 0}</span>
                 <span>Missing launchable {progress.missingLaunchable || 0}</span>
                 <span>Empty folders {progress.emptyFolder || 0}</span>
                 <span>Total rows {progress.totalFound || gamesList.length}</span>
@@ -946,6 +1031,8 @@ const Importer = () => {
                         ? "text-yellow-300"
                         : game.scanStatus === "emptyFolder"
                           ? "text-gray-300"
+                        : game.scanStatus === "repairPath"
+                          ? "text-cyan-300"
                         : game.isArchive
                           ? "text-blue-300"
                         : game.scanStatus === "missingLaunchable"
@@ -1077,7 +1164,7 @@ const Importer = () => {
                           )}
                         </td>
                         <td className="border border-border p-1">
-                          {game.folder}
+                          {game.folder || game.sourceFile || "Metadata only"}
                         </td>
                         <td className={`border border-border p-1 ${statusClass}`}>
                           {statusText}
@@ -1092,7 +1179,9 @@ const Importer = () => {
                           </button>
                           <button
                             onClick={() =>
-                              window.electronAPI.openDirectory(game.folder)
+                              window.electronAPI.openDirectory(
+                                game.folder || game.sourceFile,
+                              )
                             }
                             className="bg-accent hover:bg-selected text-text text-xs p-1 rounded whitespace-nowrap"
                             style={{ pointerEvents: "auto" }}
@@ -1126,19 +1215,38 @@ const Importer = () => {
                   </label>
                 </div>
 
+                {!isLibraryResync && !isGameListMetadata && (
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="include-archives"
+                      checked={includeArchives}
+                      onChange={(e) => setIncludeArchives(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    <label
+                      htmlFor="include-archives"
+                      className="text-sm text-text"
+                    >
+                      Extract and import archives
+                    </label>
+                  </div>
+                )}
+
                 <div className="flex items-center space-x-2">
                   <input
                     type="checkbox"
-                    id="include-archives"
-                    checked={includeArchives}
-                    onChange={(e) => setIncludeArchives(e.target.checked)}
+                    id="force-reimport"
+                    checked={forceReimport}
+                    onChange={(e) => setForceReimport(e.target.checked)}
                     className="h-4 w-4"
                   />
                   <label
-                    htmlFor="include-archives"
+                    htmlFor="force-reimport"
                     className="text-sm text-text"
+                    title="Safely repairs existing rows and refreshes selected media without creating duplicate game records."
                   >
-                    Extract and import archives
+                    Force re-import existing games
                   </label>
                 </div>
               </div>
@@ -1174,7 +1282,7 @@ const Importer = () => {
                     pointerEvents: "auto",
                   }}
                 >
-                  Import
+                  {isLibraryResync || isGameListMetadata ? "Register" : "Import"}
                 </button>
 
                 <button
