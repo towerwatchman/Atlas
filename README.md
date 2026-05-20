@@ -22,7 +22,7 @@
 
 #
 Atlas is an open source game manager and launcher for Windows, and Linux with a modern interface for viewing, finding, and easily installing 3rd party games and visual novels.
-We currently support adding games from [F95Zone](https://f95zone.to/) and plan on adding more sources as the project progresses (See features below).
+We currently support adding games from [F95Zone](https://f95zone.to/).
 It's meant to replace [Game-List](https://www.game-list.org) ([Github](https://github.com/game-list/game-list)) but also expand on it's feature set.
 
 Atlas is for the user that wants ease of use, quality of life and have the software do the heavy lifting for you.
@@ -36,7 +36,7 @@ A summary of planned features is listed below. We do not have a timeline for all
 - Custom themes and color schemes.
 - Game file management (moves or copies game install files for you)
 - Easy to edit metadata and tags per title.
-- Navigate titles with a Banner/Thumbnail gallery grid (Images are not automatically downloaded yet).
+- Navigate titles with a Banner/Thumbnail gallery grid.
 - View or add previews for a title.
 - Filter titles based on titles, creators, tags, ID's, description contents and urls.
 - Bulk install/import multiple titles and versions with a single click.
@@ -47,7 +47,3 @@ Grab the latest version from the [releases](https://github.com/SekhmetAnkh/Atlas
 
 ## Questions & Issues
 Please report any bugs by filing an issue. Please attach the log in the root of the Atlas directory.
-
-
-## Roadmap
-All planned versions with their features are listed in the [milestones overview](https://github.com/SekhmetAnkh/Atlas/milestones)
