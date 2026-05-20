@@ -41,6 +41,7 @@ const Importer = () => {
     totalFound: 0,
   });
   const [updateProgress, setUpdateProgress] = useState({ value: 0, total: 0 });
+  const [progressLabel, setProgressLabel] = useState(null); // null = show scan label, string = override
   const [gamesList, setGamesList] = useState([]);
   const [isMaximized, setIsMaximized] = useState(false);
   const [hideMatches, setHideMatches] = useState(false);
@@ -211,9 +212,11 @@ const Importer = () => {
 
     matchCancelRef.current = false;
     setIsResolvingMatches(true);
-    setUpdateProgress({ value: 0, total: pendingRows.length });
+    setProgressLabel("Resolving Matches");
+    setProgress((prev) => ({ ...prev, value: 0, total: pendingRows.length }));
+    await new Promise((r) => setTimeout(r, 16));
 
-    const chunkSize = 50;
+    const chunkSize = 1;
     let resolvedCount = 0;
     for (let i = 0; i < pendingRows.length; i += chunkSize) {
       if (matchCancelRef.current) break;
@@ -227,7 +230,7 @@ const Importer = () => {
       setGamesList((prev) =>
         prev.map((game) => resolvedByKey.get(getScanGameKey(game)) || game),
       );
-      setUpdateProgress({ value: resolvedCount, total: pendingRows.length });
+      setProgress((prev) => ({ ...prev, value: resolvedCount }));
       window.electronAPI.sendUpdateProgress({
         value: resolvedCount,
         total: pendingRows.length,
@@ -236,6 +239,7 @@ const Importer = () => {
     }
 
     setIsResolvingMatches(false);
+    setProgressLabel(null);
   };
 
   const cancelScanOrMatch = () => {
@@ -510,7 +514,9 @@ const Importer = () => {
     const total = gamesList.length;
     if (total === 0) return;
 
-    setUpdateProgress({ value: 0, total });
+    setProgressLabel("Updating Matches");
+    setProgress((prev) => ({ ...prev, value: 0, total }));
+    await new Promise((r) => setTimeout(r, 16));
     window.electronAPI.sendUpdateProgress({ value: 0, total });
 
     // Create a fresh immutable copy of the list
@@ -521,8 +527,9 @@ const Importer = () => {
       let game = { ...updatedGames[i] };
 
       if (!isNewScanRow(game) && game.scanStatus !== "pendingMatch") {
-        setUpdateProgress({ value: i + 1, total });
+        setProgress((prev) => ({ ...prev, value: i + 1 }));
         window.electronAPI.sendUpdateProgress({ value: i + 1, total });
+        await new Promise((r) => setTimeout(r, 0));
         continue;
       }
 
@@ -540,9 +547,9 @@ const Importer = () => {
           `Skipping already matched game ${i + 1}/${total}: ${game.title}`,
         );
         updatedGames[i] = game;
-        setUpdateProgress({ value: i + 1, total });
+        setProgress((prev) => ({ ...prev, value: i + 1 }));
         window.electronAPI.sendUpdateProgress({ value: i + 1, total });
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 0));
         continue;
       }
 
@@ -616,7 +623,7 @@ const Importer = () => {
       updatedGames[i] = game;
 
       // Progress
-      setUpdateProgress({ value: i + 1, total });
+      setProgress((prev) => ({ ...prev, value: i + 1 }));
       window.electronAPI.sendUpdateProgress({ value: i + 1, total });
 
       // Breathing room for UI
@@ -628,8 +635,9 @@ const Importer = () => {
     console.log("All matches processed — final list set");
     window.electronAPI.log("All matches processed — final list set");
 
-    setUpdateProgress({ value: total, total });
+    setProgress((prev) => ({ ...prev, value: total }));
     window.electronAPI.sendUpdateProgress({ value: total, total });
+    setProgressLabel(null);
   };
 
   const importGamesFunc = async () => {
@@ -977,13 +985,15 @@ const Importer = () => {
                 />
                 <span className="ml-2">
                   {progress.value}/{progress.total}{" "}
-                  {importSource === "steam"
-                    ? "Games Scanned"
-                    : isLibraryResync
-                      ? "Library Folders Scanned"
-                      : isGameListMetadata
-                        ? "Game-List Records Scanned"
-                    : "Folders Scanned"}
+                  {progressLabel ?? (
+                    importSource === "steam"
+                      ? "Games Scanned"
+                      : isLibraryResync
+                        ? "Library Folders Scanned"
+                        : isGameListMetadata
+                          ? "Game-List Records Scanned"
+                          : "Folders Scanned"
+                  )}
                 </span>
               </div>
               <div className="mb-4 flex flex-wrap gap-4 text-sm">
