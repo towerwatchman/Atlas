@@ -18,9 +18,9 @@
 - `src/App.jsx`: replaced imported or updated games in existing React state instead of appending duplicate cards.
 
 ### Fixed
-- `src/main.js`: fixed RAR5 imports such as `Apocalypse with Femboy` failing because bundled `7za.exe` cannot open RAR archives.
+- `src/main.js`: fixed RAR5 imports failing because bundled `7za.exe` cannot open RAR archives.
 - `src/main.js`: fixed post-extraction executable selection so runtime helper files such as `python.exe` and `zsync.exe` are ignored.
-- `src/core/importer/importer.jsx` and `src/database.js`: fixed archives like `Slut Phone` remaining importable after `Update Matches` selected an already-installed Atlas/F95 record.
+- `src/core/importer/importer.jsx` and `src/database.js`: fixed archives remaining importable after `Update Matches` selected an already-installed Atlas/F95 record.
 - `src/database.js`: fixed installed games disappearing when `game_path` existed but `exec_path` still pointed at an old archive-wrapper folder.
 - `src/core/importer/importer.jsx`: fixed library resync media refresh so already-imported matched rows can download or refresh media when media options are checked.
 - `src/main.js`: fixed already-imported and repair rows creating duplicate records instead of updating existing version paths.
