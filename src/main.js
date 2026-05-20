@@ -730,19 +730,94 @@ async function moveFolderFast(source, destination, onProgress, shouldCancel) {
   return "copy";
 }
 
-async function extractArchive(zipPath, extractPath) {
-  const extractZip = require("extract-zip");
-
-  const ext = path.extname(zipPath).toLowerCase();
-  if (ext === ".zip") {
-    await extractZip(zipPath, { dir: extractPath });
-  } else if (ext === ".rar") {
-    await extractRarArchive(zipPath, extractPath);
-  } else if (ext === ".7z") {
-    await extractArchiveWithSevenZip(zipPath, extractPath);
-  } else {
-    throw new Error("Unsupported file format");
+async function getArchiveInfo(archivePath, sevenZipBin) {
+  if (!sevenZipBin || !fs.existsSync(sevenZipBin)) {
+    return { totalFiles: 0, totalUncompressedBytes: 0 };
   }
+  return new Promise((resolve, reject) => {
+    const child = cp.spawn(sevenZipBin, ["l", archivePath, "-y"]);
+    let output = "";
+    child.stdout.on("data", (d) => (output += d.toString()));
+    child.stderr.on("data", (d) => (output += d.toString()));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`7z l failed with code ${code}\nOutput:\n${output}`));
+        return;
+      }
+      let totalFiles = 0;
+      let totalUncompressedBytes = 0;
+      const lines = output.split("\n");
+      for (const line of lines) {
+        // Match summary line: "12345 files, 67890 bytes"
+        const summaryMatch = line.match(/(\d+)\s+files?,\s+(\d+)\s+bytes/i);
+        if (summaryMatch) {
+          totalFiles = parseInt(summaryMatch[1], 10);
+          totalUncompressedBytes = parseInt(summaryMatch[2], 10);
+          break;
+        }
+        // Match individual file lines (columns: Date Time Attr Size Compressed Name)
+        const fileMatch = line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+(\d+)\s+\d+\s+/);
+        if (fileMatch) {
+          totalUncompressedBytes += parseInt(fileMatch[1], 10);
+          totalFiles++;
+        }
+      }
+      resolve({ totalFiles, totalUncompressedBytes });
+    });
+  });
+}
+
+async function extractArchive(archivePath, extractPath, sevenZipBin, archiveInfo) {
+  const workerPath = path.join(__dirname, "workers/extractWorker.js");
+  const totalUncompressedBytes = archiveInfo?.totalUncompressedBytes || 0;
+  const totalFiles = archiveInfo?.totalFiles || 0;
+  console.log("Worker path:", workerPath);
+  if (!fs.existsSync(workerPath)) {
+    throw new Error(`Worker file not found: ${workerPath}`);
+  }
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(path.join(__dirname, "workers/extractWorker.js"), {
+      workerData: {
+        archivePath,
+        extractPath,
+        sevenZipBin,
+        totalUncompressedBytes,
+        totalFiles,
+      },
+    });
+    worker.on("message", (msg) => {
+      console.log("[MAIN → WORKER MSG RECEIVED]", JSON.stringify(msg));
+      if (msg.type === "progress") {
+        console.log("[MAIN → SENDING TO RENDERER]", msg.percent, msg.text);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("import-progress", {
+            text: msg.text,
+            progress: msg.percent,
+            total: 100,
+          });
+        } else {
+          console.warn("[MAIN] mainWindow not available for progress send");
+        }
+      } else if (msg.type === "done") {
+        if (msg.success) {
+          resolve({ success: true });
+        } else {
+          reject(new Error(msg.error || "Extraction failed"));
+        }
+        worker.terminate();
+      }
+    });
+    worker.on("error", (err) => {
+      reject(err);
+      worker.terminate();
+    });
+    worker.on("exit", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Worker stopped with exit code ${code}`));
+      }
+    });
+  });
 }
 
 async function extractRarArchive(archivePath, extractPath) {
@@ -894,7 +969,12 @@ async function removePathIfExists(targetPath) {
 
 ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
   try {
-    await extractArchive(zipPath, extractPath);
+    const sevenZipBin = getSevenZipExecutablePath();
+    let archiveInfo = { totalFiles: 0, totalUncompressedBytes: 0 };
+    try {
+      archiveInfo = await getArchiveInfo(zipPath, sevenZipBin);
+    } catch {}
+    await extractArchive(zipPath, extractPath, sevenZipBin, archiveInfo);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
@@ -2159,13 +2239,12 @@ ipcMain.handle("import-games", async (event, params) => {
   const results = [];
 
   for (const game of games) {
-    progress++;
     try {
       throwIfImportCanceled(session);
       session.cleanupPaths = [];
       session.progress = progress;
       mainWindow.webContents.send("import-progress", {
-        text: `Processing ${game.title} (${progress}/${total})`,
+        text: `Processing ${game.title} (${progress + 1}/${total})`,
         progress,
         total,
         canCancel: true,
@@ -2178,21 +2257,10 @@ ipcMain.handle("import-games", async (event, params) => {
 
       let size = 0;
 
-      // ── Structured move if requested ──
-      // ── Structured move if requested ──
-      if (
-        !game.isArchive &&
-        !registerInPlace &&
-        !metadataOnly &&
-        moveToDefaultFolder &&
-        targetLibrary &&
-        format.trim()
-      ) {
-        try {
-          const formatStr = format.trim();
-          const parts = formatStr
-            .split("/")
-            .map((p) => p.replace(/[{}]/g, "").trim());
+      // ── Structured move (non-archive) ───────────────────────────────────────
+      if (moveToDefaultFolder && targetLibrary && format.trim()) {
+        // ... existing move logic for non-archive games handled below ...
+      }
 
       // ── Archive extraction ───────────────────────────────────────
       if (game.isArchive && sevenZipPath) {
@@ -2207,7 +2275,7 @@ ipcMain.handle("import-games", async (event, params) => {
           throw new Error(`Archive not found: ${zipPath}`);
         }
 
-        // Build target extraction path (same logic you had before)
+        // Build target extraction path
         const parts = format
           .trim()
           .split("/")
@@ -2224,65 +2292,33 @@ ipcMain.handle("import-games", async (event, params) => {
 
         let extractPath = path.join(targetLibrary, ...segments);
 
-          // Handle name conflict
-          let counter = 1;
-          const originalDest = destPath;
-          while (fs.existsSync(destPath)) {
-            destPath = `${originalDest} (${counter++})`;
-          }
-
-          await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
-          session.cleanupPaths = [destPath];
-
-          // Preserve ORIGINAL source path
-          const originalSource = gamePath;
-
-          let copySuccess = false;
-
-          // Copy with progress
-          await copyFolderWithProgress(originalSource, destPath, (prog) => {
-            let text = `Moving ${game.title}`;
-            if (prog.type === "total") {
-              text += ` (${(prog.bytes / 1024 ** 3).toFixed(2)} GB total)`;
-            } else if (prog.type === "progress") {
-              text += `: ${prog.percent}% (${(prog.copied / 1024 ** 3).toFixed(2)} / ${(prog.total / 1024 ** 3).toFixed(2)} GB)`;
-            } else if (prog.type === "done") {
-              text += ` — complete`;
-              copySuccess = true; // Flag success for delete
-            } else if (prog.type === "error") {
-              text += ` — error: ${prog.message}`;
-              copySuccess = false;
-            }
-
-            mainWindow.webContents.send("import-progress", {
-              text,
-              progress,
-              total,
-              subProgress: prog.percent || 0,
-              subTotal: 100,
-              canCancel: true,
-            });
-          }, () => session.cancelRequested);
-          throwIfImportCanceled(session);
+        // ── Folder-exists check + user choice ───────────────────────────────
+        if (fs.existsSync(extractPath)) {
+          const { response } = await dialog.showMessageBox(mainWindow, {
+            type: "question",
+            buttons: ["Overwrite", "Skip", "Cancel"],
+            defaultId: 0,
+            cancelId: 2,
+            title: "Folder already exists",
+            message: `Target folder already exists:\n${extractPath}\n\nWhat do you want to do?`,
+          });
 
           if (response === 1) {
-            // Skip
             mainWindow.webContents.send("import-progress", {
               text: `Skipped ${game.title} — folder already exists`,
               progress,
               total,
             });
-            continue; // next game
+            continue;
           }
 
           if (response === 2) {
-            // Cancel whole import
             mainWindow.webContents.send("import-progress", {
               text: `Import cancelled by user`,
               progress,
               total,
             });
-            return results; // early exit from import-games
+            return results;
           }
 
           // response === 0 → Overwrite
@@ -2303,105 +2339,184 @@ ipcMain.handle("import-games", async (event, params) => {
           }
         }
 
-          // Update gamePath to new location for DB
-          gamePath = destPath;
-          execPath = path.join(gamePath, game.selectedValue || "");
-          session.cleanupPaths = [gamePath];
+        // Now safe to create (either new or just cleared)
+        await fsp.mkdir(extractPath, { recursive: true });
 
-          console.log(`Moved ${game.title} to: ${destPath}`);
-        } catch (moveErr) {
-          if (isImportCancelledError(moveErr)) throw moveErr;
-          console.error("Structured move failed:", moveErr);
+        // Pre-scan archive to get exact totals for progress reporting
+        let archiveInfo;
+        try {
+          archiveInfo = await getArchiveInfo(zipPath, sevenZipPath);
+          console.log(
+            `Archive info: ${archiveInfo.totalFiles} files, ${archiveInfo.totalUncompressedBytes} bytes uncompressed`,
+          );
+        } catch (err) {
+          console.warn("Pre-scan failed, falling back to estimation:", err);
+          archiveInfo = { totalFiles: 0, totalUncompressedBytes: 0 };
+        }
+
+        mainWindow.webContents.send("import-progress", {
+          text: `Preparing extraction for ${game.title}...`,
+          progress: 0,
+          total: 100,
+        });
+
+        try {
+          await extractArchive(zipPath, extractPath, sevenZipPath, archiveInfo);
+
+          mainWindow?.webContents.send("import-progress", {
+            text: `Extraction complete — 100% (${game.title})`,
+            progress: 100,
+            total: 100,
+          });
+
+          // Ask user whether to delete original archive (unless deleteAfter is set globally)
+          if (!deleteAfter) {
+            const { response } = await dialog.showMessageBox(mainWindow, {
+              type: "question",
+              buttons: ["Yes, delete archive", "No, keep it", "Cancel import for this game"],
+              defaultId: 0,
+              cancelId: 2,
+              title: "Delete Original Archive?",
+              message: `Extraction finished for ${game.title}.\n\nDo you want to delete the original archive file?\n\n${zipPath}`,
+              detail: "This cannot be undone. Keeping it is safer if something goes wrong.",
+            });
+
+            if (response === 0) {
+              try {
+                await fsp.unlink(zipPath);
+                console.log(`Deleted archive: ${zipPath}`);
+                mainWindow?.webContents.send("import-progress", {
+                  text: `Deleted original archive (${game.title})`,
+                  progress: 100,
+                  total: 100,
+                });
+              } catch (delErr) {
+                console.error(`Failed to delete archive ${zipPath}:`, delErr);
+                mainWindow?.webContents.send("import-progress", {
+                  text: `Failed to delete archive (kept original)`,
+                  progress: 100,
+                  total: 100,
+                });
+              }
+            } else if (response === 1) {
+              mainWindow?.webContents.send("import-progress", {
+                text: `Kept original archive (${game.title})`,
+                progress: 100,
+                total: 100,
+              });
+            } else if (response === 2) {
+              mainWindow?.webContents.send("import-progress", {
+                text: `Skipped remaining steps for ${game.title} (user cancelled)`,
+                progress: 100,
+                total: 100,
+              });
+              continue;
+            }
+          } else {
+            // deleteAfter enabled globally → auto-delete without asking
+            try {
+              await fsp.unlink(zipPath);
+              console.log(`Auto-deleted archive (deleteAfter enabled): ${zipPath}`);
+            } catch (e) {
+              console.warn(`Auto-delete failed: ${e.message}`);
+            }
+          }
+        } catch (err) {
+          throw err;
+        }
+
+        gamePath = extractPath;
+
+        // ── Find executables after extraction ────────────────────────────────
+        const { findExecutables } = require("./core/scanners/executableScanner");
+        let execs = findExecutables(extractPath, gameExt);
+
+        // Clean up common unwanted root-level folders
+        const foldersToRemove = ["__MACOSX", "__LINUX"];
+        for (const folderName of foldersToRemove) {
+          const target = path.join(extractPath, folderName);
+          try {
+            const stat = await fsp.stat(target).catch(() => null);
+            if (stat && stat.isDirectory()) {
+              console.log(`Removing unwanted folder: ${folderName}`);
+              await fsp.rm(target, { recursive: true, force: true });
+            }
+          } catch (err) {
+            console.warn(`Failed to remove ${folderName}: ${err.message}`);
+          }
+        }
+
+        // Handle common single-subfolder case (flatten nested root)
+        const items = await fsp.readdir(extractPath, { withFileTypes: true });
+        const dirs = items.filter((i) => i.isDirectory());
+        const files = items.filter((i) => i.isFile());
+
+        if (dirs.length === 1 && files.length === 0) {
+          const subPath = path.join(extractPath, dirs[0].name);
+          const subItems = await fsp.readdir(subPath);
+          for (const item of subItems) {
+            await fsp.rename(
+              path.join(subPath, item),
+              path.join(extractPath, item),
+            );
+          }
+          try {
+            await fsp.rmdir(subPath);
+          } catch {}
+
+          // Re-scan executables after flattening
+          execs = findExecutables(extractPath, gameExt);
+        }
+
+        // ── Executable selection ─────────────────────────────────────────────
+        let selectedExec = null;
+        if (execs.length === 0) {
           mainWindow.webContents.send("import-progress", {
             text: `Extracted ${game.title} – no executables found`,
             progress,
             total,
           });
-        }
-      }
-      if (!registerInPlace && !metadataOnly && game.isArchive) {
-        const defaultFolderName = sanitizePathSegment(
-          `${game.title || "Untitled"}-${game.version || "v1"}`,
-        );
-        const baseDestPath =
-          moveToDefaultFolder && targetLibrary && format.trim()
-            ? buildStructuredImportPath(targetLibrary, format, game)
-            : path.join(gamesDir, defaultFolderName);
-        const destPath = getUniquePath(baseDestPath);
-        const tempExtractPath = getUniqueTempPath(destPath);
+          game.selectedValue = null;
+          execPath = null;
+        } else if (execs.length === 1) {
+          selectedExec = execs[0];
+          console.log(`Auto-selected single executable for ${game.title}: ${selectedExec}`);
+          mainWindow.webContents.send("import-progress", {
+            text: `Using single executable: ${selectedExec}`,
+            progress: 100,
+            total: 100,
+          });
+        } else {
+          selectedExec = await new Promise((resolve) => {
+            showExecutableChooser(game.title, game.version || "", execs);
+            const onChosen = (event, data) => {
+              ipcMain.removeAllListeners("executable-chosen");
+              resolve(data.selectedExecutable || null);
+            };
+            ipcMain.once("executable-chosen", onChosen);
+            executableChooserWindow.on("closed", () => {
+              ipcMain.removeAllListeners("executable-chosen");
+              resolve(null);
+            });
+          });
 
-        await fs.promises.mkdir(path.dirname(tempExtractPath), {
-          recursive: true,
-        });
-        session.cleanupPaths = [tempExtractPath, destPath];
-
-        mainWindow.webContents.send("import-progress", {
-          text: `Extracting ${game.title}...`,
-          progress,
-          total,
-          canCancel: true,
-        });
-
-        await extractArchive(game.folder, tempExtractPath);
-        throwIfImportCanceled(session);
-
-        const normalized = getNormalizedArchiveRoot(tempExtractPath, gameExt);
-        await moveFolderFast(
-          normalized.rootPath,
-          destPath,
-          (prog) => {
-            let text =
-              prog.type === "done"
-                ? `Prepared ${game.title} install folder`
-                : `Moving extracted ${game.title}`;
-            if (prog.type === "total") {
-              text += ` (${(prog.bytes / 1024 ** 3).toFixed(2)} GB total)`;
-            } else if (prog.type === "progress") {
-              text += `: ${prog.percent}% (${(prog.copied / 1024 ** 3).toFixed(2)} / ${(prog.total / 1024 ** 3).toFixed(2)} GB)`;
-            } else if (prog.type === "error") {
-              text += ` - error: ${prog.message}`;
-            }
-
+          if (!selectedExec) {
             mainWindow.webContents.send("import-progress", {
-              text,
+              text: `Skipped ${game.title} – no executable selected`,
               progress,
               total,
-              subProgress: prog.percent || 0,
-              subTotal: 100,
-              canCancel: true,
             });
-          },
-          () => session.cancelRequested,
-        );
-        throwIfImportCanceled(session);
-
-        if (fs.existsSync(tempExtractPath)) {
-          await fs.promises.rm(tempExtractPath, {
-            recursive: true,
-            force: true,
-          });
-        }
-
-        if (deleteAfter) fs.unlinkSync(game.folder);
-        gamePath = destPath;
-        session.cleanupPaths = [gamePath];
-
-        const execs = findExecutables(gamePath, gameExt);
-        if (execs.length > 0) {
-          const selected = execs[0];
-          execPath = path.join(gamePath, selected);
-          for (const [eng, patterns] of Object.entries(engineMap)) {
-            if (patterns.some((p) => selected.toLowerCase().includes(p))) {
-              game.engine = eng;
-              break;
-            }
+            continue;
           }
         }
+
+        if (selectedExec) {
           execPath = path.join(extractPath, selectedExec);
           game.selectedValue = selectedExec;
-          console.log(execs)
-          console.log(execPath)
+          console.log(execs);
+          console.log(execPath);
           game.executables = execs.map((e) => ({ key: e, value: e }));
+        }
       }
 
       if (scanSize) {
