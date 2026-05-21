@@ -372,6 +372,12 @@ const App = () => {
     progress: 0,
     total: 0,
   });
+  const [appUpdateNotice, setAppUpdateNotice] = useState({
+    visible: false,
+    status: "",
+    version: "",
+    text: "",
+  });
   const [importProgress, setImportProgress] = useState({
     text: "",
     progress: 0,
@@ -653,18 +659,6 @@ const App = () => {
         console.error("Failed to load template:", error);
       });
 
-    // Check for updates
-    window.electronAPI
-      .checkUpdates()
-      .then(({ latestVersion, updateAvailable }) => {
-        if (updateAvailable === true) {
-          alert(`New version ${latestVersion} available!`);
-        }
-      })
-      .catch((error) => {
-        console.error("Failed to check updates:", error);
-      });
-
     window.electronAPI.getVersion().then((v) => setVersion(v));
 
     runDbUpdateCheck();
@@ -802,9 +796,12 @@ const App = () => {
     const handleUpdateStatus = (status) => {
       console.log("Update status:", status);
       if (status.status === "available") {
-        alert(
-          `New app version ${status.version} is available and will be downloaded.`,
-        );
+        setAppUpdateNotice({
+          visible: true,
+          status: "available",
+          version: status.version || "",
+          text: `Atlas ${status.version} is available.`,
+        });
       } else if (status.status === "downloading") {
         setDbUpdateStatus({
           text: `Downloading update: ${status.percent.toFixed(0)}%`,
@@ -812,11 +809,14 @@ const App = () => {
           total: 100,
         });
       } else if (status.status === "downloaded") {
-        alert(
-          `Update ${status.version} downloaded. Restarting app to install.`,
-        );
+        setAppUpdateNotice({
+          visible: true,
+          status: "downloaded",
+          version: status.version || "",
+          text: `Atlas ${status.version} is ready to install.`,
+        });
       } else if (status.status === "error") {
-        alert(`Update error: ${status.error}`);
+        console.error("Update error:", status.error);
       }
     };
 
@@ -853,6 +853,16 @@ const App = () => {
     );
     window.electronAPI.onImportComplete(handleImportComplete);
     window.electronAPI.onUpdateStatus(handleUpdateStatus);
+    window.electronAPI
+      .getAppUpdateState?.()
+      .then((status) => {
+        if (status?.status && status.status !== "idle") {
+          handleUpdateStatus(status);
+        }
+      })
+      .catch((error) =>
+        console.error("Failed to load app update state:", error),
+      );
 
     //banner context menu
     window.electronAPI.onContextMenuCommand((event, data) => {
@@ -1354,6 +1364,34 @@ return (
               Cancel Import
             </button>
           )}
+        </div>
+      </div>
+    )}
+
+    {appUpdateNotice.visible && (
+      <div className="fixed bottom-[40px] left-0 right-0 z-50 bg-primary border-t border-accent px-4 py-2 text-text flex items-center justify-between gap-3">
+        <div className="flex items-center min-w-0">
+          <i className="fas fa-arrow-circle-up mr-2 text-highlight"></i>
+          <span className="truncate">
+            {appUpdateNotice.text} Manage app updates in Settings.
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => window.electronAPI.openSettings()}
+            className="bg-accent px-3 py-1 hover:bg-opacity-90"
+          >
+            Settings
+          </button>
+          <button
+            onClick={() =>
+              setAppUpdateNotice((notice) => ({ ...notice, visible: false }))
+            }
+            className="bg-transparent px-2 py-1 hover:text-highlight"
+            aria-label="Dismiss update notice"
+          >
+            <i className="fas fa-times"></i>
+          </button>
         </div>
       </div>
     )}

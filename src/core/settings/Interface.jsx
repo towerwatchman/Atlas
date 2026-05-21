@@ -5,6 +5,23 @@ const Interface = () => {
   const [showDebugConsole, setShowDebugConsole] = React.useState(false);
   const [minimizeToTray, setMinimizeToTray] = React.useState(false);
   const [showSidebar, setShowSidebar] = React.useState(true);
+  const [checkForAppUpdatesOnStartup, setCheckForAppUpdatesOnStartup] =
+    React.useState(true);
+  const [updateStatus, setUpdateStatus] = React.useState("idle");
+  const [updateVersion, setUpdateVersion] = React.useState("");
+  const [updatePercent, setUpdatePercent] = React.useState(0);
+  const [updateError, setUpdateError] = React.useState("");
+
+  const applyUpdateStatus = (status) => {
+    if (!status?.status) return;
+    setUpdateStatus(status.status);
+    if (status.version) setUpdateVersion(status.version);
+    if (typeof status.percent === "number") {
+      setUpdatePercent(status.percent);
+    }
+    if (status.error) setUpdateError(status.error);
+    else if (status.status !== "error") setUpdateError("");
+  };
 
   React.useEffect(() => {
     window.electronAPI.getConfig().then((config) => {
@@ -15,7 +32,23 @@ const Interface = () => {
       setShowDebugConsole(interfaceSettings.showDebugConsole || false);
       setMinimizeToTray(interfaceSettings.minimizeToTray || false);
       setShowSidebar(interfaceSettings.showSidebar ?? true);
+      setCheckForAppUpdatesOnStartup(
+        interfaceSettings.checkForAppUpdatesOnStartup ?? true,
+      );
     });
+
+    const removeUpdateListener = window.electronAPI.onUpdateStatus?.(
+      applyUpdateStatus,
+    );
+    window.electronAPI.getAppUpdateState?.().then(applyUpdateStatus);
+
+    return () => {
+      if (typeof removeUpdateListener === "function") {
+        removeUpdateListener();
+      } else {
+        window.electronAPI.removeUpdateStatusListener?.();
+      }
+    };
   }, []);
 
   const saveSettings = (updatedSettings) => {
@@ -60,6 +93,56 @@ const Interface = () => {
     setMinimizeToTray(!minimizeToTray);
     saveSettings({ minimizeToTray: !minimizeToTray });
   };
+
+  const handleStartupUpdateCheckChange = () => {
+    const newVal = !checkForAppUpdatesOnStartup;
+    setCheckForAppUpdatesOnStartup(newVal);
+    saveSettings({ checkForAppUpdatesOnStartup: newVal });
+  };
+
+  const handleCheckAppUpdate = async () => {
+    setUpdateStatus("checking");
+    setUpdateError("");
+    const result = await window.electronAPI.checkAppUpdate();
+    if (result?.success === false) {
+      setUpdateStatus("error");
+      setUpdateError(result.error || "Unable to check for updates");
+    }
+  };
+
+  const handleDownloadAppUpdate = async () => {
+    setUpdateStatus("downloading");
+    setUpdateError("");
+    const result = await window.electronAPI.downloadAppUpdate();
+    if (result?.success === false) {
+      setUpdateStatus("error");
+      setUpdateError(result.error || "Unable to download update");
+    }
+  };
+
+  const handleInstallAppUpdate = async () => {
+    const result = await window.electronAPI.installAppUpdate();
+    if (result?.success === false) {
+      setUpdateStatus("error");
+      setUpdateError(result.error || "Unable to install update");
+    }
+  };
+
+  const updateStatusText = (() => {
+    if (updateStatus === "checking") return "Checking for updates...";
+    if (updateStatus === "available") {
+      return `Atlas ${updateVersion || "update"} is available.`;
+    }
+    if (updateStatus === "downloading") {
+      return `Downloading update: ${updatePercent.toFixed(0)}%`;
+    }
+    if (updateStatus === "downloaded") {
+      return `Atlas ${updateVersion || "update"} is ready to install.`;
+    }
+    if (updateStatus === "not-available") return "Atlas is up to date.";
+    if (updateStatus === "error") return updateError || "Update check failed.";
+    return "No update check has run in this window.";
+  })();
 
   return (
     <div className="p-5 text-text">
@@ -143,6 +226,50 @@ const Interface = () => {
       <p className="text-xs opacity-50 mb-2">
         Hide/show the left sidebar. Requires restart.
       </p>
+      <div className="border-t border-text opacity-25 my-2"></div>
+
+      <div className="flex items-center mb-2">
+        <label className="flex-1">Check for Atlas updates on startup</label>
+        <input
+          type="checkbox"
+          className="mr-5"
+          checked={checkForAppUpdatesOnStartup}
+          onChange={handleStartupUpdateCheckChange}
+        />
+      </div>
+      <p className="text-xs opacity-50 mb-2">
+        Atlas will notify you about new versions, but updates are downloaded
+        only when you choose.
+      </p>
+      <div className="border-t border-text opacity-25 my-2"></div>
+
+      <div className="mb-2">
+        <div className="font-semibold mb-2">App Updates</div>
+        <p className="text-xs opacity-70 mb-3">{updateStatusText}</p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleCheckAppUpdate}
+            disabled={updateStatus === "checking"}
+            className="bg-accent px-4 py-2 rounded hover:bg-opacity-90 disabled:opacity-50"
+          >
+            Check for updates
+          </button>
+          <button
+            onClick={handleDownloadAppUpdate}
+            disabled={updateStatus !== "available"}
+            className="bg-accent px-4 py-2 rounded hover:bg-opacity-90 disabled:opacity-50"
+          >
+            Download update
+          </button>
+          <button
+            onClick={handleInstallAppUpdate}
+            disabled={updateStatus !== "downloaded"}
+            className="bg-accent px-4 py-2 rounded hover:bg-opacity-90 disabled:opacity-50"
+          >
+            Install and restart
+          </button>
+        </div>
+      </div>
       <div className="border-t border-text opacity-25 my-2"></div>
     </div>
   );

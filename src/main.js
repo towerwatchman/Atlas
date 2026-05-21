@@ -359,40 +359,59 @@ autoUpdater.setFeedURL({
   owner: "towerwatchman",
   repo: "Atlas",
 });
+autoUpdater.autoDownload = false;
 autoUpdater.allowDowngrade = false;
+let updateInfo = null;
+let updateDownloaded = false;
+let lastUpdateStatus = { status: "idle" };
+
+function sendUpdateStatus(status) {
+  lastUpdateStatus = status;
+  BrowserWindow.getAllWindows().forEach((window) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send("update-status", status);
+    }
+  });
+}
+
 autoUpdater.on("checking-for-update", () => {
   console.log("Checking for updates...");
-  mainWindow.webContents.send("update-status", { status: "checking" });
+  sendUpdateStatus({ status: "checking" });
 });
 autoUpdater.on("update-available", (info) => {
   console.log(`Update available: ${info.version}`);
-  mainWindow.webContents.send("update-status", {
+  updateInfo = info;
+  updateDownloaded = false;
+  sendUpdateStatus({
     status: "available",
     version: info.version,
   });
 });
 autoUpdater.on("update-not-available", (info) => {
   console.log("No updates available.");
-  mainWindow.webContents.send("update-status", { status: "not-available" });
+  updateInfo = null;
+  updateDownloaded = false;
+  sendUpdateStatus({ status: "not-available" });
 });
 autoUpdater.on("download-progress", (progress) => {
   console.log(`Download progress: ${progress.percent}%`);
-  mainWindow.webContents.send("update-status", {
+  sendUpdateStatus({
     status: "downloading",
     percent: progress.percent,
   });
 });
 autoUpdater.on("update-downloaded", (info) => {
   console.log(`Update downloaded: ${info.version}`);
-  mainWindow.webContents.send("update-status", {
+  updateInfo = info;
+  updateDownloaded = true;
+  sendUpdateStatus({
     status: "downloaded",
     version: info.version,
   });
-  autoUpdater.quitAndInstall();
 });
 autoUpdater.on("error", (err) => {
   console.error("Updater error:", err);
-  mainWindow.webContents.send("update-status", {
+  sendUpdateStatus({
     status: "error",
     error: err.message,
   });
@@ -410,6 +429,7 @@ const defaultConfig = {
     gameStartup: "Do Nothing",
     showDebugConsole: false,
     minimizeToTray: false,
+    checkForAppUpdatesOnStartup: true,
   },
   Library: {
     rootPath: dataDir,
@@ -1112,6 +1132,42 @@ ipcMain.handle("check-updates", async () => {
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+
+ipcMain.handle("check-app-update", async () => {
+  try {
+    await autoUpdater.checkForUpdates();
+    return { success: true };
+  } catch (err) {
+    sendUpdateStatus({ status: "error", error: err.message });
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("get-app-update-state", async () => {
+  return lastUpdateStatus;
+});
+
+ipcMain.handle("download-app-update", async () => {
+  try {
+    if (!updateInfo) {
+      return { success: false, error: "No app update is currently available" };
+    }
+    await autoUpdater.downloadUpdate();
+    return { success: true };
+  } catch (err) {
+    sendUpdateStatus({ status: "error", error: err.message });
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("install-app-update", async () => {
+  if (!updateDownloaded) {
+    return { success: false, error: "No downloaded app update is ready to install" };
+  }
+
+  autoUpdater.quitAndInstall();
+  return { success: true };
 });
 
 ipcMain.handle("check-db-updates", async () => {
@@ -3388,7 +3444,12 @@ app.whenReady().then(async () => {
     console.error("Stale executable repair failed:", err);
   }
   createWindow();
-  autoUpdater.checkForUpdatesAndNotify();
+  if (appConfig?.Interface?.checkForAppUpdatesOnStartup !== false) {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.error("Startup update check failed:", err);
+      sendUpdateStatus({ status: "error", error: err.message });
+    });
+  }
 });
 
 app.on("window-all-closed", () => {
