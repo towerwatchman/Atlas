@@ -89,7 +89,9 @@ jobs:
         run: |
           Write-Output "Starting nightly prerelease build for ${{ matrix.os }}"
           npm run build:css
-          npx electron-builder --win -p always -c.publish.releaseType=prerelease
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx electron-builder --win -p always --config.publish.releaseType=prerelease
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Write-Output "Nightly prerelease build completed"
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -101,7 +103,7 @@ jobs:
         run: |
           echo "Starting nightly prerelease build for ${{ matrix.os }}"
           npm run build:css
-          npx electron-builder --linux -p always -c.publish.releaseType=prerelease
+          npx electron-builder --linux -p always --config.publish.releaseType=prerelease
           echo "Nightly prerelease build completed"
         if: matrix.os == 'ubuntu-latest'
         shell: bash
