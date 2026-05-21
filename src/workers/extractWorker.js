@@ -1,146 +1,128 @@
 // workers/extractWorker.js
 const { parentPort, workerData } = require("worker_threads");
 const { spawn } = require("child_process");
-const fs = require("fs").promises;
-const path = require("path");
 
-const {
-  archivePath,
-  extractPath,
-  sevenZipBin,
-  totalUncompressedBytes = 0, // Passed from main
-  totalFiles = 0, // Passed from main (optional fallback)
-} = workerData;
+const { archivePath, extractPath, sevenZipBin } = workerData;
 
-async function extractInWorker() {
-  let lastPercent = 0;
-  let lastBytes = 0;
-  let lastFileCount = 0;
+let child = null;
+let canceled = false;
+let lastPercent = -1;
+let lastActivityMessageAt = 0;
 
-  console.log(`[worker] Starting extraction: ${archivePath} → ${extractPath}`);
-  console.log(
-    `[worker] Known totals: ${totalFiles} files, ${totalUncompressedBytes} bytes uncompressed`,
-  );
+function postProgress(percent, text, phase = "extracting") {
+  if (typeof percent === "number") {
+    const nextPercent = Math.max(0, Math.min(99, Math.floor(percent)));
+    if (nextPercent <= lastPercent) return;
+    lastPercent = nextPercent;
+    parentPort.postMessage({
+      type: "progress",
+      percent: nextPercent,
+      text,
+      phase,
+    });
+    return;
+  }
 
-  // Progress reporting interval
-  const interval = setInterval(async () => {
-    try {
-      let currentBytes = 0;
-      let currentFiles = 0;
+  const now = Date.now();
+  if (now - lastActivityMessageAt < 4000) return;
+  lastActivityMessageAt = now;
+  parentPort.postMessage({ type: "progress", text, phase });
+}
 
-      // Get all entries recursively
-      const entries = await fs.readdir(extractPath, {
-        recursive: true,
-        withFileTypes: true,
-      });
-      currentFiles = entries.length;
-
-      // Sum file sizes
-      for (const entry of entries) {
-        if (entry.isFile()) {
-          try {
-            const fullPath = path.join(extractPath, entry.path || entry.name);
-            const stat = await fs.stat(fullPath);
-            currentBytes += stat.size;
-          } catch {
-            // skip inaccessible files
-          }
-        }
-      }
-
-      let percent = 0;
-      let progressText = "";
-
-      // 1. Primary: size-based progress (preferred when available)
-      if (totalUncompressedBytes > 1024 * 1024 * 5) {
-        // > ~5 MB to trust
-        percent = Math.min(
-          95,
-          Math.round((currentBytes / totalUncompressedBytes) * 100),
-        );
-        progressText = `Extracting... ${percent}% (${Math.round(currentBytes / 1024 / 1024)} / ${Math.round(totalUncompressedBytes / 1024 / 1024)} MiB)`;
-      }
-      // 2. Fallback: file-count based
-      else if (totalFiles > 10) {
-        percent = Math.min(95, Math.round((currentFiles / totalFiles) * 100));
-        progressText = `Extracting... ${percent}% (${currentFiles} / ${totalFiles} files)`;
-      }
-      // 3. Very rough fallback
-      else {
-        percent = Math.min(95, Math.round(currentFiles / 20));
-        progressText = `Extracting... ~${percent}% (${currentFiles} files)`;
-      }
-
-      // Only send if meaningfully changed
-      if (percent > lastPercent + 1 || percent === 100) {
-        lastPercent = percent;
-
-        parentPort.postMessage({
-          type: "progress",
-          percent,
-          text: progressText,
-          bytes: currentBytes,
-          files: currentFiles,
-        });
-
-        console.log(`[worker] Sent progress: ${progressText}`);
-      }
-
-      lastBytes = currentBytes;
-      lastFileCount = currentFiles;
-    } catch (err) {
-      // Folder not ready yet or access denied → skip tick
+function parseSevenZipProgress(chunk) {
+  const text = chunk.toString();
+  const matches = [...text.matchAll(/(\d{1,3})%/g)];
+  if (matches.length > 0) {
+    const percent = Number(matches[matches.length - 1][1]);
+    if (Number.isFinite(percent)) {
+      postProgress(percent, `Extracting... ${Math.min(percent, 99)}%`);
     }
-  }, 1500); // 1.5 seconds — good balance
+    return;
+  }
 
+  if (text.trim()) {
+    postProgress(undefined, "Extracting archive...", "extracting");
+  }
+}
+
+function createCanceledError() {
+  const err = new Error("Archive extraction canceled");
+  err.code = "IMPORT_CANCELED";
+  return err;
+}
+
+parentPort.on("message", (message) => {
+  if (message !== "cancel") return;
+  canceled = true;
+  if (child && !child.killed) {
+    child.kill();
+  }
+});
+
+function extractInWorker() {
   return new Promise((resolve, reject) => {
-    const child = spawn(sevenZipBin, [
-      "x",
-      archivePath,
-      `-o${extractPath}`,
-      "-y",
-    ]);
+    postProgress(0, "Starting archive extraction...", "starting");
 
-    // Optional: log stderr for debugging
+    child = spawn(
+      sevenZipBin,
+      ["x", archivePath, `-o${extractPath}`, "-y", "-bb0", "-bsp1"],
+      { windowsHide: true },
+    );
+
+    let output = "";
+    child.stdout.on("data", (data) => {
+      output += data.toString();
+      if (output.length > 12000) output = output.slice(-12000);
+      parseSevenZipProgress(data);
+    });
     child.stderr.on("data", (data) => {
-      console.log(`[worker 7z stderr]: ${data.toString().trim()}`);
+      output += data.toString();
+      if (output.length > 12000) output = output.slice(-12000);
+      parseSevenZipProgress(data);
     });
 
-    child.on("error", (err) => {
-      clearInterval(interval);
-      console.error(`[worker] Spawn error:`, err);
-      reject(err);
-    });
-
+    child.on("error", reject);
     child.on("close", (code) => {
-      clearInterval(interval);
-
+      child = null;
+      if (canceled) {
+        reject(createCanceledError());
+        return;
+      }
       if (code === 0) {
-        console.log(`[worker] Extraction success (code 0)`);
         parentPort.postMessage({
           type: "progress",
           percent: 100,
-          text: "Extraction complete — 100%",
+          text: "Extraction complete - 100%",
+          phase: "complete",
         });
-        resolve({ success: true });
-      } else {
-        console.error(`[worker] 7z failed with code ${code}`);
-        reject(new Error(`7z exited with code ${code}`));
+        resolve();
+        return;
       }
+
+      reject(
+        new Error(
+          `7-Zip extraction failed with exit code ${code}: ${
+            output.trim() || "No output"
+          }`,
+        ),
+      );
     });
   });
 }
 
 extractInWorker()
   .then(() => {
-    parentPort.postMessage({ type: "done", success: true });
-    console.log(`[worker] Sent done: success`);
+    parentPort.postMessage({
+      type: "done",
+      success: true,
+      finalPath: extractPath,
+    });
   })
   .catch((err) => {
     parentPort.postMessage({
       type: "done",
       success: false,
+      canceled: err.code === "IMPORT_CANCELED",
       error: err.message,
     });
-    console.error(`[worker] Sent done: error - ${err.message}`);
   });

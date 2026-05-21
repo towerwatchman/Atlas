@@ -762,7 +762,8 @@ async function findGame(
               creator,
               engine,
               version,
-              folder: isArchive ? t : isFile ? path.dirname(t) : t,
+              folder: isArchive || isFile ? path.dirname(t) : t,
+              sourceFile: isArchive ? t : undefined,
             })
           : null;
       recordExist = params.deferMatching
@@ -793,7 +794,8 @@ async function findGame(
       selectedValue,
       singleVisible,
       multipleVisible,
-      folder: isArchive ? t : isFile ? path.dirname(t) : t,
+      folder: isArchive || isFile ? path.dirname(t) : t,
+      sourceFile: isArchive ? t : undefined,
       results,
       resultSelectedValue: results[0]?.key || "",
       resultVisibility: results.length > 0 ? "visible" : "hidden",

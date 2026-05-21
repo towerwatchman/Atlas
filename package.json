@@ -40,6 +40,7 @@
       "src/App.jsx",
       "src/assets/**/*",
       "src/core/**/*",
+      "src/workers/**/*",
       "src/core/scanners/**/*",
       "src/core/importer/**/*",
       "src/core/settings/**/*",
@@ -55,6 +56,7 @@
     "asar": true,
     "asarUnpack": [
       "node_modules/**/*.node",
+      "src/workers/**/*",
       "node_modules/sqlite3/**/*",
       "node_modules/sharp/**/*",
       "node_modules/@img/**/*",

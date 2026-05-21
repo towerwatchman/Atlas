@@ -592,6 +592,31 @@ function findGameListInfoFiles(targetPath) {
   return files.sort((a, b) => a.localeCompare(b));
 }
 
+function resolveArchivePathForImport(game, archiveFilename) {
+  const candidates = [];
+  if (game?.folder) candidates.push(String(game.folder));
+  if (game?.sourceFile) candidates.push(String(game.sourceFile));
+  if (game?.folder && archiveFilename) {
+    candidates.push(path.join(String(game.folder), archiveFilename));
+  }
+
+  const archivePath = candidates.find((candidate) => {
+    try {
+      return candidate && fs.existsSync(candidate) && fs.statSync(candidate).isFile();
+    } catch {
+      return false;
+    }
+  });
+
+  if (!archivePath) {
+    throw new Error(
+      `Archive not found: ${candidates.filter(Boolean).join(" or ") || "no archive path supplied"}`,
+    );
+  }
+
+  return archivePath;
+}
+
 async function buildGameListImportRows(targetPath) {
   const files = findGameListInfoFiles(targetPath);
   const rows = [];
@@ -768,55 +793,101 @@ async function getArchiveInfo(archivePath, sevenZipBin) {
   });
 }
 
-async function extractArchive(archivePath, extractPath, sevenZipBin, archiveInfo) {
-  const workerPath = path.join(__dirname, "workers/extractWorker.js");
-  const totalUncompressedBytes = archiveInfo?.totalUncompressedBytes || 0;
-  const totalFiles = archiveInfo?.totalFiles || 0;
+async function extractArchive(archivePath, finalPath, sevenZipBin, session) {
+  const workerPath = resolvePackagedModulePath(
+    path.join(__dirname, "workers/extractWorker.js"),
+  );
+  const tempPath = getUniqueTempPath(finalPath);
   console.log("Worker path:", workerPath);
   if (!fs.existsSync(workerPath)) {
     throw new Error(`Worker file not found: ${workerPath}`);
   }
+
+  await fsp.mkdir(tempPath, { recursive: true });
+  session?.cleanupPaths?.push(tempPath);
+
   return new Promise((resolve, reject) => {
-    const worker = new Worker(path.join(__dirname, "workers/extractWorker.js"), {
+    let settled = false;
+    const worker = new Worker(workerPath, {
       workerData: {
         archivePath,
-        extractPath,
+        extractPath: tempPath,
         sevenZipBin,
-        totalUncompressedBytes,
-        totalFiles,
       },
     });
+    if (session) session.currentExtractionWorker = worker;
+
+    const cleanupWorker = () => {
+      if (session?.currentExtractionWorker === worker) {
+        session.currentExtractionWorker = null;
+      }
+      worker.terminate().catch(() => {});
+    };
+
+    const settle = (callback) => {
+      if (settled) return;
+      settled = true;
+      cleanupWorker();
+      callback();
+    };
     worker.on("message", (msg) => {
-      console.log("[MAIN → WORKER MSG RECEIVED]", JSON.stringify(msg));
       if (msg.type === "progress") {
-        console.log("[MAIN → SENDING TO RENDERER]", msg.percent, msg.text);
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("import-progress", {
             text: msg.text,
-            progress: msg.percent,
+            progress:
+              typeof msg.percent === "number"
+                ? msg.percent
+                : session?.progress || 0,
             total: 100,
+            phase: msg.phase,
+            canCancel: true,
           });
         } else {
           console.warn("[MAIN] mainWindow not available for progress send");
         }
       } else if (msg.type === "done") {
-        if (msg.success) {
-          resolve({ success: true });
-        } else {
-          reject(new Error(msg.error || "Extraction failed"));
-        }
-        worker.terminate();
+        settle(async () => {
+          if (!msg.success) {
+            await removePathIfExists(tempPath);
+            if (msg.canceled) reject(createImportCancelledError());
+            else reject(new Error(msg.error || "Extraction failed"));
+            return;
+          }
+
+          try {
+            throwIfImportCanceled(session);
+            await fsp.mkdir(path.dirname(finalPath), { recursive: true });
+            if (fs.existsSync(finalPath)) {
+              finalPath = getUniquePath(finalPath);
+            }
+            await fsp.rename(tempPath, finalPath);
+            resolve({ success: true, finalPath });
+          } catch (err) {
+            await removePathIfExists(tempPath);
+            reject(err);
+          }
+        });
       }
     });
     worker.on("error", (err) => {
-      reject(err);
-      worker.terminate();
+      settle(async () => {
+        await removePathIfExists(tempPath);
+        reject(err);
+      });
     });
     worker.on("exit", (code) => {
       if (code !== 0) {
-        reject(new Error(`Worker stopped with exit code ${code}`));
+        settle(async () => {
+          await removePathIfExists(tempPath);
+          reject(new Error(`Worker stopped with exit code ${code}`));
+        });
       }
     });
+
+    if (session?.cancelRequested) {
+      worker.postMessage("cancel");
+    }
   });
 }
 
@@ -857,6 +928,38 @@ function resolvePackagedModulePath(modulePath) {
 
 function getSevenZipExecutablePath() {
   return resolvePackagedModulePath(require("7zip-bin").path7za);
+}
+
+function getCommonSevenZipPaths() {
+  const possiblePaths = [];
+  if (process.platform === "win32") {
+    possiblePaths.push(
+      "C:\\Program Files\\7-Zip\\7z.exe",
+      "C:\\Program Files (x86)\\7-Zip\\7z.exe",
+    );
+  } else if (process.platform === "linux") {
+    possiblePaths.push("/usr/bin/7z", "/usr/bin/7zz", "/usr/local/bin/7z");
+  }
+  return possiblePaths;
+}
+
+function saveSevenZipPath(sevenZipPath) {
+  const newConfig = {
+    ...appConfig,
+    Library: { ...appConfig.Library, sevenZipPath },
+  };
+  fs.writeFileSync(configPath, ini.stringify(newConfig));
+  appConfig = newConfig;
+}
+
+function getBundledSevenZipPath() {
+  try {
+    const bundledPath = getSevenZipExecutablePath();
+    return bundledPath && fs.existsSync(bundledPath) ? bundledPath : null;
+  } catch (err) {
+    console.warn("Bundled 7-Zip unavailable:", err.message);
+    return null;
+  }
 }
 
 function extractArchiveWithSevenZip(archivePath, extractPath) {
@@ -970,12 +1073,8 @@ async function removePathIfExists(targetPath) {
 ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
   try {
     const sevenZipBin = getSevenZipExecutablePath();
-    let archiveInfo = { totalFiles: 0, totalUncompressedBytes: 0 };
-    try {
-      archiveInfo = await getArchiveInfo(zipPath, sevenZipBin);
-    } catch {}
-    await extractArchive(zipPath, extractPath, sevenZipBin, archiveInfo);
-    return { success: true };
+    const extraction = await extractArchive(zipPath, extractPath, sevenZipBin);
+    return { success: true, extractPath: extraction.finalPath || extractPath };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -987,6 +1086,7 @@ ipcMain.handle("cancel-import", async () => {
   }
 
   activeImportSession.cancelRequested = true;
+  activeImportSession.currentExtractionWorker?.postMessage("cancel");
   mainWindow?.webContents.send("import-progress", {
     text: "Cancel requested. Cleaning up current import...",
     progress: activeImportSession.progress || 0,
@@ -2142,6 +2242,7 @@ ipcMain.handle("import-games", async (event, params) => {
     progress,
     total,
     cleanupPaths: [],
+    currentExtractionWorker: null,
   };
   activeImportSession = session;
 
@@ -2181,6 +2282,17 @@ ipcMain.handle("import-games", async (event, params) => {
   const needsExtraction = games.some((g) => g.isArchive === true);
 
   if (needsExtraction) {
+    if (!sevenZipPath || !fs.existsSync(sevenZipPath)) {
+      sevenZipPath = getBundledSevenZipPath();
+      if (sevenZipPath) {
+        mainWindow.webContents.send("import-progress", {
+          text: `Using bundled 7-Zip: ${path.basename(sevenZipPath)}`,
+          progress: 0,
+          total: 0,
+        });
+      }
+    }
+
     // Try to auto-detect if not set
     if (!sevenZipPath || !fs.existsSync(sevenZipPath)) {
       const possiblePaths = [];
@@ -2197,12 +2309,7 @@ ipcMain.handle("import-games", async (event, params) => {
         if (fs.existsSync(p)) {
           sevenZipPath = p;
           // Auto-save it
-          const newConfig = {
-            ...appConfig,
-            Library: { ...appConfig.Library, sevenZipPath: p },
-          };
-          fs.writeFileSync(configPath, ini.stringify(newConfig));
-          appConfig = newConfig; // update in-memory
+          saveSevenZipPath(p);
           mainWindow.webContents.send("import-progress", {
             text: `Auto-detected 7-Zip: ${path.basename(p)}`,
             progress: 0,
@@ -2230,12 +2337,7 @@ ipcMain.handle("import-games", async (event, params) => {
       if (!result.canceled && result.filePaths?.length > 0) {
         sevenZipPath = result.filePaths[0];
         // Save to config
-        const newConfig = {
-          ...appConfig,
-          Library: { ...appConfig.Library, sevenZipPath },
-        };
-        fs.writeFileSync(configPath, ini.stringify(newConfig));
-        appConfig = newConfig;
+        saveSevenZipPath(sevenZipPath);
         mainWindow.webContents.send("import-progress", {
           text: `Using selected 7-Zip: ${path.basename(sevenZipPath)}`,
           progress: 0,
@@ -2273,6 +2375,7 @@ ipcMain.handle("import-games", async (event, params) => {
         : "";
 
       let size = 0;
+      let archiveToDeleteAfterImport = null;
 
       // ── Structured move (non-archive) ───────────────────────────────────────
       if (moveToDefaultFolder && targetLibrary && format.trim()) {
@@ -2280,17 +2383,18 @@ ipcMain.handle("import-games", async (event, params) => {
       }
 
       // ── Archive extraction ───────────────────────────────────────
-      if (game.isArchive && sevenZipPath) {
+      if (game.isArchive) {
+        if (!sevenZipPath || !fs.existsSync(sevenZipPath)) {
+          throw new Error("7-Zip is required for archive extraction");
+        }
+
         const archiveFilename =
           game.executables?.[0]?.value || game.executables?.[0]?.key;
         if (!archiveFilename) {
           throw new Error("No archive file specified");
         }
 
-        const zipPath = path.join(game.folder, archiveFilename);
-        if (!fs.existsSync(zipPath)) {
-          throw new Error(`Archive not found: ${zipPath}`);
-        }
+        const zipPath = resolveArchivePathForImport(game, archiveFilename);
 
         // Build target extraction path
         const parts = format
@@ -2308,67 +2412,16 @@ ipcMain.handle("import-games", async (event, params) => {
         });
 
         let extractPath = path.join(targetLibrary, ...segments);
-
-        // ── Folder-exists check + user choice ───────────────────────────────
         if (fs.existsSync(extractPath)) {
-          const { response } = await dialog.showMessageBox(mainWindow, {
-            type: "question",
-            buttons: ["Overwrite", "Skip", "Cancel"],
-            defaultId: 0,
-            cancelId: 2,
-            title: "Folder already exists",
-            message: `Target folder already exists:\n${extractPath}\n\nWhat do you want to do?`,
+          const originalPath = extractPath;
+          extractPath = getUniquePath(extractPath);
+          mainWindow.webContents.send("import-progress", {
+            text: `Target exists. Extracting ${game.title} to ${path.basename(extractPath)} instead of overwriting.`,
+            progress,
+            total,
+            canCancel: true,
           });
-
-          if (response === 1) {
-            mainWindow.webContents.send("import-progress", {
-              text: `Skipped ${game.title} — folder already exists`,
-              progress,
-              total,
-            });
-            continue;
-          }
-
-          if (response === 2) {
-            mainWindow.webContents.send("import-progress", {
-              text: `Import cancelled by user`,
-              progress,
-              total,
-            });
-            return results;
-          }
-
-          // response === 0 → Overwrite
-          try {
-            await fsp.rm(extractPath, { recursive: true, force: true });
-            mainWindow.webContents.send("import-progress", {
-              text: `Deleting old folder for ${game.title} (overwrite)`,
-              progress,
-              total,
-            });
-          } catch (rmErr) {
-            console.error("Failed to delete existing folder:", rmErr);
-            mainWindow.webContents.send("import-progress", {
-              text: `Warning: Could not delete old folder — may fail to extract`,
-              progress,
-              total,
-            });
-          }
-        }
-
-        // Now safe to create (either new or just cleared)
-        await fsp.mkdir(extractPath, { recursive: true });
-
-        // Pre-scan archive to get exact totals for progress reporting
-        let archiveInfo;
-        try {
-          archiveInfo = await getArchiveInfo(zipPath, sevenZipPath);
-          console.log(
-            `Archive info: ${archiveInfo.totalFiles} files, ${archiveInfo.totalUncompressedBytes} bytes uncompressed`,
-          );
-        } catch (err) {
-          console.warn("Pre-scan failed, falling back to estimation:", err);
-          archiveInfo = { totalFiles: 0, totalUncompressedBytes: 0 };
+          console.log(`Archive target exists: ${originalPath}. Using ${extractPath}`);
         }
 
         mainWindow.webContents.send("import-progress", {
@@ -2378,7 +2431,15 @@ ipcMain.handle("import-games", async (event, params) => {
         });
 
         try {
-          await extractArchive(zipPath, extractPath, sevenZipPath, archiveInfo);
+          const extraction = await extractArchive(
+            zipPath,
+            extractPath,
+            sevenZipPath,
+            session,
+          );
+          extractPath = extraction.finalPath || extractPath;
+          session.cleanupPaths = [extractPath];
+          archiveToDeleteAfterImport = deleteAfter ? zipPath : null;
 
           mainWindow?.webContents.send("import-progress", {
             text: `Extraction complete — 100% (${game.title})`,
@@ -2386,57 +2447,13 @@ ipcMain.handle("import-games", async (event, params) => {
             total: 100,
           });
 
-          // Ask user whether to delete original archive (unless deleteAfter is set globally)
-          if (!deleteAfter) {
-            const { response } = await dialog.showMessageBox(mainWindow, {
-              type: "question",
-              buttons: ["Yes, delete archive", "No, keep it", "Cancel import for this game"],
-              defaultId: 0,
-              cancelId: 2,
-              title: "Delete Original Archive?",
-              message: `Extraction finished for ${game.title}.\n\nDo you want to delete the original archive file?\n\n${zipPath}`,
-              detail: "This cannot be undone. Keeping it is safer if something goes wrong.",
+          if (!archiveToDeleteAfterImport) {
+            mainWindow?.webContents.send("import-progress", {
+              text: `Kept original archive (${game.title})`,
+              progress: 100,
+              total: 100,
+              canCancel: true,
             });
-
-            if (response === 0) {
-              try {
-                await fsp.unlink(zipPath);
-                console.log(`Deleted archive: ${zipPath}`);
-                mainWindow?.webContents.send("import-progress", {
-                  text: `Deleted original archive (${game.title})`,
-                  progress: 100,
-                  total: 100,
-                });
-              } catch (delErr) {
-                console.error(`Failed to delete archive ${zipPath}:`, delErr);
-                mainWindow?.webContents.send("import-progress", {
-                  text: `Failed to delete archive (kept original)`,
-                  progress: 100,
-                  total: 100,
-                });
-              }
-            } else if (response === 1) {
-              mainWindow?.webContents.send("import-progress", {
-                text: `Kept original archive (${game.title})`,
-                progress: 100,
-                total: 100,
-              });
-            } else if (response === 2) {
-              mainWindow?.webContents.send("import-progress", {
-                text: `Skipped remaining steps for ${game.title} (user cancelled)`,
-                progress: 100,
-                total: 100,
-              });
-              continue;
-            }
-          } else {
-            // deleteAfter enabled globally → auto-delete without asking
-            try {
-              await fsp.unlink(zipPath);
-              console.log(`Auto-deleted archive (deleteAfter enabled): ${zipPath}`);
-            } catch (e) {
-              console.warn(`Auto-delete failed: ${e.message}`);
-            }
           }
         } catch (err) {
           throw err;
@@ -2606,6 +2623,28 @@ ipcMain.handle("import-games", async (event, params) => {
       }
 
       if (size > 0) await updateFolderSize(recordId, game.version, size);
+      if (archiveToDeleteAfterImport) {
+        try {
+          await fsp.unlink(archiveToDeleteAfterImport);
+          console.log(`Deleted archive after successful import: ${archiveToDeleteAfterImport}`);
+          mainWindow.webContents.send("import-progress", {
+            text: `Deleted original archive after importing ${game.title}`,
+            progress,
+            total,
+            canCancel: true,
+          });
+        } catch (archiveDeleteErr) {
+          console.warn(
+            `Failed to delete archive ${archiveToDeleteAfterImport}: ${archiveDeleteErr.message}`,
+          );
+          mainWindow.webContents.send("import-progress", {
+            text: `Imported ${game.title}, but kept original archive because deletion failed`,
+            progress,
+            total,
+            canCancel: true,
+          });
+        }
+      }
       results.push({ success: true, recordId, atlasId: game.atlasId });
       session.cleanupPaths = [];
 
