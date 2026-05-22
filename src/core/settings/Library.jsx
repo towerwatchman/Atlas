@@ -5,6 +5,9 @@ const Library = () => {
   const [gameExtensions, setGameExtensions] = React.useState(
     "exe,swf,flv,f4v,rag,cmd,bat,jar,html",
   );
+  const [libraryFolderStructure, setLibraryFolderStructure] = React.useState(
+    "{creator}/{title}/{version}",
+  );
   const [extractionExtensions, setExtractionExtensions] =
     React.useState("zip,7z,rar");
   const [sevenZipPath, setSevenZipPath] = React.useState(""); // ← added
@@ -16,6 +19,9 @@ const Library = () => {
       setGameFolder(lib.gameFolder || "");
       setGameExtensions(
         lib.gameExtensions || "exe,swf,flv,f4v,rag,cmd,bat,jar,html",
+      );
+      setLibraryFolderStructure(
+        lib.libraryFolderStructure || "{creator}/{title}/{version}",
       );
       setExtractionExtensions(lib.extractionExtensions || "zip,7z,rar");
       setSevenZipPath(lib.sevenZipPath || ""); // ← added
@@ -68,6 +74,12 @@ const Library = () => {
     saveLibrarySetting("gameExtensions", val);
   };
 
+  const handleLibraryFolderStructureChange = (e) => {
+    const val = e.target.value;
+    setLibraryFolderStructure(val);
+    saveLibrarySetting("libraryFolderStructure", val);
+  };
+
   const handleExtractionChange = (e) => {
     const val = e.target.value;
     setExtractionExtensions(val);
@@ -113,6 +125,23 @@ const Library = () => {
       </div>
 
       {/* 7-Zip Path – NEW */}
+      <div>
+        <label className="block mb-1">Atlas Library Structure</label>
+        <input
+          type="text"
+          className="w-full bg-secondary border border-border p-2 rounded"
+          value={libraryFolderStructure}
+          onChange={handleLibraryFolderStructureChange}
+        />
+        <p className="text-xs opacity-60 mt-1">
+          Used when imports are moved or archives are extracted into the default
+          library folder. Options: {"{creator}"}, {"{title}"}, {"{version}"},{" "}
+          {"{engine}"}, {"{f95Id}"}.
+          <br />
+          Example: {"{f95Id}/{creator}/{title}/{version}"}
+        </p>
+      </div>
+
       <div>
         <label className="block mb-1">7-Zip Executable Path</label>
         <div className="flex gap-3">

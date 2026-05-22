@@ -4,7 +4,6 @@ const { createRoot } = window.ReactDOM;
 
 const Importer = () => {
   const [view, setView] = useState("source");
-  const [importSource, setImportSource] = useState("local");
   const [folder, setFolder] = useState("");
   const [useUnstructured, setUseUnstructured] = useState(true);
   const [customFormat, setCustomFormat] = useState(
@@ -26,6 +25,9 @@ const Importer = () => {
   const [includeArchives, setIncludeArchives] = useState(false);
   const [forceReimport, setForceReimport] = useState(false);
   const [defaultLibraryPath, setDefaultLibraryPath] = useState(null);
+  const [libraryFormat, setLibraryFormat] = useState(
+    "{creator}/{title}/{version}",
+  );
   const [askingForLibraryFolder, setAskingForLibraryFolder] = useState(false);
 
   const [progress, setProgress] = useState({
@@ -68,14 +70,11 @@ const Importer = () => {
     setGamesList((prev) => [...prev, game]);
   };
 
-  const isLibraryResync = importSource === "libraryResync";
-  const isGameListMetadata = importSource === "gameListMetadata";
   const isNewScanRow = (game) =>
     ["new", "repairPath"].includes(game.scanStatus || "new");
   const isExistingImportRow = (game) =>
     game.scanStatus === "alreadyImported" &&
-    (forceReimport ||
-      (isLibraryResync && (downloadBannerImages || downloadPreviewImages)));
+    forceReimport;
   const hasDatabaseMatch = (game) =>
     game.results?.length === 1 && game.results[0]?.key === "match";
   const hasSelectedDatabaseMatch = (game) =>
@@ -87,7 +86,7 @@ const Importer = () => {
   ) => {
     if (!isNewScanRow(game) && !isExistingImportRow(game)) return false;
     if (game.isArchive && !includeArchiveGames) return false;
-    if (!game.isArchive && !game.metadataOnly && !game.selectedValue) {
+    if (!game.isArchive && !game.selectedValue) {
       return false;
     }
     if (hasDatabaseMatch(game) || hasSelectedDatabaseMatch(game)) return true;
@@ -136,7 +135,7 @@ const Importer = () => {
   };
 
   const applyImportStatus = async (game) => {
-    if (!game || game.metadataOnly) return game;
+    if (!game) return game;
 
     try {
       const status = await window.electronAPI.getImportRecordStatus(game);
@@ -317,6 +316,10 @@ const Importer = () => {
             "exe,swf,flv,f4v,rag,cmd,bat,jar,html",
         );
         setArchiveExt(librarySettings.extractionExtensions || "zip,7z,rar");
+        setLibraryFormat(
+          librarySettings.libraryFolderStructure ||
+            "{creator}/{title}/{version}",
+        );
 
         window.electronAPI.getDefaultGameFolder().then((path) => {
           setDefaultLibraryPath(path);
@@ -345,78 +348,6 @@ const Importer = () => {
       console.log(`Folder selected: ${path}`);
       window.electronAPI.log(`Folder selected: ${path}`);
       setFolder(path);
-    }
-  };
-
-  const startLibraryResync = async () => {
-    let libraryPath =
-      defaultLibraryPath || (await window.electronAPI.getDefaultGameFolder());
-    if (!libraryPath) {
-      setAskingForLibraryFolder(true);
-      const selected = await window.electronAPI.selectDirectory();
-      setAskingForLibraryFolder(false);
-      if (!selected) return;
-
-      const saveResult = await window.electronAPI.setDefaultGameFolder(selected);
-      if (!saveResult?.success) {
-        alert("Failed to save the selected library folder.");
-        return;
-      }
-      libraryPath = selected;
-      setDefaultLibraryPath(selected);
-    }
-
-    setImportSource("libraryResync");
-    setFolder(libraryPath);
-    setView("scan");
-    deletedScanGameKeysRef.current.clear();
-    setGamesList([]);
-    setIncludeArchives(false);
-    setMoveGame(false);
-    setDeleteAfter(false);
-
-    const params = {
-      folder: libraryPath,
-      mode: "libraryResync",
-      deferMatching: true,
-      format: "",
-      gameExt: gameExt.split(",").map((e) => e.trim()),
-      archiveExt: archiveExt.split(",").map((e) => e.trim()),
-      isCompressed: false,
-      deleteAfter: false,
-      scanSize,
-      downloadBannerImages,
-      downloadPreviewImages,
-      previewLimit,
-      downloadVideos,
-    };
-
-    const result = await window.electronAPI.startScan(params);
-    if (!result.success) {
-      console.error(`Library resync error: ${result.error}`);
-      window.electronAPI.log(`Library resync error: ${result.error}`);
-      alert(`Error: ${result.error}`);
-    }
-  };
-
-  const startGameListImport = async () => {
-    const selected = await window.electronAPI.selectFileOrDirectory();
-    if (!selected) return;
-
-    setImportSource("gameListMetadata");
-    setFolder(selected);
-    setView("scan");
-    deletedScanGameKeysRef.current.clear();
-    setGamesList([]);
-    setIncludeArchives(false);
-    setMoveGame(false);
-    setDeleteAfter(false);
-
-    const result = await window.electronAPI.scanGameListInfos(selected);
-    if (!result.success) {
-      console.error(`Game-List import scan error: ${result.error}`);
-      window.electronAPI.log(`Game-List import scan error: ${result.error}`);
-      alert(`Error: ${result.error}`);
     }
   };
 
@@ -695,10 +626,8 @@ const Importer = () => {
       downloadVideos,
       gameExt: gameExt.split(",").map((e) => e.trim()),
       moveToDefaultFolder: moveGame && !!finalLibraryPath,
-      registerInPlace: isLibraryResync,
-      metadataOnly: isGameListMetadata,
       forceReimport,
-      format: customFormat,
+      libraryFormat,
     };
 
     try {
@@ -766,24 +695,11 @@ const Importer = () => {
               <h2 className="text-xl text-center">Select Import Source</h2>
               <button
                 onClick={() => {
-                  setImportSource("local");
                   setView("settings");
                 }}
                 className="bg-secondary hover:bg-selected text-text p-2 rounded"
               >
                 Atlas Game Importer
-              </button>
-              <button
-                onClick={startLibraryResync}
-                className="bg-secondary hover:bg-selected text-text p-2 rounded"
-              >
-                Scan Existing Library
-              </button>
-              <button
-                onClick={startGameListImport}
-                className="bg-secondary hover:bg-selected text-text p-2 rounded"
-              >
-                Import Game-List Data
               </button>
             </div>
           </div>
@@ -859,7 +775,7 @@ const Importer = () => {
             )}
 
             <p className="text-sm text-text leading-relaxed">
-              Valid folder structure options:{" "}
+              Source folder structure options:{" "}
               <span className="font-semibold">Title</span>,{" "}
               <span className="font-semibold">Creator</span>,{" "}
               <span className="font-semibold">Engine</span>, and{" "}
@@ -867,6 +783,8 @@ const Importer = () => {
               each option in braces, e.g.,{" "}
               <span className="font-mono">{"{Title}"}</span>. Use{" "}
               <span className="font-mono">/</span> for folder separators.
+              This describes the folder being scanned. Atlas Library destination
+              structure is configured separately in Settings.
               <br />
               <br />
               Examples:
@@ -880,6 +798,13 @@ const Importer = () => {
               </span>
               <br />
               <span className="font-mono">{"{title-version}"}</span>
+              <br />
+              Atlas Library Structure also supports{" "}
+              <span className="font-mono">{"{f95Id}"}</span>, for example{" "}
+              <span className="font-mono">
+                {"{f95Id}/{creator}/{title}/{version}"}
+              </span>
+              .
             </p>
 
             <div className="space-y-2">
@@ -913,8 +838,7 @@ const Importer = () => {
                   className="mr-2"
                 />
                 <label className="font-medium">
-                  Move imported games to default library folder (using
-                  structure: {customFormat || "title-version"})
+                  Move imported games to default library folder
                 </label>
 
                 {moveGame && (
@@ -985,15 +909,7 @@ const Importer = () => {
                 />
                 <span className="ml-2">
                   {progress.value}/{progress.total}{" "}
-                  {progressLabel ?? (
-                    importSource === "steam"
-                      ? "Games Scanned"
-                      : isLibraryResync
-                        ? "Library Folders Scanned"
-                        : isGameListMetadata
-                          ? "Game-List Records Scanned"
-                          : "Folders Scanned"
-                  )}
+                  {progressLabel ?? "Folders Scanned"}
                 </span>
               </div>
               <div className="mb-4 flex flex-wrap gap-4 text-sm">
@@ -1254,23 +1170,21 @@ const Importer = () => {
                   </label>
                 </div>
 
-                {!isLibraryResync && !isGameListMetadata && (
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      id="include-archives"
-                      checked={includeArchives}
-                      onChange={(e) => setIncludeArchives(e.target.checked)}
-                      className="h-4 w-4"
-                    />
-                    <label
-                      htmlFor="include-archives"
-                      className="text-sm text-text"
-                    >
-                      Extract and import archives
-                    </label>
-                  </div>
-                )}
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="include-archives"
+                    checked={includeArchives}
+                    onChange={(e) => setIncludeArchives(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <label
+                    htmlFor="include-archives"
+                    className="text-sm text-text"
+                  >
+                    Extract and import archives
+                  </label>
+                </div>
 
                 <div className="flex items-center space-x-2">
                   <input
@@ -1332,7 +1246,7 @@ const Importer = () => {
                     pointerEvents: "auto",
                   }}
                 >
-                  {isLibraryResync || isGameListMetadata ? "Register" : "Import"}
+                  Import
                 </button>
 
                 <button

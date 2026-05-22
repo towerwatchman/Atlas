@@ -45,7 +45,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking selectFile");
     return ipcRenderer.invoke("select-file");
   },
-  selectFileOrDirectory: () => ipcRenderer.invoke("select-file-or-directory"),
   selectDirectory: () => {
     console.log("Invoking selectDirectory");
     return ipcRenderer.invoke("select-directory");
@@ -64,8 +63,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveSettings: (settings) => ipcRenderer.invoke("save-settings", settings),
   startScan: (params) => ipcRenderer.invoke("start-scan", params),
   cancelScan: () => ipcRenderer.invoke("cancel-scan"),
-  scanGameListInfos: (targetPath) =>
-    ipcRenderer.invoke("scan-game-list-infos", targetPath),
   searchAtlasByF95Id: (f95Id) =>
     ipcRenderer.invoke("search-atlas-by-f95-id", f95Id),
   searchAtlas: (title, creator) =>

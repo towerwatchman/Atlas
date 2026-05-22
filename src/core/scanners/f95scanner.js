@@ -2,9 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const {
   searchAtlas,
-  findF95Id,
   checkRecordExist,
-  getImportRecordStatus,
 } = require("../../database");
 
 const engineMap = {
@@ -69,10 +67,6 @@ function isSupportedFile(filePath, extensions) {
   );
 }
 
-function getRelativePath(baseDir, targetPath) {
-  return path.relative(baseDir, targetPath).replace(/\\/g, "/");
-}
-
 function hasAnyFile(root) {
   const stack = [root];
 
@@ -88,73 +82,6 @@ function hasAnyFile(root) {
   }
 
   return false;
-}
-
-function findLaunchables(root, extensions) {
-  const launchables = [];
-  const stack = [root];
-
-  while (stack.length) {
-    const current = stack.pop();
-    const items = fs.readdirSync(current, { withFileTypes: true });
-
-    for (const item of items) {
-      const full = path.join(current, item.name);
-      if (item.isDirectory()) {
-        stack.push(full);
-      } else if (item.isFile() && isSupportedFile(full, extensions)) {
-        launchables.push(getRelativePath(root, full));
-      }
-    }
-  }
-
-  return preferPrimaryLaunchables(launchables);
-}
-
-function isRuntimeFolderName(name) {
-  const normalized = String(name || "").toLowerCase();
-  return (
-    /^(game|lib|renpy|www|wwwroot|program files)$/i.test(normalized) ||
-    /^(windows|win|linux|mac|darwin|osx)([-_].*)?$/i.test(normalized) ||
-    /^(x86|x64|x86_64|i386|i686|amd64|arm64)$/i.test(normalized)
-  );
-}
-
-function isRuntimeLaunchable(relativePath) {
-  const parts = String(relativePath || "")
-    .replace(/\\/g, "/")
-    .split("/")
-    .filter(Boolean);
-  return parts.slice(0, -1).some(isRuntimeFolderName);
-}
-
-function sortLaunchables(a, b) {
-  const depthA = String(a || "").split("/").length;
-  const depthB = String(b || "").split("/").length;
-  if (depthA !== depthB) return depthA - depthB;
-  return String(a || "").localeCompare(String(b || ""));
-}
-
-function preferPrimaryLaunchables(launchables) {
-  const unique = Array.from(new Set(launchables.map((f) => f.replace(/\\/g, "/"))));
-  const primary = unique.filter((launchable) => !isRuntimeLaunchable(launchable));
-  return (primary.length > 0 ? primary : unique).sort(sortLaunchables);
-}
-
-function isInsideRoot(root, target) {
-  const relative = path.relative(root, target);
-  return !!relative && !relative.startsWith("..") && !path.isAbsolute(relative);
-}
-
-function getLibraryCandidateRoot(root, folder) {
-  let candidateRoot = folder;
-  while (path.dirname(candidateRoot) !== candidateRoot) {
-    const parent = path.dirname(candidateRoot);
-    if (!isInsideRoot(root, parent)) break;
-    if (!isRuntimeFolderName(path.basename(candidateRoot))) break;
-    candidateRoot = parent;
-  }
-  return candidateRoot;
 }
 
 function getScanStats(games) {
@@ -262,78 +189,12 @@ function createSkippedGame(folder, scanStatus, scanMessage) {
   };
 }
 
-function getCandidateMetadata(target, rootPath) {
-  const rootName = path.basename(target);
-  const rootMetadata = parseNameMetadata(rootName);
-  if (rootMetadata.version && rootMetadata.version !== "Unknown") {
-    return rootMetadata;
-  }
-
-  const relativeParts = getRelativePath(rootPath, target)
-    .split("/")
-    .filter(Boolean);
-  const parentName =
-    relativeParts.length >= 2 ? relativeParts[relativeParts.length - 2] : "";
-  const grandParentName =
-    relativeParts.length >= 3 ? relativeParts[relativeParts.length - 3] : "";
-
-  if (parentName && rootName && rootName.toLowerCase() !== parentName.toLowerCase()) {
-    return {
-      title: cleanDisplayTitle(parentName),
-      lookupTitle: cleanDisplayTitle(parentName),
-      version: cleanDisplayTitle(rootName) || rootMetadata.version || "Unknown",
-      creator: grandParentName ? cleanDisplayTitle(grandParentName) : undefined,
-    };
-  }
-
-  return rootMetadata;
-}
-
 function safeReadDir(folder) {
   try {
     return fs.readdirSync(folder, { withFileTypes: true });
   } catch (err) {
     console.warn(`Unable to read folder ${folder}:`, err.message);
     return [];
-  }
-}
-
-async function scanLibraryGameRoots(root, extensions, onCandidate, cancelToken) {
-  const roots = new Set();
-  const stack = [root];
-  let visited = 0;
-
-  while (stack.length) {
-    if (cancelToken.canceled) break;
-    const current = stack.pop();
-    const items = safeReadDir(current);
-    const launchables = [];
-
-    for (const item of items) {
-      const full = path.join(current, item.name);
-      if (item.isDirectory()) {
-        stack.push(full);
-      } else if (item.isFile() && isSupportedFile(full, extensions)) {
-        launchables.push(full);
-      }
-    }
-
-    if (launchables.length === 0) continue;
-
-    const candidateRoot = getLibraryCandidateRoot(root, current);
-
-    if (!roots.has(candidateRoot)) {
-      roots.add(candidateRoot);
-      await onCandidate({
-        folder: candidateRoot,
-        launchables: findLaunchables(candidateRoot, extensions),
-      });
-    }
-
-    visited++;
-    if (visited % 50 === 0) {
-      await new Promise((resolve) => setImmediate(resolve));
-    }
   }
 }
 
@@ -352,13 +213,6 @@ async function startScan(params, window, cancelToken = {}) {
     gameExt,
     archiveExt,
     isCompressed,
-    mode,
-    deleteAfter,
-    scanSize,
-    downloadBannerImages,
-    downloadPreviewImages,
-    previewLimit,
-    downloadVideos,
   } = params;
   const archiveExtensions = normalizeExtensions(archiveExt);
   const extensions = normalizeExtensions(isCompressed ? archiveExt : gameExt);
@@ -368,31 +222,7 @@ async function startScan(params, window, cancelToken = {}) {
     `Starting scan in folder: ${folder} with extensions: ${extensions.join(", ")}`,
   );
 
-  if (mode === "libraryResync") {
-    let i = 0;
-
-    await scanLibraryGameRoots(folder, extensions, async (candidate) => {
-      if (cancelToken.canceled) return;
-      i++;
-      console.log(`Scanning existing library folder: ${candidate.folder}`);
-      const res = await findGame(
-        candidate.folder,
-        "",
-        extensions,
-        folder,
-        0,
-        false,
-        games,
-        window,
-        params,
-        candidate.launchables,
-      );
-      if (res) {
-        window.webContents.send("scan-complete", games[games.length - 1]);
-      }
-      sendScanProgress(window, i, i, games);
-    }, cancelToken);
-  } else if (isCompressed) {
+  if (isCompressed) {
     // Get all files recursively, including subdirectories
     const allFiles = getAllFiles(folder, extensions);
     const totalFiles = allFiles.length;
@@ -698,10 +528,7 @@ async function findGame(
         ? path.basename(t, path.extname(t))
         : path.basename(t);
       console.log(`Parsing filename: ${filename}`);
-      const metadata =
-        params.mode === "libraryResync" && !isFile
-          ? getCandidateMetadata(t, rootPath)
-          : parseNameMetadata(filename);
+      const metadata = parseNameMetadata(filename);
       title = metadata.title;
       lookupTitle = metadata.lookupTitle;
       version = metadata.version;
@@ -752,20 +579,7 @@ async function findGame(
     let recordExist = false;
     let importRecordStatus = null;
     try {
-      importRecordStatus =
-        params.deferMatching
-          ? null
-          : params.mode === "libraryResync"
-          ? await getImportRecordStatus({
-              atlasId,
-              title,
-              creator,
-              engine,
-              version,
-              folder: isArchive || isFile ? path.dirname(t) : t,
-              sourceFile: isArchive ? t : undefined,
-            })
-          : null;
+      importRecordStatus = null;
       recordExist = params.deferMatching
         ? false
         : importRecordStatus
@@ -817,9 +631,7 @@ async function findGame(
           ? "Repair path"
           : isArchive
             ? "Archive"
-            : params.mode === "libraryResync"
-              ? "Ready to register"
-              : "Ready to import",
+            : "Ready to import",
     };
     console.log(`Adding game to list: ${JSON.stringify(gd)}`);
     games.push(gd);

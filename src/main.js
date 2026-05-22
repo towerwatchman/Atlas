@@ -434,6 +434,7 @@ const defaultConfig = {
   Library: {
     rootPath: dataDir,
     gameFolder: "",
+    libraryFolderStructure: "{creator}/{title}/{version}",
   },
   Metadata: {
     downloadPreviews: false,
@@ -563,53 +564,23 @@ function buildStructuredImportPath(targetLibrary, format, game) {
   const pathSegments = format
     .trim()
     .split("/")
-    .map((p) => p.replace(/[{}]/g, "").trim())
-    .map((part) => {
-      let value = "";
-      if (part.toLowerCase() === "creator") value = game.creator || "Unknown";
-      else if (part.toLowerCase() === "title") value = game.title || "Untitled";
-      else if (part.toLowerCase() === "version") value = game.version || "v1";
-      else if (part.toLowerCase() === "engine") value = game.engine || "Unknown";
-      else value = "Unknown";
-
-      return sanitizePathSegment(value);
-    });
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((part) =>
+      sanitizePathSegment(
+        part.replace(/\{([^}]+)\}/g, (_, token) => {
+          const key = String(token || "").trim().toLowerCase();
+          if (key === "creator") return game.creator || "Unknown";
+          if (key === "title") return game.title || "Untitled";
+          if (key === "version") return game.version || "v1";
+          if (key === "engine") return game.engine || "Unknown";
+          if (key === "f95id") return game.f95Id || "Unknown";
+          return "Unknown";
+        }),
+      ),
+    );
 
   return path.join(targetLibrary, ...pathSegments);
-}
-
-function extractF95ThreadId(threadUrl) {
-  const match = String(threadUrl || "").match(/threads\/(?:[^./]+[.-])?(\d+)/i);
-  return match ? match[1] : "";
-}
-
-function findGameListInfoFiles(targetPath) {
-  if (!targetPath || !fs.existsSync(targetPath)) return [];
-  const stat = fs.statSync(targetPath);
-  if (stat.isFile()) {
-    return path.basename(targetPath).toLowerCase() === "gl_infos.ini"
-      ? [targetPath]
-      : [];
-  }
-
-  const files = [];
-  const stack = [targetPath];
-  while (stack.length) {
-    const current = stack.pop();
-    const items = fs.readdirSync(current, { withFileTypes: true });
-    for (const item of items) {
-      const full = path.join(current, item.name);
-      if (item.isDirectory()) {
-        stack.push(full);
-      } else if (
-        item.isFile() &&
-        item.name.toLowerCase() === "gl_infos.ini"
-      ) {
-        files.push(full);
-      }
-    }
-  }
-  return files.sort((a, b) => a.localeCompare(b));
 }
 
 function resolveArchivePathForImport(game, archiveFilename) {
@@ -635,87 +606,6 @@ function resolveArchivePathForImport(game, archiveFilename) {
   }
 
   return archivePath;
-}
-
-async function buildGameListImportRows(targetPath) {
-  const files = findGameListInfoFiles(targetPath);
-  const rows = [];
-
-  for (const file of files) {
-    try {
-      const parsed = ini.parse(fs.readFileSync(file, "utf8"));
-      const data = parsed.GameList || parsed.gamelist || parsed;
-      const title = String(data.Name || "").trim();
-      const version = String(data.Version || "Unknown").trim() || "Unknown";
-      const thread = String(data.Thread || "").trim();
-      const f95Id = extractF95ThreadId(thread);
-
-      if (!title) continue;
-
-      let matches = [];
-      if (f95Id) {
-        matches = await searchAtlasByF95Id(f95Id);
-      }
-      if (matches.length === 0) {
-        matches = await searchAtlas(title, "Unknown");
-      }
-
-      let atlasId = "";
-      let creator = "Unknown";
-      let engine = "Unknown";
-      let latestVersion = "";
-      let results = [];
-      let resultSelectedValue = "";
-
-      if (matches.length === 1) {
-        const match = matches[0];
-        atlasId = match.atlas_id || "";
-        creator = match.creator || creator;
-        engine = match.engine || engine;
-        latestVersion = match.latestVersion || match.version || "";
-        results = [{ key: "match", value: "Match Found" }];
-        resultSelectedValue = "match";
-      } else if (matches.length > 1) {
-        results = matches.map((match) => ({
-          key: String(match.atlas_id),
-          value: `${match.atlas_id} | ${match.f95_id || ""} | ${match.title} | ${match.creator}`,
-        }));
-        resultSelectedValue = results[0]?.key || "";
-      }
-
-      rows.push({
-        atlasId,
-        f95Id,
-        title,
-        lookupTitle: title,
-        creator,
-        engine,
-        version,
-        latestVersion,
-        singleExecutable: "",
-        executables: [],
-        selectedValue: "",
-        singleVisible: "hidden",
-        multipleVisible: "hidden",
-        folder: "",
-        sourceFile: file,
-        gameListId: data.ID || "",
-        gameListThread: thread,
-        results,
-        resultSelectedValue,
-        resultVisibility: results.length > 0 ? "visible" : "hidden",
-        recordExist: false,
-        isArchive: false,
-        metadataOnly: true,
-        scanStatus: "new",
-        scanMessage: "Metadata only",
-      });
-    } catch (err) {
-      console.error(`Failed to parse Game-List file ${file}:`, err);
-    }
-  }
-
-  return rows;
 }
 
 function getUniquePath(basePath) {
@@ -1238,20 +1128,6 @@ ipcMain.handle("select-file", async () => {
   }
 });
 
-ipcMain.handle("select-file-or-directory", async () => {
-  try {
-    const result = await dialog.showOpenDialog(importerWindow || mainWindow, {
-      properties: ["openFile", "openDirectory"],
-      filters: [{ name: "Game-List Info", extensions: ["ini"] }],
-    });
-    if (result.canceled) return null;
-    return result.filePaths[0];
-  } catch (err) {
-    console.error("Error selecting file or directory:", err);
-    return null;
-  }
-});
-
 ipcMain.handle("select-directory", async () => {
   const result = await dialog.showOpenDialog(importerWindow || mainWindow, {
     properties: ["openDirectory"],
@@ -1346,29 +1222,6 @@ ipcMain.handle("cancel-scan", async () => {
   return { success: true };
 });
 
-ipcMain.handle("scan-game-list-infos", async (event, targetPath) => {
-  const window = BrowserWindow.fromWebContents(event.sender);
-  try {
-    const rows = await buildGameListImportRows(targetPath);
-    window?.webContents.send("scan-progress", {
-      value: rows.length,
-      total: rows.length,
-      potential: rows.length,
-      archives: 0,
-      alreadyImported: 0,
-      repairPath: 0,
-      missingLaunchable: 0,
-      emptyFolder: 0,
-      totalFound: rows.length,
-    });
-    window?.webContents.send("scan-complete-final", rows);
-    return { success: true, rows };
-  } catch (err) {
-    console.error("Game-List scan failed:", err);
-    return { success: false, error: err.message };
-  }
-});
-
 ipcMain.handle("get-steam-game-data", async (event, steamId) => {
   return await getSteamGameData(steamId);
 });
@@ -1399,9 +1252,7 @@ const hydrateImportMatch = async (game, selectedValue) => {
     };
   }
 
-  const status = updatedGame.metadataOnly
-    ? null
-    : await getImportRecordStatus(updatedGame);
+  const status = await getImportRecordStatus(updatedGame);
   const recordExist = status?.status === "alreadyImported";
   return {
     ...updatedGame,
@@ -1437,7 +1288,7 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
 
   // ── Pre-warm search cache for all unique keys in parallel ──────────────
   const pending = games.filter(
-    (g) => g && !g.metadataOnly && g.scanStatus === "pendingMatch",
+    (g) => g && g.scanStatus === "pendingMatch",
   );
 
   const uniqueSearches = new Map();
@@ -1467,7 +1318,7 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
 
   // ── Resolve all games in parallel using the warmed cache ───────────────
   const resolveGame = async (game) => {
-    if (!game || game.metadataOnly || game.scanStatus !== "pendingMatch") {
+    if (!game || game.scanStatus !== "pendingMatch") {
       return game;
     }
 
@@ -2250,44 +2101,19 @@ ipcMain.handle("import-games", async (event, params) => {
     downloadVideos,
     gameExt,
     moveToDefaultFolder = false,
-    registerInPlace = false,
-    metadataOnly = false,
     forceReimport = false,
-    format = "",
+    libraryFormat,
   } = params;
 
-  const allowExistingMediaRefresh =
-    registerInPlace && (downloadBannerImages || downloadPreviewImages);
   const games = submittedGames.filter(
     (game) =>
       ["new", "repairPath"].includes(game.scanStatus || "new") ||
-      ((forceReimport || allowExistingMediaRefresh) &&
-        game.scanStatus === "alreadyImported"),
+      (forceReimport && game.scanStatus === "alreadyImported"),
   );
-  if (metadataOnly) {
-    for (const game of games) {
-      if (game.resultSelectedValue && game.resultSelectedValue !== "match") {
-        const selected = (game.results || []).find(
-          (result) => result.key === game.resultSelectedValue,
-        );
-        if (selected) {
-          const parts = selected.value.split(" | ");
-          game.atlasId = parts[0] || game.atlasId;
-          game.f95Id = parts[1] || game.f95Id;
-          game.title = parts[2] || game.title;
-          game.creator = parts[3] || game.creator;
-          try {
-            const atlasData = await getAtlasData(game.atlasId);
-            game.engine = atlasData.engine || game.engine || "Unknown";
-            game.latestVersion =
-              atlasData.latestVersion || game.latestVersion || "";
-          } catch (err) {
-            console.error("Failed to hydrate selected Game-List match:", err);
-          }
-        }
-      }
-    }
-  }
+  const destinationFormat =
+    libraryFormat ||
+    appConfig?.Library?.libraryFolderStructure ||
+    defaultConfig.Library.libraryFolderStructure;
   const gamesDir = path.join(dataDir, "games");
   if (!fs.existsSync(gamesDir)) fs.mkdirSync(gamesDir, { recursive: true });
 
@@ -2434,8 +2260,39 @@ ipcMain.handle("import-games", async (event, params) => {
       let archiveToDeleteAfterImport = null;
 
       // ── Structured move (non-archive) ───────────────────────────────────────
-      if (moveToDefaultFolder && targetLibrary && format.trim()) {
-        // ... existing move logic for non-archive games handled below ...
+      if (moveToDefaultFolder && targetLibrary && !game.isArchive) {
+        let destinationPath = buildStructuredImportPath(
+          targetLibrary,
+          destinationFormat,
+          game,
+        );
+        if (fs.existsSync(destinationPath)) {
+          destinationPath = getUniquePath(destinationPath);
+        }
+
+        await fsp.mkdir(path.dirname(destinationPath), { recursive: true });
+        mainWindow.webContents.send("import-progress", {
+          text: `${deleteAfter ? "Moving" : "Copying"} ${game.title} to library...`,
+          progress,
+          total,
+          canCancel: true,
+        });
+
+        if (deleteAfter) {
+          try {
+            await fsp.rename(gamePath, destinationPath);
+          } catch (moveErr) {
+            if (moveErr.code !== "EXDEV") throw moveErr;
+            await fsp.cp(gamePath, destinationPath, { recursive: true });
+            await fsp.rm(gamePath, { recursive: true, force: true });
+          }
+        } else {
+          await fsp.cp(gamePath, destinationPath, { recursive: true });
+        }
+
+        const selectedValue = game.selectedValue || "";
+        gamePath = destinationPath;
+        execPath = selectedValue ? path.join(gamePath, selectedValue) : "";
       }
 
       // ── Archive extraction ───────────────────────────────────────
@@ -2452,22 +2309,11 @@ ipcMain.handle("import-games", async (event, params) => {
 
         const zipPath = resolveArchivePathForImport(game, archiveFilename);
 
-        // Build target extraction path
-        const parts = format
-          .trim()
-          .split("/")
-          .map((p) => p.replace(/[{}]/g, "").trim());
-
-        const segments = parts.map((part) => {
-          let val = "Unknown";
-          if (part.toLowerCase() === "creator") val = game.creator || "Unknown";
-          if (part.toLowerCase() === "title") val = game.title || "Untitled";
-          if (part.toLowerCase() === "version") val = game.version || "v1.0";
-          if (part.toLowerCase() === "engine") val = game.engine || "Unknown";
-          return val.replace(/[\/\\:*?"<>|]/g, "_").trim() || "Unknown";
-        });
-
-        let extractPath = path.join(targetLibrary, ...segments);
+        let extractPath = buildStructuredImportPath(
+          targetLibrary,
+          destinationFormat,
+          game,
+        );
         if (fs.existsSync(extractPath)) {
           const originalPath = extractPath;
           extractPath = getUniquePath(extractPath);
@@ -2621,9 +2467,9 @@ ipcMain.handle("import-games", async (event, params) => {
         description: game.description || "Imported game",
       };
 
-      console.log(registerInPlace ? "Registering in-place game" : "Adding Game");
+      console.log("Adding Game");
       throwIfImportCanceled(session);
-      const shouldUpsertExisting = registerInPlace || metadataOnly || forceReimport;
+      const shouldUpsertExisting = forceReimport;
       let recordId =
         shouldUpsertExisting && game.existingRecordId
           ? game.existingRecordId
@@ -2707,7 +2553,7 @@ ipcMain.handle("import-games", async (event, params) => {
       progress++;
       session.progress = progress;
       mainWindow.webContents.send("import-progress", {
-        text: `${registerInPlace || metadataOnly ? "Registered" : "Imported"} game '${game.title}' ${progress}/${total}`,
+        text: `Imported game '${game.title}' ${progress}/${total}`,
         progress,
         total,
         canCancel: true,
