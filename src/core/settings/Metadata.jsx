@@ -1,10 +1,10 @@
 const Metadata = () => {
-  const [downloadPreviews, setDownloadPreviews] = React.useState(false);
+  const [mediaStorageMode, setMediaStorageMode] = React.useState("stream");
 
   React.useEffect(() => {
     window.electronAPI.getConfig().then((config) => {
       const metadataSettings = config.Metadata || {};
-      setDownloadPreviews(metadataSettings.downloadPreviews || false);
+      setMediaStorageMode(metadataSettings.mediaStorageMode || "stream");
     });
   }, []);
 
@@ -18,25 +18,27 @@ const Metadata = () => {
     });
   };
 
-  const handleDownloadPreviewsChange = () => {
-    setDownloadPreviews(!downloadPreviews);
-    saveSettings({ downloadPreviews: !downloadPreviews });
+  const handleMediaStorageModeChange = (e) => {
+    setMediaStorageMode(e.target.value);
+    saveSettings({ mediaStorageMode: e.target.value });
   };
 
   return (
     <div className="p-5 text-text">
       <div className="flex items-center mb-2">
-        <label className="flex-1">Download Image Previews</label>
-        <input
-          type="checkbox"
-          className="mr-5"
-          checked={downloadPreviews}
-          onChange={handleDownloadPreviewsChange}
-        />
+        <label className="flex-1">Media Storage</label>
+        <select
+          className="w-64 bg-secondary border border-border text-text rounded p-1"
+          value={mediaStorageMode}
+          onChange={handleMediaStorageModeChange}
+        >
+          <option value="stream">Stream media from the web</option>
+          <option value="download">Download media and store locally</option>
+        </select>
       </div>
       <p className="text-xs opacity-50 mb-2">
-        This will grab all preview images when adding or updating existing
-        games.
+        Streaming uses less disk space. Downloading saves durable banner and
+        preview files in Atlas data storage.
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
     </div>

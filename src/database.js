@@ -9,6 +9,39 @@ let cachedFilterOptions = null;
 const getAssetBasePath = (appPath, isDev) =>
   isDev ? path.join(appPath, "src") : appPath;
 
+const toLocalAssetPath = (appPath, isDev, assetPath) =>
+  path.join(getAssetBasePath(appPath, isDev), assetPath).replace(/\\/g, "/");
+
+const normalizeMediaStorageMode = (mode) =>
+  mode === "download" ? "download" : "stream";
+
+const remoteBannerExpression =
+  "COALESCE(f95_zone_data.banner_url, steam_data.header, steam_data.library_hero, atlas_data.banner_wide, atlas_data.banner)";
+
+const buildBannerSelectFields = (baseImagePath, mediaStorageMode) => {
+  const localBannerExpression = `REPLACE('${baseImagePath}/' || banners.path, '\\', '/')`;
+  const remoteFirst = normalizeMediaStorageMode(mediaStorageMode) === "stream";
+  const bannerUrlExpression = remoteFirst
+    ? `COALESCE(${remoteBannerExpression}, ${localBannerExpression})`
+    : `COALESCE(${localBannerExpression}, ${remoteBannerExpression})`;
+  const bannerSourceExpression = remoteFirst
+    ? `CASE
+          WHEN ${remoteBannerExpression} IS NOT NULL THEN 'stream'
+          WHEN banners.path IS NOT NULL THEN 'download'
+          ELSE ''
+        END`
+    : `CASE
+          WHEN banners.path IS NOT NULL THEN 'download'
+          WHEN ${remoteBannerExpression} IS NOT NULL THEN 'stream'
+          ELSE ''
+        END`;
+
+  return `
+        ${bannerUrlExpression} AS banner_url,
+        ${bannerSourceExpression} AS banner_source,
+        CASE WHEN banners.path IS NOT NULL THEN 1 ELSE 0 END AS has_downloaded_banner`;
+};
+
 const initializeDatabase = (dataDir) => {
   const dbPath = path.join(dataDir, "data.db");
   db = new sqlite3.Database(dbPath, (err) => {
@@ -1011,9 +1044,13 @@ const getVersionPathsForRecord = (recordId) => {
   });
 };
 
-const getGame = (recordId, appPath, isDev) => {
+const getGame = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
   return new Promise((resolve, reject) => {
     const baseImagePath = getAssetBasePath(appPath, isDev);
+    const bannerSelectFields = buildBannerSelectFields(
+      baseImagePath,
+      mediaStorageMode,
+    );
     const query = `
       SELECT
         games.record_id as record_id,
@@ -1026,10 +1063,7 @@ const getGame = (recordId, appPath, isDev) => {
         games.total_playtime,
         games.last_played_r,
         games.last_played_version,
-        CASE 
-          WHEN banners.path IS NOT NULL THEN REPLACE('${baseImagePath}/' || banners.path, '\\', '/')
-          ELSE NULL
-        END AS banner_url,
+${bannerSelectFields},
         f95_zone_data.f95_id as f95_id,
         f95_zone_data.site_url as siteUrl,
         f95_zone_data.views as views,
@@ -1056,6 +1090,7 @@ const getGame = (recordId, appPath, isDev) => {
       LEFT JOIN banners ON games.record_id = banners.record_id AND banners.type = 'small'
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+      LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
       LEFT JOIN tag_mappings ON games.record_id = tag_mappings.record_id
       LEFT JOIN tags ON tag_mappings.tag_id = tags.tag_id
       WHERE games.record_id = ?
@@ -1115,6 +1150,10 @@ const getGames = (
 ) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = getAssetBasePath(appPath, isDev);
+    const bannerSelectFields = buildBannerSelectFields(
+      baseImagePath,
+      options.mediaStorageMode,
+    );
     const includeUninstalled = options.includeUninstalled === true;
     const skipPathValidation = options.skipPathValidation !== false;
 
@@ -1131,10 +1170,7 @@ const getGames = (
         games.total_playtime,
         games.last_played_r,
         games.last_played_version,
-        CASE 
-          WHEN banners.path IS NOT NULL THEN REPLACE('${baseImagePath}/' || banners.path, '\\', '/')
-          ELSE NULL
-        END AS banner_url,
+${bannerSelectFields},
         f95_zone_data.f95_id as f95_id,
         f95_zone_data.site_url as siteUrl,
         f95_zone_data.views as views,
@@ -1161,6 +1197,7 @@ const getGames = (
       LEFT JOIN banners ON games.record_id = banners.record_id AND banners.type = 'small'
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+      LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
       LEFT JOIN tag_mappings ON games.record_id = tag_mappings.record_id
       LEFT JOIN tags ON tag_mappings.tag_id = tags.tag_id
       GROUP BY games.record_id
@@ -1797,24 +1834,94 @@ const updatePreviews = (recordId, previewPath) => {
   });
 };
 
-const getPreviews = (recordId, appPath, isDev) => {
+const getRemotePreviewUrls = (recordId) => {
   return new Promise((resolve, reject) => {
-    const baseImagePath = getAssetBasePath(appPath, isDev);
+    const query = `
+      SELECT DISTINCT url FROM (
+        SELECT f95_zone_screens.screen_url AS url
+        FROM f95_zone_screens
+        JOIN f95_zone_data ON f95_zone_screens.f95_id = f95_zone_data.f95_id
+        JOIN atlas_mappings ON f95_zone_data.atlas_id = atlas_mappings.atlas_id
+        WHERE atlas_mappings.record_id = ?
+        UNION
+        SELECT atlas_previews.preview_url AS url
+        FROM atlas_previews
+        JOIN atlas_mappings ON atlas_previews.atlas_id = atlas_mappings.atlas_id
+        WHERE atlas_mappings.record_id = ?
+        UNION
+        SELECT steam_screens.screen_url AS url
+        FROM steam_screens
+        JOIN steam_mappings ON steam_screens.steam_id = steam_mappings.steam_id
+        WHERE steam_mappings.record_id = ?
+      )
+      WHERE url IS NOT NULL AND TRIM(url) != ''
+    `;
+
+    db.all(query, [recordId, recordId, recordId], (err, rows) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      const urls = rows.map((row) => row.url).filter(Boolean);
+      if (urls.length > 0) {
+        resolve(urls);
+        return;
+      }
+
+      db.get(
+        `SELECT f95_zone_data.screens
+         FROM f95_zone_data
+         JOIN atlas_mappings ON f95_zone_data.atlas_id = atlas_mappings.atlas_id
+         WHERE atlas_mappings.record_id = ?`,
+        [recordId],
+        (screensErr, row) => {
+          if (screensErr) {
+            reject(screensErr);
+            return;
+          }
+          resolve(
+            row?.screens
+              ? row.screens.split(",").map((screen) => screen.trim()).filter(Boolean)
+              : [],
+          );
+        },
+      );
+    });
+  });
+};
+
+const getPreviews = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
+  return new Promise((resolve, reject) => {
     db.all(
       `SELECT path FROM previews WHERE record_id = ?`,
       [recordId],
-      (err, rows) => {
+      async (err, rows) => {
         if (err) {
           console.error("Error fetching previews:", err);
           reject(err);
         } else {
-          console.log(rows);
-          const previews = rows.map(
-            (row) =>
-              `${path.join(baseImagePath, row.path).replace(/\\/g, "/")}`,
-          );
-          console.log("Previews fetched for recordId:", recordId, previews);
-          resolve(previews);
+          try {
+            const localPreviews = rows.map((row) =>
+              toLocalAssetPath(appPath, isDev, row.path),
+            );
+            const remotePreviews = await getRemotePreviewUrls(recordId);
+            const previews =
+              normalizeMediaStorageMode(mediaStorageMode) === "download"
+                ? [
+                    ...localPreviews,
+                    ...(localPreviews.length === 0 ? remotePreviews : []),
+                  ]
+                : [
+                    ...remotePreviews,
+                    ...(remotePreviews.length === 0 ? localPreviews : []),
+                  ];
+
+            console.log("Previews fetched for recordId:", recordId, previews);
+            resolve(previews);
+          } catch (remoteErr) {
+            console.error("Error resolving preview URLs:", remoteErr);
+            reject(remoteErr);
+          }
         }
       },
     );
@@ -1844,23 +1951,59 @@ const getBanners = (recordId, appPath, isDev) => {
   });
 };
 
-const getBanner = (recordId, appPath, isDev, type) => {
+const getRemoteBannerUrl = (recordId) => {
   return new Promise((resolve, reject) => {
-    const baseImagePath = getAssetBasePath(appPath, isDev);
+    db.get(
+      `SELECT COALESCE(f95_zone_data.banner_url, steam_data.header, steam_data.library_hero, atlas_data.banner_wide, atlas_data.banner) AS banner_url
+       FROM games
+       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
+       LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
+       LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
+       WHERE games.record_id = ?`,
+      [recordId],
+      (err, row) => {
+        if (err) reject(err);
+        else resolve(row?.banner_url || "");
+      },
+    );
+  });
+};
+
+const getBanner = (recordId, appPath, isDev, type, mediaStorageMode = "stream") => {
+  return new Promise((resolve, reject) => {
     db.all(
       `SELECT path FROM banners WHERE record_id = ? AND type=?`,
       [recordId, type],
-      (err, rows) => {
+      async (err, rows) => {
         if (err) {
           console.error("Error fetching banners:", err);
           reject(err);
         } else {
-          const banners = rows.map(
-            (row) =>
-              `${path.join(baseImagePath, row.path).replace(/\\/g, "/")}`,
-          );
-          console.log("Banners fetched for recordId:", recordId, banners);
-          resolve(banners);
+          try {
+            const localBanners = rows.map((row) =>
+              toLocalAssetPath(appPath, isDev, row.path),
+            );
+            const remoteBannerUrl = await getRemoteBannerUrl(recordId);
+            const remoteBanners = remoteBannerUrl ? [remoteBannerUrl] : [];
+            const banners =
+              normalizeMediaStorageMode(mediaStorageMode) === "download"
+                ? [
+                    ...localBanners,
+                    ...(localBanners.length === 0 ? remoteBanners : []),
+                  ]
+                : [
+                    ...remoteBanners,
+                    ...(remoteBanners.length === 0 ? localBanners : []),
+                  ];
+
+            console.log("Banners fetched for recordId:", recordId, banners);
+            resolve(banners);
+          } catch (remoteErr) {
+            console.error("Error resolving banner URLs:", remoteErr);
+            reject(remoteErr);
+          }
         }
       },
     );
@@ -2198,7 +2341,20 @@ const deleteBanner = (recordId, appPath, isDev) => {
 const deletePreviews = (recordId, appPath, isDev) => {
   return new Promise(async (resolve, reject) => {
     try {
-      const previews = await getPreviews(recordId, appPath, isDev);
+      const previews = await new Promise((resolveLocal, rejectLocal) => {
+        db.all(
+          `SELECT path FROM previews WHERE record_id = ?`,
+          [recordId],
+          (err, rows) => {
+            if (err) rejectLocal(err);
+            else {
+              resolveLocal(
+                rows.map((row) => toLocalAssetPath(appPath, isDev, row.path)),
+              );
+            }
+          },
+        );
+      });
       for (const previewUrl of previews) {
         const filePath = previewUrl.replace("file://", ""); // Adjust to data/images
         console.log("Attempting to delete preview file:", filePath);
@@ -2435,6 +2591,8 @@ module.exports = {
   getEmulatorByExtension,
   GetAtlasIDbyRecord,
   getPreviews,
+  getRemotePreviewUrls,
+  getRemoteBannerUrl,
   deleteBanner,
   deletePreviews,
   getBanners,

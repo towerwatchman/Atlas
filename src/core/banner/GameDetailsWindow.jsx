@@ -2,6 +2,10 @@ const { useState, useEffect } = window.React;
 const ReactDOM = window.ReactDOM || {};
 const { createRoot } = window.ReactDOM;
 
+const isRemoteMediaUrl = (url) => /^https?:\/\//i.test(String(url || ""));
+const firstMediaUrl = (value) =>
+  Array.isArray(value) ? value[0] || "" : value || "";
+
 const GameDetailWindow = () => {
   const [game, setGame] = useState(null);
   const [selectedVersion, setSelectedVersion] = useState(null);
@@ -305,7 +309,7 @@ const GameDetailWindow = () => {
         total: 1,
       });
       const newUrl = await window.electronAPI.updateBanners(game.record_id);
-      setBannerUrl(newUrl);
+      setBannerUrl(firstMediaUrl(newUrl));
     } catch (err) {
       console.error("Failed to download banner:", err);
       setImportProgress({ text: "", progress: 0, total: 0 });
@@ -357,7 +361,7 @@ const GameDetailWindow = () => {
   const handleRefreshMetadataAndImages = async () => {
     try {
       setImportProgress({
-        text: "Refreshing metadata and images...",
+        text: "Refreshing media links...",
         progress: 0,
         total: 1,
       });
@@ -374,14 +378,14 @@ const GameDetailWindow = () => {
       }
 
       if (result?.bannerUrl) {
-        setBannerUrl(result.bannerUrl);
+        setBannerUrl(firstMediaUrl(result.bannerUrl));
       }
       if (Array.isArray(result?.previewUrls)) {
         setPreviewUrls(result.previewUrls);
       }
     } catch (err) {
-      console.error("Failed to refresh metadata and images:", err);
-      alert(`Failed to refresh metadata and images: ${err.message}`);
+      console.error("Failed to refresh media links:", err);
+      alert(`Failed to refresh media links: ${err.message}`);
       setImportProgress({ text: "", progress: 0, total: 0 });
     }
   };
@@ -405,7 +409,7 @@ const GameDetailWindow = () => {
         `You are about to delete the last version ("${versionLabel}") of "${game.title}".\n\n` +
           `This will completely remove the game from your library, including:\n` +
           `• All metadata & mappings\n` +
-          `• Cached banner and preview images\n\n` +
+          `• Downloaded banner and preview images\n\n` +
           `Continue?`,
       );
     } else {
@@ -656,6 +660,17 @@ const GameDetailWindow = () => {
   };
 
   const [activeTab, setActiveTab] = useState("Record");
+  const bannerMediaStatus = bannerUrl
+    ? isRemoteMediaUrl(bannerUrl)
+      ? "Streaming from the web"
+      : "Downloaded to local storage"
+    : "No banner available";
+  const previewMediaStatus =
+    validPreviewUrls.length > 0
+      ? validPreviewUrls.some(isRemoteMediaUrl)
+        ? "Streaming from the web"
+        : "Downloaded to local storage"
+      : "No previews available";
 
   if (!game) {
     return (
@@ -1082,6 +1097,7 @@ const GameDetailWindow = () => {
                 )}
                 <div className="flex flex-col h-[414px]">
                   <label>Banner Image</label>
+                  <p className="text-xs opacity-60 mb-1">{bannerMediaStatus}</p>
                   {bannerUrl ? (
                     <div className="flex flex-col flex-grow">
                       <img
@@ -1115,14 +1131,16 @@ const GameDetailWindow = () => {
                                 "Banner deleted for recordId:",
                                 game.record_id,
                               );
-                              setBannerUrl("");
+                              const updatedGame =
+                                await window.electronAPI.getGame(game.record_id);
+                              setBannerUrl(updatedGame?.banner_url || "");
                             } catch (err) {
                               console.error("Error deleting banner:", err);
                             }
                           }}
                           className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
                         >
-                          Delete Banner
+                          Delete Downloaded Banner
                         </button>
                       </div>
                     </div>
@@ -1147,6 +1165,7 @@ const GameDetailWindow = () => {
                 </div>
                 <div className="flex flex-col flex-grow">
                   <label>Preview Images</label>
+                  <p className="text-xs opacity-60 mb-1">{previewMediaStatus}</p>
                   <div
                     style={{ height: `${previewHeight}px`, overflowY: "auto" }}
                   >
@@ -1175,7 +1194,7 @@ const GameDetailWindow = () => {
                       onClick={handleRefreshMetadataAndImages}
                       className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
                     >
-                      Refresh Metadata & Images
+                      Refresh Media Links
                     </button>
                     <button
                       onClick={handleDownloadPreviews}
@@ -1195,15 +1214,17 @@ const GameDetailWindow = () => {
                                 "Previews deleted for recordId:",
                                 game.record_id,
                               );
-                              setPreviewUrls([]);
-                              setValidPreviewUrls([]);
+                              const urls = await window.electronAPI.getPreviews(
+                                game.record_id,
+                              );
+                              setPreviewUrls(urls || []);
                             } catch (err) {
                               console.error("Error deleting previews:", err);
                             }
                           }}
                           className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600"
                         >
-                          Delete Previews
+                          Delete Downloaded Previews
                         </button>
                       )}
                   </div>

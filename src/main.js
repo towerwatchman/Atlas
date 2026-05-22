@@ -266,7 +266,12 @@ function createGameDetailsWindow(recordId) {
 
   gameDetailsWindow.webContents.on("did-finish-load", () => {
     console.log("Fetching game data for recordId:", recordId);
-    getGame(recordId, getAssetBasePath(), process.defaultApp)
+    getGame(
+      recordId,
+      getAssetBasePath(),
+      process.defaultApp,
+      getMediaStorageMode(),
+    )
       .then((game) => {
         setTimeout(() => {
           gameDetailsWindow.webContents.send("send-game-data", game);
@@ -316,6 +321,12 @@ function getLegacyResourcesPath() {
 
 function getAssetBasePath() {
   return process.defaultApp ? app.getAppPath() : app.getPath("userData");
+}
+
+function getMediaStorageMode() {
+  return appConfig?.Metadata?.mediaStorageMode === "download"
+    ? "download"
+    : "stream";
 }
 
 // Create data folders
@@ -438,6 +449,7 @@ const defaultConfig = {
   },
   Metadata: {
     downloadPreviews: false,
+    mediaStorageMode: "stream",
   },
   Performance: {
     maxHeapSize: 4096,
@@ -489,7 +501,12 @@ ipcMain.handle("delete-game-completely", async (_, recordId) => {
 
 ipcMain.handle("get-game", async (event, recordId) => {
   console.log("Default app state", app.getAppPath());
-  return await getGame(recordId, getAssetBasePath(), process.defaultApp);
+  return await getGame(
+    recordId,
+    getAssetBasePath(),
+    process.defaultApp,
+    getMediaStorageMode(),
+  );
 });
 
 ipcMain.handle("get-games", async (event, args = {}) => {
@@ -499,7 +516,11 @@ ipcMain.handle("get-games", async (event, args = {}) => {
     process.defaultApp,
     offset,
     limit,
-    { ...options, includeUninstalled: includeUninstalled === true },
+    {
+      ...options,
+      includeUninstalled: includeUninstalled === true,
+      mediaStorageMode: getMediaStorageMode(),
+    },
   );
 });
 
@@ -517,7 +538,12 @@ ipcMain.handle("validate-library-paths", async (event) => {
       let processed = 0;
       for (const recordId of recordIds) {
         if (activeLibraryValidation?.canceled) break;
-        const game = await getGame(recordId, getAssetBasePath(), process.defaultApp);
+        const game = await getGame(
+          recordId,
+          getAssetBasePath(),
+          process.defaultApp,
+          getMediaStorageMode(),
+        );
         processed++;
         if (!sender.isDestroyed()) {
           sender.send("library-validation-progress", {
@@ -1639,6 +1665,7 @@ ipcMain.handle("get-previews", async (event, recordId) => {
       recordId,
       getAssetBasePath(),
       process.defaultApp,
+      getMediaStorageMode(),
     );
     return Array.isArray(previews) ? previews : [];
   } catch (err) {
@@ -1674,6 +1701,7 @@ ipcMain.handle("update-banners", async (event, recordId) => {
       getAssetBasePath(),
       process.defaultApp,
       "large",
+      "download",
     );
     event.sender.send("game-updated", recordId);
     progress++;
@@ -1715,6 +1743,7 @@ ipcMain.handle("update-previews", async (event, recordId) => {
       recordId,
       getAssetBasePath(),
       process.defaultApp,
+      "download",
     );
     event.sender.send("game-updated", recordId);
     event.sender.send("game-details-import-progress", {
@@ -1775,49 +1804,30 @@ ipcMain.handle("update-game", async (event, game) => {
 ipcMain.handle("refresh-game-media", async (event, recordId) => {
   console.log("Handling refresh-game-media for recordId:", recordId);
   try {
-    const atlasId = await GetAtlasIDbyRecord(recordId);
-    if (!atlasId) {
-      return {
-        success: false,
-        error: "This game is not mapped to Atlas/F95 metadata yet.",
-      };
-    }
-
-    let imageTotal = 1;
-    await downloadImages(
+    const game = await getGame(
       recordId,
-      atlasId,
-      (current, totalImages) => {
-        imageTotal = totalImages || imageTotal;
-        event.sender.send("game-details-import-progress", {
-          text: `Refreshing metadata and images ${current}/${imageTotal}`,
-          progress: current,
-          total: imageTotal,
-        });
-      },
-      true,
-      true,
-      "Unlimited",
-      false,
+      getAssetBasePath(),
+      process.defaultApp,
+      getMediaStorageMode(),
     );
-
-    const game = await getGame(recordId, getAssetBasePath(), process.defaultApp);
     const bannerUrl = await getBanner(
       recordId,
       getAssetBasePath(),
       process.defaultApp,
       "large",
+      getMediaStorageMode(),
     );
     const previewUrls = await getPreviews(
       recordId,
       getAssetBasePath(),
       process.defaultApp,
+      getMediaStorageMode(),
     );
 
     event.sender.send("game-details-import-progress", {
-      text: "Completed metadata and image refresh",
-      progress: imageTotal,
-      total: imageTotal,
+      text: "Refreshed media links",
+      progress: 1,
+      total: 1,
     });
     BrowserWindow.getAllWindows().forEach((win) => {
       win.webContents.send("game-updated", recordId);

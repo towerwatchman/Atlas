@@ -118,8 +118,8 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
       }
       onRefresh?.(game.record_id);
     } catch (error) {
-      console.error("Failed to refresh metadata and images:", error);
-      alert(`Failed to refresh metadata and images: ${error.message}`);
+      console.error("Failed to refresh media links:", error);
+      alert(`Failed to refresh media links: ${error.message}`);
     } finally {
       setIsRefreshingMedia(false);
     }
@@ -221,7 +221,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
                 className="bg-primary hover:bg-selected disabled:bg-gray-700 disabled:text-gray-400 border border-border px-4 py-2"
               >
                 <i className="fas fa-sync-alt mr-2"></i>
-                {isRefreshingMedia ? "Refreshing..." : "Refresh Metadata & Images"}
+                {isRefreshingMedia ? "Refreshing..." : "Refresh Media Links"}
               </button>
               {game.siteUrl && (
                 <button
@@ -242,7 +242,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold">Previews</h2>
             <span className="text-xs text-gray-300">
-              {previews.length} downloaded
+              {previews.length} available
             </span>
           </div>
           {previews.length > 0 ? (

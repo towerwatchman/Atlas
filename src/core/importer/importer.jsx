@@ -311,6 +311,9 @@ const Importer = () => {
         console.log(`Config loaded: ${JSON.stringify(config)}`);
         window.electronAPI.log(`Config loaded: ${JSON.stringify(config)}`);
         const librarySettings = config.Library || {};
+        const metadataSettings = config.Metadata || {};
+        const shouldDownloadMedia =
+          metadataSettings.mediaStorageMode === "download";
         setGameExt(
           librarySettings.gameExtensions ||
             "exe,swf,flv,f4v,rag,cmd,bat,jar,html",
@@ -320,6 +323,8 @@ const Importer = () => {
           librarySettings.libraryFolderStructure ||
             "{creator}/{title}/{version}",
         );
+        setDownloadBannerImages(shouldDownloadMedia);
+        setDownloadPreviewImages(shouldDownloadMedia);
 
         window.electronAPI.getDefaultGameFolder().then((path) => {
           setDefaultLibraryPath(path);
@@ -814,7 +819,7 @@ const Importer = () => {
                   checked={downloadBannerImages}
                   onChange={(e) => setDownloadBannerImages(e.target.checked)}
                 />
-                <label>Download Banner Images</label>
+                <label>Download banner images to local storage</label>
               </div>
               <div>
                 <input
@@ -823,7 +828,7 @@ const Importer = () => {
                   onChange={(e) => setDownloadPreviewImages(e.target.checked)}
                 />
                 <label>
-                  Download Preview Images{" "}
+                  Download preview images to local storage{" "}
                   {previewLimit === "Unlimited"
                     ? "(all available)"
                     : `(limit: ${previewLimit})`}
