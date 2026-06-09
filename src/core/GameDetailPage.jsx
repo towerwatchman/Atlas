@@ -8,6 +8,29 @@ const getDefaultVersion = (versions = []) => {
   return installedVersions[0] || versions[0] || null;
 };
 
+// Normalize a URL for comparison: drop query/hash, trim, lowercase.
+const normalizeUrl = (url) => {
+  if (!url) return "";
+  return String(url).split(/[?#]/)[0].trim().toLowerCase().replace(/\/+$/, "");
+};
+
+// Previews sometimes include the same image used as the banner. Drop any
+// preview that matches the banner by full URL or by filename.
+const filterOutBanner = (urls = [], bannerUrl) => {
+  const list = Array.isArray(urls) ? urls : [];
+  const banner = normalizeUrl(bannerUrl);
+  if (!banner) return list;
+  const bannerName = banner.split("/").pop();
+  return list.filter((u) => {
+    const n = normalizeUrl(u);
+    if (!n) return false;
+    if (n === banner) return false;
+    const name = n.split("/").pop();
+    if (bannerName && name && name === bannerName) return false;
+    return true;
+  });
+};
+
 const formatPlaytime = (minutes) => {
   const totalMinutes = Number(minutes || 0);
   if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) return "Not played";
@@ -52,6 +75,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   const [isRefreshingMedia, setIsRefreshingMedia] = useState(false);
   const [launchState, setLaunchState]     = useState(LAUNCH_STATE.IDLE);
   const [showInfo, setShowInfo]           = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(null);
   const isRunningRef  = useRef(false);
 
   useEffect(() => {
@@ -67,7 +91,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
     });
     window.electronAPI
       .getPreviews(game.record_id)
-      .then((urls) => setPreviews(Array.isArray(urls) ? urls : []))
+      .then((urls) => setPreviews(filterOutBanner(urls, game.banner_url)))
       .catch((err) => { console.error("Failed to load previews:", err); setPreviews([]); });
   }, [game?.record_id, game?.versions]);
 
@@ -75,8 +99,21 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   useEffect(() => {
     setLaunchState(LAUNCH_STATE.IDLE);
     setShowInfo(false);
+    setLightboxIndex(null);
     isRunningRef.current = false;
   }, [game?.record_id]);
+
+  // Lightbox keyboard navigation
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") closeLightbox();
+      else if (e.key === "ArrowLeft") showPrevPreview();
+      else if (e.key === "ArrowRight") showNextPreview();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxIndex, previews.length]);
 
   // Track game-updated to detect process close
   useEffect(() => {
@@ -95,10 +132,10 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   }, [game?.record_id, launchState]);
 
   const installedVersions = getInstalledVersions(game.versions || []);
-  const actionVersion =
-    selectedVersion && selectedVersion.isInstalled !== false
-      ? selectedVersion
-      : getDefaultVersion(installedVersions);
+  // The selected version is the source of truth for Play / Open Folder.
+  // If the user selects a missing version, Play disables (canLaunch=false)
+  // rather than silently launching a different one.
+  const actionVersion = selectedVersion || getDefaultVersion(installedVersions);
   const canLaunch = Boolean(
     actionVersion &&
       actionVersion.isInstalled !== false &&
@@ -171,7 +208,12 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   };
   const openProperties = async () => { await window.electronAPI.openGameProperties(game.record_id); };
   const openWebsite    = async () => { if (game.siteUrl) await window.electronAPI.openExternalUrl(game.siteUrl); };
-  const openPreview    = (url)      => { window.electronAPI.openExternalUrl(url); };
+  const openPreview    = (index)    => { setLightboxIndex(index); };
+  const closeLightbox  = ()         => { setLightboxIndex(null); };
+  const showPrevPreview = () =>
+    setLightboxIndex((i) => (i === null ? i : (i - 1 + previews.length) % previews.length));
+  const showNextPreview = () =>
+    setLightboxIndex((i) => (i === null ? i : (i + 1) % previews.length));
 
   const refreshMetadataAndImages = async () => {
     if (!game?.record_id || isRefreshingMedia) return;
@@ -179,7 +221,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
     try {
       const result = await window.electronAPI.refreshGameMedia(game.record_id);
       if (result?.success === false) throw new Error(result.error || "Refresh failed");
-      if (Array.isArray(result?.previewUrls)) setPreviews(result.previewUrls);
+      if (Array.isArray(result?.previewUrls)) setPreviews(filterOutBanner(result.previewUrls, game.banner_url));
       onRefresh?.(game.record_id);
     } catch (error) {
       console.error("Failed to refresh media links:", error);
@@ -315,6 +357,21 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
             </button>
           )}
 
+          {/* Selected version indicator — sits to the right of PLAY / UPDATE */}
+          {actionVersion && (
+            <div style={{ display:"flex", flexDirection:"column", justifyContent:"center", lineHeight:1.25, marginLeft:6, minWidth:0 }}>
+              <span style={{ fontSize:9, fontWeight:700, letterSpacing:"0.08em", color:"#7a8aa0", textTransform:"uppercase" }}>
+                Selected Version
+              </span>
+              <span style={{ fontSize:13, fontWeight:600, color: actionVersion.isInstalled !== false ? "#d1d5db" : "#fca5a5", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                {actionVersion.version || "Unknown"}
+                {actionVersion.isInstalled === false && (
+                  <span style={{ fontSize:10, color:"#fca5a5", marginLeft:6 }}>(missing)</span>
+                )}
+              </span>
+            </div>
+          )}
+
           <div style={{ flex:1 }} />
 
           {/* Icon buttons + info — right side */}
@@ -396,8 +453,8 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
                   key={`${preview}-${index}`}
                   className="border border-border overflow-hidden aspect-video cursor-pointer hover:border-accent transition-colors"
                   style={{ maxWidth:600 }}
-                  onClick={() => openPreview(preview)}
-                  title="Click to open full size"
+                  onClick={() => openPreview(index)}
+                  title="Click to view"
                 >
                   <img src={preview} alt={`Preview ${index + 1}`}
                     style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} />
@@ -431,7 +488,10 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
                       }`}
                     >
                       <div style={{ display:"flex", justifyContent:"space-between", gap:8 }}>
-                        <span style={{ fontWeight:600 }}>{version.version || "Unknown version"}</span>
+                        <span style={{ fontWeight:600, display:"flex", alignItems:"center", gap:7 }}>
+                          {isSelected && <i className="fas fa-play" style={{ fontSize:9, color:"var(--color-accent,#86a8e7)" }}></i>}
+                          {version.version || "Unknown version"}
+                        </span>
                         <span style={{ fontSize:11, color: installed ? "#86efac" : "#fca5a5" }}>
                           {installed ? "Installed" : "Missing"}
                         </span>
@@ -476,6 +536,89 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
           )}
         </aside>
       </div>
+
+      {/* ── Preview Lightbox — in-app modal ── */}
+      {lightboxIndex !== null && previews[lightboxIndex] && (
+        <div
+          onClick={closeLightbox}
+          style={{
+            position:"fixed", inset:0, zIndex:100,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            background:"rgba(8,10,15,0.92)", backdropFilter:"blur(6px)",
+          }}
+        >
+          {/* Top bar: counter + close */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ position:"absolute", top:0, left:0, right:0, display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 18px" }}
+          >
+            <span style={{ fontSize:12, fontWeight:600, color:"#9ca3af" }}>
+              {lightboxIndex + 1} / {previews.length}
+            </span>
+            <button
+              onClick={closeLightbox}
+              title="Close (Esc)"
+              style={{
+                width:34, height:34, display:"flex", alignItems:"center", justifyContent:"center",
+                background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.12)",
+                borderRadius:2, color:"#d1d5db", cursor:"pointer", transition:"background 0.15s, border-color 0.15s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.14)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+            >
+              <i className="fas fa-times" style={{ fontSize:15 }}></i>
+            </button>
+          </div>
+
+          {/* Prev */}
+          {previews.length > 1 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); showPrevPreview(); }}
+              title="Previous (←)"
+              style={{
+                position:"absolute", left:18, top:"50%", transform:"translateY(-50%)",
+                width:44, height:44, display:"flex", alignItems:"center", justifyContent:"center",
+                background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.12)",
+                borderRadius:2, color:"#d1d5db", cursor:"pointer", transition:"background 0.15s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.14)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+            >
+              <i className="fas fa-chevron-left" style={{ fontSize:16 }}></i>
+            </button>
+          )}
+
+          {/* Image */}
+          <img
+            src={previews[lightboxIndex]}
+            alt={`Preview ${lightboxIndex + 1}`}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth:"90vw", maxHeight:"85vh", objectFit:"contain",
+              border:"1px solid rgba(255,255,255,0.12)",
+              boxShadow:"0 8px 40px rgba(0,0,0,0.6)",
+            }}
+          />
+
+          {/* Next */}
+          {previews.length > 1 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); showNextPreview(); }}
+              title="Next (→)"
+              style={{
+                position:"absolute", right:18, top:"50%", transform:"translateY(-50%)",
+                width:44, height:44, display:"flex", alignItems:"center", justifyContent:"center",
+                background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.12)",
+                borderRadius:2, color:"#d1d5db", cursor:"pointer", transition:"background 0.15s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.14)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+            >
+              <i className="fas fa-chevron-right" style={{ fontSize:16 }}></i>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };
