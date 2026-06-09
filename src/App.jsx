@@ -777,7 +777,11 @@ return (
   <div className="flex flex-col h-screen font-sans text-[13px]">
     {/* Header */}
     <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
-      <div className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50">
+      <div
+        className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag"
+        onClick={() => setSelectedGame(null)}
+        title="Back to Library"
+      >
         <svg
           className="w-[50px] h-[50px] text-atlasLogo"
           viewBox="0 0 24 24"
@@ -798,7 +802,11 @@ return (
         ></div>
         <div className="w-full flex h-[70px]">
           <div className="flex items-center ml-5 mt-3">
-            <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag">
+            <div
+              className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag"
+              onClick={() => setSelectedGame(null)}
+              title="Back to Library"
+            >
               Games
             </div>
           </div>
@@ -850,6 +858,7 @@ return (
       <window.Sidebar
         onToggleGameList={toggleGameList}
         onCheckDbUpdates={runDbUpdateCheck}
+        onGoHome={() => setSelectedGame(null)}
       />
 
       {/* Left Game List (titles) - toggled */}

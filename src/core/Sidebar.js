@@ -1,4 +1,4 @@
-const Sidebar = ({ onToggleGameList, onCheckDbUpdates, showGameList  }) => {
+const Sidebar = ({ onToggleGameList, onCheckDbUpdates, onGoHome, showGameList  }) => {
   // Only need toggle prop now
   const [selected, setSelected] = React.useState("Home");
 
@@ -67,6 +67,9 @@ const Sidebar = ({ onToggleGameList, onCheckDbUpdates, showGameList  }) => {
           className: `w-full h-[60px] flex items-center justify-center relative cursor-pointer group`,
           onClick: () => {
             setSelected(item.name);
+            if (item.name === "Home") {
+              if (onGoHome) onGoHome();
+            }
             if (item.name === "Settings") {
               window.electronAPI.openSettings();
             }
