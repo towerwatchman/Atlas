@@ -1,11 +1,34 @@
 const { useState, useEffect, useRef } = window.React;
 
+// Version comparison (mirrors database.js normalize/compare so the UI agrees
+// with update detection). Sorts/compares numerically where possible.
+const normalizeVersionForCompare = (value) =>
+  String(value || "").trim().toLowerCase().replace(/\s+/g, "").replace(/^v/, "").replace(/[^0-9.]/g, "");
+
+const compareVersions = (a, b) => {
+  const ap = normalizeVersionForCompare(a).split(".").map((n) => parseInt(n, 10) || 0);
+  const bp = normalizeVersionForCompare(b).split(".").map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(ap.length, bp.length);
+  for (let i = 0; i < len; i++) {
+    const x = ap[i] || 0, y = bp[i] || 0;
+    if (x < y) return -1;
+    if (x > y) return 1;
+  }
+  return 0;
+};
+
+// Newest first
+const sortVersionsDesc = (versions = []) =>
+  [...versions].sort((x, y) => compareVersions(y.version, x.version));
+
 const getInstalledVersions = (versions = []) =>
   versions.filter((version) => version.isInstalled !== false);
 
 const getDefaultVersion = (versions = []) => {
-  const installedVersions = getInstalledVersions(versions);
-  return installedVersions[0] || versions[0] || null;
+  const installed = sortVersionsDesc(getInstalledVersions(versions));
+  if (installed[0]) return installed[0];
+  const all = sortVersionsDesc(versions);
+  return all[0] || null;
 };
 
 // Normalize a URL for comparison: drop query/hash, trim, lowercase.
@@ -43,11 +66,11 @@ const formatPlaytime = (minutes) => {
 
 const LAUNCH_STATE = { IDLE: "idle", LAUNCHING: "launching", RUNNING: "running" };
 
-// Steam-accurate button colors — bottom-left to top-right
-const STEAM_GREEN  = "linear-gradient(to top right, #3d6b07 0%, #a4d007 100%)";
-const STEAM_BLUE   = "linear-gradient(to top right, #1a3f7a 0%, #5b8bd4 100%)";
-const STEAM_YELLOW = "linear-gradient(to top right, #6b5200 0%, #c4a400 100%)";
-const STEAM_GRAY   = "linear-gradient(to top right, #222 0%, #555 100%)";
+// Solid button colors
+const STEAM_GREEN  = "#5ba300";
+const STEAM_BLUE   = "#3a6db5";
+const STEAM_YELLOW = "#b58e00";
+const STEAM_GRAY   = "#3a3a3a";
 
 // Shared button shape styles
 const ACTION_BTN = {
@@ -76,7 +99,11 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   const [launchState, setLaunchState]     = useState(LAUNCH_STATE.IDLE);
   const [showInfo, setShowInfo]           = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(null);
+  const [bannerMask, setBannerMask]       = useState({ image: "none", composite: null });
   const isRunningRef  = useRef(false);
+  const rootRef       = useRef(null);
+  const bannerRef     = useRef(null);
+  const bannerDimsRef = useRef(null); // { w, h } natural size of banner image
 
   useEffect(() => {
     if (!game?.record_id) return;
@@ -103,6 +130,22 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
     isRunningRef.current = false;
   }, [game?.record_id]);
 
+  // Scroll back to the top whenever a different game is opened.
+  useEffect(() => {
+    const findScroller = (el) => {
+      let node = el?.parentElement;
+      while (node) {
+        const oy = getComputedStyle(node).overflowY;
+        if (oy === "auto" || oy === "scroll") return node;
+        node = node.parentElement;
+      }
+      return null;
+    };
+    const scroller = findScroller(rootRef.current);
+    if (scroller) scroller.scrollTop = 0;
+    else rootRef.current?.scrollIntoView?.({ block: "start" });
+  }, [game?.record_id]);
+
   // Lightbox keyboard navigation
   useEffect(() => {
     if (lightboxIndex === null) return;
@@ -114,6 +157,53 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [lightboxIndex, previews.length]);
+
+  // Banner feathering. With object-fit:contain the image is letterboxed
+  // inside the box: exactly one axis is flush to the container edge (no
+  // feather) and the other is gapped. We feather ONLY the gapped axis, and
+  // align the gradient to the image's true edges (not the container edges,
+  // which sit in the empty letterbox area).
+  const recomputeFeather = () => {
+    const c = bannerRef.current;
+    const dims = bannerDimsRef.current;
+    if (!c || !dims || !dims.w || !dims.h) return;
+    const cw = c.clientWidth, ch = c.clientHeight;
+    if (!cw || !ch) return;
+
+    const scale = Math.min(cw / dims.w, ch / dims.h);
+    const rw = dims.w * scale, rh = dims.h * scale; // rendered image size
+    const offX = (cw - rw) / 2, offY = (ch - rh) / 2; // letterbox offsets
+    const eps = 1; // px tolerance for "flush"
+    const masks = [];
+
+    if (offX > eps) {
+      // Pillarboxed: gaps left/right → feather the image's left/right edges
+      const L = (offX / cw) * 100;
+      const R = ((offX + rw) / cw) * 100;
+      const band = (Math.min(48, rw * 0.08) / cw) * 100;
+      masks.push(`linear-gradient(to right, transparent ${L}%, black ${L + band}%, black ${R - band}%, transparent ${R}%)`);
+    }
+    if (offY > eps) {
+      // Letterboxed: gaps top/bottom → feather the image's top/bottom edges
+      const T = (offY / ch) * 100;
+      const B = ((offY + rh) / ch) * 100;
+      const band = (Math.min(48, rh * 0.08) / ch) * 100;
+      masks.push(`linear-gradient(to bottom, transparent ${T}%, black ${T + band}%, black ${B - band}%, transparent ${B}%)`);
+    }
+
+    if (masks.length === 0) {
+      setBannerMask({ image: "none", composite: null }); // flush all around
+    } else {
+      setBannerMask({ image: masks.join(", "), composite: masks.length > 1 ? "intersect" : null });
+    }
+  };
+
+  useEffect(() => {
+    setBannerMask({ image: "none", composite: null }); // reset until measured
+    bannerDimsRef.current = null;
+    window.addEventListener("resize", recomputeFeather);
+    return () => window.removeEventListener("resize", recomputeFeather);
+  }, [game?.record_id, game?.banner_url]);
 
   // Track game-updated to detect process close
   useEffect(() => {
@@ -149,7 +239,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
     game.versions?.[0]?.version ||
     game.version || "";
   const hasInstalledVersion = game.hasInstalledVersion !== false;
-  const versionOptions = game.versions || [];
+  const versionOptions = sortVersionsDesc(game.versions || []);
   const metadataRows   = [
     ["Status",       game.status],
     ["Engine",       game.engine],
@@ -261,10 +351,10 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   });
 
   return (
-    <div className="min-h-full bg-tertiary text-text flex flex-col">
+    <div ref={rootRef} className="min-h-full bg-tertiary text-text flex flex-col">
 
       {/* ── Hero Banner ── */}
-      <div style={{ position:"relative", height:370, flexShrink:0, overflow:"hidden", backgroundColor:"#1a1f2e" }}>
+      <div ref={bannerRef} style={{ position:"relative", height:370, flexShrink:0, overflow:"hidden", backgroundColor:"#1a1f2e" }}>
         {/* Blurred background fill */}
         {game.banner_url && (
           <img src={game.banner_url} alt="" style={{
@@ -276,22 +366,22 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
         )}
         {!game.banner_url && <div style={{ position:"absolute", inset:0, background:"#1d2734" }} />}
 
-        {/* Foreground — contain so whichever axis fills first is flush; mask feathers the letterbox edges */}
+        {/* Foreground — contain so whichever axis fills first is flush; mask feathers only the letterboxed (gap) edges */}
         {game.banner_url && (
-          <img src={game.banner_url} alt="" style={{
+          <img src={game.banner_url} alt=""
+            onLoad={(e) => {
+              bannerDimsRef.current = { w: e.target.naturalWidth, h: e.target.naturalHeight };
+              recomputeFeather();
+            }}
+            style={{
             position:"absolute", inset:0, width:"100%", height:"100%",
             objectFit:"contain",
             filter: hasInstalledVersion ? "none" : "grayscale(1)",
-            WebkitMaskImage:[
-              "linear-gradient(to right,  transparent 0%, black 8%, black 92%, transparent 100%)",
-              "linear-gradient(to bottom, transparent 0%, black 8%, black 92%, transparent 100%)",
-            ].join(", "),
-            maskImage:[
-              "linear-gradient(to right,  transparent 0%, black 8%, black 92%, transparent 100%)",
-              "linear-gradient(to bottom, transparent 0%, black 8%, black 92%, transparent 100%)",
-            ].join(", "),
-            WebkitMaskComposite:"source-in",
-            maskComposite:"intersect",
+            WebkitMaskImage: bannerMask.image,
+            maskImage: bannerMask.image,
+            ...(bannerMask.composite
+              ? { WebkitMaskComposite:"source-in", maskComposite: bannerMask.composite }
+              : {}),
           }} />
         )}
 
@@ -345,7 +435,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
             <button
               onClick={openWebsite}
               style={{ ...ACTION_BTN, minWidth:130,
-                background:"linear-gradient(to top right, #1a3f7a 0%, #4a90d9 100%)",
+                background:"#2f6fc0",
                 color:"#c8e0ff",
               }}
               onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.12)"; }}
@@ -357,9 +447,16 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
             </button>
           )}
 
-          {/* Selected version indicator — sits to the right of PLAY / UPDATE */}
+          {/* Version indicator — sits to the right of PLAY / UPDATE.
+              When an update exists, the latest version is shown above the selected one. */}
           {actionVersion && (
             <div style={{ display:"flex", flexDirection:"column", justifyContent:"center", lineHeight:1.25, marginLeft:6, minWidth:0 }}>
+              {game.isUpdateAvailable && latestVersion && (
+                <span style={{ fontSize:12, fontWeight:700, color:"#7fb4ef", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", display:"flex", alignItems:"center", gap:5 }}>
+                  <i className="fas fa-arrow-up" style={{ fontSize:9 }}></i>
+                  {latestVersion}
+                </span>
+              )}
               <span style={{ fontSize:9, fontWeight:700, letterSpacing:"0.08em", color:"#7a8aa0", textTransform:"uppercase" }}>
                 Selected Version
               </span>

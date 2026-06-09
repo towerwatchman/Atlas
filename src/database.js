@@ -938,11 +938,20 @@ function getIsUpdateAvailable(latestVersion, versions) {
   const latest = normalizeVersionForCompare(latestVersion);
   if (!latest) return false;
 
-  return versions.some((version) => {
+  // Find the newest local version. An update is only available if even the
+  // newest installed/known version is older than the latest — not if *any*
+  // single version happens to be older.
+  let newest = null;
+  for (const version of versions) {
     const current = normalizeVersionForCompare(version.version);
-    if (!current) return false;
-    return compareVersionParts(current, latest) < 0;
-  });
+    if (!current) continue;
+    if (newest === null || compareVersionParts(current, newest) > 0) {
+      newest = current;
+    }
+  }
+  if (newest === null) return false;
+
+  return compareVersionParts(newest, latest) < 0;
 }
 
 function isExistingPath(value) {
