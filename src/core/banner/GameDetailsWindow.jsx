@@ -1,4 +1,4 @@
-const { useState, useEffect } = window.React;
+const { useState, useEffect, useRef } = window.React;
 const ReactDOM = window.ReactDOM || {};
 const { createRoot } = window.ReactDOM;
 
@@ -11,6 +11,7 @@ const GameDetailWindow = () => {
   const [selectedVersion, setSelectedVersion] = useState(null);
   const [versions, setVersions] = useState([]);
   const [dataReceived, setDataReceived] = useState(false);
+  const dataHandledRef = useRef(false);
   const [formData, setFormData] = useState({
     title: "",
     mappings: "",
@@ -56,6 +57,8 @@ const GameDetailWindow = () => {
   useEffect(() => {
     console.log("Setting up onGameData listener");
     const handleGameData = (event, fetchedGame) => {
+      if (dataHandledRef.current) return; // push + pull may both arrive; take the first
+      dataHandledRef.current = true;
       console.log("Received game data:", fetchedGame);
       setDataReceived(true);
       if (!fetchedGame) {
@@ -111,6 +114,20 @@ const GameDetailWindow = () => {
     };
 
     window.electronAPI.onGameData(handleGameData);
+
+    // Actively pull the data now that the listener is registered. This is the
+    // race-proof path: if the main-process push fired before this component
+    // mounted (dropping the message and hanging on "Loading game data..."),
+    // the pull still retrieves it on demand.
+    if (typeof window.electronAPI.requestGameData === "function") {
+      window.electronAPI
+        .requestGameData()
+        .then((fetchedGame) => handleGameData(null, fetchedGame))
+        .catch((err) => {
+          console.error("requestGameData failed:", err);
+          setDataReceived(true); // surface the empty state rather than hang
+        });
+    }
 
     window.electronAPI.onWindowStateChanged((state) => {
       setIsMaximized(state === "maximized");

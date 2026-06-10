@@ -212,6 +212,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       callback(event, game);
     });
   },
+  requestGameData: () => ipcRenderer.invoke("request-game-data"),
   openDirectory: (path) => {
     console.log("Invoking openDirectory for path:", path);
     return ipcRenderer.invoke("open-directory", path);

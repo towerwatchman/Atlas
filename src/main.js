@@ -244,6 +244,10 @@ function showExecutableChooser(title, version, executables) {
     executableChooserWindow = null;
   });
 }
+// Maps a game-details window's webContents id to the recordId it should show,
+// so the renderer can pull its data on demand (avoids the load-timing race).
+const gameDetailsRecordMap = new Map();
+
 function createGameDetailsWindow(recordId) {
   const gameDetailsWindow = new BrowserWindow({
     width: 1400,
@@ -263,6 +267,8 @@ function createGameDetailsWindow(recordId) {
   });
 
   gameDetailsWindow.loadFile(path.join(__dirname, "gamedetails.html"));
+
+  gameDetailsRecordMap.set(gameDetailsWindow.webContents.id, recordId);
 
   gameDetailsWindow.webContents.on("did-finish-load", () => {
     console.log("Fetching game data for recordId:", recordId);
@@ -295,6 +301,7 @@ function createGameDetailsWindow(recordId) {
   });
 
   gameDetailsWindow.on("closed", () => {
+    gameDetailsRecordMap.delete(gameDetailsWindow.webContents.id);
     //gameDetailsWindow = null;
   });
 }
@@ -501,6 +508,23 @@ ipcMain.handle("delete-game-completely", async (_, recordId) => {
 
 ipcMain.handle("get-game", async (event, recordId) => {
   console.log("Default app state", app.getAppPath());
+  return await getGame(
+    recordId,
+    getAssetBasePath(),
+    process.defaultApp,
+    getMediaStorageMode(),
+  );
+});
+
+// Pull-based fetch for the game-details window. The renderer calls this once
+// it has mounted, so delivery no longer depends on a timed push beating the
+// renderer's listener registration (which caused the "stuck on loading" bug).
+ipcMain.handle("request-game-data", async (event) => {
+  const recordId = gameDetailsRecordMap.get(event.sender.id);
+  if (recordId === undefined) {
+    console.warn("request-game-data: no recordId mapped for this window");
+    return null;
+  }
   return await getGame(
     recordId,
     getAssetBasePath(),
