@@ -12,6 +12,8 @@ const GameDetailWindow = () => {
   const [versions, setVersions] = useState([]);
   const [dataReceived, setDataReceived] = useState(false);
   const dataHandledRef = useRef(false);
+  const [loadError, setLoadError] = useState(false);
+  const retryLoadRef = useRef(null);
   const [formData, setFormData] = useState({
     title: "",
     mappings: "",
@@ -115,19 +117,28 @@ const GameDetailWindow = () => {
 
     window.electronAPI.onGameData(handleGameData);
 
-    // Actively pull the data now that the listener is registered. This is the
-    // race-proof path: if the main-process push fired before this component
-    // mounted (dropping the message and hanging on "Loading game data..."),
-    // the pull still retrieves it on demand.
-    if (typeof window.electronAPI.requestGameData === "function") {
+    // Pull the data once mounted (race-proof). Exposed via retryLoadRef so the
+    // error UI can re-trigger it.
+    const pullGameData = () => {
+      if (typeof window.electronAPI.requestGameData !== "function") return;
+      setLoadError(false);
+      dataHandledRef.current = false;
       window.electronAPI
         .requestGameData()
-        .then((fetchedGame) => handleGameData(null, fetchedGame))
+        .then((fetchedGame) => {
+          if (!fetchedGame) {
+            setLoadError(true);
+            return;
+          }
+          handleGameData(null, fetchedGame);
+        })
         .catch((err) => {
           console.error("requestGameData failed:", err);
-          setDataReceived(true); // surface the empty state rather than hang
+          setLoadError(true);
         });
-    }
+    };
+    retryLoadRef.current = pullGameData;
+    pullGameData();
 
     window.electronAPI.onWindowStateChanged((state) => {
       setIsMaximized(state === "maximized");
@@ -726,8 +737,21 @@ const GameDetailWindow = () => {
             </div>
           </div>
         </div>
-        <div className="flex-grow flex items-center justify-center bg-secondary">
-          <span>Loading game data...</span>
+        <div className="flex-grow flex flex-col items-center justify-center bg-secondary gap-4">
+          {loadError ? (
+            <>
+              <span className="text-text">Couldn't load this game's data.</span>
+              <button
+                onClick={() => retryLoadRef.current && retryLoadRef.current()}
+                className="px-4 py-2 bg-accent text-white rounded hover:opacity-90 transition-opacity"
+                style={{ pointerEvents: "auto" }}
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <span>Loading game data...</span>
+          )}
         </div>
       </div>
     );

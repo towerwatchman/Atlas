@@ -268,41 +268,29 @@ function createGameDetailsWindow(recordId) {
 
   gameDetailsWindow.loadFile(path.join(__dirname, "gamedetails.html"));
 
-  gameDetailsRecordMap.set(gameDetailsWindow.webContents.id, recordId);
+  // Capture the id up front — in the "closed" handler the webContents is
+  // already destroyed, so reading gameDetailsWindow.webContents there throws.
+  const detailsWebContentsId = gameDetailsWindow.webContents.id;
+  gameDetailsRecordMap.set(detailsWebContentsId, recordId);
 
-  gameDetailsWindow.webContents.on("did-finish-load", () => {
-    console.log("Fetching game data for recordId:", recordId);
-    getGame(
-      recordId,
-      getAssetBasePath(),
-      process.defaultApp,
-      getMediaStorageMode(),
-    )
-      .then((game) => {
-        setTimeout(() => {
-          gameDetailsWindow.webContents.send("send-game-data", game);
-        }, 400);
-      })
-      .catch((err) => {
-        console.error("Failed to fetch game data:", err);
-        gameDetailsWindow.webContents.send("send-game-data", null);
-      });
-  });
+  // Data is delivered via the pull-based "request-game-data" handler once the
+  // renderer has mounted (see GameDetailsWindow.jsx), so no timed push here.
 
   if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
     gameDetailsWindow.webContents.openDevTools();
   }
 
   gameDetailsWindow.on("maximize", () => {
+    if (gameDetailsWindow.isDestroyed()) return;
     gameDetailsWindow.webContents.send("window-state-changed", "maximized");
   });
   gameDetailsWindow.on("unmaximize", () => {
+    if (gameDetailsWindow.isDestroyed()) return;
     gameDetailsWindow.webContents.send("window-state-changed", "restored");
   });
 
   gameDetailsWindow.on("closed", () => {
-    gameDetailsRecordMap.delete(gameDetailsWindow.webContents.id);
-    //gameDetailsWindow = null;
+    gameDetailsRecordMap.delete(detailsWebContentsId);
   });
 }
 
