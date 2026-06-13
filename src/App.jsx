@@ -40,6 +40,7 @@ const App = () => {
   const gameGridRef = useRef(null);
   const dbUpdateRunningRef = useRef(false);
   const libraryScrollTopRef = useRef(0);
+  const pendingLibraryScrollTopRestoreRef = useRef(null);
 
   const [showSearchSidebar, setShowSearchSidebar] = useState(false); // or false
 
@@ -57,6 +58,7 @@ const App = () => {
     tagLogic: "AND",
     updateAvailable: false,
     includeUninstalled: false,
+    multipleInstalledVersions: false,
   };
 
   const [activeFilters, setActiveFilters] = useState(defaultFilters);
@@ -81,14 +83,36 @@ const App = () => {
   const includeUninstalledRef = useRef(false);
 
   const goBackToLibrary = useCallback(() => {
+    pendingLibraryScrollTopRestoreRef.current =
+      libraryScrollTopRef.current || 0;
     setSelectedGame(null);
-    requestAnimationFrame(() => {
-      if (gridRef.current?.scrollToPosition) {
-        gridRef.current.scrollToPosition({
-          scrollTop: libraryScrollTopRef.current || 0,
-        });
+  }, []);
+
+  const restoreLibraryScrollIfNeeded = useCallback(() => {
+    const targetScrollTop = pendingLibraryScrollTopRestoreRef.current;
+    if (targetScrollTop === null || targetScrollTop === undefined) return;
+
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    const tryRestore = () => {
+      const grid = gridRef.current;
+
+      if (grid?.scrollToPosition) {
+        grid.recomputeGridSize?.();
+        grid.scrollToPosition({ scrollTop: targetScrollTop });
+        libraryScrollTopRef.current = targetScrollTop;
+        pendingLibraryScrollTopRestoreRef.current = null;
+        return;
       }
-    });
+
+      attempts += 1;
+      if (attempts < maxAttempts) {
+        requestAnimationFrame(tryRestore);
+      }
+    };
+
+    requestAnimationFrame(tryRestore);
   }, []);
 
   const isTextInputTarget = (target) => {
@@ -712,6 +736,19 @@ const App = () => {
       result = result.filter((game) => (game.release_date || 0) >= cutoff);
     }
 
+    if (activeFilters.multipleInstalledVersions) {
+      result = result.filter((game) => {
+        const installedCount =
+          game.installedVersionCount ??
+          game.versionCount ??
+          (game.versions || []).filter(
+            (version) => version.isInstalled !== false,
+          ).length;
+
+        return installedCount > 1;
+      });
+    }
+
     const parseMetric = (value) => {
       if (typeof value === "number") return value;
       const normalized = String(value || "")
@@ -789,6 +826,18 @@ const App = () => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedGame, goBackToLibrary]);
+
+  useEffect(() => {
+    if (selectedGame) return;
+    restoreLibraryScrollIfNeeded();
+  }, [
+    selectedGame,
+    filteredGames.length,
+    columnCount,
+    bannerSize.bannerHeight,
+    showGameList,
+    restoreLibraryScrollIfNeeded,
+  ]);
 
   const cellRenderer = ({ columnIndex, rowIndex, style }) => {
     const index = rowIndex * columnCount + columnIndex;
@@ -953,7 +1002,9 @@ return (
                   width={adjustedWidth}
                   cellRenderer={cellRenderer}
                   onScroll={({ scrollTop }) => {
-                    libraryScrollTopRef.current = scrollTop || 0;
+                    if (pendingLibraryScrollTopRestoreRef.current === null) {
+                      libraryScrollTopRef.current = scrollTop || 0;
+                    }
                   }}
                   style={{ overflowX: "hidden" }}
                 />

@@ -8,6 +8,7 @@
   "description": "Atlas: Open-source game and visual novel manager",
   "main": "src/main.js",
   "scripts": {
+    "dev": "npm run start",
     "start": "npm run build:css && electron .",
     "atlas": "npm run build:css && electron .",
     "build": "npm run build:css && electron-builder --win --x64",

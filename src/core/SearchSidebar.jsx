@@ -22,6 +22,7 @@ const SearchSidebar = ({
     tagLogic: "AND",
     updateAvailable: false,
     includeUninstalled: false,
+    multipleInstalledVersions: false,
   };
   const selectedFilters = { ...defaultFilters, ...activeFilters };
   const [options, setOptions] = useState({
@@ -359,6 +360,24 @@ const SearchSidebar = ({
               className="-webkit-app-region-no-drag"
             />
             <span>Show uninstalled games</span>
+          </label>
+        </div>
+
+        {/* Multiple installed versions */}
+        <div className="mb-4">
+          <label className="flex items-center space-x-2 text-sm">
+            <input
+              type="checkbox"
+              checked={selectedFilters.multipleInstalledVersions || false}
+              onChange={() =>
+                updateFilters({
+                  multipleInstalledVersions:
+                    !selectedFilters.multipleInstalledVersions,
+                })
+              }
+              className="-webkit-app-region-no-drag"
+            />
+            <span>Show games with multiple installed versions</span>
           </label>
         </div>
       </div>
