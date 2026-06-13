@@ -426,124 +426,119 @@ const GameDetailWindow = () => {
 
     const versionLabel = selectedVersion.version || "this version";
 
-    // Step 1: Check how many versions currently exist
     const currentCount = await window.electronAPI.countVersions(game.record_id);
 
-    let confirmed = false;
-
     if (currentCount <= 1) {
-      // Deleting last version → full game removal
-      confirmed = window.confirm(
-        `You are about to delete the last version ("${versionLabel}") of "${game.title}".\n\n` +
-          `This will completely remove the game from your library, including:\n` +
-          `• All metadata & mappings\n` +
-          `• Downloaded banner and preview images\n\n` +
-          `Continue?`,
+      const confirmed = window.confirm(
+        `Remove "${game.title}" from the local library?\n\n` +
+          `This is the last version, so the game entry and local metadata/mappings will be removed from the database.\n` +
+          `Game files will be kept on disk.`,
       );
-    } else {
-      // Normal version delete (no folder prompt here)
-      confirmed = window.confirm(
-        `Delete version "${versionLabel}" of "${game.title}"?\n\n` +
-          `The game entry will remain with ${currentCount - 1} other version(s).`,
-      );
-    }
+      if (!confirmed) return;
 
-    if (!confirmed) return;
-
-    try {
-      if (currentCount <= 1) {
-        // Full game deletion
+      try {
         const dbResult = await window.electronAPI.deleteGameCompletely(
           game.record_id,
         );
         if (!dbResult.success) {
           alert(
-            "Failed to delete game from database: " +
+            "Failed to remove game from database: " +
               (dbResult.error || "Unknown error"),
           );
           return;
         }
 
-        // Step 2: Ask about deleting folders (only for last version / full delete)
-        const foldersToDelete = versions
-          .map((v) => v.game_path)
-          .filter(Boolean);
-        let deleteFoldersConfirmed = false;
-
-        if (foldersToDelete.length > 0) {
-          const folderList = foldersToDelete.map((p) => `• ${p}`).join("\n");
-          deleteFoldersConfirmed = window.confirm(
-            `Game database entry removed successfully.\n\n` +
-              `Also delete the game folder(s) from disk?\n\n${folderList}\n\n` +
-              `This cannot be undone!`,
-          );
-        }
-
-        if (deleteFoldersConfirmed) {
-          let allDeleted = true;
-          for (const folderPath of foldersToDelete) {
-            const result =
-              await window.electronAPI.deleteFolderRecursive({
-                recordId: game.record_id,
-                folderPath,
-              });
-            if (!result.success) {
-              console.error(
-                `Folder deletion failed for ${folderPath}: ${result.error}`,
-              );
-              allDeleted = false;
-            }
-          }
-
-          if (allDeleted) {
-            alert("Game completely removed, including all folders.");
-          } else {
-            alert(
-              "Game removed from library, but some folders could not be deleted (check console).",
-            );
-          }
-        } else {
-          alert(
-            `"${game.title}" has been completely removed from your library (folders kept).`,
-          );
-        }
-
-        // Close the details window
+        alert(
+          `"${game.title}" has been removed from your library. Files were kept on disk.`,
+        );
         window.electronAPI.closeWindow();
-      } else {
-        // Delete single version (no folder deletion here)
-        const result = await window.electronAPI.deleteVersion({
-          recordId: game.record_id,
-          version: selectedVersion.version,
-        });
+      } catch (err) {
+        console.error("Error removing game from library:", err);
+        alert("An error occurred: " + err.message);
+      }
+      return;
+    }
 
-        if (result.success) {
-          // Refresh local versions
-          const updatedVersions = versions.filter(
-            (v) => v.version !== selectedVersion.version,
-          );
-          setVersions(updatedVersions);
+    const removeConfirmed = window.confirm(
+      `Remove version "${versionLabel}" from the local library?\n\n` +
+        `This only removes the database/library entry.\n` +
+        `Game files will be kept on disk.`,
+    );
+    if (!removeConfirmed) return;
 
-          if (updatedVersions.length > 0) {
-            handleVersionSelect(updatedVersions[0]);
-          } else {
-            setSelectedVersion(null);
-            setVersionData({});
-          }
+    try {
+      const result = await window.electronAPI.deleteVersion({
+        recordId: game.record_id,
+        version: selectedVersion.version,
+      });
 
-          alert(`Version "${versionLabel}" deleted.`);
+      if (result.success) {
+        const updatedVersions = versions.filter(
+          (v) => v.version !== selectedVersion.version,
+        );
+        setVersions(updatedVersions);
+
+        if (updatedVersions.length > 0) {
+          handleVersionSelect(updatedVersions[0]);
         } else {
-          alert("Failed to delete version.");
+          setSelectedVersion(null);
+          setVersionData({});
         }
+
+        alert(
+          `Version "${versionLabel}" removed from your library. Files were kept on disk.`,
+        );
+      } else {
+        alert("Failed to remove version.");
       }
     } catch (err) {
-      console.error("Error during version/game deletion:", err);
+      console.error("Error removing version from library:", err);
       alert("An error occurred: " + err.message);
     }
   };
 
   const handleAddVersion = () => {
     console.log("TODO: Add new version");
+  };
+
+  const handleDeleteVersionFiles = async () => {
+    if (!selectedVersion) {
+      alert("No version selected.");
+      return;
+    }
+    if (!selectedVersion.game_path) {
+      alert("No game folder is set for this version.");
+      return;
+    }
+
+    const versionLabel = selectedVersion.version || "this version";
+    const confirmed = window.confirm(
+      `Delete files for version "${versionLabel}" from disk?\n\n` +
+        `This will delete:\n${selectedVersion.game_path}\n\n` +
+        `The database/library entry will remain.\n` +
+        `This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    try {
+      const result = await window.electronAPI.deleteFolderRecursive({
+        recordId: game.record_id,
+        folderPath: selectedVersion.game_path,
+      });
+      if (!result.success) {
+        alert("Failed to delete files: " + (result.error || "Unknown error"));
+        return;
+      }
+
+      const refreshedGame = await window.electronAPI.getGame(game.record_id);
+      if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion.version);
+      alert(
+        `Files for version "${versionLabel}" deleted. The library entry was kept.`,
+      );
+    } catch (err) {
+      console.error("Error deleting version files:", err);
+      alert("An error occurred: " + err.message);
+    }
   };
 
   const handleSave = async () => {
@@ -1010,18 +1005,24 @@ const GameDetailWindow = () => {
                       </li>
                     ))}
                   </ul>
-                  <div className="flex justify-center space-x-2 mt-2">
+                  <div className="flex flex-col space-y-2 mt-2 px-2">
                     <button
                       onClick={handleAddVersion}
-                      className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                      className="w-full px-3 py-1 bg-tertiary hover:bg-button_hover rounded text-xs"
                     >
                       Add
                     </button>
                     <button
                       onClick={handleRemoveVersion}
-                      className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
+                      className="w-full px-3 py-1 bg-tertiary hover:bg-button_hover rounded text-xs"
                     >
-                      Remove
+                      Remove from Library
+                    </button>
+                    <button
+                      onClick={handleDeleteVersionFiles}
+                      className="w-full px-3 py-1 bg-tertiary hover:bg-button_hover rounded text-xs"
+                    >
+                      Delete Files
                     </button>
                   </div>
                 </div>

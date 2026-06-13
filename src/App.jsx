@@ -39,6 +39,7 @@ const App = () => {
   const gridRef = useRef(null);
   const gameGridRef = useRef(null);
   const dbUpdateRunningRef = useRef(false);
+  const libraryScrollTopRef = useRef(0);
 
   const [showSearchSidebar, setShowSearchSidebar] = useState(false); // or false
 
@@ -78,6 +79,28 @@ const App = () => {
   }, []);
 
   const includeUninstalledRef = useRef(false);
+
+  const goBackToLibrary = useCallback(() => {
+    setSelectedGame(null);
+    requestAnimationFrame(() => {
+      if (gridRef.current?.scrollToPosition) {
+        gridRef.current.scrollToPosition({
+          scrollTop: libraryScrollTopRef.current || 0,
+        });
+      }
+    });
+  }, []);
+
+  const isTextInputTarget = (target) => {
+    if (!target) return false;
+    const tagName = target.tagName?.toLowerCase();
+    return (
+      tagName === "input" ||
+      tagName === "textarea" ||
+      tagName === "select" ||
+      target.isContentEditable
+    );
+  };
 
   const updateGamesState = useCallback((gamesArray) => {
     setGames(gamesArray);
@@ -753,6 +776,20 @@ const App = () => {
       );
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (!selectedGame) return;
+      if (event.key !== "Backspace") return;
+      if (isTextInputTarget(event.target)) return;
+
+      event.preventDefault();
+      goBackToLibrary();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedGame, goBackToLibrary]);
+
   const cellRenderer = ({ columnIndex, rowIndex, style }) => {
     const index = rowIndex * columnCount + columnIndex;
     if (index >= filteredGames.length) return null;
@@ -779,7 +816,7 @@ return (
     <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
       <div
         className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag"
-        onClick={() => setSelectedGame(null)}
+        onClick={goBackToLibrary}
         title="Back to Library"
       >
         <svg
@@ -804,7 +841,7 @@ return (
           <div className="flex items-center ml-5 mt-3">
             <div
               className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag"
-              onClick={() => setSelectedGame(null)}
+              onClick={goBackToLibrary}
               title="Back to Library"
             >
               Games
@@ -858,7 +895,7 @@ return (
       <window.Sidebar
         onToggleGameList={toggleGameList}
         onCheckDbUpdates={runDbUpdateCheck}
-        onGoHome={() => setSelectedGame(null)}
+        onGoHome={goBackToLibrary}
       />
 
       {/* Left Game List (titles) - toggled */}
@@ -890,7 +927,7 @@ return (
         {selectedGame ? (
           <window.GameDetailPage
             game={selectedGame}
-            onBack={() => setSelectedGame(null)}
+            onBack={goBackToLibrary}
             onRefresh={refreshGame}
           />
         ) : filteredGames.length === 0 ? (
@@ -915,6 +952,9 @@ return (
                   height={height}
                   width={adjustedWidth}
                   cellRenderer={cellRenderer}
+                  onScroll={({ scrollTop }) => {
+                    libraryScrollTopRef.current = scrollTop || 0;
+                  }}
                   style={{ overflowX: "hidden" }}
                 />
               );

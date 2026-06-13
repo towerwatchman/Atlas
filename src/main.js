@@ -972,6 +972,26 @@ function isPathInside(parentPath, childPath) {
   );
 }
 
+async function removeEmptyParentDirectories(startPath, stopAtPath) {
+  if (!startPath || !stopAtPath) return;
+
+  let current = path.dirname(path.resolve(startPath));
+  const stopAt = path.resolve(stopAtPath);
+
+  while (
+    current &&
+    current !== path.parse(current).root &&
+    isPathInside(stopAt, current) &&
+    normalizeForPathCompare(current) !== normalizeForPathCompare(stopAt)
+  ) {
+    const entries = await fs.promises.readdir(current).catch(() => null);
+    if (!entries || entries.length > 0) break;
+
+    await fs.promises.rmdir(current).catch(() => {});
+    current = path.dirname(current);
+  }
+}
+
 async function getTrustedVersion(recordId, version) {
   if (!recordId) {
     throw new Error("Missing record id");
@@ -1194,6 +1214,10 @@ ipcMain.handle("delete-folder-recursive", async (event, { recordId, folderPath }
     }
 
     await fs.promises.rm(resolvedPath, { recursive: true, force: true });
+    await removeEmptyParentDirectories(
+      resolvedPath,
+      appConfig?.Library?.gameFolder,
+    );
     return { success: true };
   } catch (err) {
     console.error("Error deleting folder:", err);
