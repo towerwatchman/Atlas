@@ -19,7 +19,9 @@ const remoteBannerExpression =
   "COALESCE(f95_zone_data.banner_url, steam_data.header, steam_data.library_hero, atlas_data.banner_wide, atlas_data.banner)";
 
 const buildBannerSelectFields = (baseImagePath, mediaStorageMode) => {
-  const localBannerExpression = `REPLACE('${baseImagePath}/' || banners.path, '\\', '/')`;
+  const localAnimatedBannerExpression = `REPLACE('${baseImagePath}/' || animated_banners.path, '\\', '/')`;
+  const localStaticBannerExpression = `REPLACE('${baseImagePath}/' || small_banners.path, '\\', '/')`;
+  const localBannerExpression = `COALESCE(${localAnimatedBannerExpression}, ${localStaticBannerExpression})`;
   const remoteFirst = normalizeMediaStorageMode(mediaStorageMode) === "stream";
   const bannerUrlExpression = remoteFirst
     ? `COALESCE(${remoteBannerExpression}, ${localBannerExpression})`
@@ -27,11 +29,13 @@ const buildBannerSelectFields = (baseImagePath, mediaStorageMode) => {
   const bannerSourceExpression = remoteFirst
     ? `CASE
           WHEN ${remoteBannerExpression} IS NOT NULL THEN 'stream'
-          WHEN banners.path IS NOT NULL THEN 'download'
+          WHEN animated_banners.path IS NOT NULL THEN 'download-animated'
+          WHEN small_banners.path IS NOT NULL THEN 'download'
           ELSE ''
         END`
     : `CASE
-          WHEN banners.path IS NOT NULL THEN 'download'
+          WHEN animated_banners.path IS NOT NULL THEN 'download-animated'
+          WHEN small_banners.path IS NOT NULL THEN 'download'
           WHEN ${remoteBannerExpression} IS NOT NULL THEN 'stream'
           ELSE ''
         END`;
@@ -39,7 +43,10 @@ const buildBannerSelectFields = (baseImagePath, mediaStorageMode) => {
   return `
         ${bannerUrlExpression} AS banner_url,
         ${bannerSourceExpression} AS banner_source,
-        CASE WHEN banners.path IS NOT NULL THEN 1 ELSE 0 END AS has_downloaded_banner`;
+        CASE
+          WHEN animated_banners.path IS NOT NULL OR small_banners.path IS NOT NULL
+          THEN 1 ELSE 0
+        END AS has_downloaded_banner`;
 };
 
 const initializeDatabase = (dataDir) => {
@@ -1120,7 +1127,8 @@ ${bannerSelectFields},
         games
       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
       LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
-      LEFT JOIN banners ON games.record_id = banners.record_id AND banners.type = 'small'
+      LEFT JOIN banners animated_banners ON games.record_id = animated_banners.record_id AND animated_banners.type = 'animated'
+      LEFT JOIN banners small_banners ON games.record_id = small_banners.record_id AND small_banners.type = 'small'
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
       LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
@@ -1227,7 +1235,8 @@ ${bannerSelectFields},
         games
       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
       LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
-      LEFT JOIN banners ON games.record_id = banners.record_id AND banners.type = 'small'
+      LEFT JOIN banners animated_banners ON games.record_id = animated_banners.record_id AND animated_banners.type = 'animated'
+      LEFT JOIN banners small_banners ON games.record_id = small_banners.record_id AND small_banners.type = 'small'
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
       LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id

@@ -2999,6 +2999,19 @@ function findExecutables(dir, extensions) {
   });
 }
 
+const ANIMATED_IMAGE_EXTENSIONS = new Set([".gif", ".webp"]);
+
+const isPotentialAnimatedImage = (ext) =>
+  ANIMATED_IMAGE_EXTENSIONS.has(String(ext || "").toLowerCase());
+
+async function getImageMetadata(imageBytes, options = {}) {
+  return await sharp(imageBytes, options).metadata();
+}
+
+function hasMultiplePages(metadata) {
+  return Number(metadata?.pages || 1) > 1;
+}
+
 async function downloadImages(
   recordId,
   atlasId,
@@ -3040,23 +3053,7 @@ async function downloadImages(
 
       let imageBytes;
       let downloaded = false;
-      if ([".gif", ".mp4", ".webm"].includes(ext) && downloadVideos) {
-        const animatedPath = `${imagePath}${ext}`;
-        if (!fs.existsSync(animatedPath)) {
-          const response = await axios.get(bannerUrl, {
-            responseType: "arraybuffer",
-          });
-          imageBytes = Buffer.from(response.data);
-          fs.writeFileSync(animatedPath, imageBytes);
-          downloaded = true;
-        }
-        await updateBanners(recordId, `${relativePath}${ext}`, "animated");
-        imageProgress++;
-        onImageProgress(imageProgress, totalImages);
-      }
-
-      const highResPath = `${imagePath}_mc.webp`;
-      if (!fs.existsSync(highResPath)) {
+      const loadImageBytes = async () => {
         if (!imageBytes) {
           const response = await axios.get(bannerUrl, {
             responseType: "arraybuffer",
@@ -3064,6 +3061,58 @@ async function downloadImages(
           imageBytes = Buffer.from(response.data);
           downloaded = true;
         }
+        return imageBytes;
+      };
+
+      if ([".mp4", ".webm"].includes(ext) && downloadVideos) {
+        const animatedPath = `${imagePath}${ext}`;
+        if (!fs.existsSync(animatedPath)) {
+          await loadImageBytes();
+          fs.writeFileSync(animatedPath, imageBytes);
+        }
+        await updateBanners(recordId, `${relativePath}${ext}`, "animated");
+        imageProgress++;
+        onImageProgress(imageProgress, totalImages);
+      }
+
+      if (isPotentialAnimatedImage(ext)) {
+        try {
+          await loadImageBytes();
+          const animatedMetadata = await getImageMetadata(imageBytes, {
+            animated: true,
+          });
+
+          if (hasMultiplePages(animatedMetadata)) {
+            const animatedWebpPath = `${imagePath}_animated.webp`;
+            if (!fs.existsSync(animatedWebpPath)) {
+              await sharp(imageBytes, { animated: true })
+                .resize({ width: 1260, withoutEnlargement: true })
+                .webp({
+                  quality: 80,
+                  effort: 6,
+                  loop: 0,
+                })
+                .toFile(animatedWebpPath);
+            }
+            await updateBanners(
+              recordId,
+              `${relativePath}_animated.webp`,
+              "animated",
+            );
+            imageProgress++;
+            onImageProgress(imageProgress, totalImages);
+          }
+        } catch (animatedErr) {
+          console.warn(
+            `Failed to create animated WebP banner for ${recordId}:`,
+            animatedErr,
+          );
+        }
+      }
+
+      const highResPath = `${imagePath}_mc.webp`;
+      if (!fs.existsSync(highResPath)) {
+        await loadImageBytes();
         await sharp(imageBytes)
           .webp({ quality: 90 })
           .resize({ width: 1260, withoutEnlargement: true })
@@ -3075,13 +3124,7 @@ async function downloadImages(
 
       const lowResPath = `${imagePath}_sc.webp`;
       if (!fs.existsSync(lowResPath)) {
-        if (!imageBytes) {
-          const response = await axios.get(bannerUrl, {
-            responseType: "arraybuffer",
-          });
-          imageBytes = Buffer.from(response.data);
-          downloaded = true;
-        }
+        await loadImageBytes();
         await sharp(imageBytes)
           .webp({ quality: 90 })
           .resize({ width: 600, withoutEnlargement: true })
