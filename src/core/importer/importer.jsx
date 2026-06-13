@@ -52,10 +52,17 @@ const Importer = () => {
   const matchCancelRef = React.useRef(false);
 
   const getScanGameKey = (game) => {
-    if (game?.folder) return game.folder;
+    // Archive scans share their parent folder, so identify rows by source file first.
+    if (game?.sourceFile) return `source:${game.sourceFile}`;
+    if (game?.folder && game?.singleExecutable) {
+      return `folder-file:${game.folder}/${game.singleExecutable}`;
+    }
+    if (game?.folder) return `folder:${game.folder}`;
 
     return [
+      game?.sourceFile || "",
       game?.folder || "",
+      game?.singleExecutable || "",
       game?.title || "",
       game?.creator || "",
       game?.version || "",
@@ -873,7 +880,7 @@ const Importer = () => {
                   disabled={!moveGame} // Optional: only enable if move is on
                 />
                 <label className="font-medium">
-                  Delete original folder after successful move
+                  Delete original folder/archive after successful import
                 </label>
                 {!moveGame && (
                   <div className="mt-1 ml-6 text-sm text-gray-500">
@@ -961,7 +968,7 @@ const Importer = () => {
                       Possible Database Matches
                     </th>
                     <th className="border border-border p-1 min-w-[250px]">
-                      Folder
+                      Source
                     </th>
                     <th className="border border-border p-1 min-w-[150px]">
                       Status
@@ -1124,7 +1131,9 @@ const Importer = () => {
                           )}
                         </td>
                         <td className="border border-border p-1">
-                          {game.folder || game.sourceFile || "Metadata only"}
+                          {game.isArchive
+                            ? game.sourceFile || game.folder || "Archive"
+                            : game.folder || "Metadata only"}
                         </td>
                         <td className={`border border-border p-1 ${statusClass}`}>
                           {statusText}

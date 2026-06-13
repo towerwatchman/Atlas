@@ -2248,9 +2248,9 @@ ipcMain.handle("import-games", async (event, params) => {
           total: 0,
         });
       } else {
-        // User cancelled → warn but continue (extraction will be skipped)
+        // User cancelled; archive rows will fail later if imported.
         mainWindow.webContents.send("import-progress", {
-          text: "7-Zip not selected → archive extraction will be skipped",
+          text: "7-Zip not selected - archive rows cannot be imported",
           progress: 0,
           total: 0,
         });
@@ -2459,6 +2459,8 @@ ipcMain.handle("import-games", async (event, params) => {
           });
 
           if (!selectedExec) {
+            await removePathIfExists(extractPath);
+            session.cleanupPaths = [];
             mainWindow.webContents.send("import-progress", {
               text: `Skipped ${game.title} – no executable selected`,
               progress,
