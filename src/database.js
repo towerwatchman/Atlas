@@ -1037,6 +1037,30 @@ const getVersionForRecord = (recordId, version) => {
   });
 };
 
+const getInstalledVersionsForRecord = (recordId) => {
+  return new Promise((resolve, reject) => {
+    db.all(
+      `SELECT version, game_path, exec_path, folder_size, date_added
+       FROM versions
+       WHERE record_id = ?
+       ORDER BY COALESCE(date_added, 0) DESC, version DESC`,
+      [recordId],
+      (err, rows) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        const versions = (rows || [])
+          .map((row) => mapVersionRow(row))
+          .filter((version) => version.isInstalled);
+
+        resolve(versions);
+      },
+    );
+  });
+};
+
 const getVersionPathsForRecord = (recordId) => {
   return new Promise((resolve, reject) => {
     db.all(
@@ -2620,6 +2644,7 @@ module.exports = {
   deleteGameCompletely,
   getUniqueFilterOptions,
   getVersionForRecord,
+  getInstalledVersionsForRecord,
   getVersionPathsForRecord,
   db, // Export db instance
 };

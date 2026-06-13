@@ -141,13 +141,52 @@ const Importer = () => {
     return "No eligible rows are ready to import";
   };
 
+  const applyReplaceOptions = async (game) => {
+    const recordId = game?.existingRecordId || game?.recordId;
+    if (!recordId) {
+      return {
+        ...game,
+        replaceVersion: "",
+        replaceOptions: [],
+      };
+    }
+
+    try {
+      const versions = await window.electronAPI.getReplaceVersionOptions({
+        recordId,
+      });
+      const normalizedNewVersion = String(game.version || "")
+        .trim()
+        .toLowerCase();
+      const replaceOptions = (versions || []).filter((version) => {
+        const candidateVersion = String(version.version || "")
+          .trim()
+          .toLowerCase();
+        return candidateVersion && candidateVersion !== normalizedNewVersion;
+      });
+
+      return {
+        ...game,
+        replaceVersion: "",
+        replaceOptions,
+      };
+    } catch (err) {
+      console.error("Failed to load replace version options:", err);
+      return {
+        ...game,
+        replaceVersion: "",
+        replaceOptions: [],
+      };
+    }
+  };
+
   const applyImportStatus = async (game) => {
     if (!game) return game;
 
     try {
       const status = await window.electronAPI.getImportRecordStatus(game);
       const recordExist = status?.status === "alreadyImported";
-      return {
+      return applyReplaceOptions({
         ...game,
         recordExist,
         existingRecordId: status?.recordId || "",
@@ -161,10 +200,10 @@ const Importer = () => {
           : status?.status === "repairPath"
             ? "Repair path"
             : game.scanMessage || (game.isArchive ? "Archive" : "Ready to import"),
-      };
+      });
     } catch (err) {
       console.error("Failed to refresh import status:", err);
-      return game;
+      return applyReplaceOptions(game);
     }
   };
 
@@ -227,7 +266,11 @@ const Importer = () => {
     for (let i = 0; i < pendingRows.length; i += chunkSize) {
       if (matchCancelRef.current) break;
       const chunk = pendingRows.slice(i, i + chunkSize);
-      const resolvedChunk = await window.electronAPI.resolveImportMatches(chunk);
+      const resolvedChunk = await Promise.all(
+        (await window.electronAPI.resolveImportMatches(chunk)).map((game) =>
+          applyImportStatus(game),
+        ),
+      );
       resolvedCount += resolvedChunk.length;
       const resolvedByKey = new Map(
         resolvedChunk.map((game) => [getScanGameKey(game), game]),
@@ -291,10 +334,16 @@ const Importer = () => {
       }
     });
 
-    window.electronAPI.onScanCompleteFinal((games) => {
+    window.electronAPI.onScanCompleteFinal(async (games) => {
       console.log(`Scan complete, received ${games.length} games`);
-      const visibleGamesList = games.filter(
-        (game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game)),
+      const visibleGamesList = await Promise.all(
+        games
+          .filter(
+            (game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game)),
+          )
+          .map((game) =>
+            game.scanStatus === "pendingMatch" ? game : applyImportStatus(game),
+          ),
       );
       setGamesList(visibleGamesList);
       setView("scan");
@@ -939,7 +988,7 @@ const Importer = () => {
             <div className="flex-1 overflow-x-auto">
               <table
                 className="border-collapse border border-border"
-                style={{ minWidth: "1200px" }}
+                style={{ minWidth: "1380px" }}
               >
                 <thead>
                   <tr className="bg-secondary sticky top-0">
@@ -960,6 +1009,9 @@ const Importer = () => {
                     </th>
                     <th className="border border-border p-1 min-w-[200px]">
                       Version
+                    </th>
+                    <th className="border border-border p-1 min-w-[180px]">
+                      Replace Version
                     </th>
                     <th className="border border-border p-1 min-w-[180px]">
                       Executable
@@ -1074,6 +1126,40 @@ const Importer = () => {
                             }
                             className="w-full bg-secondary border border-border p-1"
                           />
+                        </td>
+                        <td className="border border-border p-1">
+                          <select
+                            value={game.replaceVersion || ""}
+                            disabled={!rowIsNew || !game.replaceOptions?.length}
+                            onChange={(e) =>
+                              updateGame(
+                                originalIndex,
+                                "replaceVersion",
+                                e.target.value,
+                              )
+                            }
+                            className="w-full bg-secondary border border-border p-1"
+                            title={
+                              game.replaceOptions?.length
+                                ? "Optionally delete this installed version after the new import succeeds"
+                                : "No installed versions available to replace"
+                            }
+                          >
+                            <option value="">None</option>
+                            {(game.replaceOptions || []).map((version) => (
+                              <option
+                                key={version.version}
+                                value={version.version}
+                              >
+                                {version.version}
+                                {version.date_added
+                                  ? ` - ${new Date(
+                                      version.date_added * 1000,
+                                    ).toLocaleDateString()}`
+                                  : ""}
+                              </option>
+                            ))}
+                          </select>
                         </td>
                         <td className="border border-border p-1">
                           {game.multipleVisible === "visible" ? (

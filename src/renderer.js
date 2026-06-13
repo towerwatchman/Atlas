@@ -75,6 +75,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("check-record-exist", params),
   getImportRecordStatus: (game) =>
     ipcRenderer.invoke("get-import-record-status", game),
+  getReplaceVersionOptions: (params) =>
+    ipcRenderer.invoke("get-replace-version-options", params),
   resolveImportMatches: (games) =>
     ipcRenderer.invoke("resolve-import-matches", games),
   importGames: (params) => ipcRenderer.invoke("import-games", params),

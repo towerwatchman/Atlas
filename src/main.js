@@ -53,6 +53,7 @@ const {
   deleteGameCompletely,
   getUniqueFilterOptions,
   getVersionForRecord,
+  getInstalledVersionsForRecord,
   getVersionPathsForRecord,
   db,
 } = require("./database");
@@ -472,6 +473,11 @@ ipcMain.handle("delete-version", async (_, { recordId, version }) => {
     success: result.changes > 0,
     wasLastVersion: countAfter === 0,
   };
+});
+
+ipcMain.handle("get-replace-version-options", async (_, { recordId }) => {
+  if (!recordId) return [];
+  return await getInstalledVersionsForRecord(recordId);
 });
 
 ipcMain.handle("delete-game-completely", async (_, recordId) => {
@@ -1036,6 +1042,112 @@ async function removePathIfExists(targetPath) {
   } catch (err) {
     console.error(`Failed to remove incomplete import path ${targetPath}:`, err);
   }
+}
+
+async function replaceInstalledVersionAfterImport({
+  recordId,
+  newVersion,
+  newGamePath,
+  replaceVersion,
+  sender = mainWindow,
+}) {
+  const selectedReplaceVersion = String(replaceVersion || "").trim();
+  if (!recordId || !selectedReplaceVersion) return { replaced: false };
+
+  const normalizedNewVersion = String(newVersion || "").trim().toLowerCase();
+  const normalizedReplaceVersion = selectedReplaceVersion.toLowerCase();
+
+  if (normalizedNewVersion && normalizedNewVersion === normalizedReplaceVersion) {
+    return {
+      replaced: false,
+      skipped: true,
+      reason: "Replacement version matches the newly imported version",
+    };
+  }
+
+  const oldVersion = await getVersionForRecord(recordId, selectedReplaceVersion);
+  if (!oldVersion) {
+    return {
+      replaced: false,
+      skipped: true,
+      reason: "Replacement version was not found",
+    };
+  }
+
+  const oldPath = oldVersion.game_path;
+  if (!oldPath) {
+    await deleteVersion(recordId, selectedReplaceVersion);
+    return { replaced: true, deletedFiles: false };
+  }
+
+  const resolvedOldPath = path.resolve(oldPath);
+  const resolvedNewPath = newGamePath ? path.resolve(newGamePath) : "";
+
+  if (
+    resolvedNewPath &&
+    normalizeForPathCompare(resolvedOldPath) ===
+      normalizeForPathCompare(resolvedNewPath)
+  ) {
+    return {
+      replaced: false,
+      skipped: true,
+      reason: "Replacement path matches the newly imported path",
+    };
+  }
+
+  const hadOldFiles = fs.existsSync(resolvedOldPath);
+  if (hadOldFiles) {
+    if (!(await isAllowedDeletionPath(recordId, resolvedOldPath))) {
+      return {
+        replaced: false,
+        skipped: true,
+        reason: "Replacement path is not allowed for deletion",
+      };
+    }
+
+    const parsedPath = path.parse(resolvedOldPath);
+    if (resolvedOldPath === parsedPath.root) {
+      return {
+        replaced: false,
+        skipped: true,
+        reason: "Refusing to delete a drive root",
+      };
+    }
+
+    const stat = await fs.promises.stat(resolvedOldPath);
+    if (!stat.isDirectory()) {
+      return {
+        replaced: false,
+        skipped: true,
+        reason: "Replacement path is not a directory",
+      };
+    }
+
+    try {
+      await fs.promises.rm(resolvedOldPath, { recursive: true, force: true });
+      await removeEmptyParentDirectories(
+        resolvedOldPath,
+        appConfig?.Library?.gameFolder,
+      );
+    } catch (err) {
+      return {
+        replaced: false,
+        skipped: true,
+        reason: `Failed to delete replacement files: ${err.message}`,
+      };
+    }
+  }
+
+  await deleteVersion(recordId, selectedReplaceVersion);
+
+  sender?.webContents?.send("import-progress", {
+    text: `Replaced old version ${selectedReplaceVersion}`,
+    progress: 0,
+    total: 0,
+    canCancel: true,
+  });
+
+  return { replaced: true, deletedFiles: hadOldFiles };
 }
 
 ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
@@ -2573,6 +2685,27 @@ ipcMain.handle("import-games", async (event, params) => {
       }
 
       if (size > 0) await updateFolderSize(recordId, game.version, size);
+      if (game.replaceVersion) {
+        const replacementResult = await replaceInstalledVersionAfterImport({
+          recordId,
+          newVersion: game.version,
+          newGamePath: gamePath,
+          replaceVersion: game.replaceVersion,
+          sender: mainWindow,
+        });
+
+        if (replacementResult?.skipped) {
+          console.warn(
+            `Skipped replacement for ${game.title}: ${replacementResult.reason}`,
+          );
+          mainWindow.webContents.send("import-progress", {
+            text: `Imported ${game.title}, but skipped replacement: ${replacementResult.reason}`,
+            progress,
+            total,
+            canCancel: true,
+          });
+        }
+      }
       if (archiveToDeleteAfterImport) {
         try {
           await fsp.unlink(archiveToDeleteAfterImport);
