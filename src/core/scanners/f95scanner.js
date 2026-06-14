@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const {
   searchAtlas,
+  searchAtlasByF95Id,
   checkRecordExist,
 } = require("../../database");
 
@@ -161,6 +162,34 @@ function parseNameMetadata(rawName) {
     lookupTitle: cleanDisplayTitle(normalized || withoutExt),
     version: "Unknown",
   };
+}
+
+function normalizeFormatToken(value) {
+  return String(value || "")
+    .replace(/\{|\}/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeStructuredMapping(format, pathParts) {
+  const mapping = {};
+  const formatParts = String(format || "")
+    .split("/")
+    .map(normalizeFormatToken)
+    .filter(Boolean);
+
+  formatParts.forEach((part, index) => {
+    mapping[part] = pathParts[index] || "";
+  });
+
+  return mapping;
+}
+
+function cleanIdValue(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^f95[-_\s]*/i, "")
+    .replace(/^id[-_\s]*/i, "");
 }
 
 function createSkippedGame(folder, scanStatus, scanMessage) {
@@ -499,6 +528,8 @@ async function findGame(
     let lookupTitle = "";
     let creator = "Unknown";
     let version = "";
+    let atlasId = "";
+    let f95Id = "";
 
     const relativePath = t.replace(`${rootPath}${path.sep}`, "");
     console.log(`Relative path: ${relativePath}, Format: ${format}`);
@@ -506,24 +537,31 @@ async function findGame(
       const parsePath = isFile ? path.dirname(relativePath) : relativePath;
       const pathParts = parsePath.split(path.sep);
       console.log(`Path parts: ${pathParts.join(", ")}`);
-      const formatParts = format
+      const formatParts = String(format || "")
         .split("/")
-        .map((part) => part.replace(/\{|\}/g, ""));
+        .map(normalizeFormatToken)
+        .filter(Boolean);
       if (pathParts.length >= formatParts.length) {
-        const mapping = {};
-        formatParts.forEach((part, index) => {
-          mapping[part] = pathParts[index] || "";
-        });
+        const mapping = normalizeStructuredMapping(format, pathParts);
         creator = mapping.creator || "Unknown";
         title = mapping.title || "";
+        lookupTitle = title;
         version = mapping.version || "";
+        if (mapping.f95id) {
+          f95Id = cleanIdValue(mapping.f95id);
+        }
+        if (mapping.atlasid) {
+          atlasId = cleanIdValue(mapping.atlasid);
+        }
         console.log(
-          `Structured match: creator=${creator}, title=${title}, version=${version}`,
+          `Structured match: creator=${creator}, title=${title}, version=${version}, f95Id=${f95Id}, atlasId=${atlasId}`,
         );
       }
     }
 
-    if (!title || title.trim() === "") {
+    const canHydrateTitleFromId = Boolean(f95Id || atlasId);
+
+    if ((!title || title.trim() === "") && !canHydrateTitleFromId) {
       let filename = isFile
         ? path.basename(t, path.extname(t))
         : path.basename(t);
@@ -531,13 +569,18 @@ async function findGame(
       const metadata = parseNameMetadata(filename);
       title = metadata.title;
       lookupTitle = metadata.lookupTitle;
-      version = metadata.version;
+      version = version || metadata.version;
       if (metadata.creator) creator = metadata.creator;
       console.log(`Parsed: title=${title}, version=${version}`);
       if (!title || title.trim() === "") {
         title = filename;
-        version = "Unknown";
+        version = version || "Unknown";
       }
+    }
+
+    if ((!title || title.trim() === "") && canHydrateTitleFromId) {
+      title = f95Id ? `F95 ${f95Id}` : `Atlas ${atlasId}`;
+      lookupTitle = title;
     }
 
     if (!title || title.trim() === "") {
@@ -552,19 +595,19 @@ async function findGame(
     try {
       data = params.deferMatching
         ? []
-        : await searchAtlas(lookupTitle || title, creator);
+        : f95Id
+          ? await searchAtlasByF95Id(f95Id)
+          : await searchAtlas(lookupTitle || title, creator);
       console.log(`searchAtlas returned: ${JSON.stringify(data)}`);
     } catch (err) {
       console.error(`searchAtlas error for ${title}: ${err.message}`);
       data = [];
     }
 
-    let atlasId = "";
-    let f95Id = "";
     let results = [];
     if (data.length === 1) {
-      atlasId = data[0].atlas_id;
-      f95Id = data[0].f95_id || "";
+      atlasId = data[0].atlas_id || atlasId;
+      f95Id = data[0].f95_id || f95Id;
       title = data[0].title;
       creator = data[0].creator;
       gameEngine = data[0].engine || gameEngine;
