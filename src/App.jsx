@@ -23,6 +23,7 @@ const App = () => {
     version: "",
     text: "",
   });
+  const [appUpdateActionBusy, setAppUpdateActionBusy] = useState(false);
   const [importProgress, setImportProgress] = useState({
     text: "",
     progress: 0,
@@ -489,6 +490,7 @@ const App = () => {
     const handleUpdateStatus = (status) => {
       console.log("Update status:", status);
       if (status.status === "available") {
+        setAppUpdateActionBusy(false);
         setAppUpdateNotice({
           visible: true,
           status: "available",
@@ -496,12 +498,23 @@ const App = () => {
           text: `Atlas ${status.version} is available.`,
         });
       } else if (status.status === "downloading") {
+        const percent = Number(status.percent || 0);
+        setAppUpdateActionBusy(true);
         setDbUpdateStatus({
-          text: `Downloading update: ${status.percent.toFixed(0)}%`,
-          progress: status.percent,
+          text: `Downloading update: ${percent.toFixed(0)}%`,
+          progress: percent,
           total: 100,
         });
+        setAppUpdateNotice((notice) => ({
+          ...notice,
+          visible: true,
+          status: "downloading",
+          text: status.percent
+            ? `Downloading Atlas update: ${percent.toFixed(0)}%`
+            : "Downloading Atlas update...",
+        }));
       } else if (status.status === "downloaded") {
+        setAppUpdateActionBusy(false);
         setAppUpdateNotice({
           visible: true,
           status: "downloaded",
@@ -509,7 +522,13 @@ const App = () => {
           text: `Atlas ${status.version} is ready to install.`,
         });
       } else if (status.status === "error") {
+        setAppUpdateActionBusy(false);
         console.error("Update error:", status.error);
+        setAppUpdateNotice((notice) => ({
+          ...notice,
+          visible: notice.visible,
+          text: status.error || "Update failed.",
+        }));
       }
     };
 
@@ -818,6 +837,45 @@ const App = () => {
       );
   }, []);
 
+  const handleAppUpdateAction = async () => {
+    if (appUpdateActionBusy) return;
+
+    try {
+      setAppUpdateActionBusy(true);
+
+      if (appUpdateNotice.status === "downloaded") {
+        const result = await window.electronAPI.installAppUpdate();
+        if (!result?.success) {
+          throw new Error(result?.error || "Failed to install update");
+        }
+        return;
+      }
+
+      if (appUpdateNotice.status === "available") {
+        const result = await window.electronAPI.downloadAppUpdate();
+        if (!result?.success) {
+          throw new Error(result?.error || "Failed to download update");
+        }
+
+        setAppUpdateNotice((notice) => ({
+          ...notice,
+          status: "downloading",
+          text: notice.version
+            ? `Downloading Atlas ${notice.version}...`
+            : "Downloading update...",
+        }));
+      }
+    } catch (error) {
+      console.error("App update action failed:", error);
+      setAppUpdateNotice((notice) => ({
+        ...notice,
+        text: error.message || "App update failed.",
+      }));
+    } finally {
+      setAppUpdateActionBusy(false);
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (!selectedGame) return;
@@ -1122,16 +1180,25 @@ return (
       <div className="fixed bottom-[40px] left-0 right-0 z-50 bg-primary border-t border-accent px-4 py-2 text-text flex items-center justify-between gap-3">
         <div className="flex items-center min-w-0">
           <i className="fas fa-arrow-circle-up mr-2 text-highlight"></i>
-          <span className="truncate">
-            {appUpdateNotice.text} Manage app updates in Settings.
-          </span>
+          <span className="truncate">{appUpdateNotice.text}</span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={() => window.electronAPI.openSettings()}
-            className="bg-accent px-3 py-1 hover:bg-opacity-90"
+            onClick={handleAppUpdateAction}
+            disabled={
+              appUpdateActionBusy || appUpdateNotice.status === "downloading"
+            }
+            className={`bg-accent px-3 py-1 hover:bg-opacity-90 ${
+              appUpdateActionBusy || appUpdateNotice.status === "downloading"
+                ? "opacity-60 cursor-not-allowed"
+                : ""
+            }`}
           >
-            Settings
+            {appUpdateNotice.status === "downloaded"
+              ? "Install Now"
+              : appUpdateNotice.status === "downloading"
+                ? "Downloading..."
+                : "Update Now"}
           </button>
           <button
             onClick={() =>
