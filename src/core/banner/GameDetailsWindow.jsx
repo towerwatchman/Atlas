@@ -854,8 +854,8 @@ const GameDetailWindow = () => {
         </div>
       </div>
 
-      <div className="flex flex-col flex-grow bg-primary">
-        <div className="flex border-b border-border">
+      <div className="flex flex-col flex-1 min-h-0 bg-primary">
+        <div className="flex shrink-0 border-b border-border">
           {["Record", "Versions", "Media", "Mappings"].map((tab) => (
             <button
               key={tab}
@@ -867,8 +867,8 @@ const GameDetailWindow = () => {
           ))}
         </div>
 
-        <div className="flex flex-col flex-grow">
-          <div className="flex-grow overflow-y-auto p-4 bg-secondary pb-4">
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 bg-secondary pb-24">
             {activeTab === "Record" && (
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -1453,7 +1453,7 @@ const GameDetailWindow = () => {
           </div>
         )}
 
-        <div className="sticky bottom-0 p-4 bg-primary flex justify-end space-x-2 z-10">
+        <div className="shrink-0 p-4 bg-primary flex justify-end space-x-2 z-10 border-t border-border">
           <button
             onClick={handleSave}
             className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded"
