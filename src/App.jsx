@@ -528,6 +528,17 @@ const App = () => {
           channel,
           text: `Atlas ${status.version} is ready to install from ${channelLabel}.`,
         });
+      } else if (status.status === "installing") {
+        setAppUpdateActionBusy(true);
+        setAppUpdateNotice({
+          visible: true,
+          status: "installing",
+          version: status.version || "",
+          channel,
+          text: status.version
+            ? `Installing Atlas ${status.version}...`
+            : "Installing update...",
+        });
       } else if (status.status === "error") {
         setAppUpdateActionBusy(false);
         console.error("Update error:", status.error);
@@ -1198,19 +1209,23 @@ return (
           <button
             onClick={handleAppUpdateAction}
             disabled={
-              appUpdateActionBusy || appUpdateNotice.status === "downloading"
+              appUpdateActionBusy ||
+              ["downloading", "installing"].includes(appUpdateNotice.status)
             }
             className={`bg-accent px-3 py-1 hover:bg-opacity-90 ${
-              appUpdateActionBusy || appUpdateNotice.status === "downloading"
+              appUpdateActionBusy ||
+              ["downloading", "installing"].includes(appUpdateNotice.status)
                 ? "opacity-60 cursor-not-allowed"
                 : ""
             }`}
           >
-            {appUpdateNotice.status === "downloaded"
-              ? "Install Now"
+            {appUpdateNotice.status === "installing"
+              ? "Installing..."
               : appUpdateNotice.status === "downloading"
                 ? "Downloading..."
-                : "Update and Restart"}
+                : appUpdateNotice.status === "downloaded"
+                  ? "Install Now"
+                  : "Update and Restart"}
           </button>
           <button
             onClick={() =>

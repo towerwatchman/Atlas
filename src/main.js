@@ -396,11 +396,13 @@ autoUpdater.setFeedURL({
   repo: "Atlas",
 });
 autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = false;
 autoUpdater.allowDowngrade = false;
 let updateInfo = null;
 let updateDownloaded = false;
 let lastUpdateStatus = { status: "idle" };
 let installAfterDownload = false;
+let installingUpdate = false;
 
 const APP_UPDATE_CHANNELS = new Set(["stable", "nightly"]);
 
@@ -420,6 +422,7 @@ function applyAppUpdateChannel(channel = getConfiguredAppUpdateChannel()) {
 
   autoUpdater.allowPrerelease = normalizedChannel === "nightly";
   autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowDowngrade = false;
 
   return normalizedChannel;
@@ -432,6 +435,25 @@ function sendUpdateStatus(status) {
       window.webContents.send("update-status", status);
     }
   });
+}
+
+function installDownloadedUpdate(reason = "manual") {
+  if (installingUpdate) return;
+
+  installingUpdate = true;
+  installAfterDownload = false;
+
+  console.log(`Installing downloaded update. Reason: ${reason}`);
+
+  sendUpdateStatus({
+    status: "installing",
+    version: updateInfo?.version || "",
+    channel: getConfiguredAppUpdateChannel(),
+  });
+
+  setTimeout(() => {
+    autoUpdater.quitAndInstall(false, true);
+  }, 500);
 }
 
 autoUpdater.on("checking-for-update", () => {
@@ -447,6 +469,7 @@ autoUpdater.on("update-available", (info) => {
   updateInfo = info;
   updateDownloaded = false;
   installAfterDownload = false;
+  installingUpdate = false;
   sendUpdateStatus({
     status: "available",
     version: info.version,
@@ -459,6 +482,7 @@ autoUpdater.on("update-not-available", (info) => {
   updateInfo = null;
   updateDownloaded = false;
   installAfterDownload = false;
+  installingUpdate = false;
   sendUpdateStatus({ status: "not-available", channel });
 });
 autoUpdater.on("download-progress", (progress) => {
@@ -481,15 +505,13 @@ autoUpdater.on("update-downloaded", (info) => {
   });
 
   if (installAfterDownload) {
-    installAfterDownload = false;
-    setTimeout(() => {
-      autoUpdater.quitAndInstall();
-    }, 500);
+    installDownloadedUpdate("update-downloaded event");
   }
 });
 autoUpdater.on("error", (err) => {
   console.error("Updater error:", err);
   installAfterDownload = false;
+  installingUpdate = false;
   sendUpdateStatus({
     status: "error",
     error: err.message,
@@ -1396,6 +1418,7 @@ ipcMain.handle("set-app-update-channel", async (_, channel) => {
     updateInfo = null;
     updateDownloaded = false;
     installAfterDownload = false;
+    installingUpdate = false;
 
     sendUpdateStatus({
       status: "idle",
@@ -1423,9 +1446,13 @@ ipcMain.handle("download-app-update", async () => {
 
 ipcMain.handle("download-and-install-app-update", async () => {
   try {
+    if (installingUpdate) {
+      return { success: true, installing: true };
+    }
+
     if (updateDownloaded) {
-      autoUpdater.quitAndInstall();
-      return { success: true };
+      installDownloadedUpdate("already downloaded");
+      return { success: true, installing: true };
     }
 
     if (!updateInfo) {
@@ -1436,17 +1463,29 @@ ipcMain.handle("download-and-install-app-update", async () => {
     }
 
     installAfterDownload = true;
+    sendUpdateStatus({
+      status: "downloading",
+      version: updateInfo?.version || "",
+      percent: 0,
+      channel: getConfiguredAppUpdateChannel(),
+    });
+
     await autoUpdater.downloadUpdate();
 
-    if (updateDownloaded) {
-      installAfterDownload = false;
-      autoUpdater.quitAndInstall();
+    if (installAfterDownload && !installingUpdate) {
+      updateDownloaded = true;
+      installDownloadedUpdate("downloadUpdate resolved");
     }
 
-    return { success: true };
+    return { success: true, installing: true };
   } catch (err) {
     installAfterDownload = false;
-    sendUpdateStatus({ status: "error", error: err.message });
+    installingUpdate = false;
+    sendUpdateStatus({
+      status: "error",
+      error: err.message,
+      channel: getConfiguredAppUpdateChannel(),
+    });
     return { success: false, error: err.message };
   }
 });
@@ -1456,7 +1495,7 @@ ipcMain.handle("install-app-update", async () => {
     return { success: false, error: "No downloaded app update is ready to install" };
   }
 
-  autoUpdater.quitAndInstall();
+  installDownloadedUpdate("install-app-update IPC");
   return { success: true };
 });
 
@@ -1615,6 +1654,7 @@ ipcMain.handle("save-settings", async (event, settings) => {
       updateInfo = null;
       updateDownloaded = false;
       installAfterDownload = false;
+      installingUpdate = false;
       sendUpdateStatus({
         status: "idle",
         channel: nextChannel,

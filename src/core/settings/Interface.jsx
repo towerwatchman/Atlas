@@ -165,6 +165,9 @@ const Interface = () => {
     if (updateStatus === "downloading") {
       return `Downloading update: ${updatePercent.toFixed(0)}%`;
     }
+    if (updateStatus === "installing") {
+      return `Installing Atlas ${updateVersion || "update"}...`;
+    }
     if (updateStatus === "downloaded") {
       return `Atlas ${updateVersion || "update"} is ready to install.`;
     }
@@ -296,17 +299,24 @@ const Interface = () => {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleCheckAppUpdate}
-            disabled={updateStatus === "checking"}
+            disabled={["checking", "downloading", "installing"].includes(
+              updateStatus,
+            )}
             className="bg-accent px-4 py-2 rounded hover:bg-opacity-90 disabled:opacity-50"
           >
             Check for updates
           </button>
           <button
             onClick={handleDownloadAndInstallAppUpdate}
-            disabled={!["available", "downloaded"].includes(updateStatus)}
+            disabled={
+              !["available", "downloaded"].includes(updateStatus) ||
+              ["downloading", "installing"].includes(updateStatus)
+            }
             className="bg-accent px-4 py-2 rounded hover:bg-opacity-90 disabled:opacity-50"
           >
-            {updateStatus === "downloaded"
+            {updateStatus === "installing"
+              ? "Installing..."
+              : updateStatus === "downloaded"
               ? "Install and restart"
               : "Update and restart"}
           </button>
