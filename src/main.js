@@ -402,6 +402,29 @@ let updateDownloaded = false;
 let lastUpdateStatus = { status: "idle" };
 let installAfterDownload = false;
 
+const APP_UPDATE_CHANNELS = new Set(["stable", "nightly"]);
+
+function normalizeAppUpdateChannel(value) {
+  const channel = String(value || "").trim().toLowerCase();
+  return APP_UPDATE_CHANNELS.has(channel) ? channel : "stable";
+}
+
+function getConfiguredAppUpdateChannel() {
+  return normalizeAppUpdateChannel(
+    appConfig?.Interface?.appUpdateChannel || "stable",
+  );
+}
+
+function applyAppUpdateChannel(channel = getConfiguredAppUpdateChannel()) {
+  const normalizedChannel = normalizeAppUpdateChannel(channel);
+
+  autoUpdater.allowPrerelease = normalizedChannel === "nightly";
+  autoUpdater.autoDownload = false;
+  autoUpdater.allowDowngrade = false;
+
+  return normalizedChannel;
+}
+
 function sendUpdateStatus(status) {
   lastUpdateStatus = status;
   BrowserWindow.getAllWindows().forEach((window) => {
@@ -413,9 +436,13 @@ function sendUpdateStatus(status) {
 
 autoUpdater.on("checking-for-update", () => {
   console.log("Checking for updates...");
-  sendUpdateStatus({ status: "checking" });
+  sendUpdateStatus({
+    status: "checking",
+    channel: getConfiguredAppUpdateChannel(),
+  });
 });
 autoUpdater.on("update-available", (info) => {
+  const channel = getConfiguredAppUpdateChannel();
   console.log(`Update available: ${info.version}`);
   updateInfo = info;
   updateDownloaded = false;
@@ -423,29 +450,34 @@ autoUpdater.on("update-available", (info) => {
   sendUpdateStatus({
     status: "available",
     version: info.version,
+    channel,
   });
 });
 autoUpdater.on("update-not-available", (info) => {
+  const channel = getConfiguredAppUpdateChannel();
   console.log("No updates available.");
   updateInfo = null;
   updateDownloaded = false;
   installAfterDownload = false;
-  sendUpdateStatus({ status: "not-available" });
+  sendUpdateStatus({ status: "not-available", channel });
 });
 autoUpdater.on("download-progress", (progress) => {
   console.log(`Download progress: ${progress.percent}%`);
   sendUpdateStatus({
     status: "downloading",
     percent: progress.percent,
+    channel: getConfiguredAppUpdateChannel(),
   });
 });
 autoUpdater.on("update-downloaded", (info) => {
+  const channel = getConfiguredAppUpdateChannel();
   console.log(`Update downloaded: ${info.version}`);
   updateInfo = info;
   updateDownloaded = true;
   sendUpdateStatus({
     status: "downloaded",
     version: info.version,
+    channel,
   });
 
   if (installAfterDownload) {
@@ -461,6 +493,7 @@ autoUpdater.on("error", (err) => {
   sendUpdateStatus({
     status: "error",
     error: err.message,
+    channel: getConfiguredAppUpdateChannel(),
   });
 });
 
@@ -477,6 +510,7 @@ const defaultConfig = {
     showDebugConsole: false,
     minimizeToTray: false,
     checkForAppUpdatesOnStartup: true,
+    appUpdateChannel: "stable",
   },
   Library: {
     rootPath: dataDir,
@@ -1321,16 +1355,57 @@ ipcMain.handle("check-updates", async () => {
 
 ipcMain.handle("check-app-update", async () => {
   try {
+    const channel = applyAppUpdateChannel();
+    sendUpdateStatus({
+      status: "checking",
+      channel,
+    });
     await autoUpdater.checkForUpdates();
-    return { success: true };
+    return { success: true, channel };
   } catch (err) {
-    sendUpdateStatus({ status: "error", error: err.message });
+    sendUpdateStatus({
+      status: "error",
+      error: err.message,
+      channel: getConfiguredAppUpdateChannel(),
+    });
     return { success: false, error: err.message };
   }
 });
 
 ipcMain.handle("get-app-update-state", async () => {
   return lastUpdateStatus;
+});
+
+ipcMain.handle("set-app-update-channel", async (_, channel) => {
+  try {
+    const normalizedChannel = normalizeAppUpdateChannel(channel);
+
+    appConfig = {
+      ...defaultConfig,
+      ...(appConfig || {}),
+      Interface: {
+        ...defaultConfig.Interface,
+        ...(appConfig?.Interface || {}),
+        appUpdateChannel: normalizedChannel,
+      },
+    };
+
+    fs.writeFileSync(configPath, ini.stringify(appConfig));
+    applyAppUpdateChannel(normalizedChannel);
+
+    updateInfo = null;
+    updateDownloaded = false;
+    installAfterDownload = false;
+
+    sendUpdateStatus({
+      status: "idle",
+      channel: normalizedChannel,
+    });
+
+    return { success: true, channel: normalizedChannel };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
 
 ipcMain.handle("download-app-update", async () => {
@@ -1530,8 +1605,22 @@ ipcMain.handle("get-settings", async () => {
 
 ipcMain.handle("save-settings", async (event, settings) => {
   try {
+    const previousChannel = getConfiguredAppUpdateChannel();
     appConfig = settings;
     fs.writeFileSync(configPath, ini.stringify(settings));
+    const nextChannel = getConfiguredAppUpdateChannel();
+    applyAppUpdateChannel(nextChannel);
+
+    if (previousChannel !== nextChannel) {
+      updateInfo = null;
+      updateDownloaded = false;
+      installAfterDownload = false;
+      sendUpdateStatus({
+        status: "idle",
+        channel: nextChannel,
+      });
+    }
+
     return { success: true };
   } catch (err) {
     console.error("Error writing to config.ini:", err);
@@ -3849,6 +3938,7 @@ async function findSteamId(title, developer) {
 
 app.whenReady().then(async () => {
   loadConfig();
+  applyAppUpdateChannel();
   try {
     await repairDoubledApostropheRows();
   } catch (err) {
@@ -3861,9 +3951,14 @@ app.whenReady().then(async () => {
   }
   createWindow();
   if (appConfig?.Interface?.checkForAppUpdatesOnStartup !== false) {
+    applyAppUpdateChannel();
     autoUpdater.checkForUpdates().catch((err) => {
       console.error("Startup update check failed:", err);
-      sendUpdateStatus({ status: "error", error: err.message });
+      sendUpdateStatus({
+        status: "error",
+        error: err.message,
+        channel: getConfiguredAppUpdateChannel(),
+      });
     });
   }
 });

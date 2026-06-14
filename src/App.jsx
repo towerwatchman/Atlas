@@ -21,6 +21,7 @@ const App = () => {
     visible: false,
     status: "",
     version: "",
+    channel: "stable",
     text: "",
   });
   const [appUpdateActionBusy, setAppUpdateActionBusy] = useState(false);
@@ -489,13 +490,17 @@ const App = () => {
     };
     const handleUpdateStatus = (status) => {
       console.log("Update status:", status);
+      const channel = status.channel === "nightly" ? "nightly" : "stable";
+      const channelLabel = channel === "nightly" ? "Nightly" : "Stable";
+
       if (status.status === "available") {
         setAppUpdateActionBusy(false);
         setAppUpdateNotice({
           visible: true,
           status: "available",
           version: status.version || "",
-          text: `Atlas ${status.version} is available.`,
+          channel,
+          text: `Atlas ${status.version} is available on ${channelLabel}.`,
         });
       } else if (status.status === "downloading") {
         const percent = Number(status.percent || 0);
@@ -509,9 +514,10 @@ const App = () => {
           ...notice,
           visible: true,
           status: "downloading",
+          channel,
           text: status.percent
-            ? `Downloading Atlas update: ${percent.toFixed(0)}%`
-            : "Downloading Atlas update...",
+            ? `Downloading ${channelLabel} update: ${percent.toFixed(0)}%`
+            : `Downloading ${channelLabel} update...`,
         }));
       } else if (status.status === "downloaded") {
         setAppUpdateActionBusy(false);
@@ -519,7 +525,8 @@ const App = () => {
           visible: true,
           status: "downloaded",
           version: status.version || "",
-          text: `Atlas ${status.version} is ready to install.`,
+          channel,
+          text: `Atlas ${status.version} is ready to install from ${channelLabel}.`,
         });
       } else if (status.status === "error") {
         setAppUpdateActionBusy(false);
@@ -528,6 +535,14 @@ const App = () => {
           ...notice,
           visible: notice.visible,
           text: status.error || "Update failed.",
+        }));
+      } else if (status.status === "idle") {
+        setAppUpdateActionBusy(false);
+        setAppUpdateNotice((notice) => ({
+          ...notice,
+          visible: false,
+          status: "idle",
+          channel,
         }));
       }
     };

@@ -7,6 +7,7 @@ const Interface = () => {
   const [showSidebar, setShowSidebar] = React.useState(true);
   const [checkForAppUpdatesOnStartup, setCheckForAppUpdatesOnStartup] =
     React.useState(true);
+  const [appUpdateChannel, setAppUpdateChannel] = React.useState("stable");
   const [updateStatus, setUpdateStatus] = React.useState("idle");
   const [updateVersion, setUpdateVersion] = React.useState("");
   const [updatePercent, setUpdatePercent] = React.useState(0);
@@ -18,6 +19,9 @@ const Interface = () => {
     if (status.version) setUpdateVersion(status.version);
     if (typeof status.percent === "number") {
       setUpdatePercent(status.percent);
+    }
+    if (status.channel) {
+      setAppUpdateChannel(status.channel === "nightly" ? "nightly" : "stable");
     }
     if (status.error) setUpdateError(status.error);
     else if (status.status !== "error") setUpdateError("");
@@ -34,6 +38,11 @@ const Interface = () => {
       setShowSidebar(interfaceSettings.showSidebar ?? true);
       setCheckForAppUpdatesOnStartup(
         interfaceSettings.checkForAppUpdatesOnStartup ?? true,
+      );
+      setAppUpdateChannel(
+        interfaceSettings.appUpdateChannel === "nightly"
+          ? "nightly"
+          : "stable",
       );
     });
 
@@ -100,6 +109,27 @@ const Interface = () => {
     saveSettings({ checkForAppUpdatesOnStartup: newVal });
   };
 
+  const handleAppUpdateChannelChange = async (e) => {
+    const channel = e.target.value === "nightly" ? "nightly" : "stable";
+
+    setAppUpdateChannel(channel);
+    setUpdateStatus("idle");
+    setUpdateVersion("");
+    setUpdatePercent(0);
+    setUpdateError("");
+
+    try {
+      const result = await window.electronAPI.setAppUpdateChannel?.(channel);
+
+      if (result?.success === false) {
+        throw new Error(result.error || "Unable to change update channel");
+      }
+    } catch (error) {
+      setUpdateStatus("error");
+      setUpdateError(error.message || "Unable to change update channel");
+    }
+  };
+
   const handleCheckAppUpdate = async () => {
     setUpdateStatus("checking");
     setUpdateError("");
@@ -122,10 +152,15 @@ const Interface = () => {
     }
   };
 
+  const appUpdateChannelLabel =
+    appUpdateChannel === "nightly" ? "Nightly" : "Stable";
+
   const updateStatusText = (() => {
-    if (updateStatus === "checking") return "Checking for updates...";
+    if (updateStatus === "checking") {
+      return `Checking ${appUpdateChannelLabel} updates...`;
+    }
     if (updateStatus === "available") {
-      return `Atlas ${updateVersion || "update"} is available.`;
+      return `Atlas ${updateVersion || "update"} is available on ${appUpdateChannelLabel}.`;
     }
     if (updateStatus === "downloading") {
       return `Downloading update: ${updatePercent.toFixed(0)}%`;
@@ -133,7 +168,9 @@ const Interface = () => {
     if (updateStatus === "downloaded") {
       return `Atlas ${updateVersion || "update"} is ready to install.`;
     }
-    if (updateStatus === "not-available") return "Atlas is up to date.";
+    if (updateStatus === "not-available") {
+      return `Atlas is up to date on ${appUpdateChannelLabel}.`;
+    }
     if (updateStatus === "error") return updateError || "Update check failed.";
     return "No update check has run in this window.";
   })();
@@ -239,6 +276,22 @@ const Interface = () => {
 
       <div className="mb-2">
         <div className="font-semibold mb-2">App Updates</div>
+        <div className="flex items-center mb-2">
+          <label className="flex-1">Update Channel:</label>
+          <select
+            className="w-40 bg-secondary border border-border text-text rounded p-1"
+            value={appUpdateChannel}
+            onChange={handleAppUpdateChannelChange}
+          >
+            <option value="stable">Stable</option>
+            <option value="nightly">Nightly</option>
+          </select>
+        </div>
+        <p className="text-xs opacity-50 mb-2">
+          Stable checks normal releases. Nightly checks pre-release/nightly
+          builds and may be less stable.
+        </p>
+        <div className="border-t border-text opacity-25 my-2"></div>
         <p className="text-xs opacity-70 mb-3">{updateStatusText}</p>
         <div className="flex flex-wrap gap-2">
           <button
