@@ -1,4 +1,4 @@
-const { useState, useEffect, useRef } = window.React;
+const { useState, useEffect, useRef, useMemo } = window.React;
 const ReactDOM = window.ReactDOM || {};
 const { createRoot } = window.ReactDOM;
 
@@ -50,6 +50,10 @@ const Importer = () => {
   const [gamesList, setGamesList] = useState([]);
   const [isMaximized, setIsMaximized] = useState(false);
   const [hideMatches, setHideMatches] = useState(false);
+  const [sortConfig, setSortConfig] = useState({
+    key: "",
+    direction: "asc",
+  });
   const [isResolvingMatches, setIsResolvingMatches] = useState(false);
   const deletedScanGameKeysRef = React.useRef(new Set());
   const matchCancelRef = React.useRef(false);
@@ -142,6 +146,94 @@ const Importer = () => {
       return "Archive rows require 'Extract and import archives'";
     }
     return "No eligible rows are ready to import";
+  };
+
+  const alphaNumericCollator = new Intl.Collator(undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+
+  const normalizeSortValue = (value) => {
+    if (value === null || value === undefined) return "";
+    return String(value).trim();
+  };
+
+  const getSortValue = (game, key) => {
+    switch (key) {
+      case "atlasId":
+        return game.atlasId || "";
+      case "f95Id":
+        return game.f95Id || "";
+      case "title":
+        return game.title || "";
+      case "creator":
+        return game.creator || "";
+      case "engine":
+        return game.engine || "";
+      case "version":
+        return game.version || "";
+      case "replaceVersion":
+        return game.replaceVersion || "None";
+      case "executable":
+        return game.selectedValue || game.singleExecutable || "";
+      case "databaseMatch":
+        if (game.results?.length === 1 && game.results[0]?.key === "match") {
+          return game.results[0].value || "Match Found";
+        }
+        if (game.results?.length > 1) {
+          const selected = game.results.find(
+            (result) => result.key === game.resultSelectedValue,
+          );
+          return selected?.value || game.results[0]?.value || "";
+        }
+        return "";
+      case "source":
+        return game.isArchive
+          ? game.sourceFile || game.folder || "Archive"
+          : game.folder || "Metadata only";
+      case "status":
+        return (
+          game.scanMessage ||
+          (["new", "repairPath"].includes(game.scanStatus || "new")
+            ? "Ready to import"
+            : "Skipped")
+        );
+      default:
+        return "";
+    }
+  };
+
+  const compareRows = (a, b, key, direction) => {
+    const aValue = normalizeSortValue(getSortValue(a.game, key));
+    const bValue = normalizeSortValue(getSortValue(b.game, key));
+    const result = alphaNumericCollator.compare(aValue, bValue);
+
+    if (result !== 0) {
+      return direction === "desc" ? -result : result;
+    }
+
+    return a.originalIndex - b.originalIndex;
+  };
+
+  const handleSort = (key) => {
+    setSortConfig((prev) => {
+      if (prev.key === key) {
+        return {
+          key,
+          direction: prev.direction === "asc" ? "desc" : "asc",
+        };
+      }
+
+      return {
+        key,
+        direction: "asc",
+      };
+    });
+  };
+
+  const getSortIndicator = (key) => {
+    if (sortConfig.key !== key) return "";
+    return sortConfig.direction === "asc" ? " ▲" : " ▼";
   };
 
   const applyReplaceOptions = async (game) => {
@@ -757,6 +849,39 @@ const Importer = () => {
     updateMatches();
   };
 
+  const sortedRows = useMemo(() => {
+    const rows = gamesList
+      .map((game, originalIndex) => ({ game, originalIndex }))
+      .filter(({ game }) => {
+        if (
+          hideMatches &&
+          game.results?.length === 1 &&
+          game.results[0]?.value === "Match Found"
+        ) {
+          return false;
+        }
+
+        return true;
+      });
+
+    if (!sortConfig.key) return rows;
+
+    return [...rows].sort((a, b) =>
+      compareRows(a, b, sortConfig.key, sortConfig.direction),
+    );
+  }, [gamesList, hideMatches, sortConfig]);
+
+  const renderSortableHeader = (sortKey, label, className = "") => (
+    <th
+      className={`border border-border p-1 cursor-pointer select-none hover:bg-tertiary ${className}`}
+      onClick={() => handleSort(sortKey)}
+      title="Click to sort"
+    >
+      {label}
+      {getSortIndicator(sortKey)}
+    </th>
+  );
+
   console.log("Rendering Importer component, view:", view);
 
   return (
@@ -1053,53 +1178,40 @@ const Importer = () => {
               >
                 <thead>
                   <tr className="bg-secondary sticky top-0">
-                    <th className="border border-border p-1 min-w-[80px]">
-                      Atlas ID
-                    </th>
-                    <th className="border border-border p-1 min-w-[80px]">
-                      F95 ID
-                    </th>
-                    <th className="border border-border p-1 min-w-[200px]">
-                      Title
-                    </th>
-                    <th className="border border-border p-1 min-w-[150px]">
-                      Creator
-                    </th>
-                    <th className="border border-border p-1 min-w-[100px]">
-                      Engine
-                    </th>
-                    <th className="border border-border p-1 min-w-[200px]">
-                      Version
-                    </th>
-                    <th className="border border-border p-1 min-w-[180px]">
-                      Replace Version
-                    </th>
-                    <th className="border border-border p-1 min-w-[180px]">
-                      Executable
-                    </th>
-                    <th className="border border-border p-1 min-w-[220px] !max-w-[220px]">
-                      Possible Database Matches
-                    </th>
-                    <th className="border border-border p-1 min-w-[250px]">
-                      Source
-                    </th>
-                    <th className="border border-border p-1 min-w-[150px]">
-                      Status
-                    </th>
+                    {renderSortableHeader("atlasId", "Atlas ID", "min-w-[80px]")}
+                    {renderSortableHeader("f95Id", "F95 ID", "min-w-[80px]")}
+                    {renderSortableHeader("title", "Title", "min-w-[200px]")}
+                    {renderSortableHeader(
+                      "creator",
+                      "Creator",
+                      "min-w-[150px]",
+                    )}
+                    {renderSortableHeader("engine", "Engine", "min-w-[100px]")}
+                    {renderSortableHeader("version", "Version", "min-w-[200px]")}
+                    {renderSortableHeader(
+                      "replaceVersion",
+                      "Replace Version",
+                      "min-w-[180px]",
+                    )}
+                    {renderSortableHeader(
+                      "executable",
+                      "Executable",
+                      "min-w-[180px]",
+                    )}
+                    {renderSortableHeader(
+                      "databaseMatch",
+                      "Possible Database Matches",
+                      "min-w-[220px] !max-w-[220px]",
+                    )}
+                    {renderSortableHeader("source", "Source", "min-w-[250px]")}
+                    {renderSortableHeader("status", "Status", "min-w-[150px]")}
                     <th className="border border-border p-1 min-w-[150px]">
                       Actions
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {gamesList.map((game, originalIndex) => {
-                    if (
-                      hideMatches &&
-                      game.results?.length === 1 &&
-                      game.results[0]?.value === "Match Found"
-                    ) {
-                      return null;
-                    }
+                  {sortedRows.map(({ game, originalIndex }) => {
                     const rowIsNew = isNewScanRow(game);
                     const statusText =
                       game.scanMessage ||
@@ -1115,11 +1227,14 @@ const Importer = () => {
                           ? "text-cyan-300"
                         : game.isArchive
                           ? "text-blue-300"
-                        : game.scanStatus === "missingLaunchable"
-                          ? "text-red-300"
-                          : "text-green-300";
+                          : game.scanStatus === "missingLaunchable"
+                            ? "text-red-300"
+                            : "text-green-300";
                     return (
-                      <tr key={originalIndex} className="bg-primary">
+                      <tr
+                        key={getScanGameKey(game) || originalIndex}
+                        className="bg-primary"
+                      >
                         <td className="border border-border p-1 min-w-[100px]">
                           {game.results?.length > 1 && (
                             <i className="fa-solid fa-triangle-exclamation text-yellow-400 mr-1"></i>
