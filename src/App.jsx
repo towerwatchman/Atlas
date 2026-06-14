@@ -72,9 +72,10 @@ const App = () => {
     };
   };
 
-  const toggleSearchSidebar = () => {
+  const toggleSearchSidebar = useCallback(() => {
+    if (selectedGame) return;
     setShowSearchSidebar((prev) => !prev);
-  };
+  }, [selectedGame]);
 
   const handleSearchChange = useCallback((text) => {
     setActiveFilters((prev) => ({ ...prev, text }));
@@ -561,6 +562,7 @@ const App = () => {
         window.electronAPI
           .getGame(data.recordId)
           .then((updatedGame) => {
+            setShowSearchSidebar(false);
             setSelectedGame(updatedGame);
           })
           .catch((error) =>
@@ -800,12 +802,16 @@ const App = () => {
   };
 
   const selectGame = useCallback((game) => {
+    setShowSearchSidebar(false);
     setSelectedGame(game);
     if (!game?.record_id) return;
     window.electronAPI
       .getGame(game.record_id)
       .then((updatedGame) => {
-        if (updatedGame) setSelectedGame(updatedGame);
+        if (updatedGame) {
+          setShowSearchSidebar(false);
+          setSelectedGame(updatedGame);
+        }
       })
       .catch((error) =>
         console.error(`Failed to refresh selected game ${game.record_id}:`, error),
@@ -1014,7 +1020,7 @@ return (
       </div>
 
       {/* Right Search Sidebar - overlays on top, toggled */}
-      {showSearchSidebar && (
+      {showSearchSidebar && !selectedGame && (
         <window.SearchSidebar
           isVisible={showSearchSidebar}
           searchText={activeFilters.text}
