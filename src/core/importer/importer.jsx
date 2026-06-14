@@ -1,4 +1,4 @@
-const { useState, useEffect } = window.React;
+const { useState, useEffect, useRef } = window.React;
 const ReactDOM = window.ReactDOM || {};
 const { createRoot } = window.ReactDOM;
 
@@ -27,6 +27,7 @@ const Importer = () => {
   const [defaultLibraryPath, setDefaultLibraryPath] = useState(null);
   const [autoSelectLatestReplaceVersion, setAutoSelectLatestReplaceVersion] =
     useState(false);
+  const autoSelectLatestReplaceVersionRef = useRef(false);
   const [libraryFormat, setLibraryFormat] = useState(
     "{creator}/{title}/{version}",
   );
@@ -148,7 +149,7 @@ const Importer = () => {
     if (!recordId) {
       return {
         ...game,
-        replaceVersion: "",
+        replaceVersion: game.replaceVersion || "",
         replaceOptions: [],
       };
     }
@@ -169,7 +170,7 @@ const Importer = () => {
         })
         .sort((a, b) => Number(b.date_added || 0) - Number(a.date_added || 0));
       const defaultReplaceVersion =
-        autoSelectLatestReplaceVersion && replaceOptions.length > 0
+        autoSelectLatestReplaceVersionRef.current && replaceOptions.length > 0
           ? replaceOptions[0].version || ""
           : "";
 
@@ -182,7 +183,7 @@ const Importer = () => {
       console.error("Failed to load replace version options:", err);
       return {
         ...game,
-        replaceVersion: "",
+        replaceVersion: game.replaceVersion || "",
         replaceOptions: [],
       };
     }
@@ -190,6 +191,7 @@ const Importer = () => {
 
   const handleAutoSelectLatestReplaceVersionChange = async (e) => {
     const checked = e.target.checked;
+    autoSelectLatestReplaceVersionRef.current = checked;
     setAutoSelectLatestReplaceVersion(checked);
 
     if (checked) {
@@ -417,10 +419,12 @@ const Importer = () => {
           librarySettings.libraryFolderStructure ||
             "{creator}/{title}/{version}",
         );
-        setAutoSelectLatestReplaceVersion(
+        const shouldAutoSelectLatestReplaceVersion =
           librarySettings.autoSelectLatestReplaceVersion === true ||
-            librarySettings.autoSelectLatestReplaceVersion === "true",
-        );
+          librarySettings.autoSelectLatestReplaceVersion === "true";
+        autoSelectLatestReplaceVersionRef.current =
+          shouldAutoSelectLatestReplaceVersion;
+        setAutoSelectLatestReplaceVersion(shouldAutoSelectLatestReplaceVersion);
         setDownloadBannerImages(shouldDownloadMedia);
         setDownloadPreviewImages(shouldDownloadMedia);
 
