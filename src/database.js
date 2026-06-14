@@ -5,6 +5,7 @@ const fsPromises = fs.promises;
 
 let db;
 let cachedFilterOptions = null;
+let atlasIdNameMigrationRan = false;
 
 const getAssetBasePath = (appPath, isDev) =>
   isDev ? path.join(appPath, "src") : appPath;
@@ -97,7 +98,7 @@ const initializeDatabase = (dataDir) => {
       CREATE TABLE IF NOT EXISTS atlas_data
       (
         atlas_id INTEGER PRIMARY KEY,
-        id_name STRING UNIQUE,
+        id_name STRING,
         short_name STRING,
         title STRING,
         original_name STRING,
@@ -123,6 +124,7 @@ const initializeDatabase = (dataDir) => {
         logo STRING,
         wallpaper STRING,
         previews STRING,
+        external_ids STRING,
         last_record_update STRING
       );
     `);
@@ -157,6 +159,10 @@ const initializeDatabase = (dataDir) => {
         tags STRING,
         rating STRING,
         screens STRING,
+        downloads STRING,
+        patches STRING,
+        extras STRING,
+        translations STRING,
         replies STRING
       );
     `);
@@ -310,8 +316,104 @@ const initializeDatabase = (dataDir) => {
       `);
     });
     db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_normalized_title ON atlas_data(normalized_title);`);
+
+    // --- Migrations to match the refactored remote schema -----------------
+    // New columns the scraper now emits. ALTER ADD COLUMN is idempotent here:
+    // the callback swallows the "duplicate column" error on DBs that already
+    // have them (same pattern as normalized_title above).
+    db.run(`ALTER TABLE atlas_data ADD COLUMN external_ids STRING;`, () => {});
+    db.run(`ALTER TABLE f95_zone_data ADD COLUMN downloads STRING;`, () => {});
+    db.run(`ALTER TABLE f95_zone_data ADD COLUMN patches STRING;`, () => {});
+    db.run(`ALTER TABLE f95_zone_data ADD COLUMN extras STRING;`, () => {});
+    db.run(`ALTER TABLE f95_zone_data ADD COLUMN translations STRING;`, () => {});
+
+    // Drop the legacy UNIQUE constraint on atlas_data.id_name. id_name is no
+    // longer a key (the remote anchors on f95_id/atlas_id), and leaving it
+    // UNIQUE makes INSERT OR REPLACE during an update delete an unrelated game
+    // whenever two atlas rows share an id_name. SQLite can't drop an inline
+    // constraint via ALTER, so rebuild the table without it — but only if the
+    // old unique index is actually present.
+    migrateDropAtlasIdNameUnique();
   });
 };
+
+// Rebuilds atlas_data without the inline UNIQUE on id_name, preserving every
+// existing column and row. Guarded so it runs at most once (after the rebuild
+// the unique index is gone, so the guard fails on subsequent launches).
+function migrateDropAtlasIdNameUnique() {
+  // initializeDatabase is re-invoked by several IPC handlers; only run this
+  // potentially-destructive check once per process to avoid overlapping
+  // rebuilds on the first post-upgrade launch.
+  if (atlasIdNameMigrationRan) return;
+  atlasIdNameMigrationRan = true;
+
+  db.all(`PRAGMA index_list(atlas_data)`, (err, indexes) => {
+    if (err || !Array.isArray(indexes)) return;
+    const autoUnique = indexes.filter(
+      (i) => i.unique && /^sqlite_autoindex_atlas_data/.test(i.name),
+    );
+    if (autoUnique.length === 0) return;
+
+    let pending = autoUnique.length;
+    let onIdName = false;
+    autoUnique.forEach((idx) => {
+      db.all(`PRAGMA index_info(${idx.name})`, (e2, cols) => {
+        if (!e2 && Array.isArray(cols) && cols.some((c) => c.name === "id_name")) {
+          onIdName = true;
+        }
+        if (--pending === 0 && onIdName) rebuildAtlasDataWithoutUnique();
+      });
+    });
+  });
+}
+
+function rebuildAtlasDataWithoutUnique() {
+  // Reconstruct column defs from the live table so we keep any columns added
+  // by other migrations. table_info exposes name/type/notnull/default/pk but
+  // NOT inline UNIQUE — so re-emitting from it naturally drops the constraint.
+  db.all(`PRAGMA table_info(atlas_data)`, (err, cols) => {
+    if (err || !Array.isArray(cols) || cols.length === 0) return;
+    const colDefs = cols
+      .map((c) => {
+        let def = `${c.name} ${c.type || "STRING"}`;
+        if (c.pk) def += " PRIMARY KEY";
+        if (c.notnull) def += " NOT NULL";
+        if (c.dflt_value !== null && c.dflt_value !== undefined)
+          def += ` DEFAULT ${c.dflt_value}`;
+        return def;
+      })
+      .join(", ");
+    const colNames = cols.map((c) => c.name).join(", ");
+
+    db.serialize(() => {
+      db.run("BEGIN TRANSACTION");
+      db.run(`CREATE TABLE atlas_data_rebuild (${colDefs});`);
+      db.run(
+        `INSERT INTO atlas_data_rebuild (${colNames}) SELECT ${colNames} FROM atlas_data;`,
+      );
+      db.run(`DROP TABLE atlas_data;`);
+      db.run(`ALTER TABLE atlas_data_rebuild RENAME TO atlas_data;`, (e) => {
+        if (e) {
+          db.run("ROLLBACK");
+          console.error("atlas_data rebuild failed, rolled back:", e);
+          return;
+        }
+        db.run("COMMIT", (commitErr) => {
+          if (commitErr) {
+            console.error("atlas_data rebuild commit failed:", commitErr);
+            return;
+          }
+          // DROP TABLE removed its indexes; recreate them.
+          db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_title ON atlas_data(title);`);
+          db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_short_name ON atlas_data(short_name);`);
+          db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_creator ON atlas_data(creator);`);
+          db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_normalized_title ON atlas_data(normalized_title);`);
+          console.log("atlas_data rebuilt without id_name UNIQUE constraint");
+        });
+      });
+    });
+  });
+}
 
 function normalizeDoubledApostrophes(value) {
   return typeof value === "string" ? value.replace(/''/g, "'") : value;
@@ -2102,6 +2204,7 @@ const updateTableColumns = {
     "logo",
     "wallpaper",
     "previews",
+    "external_ids",
     "last_record_update",
   ]),
   f95_zone_data: new Set([
@@ -2117,6 +2220,10 @@ const updateTableColumns = {
     "tags",
     "rating",
     "screens",
+    "downloads",
+    "patches",
+    "extras",
+    "translations",
     "replies",
   ]),
 };
