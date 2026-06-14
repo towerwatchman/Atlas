@@ -3335,21 +3335,7 @@ async function downloadImages(
 
       let imageBytes;
       let downloaded = false;
-      if ([".gif", ".mp4", ".webm"].includes(ext) && downloadVideos) {
-        const animatedPath = `${imagePath}${ext}`;
-        if (!fs.existsSync(animatedPath)) {
-          const response = await axios.get(url, {
-            responseType: "arraybuffer",
-          });
-          imageBytes = Buffer.from(response.data);
-          fs.writeFileSync(animatedPath, imageBytes);
-          downloaded = true;
-        }
-        await updatePreviews(recordId, `${relativePath}${ext}`);
-      }
-
-      const targetPath = `${imagePath}_pr.webp`;
-      if (!fs.existsSync(targetPath)) {
+      const loadImageBytes = async () => {
         if (!imageBytes) {
           const response = await axios.get(url, {
             responseType: "arraybuffer",
@@ -3357,12 +3343,62 @@ async function downloadImages(
           imageBytes = Buffer.from(response.data);
           downloaded = true;
         }
+        return imageBytes;
+      };
+
+      if ([".mp4", ".webm"].includes(ext) && downloadVideos) {
+        const videoPath = `${imagePath}${ext}`;
+        if (!fs.existsSync(videoPath)) {
+          await loadImageBytes();
+          fs.writeFileSync(videoPath, imageBytes);
+        }
+        await updatePreviews(recordId, `${relativePath}${ext}`);
+      }
+
+      let animatedPreviewSaved = false;
+
+      if (isPotentialAnimatedImage(ext)) {
+        try {
+          await loadImageBytes();
+          const animatedMetadata = await getImageMetadata(imageBytes, {
+            animated: true,
+          });
+
+          if (hasMultiplePages(animatedMetadata)) {
+            const animatedPreviewPath = `${imagePath}_animated.webp`;
+            if (!fs.existsSync(animatedPreviewPath)) {
+              await sharp(imageBytes, { animated: true })
+                .resize({ width: 1260, withoutEnlargement: true })
+                .webp({
+                  quality: 80,
+                  effort: 6,
+                  loop: 0,
+                })
+                .toFile(animatedPreviewPath);
+            }
+
+            await updatePreviews(recordId, `${relativePath}_animated.webp`);
+            animatedPreviewSaved = true;
+          }
+        } catch (animatedErr) {
+          console.warn(
+            `Failed to create animated WebP preview for ${recordId} from ${url}:`,
+            animatedErr,
+          );
+        }
+      }
+
+      const targetPath = `${imagePath}_pr.webp`;
+      if (!fs.existsSync(targetPath)) {
+        await loadImageBytes();
         await sharp(imageBytes)
           .webp({ quality: 90 })
           .resize({ width: 1260, withoutEnlargement: true })
           .toFile(targetPath);
       }
-      await updatePreviews(recordId, `${relativePath}_pr.webp`);
+      if (!animatedPreviewSaved) {
+        await updatePreviews(recordId, `${relativePath}_pr.webp`);
+      }
       imageProgress++;
       onImageProgress(imageProgress, totalImages);
 
