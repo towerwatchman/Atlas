@@ -19,10 +19,52 @@ const normalizeMediaStorageMode = (mode) =>
 const remoteBannerExpression =
   "COALESCE(f95_zone_data.banner_url, steam_data.header, steam_data.library_hero, atlas_data.banner_wide, atlas_data.banner)";
 
+const buildBannerJoinClauses = () => `
+      LEFT JOIN (
+        SELECT record_id, MIN(path) AS path
+        FROM banners
+        WHERE type = 'animated' AND path LIKE '%banner_custom_%'
+        GROUP BY record_id
+      ) custom_animated_banners ON games.record_id = custom_animated_banners.record_id
+      LEFT JOIN (
+        SELECT record_id, MIN(path) AS path
+        FROM banners
+        WHERE type = 'small' AND path LIKE '%banner_custom_%'
+        GROUP BY record_id
+      ) custom_small_banners ON games.record_id = custom_small_banners.record_id
+      LEFT JOIN (
+        SELECT record_id, MIN(path) AS path
+        FROM banners
+        WHERE type = 'large' AND path LIKE '%banner_custom_%'
+        GROUP BY record_id
+      ) custom_large_banners ON games.record_id = custom_large_banners.record_id
+      LEFT JOIN (
+        SELECT record_id, MIN(path) AS path
+        FROM banners
+        WHERE type = 'animated' AND path NOT LIKE '%banner_custom_%'
+        GROUP BY record_id
+      ) source_animated_banners ON games.record_id = source_animated_banners.record_id
+      LEFT JOIN (
+        SELECT record_id, MIN(path) AS path
+        FROM banners
+        WHERE type = 'small' AND path NOT LIKE '%banner_custom_%'
+        GROUP BY record_id
+      ) source_small_banners ON games.record_id = source_small_banners.record_id
+      LEFT JOIN (
+        SELECT record_id, MIN(path) AS path
+        FROM banners
+        WHERE type = 'large' AND path NOT LIKE '%banner_custom_%'
+        GROUP BY record_id
+      ) source_large_banners ON games.record_id = source_large_banners.record_id`;
+
 const buildBannerSelectFields = (baseImagePath, mediaStorageMode) => {
-  const localAnimatedBannerExpression = `REPLACE('${baseImagePath}/' || animated_banners.path, '\\', '/')`;
-  const localStaticBannerExpression = `REPLACE('${baseImagePath}/' || small_banners.path, '\\', '/')`;
-  const localBannerExpression = `COALESCE(${localAnimatedBannerExpression}, ${localStaticBannerExpression})`;
+  const customAnimatedBannerExpression = `REPLACE('${baseImagePath}/' || custom_animated_banners.path, '\\', '/')`;
+  const customSmallBannerExpression = `REPLACE('${baseImagePath}/' || custom_small_banners.path, '\\', '/')`;
+  const customLargeBannerExpression = `REPLACE('${baseImagePath}/' || custom_large_banners.path, '\\', '/')`;
+  const sourceAnimatedBannerExpression = `REPLACE('${baseImagePath}/' || source_animated_banners.path, '\\', '/')`;
+  const sourceSmallBannerExpression = `REPLACE('${baseImagePath}/' || source_small_banners.path, '\\', '/')`;
+  const sourceLargeBannerExpression = `REPLACE('${baseImagePath}/' || source_large_banners.path, '\\', '/')`;
+  const localBannerExpression = `COALESCE(${customAnimatedBannerExpression}, ${customSmallBannerExpression}, ${customLargeBannerExpression}, ${sourceAnimatedBannerExpression}, ${sourceSmallBannerExpression}, ${sourceLargeBannerExpression})`;
   const remoteFirst = normalizeMediaStorageMode(mediaStorageMode) === "stream";
   const bannerUrlExpression = remoteFirst
     ? `COALESCE(${remoteBannerExpression}, ${localBannerExpression})`
@@ -30,13 +72,15 @@ const buildBannerSelectFields = (baseImagePath, mediaStorageMode) => {
   const bannerSourceExpression = remoteFirst
     ? `CASE
           WHEN ${remoteBannerExpression} IS NOT NULL THEN 'stream'
-          WHEN animated_banners.path IS NOT NULL THEN 'download-animated'
-          WHEN small_banners.path IS NOT NULL THEN 'download'
+          WHEN custom_animated_banners.path IS NOT NULL OR source_animated_banners.path IS NOT NULL THEN 'download-animated'
+          WHEN custom_small_banners.path IS NOT NULL OR custom_large_banners.path IS NOT NULL
+            OR source_small_banners.path IS NOT NULL OR source_large_banners.path IS NOT NULL THEN 'download'
           ELSE ''
         END`
     : `CASE
-          WHEN animated_banners.path IS NOT NULL THEN 'download-animated'
-          WHEN small_banners.path IS NOT NULL THEN 'download'
+          WHEN custom_animated_banners.path IS NOT NULL OR source_animated_banners.path IS NOT NULL THEN 'download-animated'
+          WHEN custom_small_banners.path IS NOT NULL OR custom_large_banners.path IS NOT NULL
+            OR source_small_banners.path IS NOT NULL OR source_large_banners.path IS NOT NULL THEN 'download'
           WHEN ${remoteBannerExpression} IS NOT NULL THEN 'stream'
           ELSE ''
         END`;
@@ -45,7 +89,9 @@ const buildBannerSelectFields = (baseImagePath, mediaStorageMode) => {
         ${bannerUrlExpression} AS banner_url,
         ${bannerSourceExpression} AS banner_source,
         CASE
-          WHEN animated_banners.path IS NOT NULL OR small_banners.path IS NOT NULL
+          WHEN custom_animated_banners.path IS NOT NULL OR custom_small_banners.path IS NOT NULL
+            OR custom_large_banners.path IS NOT NULL OR source_animated_banners.path IS NOT NULL
+            OR source_small_banners.path IS NOT NULL OR source_large_banners.path IS NOT NULL
           THEN 1 ELSE 0
         END AS has_downloaded_banner`;
 };
@@ -1193,6 +1239,7 @@ const getGame = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
       baseImagePath,
       mediaStorageMode,
     );
+    const bannerJoinClauses = buildBannerJoinClauses();
     const query = `
       SELECT
         games.record_id as record_id,
@@ -1229,8 +1276,7 @@ ${bannerSelectFields},
         games
       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
       LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
-      LEFT JOIN banners animated_banners ON games.record_id = animated_banners.record_id AND animated_banners.type = 'animated'
-      LEFT JOIN banners small_banners ON games.record_id = small_banners.record_id AND small_banners.type = 'small'
+${bannerJoinClauses}
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
       LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
@@ -1297,6 +1343,7 @@ const getGames = (
       baseImagePath,
       options.mediaStorageMode,
     );
+    const bannerJoinClauses = buildBannerJoinClauses();
     const includeUninstalled = options.includeUninstalled === true;
     const skipPathValidation = options.skipPathValidation !== false;
 
@@ -1337,8 +1384,7 @@ ${bannerSelectFields},
         games
       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
       LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
-      LEFT JOIN banners animated_banners ON games.record_id = animated_banners.record_id AND animated_banners.type = 'animated'
-      LEFT JOIN banners small_banners ON games.record_id = small_banners.record_id AND small_banners.type = 'small'
+${bannerJoinClauses}
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
       LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
@@ -2118,7 +2164,16 @@ const getRemoteBannerUrl = (recordId) => {
 const getBanner = (recordId, appPath, isDev, type, mediaStorageMode = "stream") => {
   return new Promise((resolve, reject) => {
     db.all(
-      `SELECT path FROM banners WHERE record_id = ? AND type=?`,
+      `SELECT path
+       FROM banners
+       WHERE record_id = ? AND type = ?
+       ORDER BY
+         CASE
+           WHEN path LIKE '%banner_custom_%' THEN 0
+           WHEN path LIKE '%banner_f95_%' THEN 1
+           ELSE 2
+         END,
+         path`,
       [recordId, type],
       async (err, rows) => {
         if (err) {

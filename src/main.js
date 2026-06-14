@@ -2070,14 +2070,15 @@ ipcMain.handle(
       const imageDir = path.join(dataDir, "images", String(recordId));
       await fs.promises.mkdir(imageDir, { recursive: true });
 
+      const customBaseName = buildBannerBaseName("custom");
       const relativeBasePath = path.join(
         "data",
         "images",
         String(recordId),
-        "banner",
+        customBaseName,
       );
-      const mediumPath = path.join(imageDir, "banner_mc.webp");
-      const smallPath = path.join(imageDir, "banner_sc.webp");
+      const mediumPath = path.join(imageDir, `${customBaseName}_mc.webp`);
+      const smallPath = path.join(imageDir, `${customBaseName}_sc.webp`);
 
       const normalizedSource = path.resolve(sourcePath).toLowerCase();
       const normalizedMedium = path.resolve(mediumPath).toLowerCase();
@@ -3205,6 +3206,20 @@ function findExecutables(dir, extensions) {
 
 const ANIMATED_IMAGE_EXTENSIONS = new Set([".gif", ".webp"]);
 
+function normalizeImageSource(value, fallback = "custom") {
+  return (
+    String(value || fallback)
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || fallback
+  );
+}
+
+function buildBannerBaseName(source) {
+  return `banner_${normalizeImageSource(source)}`;
+}
+
 const isPotentialAnimatedImage = (ext) =>
   ANIMATED_IMAGE_EXTENSIONS.has(String(ext || "").toLowerCase());
 
@@ -3246,7 +3261,8 @@ async function downloadImages(
     console.log(`Downloading banner from URL: ${bannerUrl}`);
     try {
       const ext = path.extname(new URL(bannerUrl).pathname).toLowerCase();
-      const baseName = path.basename("banner", ext);
+      const bannerSource = "f95";
+      const baseName = buildBannerBaseName(bannerSource);
       const imagePath = path.join(imgDir, baseName);
       const relativePath = path.join(
         "data",
