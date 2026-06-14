@@ -110,21 +110,15 @@ const Interface = () => {
     }
   };
 
-  const handleDownloadAppUpdate = async () => {
+  const handleDownloadAndInstallAppUpdate = async () => {
     setUpdateStatus("downloading");
     setUpdateError("");
-    const result = await window.electronAPI.downloadAppUpdate();
-    if (result?.success === false) {
-      setUpdateStatus("error");
-      setUpdateError(result.error || "Unable to download update");
-    }
-  };
 
-  const handleInstallAppUpdate = async () => {
-    const result = await window.electronAPI.installAppUpdate();
+    const result = await window.electronAPI.downloadAndInstallAppUpdate();
+
     if (result?.success === false) {
       setUpdateStatus("error");
-      setUpdateError(result.error || "Unable to install update");
+      setUpdateError(result.error || "Unable to update Atlas");
     }
   };
 
@@ -255,18 +249,13 @@ const Interface = () => {
             Check for updates
           </button>
           <button
-            onClick={handleDownloadAppUpdate}
-            disabled={updateStatus !== "available"}
+            onClick={handleDownloadAndInstallAppUpdate}
+            disabled={!["available", "downloaded"].includes(updateStatus)}
             className="bg-accent px-4 py-2 rounded hover:bg-opacity-90 disabled:opacity-50"
           >
-            Download update
-          </button>
-          <button
-            onClick={handleInstallAppUpdate}
-            disabled={updateStatus !== "downloaded"}
-            className="bg-accent px-4 py-2 rounded hover:bg-opacity-90 disabled:opacity-50"
-          >
-            Install and restart
+            {updateStatus === "downloaded"
+              ? "Install and restart"
+              : "Update and restart"}
           </button>
         </div>
       </div>

@@ -400,6 +400,7 @@ autoUpdater.allowDowngrade = false;
 let updateInfo = null;
 let updateDownloaded = false;
 let lastUpdateStatus = { status: "idle" };
+let installAfterDownload = false;
 
 function sendUpdateStatus(status) {
   lastUpdateStatus = status;
@@ -418,6 +419,7 @@ autoUpdater.on("update-available", (info) => {
   console.log(`Update available: ${info.version}`);
   updateInfo = info;
   updateDownloaded = false;
+  installAfterDownload = false;
   sendUpdateStatus({
     status: "available",
     version: info.version,
@@ -427,6 +429,7 @@ autoUpdater.on("update-not-available", (info) => {
   console.log("No updates available.");
   updateInfo = null;
   updateDownloaded = false;
+  installAfterDownload = false;
   sendUpdateStatus({ status: "not-available" });
 });
 autoUpdater.on("download-progress", (progress) => {
@@ -444,9 +447,17 @@ autoUpdater.on("update-downloaded", (info) => {
     status: "downloaded",
     version: info.version,
   });
+
+  if (installAfterDownload) {
+    installAfterDownload = false;
+    setTimeout(() => {
+      autoUpdater.quitAndInstall();
+    }, 500);
+  }
 });
 autoUpdater.on("error", (err) => {
   console.error("Updater error:", err);
+  installAfterDownload = false;
   sendUpdateStatus({
     status: "error",
     error: err.message,
@@ -1330,6 +1341,36 @@ ipcMain.handle("download-app-update", async () => {
     await autoUpdater.downloadUpdate();
     return { success: true };
   } catch (err) {
+    sendUpdateStatus({ status: "error", error: err.message });
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("download-and-install-app-update", async () => {
+  try {
+    if (updateDownloaded) {
+      autoUpdater.quitAndInstall();
+      return { success: true };
+    }
+
+    if (!updateInfo) {
+      return {
+        success: false,
+        error: "No app update is currently available",
+      };
+    }
+
+    installAfterDownload = true;
+    await autoUpdater.downloadUpdate();
+
+    if (updateDownloaded) {
+      installAfterDownload = false;
+      autoUpdater.quitAndInstall();
+    }
+
+    return { success: true };
+  } catch (err) {
+    installAfterDownload = false;
     sendUpdateStatus({ status: "error", error: err.message });
     return { success: false, error: err.message };
   }

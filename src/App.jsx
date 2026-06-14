@@ -843,27 +843,24 @@ const App = () => {
     try {
       setAppUpdateActionBusy(true);
 
-      if (appUpdateNotice.status === "downloaded") {
-        const result = await window.electronAPI.installAppUpdate();
+      if (
+        appUpdateNotice.status === "available" ||
+        appUpdateNotice.status === "downloaded"
+      ) {
+        const result = await window.electronAPI.downloadAndInstallAppUpdate();
         if (!result?.success) {
-          throw new Error(result?.error || "Failed to install update");
-        }
-        return;
-      }
-
-      if (appUpdateNotice.status === "available") {
-        const result = await window.electronAPI.downloadAppUpdate();
-        if (!result?.success) {
-          throw new Error(result?.error || "Failed to download update");
+          throw new Error(result?.error || "Failed to update Atlas");
         }
 
-        setAppUpdateNotice((notice) => ({
-          ...notice,
-          status: "downloading",
-          text: notice.version
-            ? `Downloading Atlas ${notice.version}...`
-            : "Downloading update...",
-        }));
+        if (appUpdateNotice.status === "available") {
+          setAppUpdateNotice((notice) => ({
+            ...notice,
+            status: "downloading",
+            text: notice.version
+              ? `Downloading Atlas ${notice.version}...`
+              : "Downloading update...",
+          }));
+        }
       }
     } catch (error) {
       console.error("App update action failed:", error);
@@ -1198,7 +1195,7 @@ return (
               ? "Install Now"
               : appUpdateNotice.status === "downloading"
                 ? "Downloading..."
-                : "Update Now"}
+                : "Update and Restart"}
           </button>
           <button
             onClick={() =>
