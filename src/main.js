@@ -325,6 +325,9 @@ function getMediaStorageMode() {
     : "stream";
 }
 
+const firstMediaPath = (value) =>
+  Array.isArray(value) ? value[0] || "" : value || "";
+
 // Create data folders
 const appDataRoot = process.defaultApp ? __dirname : app.getPath("userData");
 const legacyResourcesPath = process.defaultApp ? null : getLegacyResourcesPath();
@@ -1284,11 +1287,18 @@ ipcMain.handle("close-window", async (event) => {
   }
 });
 
-ipcMain.handle("select-file", async () => {
+ipcMain.handle("select-file", async (event) => {
   try {
-    const result = await dialog.showOpenDialog(mainWindow, {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showOpenDialog(senderWindow || mainWindow, {
       properties: ["openFile"],
-      filters: [],
+      filters: [
+        {
+          name: "Images",
+          extensions: ["jpg", "jpeg", "png", "webp", "gif"],
+        },
+        { name: "All Files", extensions: ["*"] },
+      ],
     });
     if (result.canceled) return null;
     return result.filePaths[0];
@@ -1916,19 +1926,90 @@ ipcMain.handle(
       filePath,
     );
     try {
-      const outputPath = path.join(
-        appDataRoot,
+      if (!recordId) {
+        throw new Error("Missing recordId");
+      }
+
+      if (!filePath || typeof filePath !== "string") {
+        throw new Error("No banner file selected");
+      }
+
+      const sourcePath = path.resolve(filePath);
+      if (!fs.existsSync(sourcePath)) {
+        throw new Error(`Selected banner does not exist: ${sourcePath}`);
+      }
+
+      const stat = await fs.promises.stat(sourcePath);
+      if (!stat.isFile()) {
+        throw new Error("Selected banner path is not a file");
+      }
+
+      const imageDir = path.join(dataDir, "images", String(recordId));
+      await fs.promises.mkdir(imageDir, { recursive: true });
+
+      const relativeBasePath = path.join(
         "data",
         "images",
-        `${recordId}`,
-        "banner_sc.webp",
+        String(recordId),
+        "banner",
       );
-      await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
-      await sharp(filePath).webp({ quality: 80 }).toFile(outputPath);
-      console.log("Banner converted and saved:", outputPath);
-      return `file://${outputPath}`;
+      const mediumPath = path.join(imageDir, "banner_mc.webp");
+      const smallPath = path.join(imageDir, "banner_sc.webp");
+
+      const normalizedSource = path.resolve(sourcePath).toLowerCase();
+      const normalizedMedium = path.resolve(mediumPath).toLowerCase();
+      const normalizedSmall = path.resolve(smallPath).toLowerCase();
+      if (
+        normalizedSource === normalizedMedium ||
+        normalizedSource === normalizedSmall
+      ) {
+        throw new Error(
+          "Selected banner is already the saved Atlas banner. Choose a different source file.",
+        );
+      }
+
+      const imageBytes = await fs.promises.readFile(sourcePath);
+      await sharp(imageBytes)
+        .webp({ quality: 90 })
+        .resize({ width: 1260, withoutEnlargement: true })
+        .toFile(mediumPath);
+
+      await sharp(imageBytes)
+        .webp({ quality: 90 })
+        .resize({ width: 600, withoutEnlargement: true })
+        .toFile(smallPath);
+
+      await updateBanners(recordId, `${relativeBasePath}_mc.webp`, "small");
+      await updateBanners(recordId, `${relativeBasePath}_sc.webp`, "large");
+
+      const bannerPath = await getBanner(
+        recordId,
+        getAssetBasePath(),
+        process.defaultApp,
+        "large",
+        "download",
+      );
+
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send("game-updated", recordId);
+        }
+      });
+
+      event.sender.send("game-details-import-progress", {
+        text: "Custom banner saved",
+        progress: 1,
+        total: 1,
+      });
+
+      return firstMediaPath(bannerPath);
     } catch (err) {
       console.error("Error converting and saving banner:", err);
+      event.sender.send("game-details-import-progress", {
+        text: `Failed to save custom banner: ${err.message}`,
+        progress: 0,
+        total: 1,
+      });
       throw err;
     }
   },

@@ -344,31 +344,43 @@ const GameDetailWindow = () => {
     }
   };
 
-  const handleSelectCustomBanner = () => {
-    window.electronAPI
-      .selectFile()
-      .then((filePath) => {
-        if (filePath) {
-          setImportProgress({
-            text: "Converting and saving banner...",
-            progress: 0,
-            total: 1,
-          });
-          window.electronAPI
-            .convertAndSaveBanner(game.record_id, filePath)
-            .then((newUrl) => {
-              setBannerUrl(newUrl);
-            })
-            .catch((err) => {
-              console.error("Failed to convert and save banner:", err);
-              setImportProgress({ text: "", progress: 0, total: 0 });
-            });
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to select custom banner:", err);
-        setImportProgress({ text: "", progress: 0, total: 0 });
+  const handleSelectCustomBanner = async () => {
+    try {
+      const filePath = await window.electronAPI.selectFile();
+      if (!filePath) return;
+
+      setImportProgress({
+        text: "Converting and saving banner...",
+        progress: 0,
+        total: 1,
       });
+
+      const newUrl = await window.electronAPI.convertAndSaveBanner(
+        game.record_id,
+        filePath,
+      );
+      setBannerUrl(firstMediaUrl(newUrl));
+
+      const refreshedGame = await window.electronAPI.getGame(game.record_id);
+      if (refreshedGame) {
+        refreshFromGame(refreshedGame, selectedVersion?.version);
+        setBannerUrl(refreshedGame.banner_url || firstMediaUrl(newUrl));
+      }
+
+      setImportProgress({
+        text: "Custom banner saved",
+        progress: 1,
+        total: 1,
+      });
+
+      setTimeout(() => {
+        setImportProgress({ text: "", progress: 0, total: 0 });
+      }, 1500);
+    } catch (err) {
+      console.error("Failed to convert and save banner:", err);
+      alert(`Failed to save custom banner: ${err.message}`);
+      setImportProgress({ text: "", progress: 0, total: 0 });
+    }
   };
   const handleDownloadPreviews = async () => {
     try {
