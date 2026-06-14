@@ -76,12 +76,27 @@ let appConfig;
 let activeImportSession = null;
 let activeLibraryValidation = null;
 let activeScanSession = null;
+let isQuitting = false;
 
 app.commandLine.appendSwitch("force-color-profile", "srgb");
 
 // ────────────────────────────────────────────────
 // WINDOW CREATION FUNCTIONS
 // ────────────────────────────────────────────────
+
+function quitFromMainWindow() {
+  if (isQuitting) return;
+
+  isQuitting = true;
+
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.close();
+    }
+  }
+
+  app.quit();
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -112,6 +127,17 @@ function createWindow() {
   });
   mainWindow.on("unmaximize", () => {
     mainWindow.webContents.send("window-state-changed", "restored");
+  });
+
+  mainWindow.on("close", (event) => {
+    if (isQuitting) return;
+
+    event.preventDefault();
+    quitFromMainWindow();
+  });
+
+  mainWindow.on("closed", () => {
+    mainWindow = null;
   });
 }
 
@@ -1345,6 +1371,12 @@ ipcMain.handle("close-window", async (event) => {
     // 1. Try to close the window that sent the request (most reliable)
     const senderWindow = BrowserWindow.fromWebContents(event.sender);
     if (senderWindow && !senderWindow.isDestroyed()) {
+      if (senderWindow === mainWindow) {
+        console.log("Closing main window; quitting app");
+        quitFromMainWindow();
+        return { success: true };
+      }
+
       console.log("Closing sender window:", senderWindow.getURL());
       senderWindow.close();
       return { success: true };
@@ -1360,6 +1392,12 @@ ipcMain.handle("close-window", async (event) => {
     // 3. Ultimate fallback: focused window
     const focused = BrowserWindow.getFocusedWindow();
     if (focused && !focused.isDestroyed()) {
+      if (focused === mainWindow) {
+        console.log("Closing focused main window; quitting app");
+        quitFromMainWindow();
+        return { success: true };
+      }
+
       console.log("Closing focused window as fallback:", focused.getURL());
       focused.close();
       return { success: true };
@@ -3771,6 +3809,10 @@ app.whenReady().then(async () => {
       sendUpdateStatus({ status: "error", error: err.message });
     });
   }
+});
+
+app.on("before-quit", () => {
+  isQuitting = true;
 });
 
 app.on("window-all-closed", () => {
