@@ -553,6 +553,59 @@ const GameDetailWindow = () => {
     }
   };
 
+  const handleRemoveTitleFromLibrary = async () => {
+    const confirmed = window.confirm(
+      `Remove "${game.title}" from the local library?\n\n` +
+        `This removes the title, metadata, mappings, versions, banners and previews from the database.\n` +
+        `Game files will be kept on disk.`,
+    );
+    if (!confirmed) return;
+
+    const result = await window.electronAPI.deleteTitle({
+      recordId: game.record_id,
+      deleteFiles: false,
+    });
+
+    if (!result.success) {
+      alert(`Failed to remove title: ${result.error || "Unknown error"}`);
+      return;
+    }
+
+    alert(`"${game.title}" was removed from your library. Files were kept on disk.`);
+    window.electronAPI.closeWindow();
+  };
+
+  const handleDeleteTitleAndFiles = async () => {
+    const versionPaths = (game.versions || [])
+      .map((version) => version.game_path)
+      .filter(Boolean);
+
+    const pathList = versionPaths.length
+      ? `\n\nFolders to delete:\n${versionPaths.join("\n")}`
+      : "\n\nNo linked folders were found.";
+
+    const confirmed = window.confirm(
+      `Delete "${game.title}" and all linked files from disk?\n\n` +
+        `This will remove the title from the local library and delete linked version folders.` +
+        pathList +
+        `\n\nThis cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    const result = await window.electronAPI.deleteTitle({
+      recordId: game.record_id,
+      deleteFiles: true,
+    });
+
+    if (!result.success) {
+      alert(`Failed to delete title: ${result.error || "Unknown error"}`);
+      return;
+    }
+
+    alert(`"${game.title}" and its linked files were deleted.`);
+    window.electronAPI.closeWindow();
+  };
+
   const handleSave = async () => {
     console.log("Saving changes", formData, versionData);
     const updatedGame = {
@@ -995,6 +1048,25 @@ const GameDetailWindow = () => {
                     >
                       Find Game
                     </button>
+                  </div>
+                  <div className="border-t border-border pt-3 mt-3">
+                    <div className="text-sm font-semibold text-red-300 mb-2">
+                      Title Actions
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={handleRemoveTitleFromLibrary}
+                        className="px-4 py-1 bg-red-700 hover:bg-red-800 text-white rounded"
+                      >
+                        Remove Title from Library
+                      </button>
+                      <button
+                        onClick={handleDeleteTitleAndFiles}
+                        className="px-4 py-1 bg-red-900 hover:bg-red-950 text-white rounded"
+                      >
+                        Delete Title and Files
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -76,11 +76,11 @@ const GameBanner = ({ game, onSelect }) => {
 
   const handleContextMenu = (e) => {
     e.preventDefault();
-    if (!game || !game.versions || game.versions.length === 0) {
-      console.log("No versions available for context menu:", game.record_id);
+    if (!game) {
+      console.log("No game available for context menu");
       return;
     }
-    const installedVersions = game.versions.filter(
+    const installedVersions = (game.versions || []).filter(
       (version) => version.isInstalled !== false,
     );
 
@@ -132,6 +132,26 @@ const GameBanner = ({ game, onSelect }) => {
     template.push({
       label: "Properties",
       data: { action: "properties", recordId: game.record_id },
+    });
+
+    template.push({ type: "separator" });
+
+    template.push({
+      label: "Remove Title from Library",
+      data: {
+        action: "removeTitleFromLibrary",
+        recordId: game.record_id,
+        title: game.title,
+      },
+    });
+
+    template.push({
+      label: "Delete Title and Files",
+      data: {
+        action: "deleteTitleAndFiles",
+        recordId: game.record_id,
+        title: game.title,
+      },
     });
 
     console.log("Context menu template:", JSON.stringify(template, null, 2));

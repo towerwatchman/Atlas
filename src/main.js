@@ -503,6 +503,10 @@ ipcMain.handle("delete-game-completely", async (_, recordId) => {
   return result;
 });
 
+ipcMain.handle("delete-title", async (_, { recordId, deleteFiles = false }) => {
+  return deleteTitleRecord(recordId, { deleteFiles });
+});
+
 ipcMain.handle("get-game", async (event, recordId) => {
   console.log("Default app state", app.getAppPath());
   return await getGame(
@@ -998,6 +1002,86 @@ async function removeEmptyParentDirectories(startPath, stopAtPath) {
 
     await fs.promises.rmdir(current).catch(() => {});
     current = path.dirname(current);
+  }
+}
+
+function dedupeDeletionPaths(paths = []) {
+  const seen = new Set();
+  return paths
+    .filter(Boolean)
+    .map((p) => path.resolve(p))
+    .filter((p) => {
+      const key = normalizeForPathCompare(p);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => b.length - a.length);
+}
+
+async function deleteLinkedGameFolders(recordId, versionPaths) {
+  const pathsToDelete = dedupeDeletionPaths(versionPaths);
+
+  for (const targetPath of pathsToDelete) {
+    const resolvedPath = path.resolve(targetPath);
+    const parsedPath = path.parse(resolvedPath);
+
+    if (resolvedPath === parsedPath.root) {
+      throw new Error("Refusing to delete a drive root");
+    }
+
+    if (!(await isAllowedDeletionPath(recordId, resolvedPath))) {
+      throw new Error(`Folder is not linked to this game: ${resolvedPath}`);
+    }
+
+    const stat = await fs.promises.stat(resolvedPath).catch(() => null);
+    if (!stat) continue;
+
+    if (!stat.isDirectory()) {
+      throw new Error(`Path is not a directory: ${resolvedPath}`);
+    }
+
+    await fs.promises.rm(resolvedPath, { recursive: true, force: true });
+    await removeEmptyParentDirectories(
+      resolvedPath,
+      appConfig?.Library?.gameFolder,
+    );
+  }
+}
+
+async function deleteTitleRecord(recordId, { deleteFiles = false } = {}) {
+  if (!recordId) {
+    return { success: false, error: "Missing record id" };
+  }
+
+  try {
+    const versionPaths = await getVersionPathsForRecord(recordId);
+
+    if (deleteFiles) {
+      await deleteLinkedGameFolders(recordId, versionPaths);
+    }
+
+    const result = await deleteGameCompletely(
+      recordId,
+      getAssetBasePath(),
+      process.defaultApp,
+    );
+
+    if (!result.success) return result;
+
+    recentlyDeletedGamePaths.set(recordId, versionPaths);
+    setTimeout(() => recentlyDeletedGamePaths.delete(recordId), 5 * 60 * 1000);
+
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) {
+        win.webContents.send("game-deleted", recordId);
+      }
+    });
+
+    return { success: true };
+  } catch (err) {
+    console.error("delete-title failed:", err);
+    return { success: false, error: err.message };
   }
 }
 
@@ -3429,6 +3513,55 @@ function handleContextAction(data, sender) {
       console.log("Creating GameDetailsWindow for recordId:", data.recordId);
       createGameDetailsWindow(data.recordId);
       break;
+    case "removeTitleFromLibrary": {
+      const senderWindow = BrowserWindow.fromWebContents(sender);
+      dialog
+        .showMessageBox(senderWindow || mainWindow, {
+          type: "warning",
+          buttons: ["Remove from Library", "Cancel"],
+          defaultId: 1,
+          cancelId: 1,
+          title: "Remove Title from Library",
+          message: `Remove "${data.title || "this title"}" from the local library?`,
+          detail: "Game files will be kept on disk.",
+        })
+        .then(async ({ response }) => {
+          if (response !== 0) return;
+          const result = await deleteTitleRecord(data.recordId, {
+            deleteFiles: false,
+          });
+          if (!result.success) {
+            console.error("Context remove title failed:", result.error);
+          }
+        })
+        .catch((err) => console.error("Context remove title failed:", err));
+      break;
+    }
+    case "deleteTitleAndFiles": {
+      const senderWindow = BrowserWindow.fromWebContents(sender);
+      dialog
+        .showMessageBox(senderWindow || mainWindow, {
+          type: "warning",
+          buttons: ["Delete Files", "Cancel"],
+          defaultId: 1,
+          cancelId: 1,
+          title: "Delete Title and Files",
+          message: `Delete "${data.title || "this title"}" and all linked files from disk?`,
+          detail:
+            "This removes the title from the library and deletes all linked version folders.\nThis cannot be undone.",
+        })
+        .then(async ({ response }) => {
+          if (response !== 0) return;
+          const result = await deleteTitleRecord(data.recordId, {
+            deleteFiles: true,
+          });
+          if (!result.success) {
+            console.error("Context delete title failed:", result.error);
+          }
+        })
+        .catch((err) => console.error("Context delete title failed:", err));
+      break;
+    }
     default:
       console.error(`Unknown action: ${data.action}`);
   }

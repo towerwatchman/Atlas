@@ -298,6 +298,49 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   };
   const openProperties = async () => { await window.electronAPI.openGameProperties(game.record_id); };
   const openWebsite    = async () => { if (game.siteUrl) await window.electronAPI.openExternalUrl(game.siteUrl); };
+  const removeTitleFromLibrary = async () => {
+    const confirmed = window.confirm(
+      `Remove "${game.title}" from the local library?\n\n` +
+        `This removes the title, metadata, mappings, versions, banners and previews from the database.\n` +
+        `Game files will be kept on disk.`,
+    );
+    if (!confirmed) return;
+
+    const result = await window.electronAPI.deleteTitle({
+      recordId: game.record_id,
+      deleteFiles: false,
+    });
+    if (!result.success) {
+      alert(`Failed to remove title: ${result.error || "Unknown error"}`);
+      return;
+    }
+    onBack?.();
+  };
+  const deleteTitleAndFiles = async () => {
+    const versionPaths = (game.versions || [])
+      .map((version) => version.game_path)
+      .filter(Boolean);
+    const pathList = versionPaths.length
+      ? `\n\nFolders to delete:\n${versionPaths.join("\n")}`
+      : "\n\nNo linked folders were found.";
+    const confirmed = window.confirm(
+      `Delete "${game.title}" and all linked files from disk?\n\n` +
+        `This will remove the title from the local library and delete linked version folders.` +
+        pathList +
+        `\n\nThis cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    const result = await window.electronAPI.deleteTitle({
+      recordId: game.record_id,
+      deleteFiles: true,
+    });
+    if (!result.success) {
+      alert(`Failed to delete title: ${result.error || "Unknown error"}`);
+      return;
+    }
+    onBack?.();
+  };
   const openPreview    = (index)    => { setLightboxIndex(index); };
   const closeLightbox  = ()         => { setLightboxIndex(null); };
   const showPrevPreview = () =>
@@ -495,6 +538,16 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
                 <i className="fas fa-external-link-alt" style={{ fontSize:13 }}></i>
               </button>
             )}
+            <button onClick={removeTitleFromLibrary} title="Remove Title from Library"
+              style={iconBtn(false)}
+              className="hover:bg-secondary hover:border-border">
+              <i className="fas fa-minus-circle" style={{ fontSize:13, color:"#fca5a5" }}></i>
+            </button>
+            <button onClick={deleteTitleAndFiles} title="Delete Title and Files"
+              style={iconBtn(false)}
+              className="hover:bg-secondary hover:border-border">
+              <i className="fas fa-trash-alt" style={{ fontSize:13, color:"#ef4444" }}></i>
+            </button>
 
             {/* Divider */}
             <div style={{ width:1, height:22, background:"rgba(255,255,255,0.15)", margin:"0 4px" }} />

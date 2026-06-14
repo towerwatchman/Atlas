@@ -265,6 +265,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteVersion: (params) => ipcRenderer.invoke("delete-version", params),
   deleteGameCompletely: (recordId) =>
     ipcRenderer.invoke("delete-game-completely", recordId),
+  deleteTitle: (params) => ipcRenderer.invoke("delete-title", params),
   deleteFolderRecursive: (params) =>
     ipcRenderer.invoke("delete-folder-recursive", params),
   onGameDeleted: (callback) => {

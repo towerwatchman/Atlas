@@ -522,10 +522,9 @@ const App = () => {
         return newGames;
       });
 
-      // Optional: if this was the selected game, clear it
-      if (selectedGame?.record_id === recordId) {
-        setSelectedGame(null);
-      }
+      setSelectedGame((current) =>
+        current?.record_id === recordId ? null : current,
+      );
 
       // Force grid refresh
       if (gridRef.current) {
