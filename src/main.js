@@ -445,6 +445,7 @@ const defaultConfig = {
     rootPath: dataDir,
     gameFolder: "",
     libraryFolderStructure: "{creator}/{title}/{version}",
+    autoSelectLatestReplaceVersion: false,
   },
   Metadata: {
     downloadPreviews: false,

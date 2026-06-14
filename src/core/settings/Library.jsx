@@ -11,6 +11,8 @@ const Library = () => {
   const [extractionExtensions, setExtractionExtensions] =
     React.useState("zip,7z,rar");
   const [sevenZipPath, setSevenZipPath] = React.useState(""); // ← added
+  const [autoSelectLatestReplaceVersion, setAutoSelectLatestReplaceVersion] =
+    React.useState(false);
 
   React.useEffect(() => {
     window.electronAPI.getConfig().then((config) => {
@@ -25,6 +27,10 @@ const Library = () => {
       );
       setExtractionExtensions(lib.extractionExtensions || "zip,7z,rar");
       setSevenZipPath(lib.sevenZipPath || ""); // ← added
+      setAutoSelectLatestReplaceVersion(
+        lib.autoSelectLatestReplaceVersion === true ||
+          lib.autoSelectLatestReplaceVersion === "true",
+      );
     });
   }, []);
 
@@ -86,6 +92,12 @@ const Library = () => {
     saveLibrarySetting("extractionExtensions", val);
   };
 
+  const handleAutoSelectLatestReplaceVersionChange = (e) => {
+    const checked = e.target.checked;
+    setAutoSelectLatestReplaceVersion(checked);
+    saveLibrarySetting("autoSelectLatestReplaceVersion", checked);
+  };
+
   return (
     <div className="p-5 text-text space-y-6">
       {/* Root Path */}
@@ -139,6 +151,22 @@ const Library = () => {
           {"{engine}"}, {"{f95Id}"}.
           <br />
           Example: {"{f95Id}/{creator}/{title}/{version}"}
+        </p>
+      </div>
+
+      <div className="border border-border bg-primary/40 p-3 rounded">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={autoSelectLatestReplaceVersion}
+            onChange={handleAutoSelectLatestReplaceVersionChange}
+          />
+          <span>Auto-select latest installed version for replacement</span>
+        </label>
+        <p className="text-xs opacity-60 mt-1">
+          When importing a new version of an existing title, automatically
+          preselect the newest installed version in the Replace Version
+          dropdown. You can still change it to None before importing.
         </p>
       </div>
 

@@ -25,6 +25,8 @@ const Importer = () => {
   const [includeArchives, setIncludeArchives] = useState(false);
   const [forceReimport, setForceReimport] = useState(false);
   const [defaultLibraryPath, setDefaultLibraryPath] = useState(null);
+  const [autoSelectLatestReplaceVersion, setAutoSelectLatestReplaceVersion] =
+    useState(false);
   const [libraryFormat, setLibraryFormat] = useState(
     "{creator}/{title}/{version}",
   );
@@ -158,16 +160,22 @@ const Importer = () => {
       const normalizedNewVersion = String(game.version || "")
         .trim()
         .toLowerCase();
-      const replaceOptions = (versions || []).filter((version) => {
-        const candidateVersion = String(version.version || "")
-          .trim()
-          .toLowerCase();
-        return candidateVersion && candidateVersion !== normalizedNewVersion;
-      });
+      const replaceOptions = (versions || [])
+        .filter((version) => {
+          const candidateVersion = String(version.version || "")
+            .trim()
+            .toLowerCase();
+          return candidateVersion && candidateVersion !== normalizedNewVersion;
+        })
+        .sort((a, b) => Number(b.date_added || 0) - Number(a.date_added || 0));
+      const defaultReplaceVersion =
+        autoSelectLatestReplaceVersion && replaceOptions.length > 0
+          ? replaceOptions[0].version || ""
+          : "";
 
       return {
         ...game,
-        replaceVersion: "",
+        replaceVersion: game.replaceVersion || defaultReplaceVersion,
         replaceOptions,
       };
     } catch (err) {
@@ -177,6 +185,36 @@ const Importer = () => {
         replaceVersion: "",
         replaceOptions: [],
       };
+    }
+  };
+
+  const handleAutoSelectLatestReplaceVersionChange = async (e) => {
+    const checked = e.target.checked;
+    setAutoSelectLatestReplaceVersion(checked);
+
+    if (checked) {
+      setGamesList((prev) =>
+        prev.map((game) => {
+          if (game.replaceVersion || !game.replaceOptions?.length) return game;
+          return {
+            ...game,
+            replaceVersion: game.replaceOptions[0].version || "",
+          };
+        }),
+      );
+    }
+
+    try {
+      const config = await window.electronAPI.getConfig();
+      await window.electronAPI.saveSettings({
+        ...config,
+        Library: {
+          ...(config.Library || {}),
+          autoSelectLatestReplaceVersion: checked,
+        },
+      });
+    } catch (err) {
+      console.error("Failed to save replacement default setting:", err);
     }
   };
 
@@ -378,6 +416,10 @@ const Importer = () => {
         setLibraryFormat(
           librarySettings.libraryFolderStructure ||
             "{creator}/{title}/{version}",
+        );
+        setAutoSelectLatestReplaceVersion(
+          librarySettings.autoSelectLatestReplaceVersion === true ||
+            librarySettings.autoSelectLatestReplaceVersion === "true",
         );
         setDownloadBannerImages(shouldDownloadMedia);
         setDownloadPreviewImages(shouldDownloadMedia);
@@ -936,6 +978,21 @@ const Importer = () => {
                     (Enable "Move imported games" first)
                   </div>
                 )}
+              </div>
+              <div className="mt-4">
+                <input
+                  type="checkbox"
+                  checked={autoSelectLatestReplaceVersion}
+                  onChange={handleAutoSelectLatestReplaceVersionChange}
+                  className="mr-2"
+                />
+                <label className="font-medium">
+                  Auto-select latest installed version for replacement
+                </label>
+                <div className="mt-1 ml-6 text-sm text-gray-500">
+                  Preselects the newest installed version in Replace Version
+                  dropdowns. You can still change it to None before importing.
+                </div>
               </div>
             </div>
 
