@@ -173,7 +173,7 @@ const Importer = () => {
       case "version":
         return game.version || "";
       case "replaceVersion":
-        return game.replaceVersion || "None";
+        return game.replaceVersion || "";
       case "executable":
         return game.selectedValue || game.singleExecutable || "";
       case "databaseMatch":
@@ -203,7 +203,19 @@ const Importer = () => {
     }
   };
 
+  const isEmptyReplaceVersion = (row) =>
+    !String(row.game?.replaceVersion || "").trim();
+
   const compareRows = (a, b, key, direction) => {
+    if (key === "replaceVersion") {
+      const aIsNone = isEmptyReplaceVersion(a);
+      const bIsNone = isEmptyReplaceVersion(b);
+
+      if (aIsNone !== bIsNone) {
+        return aIsNone ? 1 : -1;
+      }
+    }
+
     const aValue = normalizeSortValue(getSortValue(a.game, key));
     const bValue = normalizeSortValue(getSortValue(b.game, key));
     const result = alphaNumericCollator.compare(aValue, bValue);
@@ -217,17 +229,15 @@ const Importer = () => {
 
   const handleSort = (key) => {
     setSortConfig((prev) => {
-      if (prev.key === key) {
-        return {
-          key,
-          direction: prev.direction === "asc" ? "desc" : "asc",
-        };
+      if (prev.key !== key) {
+        return { key, direction: "asc" };
       }
 
-      return {
-        key,
-        direction: "asc",
-      };
+      if (prev.direction === "asc") {
+        return { key, direction: "desc" };
+      }
+
+      return { key: "", direction: "asc" };
     });
   };
 
