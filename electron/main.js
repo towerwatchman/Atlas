@@ -519,7 +519,6 @@ function buildCtx() {
     addGame, updateGame, addVersion, upsertVersion, updateVersion,
     recordGameLaunchStarted, recordGamePlaytime,
     addAtlasMapping, addF95ZoneMapping, refreshAtlasMappingsFromSources,
-    addSteamMapping,
     getGame, getGames, getGameRecordIds,
     removeGame, checkDbUpdates, updateFolderSize,
     getBannerUrl, getScreensUrlList,

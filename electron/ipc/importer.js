@@ -709,7 +709,6 @@ module.exports = function registerImporterHandlers(ctx) {
     addAtlasMapping, addF95ZoneMapping, checkPathExist, findExistingRecordForImport,
     getImportRecordStatus, checkRecordExist, addGame, addVersion,
     upsertVersion, updateGame, updateFolderSize, getSteamIDbyRecord,
-    addSteamMapping,
     getBannerUrl, getScreensUrlList,
     getVersionForRecord, getVersionPathsForRecord,
     deleteVersion, deleteGameCompletely, deleteTitleRecord,
@@ -1361,13 +1360,6 @@ ipcMain.handle("import-games", async (event, params) => {
           await addF95ZoneMapping(recordId, game.f95Id);
         } catch (err) {
           console.warn("Failed to add F95 source mapping:", err.message);
-        }
-      }
-      if (game.steamId) {
-        try {
-          await addSteamMapping(recordId, game.steamId);
-        } catch (err) {
-          console.warn("Failed to add Steam source mapping:", err.message);
         }
       }
 

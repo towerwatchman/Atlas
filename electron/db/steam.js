@@ -19,26 +19,14 @@ const getSteamIDbyRecord = (recordId) => {
 
 const addSteamMapping = (recordId, steamId) => {
   return new Promise((resolve, reject) => {
-    getDb().serialize(() => {
-      getDb().run(
-        `DELETE FROM steam_mappings WHERE record_id = ?`,
-        [recordId],
-        (deleteErr) => {
-          if (deleteErr) {
-            reject(deleteErr);
-            return;
-          }
-          getDb().run(
-            `INSERT INTO steam_mappings (record_id, steam_id) VALUES (?, ?)`,
-            [recordId, steamId],
-            (insertErr) => {
-              if (insertErr) reject(insertErr);
-              else resolve();
-            },
-          );
-        },
-      );
-    });
+    getDb().run(
+      `INSERT OR IGNORE INTO steam_mappings (record_id, steam_id) VALUES (?, ?)`,
+      [recordId, steamId],
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      },
+    );
   });
 };
 
