@@ -102,5 +102,8 @@
     "concurrently": "^9.1.2",
     "wait-on": "^8.0.3",
     "cross-env": "^7.0.3"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   }
 }
