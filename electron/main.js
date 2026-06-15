@@ -206,6 +206,16 @@ autoUpdater.setFeedURL({ provider: 'github', owner: 'towerwatchman', repo: 'Atla
 autoUpdater.autoDownload = false
 autoUpdater.allowDowngrade = false
 
+// Pass current install directory to the new installer so it updates in-place.
+// NSIS /D= switch sets the install dir and must be the last argument.
+// This ensures the update installs to the same folder regardless of where
+// the user originally installed (e.g. portable drive, custom directory).
+if (!process.defaultApp) {
+  autoUpdater.installerArgs = [
+    `/D=${path.dirname(process.execPath)}`,
+  ]
+}
+
 autoUpdater.on('checking-for-update', () => {
   console.log('Checking for updates...')
   sendUpdateStatus({ status: 'checking' })

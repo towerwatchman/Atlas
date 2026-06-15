@@ -1,9 +1,14 @@
-; Custom install directory default — user-writable, no UAC required
+; Default install directory — only used when no /D= flag is passed
+; (i.e. fresh install). When electron-updater runs the new installer
+; it passes /D=<current install path> which NSIS honors automatically.
 !macro customInstallDir
-  StrCpy $INSTDIR "$LOCALAPPDATA\Atlas"
+  ; Only set default if $INSTDIR wasn't already set by /D= command line flag
+  ${If} $INSTDIR == ""
+    StrCpy $INSTDIR "$LOCALAPPDATA\Atlas"
+  ${EndIf}
 !macroend
 
-; Custom delete logic — preserve data/ and launchers/ folders on update/uninstall
+; Preserve data/ and launchers/ folders on update/uninstall
 !macro DeleteLoop DIR PREFIX
   FindFirst $0 $1 "${DIR}\*"
   ${PREFIX}loop:
