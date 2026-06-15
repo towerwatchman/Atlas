@@ -578,10 +578,6 @@ const App = () => {
               : `${installedGameCount} Games Installed, ${totalVersions} Total Versions`}
           </span>
         </div>
-        <div className="flex items-center">
-          <i className="fas fa-download mr-2 text-text"></i>
-          <span className="cursor-pointer" onClick={unzipGame}>Downloads</span>
-        </div>
       </div>
     </div>
   )

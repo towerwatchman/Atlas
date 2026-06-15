@@ -375,6 +375,9 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/renderer/index.html'))
   }
+  if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
+    mainWindow.webContents.openDevTools()
+  }
   mainWindow.on('maximize', () => mainWindow.webContents.send('window-state-changed', 'maximized'))
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('window-state-changed', 'normal'))
   mainWindow.on('close', (e) => {
@@ -405,6 +408,9 @@ function createSettingsWindow() {
   } else {
     settingsWindow.loadFile(path.join(__dirname, '../dist/renderer/settings.html'))
   }
+  if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
+    settingsWindow.webContents.openDevTools()
+  }
   settingsWindow.on('maximize', () => settingsWindow.webContents.send('window-state-changed', 'maximized'))
   settingsWindow.on('unmaximize', () => settingsWindow.webContents.send('window-state-changed', 'normal'))
   settingsWindow.on('closed', () => { settingsWindow = null })
@@ -434,6 +440,9 @@ function createImporterWindow() {
     : importerWindow.loadFile(importerUrl)
   ).then(() => {
     console.log('importer.html loaded successfully')
+    if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
+      importerWindow.webContents.openDevTools()
+    }
   }).catch((err) => {
     console.error('Failed to load importer.html:', err)
   })
@@ -458,6 +467,9 @@ function createGameDetailsWindow(recordId) {
     win.loadURL(VITE_DEV_SERVER_URL + '/gamedetails.html')
   } else {
     win.loadFile(path.join(__dirname, '../dist/renderer/gamedetails.html'))
+  }
+  if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
+    win.webContents.openDevTools()
   }
   win.on('maximize', () => win.webContents.send('window-state-changed', 'maximized'))
   win.on('unmaximize', () => win.webContents.send('window-state-changed', 'normal'))
