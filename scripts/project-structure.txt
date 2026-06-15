@@ -10,6 +10,7 @@
 ├── scripts
 │   ├── create_dummy_games.py (10615 bytes)
 │   ├── generate-structure.js (1962 bytes)
+│   ├── GL_Infos.ini (99 bytes)
 │   ├── project-structure.txt (0 bytes)
 │   └── update-version.js (598 bytes)
 ├── src
