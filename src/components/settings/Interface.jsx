@@ -5,7 +5,7 @@ const Interface = () => {
   const [gameStartup, setGameStartup] = useState("Do Nothing");
   const [showDebugConsole, setShowDebugConsole] = useState(false);
   const [minimizeToTray, setMinimizeToTray] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(true);
+  const [showGameList, setShowGameList] = useState(true);
   const [checkForAppUpdatesOnStartup, setCheckForAppUpdatesOnStartup] =
     useState(true);
   const [updateStatus, setUpdateStatus] = useState("idle");
@@ -32,7 +32,7 @@ const Interface = () => {
       setGameStartup(interfaceSettings.gameStartup || "Do Nothing");
       setShowDebugConsole(interfaceSettings.showDebugConsole || false);
       setMinimizeToTray(interfaceSettings.minimizeToTray || false);
-      setShowSidebar(interfaceSettings.showSidebar ?? true);
+      setShowGameList(interfaceSettings.showGameList ?? true);
       setCheckForAppUpdatesOnStartup(
         interfaceSettings.checkForAppUpdatesOnStartup ?? true,
       );
@@ -62,9 +62,9 @@ const Interface = () => {
     });
   };
   const handleShowSidebarChange = () => {
-    const newVal = !showSidebar;
-    setShowSidebar(newVal);
-    saveSettings({ showSidebar: newVal });
+    const newVal = !showGameList;
+    setShowGameList(newVal);
+    saveSettings({ showGameList: newVal });
     alert("Sidebar visibility change requires app restart.");
   };
 
@@ -214,7 +214,7 @@ const Interface = () => {
         <input
           type="checkbox"
           className="mr-5"
-          checked={showSidebar}
+          checked={showGameList}
           onChange={handleShowSidebarChange}
         />
       </div>

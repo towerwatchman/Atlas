@@ -1,14 +1,22 @@
 'use strict'
 
-const { ipcMain } = require('electron')
+const { ipcMain, BrowserWindow } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const {
+  downloadImages, buildBannerBaseName,
+} = require('../imageUtils')
+
+// ── IPC Handlers (image download helpers are in ../imageUtils.js) ─────────────
+
+// ── IPC Handlers ─────────────────────────────────────────────────────────────
 
 module.exports = function registerMediaHandlers(ctx) {
   const {
-    getAssetBasePath, getMediaStorageMode, templatesDir,
+    getAssetBasePath, getMediaStorageMode, templatesDir, dataDir,
     getPreviews, getBanner, deleteBanner, deletePreviews,
     updateBanners, updatePreviews, getBannerUrl, getScreensUrlList,
+    GetAtlasIDbyRecord, firstMediaPath,
     appConfig, configPath,
   } = ctx
 
@@ -29,7 +37,7 @@ module.exports = function registerMediaHandlers(ctx) {
   ipcMain.handle('get-selected-banner-template', async () => {
     try {
       return appConfig?.Appearance?.bannerTemplate || 'Default'
-    } catch (err) {
+    } catch {
       return 'Default'
     }
   })
@@ -55,11 +63,74 @@ module.exports = function registerMediaHandlers(ctx) {
   })
 
   ipcMain.handle('update-banners', async (event, recordId) => {
-    return await updateBanners(recordId, getAssetBasePath(), process.defaultApp)
+    console.log('Handling update-banners for recordId:', recordId)
+    try {
+      const atlas_id = await GetAtlasIDbyRecord(recordId)
+      let progress = 0
+      const imageTotal = 1
+      await downloadImages(
+        recordId, atlas_id,
+        (current, totalImages) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('game-details-import-progress', {
+              text: `Downloading images ${current}/${totalImages}`,
+              progress: current,
+              total: totalImages,
+            })
+          }
+        },
+        true, false, 1, false, dataDir, getBannerUrl, getScreensUrlList, updateBanners, updatePreviews,
+      )
+      const bannerPath = await getBanner(recordId, getAssetBasePath(), process.defaultApp, 'large', 'download')
+      BrowserWindow.getAllWindows().forEach(win => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })
+      progress++
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('game-details-import-progress', {
+          text: `Completed image download ${progress}/${imageTotal}`,
+          progress,
+          total: imageTotal,
+        })
+      }
+      return bannerPath
+    } catch (err) {
+      console.error('Error downloading banner:', err)
+      throw err
+    }
   })
 
   ipcMain.handle('update-previews', async (event, recordId) => {
-    return await updatePreviews(recordId, getAssetBasePath(), process.defaultApp)
+    console.log('Handling update-previews for recordId:', recordId)
+    try {
+      const atlasId = await GetAtlasIDbyRecord(recordId)
+      let imageTotal = 1
+      await downloadImages(
+        recordId, atlasId,
+        (current, totalImages) => {
+          imageTotal = totalImages || imageTotal
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('game-details-import-progress', {
+              text: `Downloading previews ${current}/${imageTotal}`,
+              progress: current,
+              total: imageTotal,
+            })
+          }
+        },
+        false, true, 'Unlimited', false, dataDir, getBannerUrl, getScreensUrlList, updateBanners, updatePreviews,
+      )
+      const previewUrls = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, 'download')
+      BrowserWindow.getAllWindows().forEach(win => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('game-details-import-progress', {
+          text: 'Completed previews download',
+          progress: imageTotal,
+          total: imageTotal,
+        })
+      }
+      return Array.isArray(previewUrls) ? previewUrls : []
+    } catch (err) {
+      console.error('Error downloading previews:', err)
+      throw err
+    }
   })
 
   ipcMain.handle('refresh-game-media', async (event, recordId) => {
@@ -81,105 +152,53 @@ module.exports = function registerMediaHandlers(ctx) {
     return await deletePreviews(recordId, getAssetBasePath(), process.defaultApp)
   })
 
-
-ipcMain.handle(
-  "convert-and-save-banner",
-  async (event, { recordId, filePath }) => {
-    console.log(
-      "Handling convert-and-save-banner for recordId:",
-      recordId,
-      "filePath:",
-      filePath,
-    );
+  ipcMain.handle('convert-and-save-banner', async (event, { recordId, filePath }) => {
+    console.log('Handling convert-and-save-banner for recordId:', recordId)
     try {
-      if (!recordId) {
-        throw new Error("Missing recordId");
+      if (!recordId) throw new Error('Missing recordId')
+      if (!filePath || typeof filePath !== 'string') throw new Error('No banner file selected')
+      const sourcePath = path.resolve(filePath)
+      if (!fs.existsSync(sourcePath)) throw new Error(`Selected banner does not exist: ${sourcePath}`)
+      const stat = await fs.promises.stat(sourcePath)
+      if (!stat.isFile()) throw new Error('Selected banner path is not a file')
+
+      const imageDir = path.join(dataDir, 'images', String(recordId))
+      await fs.promises.mkdir(imageDir, { recursive: true })
+
+      const customBaseName = buildBannerBaseName('custom')
+      const relativeBasePath = path.join('data', 'images', String(recordId), customBaseName)
+      const mediumPath = path.join(imageDir, `${customBaseName}_mc.webp`)
+      const smallPath = path.join(imageDir, `${customBaseName}_sc.webp`)
+
+      const normalizedSource = path.resolve(sourcePath).toLowerCase()
+      if (normalizedSource === path.resolve(mediumPath).toLowerCase() ||
+          normalizedSource === path.resolve(smallPath).toLowerCase()) {
+        throw new Error('Selected banner is already the saved Atlas banner. Choose a different source file.')
       }
 
-      if (!filePath || typeof filePath !== "string") {
-        throw new Error("No banner file selected");
+      const imageBytes = await fs.promises.readFile(sourcePath)
+      await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(mediumPath)
+      await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(smallPath)
+
+      await updateBanners(recordId, `${relativeBasePath}_mc.webp`, 'small')
+      await updateBanners(recordId, `${relativeBasePath}_sc.webp`, 'large')
+
+      const bannerPath = await getBanner(recordId, getAssetBasePath(), process.defaultApp, 'large', 'download')
+
+      BrowserWindow.getAllWindows().forEach(win => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('game-details-import-progress', { text: 'Custom banner saved', progress: 1, total: 1 })
       }
-
-      const sourcePath = path.resolve(filePath);
-      if (!fs.existsSync(sourcePath)) {
-        throw new Error(`Selected banner does not exist: ${sourcePath}`);
-      }
-
-      const stat = await fs.promises.stat(sourcePath);
-      if (!stat.isFile()) {
-        throw new Error("Selected banner path is not a file");
-      }
-
-      const imageDir = path.join(dataDir, "images", String(recordId));
-      await fs.promises.mkdir(imageDir, { recursive: true });
-
-      const customBaseName = buildBannerBaseName("custom");
-      const relativeBasePath = path.join(
-        "data",
-        "images",
-        String(recordId),
-        customBaseName,
-      );
-      const mediumPath = path.join(imageDir, `${customBaseName}_mc.webp`);
-      const smallPath = path.join(imageDir, `${customBaseName}_sc.webp`);
-
-      const normalizedSource = path.resolve(sourcePath).toLowerCase();
-      const normalizedMedium = path.resolve(mediumPath).toLowerCase();
-      const normalizedSmall = path.resolve(smallPath).toLowerCase();
-      if (
-        normalizedSource === normalizedMedium ||
-        normalizedSource === normalizedSmall
-      ) {
-        throw new Error(
-          "Selected banner is already the saved Atlas banner. Choose a different source file.",
-        );
-      }
-
-      const imageBytes = await fs.promises.readFile(sourcePath);
-      await sharp(imageBytes)
-        .webp({ quality: 90 })
-        .resize({ width: 1260, withoutEnlargement: true })
-        .toFile(mediumPath);
-
-      await sharp(imageBytes)
-        .webp({ quality: 90 })
-        .resize({ width: 600, withoutEnlargement: true })
-        .toFile(smallPath);
-
-      await updateBanners(recordId, `${relativeBasePath}_mc.webp`, "small");
-      await updateBanners(recordId, `${relativeBasePath}_sc.webp`, "large");
-
-      const bannerPath = await getBanner(
-        recordId,
-        getAssetBasePath(),
-        process.defaultApp,
-        "large",
-        "download",
-      );
-
-      BrowserWindow.getAllWindows().forEach((win) => {
-        if (!win.isDestroyed()) {
-          win.webContents.send("game-updated", recordId);
-        }
-      });
-
-      if (!event.sender.isDestroyed()) event.sender.send("game-details-import-progress", {
-        text: "Custom banner saved",
-        progress: 1,
-        total: 1,
-      });
-
-      return firstMediaPath(bannerPath);
+      return firstMediaPath(bannerPath)
     } catch (err) {
-      console.error("Error converting and saving banner:", err);
-      if (!event.sender.isDestroyed()) event.sender.send("game-details-import-progress", {
-        text: `Failed to save custom banner: ${err.message}`,
-        progress: 0,
-        total: 1,
-      });
-      throw err;
+      console.error('Error converting and saving banner:', err)
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('game-details-import-progress', {
+          text: `Failed to save custom banner: ${err.message}`,
+          progress: 0, total: 1,
+        })
+      }
+      throw err
     }
-  },
-);
-
+  })
 }

@@ -177,12 +177,16 @@ const defaultConfig = {
     showDebugConsole: false,
     minimizeToTray: false,
     checkForAppUpdatesOnStartup: true,
+    showGameList: true,
   },
   Library: {
     rootPath: dataDir,
     gameFolder: '',
+    gameExtensions: 'exe,swf,flv,f4v,rag,cmd,bat,jar,html',
+    extractionExtensions: 'zip,7z,rar',
     libraryFolderStructure: '{creator}/{title}/{version}',
     autoSelectLatestReplaceVersion: false,
+    sevenZipPath: '',
   },
   Metadata: {
     downloadPreviews: false,

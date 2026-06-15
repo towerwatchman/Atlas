@@ -1,6 +1,7 @@
 'use strict'
 
 const { ipcMain, dialog, BrowserWindow } = require('electron')
+const { downloadImages, buildBannerBaseName } = require('../imageUtils')
 const path = require('path')
 const fs = require('fs')
 const fsp = require('fs').promises
@@ -1511,6 +1512,11 @@ ipcMain.handle("import-games", async (event, params) => {
           downloadPreviewImages,
           previewLimit,
           downloadVideos,
+          dataDir,
+          getBannerUrl,
+          getScreensUrlList,
+          updateBanners,
+          updatePreviews,
         );
         throwIfImportCanceled(session);
 

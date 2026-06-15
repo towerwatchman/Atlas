@@ -38,6 +38,7 @@ const Importer = () => {
   const [hideMatches, setHideMatches] = useState(false)
   const [sortConfig, setSortConfig] = useState({ key: '', direction: 'asc' })
   const [isResolvingMatches, setIsResolvingMatches] = useState(false)
+  const [updateProgress, setUpdateProgress] = useState({ value: 0, total: 0 })
   const deletedScanGameKeysRef = useRef(new Set())
   const matchCancelRef = useRef(false)
 
@@ -240,7 +241,10 @@ const Importer = () => {
       resolvePendingMatches(visibleGamesList)
     })
 
-    window.electronAPI.onUpdateProgress((prog) => setProgress((prev) => ({ ...prev, ...prog })))
+    window.electronAPI.onUpdateProgress((prog) => {
+      console.log(`Update progress: ${JSON.stringify(prog)}`)
+      setUpdateProgress(prog)
+    })
 
     window.electronAPI.getConfig()
       .then((config) => {
