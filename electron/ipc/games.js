@@ -96,7 +96,7 @@ function registerGamesHandlers(ctx) {
     addGame, getGame, getGames, getGameRecordIds, removeGame, updateGame,
     upsertVersion, updateVersion, deleteGameCompletely, getUniqueFilterOptions,
     updateFolderSize, countVersions, deleteVersion, getVersionForRecord,
-    getVersionPathsForRecord, getVersionForRecord, getInstalledVersionsForRecord,
+    getVersionPathsForRecord, getInstalledVersionsForRecord,
     recordGameLaunchStarted, recordGamePlaytime, getEmulatorByExtension,
     // helpers
     deleteTitleRecord, isAllowedDeletionPath, getTrustedVersion,
