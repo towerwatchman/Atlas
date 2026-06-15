@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-
 const Importer = () => {
   const [view, setView] = useState("source");
   const [folder, setFolder] = useState("");
@@ -53,8 +52,8 @@ const Importer = () => {
     direction: "asc",
   });
   const [isResolvingMatches, setIsResolvingMatches] = useState(false);
-  const deletedScanGameKeysRef = React.useRef(new Set());
-  const matchCancelRef = React.useRef(false);
+  const deletedScanGameKeysRef = useRef(new Set());
+  const matchCancelRef = useRef(false);
 
   const getScanGameKey = (game) => {
     // Archive scans share their parent folder, so identify rows by source file first.

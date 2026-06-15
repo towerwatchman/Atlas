@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 
 // Inline CSS for hover effects
 const bannerStyles = `
