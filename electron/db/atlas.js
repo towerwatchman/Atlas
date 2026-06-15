@@ -11,30 +11,6 @@ const { toLocalAssetPath } = require('./helpers')
 const { checkRecordExist, checkPathExist, findExistingRecordForImport, normalizePathForCompare } = require('./versions')
 const { resetCachedFilterOptions } = require('./games')
 
-const dbAll = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    getDb().all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows || []);
-    });
-  });
-
-const dbGet = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    getDb().get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row || null);
-    });
-  });
-
-const dbRun = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    getDb().run(sql, params, function onRun(err) {
-      if (err) reject(err);
-      else resolve(this);
-    });
-  });
-
 
 const normalizeSearchKey = (value) =>
   String(value || "")
@@ -272,143 +248,6 @@ const addAtlasMapping = (recordId, atlasId) => {
       },
     );
   });
-};
-
-const addF95ZoneMapping = async (recordId, f95Id) => {
-  const normalizedF95Id = String(f95Id || "").trim();
-  if (!recordId || !normalizedF95Id) return;
-
-  await dbRun("DELETE FROM f95_zone_mappings WHERE record_id = ?", [recordId]);
-  await dbRun(
-    "INSERT INTO f95_zone_mappings (record_id, f95_id) VALUES (?, ?)",
-    [recordId, normalizedF95Id],
-  );
-};
-
-const resolveAtlasIdByF95Id = async (f95Id) => {
-  const row = await dbGet(
-    `SELECT f.atlas_id
-     FROM f95_zone_data f
-     JOIN atlas_data a ON a.atlas_id = f.atlas_id
-     WHERE f.f95_id = ?`,
-    [f95Id],
-  );
-  return row?.atlas_id || null;
-};
-
-const resolveAtlasIdBySteamId = async (steamId) => {
-  const row = await dbGet(
-    `SELECT s.atlas_id
-     FROM steam_data s
-     JOIN atlas_data a ON a.atlas_id = s.atlas_id
-     WHERE s.steam_id = ?
-       AND s.atlas_id IS NOT NULL
-       AND TRIM(CAST(s.atlas_id AS TEXT)) <> ''`,
-    [steamId],
-  );
-  return row?.atlas_id || null;
-};
-
-const refreshAtlasMappingsFromSources = async () => {
-  const result = {
-    success: true,
-    processed: 0,
-    updated: 0,
-    unchanged: 0,
-    skipped: 0,
-    missingSource: 0,
-    missingAtlas: 0,
-    errors: [],
-  };
-
-  const rows = await dbAll(
-    `SELECT
-       g.record_id,
-       am.atlas_id AS current_atlas_id,
-       explicit_f95.f95_id AS explicit_f95_id,
-       explicit_f95.f95_id_count AS explicit_f95_id_count,
-       legacy_f95.f95_id AS legacy_f95_id,
-       sm.steam_id AS steam_id
-     FROM games g
-     LEFT JOIN atlas_mappings am ON am.record_id = g.record_id
-     LEFT JOIN (
-       SELECT
-         record_id,
-         MIN(f95_id) AS f95_id,
-         COUNT(DISTINCT f95_id) AS f95_id_count
-       FROM f95_zone_mappings
-       GROUP BY record_id
-     ) explicit_f95 ON explicit_f95.record_id = g.record_id
-     LEFT JOIN f95_zone_data legacy_f95 ON legacy_f95.atlas_id = am.atlas_id
-     LEFT JOIN steam_mappings sm ON sm.record_id = g.record_id
-     ORDER BY g.record_id`,
-  );
-
-  await dbRun("BEGIN IMMEDIATE TRANSACTION");
-  try {
-    for (const row of rows) {
-      result.processed += 1;
-
-      try {
-        if (Number(row.explicit_f95_id_count || 0) > 1) {
-          result.skipped += 1;
-          result.errors.push({
-            recordId: row.record_id,
-            error: "Multiple F95 source IDs found for this record",
-          });
-          continue;
-        }
-
-        const explicitF95Id = String(row.explicit_f95_id || "").trim();
-        const legacyF95Id = explicitF95Id
-          ? ""
-          : String(row.legacy_f95_id || "").trim();
-        const f95Id = explicitF95Id || legacyF95Id;
-        const steamId = String(row.steam_id || "").trim();
-        let resolvedAtlasId = null;
-
-        if (f95Id) {
-          resolvedAtlasId = await resolveAtlasIdByF95Id(f95Id);
-        } else if (steamId) {
-          resolvedAtlasId = await resolveAtlasIdBySteamId(steamId);
-        } else {
-          result.missingSource += 1;
-          result.skipped += 1;
-          continue;
-        }
-
-        if (!resolvedAtlasId) {
-          result.missingAtlas += 1;
-          result.skipped += 1;
-          continue;
-        }
-
-        if (String(resolvedAtlasId) === String(row.current_atlas_id || "")) {
-          result.unchanged += 1;
-          continue;
-        }
-
-        await dbRun(
-          "INSERT OR REPLACE INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)",
-          [row.record_id, resolvedAtlasId],
-        );
-        result.updated += 1;
-      } catch (err) {
-        result.skipped += 1;
-        result.errors.push({
-          recordId: row.record_id,
-          error: err.message,
-        });
-      }
-    }
-
-    await dbRun("COMMIT");
-  } catch (err) {
-    await dbRun("ROLLBACK").catch(() => {});
-    throw err;
-  }
-
-  return result;
 };
 
 const getAtlasData = (atlasId) => {
@@ -688,8 +527,6 @@ module.exports = {
   findF95Id,
   GetAtlasIDbyRecord,
   addAtlasMapping,
-  addF95ZoneMapping,
-  refreshAtlasMappingsFromSources,
   getAtlasData,
   getImportRecordStatus,
   insertJsonData,

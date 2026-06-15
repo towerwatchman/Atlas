@@ -39,8 +39,7 @@ const {
 
 const {
   searchAtlas, searchAtlasByF95Id, findF95Id, GetAtlasIDbyRecord,
-  addAtlasMapping, addF95ZoneMapping, refreshAtlasMappingsFromSources,
-  getAtlasData, getImportRecordStatus, insertJsonData,
+  addAtlasMapping, getAtlasData, getImportRecordStatus, insertJsonData,
 } = require('./db/atlas')
 
 const { checkDbUpdates } = require('./db/updates')
@@ -518,8 +517,7 @@ function buildCtx() {
     // db functions
     addGame, updateGame, addVersion, upsertVersion, updateVersion,
     recordGameLaunchStarted, recordGamePlaytime,
-    addAtlasMapping, addF95ZoneMapping, refreshAtlasMappingsFromSources,
-    getGame, getGames, getGameRecordIds,
+    addAtlasMapping, getGame, getGames, getGameRecordIds,
     removeGame, checkDbUpdates, updateFolderSize,
     getBannerUrl, getScreensUrlList,
     getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension,
