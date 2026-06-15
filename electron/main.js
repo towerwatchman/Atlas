@@ -100,16 +100,8 @@ function getLegacyResourcesPath() {
   return path.resolve(app.getAppPath(), '../../')
 }
 
-function getWritableAppDataRoot() {
-  return app.getPath('userData')
-}
-
-function getBundledResourceRoot() {
-  return process.defaultApp ? __dirname : process.resourcesPath
-}
-
 function getAssetBasePath() {
-  return appDataRoot
+  return process.defaultApp ? app.getAppPath() : getLegacyResourcesPath()
 }
 
 function getMediaStorageMode() {
@@ -132,53 +124,11 @@ function copyDirectoryIfMissing(source, target) {
 
 const firstMediaPath = (value) => Array.isArray(value) ? value[0] || '' : value || ''
 
-const appDataRoot = getWritableAppDataRoot()
-const dataDir = path.join(appDataRoot, 'data')
-const launcherDir = path.join(appDataRoot, 'launchers')
-const updatesDir = path.join(dataDir, 'updates')
-const imagesDir = path.join(dataDir, 'images')
-const templatesDir = path.join(dataDir, 'templates', 'banner')
+const appDataRoot = process.defaultApp ? __dirname : getLegacyResourcesPath()
+var dataDir = path.join(appDataRoot, 'data')
+var launcherDir = path.join(appDataRoot, 'launchers')
 
-function assertWritablePathIsNotInstallPath(targetPath) {
-  const resolvedTarget = path.resolve(targetPath)
-  const installRoot = path.dirname(process.execPath)
-
-  if (
-    !process.defaultApp &&
-    resolvedTarget.toLowerCase().startsWith(installRoot.toLowerCase())
-  ) {
-    throw new Error(
-      `Refusing to use install directory as writable data path: ${resolvedTarget}`,
-    )
-  }
-}
-
-function getLegacyInstallDataPath() {
-  if (process.defaultApp) return null
-
-  const candidates = [
-    path.join(path.dirname(process.execPath), 'data'),
-    path.resolve(app.getAppPath(), '..', '..', 'data'),
-  ]
-
-  return candidates.find((candidate) => {
-    try {
-      return (
-        candidate &&
-        fs.existsSync(candidate) &&
-        path.resolve(candidate) !== path.resolve(dataDir)
-      )
-    } catch {
-      return false
-    }
-  }) || null
-}
-
-console.log('Atlas writable appDataRoot:', appDataRoot)
-console.log('Atlas dataDir:', dataDir)
-
-assertWritablePathIsNotInstallPath(dataDir)
-assertWritablePathIsNotInstallPath(launcherDir)
+fs.mkdirSync(appDataRoot, { recursive: true })
 
 if (process.defaultApp) {
   console.log('Running in development')
@@ -186,21 +136,17 @@ if (process.defaultApp) {
   console.log('Running in release')
 }
 
-fs.mkdirSync(appDataRoot, { recursive: true })
 fs.mkdirSync(dataDir, { recursive: true })
 fs.mkdirSync(launcherDir, { recursive: true })
 
-const legacyDataPath = getLegacyInstallDataPath()
-if (legacyDataPath && !fs.existsSync(path.join(dataDir, 'data.db'))) {
-  copyDirectoryIfMissing(legacyDataPath, dataDir)
+const updatesDir = path.join(dataDir, 'updates')
+if (!fs.existsSync(updatesDir)) fs.mkdirSync(updatesDir, { recursive: true })
 
-  const legacyLauncherPath = path.join(path.dirname(legacyDataPath), 'launchers')
-  copyDirectoryIfMissing(legacyLauncherPath, launcherDir)
-}
+const imagesDir = path.join(dataDir, 'images')
+if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true })
 
-fs.mkdirSync(updatesDir, { recursive: true })
-fs.mkdirSync(imagesDir, { recursive: true })
-fs.mkdirSync(templatesDir, { recursive: true })
+const templatesDir = path.join(dataDir, 'templates/banner')
+if (!fs.existsSync(templatesDir)) fs.mkdirSync(templatesDir, { recursive: true })
 
 const configPath = path.join(dataDir, 'config.ini')
 const defaultConfig = {
