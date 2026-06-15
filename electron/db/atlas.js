@@ -285,19 +285,86 @@ const addF95ZoneMapping = async (recordId, f95Id) => {
   );
 };
 
-const resolveAtlasIdByF95Id = async (f95Id) => {
-  const row = await dbGet(
+const normalizeSourceId = (value) => String(value || "").trim();
+
+const resolveAtlasIdsByF95Id = async (f95Id) => {
+  const rows = await dbAll(
     `SELECT f.atlas_id
      FROM f95_zone_data f
      JOIN atlas_data a ON a.atlas_id = f.atlas_id
      WHERE f.f95_id = ?`,
     [f95Id],
   );
-  return row?.atlas_id || null;
+  return Array.from(new Set(rows.map((row) => row.atlas_id).filter(Boolean)));
 };
 
-const resolveAtlasIdBySteamId = async (steamId) => {
-  const row = await dbGet(
+const hasMatchingSteamExternalId = (value, steamId) => {
+  const target = normalizeSourceId(steamId);
+  const steamKeys = new Set([
+    "steam",
+    "steam_id",
+    "steamid",
+    "steam_appid",
+    "appid",
+  ]);
+  const providerKeys = new Set(["provider", "source", "name", "type", "site"]);
+  const idKeys = new Set(["id", "value", "steam_id", "steamid", "steam_appid", "appid"]);
+
+  const primitiveMatches = (candidate) => normalizeSourceId(candidate) === target;
+
+  const inspect = (candidate) => {
+    if (candidate === null || candidate === undefined) return false;
+
+    if (Array.isArray(candidate)) {
+      return candidate.some(inspect);
+    }
+
+    if (typeof candidate === "object") {
+      for (const [key, nestedValue] of Object.entries(candidate)) {
+        const normalizedKey = String(key || "").toLowerCase();
+        if (steamKeys.has(normalizedKey) && primitiveMatches(nestedValue)) {
+          return true;
+        }
+      }
+
+      const mentionsSteam = Object.entries(candidate).some(([key, nestedValue]) => {
+        const normalizedKey = String(key || "").toLowerCase();
+        return (
+          providerKeys.has(normalizedKey) &&
+          String(nestedValue || "").toLowerCase().includes("steam")
+        );
+      });
+      if (
+        mentionsSteam &&
+        Object.entries(candidate).some(([key, nestedValue]) =>
+          idKeys.has(String(key || "").toLowerCase()) && primitiveMatches(nestedValue),
+        )
+      ) {
+        return true;
+      }
+
+      return Object.values(candidate).some(inspect);
+    }
+
+    return false;
+  };
+
+  return inspect(value);
+};
+
+const parseExternalIds = (externalIds) => {
+  if (!externalIds) return null;
+  if (typeof externalIds !== "string") return externalIds;
+
+  try {
+    return JSON.parse(externalIds);
+  } catch {
+    return null;
+  }
+};
+
+const resolveAtlasIdsBySteamId = async (steamId, externalRows) => {
+  const directRows = await dbAll(
     `SELECT s.atlas_id
      FROM steam_data s
      JOIN atlas_data a ON a.atlas_id = s.atlas_id
@@ -306,10 +373,18 @@ const resolveAtlasIdBySteamId = async (steamId) => {
        AND TRIM(CAST(s.atlas_id AS TEXT)) <> ''`,
     [steamId],
   );
-  return row?.atlas_id || null;
+
+  const resolved = new Set(directRows.map((row) => row.atlas_id).filter(Boolean));
+  for (const row of externalRows) {
+    if (hasMatchingSteamExternalId(parseExternalIds(row.external_ids), steamId)) {
+      resolved.add(row.atlas_id);
+    }
+  }
+
+  return Array.from(resolved);
 };
 
-const refreshAtlasMappingsFromSources = async () => {
+const refreshAtlasMappingsFromSources = async (options = {}) => {
   const result = {
     success: true,
     processed: 0,
@@ -318,19 +393,24 @@ const refreshAtlasMappingsFromSources = async () => {
     skipped: 0,
     missingSource: 0,
     missingAtlas: 0,
+    conflicts: 0,
+    f95Resolved: 0,
+    steamResolved: 0,
+    details: [],
     errors: [],
   };
 
   const rows = await dbAll(
     `SELECT
        g.record_id,
-       am.atlas_id AS current_atlas_id,
+       g.title,
+       g.creator,
+       am.atlas_id AS old_atlas_id,
        explicit_f95.f95_id AS explicit_f95_id,
        explicit_f95.f95_id_count AS explicit_f95_id_count,
-       legacy_f95.f95_id AS legacy_f95_id,
        sm.steam_id AS steam_id
      FROM games g
-     LEFT JOIN atlas_mappings am ON am.record_id = g.record_id
+     JOIN atlas_mappings am ON am.record_id = g.record_id
      LEFT JOIN (
        SELECT
          record_id,
@@ -339,9 +419,14 @@ const refreshAtlasMappingsFromSources = async () => {
        FROM f95_zone_mappings
        GROUP BY record_id
      ) explicit_f95 ON explicit_f95.record_id = g.record_id
-     LEFT JOIN f95_zone_data legacy_f95 ON legacy_f95.atlas_id = am.atlas_id
      LEFT JOIN steam_mappings sm ON sm.record_id = g.record_id
      ORDER BY g.record_id`,
+  );
+  const steamExternalRows = await dbAll(
+    `SELECT atlas_id, external_ids
+     FROM atlas_data
+     WHERE external_ids IS NOT NULL
+       AND TRIM(CAST(external_ids AS TEXT)) <> ''`,
   );
 
   await dbRun("BEGIN IMMEDIATE TRANSACTION");
@@ -350,51 +435,125 @@ const refreshAtlasMappingsFromSources = async () => {
       result.processed += 1;
 
       try {
+        const detail = {
+          recordId: row.record_id,
+          title: row.title || "",
+          oldAtlasId: row.old_atlas_id,
+          newAtlasId: null,
+          source: "",
+          status: "",
+          f95Id: normalizeSourceId(row.explicit_f95_id),
+          steamId: normalizeSourceId(row.steam_id),
+          reason: "",
+        };
+
         if (Number(row.explicit_f95_id_count || 0) > 1) {
           result.skipped += 1;
+          result.conflicts += 1;
+          detail.status = "conflict";
+          detail.reason = "Multiple F95 source IDs found for this record";
+          result.details.push(detail);
           result.errors.push({
             recordId: row.record_id,
-            error: "Multiple F95 source IDs found for this record",
+            error: detail.reason,
           });
           continue;
         }
 
-        const explicitF95Id = String(row.explicit_f95_id || "").trim();
-        const legacyF95Id = explicitF95Id
-          ? ""
-          : String(row.legacy_f95_id || "").trim();
-        const f95Id = explicitF95Id || legacyF95Id;
-        const steamId = String(row.steam_id || "").trim();
+        const f95Id = detail.f95Id;
+        const steamId = detail.steamId;
+        const f95AtlasIds = f95Id ? await resolveAtlasIdsByF95Id(f95Id) : [];
+        const steamAtlasIds = steamId
+          ? await resolveAtlasIdsBySteamId(steamId, steamExternalRows)
+          : [];
+        const f95AtlasId = f95AtlasIds.length === 1 ? f95AtlasIds[0] : null;
+        const steamAtlasId = steamAtlasIds.length === 1 ? steamAtlasIds[0] : null;
         let resolvedAtlasId = null;
+        let source = "";
 
-        if (f95Id) {
-          resolvedAtlasId = await resolveAtlasIdByF95Id(f95Id);
-        } else if (steamId) {
-          resolvedAtlasId = await resolveAtlasIdBySteamId(steamId);
-        } else {
+        if (!f95Id && !steamId) {
           result.missingSource += 1;
           result.skipped += 1;
+          detail.status = "missing-source";
+          detail.reason = "No saved F95ID or SteamID";
+          result.details.push(detail);
           continue;
+        }
+
+        if (f95AtlasIds.length > 1 || steamAtlasIds.length > 1) {
+          result.skipped += 1;
+          result.conflicts += 1;
+          detail.status = "conflict";
+          detail.reason = "Source ID resolved to more than one AtlasID";
+          result.details.push(detail);
+          continue;
+        }
+
+        if (f95AtlasId && steamAtlasId && String(f95AtlasId) !== String(steamAtlasId)) {
+          result.skipped += 1;
+          result.conflicts += 1;
+          detail.status = "conflict";
+          detail.reason = "F95ID and SteamID resolve to different AtlasIDs";
+          detail.newAtlasId = `${f95AtlasId} / ${steamAtlasId}`;
+          result.details.push(detail);
+          continue;
+        }
+
+        if (f95AtlasId && steamAtlasId) {
+          resolvedAtlasId = f95AtlasId;
+          source = "f95+steam";
+          result.f95Resolved += 1;
+          result.steamResolved += 1;
+        } else if (f95AtlasId) {
+          resolvedAtlasId = f95AtlasId;
+          source = "f95";
+          result.f95Resolved += 1;
+        } else if (steamAtlasId) {
+          resolvedAtlasId = steamAtlasId;
+          source = "steam";
+          result.steamResolved += 1;
         }
 
         if (!resolvedAtlasId) {
           result.missingAtlas += 1;
           result.skipped += 1;
+          detail.status = "missing-atlas";
+          detail.reason = "Saved source ID did not resolve to current Atlas metadata";
+          result.details.push(detail);
           continue;
         }
 
-        if (String(resolvedAtlasId) === String(row.current_atlas_id || "")) {
+        detail.newAtlasId = resolvedAtlasId;
+        detail.source = source;
+
+        if (String(resolvedAtlasId) === String(row.old_atlas_id || "")) {
           result.unchanged += 1;
+          detail.status = "unchanged";
+          result.details.push(detail);
           continue;
         }
 
         await dbRun(
-          "INSERT OR REPLACE INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)",
+          `INSERT INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)
+           ON CONFLICT(record_id) DO UPDATE SET atlas_id = excluded.atlas_id`,
           [row.record_id, resolvedAtlasId],
         );
         result.updated += 1;
+        detail.status = "updated";
+        result.details.push(detail);
       } catch (err) {
         result.skipped += 1;
+        result.details.push({
+          recordId: row.record_id,
+          title: row.title || "",
+          oldAtlasId: row.old_atlas_id,
+          newAtlasId: null,
+          source: "",
+          status: "error",
+          f95Id: normalizeSourceId(row.explicit_f95_id),
+          steamId: normalizeSourceId(row.steam_id),
+          reason: err.message,
+        });
         result.errors.push({
           recordId: row.record_id,
           error: err.message,
@@ -406,6 +565,10 @@ const refreshAtlasMappingsFromSources = async () => {
   } catch (err) {
     await dbRun("ROLLBACK").catch(() => {});
     throw err;
+  }
+
+  if (options.includeDetails === false) {
+    result.details = [];
   }
 
   return result;

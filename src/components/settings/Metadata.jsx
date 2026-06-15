@@ -80,12 +80,12 @@ const Metadata = () => {
           >
             {refreshingMappings
               ? "Refreshing..."
-              : "Refresh Metadata Mappings"}
+              : "Refresh AtlasIDs from Source IDs"}
           </button>
         </div>
         <p className="text-xs opacity-50 mb-2">
-          Refreshes AtlasID mappings using stable source IDs such as F95ID and
-          SteamID after metadata database updates.
+          Checks every game with an AtlasID and remaps it using saved F95ID and
+          SteamID source identifiers.
         </p>
         {dbUpdateMessage && (
           <div className="text-xs opacity-80 mb-2">
@@ -94,9 +94,17 @@ const Metadata = () => {
         )}
         {remap && (
           <div className="text-xs opacity-80 mb-2">
-            Mappings updated: {remap.updated} | Unchanged: {remap.unchanged} |
-            Skipped: {remap.skipped} | Missing source: {remap.missingSource} |
+            Checked: {remap.processed} | Updated: {remap.updated} |
+            Unchanged: {remap.unchanged} | F95 resolved: {remap.f95Resolved} |
+            Steam resolved: {remap.steamResolved} | Conflicts:{" "}
+            {remap.conflicts} | Missing source: {remap.missingSource} |
             Missing metadata: {remap.missingAtlas}
+          </div>
+        )}
+        {remap?.missingSource > 0 && (
+          <div className="text-xs text-yellow-300 mb-2">
+            Some games could not be refreshed because they do not have a saved
+            F95ID or SteamID. These cannot be safely repaired automatically.
           </div>
         )}
         {remap?.errors?.length > 0 && (
