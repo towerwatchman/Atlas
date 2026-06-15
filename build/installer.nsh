@@ -1,9 +1,16 @@
-; Default install directory — only used when no /D= flag is passed
-; (i.e. fresh install). When electron-updater runs the new installer
-; it passes /D=<current install path> which NSIS honors automatically.
-!macro customInstallDir
-  ; Only set default if $INSTDIR wasn't already set by /D= command line flag
-  ${If} $INSTDIR == ""
+; Default install directory for FRESH installs only.
+; `preInit` is the hook electron-builder actually invokes (the previous
+; `customInstallDir` macro was never called by the template). At this point
+; the per-user install mode has already seeded $INSTDIR from the registry
+; (for upgrades) or the per-user default (for fresh installs). The NSIS /D=
+; switch, when present, overrides $INSTDIR afterward in setInstallModePerUser,
+; so passing /D= from electron-updater still wins for in-place updates.
+;
+; We only override the default when there is no recorded previous install,
+; so we don't stomp on an existing installation's location.
+!macro preInit
+  ReadRegStr $0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
+  ${If} $0 == ""
     StrCpy $INSTDIR "$LOCALAPPDATA\Atlas"
   ${EndIf}
 !macroend

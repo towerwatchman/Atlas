@@ -210,14 +210,15 @@ autoUpdater.setFeedURL({ provider: 'github', owner: 'towerwatchman', repo: 'Atla
 autoUpdater.autoDownload = false
 autoUpdater.allowDowngrade = false
 
-// Pass current install directory to the new installer so it updates in-place.
-// NSIS /D= switch sets the install dir and must be the last argument.
-// This ensures the update installs to the same folder regardless of where
-// the user originally installed (e.g. portable drive, custom directory).
-if (!process.defaultApp) {
-  autoUpdater.installerArgs = [
-    `/D=${path.dirname(process.execPath)}`,
-  ]
+// Pass the CURRENT install directory to the new installer so it updates
+// in-place. electron-updater appends this as the NSIS /D= switch (the last
+// installer argument), which the electron-builder NSIS template honors over
+// the stale InstallLocation recorded in the registry. Without this, a moved
+// portable copy would reinstall to the original location (e.g. AppData).
+// NOTE: the property is `installDirectory` (a string); `installerArgs` is not
+// a real electron-updater option and is silently ignored.
+if (!process.defaultApp && process.platform === 'win32') {
+  autoUpdater.installDirectory = path.dirname(process.execPath)
 }
 
 autoUpdater.on('checking-for-update', () => {
