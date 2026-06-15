@@ -246,7 +246,7 @@ autoUpdater.on('update-downloaded', (info) => {
   sendUpdateStatus({ status: 'downloaded', version: info.version })
   if (installAfterDownload) {
     installAfterDownload = false
-    setTimeout(() => autoUpdater.quitAndInstall(), 500)
+    setTimeout(() => autoUpdater.quitAndInstall(true, true), 500)
   }
 })
 autoUpdater.on('error', (err) => {

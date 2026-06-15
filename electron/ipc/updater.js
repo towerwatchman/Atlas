@@ -38,7 +38,11 @@ module.exports = function registerUpdaterHandlers(ctx) {
   ipcMain.handle('download-and-install-app-update', async () => {
     try {
       if (ctx.updateDownloaded) {
-        autoUpdater.quitAndInstall()
+        // Silent install (no installer UI) so the NSIS mode/directory pages
+        // never run. This avoids the stale per-machine prompt and lets the
+        // /D= switch (set via autoUpdater.installDirectory) place the update
+        // in the current folder. Second arg relaunches the app afterward.
+        autoUpdater.quitAndInstall(true, true)
       } else {
         ctx.installAfterDownload = true
         await autoUpdater.downloadUpdate()
@@ -52,7 +56,7 @@ module.exports = function registerUpdaterHandlers(ctx) {
 
   ipcMain.handle('install-app-update', async () => {
     try {
-      autoUpdater.quitAndInstall()
+      autoUpdater.quitAndInstall(true, true)
       return { success: true }
     } catch (err) {
       console.error('install-app-update error:', err)
