@@ -59,7 +59,7 @@ const { startSteamScan } = require('./scanners/steamscanner')
 const { startScan } = require('./scanners/f95scanner')
 
 // IPC domain modules
-const registerGamesHandlers = require('./ipc/games')
+const { registerGamesHandlers } = require('./ipc/games')
 const registerWindowsHandlers = require('./ipc/windows')
 const registerSettingsHandlers = require('./ipc/settings')
 const registerUpdaterHandlers = require('./ipc/updater')
@@ -421,7 +421,8 @@ function createGameDetailsWindow(recordId) {
   }
   win.on('maximize', () => win.webContents.send('window-state-changed', 'maximized'))
   win.on('unmaximize', () => win.webContents.send('window-state-changed', 'normal'))
-  win.on('closed', () => { gameDetailsRecordMap.delete(win.webContents.id) })
+  const webContentsId = win.webContents.id
+  win.on('closed', () => { gameDetailsRecordMap.delete(webContentsId) })
 }
 
 function showExecutableChooser(title, version, executables) {

@@ -1470,4 +1470,4 @@ const GameDetailWindow = () => {
   );
 };
 
-export default GameDetailsWindow
+export default GameDetailWindow

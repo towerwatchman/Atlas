@@ -163,7 +163,7 @@ ipcMain.handle(
         }
       });
 
-      event.sender.send("game-details-import-progress", {
+      if (!event.sender.isDestroyed()) event.sender.send("game-details-import-progress", {
         text: "Custom banner saved",
         progress: 1,
         total: 1,
@@ -172,7 +172,7 @@ ipcMain.handle(
       return firstMediaPath(bannerPath);
     } catch (err) {
       console.error("Error converting and saving banner:", err);
-      event.sender.send("game-details-import-progress", {
+      if (!event.sender.isDestroyed()) event.sender.send("game-details-import-progress", {
         text: `Failed to save custom banner: ${err.message}`,
         progress: 0,
         total: 1,

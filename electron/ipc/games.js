@@ -88,7 +88,7 @@ async function launchGame({ execPath, extension, recordId, version }) {
   }
 }
 
-module.exports = function registerGamesHandlers(ctx) {
+function registerGamesHandlers(ctx) {
   const {
     getAssetBasePath, getMediaStorageMode, appConfig, configPath,
     gameDetailsRecordMap, recentlyDeletedGamePaths,
@@ -153,12 +153,15 @@ module.exports = function registerGamesHandlers(ctx) {
   })
 
   ipcMain.handle('request-game-data', async (event) => {
+    if (event.sender.isDestroyed()) return null
     const recordId = gameDetailsRecordMap.get(event.sender.id)
     if (recordId === undefined) {
       console.warn('request-game-data: no recordId mapped for this window')
       return null
     }
-    return await getGame(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode())
+    const game = await getGame(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode())
+    if (event.sender.isDestroyed()) return null
+    return game
   })
 
   ipcMain.handle('get-games', async (event, args = {}) => {
@@ -270,3 +273,5 @@ module.exports = function registerGamesHandlers(ctx) {
     return { success: true }
   })
 }
+
+module.exports = { registerGamesHandlers, launchGame }
