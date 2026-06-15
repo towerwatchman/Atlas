@@ -101,7 +101,9 @@ function getLegacyResourcesPath() {
 }
 
 function getAssetBasePath() {
-  return process.defaultApp ? app.getAppPath() : getLegacyResourcesPath()
+  // In dev: use app source dir. In prod: use appDataRoot (resolved after init)
+  if (process.defaultApp) return app.getAppPath()
+  return typeof appDataRoot !== 'undefined' ? appDataRoot : getLegacyResourcesPath()
 }
 
 function getMediaStorageMode() {
@@ -124,7 +126,25 @@ function copyDirectoryIfMissing(source, target) {
 
 const firstMediaPath = (value) => Array.isArray(value) ? value[0] || '' : value || ''
 
-const appDataRoot = process.defaultApp ? __dirname : getLegacyResourcesPath()
+// In production: try install dir first (portable), fall back to AppData if not writable
+function resolveAppDataRoot() {
+  if (process.defaultApp) return __dirname
+  const installDir = getLegacyResourcesPath()
+  try {
+    fs.mkdirSync(path.join(installDir, 'data'), { recursive: true })
+    // Write test to confirm we have write access
+    const testFile = path.join(installDir, 'data', '.write-test')
+    fs.writeFileSync(testFile, '1')
+    fs.unlinkSync(testFile)
+    return installDir
+  } catch {
+    // Install dir is not writable (e.g. Program Files) — fall back to AppData
+    console.warn('Install directory not writable, using AppData instead')
+    return app.getPath('userData')
+  }
+}
+
+const appDataRoot = resolveAppDataRoot()
 var dataDir = path.join(appDataRoot, 'data')
 var launcherDir = path.join(appDataRoot, 'launchers')
 
@@ -133,7 +153,7 @@ fs.mkdirSync(appDataRoot, { recursive: true })
 if (process.defaultApp) {
   console.log('Running in development')
 } else {
-  console.log('Running in release')
+  console.log('Running in release, data root:', appDataRoot)
 }
 
 fs.mkdirSync(dataDir, { recursive: true })

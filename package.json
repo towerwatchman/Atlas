@@ -54,13 +54,16 @@
     "nsis": {
       "allowToChangeInstallationDirectory": true,
       "oneClick": false,
-      "perMachine": true,
+      "perMachine": false,
       "deleteAppDataOnUninstall": false,
       "artifactName": "${productName}-Setup ${version}.${ext}",
       "include": "build/installer.nsh",
       "installerSidebar": "build/installerSidebar.bmp",
       "uninstallerSidebar": "build/installerSidebar.bmp",
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "shortcutName": "${productName}",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "linux": {
       "target": [

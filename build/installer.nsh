@@ -1,3 +1,9 @@
+; Custom install directory default — user-writable, no UAC required
+!macro customInstallDir
+  StrCpy $INSTDIR "$LOCALAPPDATA\Atlas"
+!macroend
+
+; Custom delete logic — preserve data/ and launchers/ folders on update/uninstall
 !macro DeleteLoop DIR PREFIX
   FindFirst $0 $1 "${DIR}\*"
   ${PREFIX}loop:
@@ -18,7 +24,6 @@
 !macro customRemoveFiles
   Delete "$INSTDIR\*.*"
   !insertmacro DeleteLoop "$INSTDIR" "rm"
-
 !macroend
 
 !macro customUnInstall
