@@ -1,3 +1,6 @@
+import f95Logo from '../../../assets/images/f95_full.png'
+import atlasLogo from '../../../assets/images/atlas_logo.svg'
+
 export default function MappingsTab({ game, showModal, searchResults, onFindGame, onSelectGame, onCloseModal }) {
   return (
     <>
@@ -18,14 +21,14 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
           <tbody>
             {game.f95_id && (
               <tr className="border-b border-border">
-                <td className="p-2"><img src="assets/images/f95_full.png" alt="F95Zone Logo" className="h-10 w-20 object-contain" /></td>
+                <td className="p-2"><img src={f95Logo} alt="F95Zone Logo" className="h-10 w-20 object-contain" /></td>
                 <td className="p-2">F95Zone</td>
                 <td className="p-2">{game.f95_id}</td>
               </tr>
             )}
             {game.atlas_id && (
               <tr className="border-b border-border">
-                <td className="p-2"><img src="assets/images/atlas_logo.svg" alt="Atlas Logo" className="h-10 w-20 object-contain" /></td>
+                <td className="p-2"><img src={atlasLogo} alt="Atlas Logo" className="h-10 w-20 object-contain" /></td>
                 <td className="p-2">Atlas</td>
                 <td className="p-2">{game.atlas_id}</td>
               </tr>

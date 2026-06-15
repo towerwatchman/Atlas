@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import SourceStep from './steps/SourceStep.jsx'
 import SettingsStep from './steps/SettingsStep.jsx'
 import ScanStep from './steps/ScanStep.jsx'
@@ -216,6 +216,26 @@ const Importer = () => {
   }
 
   // ── IPC Setup ─────────────────────────────────────────────────────────────
+  const loadConfig = useCallback(() => {
+    window.electronAPI.getConfig()
+      .then((config) => {
+        window.electronAPI.log(`Config loaded: ${JSON.stringify(config)}`)
+        const lib = config.Library || {}
+        const meta = config.Metadata || {}
+        const shouldDownload = meta.mediaStorageMode === 'download'
+        setGameExt(lib.gameExtensions || 'exe,swf,flv,f4v,rag,cmd,bat,jar,html')
+        setArchiveExt(lib.extractionExtensions || 'zip,7z,rar')
+        setLibraryFormat(lib.libraryFolderStructure || '{creator}/{title}/{version}')
+        const autoSelect = lib.autoSelectLatestReplaceVersion === true || lib.autoSelectLatestReplaceVersion === 'true'
+        autoSelectLatestReplaceVersionRef.current = autoSelect
+        setAutoSelectLatestReplaceVersion(autoSelect)
+        setDownloadBannerImages(shouldDownload)
+        setDownloadPreviewImages(shouldDownload)
+        window.electronAPI.getDefaultGameFolder().then((path) => setDefaultLibraryPath(path))
+      })
+      .catch((err) => console.error('Error loading config:', err))
+  }, [])
+
   useEffect(() => {
     window.electronAPI.log('Importer component mounted')
     window.electronAPI.onWindowStateChanged((state) => setIsMaximized(state === 'maximized'))
@@ -246,23 +266,7 @@ const Importer = () => {
       setUpdateProgress(prog)
     })
 
-    window.electronAPI.getConfig()
-      .then((config) => {
-        window.electronAPI.log(`Config loaded: ${JSON.stringify(config)}`)
-        const lib = config.Library || {}
-        const meta = config.Metadata || {}
-        const shouldDownload = meta.mediaStorageMode === 'download'
-        setGameExt(lib.gameExtensions || 'exe,swf,flv,f4v,rag,cmd,bat,jar,html')
-        setArchiveExt(lib.extractionExtensions || 'zip,7z,rar')
-        setLibraryFormat(lib.libraryFolderStructure || '{creator}/{title}/{version}')
-        const autoSelect = lib.autoSelectLatestReplaceVersion === true || lib.autoSelectLatestReplaceVersion === 'true'
-        autoSelectLatestReplaceVersionRef.current = autoSelect
-        setAutoSelectLatestReplaceVersion(autoSelect)
-        setDownloadBannerImages(shouldDownload)
-        setDownloadPreviewImages(shouldDownload)
-        window.electronAPI.getDefaultGameFolder().then((path) => setDefaultLibraryPath(path))
-      })
-      .catch((err) => console.error('Error loading config:', err))
+    loadConfig()
 
     return () => {
       ;['window-state-changed', 'scan-progress', 'scan-complete', 'scan-complete-final', 'update-progress']
@@ -276,6 +280,11 @@ const Importer = () => {
     if (deletedScanGameKeysRef.current.has(gameKey)) return
     setGamesList((prev) => [...prev, game])
   }
+
+  // Re-read config when user navigates to settings step so latest saved settings apply
+  useEffect(() => {
+    if (view === 'settings') loadConfig()
+  }, [view, loadConfig])
 
   const selectFolder = async () => {
     const path = await window.electronAPI.selectDirectory()

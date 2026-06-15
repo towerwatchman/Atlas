@@ -8,6 +8,7 @@ const getDb = () => dbModule.db
 const { toLocalAssetPath, normalizeMediaStorageMode,
         buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
 const { mapVersionRow, getVersionPathsForRecord } = require('./versions')
+const { deleteBanner, deletePreviews } = require('./media')
 
 let cachedFilterOptions = null
 const resetCachedFilterOptions = () => { cachedFilterOptions = null }
