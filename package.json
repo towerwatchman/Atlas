@@ -11,14 +11,14 @@
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "build": "vite build && electron-builder --win --x64",
     "preview": "vite preview",
-    "publish": "vite build && electron-builder --win -p always",
+    "publish": "vite build && electron-builder --win --x64 -p always",
     "format": "prettier --write \"src/**/*.{js,jsx,css}\" \"electron/**/*.{js,jsx}\""
   },
   "build": {
     "appId": "com.towerwatchman.atlas",
     "productName": "Atlas",
     "directories": {
-      "output": "dist"
+      "output": "release"
     },
     "publish": {
       "provider": "github",
@@ -32,23 +32,17 @@
       "dist/renderer/**/*",
       "workers/**/*",
       "src/assets/ui/**/*",
-      "package.json",
-      "node_modules/sqlite3/**/*",
-      "node_modules/sharp/**/*",
-      "node_modules/@img/**/*",
-      "node_modules/node-7z/**/*",
-      "node_modules/7zip-bin/**/*",
-      "node_modules/node-unrar-js/**/*"
+      "package.json"
     ],
     "asar": true,
     "asarUnpack": [
       "node_modules/**/*.node",
-      "workers/**/*",
       "node_modules/sqlite3/**/*",
       "node_modules/sharp/**/*",
       "node_modules/@img/**/*",
       "node_modules/7zip-bin/**/*",
-      "node_modules/node-unrar-js/**/*"
+      "node_modules/node-unrar-js/**/*",
+      "workers/**/*"
     ],
     "nodeGypRebuild": false,
     "win": {

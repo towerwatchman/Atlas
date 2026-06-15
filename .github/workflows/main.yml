@@ -42,16 +42,34 @@ jobs:
           sudo apt-get install -y libarchive-tools rpm
         shell: bash
 
+      - name: Build renderer
+        if: matrix.os == 'windows-latest'
+        run: npx vite build
+        shell: cmd
+
+      - name: Build renderer (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: npx vite build
+        shell: bash
+
       - name: Build and publish (Windows)
         if: matrix.os == 'windows-latest'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run publish
+        run: npx electron-builder --win --x64 -p always
         shell: cmd
 
       - name: Build and publish (Linux)
         if: matrix.os == 'ubuntu-latest'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx vite build && npx electron-builder --linux -p always
+        run: npx electron-builder --linux --x64 -p always
         shell: bash
+
+      - name: Upload Windows artifact
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: release/*.exe
+          if-no-files-found: warn

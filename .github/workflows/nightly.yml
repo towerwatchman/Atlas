@@ -61,14 +61,22 @@ jobs:
           sudo apt-get install -y libarchive-tools rpm
         shell: bash
 
+      - name: Build renderer (Windows)
+        if: matrix.os == 'windows-latest'
+        run: npx vite build
+        shell: cmd
+
+      - name: Build renderer (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: npx vite build
+        shell: bash
+
       - name: Build and publish nightly (Windows)
         if: matrix.os == 'windows-latest'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          npx vite build
-          npx electron-builder --win -p always --config.publish.releaseType=prerelease
+        run: npx electron-builder --win --x64 -p always --config.publish.releaseType=prerelease
         shell: cmd
 
       - name: Build and publish nightly (Linux)
@@ -76,5 +84,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx vite build && npx electron-builder --linux -p always --config.publish.releaseType=prerelease
+        run: npx electron-builder --linux --x64 -p always --config.publish.releaseType=prerelease
         shell: bash
+
+      - name: Upload Windows artifact
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-nightly-installer
+          path: release/*.exe
+          if-no-files-found: warn
