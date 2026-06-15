@@ -790,4 +790,5 @@ module.exports = {
   getVersionPathsForRecord,
   getGame,
   getGames,
+  normalizePathForCompare,
 }

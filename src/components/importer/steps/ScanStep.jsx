@@ -1,0 +1,97 @@
+import ScanTable from './ScanTable.jsx'
+
+export default function ScanStep({
+  progress, progressLabel, sortedRows, isNewScanRow, sortConfig,
+  hideMatches, includeUnmatched, includeArchives, forceReimport,
+  canImport, isResolvingMatches, getImportDisabledReason,
+  onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
+  onUpdateMatches, onCancelMatch, onImport,
+  setHideMatches, setIncludeUnmatched, setIncludeArchives, setForceReimport,
+}) {
+  return (
+    <div className="h-full flex flex-col">
+      <div className="shrink-0">
+        <h2 className="text-xl mb-4">Scan Results</h2>
+        <div className="flex items-center mb-4">
+          <progress value={progress.value} max={progress.total} className="w-96" />
+          <span className="ml-2">
+            {progress.value}/{progress.total} {progressLabel ?? 'Folders Scanned'}
+          </span>
+        </div>
+        <div className="mb-4 flex flex-wrap gap-4 text-sm">
+          <span>Ready {progress.potential || 0}</span>
+          <span>Pending matches {progress.pendingMatch || 0}</span>
+          <span>Archives {progress.archives || 0}</span>
+          <span>Already imported {progress.alreadyImported || 0}</span>
+          <span>Repairs {progress.repairPath || 0}</span>
+          <span>Missing launchable {progress.missingLaunchable || 0}</span>
+          <span>Empty folders {progress.emptyFolder || 0}</span>
+          <span>Total rows {progress.totalFound || sortedRows.length}</span>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-x-auto">
+        <ScanTable
+          sortedRows={sortedRows}
+          isNewScanRow={isNewScanRow}
+          sortConfig={sortConfig}
+          onSort={onSort}
+          onUpdateGame={onUpdateGame}
+          onDeleteGame={onDeleteGame}
+          onResultChange={onResultChange}
+          getGameKey={getGameKey}
+        />
+      </div>
+
+      <div className="flex justify-between items-center space-x-4 mt-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex items-center space-x-2">
+            <input type="checkbox" id="include-unmatched" checked={includeUnmatched} onChange={(e) => setIncludeUnmatched(e.target.checked)} className="h-4 w-4" />
+            <label htmlFor="include-unmatched" className="text-sm text-text">Import unmatched games</label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <input type="checkbox" id="include-archives" checked={includeArchives} onChange={(e) => setIncludeArchives(e.target.checked)} className="h-4 w-4" />
+            <label htmlFor="include-archives" className="text-sm text-text">Extract and import archives</label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <input type="checkbox" id="force-reimport" checked={forceReimport} onChange={(e) => setForceReimport(e.target.checked)} className="h-4 w-4" />
+            <label htmlFor="force-reimport" className="text-sm text-text" title="Safely repairs existing rows and refreshes selected media without creating duplicate game records.">
+              Force re-import existing games
+            </label>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={onUpdateMatches}
+            disabled={isResolvingMatches}
+            className="bg-accent hover:bg-accent-dark px-4 py-2 rounded text-text"
+            style={{ pointerEvents: 'auto', zIndex: 1000 }}
+          >
+            {isResolvingMatches ? 'Resolving...' : 'Update Matches'}
+          </button>
+          {isResolvingMatches && (
+            <button onClick={onCancelMatch} className="bg-red-700 hover:bg-red-800 px-4 py-2 rounded text-white" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
+              Stop Matching
+            </button>
+          )}
+          <button onClick={() => setHideMatches(!hideMatches)} className="bg-tertiary hover:bg-selected px-4 py-2 rounded text-text" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
+            {hideMatches ? 'Show All' : 'Hide Matches'}
+          </button>
+          <button
+            onClick={onImport}
+            disabled={!canImport}
+            className={`px-6 py-2 rounded font-medium transition-colors ${canImport ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-600 cursor-not-allowed opacity-70 text-gray-300'}`}
+            title={getImportDisabledReason()}
+            style={{ pointerEvents: 'auto' }}
+          >
+            Import
+          </button>
+          <button onClick={() => window.electronAPI.closeWindow()} className="bg-red-700 hover:bg-red-800 px-6 py-2 rounded text-white" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

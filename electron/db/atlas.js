@@ -8,7 +8,7 @@ const lz4 = require('lz4js')
 const dbModule = require('./index')
 const getDb = () => dbModule.db
 const { toLocalAssetPath } = require('./helpers')
-const { checkRecordExist, checkPathExist, findExistingRecordForImport } = require('./versions')
+const { checkRecordExist, checkPathExist, findExistingRecordForImport, normalizePathForCompare } = require('./versions')
 const { resetCachedFilterOptions } = require('./games')
 
 
