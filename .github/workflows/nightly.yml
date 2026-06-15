@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout code
@@ -27,19 +27,24 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: Clean npm cache
-        run: npm cache clean --force
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Set nightly version
-        shell: bash
+      - name: Set nightly version (Windows)
+        if: matrix.os == 'windows-latest'
         run: |
-          base_version=$(node -p "require('./package.json').version")
-          nightly_version="${base_version}-nightly.${{ github.run_number }}"
-          npm version "$nightly_version" --no-git-tag-version
-          echo "Nightly version: $nightly_version"
+          $base = node -p "require('./package.json').version"
+          $nightly = "$base-nightly.${{ github.run_number }}"
+          npm version $nightly --no-git-tag-version
+          Write-Output "Nightly version: $nightly"
+
+      - name: Set nightly version (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          base=$(node -p "require('./package.json').version")
+          nightly="${base}-nightly.${{ github.run_number }}"
+          npm version "$nightly" --no-git-tag-version
+          echo "Nightly version: $nightly"
 
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
@@ -47,11 +52,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libarchive-tools rpm
 
-      - name: Build and publish nightly prerelease
+      - name: Build and publish nightly (Windows)
+        if: matrix.os == 'windows-latest'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          platform=${{ matrix.os == 'windows-latest' && '--win' || '--linux' }}
-          npx vite build && npx electron-builder $platform -p always --config.publish.releaseType=prerelease
+        run: npx vite build && npx electron-builder --win -p always --config.publish.releaseType=prerelease
+
+      - name: Build and publish nightly (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx vite build && npx electron-builder --linux -p always --config.publish.releaseType=prerelease
