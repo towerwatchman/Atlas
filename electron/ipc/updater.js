@@ -1,12 +1,13 @@
 'use strict'
 
+const path = require('path')
 const { ipcMain } = require('electron')
 
 module.exports = function registerUpdaterHandlers(ctx) {
-  const { autoUpdater, checkDbUpdates } = ctx
+  const { autoUpdater, checkDbUpdates, dataDir, mainWindow } = ctx
 
   ipcMain.handle('check-updates', async () => {
-    return await checkDbUpdates()
+    return await checkDbUpdates(path.join(dataDir, 'updates'), mainWindow)
   })
 
   ipcMain.handle('check-app-update', async () => {
@@ -60,6 +61,6 @@ module.exports = function registerUpdaterHandlers(ctx) {
   })
 
   ipcMain.handle('check-db-updates', async () => {
-    return await checkDbUpdates()
+    return await checkDbUpdates(path.join(dataDir, 'updates'), mainWindow)
   })
 }

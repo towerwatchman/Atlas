@@ -1,0 +1,327 @@
+'use strict'
+
+const path = require('path')
+const fs = require('fs')
+const fsPromises = fs.promises
+const dbModule = require('./index')
+const getDb = () => dbModule.db
+const { toLocalAssetPath, normalizeMediaStorageMode,
+        buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
+const { mapVersionRow, getVersionPathsForRecord } = require('./versions')
+
+let cachedFilterOptions = null
+const resetCachedFilterOptions = () => { cachedFilterOptions = null }
+
+
+const addGame = (game) => {
+  return new Promise((resolve, reject) => {
+    const { title, creator, engine } = game;
+
+    // Check if game already exists
+    getDb().get(
+      `SELECT record_id FROM games WHERE title = ? AND creator = ?`,
+      [title, creator],
+      (err, row) => {
+        if (err) {
+          console.error("Error checking existing game:", err);
+          reject(err);
+          return;
+        }
+        if (row) {
+          // Game exists, return existing record_id
+          console.log(
+            `Game ${title} by ${creator} already exists with record_id: ${row.record_id}`,
+          );
+          resolve(row.record_id);
+          return;
+        }
+        // Game doesn't exist, insert new record
+        getDb().run(
+          `INSERT INTO games (title, creator, engine, last_played_r, total_playtime)
+           VALUES (?, ?, ?, 0, 0)`,
+          [title, creator, engine],
+          function (err) {
+            if (err) {
+              console.error("Error inserting game:", err);
+              reject(err);
+              return;
+            }
+            // Return the new record_id
+            console.log(
+              `Inserted new game ${title} by ${creator} with record_id: ${this.lastID}`,
+            );
+            resolve(this.lastID);
+          },
+        );
+      },
+    );
+  });
+};
+
+const updateGame = (game) => {
+  return new Promise((resolve, reject) => {
+    const { title, creator, engine } = game;
+    const description = game.description ?? game.overview ?? null;
+    getDb().run(
+      `UPDATE games SET title = ?, creator = ?, engine = ?, description = ?
+       WHERE record_id = ?`,
+      [
+        title,
+        creator,
+        engine,
+        description,
+        game.record_id,
+      ],
+      function (err) {
+        if (err) {
+          console.error("Error updating game:", err);
+          reject(err);
+          return;
+        }
+        console.log(`Updated game ${title} with record_id: ${game.record_id}`);
+        resolve(game.record_id);
+      },
+    );
+  });
+};
+
+const recordGameLaunchStarted = (recordId, version, timestamp) => {
+  return new Promise((resolve, reject) => {
+    getDb().serialize(() => {
+      getDb().run(
+        `UPDATE versions SET last_played = ?
+         WHERE record_id = ? AND version = ?`,
+        [timestamp, recordId, version],
+        (err) => {
+          if (err) {
+            console.error("Error updating version last played:", err);
+            reject(err);
+          }
+        },
+      );
+      getDb().run(
+        `UPDATE games SET last_played_r = ?, last_played_version = ?
+         WHERE record_id = ?`,
+        [timestamp, version, recordId],
+        function (err) {
+          if (err) {
+            console.error("Error updating game last played:", err);
+            reject(err);
+            return;
+          }
+          resolve({ success: true });
+        },
+      );
+    });
+  });
+};
+
+const recordGamePlaytime = (recordId, version, minutes) => {
+  const playMinutes = Math.max(0, parseInt(minutes, 10) || 0);
+  if (playMinutes <= 0) return Promise.resolve({ success: true });
+
+  return new Promise((resolve, reject) => {
+    getDb().serialize(() => {
+      getDb().run(
+        `UPDATE versions
+         SET version_playtime = COALESCE(version_playtime, 0) + ?
+         WHERE record_id = ? AND version = ?`,
+        [playMinutes, recordId, version],
+        (err) => {
+          if (err) {
+            console.error("Error updating version playtime:", err);
+            reject(err);
+          }
+        },
+      );
+      getDb().run(
+        `UPDATE games
+         SET total_playtime = COALESCE(total_playtime, 0) + ?
+         WHERE record_id = ?`,
+        [playMinutes, recordId],
+        function (err) {
+          if (err) {
+            console.error("Error updating game total playtime:", err);
+            reject(err);
+            return;
+          }
+          resolve({ success: true });
+        },
+      );
+    });
+  });
+};
+
+const getGameRecordIds = () => {
+  return new Promise((resolve, reject) => {
+    getDb().all(`SELECT record_id FROM games ORDER BY title COLLATE NOCASE`, [], (err, rows) => {
+      if (err) reject(err);
+      else resolve((rows || []).map((row) => row.record_id));
+    });
+  });
+};
+
+const removeGame = async (record_id) => {
+  return new Promise((resolve, reject) => {
+    getDb().run("DELETE FROM games WHERE record_id = ?", [record_id], (err) => {
+      if (err) reject(err);
+      else resolve({ success: true });
+    });
+  });
+};
+
+// Count versions for a game
+
+const countVersions = (recordId) =>
+  new Promise((resolve, reject) => {
+    getDb().get(
+      `SELECT COUNT(*) as count FROM versions WHERE record_id = ?`,
+      [recordId],
+      (err, row) => (err ? reject(err) : resolve(row?.count || 0)),
+    );
+  });
+
+// Delete ONE specific version
+
+const deleteVersion = (recordId, version) =>
+  new Promise((resolve, reject) => {
+    getDb().run(
+      `DELETE FROM versions WHERE record_id = ? AND version = ?`,
+      [recordId, version],
+      function (err) {
+        err ? reject(err) : resolve({ changes: this.changes });
+      },
+    );
+  });
+
+// Full cleanup (images + mappings + versions + game record)
+
+const deleteGameCompletely = async (recordId, appPath, isDev) => {
+  try {
+    await deleteBanner(recordId, appPath, isDev);
+    await deletePreviews(recordId, appPath, isDev);
+
+    const tables = [
+      "atlas_mappings",
+      "steam_mappings",
+      "f95_zone_mappings",
+      "tag_mappings",
+      // add others if you have more
+    ];
+
+    for (const tbl of tables) {
+      await new Promise((r, j) =>
+        getDb().run(`DELETE FROM ${tbl} WHERE record_id = ?`, [recordId], (e) =>
+          e ? j(e) : r(),
+        ),
+      );
+    }
+
+    await new Promise((r, j) =>
+      getDb().run(`DELETE FROM versions WHERE record_id = ?`, [recordId], (e) =>
+        e ? j(e) : r(),
+      ),
+    );
+
+    await new Promise((r, j) =>
+      getDb().run(`DELETE FROM games WHERE record_id = ?`, [recordId], (e) =>
+        e ? j(e) : r(),
+      ),
+    );
+
+    return { success: true };
+  } catch (err) {
+    console.error("deleteGameCompletely failed:", err);
+    return { success: false, error: err.message };
+  }
+};
+
+const getUniqueFilterOptions = () => {
+  return new Promise((resolve, reject) => {
+    if (cachedFilterOptions) {
+      resolve(cachedFilterOptions);
+      return;
+    }
+
+    const options = {};
+
+    getDb().all(
+      "SELECT DISTINCT category FROM atlas_data WHERE category IS NOT NULL",
+      [],
+      (err, rows) => {
+        if (err) return reject(err);
+        options.categories = rows.map((r) => r.category);
+
+        getDb().all(
+          "SELECT DISTINCT engine FROM atlas_data WHERE engine IS NOT NULL",
+          [],
+          (err, rows) => {
+            if (err) return reject(err);
+            options.engines = rows.map((r) => r.engine);
+
+            getDb().all(
+              "SELECT DISTINCT status FROM atlas_data WHERE status IS NOT NULL",
+              [],
+              (err, rows) => {
+                if (err) return reject(err);
+                options.statuses = rows.map((r) => r.status);
+
+                getDb().all(
+                  "SELECT DISTINCT censored FROM atlas_data WHERE censored IS NOT NULL",
+                  [],
+                  (err, rows) => {
+                    if (err) return reject(err);
+                    options.censored = rows.map((r) => r.censored);
+
+                    getDb().all(
+                      "SELECT DISTINCT language FROM atlas_data WHERE language IS NOT NULL",
+                      [],
+                      (err, rows) => {
+                        if (err) return reject(err);
+                        options.languages = rows.map((r) => r.language);
+
+                        // Tags from f95_zone_data
+                        getDb().all(
+                          "SELECT tags FROM f95_zone_data WHERE tags IS NOT NULL",
+                          [],
+                          (err, rows) => {
+                            if (err) return reject(err);
+                            const tagsSet = new Set();
+                            rows.forEach((row) => {
+                              if (row.tags) {
+                                row.tags
+                                  .split(",")
+                                  .forEach((tag) => tagsSet.add(tag.trim()));
+                              }
+                            });
+                            options.tags = Array.from(tagsSet);
+                            cachedFilterOptions = options;
+                            resolve(options);
+                          },
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  });
+};
+
+module.exports = {
+  addGame,
+  updateGame,
+  removeGame,
+  countVersions,
+  deleteVersion,
+  deleteGameCompletely,
+  getGameRecordIds,
+  recordGameLaunchStarted,
+  recordGamePlaytime,
+  getUniqueFilterOptions,
+  resetCachedFilterOptions,
+}

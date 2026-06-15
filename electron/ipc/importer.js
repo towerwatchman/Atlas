@@ -1,9 +1,12 @@
 'use strict'
 
-const { ipcMain, dialog } = require('electron')
+const { ipcMain, dialog, BrowserWindow } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const fsp = require('fs').promises
+const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
+        checkRecordExist, checkPathExist } = require('../db/atlas')
+const { getGame } = require('../db/versions')
 
 // ── Importer helper functions ──────────────────────────────────────
 
@@ -642,18 +645,78 @@ async function replaceInstalledVersionAfterImport({
   return { replaced: true, deletedFiles: hadOldFiles };
 }
 
+
+
+const hydrateImportMatch = async (game, selectedValue) => {
+  let updatedGame = { ...game, resultSelectedValue: selectedValue };
+  const selected = game.results?.find((result) => result.key === selectedValue);
+
+  if (selected && selectedValue !== "match") {
+    const parts = selected.value.split(" | ");
+    updatedGame = {
+      ...updatedGame,
+      atlasId: parts[0],
+      f95Id: parts[1] || "",
+      title: parts[2],
+      creator: parts[3],
+    };
+    const atlasData = await getAtlasData(updatedGame.atlasId);
+    updatedGame = {
+      ...updatedGame,
+      engine: atlasData.engine || updatedGame.engine || "Unknown",
+      f95Id: updatedGame.f95Id || atlasData.f95_id || "",
+      latestVersion: atlasData.latestVersion || "",
+    };
+  }
+
+  const status = await getImportRecordStatus(updatedGame);
+  const recordExist = status?.status === "alreadyImported";
+  return {
+    ...updatedGame,
+    recordExist,
+    existingRecordId: status?.recordId || "",
+    scanStatus: recordExist
+      ? "alreadyImported"
+      : status?.status === "repairPath"
+        ? "repairPath"
+        : "new",
+    scanMessage: recordExist
+      ? "Already imported"
+      : status?.status === "repairPath"
+        ? "Repair path"
+        : updatedGame.isArchive
+          ? "Archive"
+          : "Ready to import",
+  };
+};
+
+const chooseInstalledImportMatch = async (game, results) => {
+  for (const result of results) {
+    const candidate = await hydrateImportMatch({ ...game, results }, result.key);
+    if (["alreadyImported", "repairPath"].includes(candidate.scanStatus)) {
+      return candidate;
+    }
+  }
+  return hydrateImportMatch({ ...game, results }, results[0]?.key || "");
+};
+
 // ── IPC Handlers ───────────────────────────────────────────────────
 
 module.exports = function registerImporterHandlers(ctx) {
   const {
-    mainWindow, importerWindow, appConfig,
-    activeImportSession, activeScanSession,
+    mainWindow, importerWindow, appConfig, configPath, dataDir,
     searchAtlas, searchAtlasByF95Id, findF95Id, getAtlasData,
     addAtlasMapping, checkPathExist, findExistingRecordForImport,
     getImportRecordStatus, checkRecordExist, addGame, addVersion,
     upsertVersion, updateGame, updateFolderSize, getSteamIDbyRecord,
+    getBannerUrl, getScreensUrlList,
+    getVersionForRecord, getVersionPathsForRecord,
+    deleteVersion, deleteGameCompletely, deleteTitleRecord,
+    getTrustedVersion, isAllowedDeletionPath, isPathInside,
+    normalizeForPathCompare, removeEmptyParentDirectories,
+    showExecutableChooser, executableChooserWindow,
     startSteamScan, startScan, getAssetBasePath, getMediaStorageMode,
-    recentlyDeletedGamePaths,
+    recentlyDeletedGamePaths, db,
   } = ctx
 
 ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
@@ -667,16 +730,16 @@ ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
 });
 
 ipcMain.handle("cancel-import", async () => {
-  if (!activeImportSession) {
+  if (!ctx.activeImportSession) {
     return { success: false, message: "No import is currently running" };
   }
 
-  activeImportSession.cancelRequested = true;
-  activeImportSession.currentExtractionWorker?.postMessage("cancel");
+  ctx.activeImportSession.cancelRequested = true;
+  ctx.activeImportSession.currentExtractionWorker?.postMessage("cancel");
   mainWindow?.webContents.send("import-progress", {
     text: "Cancel requested. Cleaning up current import...",
-    progress: activeImportSession.progress || 0,
-    total: activeImportSession.total || 0,
+    progress: ctx.activeImportSession.progress || 0,
+    total: ctx.activeImportSession.total || 0,
     canceling: true,
     canCancel: false,
   });
@@ -685,20 +748,20 @@ ipcMain.handle("cancel-import", async () => {
 
 ipcMain.handle("start-scan", async (event, params) => {
   const window = BrowserWindow.fromWebContents(event.sender);
-  activeScanSession = { canceled: false };
+  ctx.activeScanSession = { canceled: false };
   try {
-    await startScan(params, window, activeScanSession);
+    await startScan(params, window, ctx.activeScanSession);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
   } finally {
-    activeScanSession = null;
+    ctx.activeScanSession = null;
   }
 });
 
 ipcMain.handle("cancel-scan", async () => {
-  if (activeScanSession) {
-    activeScanSession.canceled = true;
+  if (ctx.activeScanSession) {
+    ctx.activeScanSession.canceled = true;
   }
   return { success: true };
 });
@@ -851,7 +914,7 @@ ipcMain.handle("get-import-record-status", async (event, game) => {
 });
 
 ipcMain.handle("import-games", async (event, params) => {
-  if (activeImportSession) {
+  if (ctx.activeImportSession) {
     return {
       success: false,
       error: "Another import is already running",
@@ -893,7 +956,7 @@ ipcMain.handle("import-games", async (event, params) => {
     cleanupPaths: [],
     currentExtractionWorker: null,
   };
-  activeImportSession = session;
+  ctx.activeImportSession = session;
 
   if (total === 0) {
     mainWindow.webContents.send("import-progress", {
@@ -902,7 +965,7 @@ ipcMain.handle("import-games", async (event, params) => {
       total,
     });
     mainWindow.webContents.send("import-complete");
-    activeImportSession = null;
+    ctx.activeImportSession = null;
     return [];
   }
 
@@ -1382,7 +1445,7 @@ ipcMain.handle("import-games", async (event, params) => {
 
   if (session.cancelRequested) {
     mainWindow.webContents.send("import-complete");
-    activeImportSession = null;
+    ctx.activeImportSession = null;
     return results;
   }
 
@@ -1493,7 +1556,7 @@ ipcMain.handle("import-games", async (event, params) => {
   }
 
   mainWindow.webContents.send("import-complete");
-  activeImportSession = null;
+  ctx.activeImportSession = null;
   return results;
 });
 

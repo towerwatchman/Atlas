@@ -14,24 +14,46 @@ const cp = require('child_process')
 
 const { isNewerVersion } = require('./utils/versionUtils')
 const {
-  initializeDatabase,
-  repairDoubledApostropheRows,
-  repairStaleVersionExecutables,
-  addGame, updateGame, addVersion, upsertVersion, updateVersion,
-  recordGameLaunchStarted, recordGamePlaytime,
-  addAtlasMapping, getGame, getGames, getGameRecordIds,
-  removeGame, checkDbUpdates, updateFolderSize,
-  getBannerUrl, getScreensUrlList,
-  getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension,
-  GetAtlasIDbyRecord, getPreviews, getBanner,
+  addVersion, upsertVersion, updateVersion,
+  findExistingRecordForImport, checkRecordExist, checkPathExist,
+  getVersionForRecord, getInstalledVersionsForRecord, getVersionPathsForRecord,
+  getGame, getGames,
+} = require('./db/versions')
+
+const {
+  repairDoubledApostropheRows, repairStaleVersionExecutables,
+} = require('./db/repair')
+
+const {
+  addGame, updateGame, removeGame, deleteGameCompletely,
+  getGameRecordIds, countVersions, deleteVersion,
+  getUniqueFilterOptions, recordGameLaunchStarted, recordGamePlaytime,
+} = require('./db/games')
+
+const {
+  updateFolderSize, getBannerUrl, getScreensUrlList,
+  updateBanners, updatePreviews, getRemotePreviewUrls,
+  getPreviews, getBanners, getBanner, getRemoteBannerUrl,
   deleteBanner, deletePreviews,
-  searchAtlas, searchAtlasByF95Id, findF95Id, checkPathExist,
-  findExistingRecordForImport, getImportRecordStatus,
-  updateBanners, updatePreviews, getAtlasData,
-  getSteamIDbyRecord, countVersions, deleteVersion, deleteGameCompletely,
-  getUniqueFilterOptions, getVersionForRecord, getInstalledVersionsForRecord,
-  getVersionPathsForRecord, db,
-} = require('./database')
+} = require('./db/media')
+
+const {
+  searchAtlas, searchAtlasByF95Id, findF95Id, GetAtlasIDbyRecord,
+  addAtlasMapping, getAtlasData, getImportRecordStatus, insertJsonData,
+} = require('./db/atlas')
+
+const { checkDbUpdates } = require('./db/updates')
+
+const {
+  getSteamIDbyRecord, addSteamMapping, getSteamBannerUrl, getSteamScreensUrlList,
+} = require('./db/steam')
+
+const {
+  saveEmulatorConfig, getEmulatorConfig, removeEmulatorConfig, getEmulatorByExtension,
+} = require('./db/settings')
+
+const { initializeDatabase } = require('./db/index')
+const { db } = require('./db/index')
 
 const { startSteamScan } = require('./scanners/steamscanner')
 const { startScan } = require('./scanners/f95scanner')
@@ -298,7 +320,8 @@ function quitFromMainWindow() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
+    width: 1366,
+    minWidth: 1366,
     height: 800,
     frame: false,
     webPreferences: {

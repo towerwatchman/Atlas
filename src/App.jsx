@@ -39,7 +39,6 @@ const App = () => {
     bannerWidth: 537,
     bannerHeight: 251,
   });
-  const [columnCount, setColumnCount] = useState(1);
   const [totalVersions, setTotalVersions] = useState(0);
   const [showGameList, setShowGameList] = useState(true);
   const gridRef = useRef(null);
@@ -48,6 +47,7 @@ const App = () => {
   const libraryScrollTopRef = useRef(0);
   const pendingLibraryScrollTopRestoreRef = useRef(null);
 
+  const [columnCount, setColumnCount] = useState(1);
   const [showSearchSidebar, setShowSearchSidebar] = useState(false); // or false
 
   const defaultFilters = {
@@ -310,7 +310,24 @@ const App = () => {
     [],
   );
 
-  // Handle resize with debounce for smoother updates
+  const getColumnCount = (width) => {
+    const containerWidth =
+      width || gameGridRef.current?.clientWidth || window.innerWidth - 260;
+    const scrollbarWidth = getScrollbarWidth();
+    const adjustedWidth = containerWidth - scrollbarWidth;
+    return Math.max(
+      1,
+      Math.floor(adjustedWidth / (bannerSize.bannerWidth + 8)),
+    );
+  };
+
+  const getScrollbarWidth = () => {
+    if (gameGridRef.current) {
+      return gameGridRef.current.offsetWidth - gameGridRef.current.clientWidth;
+    }
+    return 16;
+  };
+
   const debounceResize = debounce(() => {
     const containerWidth =
       gameGridRef.current?.clientWidth || window.innerWidth - 260;
@@ -322,7 +339,7 @@ const App = () => {
       gridRef.current.recomputeGridSize();
       gridRef.current.forceUpdate();
     }
-  }, 16); // ~60fps for smoother resize
+  }, 16);
 
   useEffect(() => {
     // Get Config
@@ -617,6 +634,12 @@ const App = () => {
     };
   }, []);
 
+  // Recalculate grid layout when sidebar visibility changes
+  useEffect(() => {
+    setTimeout(() => debounceResize(), 0);
+  }, [showGameList]);
+
+
   const addGame = async () => {
     window.electronAPI.openImporter();
   };
@@ -807,24 +830,6 @@ const App = () => {
   );
   const uninstalledGameCount = Math.max(0, games.length - installedGameCount);
 
-  const getColumnCount = (width) => {
-    const containerWidth =
-      width || gameGridRef.current?.clientWidth || window.innerWidth - 260;
-    const scrollbarWidth = getScrollbarWidth();
-    const adjustedWidth = containerWidth - scrollbarWidth;
-    return Math.max(
-      1,
-      Math.floor(adjustedWidth / (bannerSize.bannerWidth + 8)),
-    );
-  };
-
-  const getScrollbarWidth = () => {
-    if (gameGridRef.current) {
-      return gameGridRef.current.offsetWidth - gameGridRef.current.clientWidth;
-    }
-    return 16;
-  };
-
   const selectGame = useCallback((game) => {
     setShowSearchSidebar(false);
     setSelectedGame(game);
@@ -903,6 +908,9 @@ const App = () => {
     showGameList,
     restoreLibraryScrollIfNeeded,
   ]);
+
+
+
 
   const cellRenderer = ({ columnIndex, rowIndex, style }) => {
     const index = rowIndex * columnCount + columnIndex;

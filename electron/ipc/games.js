@@ -3,6 +3,90 @@
 const { ipcMain, BrowserWindow, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const cp = require('child_process')
+const { recordGameLaunchStarted, recordGamePlaytime } = require('../db/games')
+const { getEmulatorByExtension } = require('../db/settings')
+const { getSteamIDbyRecord } = require('../db/steam')
+
+function emitGameUpdated(recordId) {
+  if (!recordId) return
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) win.webContents.send('game-updated', recordId)
+  })
+}
+
+async function startPlaySession(recordId, version, trackPlaytime = true) {
+  if (!recordId || !version) return null
+  const startedAtMs = Date.now()
+  const startedAtSeconds = Math.floor(startedAtMs / 1000)
+  await recordGameLaunchStarted(recordId, version, startedAtSeconds)
+  emitGameUpdated(recordId)
+  return {
+    finish: async () => {
+      if (!trackPlaytime) return
+      const elapsedMs = Math.max(0, Date.now() - startedAtMs)
+      if (elapsedMs <= 0) return
+      const minutes = Math.max(1, Math.ceil(elapsedMs / 60000))
+      await recordGamePlaytime(recordId, version, minutes)
+      emitGameUpdated(recordId)
+    },
+  }
+}
+
+function trackChildPlaySession(child, session, recordId) {
+  if (!child || !session) return
+  let finalized = false
+  const finalize = async () => {
+    if (finalized) return
+    finalized = true
+    try { await session.finish() }
+    catch (err) { console.error(`Failed to finalize play session for ${recordId}:`, err) }
+  }
+  child.once('exit', finalize)
+  child.once('close', finalize)
+  child.once('error', (err) => {
+    if (finalized) return
+    finalized = true
+    console.error(`Tracked game process error for ${recordId}:`, err)
+  })
+}
+
+async function launchGame({ execPath, extension, recordId, version }) {
+  if (recordId) {
+    const steamId = await getSteamIDbyRecord(recordId)
+    if (steamId) {
+      await startPlaySession(recordId, version, false)
+      shell.openExternal(`steam://run/${steamId}`)
+      return
+    }
+  }
+  if (!fs.existsSync(execPath)) {
+    throw new Error(`Executable not found: ${execPath}`)
+  }
+  const emulator = await getEmulatorByExtension(extension)
+  if (emulator) {
+    const args = emulator.parameters ? emulator.parameters.split(' ') : []
+    args.push(execPath)
+    const child = cp.spawn(emulator.program_path, args, { detached: true, stdio: 'ignore' })
+    const session = await startPlaySession(recordId, version, true)
+    trackChildPlaySession(child, session, recordId)
+    child.unref()
+  } else if (['exe', 'bat', 'cmd'].includes(extension)) {
+    const child = cp.spawn(execPath, [], {
+      cwd: path.dirname(execPath),
+      detached: true,
+      stdio: 'ignore',
+      shell: extension === 'bat' || extension === 'cmd',
+    })
+    const session = await startPlaySession(recordId, version, true)
+    trackChildPlaySession(child, session, recordId)
+    child.unref()
+  } else {
+    const openResult = await shell.openPath(execPath)
+    if (openResult) throw new Error(openResult)
+    await startPlaySession(recordId, version, false)
+  }
+}
 
 module.exports = function registerGamesHandlers(ctx) {
   const {
@@ -151,23 +235,16 @@ module.exports = function registerGamesHandlers(ctx) {
   })
 
   ipcMain.handle('launch-game', async (event, data) => {
-    const { recordId, version } = data
     try {
-      const selectedVersion = await getTrustedVersion(recordId, version)
-      const gamePath = selectedVersion.game_path
-      const ext = path.extname(gamePath).toLowerCase().replace('.', '')
-      const emulator = await getEmulatorByExtension(ext)
-      const launchPath = emulator ? emulator.path : gamePath
-      const args = emulator ? [gamePath] : []
-      const child = require('child_process').spawn(launchPath, args, {
-        detached: true,
-        stdio: 'ignore',
-      })
-      child.unref()
-      await recordGameLaunchStarted(recordId, version)
+      const selectedVersion = await getTrustedVersion(data?.recordId, data?.version)
+      const execPath = selectedVersion.exec_path || ''
+      const extension = execPath.includes('.')
+        ? execPath.split('.').pop().toLowerCase()
+        : ''
+      await launchGame({ execPath, extension, recordId: data.recordId, version: selectedVersion.version })
       return { success: true }
     } catch (err) {
-      console.error('launch-game error:', err)
+      console.error('Error launching game:', err)
       return { success: false, error: err.message }
     }
   })

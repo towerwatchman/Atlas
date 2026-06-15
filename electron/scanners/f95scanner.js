@@ -4,7 +4,7 @@ const {
   searchAtlas,
   searchAtlasByF95Id,
   checkRecordExist,
-} = require("../database");
+} = require("../db/index");
 
 const engineMap = {
   rpgm: [

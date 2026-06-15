@@ -9,7 +9,7 @@ const {
   getScreensUrlList,
   downloadAndConvertBanner,
   downloadAndConvertScreens,
-} = require("../database");
+} = require("../db/index");
 
 function parseVDF(text) {
   const lines = text
