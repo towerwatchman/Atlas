@@ -528,12 +528,34 @@ app.whenReady().then(async () => {
   // Initialize database
   initializeDatabase(dataDir)
 
-  // Load or create config
+  // Load or create config — merge parsed ini with defaults so missing
+  // keys always have a value and boolean strings are coerced correctly
+  function mergeConfigWithDefaults(parsed) {
+    const result = {}
+    for (const section of Object.keys(defaultConfig)) {
+      result[section] = { ...defaultConfig[section] }
+      if (parsed && parsed[section]) {
+        for (const key of Object.keys(defaultConfig[section])) {
+          const raw = parsed[section][key]
+          if (raw === undefined) continue
+          const def = defaultConfig[section][key]
+          if (typeof def === 'boolean') result[section][key] = raw === true || raw === 'true'
+          else if (typeof def === 'number') result[section][key] = Number(raw) || def
+          else result[section][key] = raw
+        }
+        for (const key of Object.keys(parsed[section])) {
+          if (!(key in defaultConfig[section])) result[section][key] = parsed[section][key]
+        }
+      }
+    }
+    return result
+  }
+
   if (fs.existsSync(configPath)) {
-    try { appConfig = ini.parse(fs.readFileSync(configPath, 'utf-8')) }
-    catch { appConfig = defaultConfig }
+    try { appConfig = mergeConfigWithDefaults(ini.parse(fs.readFileSync(configPath, 'utf-8'))) }
+    catch { appConfig = { ...defaultConfig } }
   } else {
-    appConfig = defaultConfig
+    appConfig = { ...defaultConfig }
     fs.writeFileSync(configPath, ini.stringify(defaultConfig))
   }
 
