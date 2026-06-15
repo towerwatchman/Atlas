@@ -27,12 +27,12 @@ jobs:
 
       - name: Install dependencies (Windows)
         if: matrix.os == 'windows-latest'
-        run: npm ci
+        run: npm install
         shell: cmd
 
       - name: Install dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: npm ci
+        run: npm install
         shell: bash
 
       - name: Install Linux system dependencies
