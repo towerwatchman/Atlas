@@ -4,7 +4,13 @@ const path = require('path')
 const { ipcMain } = require('electron')
 
 module.exports = function registerUpdaterHandlers(ctx) {
-  const { autoUpdater, checkDbUpdates, dataDir, mainWindow } = ctx
+  const {
+    autoUpdater,
+    checkDbUpdates,
+    dataDir,
+    mainWindow,
+    refreshAtlasMappingsFromSources,
+  } = ctx
 
   ipcMain.handle('check-updates', async () => {
     return await checkDbUpdates(path.join(dataDir, 'updates'), mainWindow)
@@ -62,5 +68,34 @@ module.exports = function registerUpdaterHandlers(ctx) {
 
   ipcMain.handle('check-db-updates', async () => {
     return await checkDbUpdates(path.join(dataDir, 'updates'), mainWindow)
+  })
+
+  ipcMain.handle('refresh-metadata-mappings', async () => {
+    try {
+      const dbUpdate = await checkDbUpdates(path.join(dataDir, 'updates'), mainWindow)
+      if (!dbUpdate?.success) {
+        return {
+          success: false,
+          dbUpdate,
+          remap: null,
+          error: dbUpdate?.error || 'Database update failed',
+        }
+      }
+
+      const remap = await refreshAtlasMappingsFromSources()
+      return {
+        success: remap?.success !== false,
+        dbUpdate,
+        remap,
+      }
+    } catch (err) {
+      console.error('refresh-metadata-mappings error:', err)
+      return {
+        success: false,
+        dbUpdate: null,
+        remap: null,
+        error: err.message,
+      }
+    }
   })
 }

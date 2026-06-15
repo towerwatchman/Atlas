@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("download-and-install-app-update"),
   installAppUpdate: () => ipcRenderer.invoke("install-app-update"),
   checkDbUpdates: () => ipcRenderer.invoke("check-db-updates"),
+  refreshMetadataMappings: () =>
+    ipcRenderer.invoke("refresh-metadata-mappings"),
   minimizeWindow: () => ipcRenderer.invoke("minimize-window"),
   maximizeWindow: () => ipcRenderer.invoke("maximize-window"),
   closeWindow: () => {

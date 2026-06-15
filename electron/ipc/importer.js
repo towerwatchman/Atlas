@@ -706,7 +706,7 @@ module.exports = function registerImporterHandlers(ctx) {
   const {
     mainWindow, importerWindow, appConfig, configPath, dataDir,
     searchAtlas, searchAtlasByF95Id, findF95Id, getAtlasData,
-    addAtlasMapping, checkPathExist, findExistingRecordForImport,
+    addAtlasMapping, addF95ZoneMapping, checkPathExist, findExistingRecordForImport,
     getImportRecordStatus, checkRecordExist, addGame, addVersion,
     upsertVersion, updateGame, updateFolderSize, getSteamIDbyRecord,
     getBannerUrl, getScreensUrlList,
@@ -1353,6 +1353,13 @@ ipcMain.handle("import-games", async (event, params) => {
         } catch (err) {
           console.error("Failed to add atlas mapping:", err);
           throw err;
+        }
+      }
+      if (game.f95Id) {
+        try {
+          await addF95ZoneMapping(recordId, game.f95Id);
+        } catch (err) {
+          console.warn("Failed to add F95 source mapping:", err.message);
         }
       }
 
