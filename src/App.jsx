@@ -1,6 +1,11 @@
-const { useState, useEffect, useRef, useCallback, useMemo } = window.React;
-const { createRoot } = window.ReactDOM;
-const { AutoSizer, Grid } = window.ReactVirtualized;
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { AutoSizer, Grid } from 'react-virtualized'
+import Sidebar from './components/ui/Sidebar.jsx'
+import { atlasLogo } from './assets/icons/data.js'
+import GameBanner from './components/library/GameBanner.jsx'
+import SearchBox from './components/search/SearchBox.jsx'
+import SearchSidebar from './components/search/SearchSidebar.jsx'
+import GameDetailPage from './components/detail/GameDetailPage.jsx'
 
 
 const App = () => {
@@ -914,7 +919,7 @@ const App = () => {
           maxWidth: "100%",
         }}
       >
-        <window.GameBanner game={game} onSelect={() => selectGame(game)} />
+        <GameBanner game={game} onSelect={() => selectGame(game)} />
       </div>
     );
   };
@@ -933,7 +938,7 @@ return (
           viewBox="0 0 24 24"
           style={{ shapeRendering: "geometricPrecision" }}
           fill="currentColor"
-          dangerouslySetInnerHTML={{ __html: window.atlasLogo.path }}
+          dangerouslySetInnerHTML={{ __html: atlasLogo.path }}
         />
       </div>
       <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)]">
@@ -957,7 +962,7 @@ return (
             </div>
           </div>
           <div className="flex justify-center w-full">
-            <window.SearchBox
+            <SearchBox
               value={activeFilters.text}
               onSearchChange={handleSearchChange}
               onToggleSidebar={toggleSearchSidebar}
@@ -1001,7 +1006,7 @@ return (
     {/* Main Content */}
     <div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
       {/* Left Sidebar (icons) - always visible */}
-      <window.Sidebar
+      <Sidebar
         onToggleGameList={toggleGameList}
         onCheckDbUpdates={runDbUpdateCheck}
         onGoHome={goBackToLibrary}
@@ -1034,7 +1039,7 @@ return (
         style={{ overflowX: "hidden" }}
       >
         {selectedGame ? (
-          <window.GameDetailPage
+          <GameDetailPage
             game={selectedGame}
             onBack={goBackToLibrary}
             onRefresh={refreshGame}
@@ -1076,7 +1081,7 @@ return (
 
       {/* Right Search Sidebar - overlays on top, toggled */}
       {showSearchSidebar && !selectedGame && (
-        <window.SearchSidebar
+        <SearchSidebar
           isVisible={showSearchSidebar}
           searchText={activeFilters.text}
           activeFilters={activeFilters}
@@ -1244,5 +1249,4 @@ return (
 );
 };
 
-const root = createRoot(document.getElementById("root"));
-root.render(<App />);
+export default App
