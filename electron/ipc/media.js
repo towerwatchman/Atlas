@@ -6,6 +6,7 @@ const fs = require('fs')
 const {
   downloadImages, buildBannerBaseName,
 } = require('../imageUtils')
+const { orderPreviewsBySource } = require('../db/mediaSources')
 
 // ── IPC Handlers (image download helpers are in ../imageUtils.js) ─────────────
 
@@ -18,6 +19,7 @@ module.exports = function registerMediaHandlers(ctx) {
     updateBanners, updatePreviews, getBannerUrl, getScreensUrlList,
     GetAtlasIDbyRecord, firstMediaPath,
     appConfig, configPath,
+    getMetadataSourceOrder,
   } = ctx
 
   ipcMain.handle('get-available-banner-templates', async () => {
@@ -59,7 +61,8 @@ module.exports = function registerMediaHandlers(ctx) {
   })
 
   ipcMain.handle('get-previews', async (event, recordId) => {
-    return await getPreviews(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode())
+    const previews = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode())
+    return orderPreviewsBySource(previews, getMetadataSourceOrder())
   })
 
   ipcMain.handle('update-banners', async (event, recordId) => {

@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.72 - 2026-06-15
+
+### Added
+- `electron/db/mediaSources.js`: added a shared module that parses `atlas_data.external_ids`, resolves the Steam app id, builds Steam `header_2x`/`library_hero`/`logo` art URLs, orders banners/previews by the configured source priority, and builds external-link entries.
+- `src/components/detail/externalLinks.js`: added a renderer-side helper to parse `external_ids` and build labelled external links.
+- `src/components/settings/Metadata.jsx`: added a reorderable Metadata Sources list (stored as `Metadata.sourceOrder`) that defines which source supplies banner images and previews; scales to additional sources beyond F95 and Steam.
+- `src/components/detail/window/MappingsTab.jsx`: added a Steam mapping row (shown with its app id) and an External Links section for the remaining `external_ids`.
+- `src/components/detail/GameDetailPage.jsx`: added an External Links section in the sidebar between Details and Tags.
+- `src/components/detail/page/HeroBanner.jsx`: the details-page hero now uses the Steam `library_hero` image when available and overlays the Steam `logo` in the bottom-left, Steam-style, with graceful fallback to the banner/title when art is missing.
+- Steam art is built from the unhashed Steam library CDN (`cdn.cloudflare.steamstatic.com/steam/apps/{appid}/…`) using `header.jpg` / `library_hero.jpg` / `logo.png`, since the high-res `header_2x.jpg` under `store_item_assets` requires a per-app content hash that isn't derivable from the app id. When a full Steam scan exists, the API-provided header/library_hero URLs (which may be the hashed high-res variants) are preferred.
+- `electron/db/mediaSources.js` / `src/hooks/useImageFallback.js`: banner/hero/logo are now emitted as ordered *candidate* lists and resolved in the renderer, so a 404 from one image falls through to the next (Steam CDN → Steam shared.fastly → next source, e.g. F95). `GameBanner` resolves the working url before handing it to banner templates; `HeroBanner` resolves the hero and logo the same way.
+
+### Changed
+- `electron/db/versions.js`: `getGame`/`getGames` now select `external_ids`, the per-source banner candidates, and the Steam header/library_hero/logo columns.
+- `electron/ipc/games.js` / `electron/ipc/media.js`: game results and preview lists are enriched/ordered by the configured metadata source order before reaching the renderer.
+
+### Fixed
+- `electron/ipc/games.js`: fixed the `get-games` handler passing mismatched positional arguments to `getGames`, which caused the install/uninstall filter and download storage mode to be ignored for the library grid.
+
+### Removed
+- `electron/database.js`: removed the legacy monolithic database module, which was dead code superseded by the `electron/db/` modules.
+
 ## 1.0.66 - 2026-05-20
 
 ### Changed

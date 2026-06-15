@@ -1,7 +1,20 @@
 import f95Logo from '../../../assets/images/f95_full.png'
 import atlasLogo from '../../../assets/images/atlas_logo.svg'
+import { parseExternalIds, buildExternalLinks } from '../externalLinks.js'
 
 export default function MappingsTab({ game, showModal, searchResults, onFindGame, onSelectGame, onCloseModal }) {
+  const externalIds = parseExternalIds(game.external_ids)
+  const steamAppId = game.steam_id || game.steam_appid || externalIds.steam_appid || externalIds.steam_id || null
+
+  // Steam is the only external source that carries a real id, so it is shown in
+  // the mappings table alongside Atlas/F95. Everything else in external_ids is a
+  // plain link (patreon, twitter, itch, …).
+  const otherLinks = buildExternalLinks(externalIds).filter(
+    (link) => link.key.toLowerCase() !== 'steam_appid' && link.key.toLowerCase() !== 'steam_id',
+  )
+
+  const hasAnyMapping = game.f95_id || game.atlas_id || steamAppId
+
   return (
     <>
       <div className="flex flex-col gap-4">
@@ -33,11 +46,54 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
                 <td className="p-2">{game.atlas_id}</td>
               </tr>
             )}
-            {!game.f95_id && !game.atlas_id && (
+            {steamAppId && (
+              <tr className="border-b border-border">
+                <td className="p-2">
+                  <i className="fab fa-steam" style={{ fontSize: 28 }} aria-hidden="true"></i>
+                </td>
+                <td className="p-2">Steam</td>
+                <td className="p-2">{steamAppId}</td>
+              </tr>
+            )}
+            {!hasAnyMapping && (
               <tr><td colSpan="3" className="p-2 text-center">No mappings available</td></tr>
             )}
           </tbody>
         </table>
+
+        {otherLinks.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold mb-2 opacity-80">External Links</h3>
+            <table className="w-full border-collapse">
+              <tbody>
+                {otherLinks.map((link) => (
+                  <tr key={link.key} className="border-b border-border">
+                    <td className="p-2 w-10 text-center">
+                      <i className={link.icon} aria-hidden="true"></i>
+                    </td>
+                    <td className="p-2">{link.label}</td>
+                    <td className="p-2">
+                      {link.url ? (
+                        <a
+                          href={link.url}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            window.electronAPI.openExternalUrl(link.url)
+                          }}
+                          className="text-accent hover:underline cursor-pointer break-all"
+                        >
+                          {link.value}
+                        </a>
+                      ) : (
+                        <span className="break-all">{link.value}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {showModal && (

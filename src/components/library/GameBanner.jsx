@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import useImageFallback from '../../hooks/useImageFallback.js'
 
 // Inline CSS for hover effects
 const bannerStyles = `
@@ -34,6 +35,15 @@ const bannerStyles = `
 
 const GameBanner = ({ game, onSelect }) => {
   const [template, setTemplate] = useState(null);
+
+  // Resolve the banner through the source-ordered fallback chain so a 404 from
+  // one source (e.g. Steam CDN) advances to the next (steam fastly, then f95).
+  // Templates only read game.banner_url, so we hand them a resolved url.
+  const bannerChain = game.banner_candidates || (game.banner_url ? [game.banner_url] : []);
+  const { src: resolvedBannerUrl } = useImageFallback(bannerChain);
+  const resolvedGame = resolvedBannerUrl === game.banner_url
+    ? game
+    : { ...game, banner_url: resolvedBannerUrl };
 
   useEffect(() => {
     // Log banner_url on mount or update
@@ -398,7 +408,7 @@ const GameBanner = ({ game, onSelect }) => {
   }
 
   const hasInstalledVersion = game.hasInstalledVersion !== false;
-  const renderedBanner = React.createElement(template, { game, onSelect });
+  const renderedBanner = React.createElement(template, { game: resolvedGame, onSelect });
 
   if (hasInstalledVersion) return renderedBanner;
 

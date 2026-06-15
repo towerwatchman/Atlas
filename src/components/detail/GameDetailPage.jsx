@@ -7,6 +7,7 @@ import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
   sortVersionsDesc, getInstalledVersions, getDefaultVersion,
 } from './page/gameDetailUtils.js'
+import { buildExternalLinks } from './externalLinks.js'
 
 const GameDetailPage = ({ game, onBack, onRefresh }) => {
   const [previews, setPreviews] = useState([])
@@ -130,6 +131,8 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   ].filter(([, v]) => v !== undefined && v !== null && v !== '')
 
   const localVersion = actionVersion?.version || selectedVersion?.version || game.versions?.[0]?.version || game.version || ''
+
+  const externalLinks = buildExternalLinks(game.external_ids)
 
   const infoRows = [
     ['Installed Version', localVersion], ['Latest Version', latestVersion],
@@ -311,6 +314,32 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
               {metadataRows.length === 0 && <div style={{ color: '#9ca3af' }}>No metadata available</div>}
             </div>
           </section>
+
+          {externalLinks.length > 0 && (
+            <section className="bg-secondary border border-border p-4">
+              <h2 className="text-lg font-semibold mb-3">External Links</h2>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {externalLinks.map((link) => (
+                  <div key={link.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                    <i className={link.icon} style={{ width: 18, textAlign: 'center', color: '#9ca3af' }} aria-hidden="true"></i>
+                    <span style={{ color: '#9ca3af', minWidth: 92 }}>{link.label}</span>
+                    {link.url ? (
+                      <a
+                        href={link.url}
+                        onClick={(e) => { e.preventDefault(); window.electronAPI.openExternalUrl(link.url) }}
+                        className="text-accent hover:underline"
+                        style={{ cursor: 'pointer', wordBreak: 'break-all' }}
+                      >
+                        {link.value}
+                      </a>
+                    ) : (
+                      <span style={{ wordBreak: 'break-all' }}>{link.value}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {game.f95_tags && (
             <section className="bg-secondary border border-border p-4">

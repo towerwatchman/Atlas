@@ -110,6 +110,11 @@ function getMediaStorageMode() {
   return appConfig?.Metadata?.mediaStorageMode === 'download' ? 'download' : 'stream'
 }
 
+const { normalizeSourceOrder } = require('./db/mediaSources')
+function getMetadataSourceOrder() {
+  return normalizeSourceOrder(appConfig?.Metadata?.sourceOrder)
+}
+
 function copyDirectoryIfMissing(source, target) {
   if (!source || !fs.existsSync(source)) return
   if (fs.existsSync(target)) {
@@ -191,6 +196,7 @@ const defaultConfig = {
   Metadata: {
     downloadPreviews: false,
     mediaStorageMode: 'stream',
+    sourceOrder: 'f95,steam',
   },
   Performance: {
     maxHeapSize: 4096,
@@ -518,6 +524,7 @@ function buildCtx() {
     autoUpdater, lastUpdateStatus, updateInfo, updateDownloaded, installAfterDownload,
     // path helpers
     getAssetBasePath, getMediaStorageMode, firstMediaPath,
+    getMetadataSourceOrder,
     normalizeForPathCompare, isPathInside, removeEmptyParentDirectories,
     isAllowedDeletionPath, getTrustedVersion, deleteTitleRecord,
     // db functions

@@ -25,6 +25,7 @@ const defaultConfig = {
   Metadata: {
     downloadPreviews: false,
     mediaStorageMode: 'stream',
+    sourceOrder: 'f95,steam',
   },
   Performance: {
     maxHeapSize: 4096,

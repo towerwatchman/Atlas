@@ -7,6 +7,7 @@ const cp = require('child_process')
 const { recordGameLaunchStarted, recordGamePlaytime } = require('../db/games')
 const { getEmulatorByExtension } = require('../db/settings')
 const { getSteamIDbyRecord } = require('../db/steam')
+const { applyMediaSources } = require('../db/mediaSources')
 
 function emitGameUpdated(recordId) {
   if (!recordId) return
@@ -92,6 +93,7 @@ function registerGamesHandlers(ctx) {
   const {
     getAssetBasePath, getMediaStorageMode, appConfig, configPath,
     gameDetailsRecordMap, recentlyDeletedGamePaths,
+    getMetadataSourceOrder,
     // db functions
     addGame, getGame, getGames, getGameRecordIds, removeGame, updateGame,
     upsertVersion, updateVersion, deleteGameCompletely, getUniqueFilterOptions,
@@ -104,6 +106,14 @@ function registerGamesHandlers(ctx) {
     // windows
     createGameDetailsWindow,
   } = ctx
+
+  // Attach the configurable media-source fields (banner/hero/logo + steam id)
+  // to a game (or array of games) right before it leaves for the renderer.
+  const withMedia = (data) => {
+    const sourceOrder = getMetadataSourceOrder()
+    if (Array.isArray(data)) return data.map((g) => applyMediaSources(g, { sourceOrder }))
+    return applyMediaSources(data, { sourceOrder })
+  }
 
   ipcMain.handle('add-game', async (event, game) => {
     return await addGame(game, getAssetBasePath(), process.defaultApp)
@@ -152,7 +162,8 @@ function registerGamesHandlers(ctx) {
   })
 
   ipcMain.handle('get-game', async (event, recordId) => {
-    return await getGame(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode())
+    const game = await getGame(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode())
+    return withMedia(game)
   })
 
   ipcMain.handle('request-game-data', async (event) => {
@@ -164,20 +175,23 @@ function registerGamesHandlers(ctx) {
     }
     const game = await getGame(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode())
     if (event.sender.isDestroyed()) return null
-    return game
+    return withMedia(game)
   })
 
   ipcMain.handle('get-games', async (event, args = {}) => {
-    const { offset, limit, includeUninstalled, options = {} } = args
-    return await getGames(
+    const { offset = 0, limit = null, includeUninstalled = false, options = {} } = args
+    const games = await getGames(
       getAssetBasePath(),
       process.defaultApp,
-      getMediaStorageMode(),
       offset,
       limit,
-      includeUninstalled,
-      options,
+      {
+        ...options,
+        includeUninstalled,
+        mediaStorageMode: getMediaStorageMode(),
+      },
     )
+    return withMedia(games)
   })
 
   ipcMain.handle('validate-library-paths', async (event) => {
@@ -196,7 +210,7 @@ function registerGamesHandlers(ctx) {
           processed++
           if (!sender.isDestroyed()) {
             sender.send('library-validation-progress', { processed, total: recordIds.length })
-            if (game) sender.send('game-updated', game)
+            if (game) sender.send('game-updated', withMedia(game))
           }
           if (processed % 25 === 0) await new Promise(resolve => setTimeout(resolve, 0))
         }

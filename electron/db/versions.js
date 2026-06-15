@@ -542,6 +542,14 @@ ${bannerSelectFields},
         atlas_data.release_date,
         atlas_data.voice,
         atlas_data.short_name,
+        atlas_data.external_ids as external_ids,
+        atlas_data.banner_wide as atlas_banner_wide,
+        atlas_data.banner as atlas_banner,
+        atlas_data.logo as atlas_logo,
+        f95_zone_data.banner_url as f95_banner,
+        steam_data.header as steam_header,
+        steam_data.library_hero as steam_library_hero,
+        steam_data.logo as steam_logo,
         GROUP_CONCAT(tags.tag) AS tags
       FROM
         games
@@ -650,6 +658,14 @@ ${bannerSelectFields},
         atlas_data.release_date,
         atlas_data.voice,
         atlas_data.short_name,
+        atlas_data.external_ids as external_ids,
+        atlas_data.banner_wide as atlas_banner_wide,
+        atlas_data.banner as atlas_banner,
+        atlas_data.logo as atlas_logo,
+        f95_zone_data.banner_url as f95_banner,
+        steam_data.header as steam_header,
+        steam_data.library_hero as steam_library_hero,
+        steam_data.logo as steam_logo,
         GROUP_CONCAT(tags.tag) AS tags
       FROM
         games
