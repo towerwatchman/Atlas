@@ -5,8 +5,7 @@ const path = require('path')
 // Shared query-building helpers. No circular deps — required by all domain files.
 // db is passed in at call time, NOT imported here.
 
-const getAssetBasePath = (appPath, isDev) =>
-  isDev ? path.join(appPath, "src") : appPath;
+const getAssetBasePath = (appPath) => appPath;
 
 const toLocalAssetPath = (appPath, isDev, assetPath) =>
   path.join(getAssetBasePath(appPath, isDev), assetPath).replace(/\\/g, "/");

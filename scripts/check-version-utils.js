@@ -2,7 +2,7 @@ const assert = require("assert");
 const {
   isNewerVersion,
   normalizeAppVersion,
-} = require("../src/core/versionUtils");
+} = require("../electron/utils/versionUtils");
 
 assert.strictEqual(normalizeAppVersion("v1.0.59"), "1.0.59");
 assert.strictEqual(isNewerVersion("v1.0.59", "1.0.59"), false);

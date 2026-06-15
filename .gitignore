@@ -9,7 +9,10 @@ src/data/data.db
 /dist
 /dist
 /dist
+/release
 data/data.db
 /src/_data
 src/data/config.ini
 /src/data/games
+/electron/data
+electron/data
