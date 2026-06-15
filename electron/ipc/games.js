@@ -95,7 +95,7 @@ function registerGamesHandlers(ctx) {
     // db functions
     addGame, getGame, getGames, getGameRecordIds, removeGame, updateGame,
     upsertVersion, updateVersion, deleteGameCompletely, getUniqueFilterOptions,
-    updateFolderSize, countVersions, deleteVersion,
+    updateFolderSize, countVersions, deleteVersion, getVersionForRecord,
     getVersionPathsForRecord, getVersionForRecord, getInstalledVersionsForRecord,
     recordGameLaunchStarted, recordGamePlaytime, getEmulatorByExtension,
     // helpers
@@ -115,7 +115,10 @@ function registerGamesHandlers(ctx) {
 
   ipcMain.handle('delete-version', async (_, { recordId, version }) => {
     try {
-      const selectedVersion = await getTrustedVersion(recordId, version)
+      // Get version directly without isInstalled check — allow deleting broken versions
+      const selectedVersion = await getVersionForRecord(recordId, version)
+      if (!selectedVersion) return { success: false, error: 'Version not found' }
+
       const folderPath = selectedVersion.game_path
         ? path.resolve(selectedVersion.game_path)
         : null

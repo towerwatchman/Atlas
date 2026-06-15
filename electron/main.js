@@ -292,27 +292,40 @@ async function getTrustedVersion(recordId, version) {
   return selectedVersion
 }
 
+function dedupeDeletionPaths(paths = []) {
+  const seen = new Set()
+  return paths
+    .filter(Boolean)
+    .map((p) => path.resolve(p))
+    .filter((p) => {
+      const key = normalizeForPathCompare(p)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .sort((a, b) => b.length - a.length)
+}
+
+async function deleteLinkedGameFolders(recordId, versionPaths) {
+  const pathsToDelete = dedupeDeletionPaths(versionPaths)
+  for (const targetPath of pathsToDelete) {
+    const resolvedPath = path.resolve(targetPath)
+    if (resolvedPath === path.parse(resolvedPath).root) throw new Error('Refusing to delete a drive root')
+    if (!(await isAllowedDeletionPath(recordId, resolvedPath))) throw new Error(`Folder is not linked to this game: ${resolvedPath}`)
+    const stat = await fs.promises.stat(resolvedPath).catch(() => null)
+    if (!stat) continue
+    if (!stat.isDirectory()) throw new Error(`Path is not a directory: ${resolvedPath}`)
+    await fs.promises.rm(resolvedPath, { recursive: true, force: true })
+    await removeEmptyParentDirectories(resolvedPath, appConfig?.Library?.gameFolder)
+  }
+}
+
 async function deleteTitleRecord(recordId, { deleteFiles = false } = {}) {
   if (!recordId) return { success: false, error: 'Missing record id' }
   try {
     const versionPaths = await getVersionPathsForRecord(recordId)
     if (deleteFiles) {
-      const dedupeDeletionPaths = (paths = []) => {
-        const seen = new Set()
-        return paths.filter(Boolean).map(p => path.resolve(p))
-          .filter(p => { const key = normalizeForPathCompare(p); if (seen.has(key)) return false; seen.add(key); return true })
-          .sort((a, b) => b.length - a.length)
-      }
-      for (const targetPath of dedupeDeletionPaths(versionPaths)) {
-        const resolvedPath = path.resolve(targetPath)
-        if (resolvedPath === path.parse(resolvedPath).root) throw new Error('Refusing to delete a drive root')
-        if (!(await isAllowedDeletionPath(recordId, resolvedPath))) throw new Error(`Folder is not linked to this game: ${resolvedPath}`)
-        const stat = await fs.promises.stat(resolvedPath).catch(() => null)
-        if (!stat) continue
-        if (!stat.isDirectory()) throw new Error(`Path is not a directory: ${resolvedPath}`)
-        await fs.promises.rm(resolvedPath, { recursive: true, force: true })
-        await removeEmptyParentDirectories(resolvedPath, appConfig?.Library?.gameFolder)
-      }
+      await deleteLinkedGameFolders(recordId, versionPaths)
     }
     const result = await deleteGameCompletely(recordId, getAssetBasePath(), process.defaultApp)
     if (!result.success) return result
