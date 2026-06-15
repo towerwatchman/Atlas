@@ -101,7 +101,7 @@ function getLegacyResourcesPath() {
 }
 
 function getAssetBasePath() {
-  return process.defaultApp ? app.getAppPath() : app.getPath('userData')
+  return process.defaultApp ? app.getAppPath() : getLegacyResourcesPath()
 }
 
 function getMediaStorageMode() {
@@ -124,8 +124,7 @@ function copyDirectoryIfMissing(source, target) {
 
 const firstMediaPath = (value) => Array.isArray(value) ? value[0] || '' : value || ''
 
-const appDataRoot = process.defaultApp ? __dirname : app.getPath('userData')
-const legacyResourcesPath = process.defaultApp ? null : getLegacyResourcesPath()
+const appDataRoot = process.defaultApp ? __dirname : getLegacyResourcesPath()
 var dataDir = path.join(appDataRoot, 'data')
 var launcherDir = path.join(appDataRoot, 'launchers')
 
@@ -135,8 +134,6 @@ if (process.defaultApp) {
   console.log('Running in development')
 } else {
   console.log('Running in release')
-  copyDirectoryIfMissing(path.join(legacyResourcesPath, 'data'), dataDir)
-  copyDirectoryIfMissing(path.join(legacyResourcesPath, 'launchers'), launcherDir)
 }
 
 fs.mkdirSync(dataDir, { recursive: true })
