@@ -24,25 +24,40 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+
+      - name: Install dependencies (Linux)
+        run: npm ci
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
 
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libarchive-tools rpm
+        shell: bash
 
-      - name: Build and publish (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Build and publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run publish
+        run: |
+          Write-Output "Starting build and publish for ${{ matrix.os }}"
+          npm run publish
+          Write-Output "Build and publish completed"
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
 
       - name: Build and publish (Linux)
-        if: matrix.os == 'ubuntu-latest'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx vite build && npx electron-builder --linux -p always
+        run: |
+          echo "Starting build and publish for ${{ matrix.os }}"
+          npx vite build && npx electron-builder --linux -p always
+          echo "Build and publish completed"
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash

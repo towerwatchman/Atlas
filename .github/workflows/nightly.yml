@@ -25,43 +25,63 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Set nightly version (Windows)
         if: matrix.os == 'windows-latest'
+        shell: pwsh
+
+      - name: Install dependencies (Linux)
+        run: npm ci
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+
+      - name: Set nightly version
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
-          $base = node -p "require('./package.json').version"
-          $nightly = "$base-nightly.${{ github.run_number }}"
-          npm version $nightly --no-git-tag-version
-          Write-Output "Nightly version: $nightly"
+          $baseVersion = node -p "require('./package.json').version"
+          $nightlyVersion = "$baseVersion-nightly.${{ github.run_number }}"
+          npm version $nightlyVersion --no-git-tag-version
+          Write-Output "Nightly version: $nightlyVersion"
 
       - name: Set nightly version (Linux)
         if: matrix.os == 'ubuntu-latest'
+        shell: bash
         run: |
-          base=$(node -p "require('./package.json').version")
-          nightly="${base}-nightly.${{ github.run_number }}"
-          npm version "$nightly" --no-git-tag-version
-          echo "Nightly version: $nightly"
+          base_version=$(node -p "require('./package.json').version")
+          nightly_version="${base_version}-nightly.${{ github.run_number }}"
+          npm version "$nightly_version" --no-git-tag-version
+          echo "Nightly version: $nightly_version"
 
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libarchive-tools rpm
+        shell: bash
 
-      - name: Build and publish nightly (Windows)
+      - name: Build and publish nightly prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Write-Output "Starting nightly prerelease build for ${{ matrix.os }}"
+          npx vite build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx electron-builder --win -p always --config.publish.releaseType=prerelease
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Output "Nightly prerelease build completed"
         if: matrix.os == 'windows-latest'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx vite build && npx electron-builder --win -p always --config.publish.releaseType=prerelease
+        shell: pwsh
 
-      - name: Build and publish nightly (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Build and publish nightly prerelease (Linux)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx vite build && npx electron-builder --linux -p always --config.publish.releaseType=prerelease
+        run: |
+          echo "Starting nightly prerelease build for ${{ matrix.os }}"
+          npx vite build && npx electron-builder --linux -p always --config.publish.releaseType=prerelease
+          echo "Nightly prerelease build completed"
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
