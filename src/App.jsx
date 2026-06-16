@@ -21,6 +21,20 @@ const debounce = (func, delay) => {
   }
 }
 
+const SIDE_PANEL_MODES = {
+  HIDDEN: 'hidden',
+  GAMES: 'games',
+  SAVED_FILTERS: 'savedFilters',
+  CATALOG: 'catalog',
+}
+
+const knownSidePanelModes = new Set(Object.values(SIDE_PANEL_MODES))
+
+const normalizeSidePanelMode = (value, legacyShowGameList = true) => {
+  if (knownSidePanelModes.has(value)) return value
+  return legacyShowGameList === false ? SIDE_PANEL_MODES.HIDDEN : SIDE_PANEL_MODES.GAMES
+}
+
 export class AppErrorBoundary extends Component {
   constructor(props) {
     super(props)
@@ -58,7 +72,7 @@ export class AppErrorBoundary extends Component {
 
 const App = () => {
   const [selectedGame, setSelectedGame] = useState(null)
-  const [sidebarMode, setSidebarMode] = useState('games')
+  const [sidebarMode, setSidebarMode] = useState(SIDE_PANEL_MODES.GAMES)
   const [libraryMode, setLibraryMode] = useState('local')
   const [showSearchSidebar, setShowSearchSidebar] = useState(false)
   const [userSavedFilters, setUserSavedFilters] = useState([])
@@ -75,9 +89,29 @@ const App = () => {
   const libraryScrollTopRef = useRef(0)
   const pendingLibraryScrollTopRestoreRef = useRef(null)
   const dbUpdateRunningRef = useRef(false)
-  const showGameList = sidebarMode === 'games'
-  const showSavedFilters = sidebarMode === 'savedFilters'
-  const showLibrarySidebar = sidebarMode !== 'hidden'
+  const showGameList = sidebarMode === SIDE_PANEL_MODES.GAMES
+  const showSavedFilters = sidebarMode === SIDE_PANEL_MODES.SAVED_FILTERS
+  const showLibrarySidebar = showGameList || showSavedFilters
+
+  const setAndPersistSidePanelMode = useCallback((requestedMode) => {
+    const nextMode = normalizeSidePanelMode(requestedMode)
+    setSidebarMode(nextMode)
+    window.electronAPI
+      .getConfig()
+      .then((config) => {
+        window.electronAPI.saveSettings({
+          ...config,
+          Interface: {
+            ...config.Interface,
+            sidePanelMode: nextMode,
+            showGameList:
+              nextMode !== SIDE_PANEL_MODES.HIDDEN &&
+              nextMode !== SIDE_PANEL_MODES.CATALOG,
+          },
+        })
+      })
+      .catch((err) => console.error('Failed to save side panel mode:', err))
+  }, [])
 
   // ── Hooks ──────────────────────────────────────────────────────────────────
   const {
@@ -136,8 +170,11 @@ const App = () => {
 
   const goHome = useCallback(() => {
     setLibraryMode('local')
+    if (sidebarMode === SIDE_PANEL_MODES.CATALOG) {
+      setAndPersistSidePanelMode(SIDE_PANEL_MODES.HIDDEN)
+    }
     goBackToLibrary()
-  }, [goBackToLibrary])
+  }, [goBackToLibrary, setAndPersistSidePanelMode, sidebarMode])
 
   const selectGame = useCallback((game) => {
     setShowSearchSidebar(false)
@@ -204,30 +241,22 @@ const App = () => {
   // ── Sidebar / list toggle ──────────────────────────────────────────────────
   const toggleGameList = () => {
     const nextMode =
-      sidebarMode === 'games'
-        ? 'savedFilters'
-        : sidebarMode === 'savedFilters'
-          ? 'hidden'
-          : 'games'
-    setSidebarMode(nextMode)
-    window.electronAPI
-      .getConfig()
-      .then((config) => {
-        window.electronAPI.saveSettings({
-          ...config,
-          Interface: { ...config.Interface, showGameList: nextMode !== 'hidden' },
-        })
-      })
-      .catch((err) => console.error('Failed to save game list visibility:', err))
+      sidebarMode === SIDE_PANEL_MODES.GAMES
+        ? SIDE_PANEL_MODES.SAVED_FILTERS
+        : sidebarMode === SIDE_PANEL_MODES.SAVED_FILTERS
+          ? SIDE_PANEL_MODES.HIDDEN
+          : SIDE_PANEL_MODES.GAMES
+    setLibraryMode('local')
+    setAndPersistSidePanelMode(nextMode)
   }
 
   const browseCatalog = useCallback(() => {
     setLibraryMode('catalog')
     setSelectedGame(null)
-    setSidebarMode('hidden')
+    setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
     setShowSearchSidebar(false)
     fetchCatalogGames()
-  }, [fetchCatalogGames])
+  }, [fetchCatalogGames, setAndPersistSidePanelMode])
 
   const toggleSearchSidebar = useCallback(() => {
     if (selectedGame) return
@@ -426,8 +455,16 @@ const App = () => {
   // ── IPC listeners + init ───────────────────────────────────────────────────
   useEffect(() => {
     window.electronAPI.getConfig()
-      .then((config) => setSidebarMode((config.Interface?.showGameList ?? true) ? 'games' : 'hidden'))
-      .catch(() => setSidebarMode('games'))
+      .then((config) => {
+        const nextMode = normalizeSidePanelMode(
+          config.Interface?.sidePanelMode,
+          config.Interface?.showGameList ?? true,
+        )
+        setSidebarMode(nextMode)
+        setLibraryMode(nextMode === SIDE_PANEL_MODES.CATALOG ? 'catalog' : 'local')
+        if (nextMode === SIDE_PANEL_MODES.CATALOG) fetchCatalogGames()
+      })
+      .catch(() => setSidebarMode(SIDE_PANEL_MODES.GAMES))
 
     fetchGames(false).then(() => window.electronAPI.validateLibraryPaths?.())
     loadSavedFilters()

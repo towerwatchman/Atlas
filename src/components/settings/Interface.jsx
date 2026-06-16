@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+
+const visibleSidePanelModes = new Set(['games', 'savedFilters'])
+
 const Interface = () => {
   const [language, setLanguage] = useState("English");
   const [atlasStartup, setAtlasStartup] = useState("Do Nothing");
@@ -32,7 +35,11 @@ const Interface = () => {
       setGameStartup(interfaceSettings.gameStartup || "Do Nothing");
       setShowDebugConsole(interfaceSettings.showDebugConsole || false);
       setMinimizeToTray(interfaceSettings.minimizeToTray || false);
-      setShowGameList(interfaceSettings.showGameList ?? true);
+      setShowGameList(
+        interfaceSettings.sidePanelMode
+          ? visibleSidePanelModes.has(interfaceSettings.sidePanelMode)
+          : interfaceSettings.showGameList ?? true,
+      );
       setCheckForAppUpdatesOnStartup(
         interfaceSettings.checkForAppUpdatesOnStartup ?? true,
       );
@@ -64,7 +71,7 @@ const Interface = () => {
   const handleShowSidebarChange = () => {
     const newVal = !showGameList;
     setShowGameList(newVal);
-    saveSettings({ showGameList: newVal });
+    saveSettings({ showGameList: newVal, sidePanelMode: newVal ? 'games' : 'hidden' });
     alert("Sidebar visibility change requires app restart.");
   };
 

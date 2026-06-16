@@ -184,6 +184,7 @@ const defaultConfig = {
     minimizeToTray: false,
     checkForAppUpdatesOnStartup: true,
     showGameList: true,
+    sidePanelMode: 'games',
   },
   Library: {
     rootPath: dataDir,
