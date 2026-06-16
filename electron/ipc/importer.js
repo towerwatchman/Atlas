@@ -1582,7 +1582,7 @@ ipcMain.handle("import-games", async (event, params) => {
           });
         }
       }
-      results.push({ success: true, recordId, atlasId: game.atlasId });
+      results.push({ success: true, recordId, atlasId: game.atlasId, steamId: game.steamId });
       session.cleanupPaths = [];
 
       progress++;
@@ -1637,6 +1637,24 @@ ipcMain.handle("import-games", async (event, params) => {
     total,
     canCancel: false,
   });
+
+  // Enrich imported Steam games in the background so the import itself never
+  // blocks on per-game network calls. Only touches games actually imported,
+  // throttled gently, emitting game-updated as each row's metadata lands.
+  const steamToEnrich = results.filter((r) => r.success && r.steamId);
+  if (steamToEnrich.length > 0) {
+    ;(async () => {
+      for (const r of steamToEnrich) {
+        try {
+          await fetchAndStoreSteamData(null, r.steamId);
+          mainWindow?.webContents?.send("game-updated", r.recordId);
+        } catch (err) {
+          console.error(`Background steam enrichment failed for ${r.steamId}:`, err);
+        }
+        await new Promise((res) => setTimeout(res, 800));
+      }
+    })();
+  }
 
   // Phase 2: Image downloads
   if (downloadBannerImages || downloadPreviewImages) {

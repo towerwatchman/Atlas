@@ -4,6 +4,7 @@ const dbModule = require('./index')
 const getDb = () => dbModule.db
 const fs = require('fs')
 const fsPromises = require('fs').promises
+const path = require('path')
 const { DEFAULT_LAUNCHABLE_EXTENSIONS, normalizeExtensions,
         isLaunchableFile, findLaunchablesInFolder,
         chooseLaunchableForRepair } = require('./versions')
@@ -107,9 +108,11 @@ const repairStaleVersionExecutables = (
     getDb().serialize(async () => {
       try {
         const rows = await all(
-          `SELECT rowid, record_id, version, game_path, exec_path
-           FROM versions
-           WHERE game_path IS NOT NULL AND TRIM(game_path) != ''`,
+          `SELECT v.rowid, v.record_id, v.version, v.game_path, v.exec_path
+           FROM versions v
+           LEFT JOIN steam_mappings sm ON v.record_id = sm.record_id
+           WHERE v.game_path IS NOT NULL AND TRIM(v.game_path) != ''
+             AND sm.steam_id IS NULL`,
         );
         let repaired = 0;
 

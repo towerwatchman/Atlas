@@ -807,4 +807,9 @@ module.exports = {
   getGame,
   getGames,
   normalizePathForCompare,
+  DEFAULT_LAUNCHABLE_EXTENSIONS,
+  normalizeExtensions,
+  isLaunchableFile,
+  findLaunchablesInFolder,
+  chooseLaunchableForRepair,
 }

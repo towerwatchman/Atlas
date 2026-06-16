@@ -333,8 +333,8 @@ async function getInstalledSteamGames(overridePath = null) {
   return games;
 }
 
-const STEAM_FETCH_DELAY_MS = 1500; // stay well under the ~200 req / 5 min limit
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Steam metadata is fetched lazily (at import time, in the background) rather
+// than during the scan, so the scan never blocks on the network.
 
 // Read a cached steam_data row so repeat scans don't re-hit the network.
 function getCachedSteamData(db, steamId) {
@@ -421,19 +421,11 @@ async function startSteamScan(db, params, event) {
     for (const steamGame of installedGames) {
       const appId = parseInt(steamGame.appid, 10);
 
-      // Prefer cached metadata; only hit the network (throttled) on a miss so a
-      // first scan of a large library stays within Steam's rate limit and
-      // re-scans are instant. Enrichment failures fall back to the .acf name.
-      let meta = await getCachedSteamData(db, appId);
-      if (!meta) {
-        try {
-          meta = await fetchAndStoreSteamData(db, appId);
-        } catch (err) {
-          console.error(`Steam enrichment failed for ${appId}:`, err);
-          meta = null;
-        }
-        await delay(STEAM_FETCH_DELAY_MS);
-      }
+      // Cache-only during the scan: never hit the network here. Games already
+      // in steam_data (from a prior import/scan) show full metadata instantly;
+      // unknown games fall back to their .acf name and are enriched in the
+      // background at import time.
+      const meta = await getCachedSteamData(db, appId);
 
       const game = {
         title: (meta && meta.title) || steamGame.name,
