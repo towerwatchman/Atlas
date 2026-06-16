@@ -7,6 +7,8 @@ const {
   downloadImages, buildBannerBaseName,
 } = require('../imageUtils')
 const { orderPreviewsBySource } = require('../db/mediaSources')
+const { getSteamIDbyRecord } = require('../db/steam')
+const { fetchAndStoreSteamData } = require('../scanners/steamscanner')
 
 // ── IPC Handlers (image download helpers are in ../imageUtils.js) ─────────────
 
@@ -140,9 +142,21 @@ module.exports = function registerMediaHandlers(ctx) {
 
   ipcMain.handle('refresh-game-media', async (event, recordId) => {
     try {
-      await updateBanners(recordId, getAssetBasePath(), process.defaultApp)
-      await updatePreviews(recordId, getAssetBasePath(), process.defaultApp)
-      return { success: true }
+      // For Steam-mapped games, re-fetch live metadata so steam_data,
+      // steam_screens and steam_movies (trailers) are repopulated — this is the
+      // only way games imported before a given enrichment get refreshed.
+      const steamId = await getSteamIDbyRecord(recordId)
+      if (steamId) {
+        await fetchAndStoreSteamData(null, steamId)
+      }
+      const previewUrls = orderPreviewsBySource(
+        await getPreviews(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode()),
+        getMetadataSourceOrder(),
+      )
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send('game-updated', recordId)
+      })
+      return { success: true, previewUrls }
     } catch (err) {
       console.error('refresh-game-media error:', err)
       return { success: false, error: err.message }

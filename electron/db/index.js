@@ -319,6 +319,16 @@ const initializeDatabase = (dataDir) => {
   );
 `);
     db.run(`
+  CREATE TABLE IF NOT EXISTS steam_movies
+  (
+    steam_id INTEGER REFERENCES steam_data (steam_id),
+    movie_url TEXT NOT NULL,
+    thumbnail TEXT,
+    name TEXT,
+    UNIQUE (steam_id, movie_url)
+  );
+`);
+    db.run(`
   CREATE TABLE IF NOT EXISTS steam_mappings
   (
     record_id INTEGER REFERENCES games (record_id) PRIMARY KEY,

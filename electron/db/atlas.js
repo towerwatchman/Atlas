@@ -357,6 +357,19 @@ const getImportRecordStatus = (game) => {
   };
 
   return new Promise((resolve, reject) => {
+    const steamId = game.steamId || game.steam_id || null;
+
+    // Steam games launch via steam:// and store a placeholder exec_path, so the
+    // file-based path/exec checks below never apply to them — running those is
+    // what made every already-imported Steam game look like "repairPath".
+    // Resolve purely by appid instead: a direct steam_mapping means it's already
+    // in the library; an Atlas/f95 record listing the appid is a merge target
+    // (attach as another version); otherwise it's new.
+    if (steamId) {
+      resolveBySteamId(steamId);
+      return;
+    }
+
     if (gamePath) {
       getDb().get(
         `SELECT record_id, exec_path FROM versions WHERE game_path = ? LIMIT 1`,
@@ -370,32 +383,42 @@ const getImportRecordStatus = (game) => {
             resolve(statusForVersionRow(pathRow, true));
             return;
           }
-          resolveBySteamId();
+          resolveByAtlasVersionMatch();
         },
       );
       return;
     }
 
-    resolveBySteamId();
+    resolveByAtlasVersionMatch();
 
-    // A scanned Steam install whose appid already belongs to a record (direct
-    // mapping, or an Atlas/f95 record listing the appid) should attach to that
-    // record as another version rather than become a new title.
-    function resolveBySteamId() {
-      const steamId = game.steamId || game.steam_id || null;
-      if (!steamId) {
-        resolveByAtlasVersionMatch();
-        return;
-      }
-      findRecordBySteamId(steamId)
-        .then((recordId) => {
-          if (recordId) {
-            resolve({ status: "repairPath", recordId, exactPath: false });
-          } else {
-            resolveByAtlasVersionMatch();
+    function resolveBySteamId(sid) {
+      getDb().get(
+        `SELECT record_id FROM steam_mappings WHERE steam_id = ? LIMIT 1`,
+        [sid],
+        (err, row) => {
+          if (err) {
+            reject(err);
+            return;
           }
-        })
-        .catch(reject);
+          if (row?.record_id) {
+            resolve({
+              status: "alreadyImported",
+              recordId: row.record_id,
+              exactPath: false,
+            });
+            return;
+          }
+          findRecordBySteamId(sid)
+            .then((recordId) => {
+              resolve(
+                recordId
+                  ? { status: "repairPath", recordId, exactPath: false }
+                  : { status: "new", recordId: null, exactPath: false },
+              );
+            })
+            .catch(reject);
+        },
+      );
     }
 
     function resolveByAtlasVersionMatch() {

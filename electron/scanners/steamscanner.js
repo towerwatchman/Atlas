@@ -111,6 +111,20 @@ async function getSteamGameData(steamId) {
       ? data.screenshots.map((s) => s.path_full)
       : [];
 
+    // Trailers: prefer the highest-quality mp4 (broadly supported), fall back
+    // to webm. Each movie carries a thumbnail and name.
+    const movies = (data.movies || [])
+      .map((m) => {
+        const url =
+          (m.mp4 && (m.mp4.max || m.mp4["480"])) ||
+          (m.webm && (m.webm.max || m.webm["480"])) ||
+          "";
+        return url
+          ? { url, thumbnail: m.thumbnail || "", name: m.name || "" }
+          : null;
+      })
+      .filter(Boolean);
+
     const game = {
       steam_id: parseInt(steamId),
       title: data.name || "",
@@ -137,7 +151,7 @@ async function getSteamGameData(steamId) {
       last_record_update: new Date().toISOString(),
     };
 
-    return { game, screenshots };
+    return { game, screenshots, movies };
   } catch (error) {
     console.error(`Error fetching game data for appid ${steamId}:`, error);
     return null;
@@ -191,6 +205,25 @@ async function insertSteamScreens(db, steamId, screens) {
       );
       for (const url of screens) {
         stmt.run([steamId, url]);
+      }
+      stmt.finalize();
+      db.run("COMMIT", (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  });
+}
+
+async function insertSteamMovies(db, steamId, movies) {
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run("BEGIN TRANSACTION");
+      const stmt = db.prepare(
+        `INSERT OR IGNORE INTO steam_movies (steam_id, movie_url, thumbnail, name) VALUES (?, ?, ?, ?)`,
+      );
+      for (const movie of movies) {
+        stmt.run([steamId, movie.url, movie.thumbnail || "", movie.name || ""]);
       }
       stmt.finalize();
       db.run("COMMIT", (err) => {
@@ -367,6 +400,13 @@ async function fetchAndStoreSteamData(db, steamId) {
           database,
           parseInt(steamId, 10),
           result.screenshots,
+        );
+      }
+      if (result.movies && result.movies.length > 0) {
+        await insertSteamMovies(
+          database,
+          parseInt(steamId, 10),
+          result.movies,
         );
       }
     }

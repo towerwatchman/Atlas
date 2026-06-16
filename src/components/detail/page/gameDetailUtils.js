@@ -55,6 +55,9 @@ export const formatPlaytime = (minutes) => {
   return `${hours}h ${mins}m played`
 }
 
+export const isVideoUrl = (url) =>
+  /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ''))
+
 export const LAUNCH_STATE = { IDLE: 'idle', LAUNCHING: 'launching', RUNNING: 'running' }
 
 export const STEAM_GREEN  = '#5ba300'

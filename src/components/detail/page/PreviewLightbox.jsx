@@ -1,6 +1,9 @@
 export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPrev, onNext }) {
   if (lightboxIndex === null || !previews[lightboxIndex]) return null
 
+  const current = previews[lightboxIndex]
+  const isVideo = /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(current || ''))
+
   return (
     <div
       onClick={onClose}
@@ -40,13 +43,23 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
         </button>
       )}
 
-      {/* Image */}
-      <img
-        src={previews[lightboxIndex]}
-        alt={`Preview ${lightboxIndex + 1}`}
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
-      />
+      {/* Media */}
+      {isVideo ? (
+        <video
+          src={current}
+          controls
+          autoPlay
+          onClick={(e) => e.stopPropagation()}
+          style={{ maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)', background: '#000' }}
+        />
+      ) : (
+        <img
+          src={current}
+          alt={`Preview ${lightboxIndex + 1}`}
+          onClick={(e) => e.stopPropagation()}
+          style={{ maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
+        />
+      )}
 
       {/* Next */}
       {previews.length > 1 && (

@@ -5,7 +5,7 @@ import InfoPanel from './page/InfoPanel.jsx'
 import PreviewLightbox from './page/PreviewLightbox.jsx'
 import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
-  sortVersionsDesc, getInstalledVersions, getDefaultVersion,
+  sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl,
 } from './page/gameDetailUtils.js'
 import { buildExternalLinks } from './externalLinks.js'
 
@@ -253,12 +253,21 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
               {previews.map((preview, index) => (
                 <div
                   key={`${preview}-${index}`}
-                  className="border border-border overflow-hidden aspect-video cursor-pointer hover:border-accent transition-colors"
+                  className="border border-border overflow-hidden aspect-video cursor-pointer hover:border-accent transition-colors relative"
                   style={{ maxWidth: 600 }}
                   onClick={() => setLightboxIndex(index)}
-                  title="Click to view"
+                  title={isVideoUrl(preview) ? 'Play trailer' : 'Click to view'}
                 >
-                  <img src={preview} alt={`Preview ${index + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  {isVideoUrl(preview) ? (
+                    <>
+                      <video src={preview} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#000' }} />
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)', pointerEvents: 'none' }}>
+                        <i className="fas fa-play-circle" style={{ fontSize: 44, color: 'rgba(255,255,255,0.92)', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.6))' }}></i>
+                      </div>
+                    </>
+                  ) : (
+                    <img src={preview} alt={`Preview ${index + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  )}
                 </div>
               ))}
             </div>

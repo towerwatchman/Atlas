@@ -345,7 +345,18 @@ const Importer = () => {
   const addScannedGame = (game) => {
     const gameKey = getScanGameKey(game)
     if (deletedScanGameKeysRef.current.has(gameKey)) return
-    setGamesList((prev) => [...prev, game])
+    setGamesList((prev) => {
+      // Guard against the scan-complete (append) vs scan-complete-final
+      // (replace) race: if a row with this key already exists, replace it
+      // instead of appending a duplicate.
+      const idx = prev.findIndex((g) => getScanGameKey(g) === gameKey)
+      if (idx !== -1) {
+        const next = prev.slice()
+        next[idx] = game
+        return next
+      }
+      return [...prev, game]
+    })
   }
 
   // Re-read config when user navigates to settings step so latest saved settings apply

@@ -99,27 +99,33 @@ const updatePreviews = (recordId, previewPath) => {
 const getRemotePreviewUrls = (recordId) => {
   return new Promise((resolve, reject) => {
     const query = `
-      SELECT DISTINCT url FROM (
-        SELECT f95_zone_screens.screen_url AS url
+      SELECT url FROM (
+        SELECT steam_movies.movie_url AS url, 0 AS sort_order
+        FROM steam_movies
+        JOIN steam_mappings ON steam_movies.steam_id = steam_mappings.steam_id
+        WHERE steam_mappings.record_id = ?
+        UNION
+        SELECT f95_zone_screens.screen_url AS url, 1 AS sort_order
         FROM f95_zone_screens
         JOIN f95_zone_data ON f95_zone_screens.f95_id = f95_zone_data.f95_id
         JOIN atlas_mappings ON f95_zone_data.atlas_id = atlas_mappings.atlas_id
         WHERE atlas_mappings.record_id = ?
         UNION
-        SELECT atlas_previews.preview_url AS url
+        SELECT atlas_previews.preview_url AS url, 1 AS sort_order
         FROM atlas_previews
         JOIN atlas_mappings ON atlas_previews.atlas_id = atlas_mappings.atlas_id
         WHERE atlas_mappings.record_id = ?
         UNION
-        SELECT steam_screens.screen_url AS url
+        SELECT steam_screens.screen_url AS url, 1 AS sort_order
         FROM steam_screens
         JOIN steam_mappings ON steam_screens.steam_id = steam_mappings.steam_id
         WHERE steam_mappings.record_id = ?
       )
       WHERE url IS NOT NULL AND TRIM(url) != ''
+      ORDER BY sort_order
     `;
 
-    getDb().all(query, [recordId, recordId, recordId], (err, rows) => {
+    getDb().all(query, [recordId, recordId, recordId, recordId], (err, rows) => {
       if (err) {
         reject(err);
         return;
