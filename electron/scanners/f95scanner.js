@@ -653,6 +653,7 @@ async function findGame(
       multipleVisible,
       folder: isArchive || isFile ? path.dirname(t) : t,
       sourceFile: isArchive ? t : undefined,
+      sourceRoot: rootPath,
       results,
       resultSelectedValue: results[0]?.key || "",
       resultVisibility: results.length > 0 ? "visible" : "hidden",

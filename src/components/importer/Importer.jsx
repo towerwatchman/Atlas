@@ -489,7 +489,7 @@ const Importer = () => {
         } catch { alert('Error saving library path. Import continues without moving.') }
       }
     }
-    const importParams = { games: gamesToImport, deleteAfter, scanSize, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos, gameExt: gameExt.split(',').map((e) => e.trim()), moveToDefaultFolder: moveGame && !!finalLibraryPath, forceReimport, libraryFormat }
+    const importParams = { games: gamesToImport, sourceRoot: folder, deleteAfter, scanSize, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos, gameExt: gameExt.split(',').map((e) => e.trim()), moveToDefaultFolder: moveGame && !!finalLibraryPath, forceReimport, libraryFormat }
     try {
       window.electronAPI.importGames(importParams)
       window.electronAPI.closeWindow()

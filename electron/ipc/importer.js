@@ -596,7 +596,12 @@ function isPathInside(parentPath, childPath) {
 async function removeEmptyParentDirectories(startPath, stopAtPath) {
   if (!startPath || !stopAtPath) return;
 
-  let current = path.dirname(path.resolve(startPath));
+  const resolvedStart = path.resolve(startPath);
+  const startStat = await fs.promises.lstat(resolvedStart).catch(() => null);
+  let current =
+    startStat?.isDirectory() && !startStat.isSymbolicLink()
+      ? resolvedStart
+      : path.dirname(resolvedStart);
   const stopAt = path.resolve(stopAtPath);
 
   while (
@@ -605,10 +610,29 @@ async function removeEmptyParentDirectories(startPath, stopAtPath) {
     isPathInside(stopAt, current) &&
     normalizeForPathCompare(current) !== normalizeForPathCompare(stopAt)
   ) {
-    const entries = await fs.promises.readdir(current).catch(() => null);
+    const stat = await fs.promises.lstat(current).catch((err) => {
+      console.warn(`Empty parent cleanup stopped; cannot stat ${current}: ${err.message}`);
+      return null;
+    });
+    if (!stat) break;
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      console.warn(`Empty parent cleanup stopped; not a normal directory: ${current}`);
+      break;
+    }
+
+    const entries = await fs.promises.readdir(current).catch((err) => {
+      console.warn(`Empty parent cleanup stopped; cannot read ${current}: ${err.message}`);
+      return null;
+    });
     if (!entries || entries.length > 0) break;
 
-    await fs.promises.rmdir(current).catch(() => {});
+    try {
+      await fs.promises.rmdir(current);
+      console.log(`Deleted empty parent folder: ${current}`);
+    } catch (err) {
+      console.warn(`Empty parent cleanup stopped; failed to remove ${current}: ${err.message}`);
+      break;
+    }
     current = path.dirname(current);
   }
 }
@@ -1140,6 +1164,7 @@ ipcMain.handle("import-games", async (event, params) => {
 
   const {
     games: submittedGames,
+    sourceRoot,
     deleteAfter,
     scanSize,
     downloadBannerImages,
@@ -1252,6 +1277,7 @@ ipcMain.handle("import-games", async (event, params) => {
       let execPath = game.selectedValue
         ? path.join(game.folder, game.selectedValue)
         : "";
+      const sourceCleanupRoot = game.sourceRoot || sourceRoot;
 
       let size = 0;
       let archiveToDeleteAfterImport = null;
@@ -1267,6 +1293,7 @@ ipcMain.handle("import-games", async (event, params) => {
           destinationPath = getUniquePath(destinationPath);
         }
 
+        const originalSourcePath = gamePath;
         await fsp.mkdir(path.dirname(destinationPath), { recursive: true });
         mainWindow.webContents.send("import-progress", {
           text: `${deleteAfter ? "Moving" : "Copying"} ${game.title} to library...`,
@@ -1283,6 +1310,7 @@ ipcMain.handle("import-games", async (event, params) => {
             await fsp.cp(gamePath, destinationPath, { recursive: true });
             await fsp.rm(gamePath, { recursive: true, force: true });
           }
+          await removeEmptyParentDirectories(originalSourcePath, sourceCleanupRoot);
         } else {
           await fsp.cp(gamePath, destinationPath, { recursive: true });
         }
@@ -1578,6 +1606,7 @@ ipcMain.handle("import-games", async (event, params) => {
       if (archiveToDeleteAfterImport) {
         try {
           await fsp.unlink(archiveToDeleteAfterImport);
+          await removeEmptyParentDirectories(archiveToDeleteAfterImport, sourceCleanupRoot);
           console.log(`Deleted archive after successful import: ${archiveToDeleteAfterImport}`);
           mainWindow.webContents.send("import-progress", {
             text: `Deleted original archive after importing ${game.title}`,
