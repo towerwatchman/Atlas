@@ -155,13 +155,31 @@ module.exports = function registerWindowsHandlers(ctx) {
   })
 
   ipcMain.handle('delete-folder-recursive', async (event, { recordId, folderPath }) => {
-    const { isAllowedDeletionPath, removeEmptyParentDirectories, appConfig } = ctx
+    const { isAllowedDeletionPath, removeEmptyParentDirectories, appConfig, deletePathWithElevationFallback } = ctx
     try {
       const resolvedPath = path.resolve(folderPath)
       if (!(await isAllowedDeletionPath(recordId, resolvedPath))) {
         return { success: false, error: 'Folder is not linked to this game' }
       }
-      await fs.promises.rm(resolvedPath, { recursive: true, force: true })
+      const deleteResult = await deletePathWithElevationFallback(resolvedPath, {
+        recursive: true,
+        force: true,
+        description: 'Delete game folder',
+        window: BrowserWindow.fromWebContents(event.sender),
+        validatePath: async (candidatePath) => {
+          if (candidatePath === path.parse(candidatePath).root) throw new Error('Refusing to delete a drive root')
+          if (!(await isAllowedDeletionPath(recordId, candidatePath))) {
+            throw new Error('Folder is not linked to this game')
+          }
+        },
+      })
+      if (!deleteResult.success) {
+        return {
+          success: false,
+          canceled: deleteResult.canceled,
+          error: deleteResult.error || 'Delete skipped',
+        }
+      }
       await removeEmptyParentDirectories(resolvedPath, appConfig?.Library?.gameFolder)
       return { success: true }
     } catch (err) {

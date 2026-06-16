@@ -13,6 +13,9 @@ const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
 const { getGame } = require('../db/versions')
 const { fetchAndStoreSteamData, findSteamId } = require('../scanners/steamscanner')
 const { findRecordBySteamId } = require('../db/steam')
+const { deletePathWithElevationFallback } = require('../deleteUtils')
+
+let ownerMainWindow = null
 
 // ── Importer helper functions ──────────────────────────────────────
 
@@ -126,7 +129,13 @@ async function moveFolderFast(source, destination, onProgress, shouldCancel) {
   }
 
   await copyFolderWithProgress(source, destination, onProgress, shouldCancel);
-  await fs.promises.rm(source, { recursive: true, force: true });
+  const deleteResult = await deletePathWithElevationFallback(source, {
+    recursive: true,
+    force: true,
+    description: "Delete original source folder",
+    window: ownerMainWindow,
+  });
+  if (!deleteResult.success) throw new Error(deleteResult.error || "Source cleanup skipped");
   return "copy";
 }
 
@@ -593,6 +602,22 @@ function isPathInside(parentPath, childPath) {
   );
 }
 
+function validateSourceCleanupPath(targetPath, sourceRoot) {
+  const resolvedTarget = path.resolve(targetPath);
+  const resolvedSourceRoot = sourceRoot ? path.resolve(sourceRoot) : "";
+  if (resolvedTarget === path.parse(resolvedTarget).root) {
+    throw new Error("Refusing to delete a drive root");
+  }
+  if (resolvedSourceRoot) {
+    if (normalizeForPathCompare(resolvedTarget) === normalizeForPathCompare(resolvedSourceRoot)) {
+      throw new Error("Refusing to delete the scan source root");
+    }
+    if (!isPathInside(resolvedSourceRoot, resolvedTarget)) {
+      throw new Error("Refusing to delete outside the scan source root");
+    }
+  }
+}
+
 async function removeEmptyParentDirectories(startPath, stopAtPath) {
   if (!startPath || !stopAtPath) return;
 
@@ -673,7 +698,21 @@ async function deleteLinkedGameFolders(recordId, versionPaths) {
       throw new Error(`Path is not a directory: ${resolvedPath}`);
     }
 
-    await fs.promises.rm(resolvedPath, { recursive: true, force: true });
+    const deleteResult = await deletePathWithElevationFallback(resolvedPath, {
+      recursive: true,
+      force: true,
+      description: "Delete game folder",
+      window: ownerMainWindow,
+      validatePath: async (candidatePath) => {
+        if (candidatePath === path.parse(candidatePath).root) {
+          throw new Error("Refusing to delete a drive root");
+        }
+        if (!(await isAllowedDeletionPath(recordId, candidatePath))) {
+          throw new Error(`Folder is not linked to this game: ${candidatePath}`);
+        }
+      },
+    });
+    if (!deleteResult.success) throw new Error(deleteResult.error || "Delete skipped");
     await removeEmptyParentDirectories(
       resolvedPath,
       appConfig?.Library?.gameFolder,
@@ -757,7 +796,12 @@ async function isAllowedDeletionPath(recordId, folderPath) {
 async function removePathIfExists(targetPath) {
   if (!targetPath) return;
   try {
-    await fs.promises.rm(targetPath, { recursive: true, force: true });
+    await deletePathWithElevationFallback(targetPath, {
+      recursive: true,
+      force: true,
+      description: "Remove incomplete import files",
+      window: ownerMainWindow,
+    });
   } catch (err) {
     console.error(`Failed to remove incomplete import path ${targetPath}:`, err);
   }
@@ -768,7 +812,7 @@ async function replaceInstalledVersionAfterImport({
   newVersion,
   newGamePath,
   replaceVersion,
-  sender = mainWindow,
+  sender = ownerMainWindow,
 }) {
   const selectedReplaceVersion = String(replaceVersion || "").trim();
   if (!recordId || !selectedReplaceVersion) return { replaced: false };
@@ -843,7 +887,37 @@ async function replaceInstalledVersionAfterImport({
     }
 
     try {
-      await fs.promises.rm(resolvedOldPath, { recursive: true, force: true });
+      const deleteResult = await deletePathWithElevationFallback(resolvedOldPath, {
+        recursive: true,
+        force: true,
+        description: `Delete old version ${selectedReplaceVersion}`,
+        window: sender,
+        validatePath: async (candidatePath) => {
+          if (candidatePath === path.parse(candidatePath).root) {
+            throw new Error("Refusing to delete a drive root");
+          }
+          if (!(await isAllowedDeletionPath(recordId, candidatePath))) {
+            throw new Error("Replacement path is not allowed for deletion");
+          }
+        },
+        onProgress: (text) => {
+          sender?.webContents?.send("import-progress", {
+            text,
+            progress: 0,
+            total: 0,
+            canCancel: true,
+          });
+        },
+      });
+      if (!deleteResult.success) {
+        return {
+          replaced: false,
+          skipped: true,
+          reason: deleteResult.canceled
+            ? "Administrator delete was canceled"
+            : deleteResult.error || "Failed to delete replacement files",
+        };
+      }
       await removeEmptyParentDirectories(
         resolvedOldPath,
         appConfig?.Library?.gameFolder,
@@ -942,6 +1016,7 @@ module.exports = function registerImporterHandlers(ctx) {
     startSteamScan, startScan, getAssetBasePath, getMediaStorageMode,
     recentlyDeletedGamePaths, db,
   } = ctx
+  ownerMainWindow = mainWindow
 
 ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
   try {
@@ -1308,7 +1383,29 @@ ipcMain.handle("import-games", async (event, params) => {
           } catch (moveErr) {
             if (moveErr.code !== "EXDEV") throw moveErr;
             await fsp.cp(gamePath, destinationPath, { recursive: true });
-            await fsp.rm(gamePath, { recursive: true, force: true });
+            const deleteResult = await deletePathWithElevationFallback(gamePath, {
+              recursive: true,
+              force: true,
+              description: `Delete original source folder for ${game.title}`,
+              window: mainWindow,
+              validatePath: (candidatePath) =>
+                validateSourceCleanupPath(candidatePath, sourceCleanupRoot),
+              onProgress: (text) =>
+                mainWindow.webContents.send("import-progress", {
+                  text,
+                  progress,
+                  total,
+                  canCancel: true,
+                }),
+            });
+            if (!deleteResult.success) {
+              mainWindow.webContents.send("import-progress", {
+                text: `Copied ${game.title}, but source files were not deleted: ${deleteResult.error || "permission denied"}`,
+                progress,
+                total,
+                canCancel: true,
+              });
+            }
           }
           await removeEmptyParentDirectories(originalSourcePath, sourceCleanupRoot);
         } else {
@@ -1401,7 +1498,17 @@ ipcMain.handle("import-games", async (event, params) => {
             const stat = await fsp.stat(target).catch(() => null);
             if (stat && stat.isDirectory()) {
               console.log(`Removing unwanted folder: ${folderName}`);
-              await fsp.rm(target, { recursive: true, force: true });
+              await deletePathWithElevationFallback(target, {
+                recursive: true,
+                force: true,
+                description: `Delete extracted ${folderName} folder`,
+                window: mainWindow,
+                validatePath: (candidatePath) => {
+                  if (!isPathInside(extractPath, candidatePath)) {
+                    throw new Error("Refusing to delete outside the extraction folder");
+                  }
+                },
+              });
             }
           } catch (err) {
             console.warn(`Failed to remove ${folderName}: ${err.message}`);
@@ -1605,11 +1712,30 @@ ipcMain.handle("import-games", async (event, params) => {
       }
       if (archiveToDeleteAfterImport) {
         try {
-          await fsp.unlink(archiveToDeleteAfterImport);
+          const deleteResult = await deletePathWithElevationFallback(archiveToDeleteAfterImport, {
+            recursive: false,
+            force: true,
+            description: `Delete original archive for ${game.title}`,
+            window: mainWindow,
+            validatePath: (candidatePath) =>
+              validateSourceCleanupPath(candidatePath, sourceCleanupRoot),
+            onProgress: (text) =>
+              mainWindow.webContents.send("import-progress", {
+                text,
+                progress,
+                total,
+                canCancel: true,
+              }),
+          });
+          if (!deleteResult.success) {
+            throw new Error(deleteResult.error || "Archive delete skipped");
+          }
           await removeEmptyParentDirectories(archiveToDeleteAfterImport, sourceCleanupRoot);
           console.log(`Deleted archive after successful import: ${archiveToDeleteAfterImport}`);
           mainWindow.webContents.send("import-progress", {
-            text: `Deleted original archive after importing ${game.title}`,
+            text: deleteResult.elevated
+              ? `Deleted original archive with administrator approval after importing ${game.title}`
+              : `Deleted original archive after importing ${game.title}`,
             progress,
             total,
             canCancel: true,

@@ -9,6 +9,7 @@ const dbModule = require('./index')
 const getDb = () => dbModule.db
 const { toLocalAssetPath, normalizeMediaStorageMode, remoteBannerExpression,
         buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
+const { deletePathWithElevationFallback } = require('../deleteUtils')
 
 
 const updateFolderSize = (recordId, version, size) => {
@@ -311,6 +312,7 @@ const getBanner = (recordId, appPath, isDev, type, mediaStorageMode = "stream") 
 const deleteBanner = (recordId, appPath, isDev) => {
   return new Promise(async (resolve, reject) => {
     try {
+      const mediaRoot = path.resolve(getAssetBasePath(appPath, isDev), "data", "images");
       const banners = await getBanners(recordId, appPath, isDev);
       for (const banner_path of banners) {
         const filePath = banner_path.replace("file://", ""); // Adjust to data/images
@@ -322,7 +324,18 @@ const deleteBanner = (recordId, appPath, isDev) => {
               .then(() => true)
               .catch(() => false)
           ) {
-            await fsPromises.unlink(filePath);
+            await deletePathWithElevationFallback(filePath, {
+              recursive: false,
+              force: true,
+              description: "Delete banner image",
+              validatePath: (candidatePath) => {
+                const resolved = path.resolve(candidatePath);
+                const relative = path.relative(mediaRoot, resolved);
+                if (relative.startsWith("..") || path.isAbsolute(relative)) {
+                  throw new Error("Banner path is outside the media folder");
+                }
+              },
+            });
             console.log("Deleted preview file:", filePath);
           } else {
             console.log("Preview file does not exist:", filePath);
@@ -351,6 +364,7 @@ const deleteBanner = (recordId, appPath, isDev) => {
 const deletePreviews = (recordId, appPath, isDev) => {
   return new Promise(async (resolve, reject) => {
     try {
+      const mediaRoot = path.resolve(getAssetBasePath(appPath, isDev), "data", "images");
       const previews = await new Promise((resolveLocal, rejectLocal) => {
         getDb().all(
           `SELECT path FROM previews WHERE record_id = ?`,
@@ -375,7 +389,18 @@ const deletePreviews = (recordId, appPath, isDev) => {
               .then(() => true)
               .catch(() => false)
           ) {
-            await fsPromises.unlink(filePath);
+            await deletePathWithElevationFallback(filePath, {
+              recursive: false,
+              force: true,
+              description: "Delete preview image",
+              validatePath: (candidatePath) => {
+                const resolved = path.resolve(candidatePath);
+                const relative = path.relative(mediaRoot, resolved);
+                if (relative.startsWith("..") || path.isAbsolute(relative)) {
+                  throw new Error("Preview path is outside the media folder");
+                }
+              },
+            });
             console.log("Deleted preview file:", filePath);
           } else {
             console.log("Preview file does not exist:", filePath);

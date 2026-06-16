@@ -57,6 +57,7 @@ const { db } = require('./db/index')
 
 const { startSteamScan } = require('./scanners/steamscanner')
 const { startScan } = require('./scanners/f95scanner')
+const { deletePathWithElevationFallback } = require('./deleteUtils')
 
 // IPC domain modules
 const { registerGamesHandlers } = require('./ipc/games')
@@ -336,7 +337,19 @@ async function deleteLinkedGameFolders(recordId, versionPaths) {
     const stat = await fs.promises.stat(resolvedPath).catch(() => null)
     if (!stat) continue
     if (!stat.isDirectory()) throw new Error(`Path is not a directory: ${resolvedPath}`)
-    await fs.promises.rm(resolvedPath, { recursive: true, force: true })
+    const deleteResult = await deletePathWithElevationFallback(resolvedPath, {
+      recursive: true,
+      force: true,
+      description: 'Delete game folder',
+      window: mainWindow,
+      validatePath: async (candidatePath) => {
+        if (candidatePath === path.parse(candidatePath).root) throw new Error('Refusing to delete a drive root')
+        if (!(await isAllowedDeletionPath(recordId, candidatePath))) {
+          throw new Error(`Folder is not linked to this game: ${candidatePath}`)
+        }
+      },
+    })
+    if (!deleteResult.success) throw new Error(deleteResult.error || 'Delete skipped')
     await removeEmptyParentDirectories(resolvedPath, appConfig?.Library?.gameFolder)
   }
 }
@@ -526,6 +539,7 @@ function buildCtx() {
     getAssetBasePath, getMediaStorageMode, firstMediaPath,
     getMetadataSourceOrder,
     normalizeForPathCompare, isPathInside, removeEmptyParentDirectories,
+    deletePathWithElevationFallback,
     isAllowedDeletionPath, getTrustedVersion, deleteTitleRecord,
     // db functions
     addGame, updateGame, addVersion, upsertVersion, updateVersion,
