@@ -1,10 +1,13 @@
 'use strict'
 
-const { ipcMain, dialog, BrowserWindow } = require('electron')
+const { ipcMain, dialog, BrowserWindow, app } = require('electron')
 const { downloadImages, buildBannerBaseName } = require('../imageUtils')
 const path = require('path')
 const fs = require('fs')
 const fsp = require('fs').promises
+const cp = require('child_process')
+const ini = require('ini')
+const { Worker } = require('worker_threads')
 const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
         checkRecordExist, checkPathExist } = require('../db/atlas')
 const { getGame } = require('../db/versions')
@@ -126,11 +129,13 @@ async function moveFolderFast(source, destination, onProgress, shouldCancel) {
 }
 
 async function getArchiveInfo(archivePath, sevenZipBin) {
-  if (!sevenZipBin || !fs.existsSync(sevenZipBin)) {
+  if (!sevenZipBin || (!isPathCommand(sevenZipBin) && !fs.existsSync(sevenZipBin))) {
     return { totalFiles: 0, totalUncompressedBytes: 0 };
   }
   return new Promise((resolve, reject) => {
-    const child = cp.spawn(sevenZipBin, ["l", archivePath, "-y"]);
+    const child = cp.spawn(sevenZipBin, ["l", archivePath, "-y"], {
+      windowsHide: true,
+    });
     let output = "";
     child.stdout.on("data", (d) => (output += d.toString()));
     child.stderr.on("data", (d) => (output += d.toString()));
@@ -306,20 +311,32 @@ function getCommonSevenZipPaths() {
     possiblePaths.push(
       "C:\\Program Files\\7-Zip\\7z.exe",
       "C:\\Program Files (x86)\\7-Zip\\7z.exe",
+      "C:\\Program Files\\7-Zip\\7za.exe",
+      "C:\\Program Files (x86)\\7-Zip\\7za.exe",
+      "C:\\Program Files\\7-Zip\\7zz.exe",
+      "C:\\Program Files (x86)\\7-Zip\\7zz.exe",
     );
   } else if (process.platform === "linux") {
     possiblePaths.push("/usr/bin/7z", "/usr/bin/7zz", "/usr/local/bin/7z");
+  } else if (process.platform === "darwin") {
+    possiblePaths.push(
+      "/usr/local/bin/7z",
+      "/opt/homebrew/bin/7z",
+      "/usr/local/bin/7zz",
+      "/opt/homebrew/bin/7zz",
+    );
   }
   return possiblePaths;
 }
 
-function saveSevenZipPath(sevenZipPath) {
+function saveSevenZipPath(sevenZipPath, currentConfig, currentConfigPath) {
+  if (!currentConfigPath) return currentConfig;
   const newConfig = {
-    ...appConfig,
-    Library: { ...appConfig.Library, sevenZipPath },
+    ...currentConfig,
+    Library: { ...(currentConfig?.Library || {}), sevenZipPath },
   };
-  fs.writeFileSync(configPath, ini.stringify(newConfig));
-  appConfig = newConfig;
+  fs.writeFileSync(currentConfigPath, ini.stringify(newConfig));
+  return newConfig;
 }
 
 function getBundledSevenZipPath() {
@@ -330,6 +347,180 @@ function getBundledSevenZipPath() {
     console.warn("Bundled 7-Zip unavailable:", err.message);
     return null;
   }
+}
+
+function isExistingFile(filePath) {
+  try {
+    return Boolean(filePath && fs.existsSync(filePath) && fs.statSync(filePath).isFile());
+  } catch {
+    return false;
+  }
+}
+
+function isPathCommand(candidate) {
+  return Boolean(
+    candidate &&
+      !path.isAbsolute(candidate) &&
+      !candidate.includes(path.sep) &&
+      !candidate.includes("/") &&
+      !candidate.includes("\\"),
+  );
+}
+
+function getSevenZipDisplayName(candidate) {
+  return isPathCommand(candidate) ? candidate : path.basename(candidate);
+}
+
+function showOpenDialog(ownerWindow, options) {
+  return ownerWindow
+    ? dialog.showOpenDialog(ownerWindow, options)
+    : dialog.showOpenDialog(options);
+}
+
+function showMessageBox(ownerWindow, options) {
+  return ownerWindow
+    ? dialog.showMessageBox(ownerWindow, options)
+    : dialog.showMessageBox(options);
+}
+
+function canSpawnSevenZip(candidate) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+    const finish = (usable) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(usable);
+    };
+
+    let child = null;
+    try {
+      child = cp.spawn(candidate, ["i"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+    } catch {
+      finish(false);
+      return;
+    }
+
+    timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {}
+      finish(false);
+    }, 5000);
+
+    child.on("error", () => finish(false));
+    child.on("close", (code) => finish(code === 0));
+  });
+}
+
+async function testSevenZipCandidate(candidate) {
+  const normalized = String(candidate || "").trim();
+  if (!normalized) return false;
+  if (!isPathCommand(normalized) && !isExistingFile(normalized)) return false;
+  return canSpawnSevenZip(normalized);
+}
+
+async function resolveSevenZipExecutablePath({
+  configuredPath,
+  currentConfig,
+  currentConfigPath,
+  ownerWindow,
+  notify,
+  allowManualSelection = true,
+} = {}) {
+  const candidates = [];
+
+  if (configuredPath) {
+    candidates.push({
+      path: configuredPath,
+      source: "configured",
+      message: "Using configured 7-Zip",
+    });
+  }
+
+  const bundledPath = getBundledSevenZipPath();
+  if (bundledPath) {
+    candidates.push({
+      path: bundledPath,
+      source: "bundled",
+      message: "Using bundled 7-Zip",
+    });
+  }
+
+  for (const candidate of getCommonSevenZipPaths()) {
+    candidates.push({
+      path: candidate,
+      source: "local install",
+      message: "Auto-detected 7-Zip",
+      persist: true,
+    });
+  }
+
+  for (const command of ["7z", "7za", "7zz"]) {
+    candidates.push({
+      path: command,
+      source: "PATH",
+      message: "Using 7-Zip from PATH",
+    });
+  }
+
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const candidatePath = String(candidate.path || "").trim();
+    const key = candidatePath.toLowerCase();
+    if (!candidatePath || seen.has(key)) continue;
+    seen.add(key);
+
+    if (await testSevenZipCandidate(candidatePath)) {
+      if (candidate.persist) {
+        saveSevenZipPath(candidatePath, currentConfig, currentConfigPath);
+      }
+      notify?.(`${candidate.message}: ${getSevenZipDisplayName(candidatePath)}`);
+      console.log(`[Importer] ${candidate.message} (${candidate.source}): ${candidatePath}`);
+      return { path: candidatePath, source: candidate.source };
+    }
+
+    if (candidate.source === "configured") {
+      console.warn(`[Importer] Configured 7-Zip is not usable: ${candidatePath}`);
+    }
+  }
+
+  if (!allowManualSelection) return null;
+
+  const result = await showOpenDialog(ownerWindow, {
+    title: "Select 7-Zip executable (7z, 7za, or 7zz)",
+    properties: ["openFile"],
+    filters: [
+      {
+        name: "7-Zip Executable",
+        extensions: process.platform === "win32" ? ["exe"] : ["*"],
+      },
+      { name: "All Files", extensions: ["*"] },
+    ],
+  });
+
+  if (result.canceled || !result.filePaths?.length) return null;
+
+  const selectedPath = result.filePaths[0];
+  if (!(await testSevenZipCandidate(selectedPath))) {
+    await showMessageBox(ownerWindow, {
+      type: "error",
+      title: "Invalid 7-Zip executable",
+      message:
+        "Atlas could not run the selected 7-Zip executable. Please choose a valid 7z, 7za, or 7zz executable.",
+    });
+    console.warn(`[Importer] Selected 7-Zip is not usable: ${selectedPath}`);
+    return null;
+  }
+
+  saveSevenZipPath(selectedPath, currentConfig, currentConfigPath);
+  notify?.(`Using selected 7-Zip: ${getSevenZipDisplayName(selectedPath)}`);
+  console.log(`[Importer] Using selected 7-Zip (manual): ${selectedPath}`);
+  return { path: selectedPath, source: "manual" };
 }
 
 function extractArchiveWithSevenZip(archivePath, extractPath) {
@@ -722,8 +913,23 @@ module.exports = function registerImporterHandlers(ctx) {
 
 ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
   try {
-    const sevenZipBin = getSevenZipExecutablePath();
-    const extraction = await extractArchive(zipPath, extractPath, sevenZipBin);
+    const ownerWindow = BrowserWindow.fromWebContents(event.sender);
+    const resolvedSevenZip = await resolveSevenZipExecutablePath({
+      configuredPath: appConfig?.Library?.sevenZipPath,
+      currentConfig: appConfig,
+      currentConfigPath: configPath,
+      ownerWindow,
+    });
+    if (!resolvedSevenZip?.path) {
+      throw new Error(
+        "7-Zip executable not found. Bundled 7zip was unavailable and no local 7-Zip installation could be detected.",
+      );
+    }
+    const extraction = await extractArchive(
+      zipPath,
+      extractPath,
+      resolvedSevenZip.path,
+    );
     return { success: true, extractPath: extraction.finalPath || extractPath };
   } catch (err) {
     return { success: false, error: err.message };
@@ -988,84 +1194,34 @@ ipcMain.handle("import-games", async (event, params) => {
   }
 
   // ────────────────────────────────────────────────────────────────
-  //  Prepare 7-Zip path – check once at the beginning
+  //  Resolve 7-Zip once before archive extraction
   // ────────────────────────────────────────────────────────────────
-  let sevenZipPath = appConfig?.Library?.sevenZipPath;
+  let sevenZipPath = null;
 
   const needsExtraction = games.some((g) => g.isArchive === true);
 
   if (needsExtraction) {
-    if (!sevenZipPath || !fs.existsSync(sevenZipPath)) {
-      sevenZipPath = getBundledSevenZipPath();
-      if (sevenZipPath) {
+    const resolvedSevenZip = await resolveSevenZipExecutablePath({
+      configuredPath: appConfig?.Library?.sevenZipPath,
+      currentConfig: appConfig,
+      currentConfigPath: configPath,
+      ownerWindow: mainWindow,
+      notify: (text) =>
         mainWindow.webContents.send("import-progress", {
-          text: `Using bundled 7-Zip: ${path.basename(sevenZipPath)}`,
+          text,
           progress: 0,
           total: 0,
-        });
-      }
+        }),
+    });
+
+    if (!resolvedSevenZip?.path) {
+      throw new Error(
+        "7-Zip executable not found. Bundled 7zip was unavailable and no local 7-Zip installation could be detected.",
+      );
     }
 
-    // Try to auto-detect if not set
-    if (!sevenZipPath || !fs.existsSync(sevenZipPath)) {
-      const possiblePaths = [];
-      if (process.platform === "win32") {
-        possiblePaths.push(
-          "C:\\Program Files\\7-Zip\\7z.exe",
-          "C:\\Program Files (x86)\\7-Zip\\7z.exe",
-        );
-      } else if (process.platform === "linux") {
-        possiblePaths.push("/usr/bin/7z", "/usr/bin/7zz", "/usr/local/bin/7z");
-      }
+    sevenZipPath = resolvedSevenZip.path;
 
-      for (const p of possiblePaths) {
-        if (fs.existsSync(p)) {
-          sevenZipPath = p;
-          // Auto-save it
-          saveSevenZipPath(p);
-          mainWindow.webContents.send("import-progress", {
-            text: `Auto-detected 7-Zip: ${path.basename(p)}`,
-            progress: 0,
-            total: 0,
-          });
-          break;
-        }
-      }
-    }
-
-    // Still not found → ask user
-    if (!sevenZipPath || !fs.existsSync(sevenZipPath)) {
-      const result = await dialog.showOpenDialog(mainWindow, {
-        title: "Select 7-Zip executable (7z or 7zz)",
-        properties: ["openFile"],
-        filters: [
-          {
-            name: "7-Zip Executable",
-            extensions: process.platform === "win32" ? ["exe"] : ["*"],
-          },
-          { name: "All Files", extensions: ["*"] },
-        ],
-      });
-
-      if (!result.canceled && result.filePaths?.length > 0) {
-        sevenZipPath = result.filePaths[0];
-        // Save to config
-        saveSevenZipPath(sevenZipPath);
-        mainWindow.webContents.send("import-progress", {
-          text: `Using selected 7-Zip: ${path.basename(sevenZipPath)}`,
-          progress: 0,
-          total: 0,
-        });
-      } else {
-        // User cancelled; archive rows will fail later if imported.
-        mainWindow.webContents.send("import-progress", {
-          text: "7-Zip not selected - archive rows cannot be imported",
-          progress: 0,
-          total: 0,
-        });
-        sevenZipPath = null;
-      }
-    }
   }
 
   const results = [];
@@ -1128,7 +1284,7 @@ ipcMain.handle("import-games", async (event, params) => {
 
       // ── Archive extraction ───────────────────────────────────────
       if (game.isArchive) {
-        if (!sevenZipPath || !fs.existsSync(sevenZipPath)) {
+        if (!sevenZipPath) {
           throw new Error("7-Zip is required for archive extraction");
         }
 
