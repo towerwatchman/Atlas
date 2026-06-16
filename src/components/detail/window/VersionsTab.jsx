@@ -1,7 +1,7 @@
 export default function VersionsTab({
   versions, selectedVersion, versionData,
   onVersionSelect, onVersionInputChange,
-  onSetPath, onChangeExecutable,
+  onSetPath, onOpenGamePath, onChangeExecutable,
   onAddVersion, onRemoveVersion, onDeleteVersionFiles,
 }) {
   return (
@@ -40,6 +40,13 @@ export default function VersionsTab({
           <label className="w-24">Game Path</label>
           <input name="game_path" value={versionData.game_path || ''} onChange={onVersionInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
           <button onClick={onSetPath} className="ml-2 px-2 py-1 bg-tertiary hover:bg-button_hover rounded">Change</button>
+          <button
+            onClick={onOpenGamePath}
+            disabled={!versionData.game_path}
+            className="ml-2 px-2 py-1 bg-tertiary hover:bg-button_hover rounded disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Open
+          </button>
         </div>
         <div className="flex items-center">
           <label className="w-24">Executable</label>

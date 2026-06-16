@@ -219,18 +219,62 @@ const GameDetailWindow = () => {
     }
   }
 
-  const handleSetPath = () => {
-    if (versionData.game_path) { window.electronAPI.openDirectory(versionData.game_path); return }
-    window.electronAPI.selectDirectory()
-      .then((path) => { if (path) setVersionData({ ...versionData, game_path: path }) })
-      .catch(console.error)
+  const updateSelectedVersionPath = async (changes) => {
+    if (!selectedVersion) {
+      alert('No version selected.')
+      return
+    }
+    const nextVersion = {
+      ...selectedVersion,
+      previousVersion: selectedVersion.version,
+      version: selectedVersion.version,
+      game_path: Object.prototype.hasOwnProperty.call(changes, 'game_path')
+        ? changes.game_path
+        : selectedVersion.game_path,
+      exec_path: Object.prototype.hasOwnProperty.call(changes, 'exec_path')
+        ? changes.exec_path
+        : selectedVersion.exec_path,
+    }
+    await window.electronAPI.updateVersion(nextVersion, game.record_id)
+    const refreshedGame = await window.electronAPI.getGame(game.record_id)
+    if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion.version)
   }
 
-  const handleChangeExecutable = () => {
-    if (versionData.executable) { window.electronAPI.openDirectory(versionData.executable); return }
-    window.electronAPI.selectFile()
-      .then((path) => { if (path) setVersionData({ ...versionData, executable: path }) })
-      .catch(console.error)
+  const handleSetPath = async () => {
+    try {
+      const selectedPath = await window.electronAPI.selectDirectory()
+      if (!selectedPath) return
+      setVersionData((current) => ({ ...current, game_path: selectedPath }))
+      await updateSelectedVersionPath({ game_path: selectedPath })
+    } catch (err) {
+      console.error('Failed to change game path:', err)
+      alert(`Failed to change game path: ${err.message || 'Unknown error'}`)
+    }
+  }
+
+  const handleOpenGamePath = async () => {
+    if (!versionData.game_path) {
+      alert('No game folder is set for this version.')
+      return
+    }
+    try {
+      await window.electronAPI.openDirectory(versionData.game_path)
+    } catch (err) {
+      console.error('Failed to open game folder:', err)
+      alert(`Failed to open game folder: ${err.message || 'Unknown error'}`)
+    }
+  }
+
+  const handleChangeExecutable = async () => {
+    try {
+      const selectedPath = await window.electronAPI.selectFile()
+      if (!selectedPath) return
+      setVersionData((current) => ({ ...current, executable: selectedPath }))
+      await updateSelectedVersionPath({ exec_path: selectedPath })
+    } catch (err) {
+      console.error('Failed to change executable:', err)
+      alert(`Failed to change executable: ${err.message || 'Unknown error'}`)
+    }
   }
 
   const handleRemoveVersion = async () => {
@@ -399,6 +443,7 @@ const GameDetailWindow = () => {
                 onVersionSelect={handleVersionSelect}
                 onVersionInputChange={(e) => setVersionData({ ...versionData, [e.target.name]: e.target.value })}
                 onSetPath={handleSetPath}
+                onOpenGamePath={handleOpenGamePath}
                 onChangeExecutable={handleChangeExecutable}
                 onAddVersion={() => console.log('TODO: Add version')}
                 onRemoveVersion={handleRemoveVersion}
