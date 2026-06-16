@@ -13,6 +13,13 @@ const { deleteBanner, deletePreviews } = require('./media')
 let cachedFilterOptions = null
 const resetCachedFilterOptions = () => { cachedFilterOptions = null }
 
+const dbRun = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    getDb().run(sql, params, function onRun(err) {
+      if (err) reject(err)
+      else resolve(this)
+    })
+  })
 
 const addGame = (game) => {
   return new Promise((resolve, reject) => {
@@ -198,11 +205,26 @@ const deleteVersion = (recordId, version) =>
 // Full cleanup (images + mappings + versions + game record)
 
 const deleteGameCompletely = async (recordId, appPath, isDev) => {
+  const warnings = [];
+
   try {
     await deleteBanner(recordId, appPath, isDev);
-    await deletePreviews(recordId, appPath, isDev);
+  } catch (err) {
+    console.warn("deleteGameCompletely banner cleanup warning:", err);
+    warnings.push(`Banner cleanup: ${err.message}`);
+  }
 
+  try {
+    await deletePreviews(recordId, appPath, isDev);
+  } catch (err) {
+    console.warn("deleteGameCompletely preview cleanup warning:", err);
+    warnings.push(`Preview cleanup: ${err.message}`);
+  }
+
+  try {
     const tables = [
+      "banners",
+      "previews",
       "atlas_mappings",
       "steam_mappings",
       "f95_zone_mappings",
@@ -210,27 +232,23 @@ const deleteGameCompletely = async (recordId, appPath, isDev) => {
       // add others if you have more
     ];
 
-    for (const tbl of tables) {
-      await new Promise((r, j) =>
-        getDb().run(`DELETE FROM ${tbl} WHERE record_id = ?`, [recordId], (e) =>
-          e ? j(e) : r(),
-        ),
-      );
+    await dbRun("BEGIN IMMEDIATE TRANSACTION");
+    try {
+      for (const tbl of tables) {
+        await dbRun(`DELETE FROM ${tbl} WHERE record_id = ?`, [recordId]);
+      }
+
+      await dbRun(`DELETE FROM versions WHERE record_id = ?`, [recordId]);
+      const gameDelete = await dbRun(`DELETE FROM games WHERE record_id = ?`, [recordId]);
+      if (!gameDelete.changes) throw new Error("Game record was not removed");
+
+      await dbRun("COMMIT");
+    } catch (err) {
+      await dbRun("ROLLBACK").catch(() => {});
+      throw err;
     }
 
-    await new Promise((r, j) =>
-      getDb().run(`DELETE FROM versions WHERE record_id = ?`, [recordId], (e) =>
-        e ? j(e) : r(),
-      ),
-    );
-
-    await new Promise((r, j) =>
-      getDb().run(`DELETE FROM games WHERE record_id = ?`, [recordId], (e) =>
-        e ? j(e) : r(),
-      ),
-    );
-
-    return { success: true };
+    return warnings.length ? { success: true, warnings } : { success: true };
   } catch (err) {
     console.error("deleteGameCompletely failed:", err);
     return { success: false, error: err.message };

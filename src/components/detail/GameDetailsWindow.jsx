@@ -253,7 +253,7 @@ const GameDetailWindow = () => {
       if (updatedVersions.length > 0) handleVersionSelect(updatedVersions[0])
       else { setSelectedVersion(null); setVersionData(EMPTY_VERSION) }
     } else {
-      alert('Failed to remove version.')
+      alert(`Failed to remove version: ${result.error || 'Unknown error'}`)
     }
   }
 

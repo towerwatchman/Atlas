@@ -129,19 +129,9 @@ function registerGamesHandlers(ctx) {
       const selectedVersion = await getVersionForRecord(recordId, version)
       if (!selectedVersion) return { success: false, error: 'Version not found' }
 
-      const folderPath = selectedVersion.game_path
-        ? path.resolve(selectedVersion.game_path)
-        : null
-
-      if (folderPath && fs.existsSync(folderPath)) {
-        if (!(await isAllowedDeletionPath(recordId, folderPath))) {
-          return { success: false, error: 'Folder is not linked to this game' }
-        }
-        await fs.promises.rm(folderPath, { recursive: true, force: true })
-        await removeEmptyParentDirectories(folderPath, appConfig?.Library?.gameFolder)
-      }
-
-      await deleteVersion(recordId, version)
+      const result = await deleteVersion(recordId, version)
+      if (!result?.changes) return { success: false, error: 'Version was not removed' }
+      emitGameUpdated(recordId)
       return { success: true }
     } catch (err) {
       console.error('delete-version failed:', err)
@@ -154,7 +144,13 @@ function registerGamesHandlers(ctx) {
   })
 
   ipcMain.handle('delete-game-completely', async (_, recordId) => {
-    return await deleteGameCompletely(recordId, getAssetBasePath(), process.defaultApp)
+    const result = await deleteGameCompletely(recordId, getAssetBasePath(), process.defaultApp)
+    if (result.success) {
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send('game-deleted', recordId)
+      })
+    }
+    return result
   })
 
   ipcMain.handle('delete-title', async (_, { recordId, deleteFiles = false }) => {
