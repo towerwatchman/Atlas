@@ -13,6 +13,11 @@ const SearchSidebar = ({
 }) => {
   const [tagSearch, setTagSearch] = useState("");
   const [highlightedTagIndex, setHighlightedTagIndex] = useState(-1);
+  const [isSaveFormOpen, setIsSaveFormOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [tagError, setTagError] = useState("");
   const selectedFilters = normalizeFilterState(activeFilters);
   const [options, setOptions] = useState({
     categories: [],
@@ -34,33 +39,54 @@ const SearchSidebar = ({
     onFilterChange?.({ ...selectedFilters, ...changes });
   };
 
-  const handleSaveCurrentFilter = async () => {
-    const rawName = window.prompt("Save current filters as:");
-    const name = String(rawName || "").trim();
-    if (!name) return;
+  const closeSaveForm = () => {
+    setIsSaveFormOpen(false);
+    setSaveName("");
+    setSaveError("");
+  };
+
+  const handleSaveCurrentFilter = async ({ overwrite = false } = {}) => {
+    const name = String(saveName || "").trim();
+    setSaveError("");
+    if (!name) {
+      setSaveError("Enter a filter name.");
+      return;
+    }
 
     if (builtInSavedFilters.some((filter) => filter.name.toLowerCase() === name.toLowerCase())) {
-      alert("That name is used by a built-in filter.");
+      setSaveError("That name is used by a built-in filter.");
       return;
     }
 
     const existing = userSavedFilters.find(
       (filter) => filter.name.toLowerCase() === name.toLowerCase(),
     );
-    if (existing && !window.confirm(`Overwrite saved filter "${name}"?`)) return;
+    if (existing && !overwrite) {
+      setSaveError("A saved filter with this name already exists.");
+      return;
+    }
 
     const filterToSave = {
       id: existing?.id,
       name,
       filters: normalizeFilterState({ ...selectedFilters, text: searchText }),
     };
-    const result = await window.electronAPI.saveSavedFilter?.(filterToSave);
-    if (!result?.success) {
-      alert(`Failed to save filter: ${result?.error || "Unknown error"}`);
-      console.error("Failed to save filter:", result?.error);
-      return;
+    setSaveBusy(true);
+    try {
+      const result = await window.electronAPI.saveSavedFilter?.(filterToSave);
+      if (!result?.success) {
+        setSaveError(`Failed to save filter: ${result?.error || "Unknown error"}`);
+        console.error("Failed to save filter:", result?.error);
+        return;
+      }
+      onSavedFilterSaved?.(result.filter);
+      closeSaveForm();
+    } catch (err) {
+      setSaveError(`Failed to save filter: ${err.message || "Unknown error"}`);
+      console.error("Failed to save filter:", err);
+    } finally {
+      setSaveBusy(false);
     }
-    onSavedFilterSaved?.(result.filter);
   };
 
   const handleCheckbox = (group, value) => {
@@ -72,11 +98,12 @@ const SearchSidebar = ({
       newVals = newVals.filter((v) => v !== value);
     } else {
       if (group === "tags" && newVals.length >= 10) {
-        alert("Max 10 tags allowed.");
+        setTagError("Max 10 tags allowed.");
         return;
       }
       newVals.push(value);
     }
+    if (group === "tags") setTagError("");
     updateFilters({ [group]: newVals });
   };
 
@@ -159,12 +186,65 @@ const SearchSidebar = ({
           <p className="text-xs text-gray-400 mb-3">
             Browse and apply saved filters from the left sidebar.
           </p>
-          <button
-            onClick={handleSaveCurrentFilter}
-            className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-highlight"
-          >
-            Save Current
-          </button>
+          {!isSaveFormOpen ? (
+            <button
+              onClick={() => {
+                setIsSaveFormOpen(true);
+                setSaveName("");
+                setSaveError("");
+              }}
+              className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-highlight"
+            >
+              Save Current
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={saveName}
+                autoFocus
+                placeholder="Filter name"
+                onChange={(e) => {
+                  setSaveName(e.target.value);
+                  setSaveError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSaveCurrentFilter();
+                  if (e.key === "Escape") closeSaveForm();
+                }}
+                className="w-full p-2 bg-tertiary border border-border rounded text-sm -webkit-app-region-no-drag"
+                disabled={saveBusy}
+              />
+              {saveError && (
+                <div className="text-xs text-red-400">{saveError}</div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleSaveCurrentFilter()}
+                  disabled={saveBusy}
+                  className="px-3 py-1 rounded text-sm bg-accent text-white disabled:opacity-50"
+                >
+                  Save
+                </button>
+                {saveError === "A saved filter with this name already exists." && (
+                  <button
+                    onClick={() => handleSaveCurrentFilter({ overwrite: true })}
+                    disabled={saveBusy}
+                    className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-highlight disabled:opacity-50"
+                  >
+                    Overwrite
+                  </button>
+                )}
+                <button
+                  onClick={closeSaveForm}
+                  disabled={saveBusy}
+                  className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-highlight disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Category */}
@@ -281,6 +361,7 @@ const SearchSidebar = ({
               </span>
             ))}
           </div>
+          {tagError && <div className="text-xs text-red-400 mb-2">{tagError}</div>}
           <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
             {filteredTags.length === 0 ? (
               <p className="text-sm text-gray-500">No tags found</p>

@@ -26,6 +26,7 @@ const App = () => {
   const [showSearchSidebar, setShowSearchSidebar] = useState(false)
   const [userSavedFilters, setUserSavedFilters] = useState([])
   const [activeSavedFilterId, setActiveSavedFilterId] = useState('')
+  const [savedFilterDeleteStateById, setSavedFilterDeleteStateById] = useState({})
   const [columnCount, setColumnCount] = useState(1)
   const [bannerSize, setBannerSize] = useState({ bannerWidth: 537, bannerHeight: 251 })
   const [importStatus, setImportStatus] = useState({ text: '', progress: 0, total: 0 })
@@ -215,17 +216,60 @@ const App = () => {
     handleFilterChange(nextFilters)
   }, [handleFilterChange])
 
-  const deleteSavedFilter = useCallback(async (filter) => {
+  const deleteSavedFilter = useCallback(async (filter, action = 'request') => {
     if (!filter?.id || filter.builtIn) return
-    if (!window.confirm(`Delete saved filter "${filter.name}"?`)) return
-    const result = await window.electronAPI.deleteSavedFilter?.(filter.id)
-    if (!result?.success) {
-      alert(`Failed to delete filter: ${result?.error || 'Unknown error'}`)
-      console.error('Failed to delete saved filter:', result?.error)
+    if (action === 'cancel') {
+      setSavedFilterDeleteStateById((prev) => {
+        const next = { ...prev }
+        delete next[filter.id]
+        return next
+      })
       return
     }
-    setUserSavedFilters((prev) => prev.filter((item) => item.id !== filter.id))
-    if (activeSavedFilterId === filter.id) setActiveSavedFilterId('')
+    if (action !== 'confirm') {
+      setSavedFilterDeleteStateById((prev) => ({
+        ...prev,
+        [filter.id]: { confirming: true, busy: false, error: '' },
+      }))
+      return
+    }
+
+    setSavedFilterDeleteStateById((prev) => ({
+      ...prev,
+      [filter.id]: { confirming: true, busy: true, error: '' },
+    }))
+    try {
+      const result = await window.electronAPI.deleteSavedFilter?.(filter.id)
+      if (!result?.success) {
+        setSavedFilterDeleteStateById((prev) => ({
+          ...prev,
+          [filter.id]: {
+            confirming: true,
+            busy: false,
+            error: result?.error || 'Failed to delete filter.',
+          },
+        }))
+        console.error('Failed to delete saved filter:', result?.error)
+        return
+      }
+      setUserSavedFilters((prev) => prev.filter((item) => item.id !== filter.id))
+      setSavedFilterDeleteStateById((prev) => {
+        const next = { ...prev }
+        delete next[filter.id]
+        return next
+      })
+      if (activeSavedFilterId === filter.id) setActiveSavedFilterId('')
+    } catch (err) {
+      setSavedFilterDeleteStateById((prev) => ({
+        ...prev,
+        [filter.id]: {
+          confirming: true,
+          busy: false,
+          error: err.message || 'Failed to delete filter.',
+        },
+      }))
+      console.error('Failed to delete saved filter:', err)
+    }
   }, [activeSavedFilterId])
 
   const allSavedFilters = useMemo(
@@ -531,6 +575,7 @@ const App = () => {
             userSavedFilters={userSavedFilters}
             activeSavedFilterId={activeSavedFilterId}
             counts={savedFilterCounts}
+            deleteStateById={savedFilterDeleteStateById}
             onApplyFilter={applySavedFilter}
             onDeleteFilter={deleteSavedFilter}
           />
