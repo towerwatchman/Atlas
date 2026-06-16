@@ -5,6 +5,8 @@ import { parseExternalIds, buildExternalLinks } from '../externalLinks.js'
 export default function MappingsTab({ game, showModal, searchResults, onFindGame, onSelectGame, onCloseModal }) {
   const externalIds = parseExternalIds(game.external_ids)
   const steamAppId = game.steam_id || game.steam_appid || externalIds.steam_appid || externalIds.steam_id || null
+  const iconCellClass = 'p-2 w-24 align-middle'
+  const iconFrameClass = 'flex h-10 w-20 items-center justify-center'
 
   // Steam is the only external source that carries a real id, so it is shown in
   // the mappings table alongside Atlas/F95. Everything else in external_ids is a
@@ -34,22 +36,32 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
           <tbody>
             {game.f95_id && (
               <tr className="border-b border-border">
-                <td className="p-2"><img src={f95Logo} alt="F95Zone Logo" className="h-10 w-20 object-contain" /></td>
+                <td className={iconCellClass}>
+                  <div className={iconFrameClass}>
+                    <img src={f95Logo} alt="F95Zone Logo" className="block h-10 w-20 object-contain" />
+                  </div>
+                </td>
                 <td className="p-2">F95Zone</td>
                 <td className="p-2">{game.f95_id}</td>
               </tr>
             )}
             {game.atlas_id && (
               <tr className="border-b border-border">
-                <td className="p-2"><img src={atlasLogo} alt="Atlas Logo" className="h-10 w-20 object-contain" /></td>
+                <td className={iconCellClass}>
+                  <div className={iconFrameClass}>
+                    <img src={atlasLogo} alt="Atlas Logo" className="block h-10 w-20 object-contain" />
+                  </div>
+                </td>
                 <td className="p-2">Atlas</td>
                 <td className="p-2">{game.atlas_id}</td>
               </tr>
             )}
             {steamAppId && (
               <tr className="border-b border-border">
-                <td className="p-2">
-                  <i className="fab fa-steam" style={{ fontSize: 28 }} aria-hidden="true"></i>
+                <td className={iconCellClass}>
+                  <div className={iconFrameClass}>
+                    <i className="fab fa-steam block text-[28px] leading-none" aria-hidden="true"></i>
+                  </div>
                 </td>
                 <td className="p-2">Steam</td>
                 <td className="p-2">{steamAppId}</td>
