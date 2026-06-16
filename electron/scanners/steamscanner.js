@@ -193,9 +193,16 @@ async function insertSteamScreens(db, steamId, screens) {
   });
 }
 
-async function getSteamLibraryFolders() {
+async function getSteamLibraryFolders(overridePath = null) {
   let steamPath;
-  if (process.platform === "win32") {
+  if (overridePath) {
+    // The user may point us at the Steam root or directly at a steamapps
+    // folder; normalize either into the Steam root.
+    steamPath =
+      path.basename(overridePath).toLowerCase() === "steamapps"
+        ? path.dirname(overridePath)
+        : overridePath;
+  } else if (process.platform === "win32") {
     steamPath = path.join("C:", "Program Files (x86)", "Steam");
   } else if (process.platform === "darwin") {
     steamPath = path.join(
@@ -248,8 +255,8 @@ async function getSteamLibraryFolders() {
   return libraries.length > 0 ? libraries : null;
 }
 
-async function getInstalledSteamGames() {
-  const libraries = await getSteamLibraryFolders();
+async function getInstalledSteamGames(overridePath = null) {
+  const libraries = await getSteamLibraryFolders(overridePath);
   if (!libraries) {
     throw new Error("No valid Steam library folders found");
   }
@@ -301,7 +308,8 @@ async function getInstalledSteamGames() {
 
 async function startSteamScan(db, params, event) {
   try {
-    const installedGames = await getInstalledSteamGames();
+    const overridePath = params?.steamPath || null;
+    const installedGames = await getInstalledSteamGames(overridePath);
     if (!installedGames || installedGames.length === 0) {
       console.log("No Steam games found, sending prompt for directory");
       event.sender.send("prompt-steam-directory");

@@ -907,7 +907,7 @@ module.exports = function registerImporterHandlers(ctx) {
     addAtlasMapping, checkPathExist, findExistingRecordForImport,
     getImportRecordStatus, checkRecordExist, addGame, addVersion,
     upsertVersion, updateGame, updateFolderSize, getSteamIDbyRecord,
-    getBannerUrl, getScreensUrlList,
+    addSteamMapping, getBannerUrl, getScreensUrlList,
     getVersionForRecord, getVersionPathsForRecord,
     deleteVersion, deleteGameCompletely, deleteTitleRecord,
     getTrustedVersion, isAllowedDeletionPath, isPathInside,
@@ -1518,6 +1518,21 @@ ipcMain.handle("import-games", async (event, params) => {
           console.log("mapping added");
         } catch (err) {
           console.error("Failed to add atlas mapping:", err);
+          throw err;
+        }
+      }
+
+      // Steam-sourced rows carry a numeric appid. Persisting the mapping is what
+      // wires up launch (steam://run via getSteamIDbyRecord) and the Steam CDN
+      // banner/hero art resolved in mediaSources. Metadata enrichment of
+      // steam_data happens in a later phase; the mapping alone is enough for the
+      // game to appear, render art, and launch.
+      if (game.steamId) {
+        try {
+          await addSteamMapping(recordId, parseInt(game.steamId, 10));
+          console.log("steam mapping added");
+        } catch (err) {
+          console.error("Failed to add steam mapping:", err);
           throw err;
         }
       }

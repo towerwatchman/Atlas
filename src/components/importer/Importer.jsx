@@ -64,6 +64,7 @@ const Importer = () => {
   const [updateProgress, setUpdateProgress] = useState({ value: 0, total: 0 })
   const deletedScanGameKeysRef = useRef(new Set())
   const matchCancelRef = useRef(false)
+  const steamScanActiveRef = useRef(false)
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const getScanGameKey = (game) => {
@@ -301,6 +302,7 @@ const Importer = () => {
     })
 
     window.electronAPI.onScanCompleteFinal(async (games) => {
+      steamScanActiveRef.current = false
       const visibleGamesList = await Promise.all(
         games
           .filter((game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game)))
@@ -311,6 +313,21 @@ const Importer = () => {
       resolvePendingMatches(visibleGamesList)
     })
 
+    // When no installed Steam games are found at the default location, the
+    // scanner asks for a directory. Let the user point us at their Steam root
+    // and re-run the scan against it.
+    window.electronAPI.onPromptSteamDirectory(async () => {
+      if (!steamScanActiveRef.current) return
+      steamScanActiveRef.current = false
+      const selected = await window.electronAPI.selectSteamDirectory()
+      if (selected) {
+        startSteamScan(selected)
+      } else {
+        alert('No Steam games found and no Steam directory selected.')
+        setView('source')
+      }
+    })
+
     window.electronAPI.onUpdateProgress((prog) => {
       console.log(`Update progress: ${JSON.stringify(prog)}`)
       setUpdateProgress(prog)
@@ -319,7 +336,7 @@ const Importer = () => {
     loadConfig()
 
     return () => {
-      ;['window-state-changed', 'scan-progress', 'scan-complete', 'scan-complete-final', 'update-progress']
+      ;['window-state-changed', 'scan-progress', 'scan-complete', 'scan-complete-final', 'update-progress', 'prompt-steam-directory']
         .forEach((ch) => window.electronAPI.removeAllListeners(ch))
     }
   }, [])
@@ -357,6 +374,22 @@ const Importer = () => {
     window.electronAPI.log(`Scan params: ${JSON.stringify(params)}`)
     const result = await window.electronAPI.startScan(params)
     if (!result.success) { console.error(`Scan error: ${result.error}`); alert(`Error: ${result.error}`) }
+  }
+
+  // Kick off a scan of the local Steam library. Steam rows are emitted through
+  // the same scan-progress / scan-complete / scan-complete-final channel as the
+  // Atlas importer, so they flow into the existing ScanStep table unchanged.
+  const startSteamScan = async (steamPath = null) => {
+    setView('scan')
+    deletedScanGameKeysRef.current.clear()
+    setGamesList([])
+    steamScanActiveRef.current = true
+    const result = await window.electronAPI.startSteamScan(steamPath ? { steamPath } : {})
+    if (result && result.success === false && result.error) {
+      // A "no games found" miss is surfaced via prompt-steam-directory instead
+      // of an error, so only alert on genuine failures.
+      console.error(`Steam scan error: ${result.error}`)
+    }
   }
 
   const updateGame = (gameKey, field, value) => {
@@ -487,7 +520,7 @@ const Importer = () => {
       </div>
 
       <div className="flex-1 p-4 bg-secondary overflow-y-auto">
-        {view === 'source' && <SourceStep onSelect={setView} />}
+        {view === 'source' && <SourceStep onSelect={setView} onStartSteam={startSteamScan} />}
 
         {view === 'settings' && (
           <SettingsStep

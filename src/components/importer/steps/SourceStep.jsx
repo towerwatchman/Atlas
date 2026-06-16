@@ -1,4 +1,4 @@
-export default function SourceStep({ onSelect }) {
+export default function SourceStep({ onSelect, onStartSteam }) {
   return (
     <div className="flex items-center justify-center h-full">
       <div className="flex flex-col space-y-4 max-w-md w-full">
@@ -8,6 +8,13 @@ export default function SourceStep({ onSelect }) {
           className="bg-secondary hover:bg-selected text-text p-2 rounded"
         >
           Atlas Game Importer
+        </button>
+        <button
+          onClick={() => onStartSteam?.()}
+          className="bg-secondary hover:bg-selected text-text p-2 rounded flex items-center justify-center gap-2"
+        >
+          <i className="fab fa-steam"></i>
+          Steam Library
         </button>
       </div>
     </div>

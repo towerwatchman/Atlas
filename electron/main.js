@@ -537,7 +537,7 @@ function buildCtx() {
     GetAtlasIDbyRecord, getPreviews, getBanner, deleteBanner, deletePreviews,
     searchAtlas, searchAtlasByF95Id, findF95Id, checkPathExist,
     findExistingRecordForImport, getImportRecordStatus,
-    updateBanners, updatePreviews, getAtlasData, getSteamIDbyRecord,
+    updateBanners, updatePreviews, getAtlasData, getSteamIDbyRecord, addSteamMapping,
     countVersions, deleteVersion, deleteGameCompletely,
     getUniqueFilterOptions, getVersionForRecord, getInstalledVersionsForRecord,
     getVersionPathsForRecord, db,
