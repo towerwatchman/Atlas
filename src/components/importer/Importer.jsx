@@ -3,6 +3,17 @@ import SourceStep from './steps/SourceStep.jsx'
 import SettingsStep from './steps/SettingsStep.jsx'
 import ScanStep from './steps/ScanStep.jsx'
 
+const deriveImportStats = (games) => ({
+  potential: games.filter((game) => (game.scanStatus || 'new') === 'new').length,
+  pendingMatch: games.filter((game) => game.scanStatus === 'pendingMatch').length,
+  archives: games.filter((game) => game.isArchive && (game.scanStatus || 'new') === 'new').length,
+  alreadyImported: games.filter((game) => game.scanStatus === 'alreadyImported').length,
+  repairPath: games.filter((game) => game.scanStatus === 'repairPath').length,
+  missingLaunchable: games.filter((game) => game.scanStatus === 'missingLaunchable').length,
+  emptyFolder: games.filter((game) => game.scanStatus === 'emptyFolder').length,
+  totalFound: games.length,
+})
+
 const Importer = () => {
   // ── View ──────────────────────────────────────────────────────────────────
   const [view, setView] = useState('source')
@@ -66,6 +77,7 @@ const Importer = () => {
 
   const importOptions = { includeUnmatchedGames: includeUnmatched, includeArchiveGames: includeArchives }
   const importableGames = gamesList.filter((game) => isImportableGame(game, importOptions))
+  const visibleStats = useMemo(() => deriveImportStats(gamesList), [gamesList])
   const canImport = importableGames.length > 0
 
   const getImportDisabledReason = () => {
@@ -322,7 +334,9 @@ const Importer = () => {
     const updatedGames = gamesList.map((game) =>
       getScanGameKey(game) === gameKey ? applySelectedMatch(game, value) : game
     )
-    Promise.all(updatedGames).then((newGamesList) => setGamesList(newGamesList))
+    Promise.all(updatedGames).then((newGamesList) =>
+      setGamesList(newGamesList.filter((game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game))))
+    )
   }
 
   const updateMatches = async () => {
@@ -364,7 +378,7 @@ const Importer = () => {
       window.electronAPI.sendUpdateProgress({ value: i + 1, total })
       await new Promise((r) => setTimeout(r, 50))
     }
-    setGamesList(updatedGames)
+    setGamesList(updatedGames.filter((game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game))))
     setProgress((prev) => ({ ...prev, value: total }))
     window.electronAPI.sendUpdateProgress({ value: total, total })
     setProgressLabel(null)
@@ -457,6 +471,7 @@ const Importer = () => {
         {view === 'scan' && (
           <ScanStep
             progress={progress} progressLabel={progressLabel}
+            visibleStats={visibleStats}
             sortedRows={sortedRows} isNewScanRow={isNewScanRow} sortConfig={sortConfig}
             hideMatches={hideMatches} includeUnmatched={includeUnmatched}
             includeArchives={includeArchives} forceReimport={forceReimport}

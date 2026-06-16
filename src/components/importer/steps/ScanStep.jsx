@@ -1,7 +1,7 @@
 import ScanTable from './ScanTable.jsx'
 
 export default function ScanStep({
-  progress, progressLabel, sortedRows, isNewScanRow, sortConfig,
+  progress, progressLabel, visibleStats, sortedRows, isNewScanRow, sortConfig,
   hideMatches, includeUnmatched, includeArchives, forceReimport,
   canImport, isResolvingMatches, getImportDisabledReason,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
@@ -19,14 +19,14 @@ export default function ScanStep({
           </span>
         </div>
         <div className="mb-4 flex flex-wrap gap-4 text-sm">
-          <span>Ready {progress.potential || 0}</span>
-          <span>Pending matches {progress.pendingMatch || 0}</span>
-          <span>Archives {progress.archives || 0}</span>
-          <span>Already imported {progress.alreadyImported || 0}</span>
-          <span>Repairs {progress.repairPath || 0}</span>
-          <span>Missing launchable {progress.missingLaunchable || 0}</span>
-          <span>Empty folders {progress.emptyFolder || 0}</span>
-          <span>Total rows {progress.totalFound || sortedRows.length}</span>
+          <span>Ready {visibleStats.potential || 0}</span>
+          <span>Pending matches {visibleStats.pendingMatch || 0}</span>
+          <span>Archives {visibleStats.archives || 0}</span>
+          <span>Already imported {visibleStats.alreadyImported || 0}</span>
+          <span>Repairs {visibleStats.repairPath || 0}</span>
+          <span>Missing launchable {visibleStats.missingLaunchable || 0}</span>
+          <span>Empty folders {visibleStats.emptyFolder || 0}</span>
+          <span>Total rows {visibleStats.totalFound || 0}</span>
         </div>
       </div>
 
