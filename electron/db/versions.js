@@ -625,7 +625,7 @@ const getGames = (
     );
     const bannerJoinClauses = buildBannerJoinClauses();
     const includeUninstalled = options.includeUninstalled === true;
-    const skipPathValidation = options.skipPathValidation !== false;
+    const skipPathValidation = options.skipPathValidation === true;
 
     // Main query with OFFSET and LIMIT
     let mainQuery = `
@@ -755,8 +755,89 @@ ${bannerJoinClauses}
             (game) => includeUninstalled || game.hasInstalledVersion,
           );
 
-        console.log(`Fetched ${games.length} games with versions`);
-        resolve(games);
+        if (!includeUninstalled) {
+          console.log(`Fetched ${games.length} games with versions`);
+          resolve(games);
+          return;
+        }
+
+        const metadataOnlyQuery = `
+          SELECT
+            'metadata:' || atlas_data.atlas_id as record_id,
+            atlas_data.atlas_id as atlas_id,
+            MIN(steam_data.steam_id) as steam_id,
+            atlas_data.title as title,
+            COALESCE(NULLIF(atlas_data.creator, ''), atlas_data.developer) as creator,
+            atlas_data.engine as engine,
+            atlas_data.overview as description,
+            0 as total_playtime,
+            0 as last_played_r,
+            '' as last_played_version,
+            ${remoteBannerExpression} AS banner_url,
+            CASE WHEN ${remoteBannerExpression} IS NOT NULL THEN 'stream' ELSE '' END AS banner_source,
+            0 AS has_downloaded_banner,
+            f95_zone_data.f95_id as f95_id,
+            f95_zone_data.site_url as siteUrl,
+            f95_zone_data.views as views,
+            f95_zone_data.likes as likes,
+            f95_zone_data.tags as f95_tags,
+            f95_zone_data.rating as rating,
+            atlas_data.status,
+            atlas_data.version as latestVersion,
+            COALESCE(NULLIF(atlas_data.category, ''), MIN(steam_data.category)) AS category,
+            COALESCE(NULLIF(atlas_data.censored, ''), MIN(steam_data.censored)) AS censored,
+            COALESCE(NULLIF(atlas_data.genre, ''), MIN(steam_data.genre)) AS genre,
+            COALESCE(NULLIF(atlas_data.language, ''), MIN(steam_data.language)) AS language,
+            COALESCE(NULLIF(atlas_data.os, ''), MIN(steam_data.os)) AS os,
+            COALESCE(NULLIF(atlas_data.overview, ''), MIN(steam_data.overview)) AS overview,
+            COALESCE(NULLIF(atlas_data.translations, ''), MIN(steam_data.translations)) AS translations,
+            atlas_data.release_date,
+            COALESCE(NULLIF(atlas_data.voice, ''), MIN(steam_data.voice)) AS voice,
+            MIN(steam_data.publisher) AS publisher,
+            atlas_data.short_name,
+            atlas_data.external_ids as external_ids,
+            atlas_data.banner_wide as atlas_banner_wide,
+            atlas_data.banner as atlas_banner,
+            atlas_data.logo as atlas_logo,
+            f95_zone_data.banner_url as f95_banner,
+            MIN(steam_data.header) as steam_header,
+            MIN(steam_data.library_hero) as steam_library_hero,
+            MIN(steam_data.logo) as steam_logo,
+            atlas_data.tags AS tags
+          FROM atlas_data
+          LEFT JOIN atlas_mappings ON atlas_data.atlas_id = atlas_mappings.atlas_id
+          LEFT JOIN f95_zone_data ON atlas_data.atlas_id = f95_zone_data.atlas_id
+          LEFT JOIN f95_zone_mappings ON f95_zone_data.f95_id = f95_zone_mappings.f95_id
+          LEFT JOIN steam_data ON atlas_data.atlas_id = steam_data.atlas_id
+          LEFT JOIN steam_mappings ON steam_data.steam_id = steam_mappings.steam_id
+          WHERE atlas_mappings.record_id IS NULL
+            AND f95_zone_mappings.record_id IS NULL
+            AND steam_mappings.record_id IS NULL
+          GROUP BY atlas_data.atlas_id
+        `;
+
+        getDb().all(metadataOnlyQuery, [], (metadataErr, metadataRows) => {
+          if (metadataErr) {
+            console.error("Error fetching metadata-only games:", metadataErr);
+            reject(metadataErr);
+            return;
+          }
+
+          const metadataGames = (metadataRows || []).map((row) => ({
+            ...row,
+            engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
+            versions: [],
+            versionCount: 0,
+            installedVersionCount: 0,
+            totalVersionCount: 0,
+            hasInstalledVersion: false,
+            isUpdateAvailable: false,
+            isMetadataOnly: true,
+          }));
+          const combinedGames = [...games, ...metadataGames];
+          console.log(`Fetched ${combinedGames.length} games with versions`);
+          resolve(combinedGames);
+        });
       });
     });
   });

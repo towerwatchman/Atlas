@@ -2,7 +2,7 @@ import { LAUNCH_STATE, ACTION_BTN, STEAM_GREEN, STEAM_BLUE, STEAM_YELLOW, STEAM_
 
 export default function ActionBar({
   game, actionVersion, latestVersion, canLaunch, canOpenFolder,
-  launchState, isRefreshingMedia, showInfo,
+  launchState, isRefreshingMedia, showInfo, canManageLocalTitle = true,
   onLaunch, onOpenFolder, onOpenProperties, onRefreshMedia,
   onOpenWebsite, onRemoveTitle, onDeleteTitle, onToggleInfo,
 }) {
@@ -90,23 +90,31 @@ export default function ActionBar({
           <button onClick={onOpenFolder} disabled={!canOpenFolder} title="Open Folder" style={iconBtn(!canOpenFolder)} className="hover:bg-secondary hover:border-border">
             <i className="fas fa-folder-open" style={{ fontSize: 13 }}></i>
           </button>
-          <button onClick={onOpenProperties} title="Properties" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
-            <i className="fas fa-sliders-h" style={{ fontSize: 13 }}></i>
-          </button>
-          <button onClick={onRefreshMedia} disabled={isRefreshingMedia} title="Refresh Media" style={iconBtn(isRefreshingMedia)} className="hover:bg-secondary hover:border-border">
-            <i className={`fas fa-sync-alt ${isRefreshingMedia ? 'fa-spin' : ''}`} style={{ fontSize: 13 }}></i>
-          </button>
+          {canManageLocalTitle && (
+            <>
+              <button onClick={onOpenProperties} title="Properties" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
+                <i className="fas fa-sliders-h" style={{ fontSize: 13 }}></i>
+              </button>
+              <button onClick={onRefreshMedia} disabled={isRefreshingMedia} title="Refresh Media" style={iconBtn(isRefreshingMedia)} className="hover:bg-secondary hover:border-border">
+                <i className={`fas fa-sync-alt ${isRefreshingMedia ? 'fa-spin' : ''}`} style={{ fontSize: 13 }}></i>
+              </button>
+            </>
+          )}
           {game.siteUrl && (
             <button onClick={onOpenWebsite} title="Website" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
               <i className="fas fa-external-link-alt" style={{ fontSize: 13 }}></i>
             </button>
           )}
-          <button onClick={onRemoveTitle} title="Remove Title from Library" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
-            <i className="fas fa-minus-circle" style={{ fontSize: 13, color: '#fca5a5' }}></i>
-          </button>
-          <button onClick={onDeleteTitle} title="Delete Title and Files" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
-            <i className="fas fa-trash-alt" style={{ fontSize: 13, color: '#ef4444' }}></i>
-          </button>
+          {canManageLocalTitle && (
+            <>
+              <button onClick={onRemoveTitle} title="Remove Title from Library" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
+                <i className="fas fa-minus-circle" style={{ fontSize: 13, color: '#fca5a5' }}></i>
+              </button>
+              <button onClick={onDeleteTitle} title="Delete Title and Files" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
+                <i className="fas fa-trash-alt" style={{ fontSize: 13, color: '#ef4444' }}></i>
+              </button>
+            </>
+          )}
           <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.15)', margin: '0 4px' }} />
           <button
             onClick={onToggleInfo}

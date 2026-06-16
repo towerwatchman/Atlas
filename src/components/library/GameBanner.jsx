@@ -102,6 +102,7 @@ const GameBanner = ({ game, onSelect }) => {
     const installedVersions = (game.versions || []).filter(
       (version) => version.isInstalled !== false,
     );
+    const isMetadataOnly = game.isMetadataOnly === true;
 
     const template = [];
 
@@ -147,31 +148,33 @@ const GameBanner = ({ game, onSelect }) => {
       });
     }
 
-    // Properties
-    template.push({
-      label: "Properties",
-      data: { action: "properties", recordId: game.record_id },
-    });
+    if (!isMetadataOnly) {
+      // Properties
+      template.push({
+        label: "Properties",
+        data: { action: "properties", recordId: game.record_id },
+      });
 
-    template.push({ type: "separator" });
+      template.push({ type: "separator" });
 
-    template.push({
-      label: "Remove Title from Library",
-      data: {
-        action: "removeTitleFromLibrary",
-        recordId: game.record_id,
-        title: game.title,
-      },
-    });
+      template.push({
+        label: "Remove Title from Library",
+        data: {
+          action: "removeTitleFromLibrary",
+          recordId: game.record_id,
+          title: game.title,
+        },
+      });
 
-    template.push({
-      label: "Delete Title and Files",
-      data: {
-        action: "deleteTitleAndFiles",
-        recordId: game.record_id,
-        title: game.title,
-      },
-    });
+      template.push({
+        label: "Delete Title and Files",
+        data: {
+          action: "deleteTitleAndFiles",
+          recordId: game.record_id,
+          title: game.title,
+        },
+      });
+    }
 
     console.log("Context menu template:", JSON.stringify(template, null, 2));
     window.electronAPI.showContextMenu(template);

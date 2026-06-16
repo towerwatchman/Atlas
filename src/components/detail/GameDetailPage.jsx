@@ -119,6 +119,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   // ── Derived state ─────────────────────────────────────────────────────────
   const installedVersions = getInstalledVersions(game.versions || [])
   const actionVersion = selectedVersion || getDefaultVersion(installedVersions)
+  const canManageLocalTitle = game.isMetadataOnly !== true
   const canLaunch = Boolean(actionVersion && actionVersion.isInstalled !== false && (actionVersion.exec_path || game.record_id))
   const canOpenFolder = Boolean(actionVersion?.game_path && actionVersion.isInstalled !== false)
   const latestVersion = game.latestVersion || game.latest_version || ''
@@ -165,10 +166,14 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
     await window.electronAPI.openGameFolder({ recordId: game.record_id, version: actionVersion.version })
   }
 
-  const openProperties = async () => { await window.electronAPI.openGameProperties(game.record_id) }
+  const openProperties = async () => {
+    if (!canManageLocalTitle) return
+    await window.electronAPI.openGameProperties(game.record_id)
+  }
   const openWebsite = async () => { if (game.siteUrl) await window.electronAPI.openExternalUrl(game.siteUrl) }
 
   const removeTitleFromLibrary = async () => {
+    if (!canManageLocalTitle) return
     if (!window.confirm(`Remove "${game.title}" from the local library?\n\nGame files will be kept on disk.`)) return
     const result = await window.electronAPI.deleteTitle({ recordId: game.record_id, deleteFiles: false })
     if (!result.success) { alert(`Failed to remove title: ${result.error || 'Unknown error'}`); return }
@@ -176,6 +181,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   }
 
   const deleteTitleAndFiles = async () => {
+    if (!canManageLocalTitle) return
     const versionPaths = (game.versions || []).map((v) => v.game_path).filter(Boolean)
     const pathList = versionPaths.length ? `\n\nFolders to delete:\n${versionPaths.join('\n')}` : '\n\nNo linked folders were found.'
     if (!window.confirm(`Delete "${game.title}" and all linked files from disk?${pathList}\n\nThis cannot be undone.`)) return
@@ -185,7 +191,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   }
 
   const refreshMetadataAndImages = async () => {
-    if (!game?.record_id || isRefreshingMedia) return
+    if (!game?.record_id || !canManageLocalTitle || isRefreshingMedia) return
     setIsRefreshingMedia(true)
     try {
       const result = await window.electronAPI.refreshGameMedia(game.record_id)
@@ -221,6 +227,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
         launchState={launchState}
         isRefreshingMedia={isRefreshingMedia}
         showInfo={showInfo}
+        canManageLocalTitle={canManageLocalTitle}
         onLaunch={launchSelectedGame}
         onOpenFolder={openSelectedFolder}
         onOpenProperties={openProperties}
