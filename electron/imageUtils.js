@@ -25,6 +25,14 @@ function buildBannerBaseName(source) {
 }
 
 
+function buildPreviewBaseName(source, index) {
+  const numericIndex = Number(index);
+  const safeIndex = String((Number.isFinite(numericIndex) ? numericIndex : 0) + 1)
+    .padStart(3, "0");
+  return `preview_${normalizeImageSource(source, "f95")}_${safeIndex}`;
+}
+
+
 const isPotentialAnimatedImage = (ext) =>
   ANIMATED_IMAGE_EXTENSIONS.has(String(ext || "").toLowerCase());
 
@@ -52,9 +60,11 @@ async function downloadImages(
   getScreensUrlList,
   updateBanners,
   updatePreviews,
+  options = {},
 ) {
   const imgDir = path.join(dataDir, "images", recordId.toString());
   if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
+  const defaultPreviewSource = options.previewSource || options.source || "f95";
 
   let imageProgress = 0;
   const bannerUrl = downloadBannerImages ? await getBannerUrl(atlasId) : null;
@@ -186,13 +196,19 @@ async function downloadImages(
   }
 
   for (let i = 0; i < previewCount; i++) {
-    const url = screenUrls[i]?.trim();
+    const previewEntry = screenUrls[i];
+    const url = typeof previewEntry === "string"
+      ? previewEntry.trim()
+      : String(previewEntry?.url || "").trim();
     if (!url) continue;
 
     console.log(`Downloading screen ${i + 1} from URL: ${url}`);
     try {
       const ext = path.extname(new URL(url).pathname).toLowerCase();
-      const baseName = path.basename(url, ext);
+      const previewSource = typeof previewEntry === "object"
+        ? previewEntry.source
+        : defaultPreviewSource;
+      const baseName = buildPreviewBaseName(previewSource, i);
       const imagePath = path.join(imgDir, baseName);
       const relativePath = path.join(
         "data",
@@ -292,6 +308,7 @@ async function downloadImages(
 module.exports = {
   downloadImages,
   buildBannerBaseName,
+  buildPreviewBaseName,
   isPotentialAnimatedImage,
   getImageMetadata,
   hasMultiplePages,

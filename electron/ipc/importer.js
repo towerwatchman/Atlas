@@ -1682,6 +1682,7 @@ ipcMain.handle("import-games", async (event, params) => {
           getScreensUrlList,
           updateBanners,
           updatePreviews,
+          { source: "f95" },
         );
         throwIfImportCanceled(session);
 

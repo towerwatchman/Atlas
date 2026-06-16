@@ -83,6 +83,7 @@ module.exports = function registerMediaHandlers(ctx) {
           }
         },
         true, false, 1, false, dataDir, getBannerUrl, getScreensUrlList, updateBanners, updatePreviews,
+        { source: 'f95' },
       )
       const bannerPath = await getBanner(recordId, getAssetBasePath(), process.defaultApp, 'large', 'download')
       BrowserWindow.getAllWindows().forEach(win => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })
@@ -119,6 +120,7 @@ module.exports = function registerMediaHandlers(ctx) {
           }
         },
         false, true, 'Unlimited', false, dataDir, getBannerUrl, getScreensUrlList, updateBanners, updatePreviews,
+        { source: 'f95' },
       )
       const previewUrls = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, 'download')
       BrowserWindow.getAllWindows().forEach(win => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })

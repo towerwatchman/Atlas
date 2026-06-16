@@ -155,7 +155,7 @@ const getRemotePreviewUrls = (recordId) => {
 const getPreviews = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
   return new Promise((resolve, reject) => {
     getDb().all(
-      `SELECT path FROM previews WHERE record_id = ?`,
+      `SELECT path FROM previews WHERE record_id = ? ORDER BY position ASC, path ASC`,
       [recordId],
       async (err, rows) => {
         if (err) {
