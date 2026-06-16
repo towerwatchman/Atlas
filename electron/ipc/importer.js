@@ -1360,7 +1360,7 @@ ipcMain.handle("import-games", async (event, params) => {
         gamePath = extractPath;
 
         // ── Find executables after extraction ────────────────────────────────
-        const { findExecutables } = require("./scanners/executableScanner");
+        const { findExecutables } = require("../scanners/executableScanner");
         let execs = findExecutables(extractPath, gameExt);
 
         // Clean up common unwanted root-level folders
