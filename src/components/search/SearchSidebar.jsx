@@ -5,6 +5,7 @@ const SearchSidebar = ({
   isVisible,
   searchText = "",
   activeFilters = {},
+  isCatalogMode = false,
   userSavedFilters = [],
   onSavedFilterSaved,
   onSearchChange,
@@ -459,25 +460,26 @@ const SearchSidebar = ({
           </label>
         </div>
 
-        {/* Library scope */}
-        <div className="mb-4">
-          <label className="block text-sm mb-1">Library scope</label>
-          <select
-            className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-            value={selectedFilters.installState}
-            onChange={(e) => {
-              const installState = e.target.value;
-              updateFilters({
-                installState,
-                includeUninstalled: ['all', 'uninstalled'].includes(installState),
-              });
-            }}
-          >
-            <option value="installed">Installed titles</option>
-            <option value="all">Installed and uninstalled</option>
-            <option value="uninstalled">Uninstalled only</option>
-          </select>
-        </div>
+        {!isCatalogMode && (
+          <div className="mb-4">
+            <label className="block text-sm mb-1">Library scope</label>
+            <select
+              className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+              value={selectedFilters.installState}
+              onChange={(e) => {
+                const installState = e.target.value;
+                updateFilters({
+                  installState,
+                  includeUninstalled: ['all', 'uninstalled'].includes(installState),
+                });
+              }}
+            >
+              <option value="installed">Installed titles</option>
+              <option value="all">Installed and uninstalled</option>
+              <option value="uninstalled">Uninstalled only</option>
+            </select>
+          </div>
+        )}
 
         {/* Multiple installed versions */}
         <div className="mb-4">

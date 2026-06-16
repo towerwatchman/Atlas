@@ -59,6 +59,7 @@ export class AppErrorBoundary extends Component {
 const App = () => {
   const [selectedGame, setSelectedGame] = useState(null)
   const [sidebarMode, setSidebarMode] = useState('games')
+  const [libraryMode, setLibraryMode] = useState('local')
   const [showSearchSidebar, setShowSearchSidebar] = useState(false)
   const [userSavedFilters, setUserSavedFilters] = useState([])
   const [activeSavedFilterId, setActiveSavedFilterId] = useState('')
@@ -80,14 +81,26 @@ const App = () => {
 
   // ── Hooks ──────────────────────────────────────────────────────────────────
   const {
-    games, totalVersions, fetchGames, replaceGameInState,
+    games, catalogGames, totalVersions, fetchGames, fetchCatalogGames, replaceGameInState,
     removeGameFromState, refreshGame, includeUninstalledRef,
   } = useGames()
 
   const {
     activeFilters, handleFilterChange,
-    filteredGames, installedGameCount, uninstalledGameCount,
+    filteredGames: localFilteredGames, installedGameCount, uninstalledGameCount,
   } = useFilters(games, includeUninstalledRef, fetchGames, setSelectedGame)
+  const catalogFilteredGames = useMemo(
+    () =>
+      filterGamesWithState(catalogGames, {
+        ...activeFilters,
+        includeUninstalled: true,
+        installState: 'all',
+        updateAvailable: false,
+        multipleInstalledVersions: false,
+      }),
+    [catalogGames, activeFilters],
+  )
+  const filteredGames = libraryMode === 'catalog' ? catalogFilteredGames : localFilteredGames
 
   const { isMaximized, version, handleWindowStateChanged, loadVersion } = useWindowState()
 
@@ -120,6 +133,11 @@ const App = () => {
     pendingLibraryScrollTopRestoreRef.current = libraryScrollTopRef.current || 0
     setSelectedGame(null)
   }, [])
+
+  const goHome = useCallback(() => {
+    setLibraryMode('local')
+    goBackToLibrary()
+  }, [goBackToLibrary])
 
   const selectGame = useCallback((game) => {
     setShowSearchSidebar(false)
@@ -202,6 +220,14 @@ const App = () => {
       })
       .catch((err) => console.error('Failed to save game list visibility:', err))
   }
+
+  const browseCatalog = useCallback(() => {
+    setLibraryMode('catalog')
+    setSelectedGame(null)
+    setSidebarMode('hidden')
+    setShowSearchSidebar(false)
+    fetchCatalogGames()
+  }, [fetchCatalogGames])
 
   const toggleSearchSidebar = useCallback(() => {
     if (selectedGame) return
@@ -543,7 +569,7 @@ const App = () => {
       <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
         <div
           className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag"
-          onClick={goBackToLibrary}
+          onClick={goHome}
           title="Back to Library"
         >
           <svg
@@ -560,8 +586,8 @@ const App = () => {
           <div className="absolute top-0 right-[100px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 0% 100%)' }}></div>
           <div className="w-full flex h-[70px]">
             <div className="flex items-center ml-5 mt-3">
-              <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag" onClick={goBackToLibrary} title="Back to Library">
-                Games
+              <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag" onClick={goHome} title="Back to Library">
+                {libraryMode === 'catalog' ? 'AtlasDB' : 'Games'}
               </div>
             </div>
             <div className="flex justify-center w-full">
@@ -587,7 +613,14 @@ const App = () => {
 
       {/* Main Content */}
       <div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
-        <Sidebar onToggleGameList={toggleGameList} onCheckDbUpdates={runDbUpdateCheck} onGoHome={goBackToLibrary} showGameList={showLibrarySidebar} />
+        <Sidebar
+          onToggleGameList={toggleGameList}
+          onCheckDbUpdates={runDbUpdateCheck}
+          onGoHome={goHome}
+          onBrowseCatalog={browseCatalog}
+          showGameList={showLibrarySidebar}
+          libraryMode={libraryMode}
+        />
 
         {showGameList && (
           <div className="w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ml-[60px]">
@@ -597,7 +630,7 @@ const App = () => {
               filteredGames.map((game) => (
                 <div
                   key={game.record_id}
-                  className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? 'bg-selected' : ''} ${game.hasInstalledVersion === false ? 'text-gray-500 italic' : ''}`}
+                  className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? 'bg-selected' : ''} ${game.hasInstalledVersion === false && !game.isCatalogEntry ? 'text-gray-500 italic' : ''}`}
                   onClick={() => selectGame(game)}
                 >
                   {getGameTitle(game)}
@@ -660,6 +693,7 @@ const App = () => {
             isVisible={showSearchSidebar}
             searchText={activeFilters.text}
             activeFilters={activeFilters}
+            isCatalogMode={libraryMode === 'catalog'}
             userSavedFilters={userSavedFilters}
             onSearchChange={handleSearchChange}
             onFilterChange={handleFilterChange}
@@ -752,7 +786,9 @@ const App = () => {
         <div className="flex items-center">
           <i className="fas fa-gamepad mr-2 text-text"></i>
           <span>
-            {activeFilters.includeUninstalled
+            {libraryMode === 'catalog'
+              ? `${filteredGames.length} AtlasDB Catalog Entries`
+              : activeFilters.includeUninstalled
               ? `${installedGameCount} Games Installed, ${uninstalledGameCount} Uninstalled, ${totalVersions} Total Versions`
               : `${installedGameCount} Games Installed, ${totalVersions} Total Versions`}
           </span>

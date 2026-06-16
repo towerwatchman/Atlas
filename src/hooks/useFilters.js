@@ -164,7 +164,7 @@ export const builtInSavedFilters = [
   },
   {
     id: 'builtin-uninstalled',
-    name: 'Browse titles / Not installed',
+    name: 'Uninstalled titles',
     builtIn: true,
     filters: normalizeFilterState({ includeUninstalled: true, installState: 'uninstalled' }),
   },

@@ -119,7 +119,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   // ── Derived state ─────────────────────────────────────────────────────────
   const installedVersions = getInstalledVersions(game.versions || [])
   const actionVersion = selectedVersion || getDefaultVersion(installedVersions)
-  const canManageLocalTitle = game.isMetadataOnly !== true
+  const canManageLocalTitle = game.isMetadataOnly !== true && game.isCatalogEntry !== true
   const canLaunch = Boolean(actionVersion && actionVersion.isInstalled !== false && (actionVersion.exec_path || game.record_id))
   const canOpenFolder = Boolean(actionVersion?.game_path && actionVersion.isInstalled !== false)
   const latestVersion = game.latestVersion || game.latest_version || ''

@@ -95,7 +95,7 @@ function registerGamesHandlers(ctx) {
     gameDetailsRecordMap, recentlyDeletedGamePaths,
     getMetadataSourceOrder,
     // db functions
-    addGame, getGame, getGames, getGameRecordIds, removeGame, updateGame,
+    addGame, getGame, getGames, getCatalogGames, getGameRecordIds, removeGame, updateGame,
     upsertVersion, updateVersion, deleteGameCompletely, getUniqueFilterOptions,
     updateFolderSize, countVersions, deleteVersion, getVersionForRecord,
     getVersionPathsForRecord, getInstalledVersionsForRecord,
@@ -184,6 +184,17 @@ function registerGamesHandlers(ctx) {
       {
         ...options,
         includeUninstalled,
+        mediaStorageMode: getMediaStorageMode(),
+      },
+    )
+    return withMedia(games)
+  })
+
+  ipcMain.handle('get-catalog-games', async () => {
+    const games = await getCatalogGames(
+      getAssetBasePath(),
+      process.defaultApp,
+      {
         mediaStorageMode: getMediaStorageMode(),
       },
     )

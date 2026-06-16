@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-const Sidebar = ({ onToggleGameList, onCheckDbUpdates, onGoHome, showGameList  }) => {
+const Sidebar = ({ onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, showGameList, libraryMode = 'local' }) => {
   // Only need toggle prop now
   const [selected, setSelected] = useState("Home");
 
@@ -28,6 +28,18 @@ const Sidebar = ({ onToggleGameList, onCheckDbUpdates, onGoHome, showGameList  }
       onClick: () => {
         if (onToggleGameList) {
           onToggleGameList();
+        }
+      },
+    },
+    {
+      name: "AtlasDB",
+      path: [
+        '<path d="M12 3C7.03 3 3 4.79 3 7v10c0 2.21 4.03 4 9 4s9-1.79 9-4V7c0-2.21-4.03-4-9-4zM5 10.18C6.65 11.28 9.19 12 12 12s5.35-.72 7-1.82V13c0 .76-2.73 2-7 2s-7-1.24-7-2v-2.82zM12 5c4.27 0 7 1.24 7 2s-2.73 2-7 2-7-1.24-7-2 2.73-2 7-2zm0 14c-4.27 0-7-1.24-7-2v-1.82C6.65 16.28 9.19 17 12 17s5.35-.72 7-1.82V17c0 .76-2.73 2-7 2z"/>',
+      ],
+      viewBox: "0 0 24 24",
+      onClick: () => {
+        if (onBrowseCatalog) {
+          onBrowseCatalog();
         }
       },
     },
@@ -92,7 +104,7 @@ const Sidebar = ({ onToggleGameList, onCheckDbUpdates, onGoHome, showGameList  }
         React.createElement(
           "svg",
           {
-            className: `w-6 h-6 ${selected === item.name ? "text-accent" : "text-border"}`,
+            className: `w-6 h-6 ${(selected === item.name || (item.name === "AtlasDB" && libraryMode === "catalog")) ? "text-accent" : "text-border"}`,
             viewBox: item.viewBox || "0 0 24 24",
             fill: "currentColor",
           },

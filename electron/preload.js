@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }
     return ipcRenderer.invoke("get-games", { offset, limit, options });
   },
+  getCatalogGames: () => ipcRenderer.invoke("get-catalog-games"),
   validateLibraryPaths: () => ipcRenderer.invoke("validate-library-paths"),
   removeGame: (id) => ipcRenderer.invoke("remove-game", id),
   checkUpdates: () => ipcRenderer.invoke("check-updates"),

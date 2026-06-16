@@ -1,7 +1,8 @@
 import useImageFallback from '../../../hooks/useImageFallback.js'
 
 export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask, onLoad, onBack }) {
-  const hasInstalledVersion = game.hasInstalledVersion !== false
+  const isCatalogEntry = game.isCatalogEntry === true
+  const hasInstalledVersion = isCatalogEntry || game.hasInstalledVersion !== false
   // When the hero is Steam key-art, zoom it slightly so it fills the frame the
   // way Steam presents library_hero (which has built-in padding).
   const isSteamHero = !!(game.steam_appid || game.steam_id)

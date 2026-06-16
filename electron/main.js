@@ -17,7 +17,7 @@ const {
   addVersion, upsertVersion, updateVersion,
   findExistingRecordForImport, checkRecordExist, checkPathExist,
   getVersionForRecord, getInstalledVersionsForRecord, getVersionPathsForRecord,
-  getGame, getGames,
+  getGame, getGames, getCatalogGames,
 } = require('./db/versions')
 
 const {
@@ -530,7 +530,7 @@ function buildCtx() {
     // db functions
     addGame, updateGame, addVersion, upsertVersion, updateVersion,
     recordGameLaunchStarted, recordGamePlaytime,
-    addAtlasMapping, getGame, getGames, getGameRecordIds,
+    addAtlasMapping, getGame, getGames, getCatalogGames, getGameRecordIds,
     removeGame, checkDbUpdates, updateFolderSize,
     getBannerUrl, getScreensUrlList,
     getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension,

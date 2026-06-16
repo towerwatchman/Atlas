@@ -11,6 +11,7 @@ const debounce = (func, delay) => {
 
 export function useGames() {
   const [games, setGames] = useState([])
+  const [catalogGames, setCatalogGames] = useState([])
   const [totalVersions, setTotalVersions] = useState(0)
   const includeUninstalledRef = useRef(false)
 
@@ -39,6 +40,27 @@ export function useGames() {
           return []
         }),
     [updateGamesState]
+  )
+
+  const fetchCatalogGames = useCallback(
+    () =>
+      window.electronAPI
+        .getCatalogGames()
+        .then((allGames) => {
+          const gamesArray = normalizeGamesForRenderer(allGames).map((game) => ({
+            ...game,
+            isCatalogEntry: true,
+            isMetadataOnly: true,
+          }))
+          console.log(`Fetched ${gamesArray.length} AtlasDB catalog games`)
+          setCatalogGames(gamesArray)
+          return gamesArray
+        })
+        .catch((error) => {
+          console.error('Failed to fetch AtlasDB catalog:', error)
+          return []
+        }),
+    []
   )
 
   const replaceGameInState = useCallback((game) => {
@@ -111,8 +133,10 @@ export function useGames() {
 
   return {
     games,
+    catalogGames,
     totalVersions,
     fetchGames,
+    fetchCatalogGames,
     updateGamesState,
     replaceGameInState,
     removeGameFromState,

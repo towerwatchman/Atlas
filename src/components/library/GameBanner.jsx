@@ -412,7 +412,8 @@ const GameBanner = ({ game, onSelect }) => {
     return React.createElement("div", null, "Loading template...");
   }
 
-  const hasInstalledVersion = game.hasInstalledVersion !== false;
+  const isCatalogEntry = game.isCatalogEntry === true;
+  const hasInstalledVersion = isCatalogEntry || game.hasInstalledVersion !== false;
   const renderedBanner = React.createElement(template, { game: resolvedGame, onSelect });
 
   if (hasInstalledVersion) return renderedBanner;
@@ -432,7 +433,7 @@ const GameBanner = ({ game, onSelect }) => {
           className:
             "absolute top-2 left-2 z-40 bg-gray-800 border border-gray-500 text-gray-100 text-[10px] px-2 py-1 pointer-events-none",
         },
-        "Uninstalled",
+          "Uninstalled",
       ),
     ],
   );
