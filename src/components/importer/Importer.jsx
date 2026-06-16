@@ -14,6 +14,18 @@ const deriveImportStats = (games) => ({
   totalFound: games.length,
 })
 
+const toBoolean = (value, fallback = false) => {
+  if (value === true || value === false) return value
+  if (value === 1 || value === '1') return true
+  if (value === 0 || value === '0') return false
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true') return true
+    if (normalized === 'false') return false
+  }
+  return fallback
+}
+
 const Importer = () => {
   // ── View ──────────────────────────────────────────────────────────────────
   const [view, setView] = useState('source')
@@ -268,7 +280,7 @@ const Importer = () => {
         autoSelectLatestReplaceVersionRef.current = autoSelect
         setAutoSelectLatestReplaceVersion(autoSelect)
         setDownloadBannerImages(shouldDownload)
-        setDownloadPreviewImages(shouldDownload)
+        setDownloadPreviewImages(toBoolean(meta.downloadPreviews, false))
         window.electronAPI.getDefaultGameFolder().then((path) => setDefaultLibraryPath(path))
       })
       .catch((err) => console.error('Error loading config:', err))

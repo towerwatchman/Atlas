@@ -11,6 +11,18 @@ const AVAILABLE_SOURCES = [
 const SOURCE_LABELS = Object.fromEntries(AVAILABLE_SOURCES.map((s) => [s.id, s.label]))
 const labelFor = (id) => SOURCE_LABELS[id] || id
 
+const toBoolean = (value, fallback = false) => {
+  if (value === true || value === false) return value
+  if (value === 1 || value === '1') return true
+  if (value === 0 || value === '0') return false
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true') return true
+    if (normalized === 'false') return false
+  }
+  return fallback
+}
+
 // sourceOrder is stored as a comma string ("f95,steam") for clean INI round-trips.
 const parseOrder = (raw) => {
   const list = Array.isArray(raw)
@@ -21,30 +33,42 @@ const parseOrder = (raw) => {
 
 const Metadata = () => {
   const [mediaStorageMode, setMediaStorageMode] = useState('stream')
+  const [downloadPreviews, setDownloadPreviews] = useState(false)
   const [sourceOrder, setSourceOrder] = useState(['f95', 'steam'])
 
   useEffect(() => {
     window.electronAPI.getConfig().then((config) => {
       const metadataSettings = config.Metadata || {}
       setMediaStorageMode(metadataSettings.mediaStorageMode || 'stream')
+      setDownloadPreviews(toBoolean(metadataSettings.downloadPreviews, false))
       const parsed = parseOrder(metadataSettings.sourceOrder)
       setSourceOrder(parsed.length ? parsed : ['f95', 'steam'])
     })
   }, [])
 
-  const saveSettings = (updatedSettings) => {
-    window.electronAPI.getConfig().then((config) => {
+  const saveSettings = async (updatedSettings) => {
+    try {
+      const config = await window.electronAPI.getConfig()
       const newConfig = {
         ...config,
         Metadata: { ...config.Metadata, ...updatedSettings },
       }
-      window.electronAPI.saveSettings(newConfig)
-    })
+      const result = await window.electronAPI.saveSettings(newConfig)
+      if (result?.success === false) throw new Error(result.error || 'Save failed')
+    } catch (err) {
+      console.error('Failed to save metadata settings:', err)
+    }
   }
 
   const handleMediaStorageModeChange = (e) => {
     setMediaStorageMode(e.target.value)
     saveSettings({ mediaStorageMode: e.target.value })
+  }
+
+  const handleDownloadPreviewsChange = (e) => {
+    const nextValue = e.target.checked
+    setDownloadPreviews(nextValue)
+    saveSettings({ downloadPreviews: nextValue })
   }
 
   const persistOrder = (next) => {
@@ -87,6 +111,19 @@ const Metadata = () => {
       <p className="text-xs opacity-50 mb-2">
         Streaming uses less disk space. Downloading saves durable banner and
         preview files in Atlas data storage.
+      </p>
+
+      <div className="flex items-center mb-2">
+        <label className="flex-1">Download Image Previews</label>
+        <input
+          type="checkbox"
+          className="mr-5"
+          checked={downloadPreviews}
+          onChange={handleDownloadPreviewsChange}
+        />
+      </div>
+      <p className="text-xs opacity-50 mb-2">
+        Uses this as the default for downloading preview images during imports.
       </p>
 
       <div className="border-t border-text opacity-25 my-3"></div>
