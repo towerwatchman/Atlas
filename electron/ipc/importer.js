@@ -12,6 +12,7 @@ const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
         checkRecordExist, checkPathExist } = require('../db/atlas')
 const { getGame } = require('../db/versions')
 const { fetchAndStoreSteamData, findSteamId } = require('../scanners/steamscanner')
+const { findRecordBySteamId } = require('../db/steam')
 
 // ── Importer helper functions ──────────────────────────────────────
 
@@ -1475,6 +1476,20 @@ ipcMain.handle("import-games", async (event, params) => {
           : shouldUpsertExisting
             ? await findExistingRecordForImport(game)
             : null;
+
+      // Steam merge: if this install's appid already belongs to a record (a
+      // prior steam import, or an Atlas/f95 title listing this appid in its
+      // external_ids), attach to that record so it shows as an extra version
+      // instead of a duplicate title — even when the names differ.
+      if (!recordId && game.steamId) {
+        const steamMergeRecordId =
+          (game.existingRecordId &&
+          String(game.scanStatus || "") === "repairPath"
+            ? game.existingRecordId
+            : null) || (await findRecordBySteamId(game.steamId));
+        if (steamMergeRecordId) recordId = steamMergeRecordId;
+      }
+
       if (game.scanStatus === "alreadyImported" && !recordId) {
         console.warn(
           `Skipping already imported row without resolvable record: ${game.title}`,

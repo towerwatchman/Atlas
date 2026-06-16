@@ -56,9 +56,55 @@ const getSteamScreensUrlList = (steamId) => {
   });
 };
 
+// Find an existing library record that already owns a given Steam appid, either
+// through a direct steam_mapping or because an Atlas/f95 record lists the appid
+// in its external_ids. Used to merge a scanned Steam install into the existing
+// title as another version instead of creating a duplicate.
+const findRecordBySteamId = (steamId) => {
+  return new Promise((resolve, reject) => {
+    if (!steamId) {
+      resolve(null);
+      return;
+    }
+    const id = String(steamId);
+    getDb().get(
+      `SELECT record_id FROM steam_mappings WHERE steam_id = ? LIMIT 1`,
+      [steamId],
+      (err, row) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        if (row?.record_id) {
+          resolve(row.record_id);
+          return;
+        }
+        // Cross-source: an Atlas/f95 record whose external_ids JSON references
+        // this appid (under steam_appid or steam_id, quoted or unquoted).
+        getDb().get(
+          `SELECT am.record_id
+           FROM atlas_mappings am
+           JOIN atlas_data a ON am.atlas_id = a.atlas_id
+           WHERE a.external_ids LIKE '%"steam_appid":"' || ? || '"%'
+              OR a.external_ids LIKE '%"steam_appid": "' || ? || '"%'
+              OR a.external_ids LIKE '%"steam_appid":' || ? || '%'
+              OR a.external_ids LIKE '%"steam_id":"' || ? || '"%'
+           LIMIT 1`,
+          [id, id, id, id],
+          (err2, row2) => {
+            if (err2) reject(err2);
+            else resolve(row2?.record_id || null);
+          },
+        );
+      },
+    );
+  });
+};
+
 module.exports = {
   getSteamIDbyRecord,
   addSteamMapping,
   getSteamBannerUrl,
   getSteamScreensUrlList,
+  findRecordBySteamId,
 }

@@ -25,7 +25,15 @@ export default function ActionBar({
     : <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><i className="fas fa-play" style={{ fontSize: 11 }}></i>PLAY</span>
 
   return (
-    <div className="sticky top-0 z-30 bg-primary border-b border-border" style={{ boxShadow: '0 2px 12px rgba(0,0,0,0.5)' }}>
+    <div className="sticky top-0 z-30 bg-primary border-b border-border" style={{
+      boxShadow: '0 2px 12px rgba(0,0,0,0.5)',
+      // Pull up over the lower edge of the hero so the key-art shows behind a
+      // lightly translucent, blurred bar (Steam-style). -56 ≈ this bar's height.
+      marginTop: -56,
+      background: 'color-mix(in srgb, var(--color-primary, #19191c) 50%, transparent)',
+      backdropFilter: 'blur(6px)',
+      WebkitBackdropFilter: 'blur(6px)',
+    }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px' }}>
 
         {/* PLAY */}

@@ -2,6 +2,9 @@ import useImageFallback from '../../../hooks/useImageFallback.js'
 
 export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask, onLoad, onBack }) {
   const hasInstalledVersion = game.hasInstalledVersion !== false
+  // When the hero is Steam key-art, zoom it slightly so it fills the frame the
+  // way Steam presents library_hero (which has built-in padding).
+  const isSteamHero = !!(game.steam_appid || game.steam_id)
 
   // hero_candidates already encode the fallback chain (steam CDN → steam fastly
   // → next source's banner). Fall back to the single-url fields for older data.
@@ -35,6 +38,7 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
           style={{
             position: 'absolute', inset: 0, width: '100%', height: '100%',
             objectFit: 'contain',
+            transform: isSteamHero ? 'scale(1.15)' : undefined,
             filter: hasInstalledVersion ? 'none' : 'grayscale(1)',
             WebkitMaskImage: bannerMask.image,
             maskImage: bannerMask.image,
@@ -57,8 +61,9 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
         </button>
       </div>
 
-      {/* Title / logo (bottom-left, steam-style) */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 24px 16px' }}>
+      {/* Title / logo (bottom-left, steam-style). Bottom padding clears the
+          action bar, which now overlaps the lower edge of the hero. */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 24px 70px' }}>
         {showLogo ? (
           <img
             src={logoUrl}

@@ -9,6 +9,7 @@ const dbModule = require('./index')
 const getDb = () => dbModule.db
 const { toLocalAssetPath } = require('./helpers')
 const { checkRecordExist, checkPathExist, findExistingRecordForImport, normalizePathForCompare } = require('./versions')
+const { findRecordBySteamId } = require('./steam')
 const { resetCachedFilterOptions } = require('./games')
 
 
@@ -369,13 +370,33 @@ const getImportRecordStatus = (game) => {
             resolve(statusForVersionRow(pathRow, true));
             return;
           }
-          resolveByAtlasVersionMatch();
+          resolveBySteamId();
         },
       );
       return;
     }
 
-    resolveByAtlasVersionMatch();
+    resolveBySteamId();
+
+    // A scanned Steam install whose appid already belongs to a record (direct
+    // mapping, or an Atlas/f95 record listing the appid) should attach to that
+    // record as another version rather than become a new title.
+    function resolveBySteamId() {
+      const steamId = game.steamId || game.steam_id || null;
+      if (!steamId) {
+        resolveByAtlasVersionMatch();
+        return;
+      }
+      findRecordBySteamId(steamId)
+        .then((recordId) => {
+          if (recordId) {
+            resolve({ status: "repairPath", recordId, exactPath: false });
+          } else {
+            resolveByAtlasVersionMatch();
+          }
+        })
+        .catch(reject);
+    }
 
     function resolveByAtlasVersionMatch() {
       if (!atlasId || !version) {
