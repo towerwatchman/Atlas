@@ -1,6 +1,7 @@
 export default function ScanTable({
   sortedRows, isNewScanRow, sortConfig,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
+  getRowImportStatus,
 }) {
   const getSortIndicator = (key) => {
     if (sortConfig.key !== key) return ''
@@ -38,14 +39,15 @@ export default function ScanTable({
       <tbody>
         {sortedRows.map(({ game, originalIndex }) => {
           const rowIsNew = isNewScanRow(game)
-          const statusText = game.scanMessage || (rowIsNew ? 'Ready to import' : 'Skipped')
+          const rowStatus = getRowImportStatus(game)
+          const statusText = rowStatus.text
           const statusClass =
-            game.scanStatus === 'alreadyImported' ? 'text-yellow-300'
-            : game.scanStatus === 'pendingMatch' ? 'text-blue-200'
-            : game.scanStatus === 'emptyFolder' ? 'text-gray-300'
-            : game.scanStatus === 'repairPath' ? 'text-cyan-300'
-            : game.isArchive ? 'text-blue-300'
-            : game.scanStatus === 'missingLaunchable' ? 'text-red-300'
+            rowStatus.type === 'alreadyImported' ? 'text-yellow-300'
+            : rowStatus.type === 'pending' ? 'text-blue-200'
+            : rowStatus.type === 'emptyFolder' ? 'text-gray-300'
+            : rowStatus.type === 'repairPath' ? 'text-cyan-300'
+            : rowStatus.type === 'blocked' ? 'text-yellow-200'
+            : rowStatus.type === 'missingLaunchable' ? 'text-red-300'
             : 'text-green-300'
 
           return (

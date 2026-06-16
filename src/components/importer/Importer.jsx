@@ -80,6 +80,32 @@ const Importer = () => {
   const visibleStats = useMemo(() => deriveImportStats(gamesList), [gamesList])
   const canImport = importableGames.length > 0
 
+  const getRowImportStatus = (game) => {
+    const scanStatus = game.scanStatus || 'new'
+
+    if (scanStatus === 'pendingMatch') return { text: 'Pending match', type: 'pending' }
+    if (scanStatus === 'alreadyImported') return { text: 'Already imported', type: 'alreadyImported' }
+    if (scanStatus === 'repairPath') return { text: 'Repair path', type: 'repairPath' }
+    if (scanStatus === 'missingLaunchable') return { text: 'Missing launchable', type: 'missingLaunchable' }
+    if (scanStatus === 'emptyFolder') return { text: 'Empty folder', type: 'emptyFolder' }
+    if (scanStatus !== 'new') return { text: game.scanMessage || 'Skipped', type: 'blocked' }
+
+    const needsUnmatched = isUnmatchedGame(game) && !includeUnmatched
+    const needsArchive = game.isArchive && !includeArchives
+
+    if (needsUnmatched && needsArchive) {
+      return { text: 'Requires unmatched + archive import', type: 'blocked' }
+    }
+    if (needsUnmatched) return { text: 'Requires Import unmatched games', type: 'blocked' }
+    if (needsArchive) return { text: 'Requires archive import', type: 'blocked' }
+    if (!game.isArchive && !game.selectedValue) {
+      return { text: 'Missing launchable', type: 'missingLaunchable' }
+    }
+    if (isImportableGame(game, importOptions)) return { text: 'Ready to import', type: 'ready' }
+
+    return { text: game.scanMessage || 'Not importable', type: 'blocked' }
+  }
+
   const getImportDisabledReason = () => {
     if (canImport) return ''
     const newRows = gamesList.filter((game) => isNewScanRow(game) || isExistingImportRow(game))
@@ -113,7 +139,7 @@ const Importer = () => {
         if (game.results?.length > 1) { const sel = game.results.find((r) => r.key === game.resultSelectedValue); return sel?.value || game.results[0]?.value || '' }
         return ''
       case 'source': return game.isArchive ? game.sourceFile || game.folder || 'Archive' : game.folder || 'Metadata only'
-      case 'status': return game.scanMessage || (['new', 'repairPath'].includes(game.scanStatus || 'new') ? 'Ready to import' : 'Skipped')
+      case 'status': return getRowImportStatus(game).text
       default: return ''
     }
   }
@@ -145,7 +171,7 @@ const Importer = () => {
       .filter(({ game }) => !(hideMatches && game.results?.length === 1 && game.results[0]?.value === 'Match Found'))
     if (!sortConfig.key) return rows
     return [...rows].sort((a, b) => compareRows(a, b, sortConfig.key, sortConfig.direction))
-  }, [gamesList, hideMatches, sortConfig])
+  }, [gamesList, hideMatches, sortConfig, includeUnmatched, includeArchives, forceReimport])
 
   // ── Match resolution ──────────────────────────────────────────────────────
   const applyReplaceOptions = async (game) => {
@@ -480,7 +506,7 @@ const Importer = () => {
             onSort={handleSort} onUpdateGame={updateGame} onDeleteGame={deleteGame}
             onResultChange={handleResultChange} onUpdateMatches={updateMatches}
             onCancelMatch={cancelScanOrMatch} onImport={importGamesFunc}
-            getGameKey={getScanGameKey}
+            getGameKey={getScanGameKey} getRowImportStatus={getRowImportStatus}
             setHideMatches={setHideMatches} setIncludeUnmatched={setIncludeUnmatched}
             setIncludeArchives={setIncludeArchives} setForceReimport={setForceReimport}
           />

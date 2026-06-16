@@ -5,7 +5,7 @@ export default function ScanStep({
   hideMatches, includeUnmatched, includeArchives, forceReimport,
   canImport, isResolvingMatches, getImportDisabledReason,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
-  onUpdateMatches, onCancelMatch, onImport,
+  getRowImportStatus, onUpdateMatches, onCancelMatch, onImport,
   setHideMatches, setIncludeUnmatched, setIncludeArchives, setForceReimport,
 }) {
   return (
@@ -40,6 +40,7 @@ export default function ScanStep({
           onDeleteGame={onDeleteGame}
           onResultChange={onResultChange}
           getGameKey={getGameKey}
+          getRowImportStatus={getRowImportStatus}
         />
       </div>
 
