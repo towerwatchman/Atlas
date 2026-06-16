@@ -168,7 +168,13 @@ async function getArchiveInfo(archivePath, sevenZipBin) {
   });
 }
 
-async function extractArchive(archivePath, finalPath, sevenZipBin, session) {
+async function extractArchive(
+  archivePath,
+  finalPath,
+  sevenZipBin,
+  session,
+  progressWindow,
+) {
   const workerPath = resolvePackagedModulePath(
     path.join(__dirname, "../../workers/extractWorker.js"),
   );
@@ -207,8 +213,8 @@ async function extractArchive(archivePath, finalPath, sevenZipBin, session) {
     };
     worker.on("message", (msg) => {
       if (msg.type === "progress") {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("import-progress", {
+        if (progressWindow && !progressWindow.isDestroyed()) {
+          progressWindow.webContents.send("import-progress", {
             text: msg.text,
             progress:
               typeof msg.percent === "number"
@@ -219,7 +225,7 @@ async function extractArchive(archivePath, finalPath, sevenZipBin, session) {
             canCancel: true,
           });
         } else {
-          console.warn("[MAIN] mainWindow not available for progress send");
+          console.warn("[MAIN] import progress window not available");
         }
       } else if (msg.type === "done") {
         settle(async () => {
@@ -929,6 +935,8 @@ ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
       zipPath,
       extractPath,
       resolvedSevenZip.path,
+      null,
+      ownerWindow,
     );
     return { success: true, extractPath: extraction.finalPath || extractPath };
   } catch (err) {
@@ -1325,6 +1333,7 @@ ipcMain.handle("import-games", async (event, params) => {
             extractPath,
             sevenZipPath,
             session,
+            mainWindow,
           );
           extractPath = extraction.finalPath || extractPath;
           session.cleanupPaths = [extractPath];
