@@ -33,6 +33,63 @@ const defaultConfig = {
   },
 }
 
+const defaultSavedFilterState = {
+  text: '',
+  type: 'all',
+  category: [],
+  engine: [],
+  status: [],
+  censored: [],
+  language: [],
+  tags: [],
+  sort: 'name',
+  dateLimit: 0,
+  tagLogic: 'AND',
+  updateAvailable: false,
+  includeUninstalled: false,
+  installState: 'installed',
+  multipleInstalledVersions: false,
+}
+
+const savedFilterArrayKeys = ['category', 'engine', 'status', 'censored', 'language', 'tags']
+
+const toSavedFilterArray = (value) => {
+  if (Array.isArray(value)) return value.filter((item) => item !== undefined && item !== null).map(String)
+  if (value === undefined || value === null || value === '') return []
+  return [String(value)]
+}
+
+const normalizeSavedFilterState = (filters = {}) => {
+  const source = filters && typeof filters === 'object' ? filters : {}
+  const merged = { ...defaultSavedFilterState, ...source }
+  for (const key of savedFilterArrayKeys) merged[key] = toSavedFilterArray(merged[key])
+  merged.text = String(merged.text || '')
+  merged.type = String(merged.type || 'all')
+  merged.sort = String(merged.sort || 'name')
+  merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
+  merged.updateAvailable = merged.updateAvailable === true
+  merged.multipleInstalledVersions = merged.multipleInstalledVersions === true
+  if (!['installed', 'uninstalled', 'all'].includes(merged.installState)) {
+    merged.installState = merged.includeUninstalled ? 'all' : 'installed'
+  }
+  if (merged.installState === 'installed') merged.includeUninstalled = false
+  if (['all', 'uninstalled'].includes(merged.installState)) merged.includeUninstalled = true
+  const dateLimit = Number(merged.dateLimit)
+  merged.dateLimit = Number.isFinite(dateLimit) && dateLimit > 0 ? dateLimit : 0
+  return merged
+}
+
+const normalizeSavedFilter = (filter) => {
+  if (!filter || !filter.id || !filter.name) return null
+  return {
+    ...filter,
+    id: String(filter.id),
+    name: String(filter.name).trim(),
+    builtIn: false,
+    filters: normalizeSavedFilterState(filter.filters),
+  }
+}
+
 // Deep merge parsed ini into defaults so missing keys always have a value.
 // ini.parse() returns all values as strings — coerce known booleans/numbers.
 function mergeWithDefaults(parsed, defaults) {
@@ -114,26 +171,30 @@ module.exports = function registerSettingsHandlers(ctx) {
 
   ipcMain.handle('get-saved-filters', async () => {
     const data = await readSavedFiltersFile()
-    return data.filters.filter((filter) => filter && filter.id && filter.name)
+    return data.filters
+      .map(normalizeSavedFilter)
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name))
   })
 
   ipcMain.handle('save-saved-filter', async (event, filter) => {
     try {
       const data = await readSavedFiltersFile()
-      const cleanFilter = {
+      const cleanFilter = normalizeSavedFilter({
         ...filter,
         id:
           filter?.id ||
           `filter-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name: String(filter?.name || '').trim(),
         builtIn: false,
-        filters: filter?.filters || {},
-      }
-      if (!cleanFilter.name) {
+        filters: normalizeSavedFilterState(filter?.filters),
+      })
+      if (!cleanFilter?.name) {
         return { success: false, error: 'Filter name is required' }
       }
-      const existingIndex = data.filters.findIndex((item) => item.id === cleanFilter.id)
-      const nextFilters = [...data.filters]
+      const normalizedExisting = data.filters.map(normalizeSavedFilter).filter(Boolean)
+      const existingIndex = normalizedExisting.findIndex((item) => item.id === cleanFilter.id)
+      const nextFilters = [...normalizedExisting]
       if (existingIndex >= 0) nextFilters[existingIndex] = cleanFilter
       else nextFilters.push(cleanFilter)
       await writeSavedFiltersFile({ ...data, filters: nextFilters })

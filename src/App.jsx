@@ -1,13 +1,14 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AutoSizer, Grid } from 'react-virtualized'
 import Sidebar from './components/ui/Sidebar.jsx'
 import { atlasLogo } from './assets/icons/data.js'
 import GameBanner from './components/library/GameBanner.jsx'
 import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
+import SavedFiltersPanel from './components/search/SavedFiltersPanel.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
 import { useGames } from './hooks/useGames.js'
-import { useFilters } from './hooks/useFilters.js'
+import { builtInSavedFilters, filterGamesWithState, normalizeFilterState, useFilters } from './hooks/useFilters.js'
 import { useAppUpdate } from './hooks/useAppUpdate.js'
 import { useWindowState } from './hooks/useWindowState.js'
 
@@ -21,8 +22,10 @@ const debounce = (func, delay) => {
 
 const App = () => {
   const [selectedGame, setSelectedGame] = useState(null)
-  const [showGameList, setShowGameList] = useState(true)
+  const [sidebarMode, setSidebarMode] = useState('games')
   const [showSearchSidebar, setShowSearchSidebar] = useState(false)
+  const [userSavedFilters, setUserSavedFilters] = useState([])
+  const [activeSavedFilterId, setActiveSavedFilterId] = useState('')
   const [columnCount, setColumnCount] = useState(1)
   const [bannerSize, setBannerSize] = useState({ bannerWidth: 537, bannerHeight: 251 })
   const [importStatus, setImportStatus] = useState({ text: '', progress: 0, total: 0 })
@@ -34,6 +37,9 @@ const App = () => {
   const libraryScrollTopRef = useRef(0)
   const pendingLibraryScrollTopRestoreRef = useRef(null)
   const dbUpdateRunningRef = useRef(false)
+  const showGameList = sidebarMode === 'games'
+  const showSavedFilters = sidebarMode === 'savedFilters'
+  const showLibrarySidebar = sidebarMode !== 'hidden'
 
   // ── Hooks ──────────────────────────────────────────────────────────────────
   const {
@@ -42,7 +48,7 @@ const App = () => {
   } = useGames()
 
   const {
-    activeFilters, setActiveFilters, handleFilterChange,
+    activeFilters, handleFilterChange,
     filteredGames, installedGameCount, uninstalledGameCount,
   } = useFilters(games, includeUninstalledRef, fetchGames, setSelectedGame)
 
@@ -141,14 +147,19 @@ const App = () => {
 
   // ── Sidebar / list toggle ──────────────────────────────────────────────────
   const toggleGameList = () => {
-    const newVisible = !showGameList
-    setShowGameList(newVisible)
+    const nextMode =
+      sidebarMode === 'games'
+        ? 'savedFilters'
+        : sidebarMode === 'savedFilters'
+          ? 'hidden'
+          : 'games'
+    setSidebarMode(nextMode)
     window.electronAPI
       .getConfig()
       .then((config) => {
         window.electronAPI.saveSettings({
           ...config,
-          Interface: { ...config.Interface, showGameList: newVisible },
+          Interface: { ...config.Interface, showGameList: nextMode !== 'hidden' },
         })
       })
       .catch((err) => console.error('Failed to save game list visibility:', err))
@@ -160,8 +171,75 @@ const App = () => {
   }, [selectedGame])
 
   const handleSearchChange = useCallback((text) => {
+    setActiveSavedFilterId('')
     handleFilterChange({ text })
   }, [handleFilterChange])
+
+  const loadSavedFilters = useCallback(() => {
+    return window.electronAPI
+      .getSavedFilters?.()
+      .then((filters) => {
+        const normalized = (Array.isArray(filters) ? filters : [])
+          .filter((filter) => filter && filter.id && filter.name)
+          .map((filter) => ({
+            ...filter,
+            builtIn: false,
+            filters: normalizeFilterState(filter.filters),
+          }))
+          .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+        setUserSavedFilters(normalized)
+      })
+      .catch((err) => console.error('Failed to load saved filters:', err))
+  }, [])
+
+  const handleSavedFilterSaved = useCallback((filter) => {
+    if (!filter?.id) return
+    const normalized = {
+      ...filter,
+      builtIn: false,
+      filters: normalizeFilterState(filter.filters),
+    }
+    setUserSavedFilters((prev) => {
+      const withoutExisting = prev.filter((item) => item.id !== normalized.id)
+      return [...withoutExisting, normalized].sort((a, b) =>
+        String(a.name).localeCompare(String(b.name)),
+      )
+    })
+    setActiveSavedFilterId(normalized.id)
+  }, [])
+
+  const applySavedFilter = useCallback((filter) => {
+    if (!filter) return
+    const nextFilters = normalizeFilterState(filter.filters)
+    setActiveSavedFilterId(filter.id || '')
+    handleFilterChange(nextFilters)
+  }, [handleFilterChange])
+
+  const deleteSavedFilter = useCallback(async (filter) => {
+    if (!filter?.id || filter.builtIn) return
+    if (!window.confirm(`Delete saved filter "${filter.name}"?`)) return
+    const result = await window.electronAPI.deleteSavedFilter?.(filter.id)
+    if (!result?.success) {
+      alert(`Failed to delete filter: ${result?.error || 'Unknown error'}`)
+      console.error('Failed to delete saved filter:', result?.error)
+      return
+    }
+    setUserSavedFilters((prev) => prev.filter((item) => item.id !== filter.id))
+    if (activeSavedFilterId === filter.id) setActiveSavedFilterId('')
+  }, [activeSavedFilterId])
+
+  const allSavedFilters = useMemo(
+    () => [...builtInSavedFilters, ...userSavedFilters],
+    [userSavedFilters],
+  )
+
+  const savedFilterCounts = useMemo(() => {
+    const nextCounts = {}
+    for (const filter of allSavedFilters) {
+      nextCounts[filter.id] = filterGamesWithState(games, filter.filters).length
+    }
+    return nextCounts
+  }, [allSavedFilters, games])
 
   // ── DB update check ────────────────────────────────────────────────────────
   const clearDbUpdateStatusSoon = useCallback(() => {
@@ -241,10 +319,11 @@ const App = () => {
   // ── IPC listeners + init ───────────────────────────────────────────────────
   useEffect(() => {
     window.electronAPI.getConfig()
-      .then((config) => setShowGameList(config.Interface?.showGameList ?? true))
-      .catch(() => setShowGameList(true))
+      .then((config) => setSidebarMode((config.Interface?.showGameList ?? true) ? 'games' : 'hidden'))
+      .catch(() => setSidebarMode('games'))
 
     fetchGames(false).then(() => window.electronAPI.validateLibraryPaths?.())
+    loadSavedFilters()
 
     window.electronAPI.getTemplate?.()
       .then((template) => {
@@ -353,12 +432,18 @@ const App = () => {
 
   useEffect(() => {
     setTimeout(() => debounceResize(), 0)
-  }, [showGameList])
+  }, [showLibrarySidebar])
+
+  useEffect(() => {
+    if (!showSavedFilters || includeUninstalledRef.current) return
+    includeUninstalledRef.current = true
+    fetchGames(true)
+  }, [showSavedFilters, fetchGames, includeUninstalledRef])
 
   useEffect(() => {
     if (selectedGame) return
     restoreLibraryScrollIfNeeded()
-  }, [selectedGame, filteredGames.length, columnCount, bannerSize.bannerHeight, showGameList, restoreLibraryScrollIfNeeded])
+  }, [selectedGame, filteredGames.length, columnCount, bannerSize.bannerHeight, showLibrarySidebar, restoreLibraryScrollIfNeeded])
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -421,7 +506,7 @@ const App = () => {
 
       {/* Main Content */}
       <div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
-        <Sidebar onToggleGameList={toggleGameList} onCheckDbUpdates={runDbUpdateCheck} onGoHome={goBackToLibrary} />
+        <Sidebar onToggleGameList={toggleGameList} onCheckDbUpdates={runDbUpdateCheck} onGoHome={goBackToLibrary} showGameList={showLibrarySidebar} />
 
         {showGameList && (
           <div className="w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ml-[60px]">
@@ -441,9 +526,19 @@ const App = () => {
           </div>
         )}
 
+        {showSavedFilters && (
+          <SavedFiltersPanel
+            userSavedFilters={userSavedFilters}
+            activeSavedFilterId={activeSavedFilterId}
+            counts={savedFilterCounts}
+            onApplyFilter={applySavedFilter}
+            onDeleteFilter={deleteSavedFilter}
+          />
+        )}
+
         <div
           id="gameGrid"
-          className={`flex-1 bg-tertiary overflow-y-auto ${showGameList ? 'ml-[260px]' : 'ml-[60px]'}`}
+          className={`flex-1 bg-tertiary overflow-y-auto ${showLibrarySidebar ? 'ml-[260px]' : 'ml-[60px]'}`}
           ref={gameGridRef}
           style={{ overflowX: 'hidden' }}
         >
@@ -483,9 +578,10 @@ const App = () => {
             isVisible={showSearchSidebar}
             searchText={activeFilters.text}
             activeFilters={activeFilters}
+            userSavedFilters={userSavedFilters}
             onSearchChange={handleSearchChange}
             onFilterChange={handleFilterChange}
-            onApplySavedFilter={handleFilterChange}
+            onSavedFilterSaved={handleSavedFilterSaved}
             onClose={() => setShowSearchSidebar(false)}
           />
         )}
