@@ -803,7 +803,7 @@ ${bannerJoinClauses}
             MIN(steam_data.header) as steam_header,
             MIN(steam_data.library_hero) as steam_library_hero,
             MIN(steam_data.logo) as steam_logo,
-            atlas_data.tags AS tags
+            '' AS tags
           FROM atlas_data
           LEFT JOIN atlas_mappings ON atlas_data.atlas_id = atlas_mappings.atlas_id
           LEFT JOIN f95_zone_data ON atlas_data.atlas_id = f95_zone_data.atlas_id
@@ -819,12 +819,14 @@ ${bannerJoinClauses}
         getDb().all(metadataOnlyQuery, [], (metadataErr, metadataRows) => {
           if (metadataErr) {
             console.error("Error fetching metadata-only games:", metadataErr);
-            reject(metadataErr);
+            resolve(games);
             return;
           }
 
           const metadataGames = (metadataRows || []).map((row) => ({
             ...row,
+            title: row.title || row.short_name || "Unknown Title",
+            creator: row.creator || "Unknown",
             engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
             versions: [],
             versionCount: 0,

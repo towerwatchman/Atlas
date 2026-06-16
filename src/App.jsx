@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { Component, useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AutoSizer, Grid } from 'react-virtualized'
 import Sidebar from './components/ui/Sidebar.jsx'
 import { atlasLogo } from './assets/icons/data.js'
@@ -17,6 +17,41 @@ const debounce = (func, delay) => {
   return (...args) => {
     clearTimeout(timeout)
     timeout = setTimeout(() => func(...args), delay)
+  }
+}
+
+export class AppErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+
+  componentDidCatch(error, info) {
+    console.error('Atlas renderer error:', error, info)
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="h-screen bg-tertiary text-text flex items-center justify-center p-6">
+          <div className="bg-secondary border border-border rounded p-4 max-w-xl">
+            <h1 className="text-lg font-bold mb-2">Atlas hit a display error</h1>
+            <p className="text-sm opacity-80 mb-3">
+              This view could not render, but the app stayed open. Restart Atlas if the view does not recover.
+            </p>
+            <pre className="text-xs whitespace-pre-wrap break-words bg-primary p-3 rounded">
+              {this.state.error?.message || String(this.state.error)}
+            </pre>
+          </div>
+        </div>
+      )
+    }
+
+    return this.props.children
   }
 }
 
@@ -88,7 +123,7 @@ const App = () => {
   const selectGame = useCallback((game) => {
     setShowSearchSidebar(false)
     setSelectedGame(game)
-    if (!game?.record_id) return
+    if (!game?.record_id || game.isMetadataOnly) return
     window.electronAPI
       .getGame(game.record_id)
       .then((updatedGame) => {

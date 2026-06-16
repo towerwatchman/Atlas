@@ -34,7 +34,6 @@ export function useGames() {
         })
         .catch((error) => {
           console.error('Failed to fetch games:', error)
-          updateGamesState([])
           return []
         }),
     [updateGamesState]
