@@ -11,6 +11,12 @@ const {
   downloadAndConvertScreens,
 } = require("../db/index");
 
+// db/index exports `db` via a getter; reading it live (rather than trusting a
+// reference captured/destructured elsewhere at require time, which is null) is
+// the only reliable way to get the initialized connection.
+const dbIndex = require("../db/index");
+const liveDb = () => dbIndex.db;
+
 function parseVDF(text) {
   const lines = text
     .split("\n")
@@ -108,6 +114,7 @@ async function getSteamGameData(steamId) {
     const game = {
       steam_id: parseInt(steamId),
       title: data.name || "",
+      type: data.type || "",
       category: data.categories
         ? data.categories.map((c) => c.description).join(",")
         : "",
@@ -141,8 +148,8 @@ async function insertSteamData(db, data) {
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT OR REPLACE INTO steam_data (
-        steam_id, atlas_id, title, category, engine, developer, publisher, overview, censored, language, translations, genre, tags, voice, os, release_state, release_date, header, library_hero, logo, last_record_update
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        steam_id, atlas_id, title, category, engine, developer, publisher, overview, censored, language, translations, genre, tags, voice, os, release_state, release_date, header, library_hero, logo, last_record_update, type
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.steam_id,
         data.atlas_id || null,
@@ -165,6 +172,7 @@ async function insertSteamData(db, data) {
         data.library_hero,
         data.logo,
         data.last_record_update,
+        data.type || "",
       ],
       (err) => {
         if (err) reject(err);
@@ -252,7 +260,20 @@ async function getSteamLibraryFolders(overridePath = null) {
     console.log(`Default Steam path not found: ${steamPath}`);
   }
 
-  return libraries.length > 0 ? libraries : null;
+  // Modern Steam lists the default library inside libraryfolders.vdf as well,
+  // so the default steamapps folder gets added both explicitly and again from
+  // the VDF loop. De-duplicate by normalized absolute path so each library
+  // (and therefore each game) is only scanned once.
+  const uniqueLibraries = [];
+  const seenLibraries = new Set();
+  for (const lib of libraries) {
+    const key = path.normalize(lib).toLowerCase();
+    if (seenLibraries.has(key)) continue;
+    seenLibraries.add(key);
+    uniqueLibraries.push(lib);
+  }
+
+  return uniqueLibraries.length > 0 ? uniqueLibraries : null;
 }
 
 async function getInstalledSteamGames(overridePath = null) {
@@ -261,6 +282,7 @@ async function getInstalledSteamGames(overridePath = null) {
     throw new Error("No valid Steam library folders found");
   }
   const games = [];
+  const seenAppIds = new Set();
   for (const lib of libraries) {
     try {
       console.log(`Scanning library: ${lib}`);
@@ -282,6 +304,11 @@ async function getInstalledSteamGames(overridePath = null) {
             appState.name &&
             appState.installdir
           ) {
+            if (seenAppIds.has(appState.appid)) {
+              console.log(`Skipping duplicate appid ${appState.appid}`);
+              continue;
+            }
+            seenAppIds.add(appState.appid);
             const gameData = {
               appid: appState.appid,
               name: appState.name,
@@ -306,6 +333,75 @@ async function getInstalledSteamGames(overridePath = null) {
   return games;
 }
 
+const STEAM_FETCH_DELAY_MS = 1500; // stay well under the ~200 req / 5 min limit
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Read a cached steam_data row so repeat scans don't re-hit the network.
+function getCachedSteamData(db, steamId) {
+  const database = db || liveDb();
+  return new Promise((resolve) => {
+    if (!database) {
+      resolve(null);
+      return;
+    }
+    database.get(
+      `SELECT steam_id, title, developer, publisher, engine, type, header
+       FROM steam_data WHERE steam_id = ?`,
+      [steamId],
+      (err, row) => resolve(err ? null : row || null),
+    );
+  });
+}
+
+// Fetch fresh metadata from the Steam store API and persist it (steam_data +
+// screenshots). Returns the normalized game object, or null on failure.
+async function fetchAndStoreSteamData(db, steamId) {
+  const database = db || liveDb();
+  const result = await getSteamGameData(steamId);
+  if (!result) return null;
+  try {
+    if (database) {
+      await insertSteamData(database, result.game);
+      if (result.screenshots && result.screenshots.length > 0) {
+        await insertSteamScreens(
+          database,
+          parseInt(steamId, 10),
+          result.screenshots,
+        );
+      }
+    }
+  } catch (err) {
+    console.error(`Failed to persist steam_data for ${steamId}:`, err);
+  }
+  return result.game;
+}
+
+// Best-effort title -> appid lookup via the public store search endpoint. Used
+// for cross-source matching (e.g. an f95 game that also has a Steam release).
+async function findSteamId(title, developer = "") {
+  const term = String(title || "").trim();
+  if (!term) return null;
+  try {
+    const res = await fetch(
+      `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(
+        term,
+      )}&cc=us&l=en`,
+    );
+    const json = await res.json();
+    const items = (json && json.items) || [];
+    if (items.length === 0) return null;
+
+    // Prefer an exact (case-insensitive) title match, else the first result.
+    const norm = (s) => String(s || "").trim().toLowerCase();
+    const exact = items.find((i) => norm(i.name) === norm(term));
+    const chosen = exact || items[0];
+    return chosen && chosen.id ? parseInt(chosen.id, 10) : null;
+  } catch (err) {
+    console.error(`findSteamId failed for "${title}":`, err);
+    return null;
+  }
+}
+
 async function startSteamScan(db, params, event) {
   try {
     const overridePath = params?.steamPath || null;
@@ -321,13 +417,31 @@ async function startSteamScan(db, params, event) {
     const total = installedGames.length;
     let potential = 0;
     event.sender.send("scan-progress", { value, total, potential });
+
     for (const steamGame of installedGames) {
-      // Use local .acf data only
+      const appId = parseInt(steamGame.appid, 10);
+
+      // Prefer cached metadata; only hit the network (throttled) on a miss so a
+      // first scan of a large library stays within Steam's rate limit and
+      // re-scans are instant. Enrichment failures fall back to the .acf name.
+      let meta = await getCachedSteamData(db, appId);
+      if (!meta) {
+        try {
+          meta = await fetchAndStoreSteamData(db, appId);
+        } catch (err) {
+          console.error(`Steam enrichment failed for ${appId}:`, err);
+          meta = null;
+        }
+        await delay(STEAM_FETCH_DELAY_MS);
+      }
+
       const game = {
-        title: steamGame.name,
-        creator: "Unknown",
-        engine: "Unknown",
+        title: (meta && meta.title) || steamGame.name,
+        creator:
+          (meta && meta.developer) || (meta && meta.publisher) || "Unknown",
+        engine: (meta && meta.engine) || "Unknown",
         version: "Steam",
+        steamType: (meta && meta.type) || "game",
         folder: steamGame.installDir,
         executables: [{ key: "steam", value: "Launch via Steam" }],
         selectedValue: "steam",
@@ -335,7 +449,7 @@ async function startSteamScan(db, params, event) {
         singleExecutable: "Launch via Steam",
         atlasId: "",
         f95Id: "",
-        steamId: parseInt(steamGame.appid),
+        steamId: appId,
         folderSize: steamGame.size,
         results: [
           { key: "match", value: "No match found - Added as Steam game" },
@@ -359,6 +473,8 @@ async function startSteamScan(db, params, event) {
 
 module.exports = {
   getSteamGameData,
+  fetchAndStoreSteamData,
+  findSteamId,
   insertSteamData,
   insertSteamScreens,
   getSteamLibraryFolders,

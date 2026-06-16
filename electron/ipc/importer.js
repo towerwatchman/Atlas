@@ -11,6 +11,7 @@ const { Worker } = require('worker_threads')
 const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
         checkRecordExist, checkPathExist } = require('../db/atlas')
 const { getGame } = require('../db/versions')
+const { fetchAndStoreSteamData, findSteamId } = require('../scanners/steamscanner')
 
 // ── Importer helper functions ──────────────────────────────────────
 
@@ -982,7 +983,7 @@ ipcMain.handle("cancel-scan", async () => {
 });
 
 ipcMain.handle("get-steam-game-data", async (event, steamId) => {
-  return await getSteamGameData(steamId);
+  return await fetchAndStoreSteamData(db, steamId);
 });
 
 ipcMain.handle("search-atlas", async (event, params) => {
@@ -1750,8 +1751,9 @@ ipcMain.handle("import-games", async (event, params) => {
 ipcMain.handle("get-steam-data", async (event, steam_id) => {
   console.log("Handling get-steam-data:", steam_id);
   try {
-    await getSteamGameData(steam_id);
+    const game = await fetchAndStoreSteamData(db, steam_id);
     console.log("Steam Game data updated in database");
+    return game;
   } catch (err) {
     console.error("Error updating Steam Game Data:", err);
     throw err;
@@ -1761,8 +1763,9 @@ ipcMain.handle("get-steam-data", async (event, steam_id) => {
 ipcMain.handle("find-steam-id", async (event, title, developer) => {
   console.log("Handling find-steam-id:", title, developer);
   try {
-    await findSteamId(title, developer);
-    console.log("Steam Game id found");
+    const steamId = await findSteamId(title, developer);
+    console.log("Steam Game id found:", steamId);
+    return steamId;
   } catch (err) {
     console.error("Error checking Steam ID:", err);
     throw err;
