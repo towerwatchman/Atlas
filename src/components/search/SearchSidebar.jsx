@@ -1,4 +1,50 @@
 import { useState, useEffect, useMemo } from 'react'
+import { defaultFilters } from '../../hooks/useFilters.js'
+
+const normalizeFilterState = (filters = {}) => {
+  const merged = { ...defaultFilters, ...filters }
+  if (!filters.installState) {
+    merged.installState = merged.includeUninstalled ? 'all' : 'installed'
+  }
+  if (merged.installState === 'installed') merged.includeUninstalled = false
+  if (['all', 'uninstalled'].includes(merged.installState)) {
+    merged.includeUninstalled = true
+  }
+  return merged
+}
+
+const builtInSavedFilters = [
+  {
+    id: 'builtin-installed',
+    name: 'Installed titles',
+    builtIn: true,
+    filters: normalizeFilterState({ installState: 'installed' }),
+  },
+  {
+    id: 'builtin-all',
+    name: 'All titles',
+    builtIn: true,
+    filters: normalizeFilterState({ includeUninstalled: true, installState: 'all' }),
+  },
+  {
+    id: 'builtin-uninstalled',
+    name: 'Browse titles / Not installed',
+    builtIn: true,
+    filters: normalizeFilterState({ includeUninstalled: true, installState: 'uninstalled' }),
+  },
+  {
+    id: 'builtin-updates',
+    name: 'Updates available',
+    builtIn: true,
+    filters: normalizeFilterState({ updateAvailable: true }),
+  },
+  {
+    id: 'builtin-recent',
+    name: 'Recently released',
+    builtIn: true,
+    filters: normalizeFilterState({ sort: 'date', includeUninstalled: true, installState: 'all' }),
+  },
+]
 
 const SearchSidebar = ({
   isVisible,
@@ -6,25 +52,18 @@ const SearchSidebar = ({
   activeFilters = {},
   onSearchChange,
   onFilterChange,
+  onApplySavedFilter,
   onClose,
 }) => {
   const [tagSearch, setTagSearch] = useState("");
   const [highlightedTagIndex, setHighlightedTagIndex] = useState(-1);
-  const defaultFilters = {
-    type: "all",
-    category: [],
-    engine: [],
-    status: [],
-    censored: [],
-    language: [],
-    tags: [],
-    sort: "name",
-    tagLogic: "AND",
-    updateAvailable: false,
-    includeUninstalled: false,
-    multipleInstalledVersions: false,
-  };
-  const selectedFilters = { ...defaultFilters, ...activeFilters };
+  const [userSavedFilters, setUserSavedFilters] = useState([]);
+  const [selectedSavedFilterId, setSelectedSavedFilterId] = useState('');
+  const selectedFilters = normalizeFilterState(activeFilters);
+  const savedFilters = useMemo(
+    () => [...builtInSavedFilters, ...userSavedFilters],
+    [userSavedFilters],
+  );
   const [options, setOptions] = useState({
     categories: [],
     engines: [],
@@ -39,10 +78,73 @@ const SearchSidebar = ({
       .getUniqueFilterOptions()
       .then((data) => setOptions(data))
       .catch((err) => console.error("Failed to load filter options:", err));
+
+    window.electronAPI
+      .getSavedFilters?.()
+      .then((filters) => setUserSavedFilters(Array.isArray(filters) ? filters : []))
+      .catch((err) => console.error("Failed to load saved filters:", err));
   }, []);
 
   const updateFilters = (changes) => {
     onFilterChange?.({ ...selectedFilters, ...changes });
+  };
+
+  const applySavedFilter = (filter) => {
+    if (!filter) return;
+    const nextFilters = normalizeFilterState(filter.filters);
+    onApplySavedFilter?.(nextFilters);
+    onSearchChange?.(nextFilters.text || "");
+  };
+
+  const handleApplySelectedFilter = () => {
+    applySavedFilter(savedFilters.find((filter) => filter.id === selectedSavedFilterId));
+  };
+
+  const handleSaveCurrentFilter = async () => {
+    const rawName = window.prompt("Save current filters as:");
+    const name = String(rawName || "").trim();
+    if (!name) return;
+
+    if (builtInSavedFilters.some((filter) => filter.name.toLowerCase() === name.toLowerCase())) {
+      alert("That name is used by a built-in filter.");
+      return;
+    }
+
+    const existing = userSavedFilters.find(
+      (filter) => filter.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (existing && !window.confirm(`Overwrite saved filter "${name}"?`)) return;
+
+    const filterToSave = {
+      id: existing?.id,
+      name,
+      filters: normalizeFilterState({ ...selectedFilters, text: searchText }),
+    };
+    const result = await window.electronAPI.saveSavedFilter?.(filterToSave);
+    if (!result?.success) {
+      alert(`Failed to save filter: ${result?.error || "Unknown error"}`);
+      return;
+    }
+    setUserSavedFilters((prev) => {
+      const withoutExisting = prev.filter((filter) => filter.id !== result.filter.id);
+      return [...withoutExisting, result.filter].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      );
+    });
+    setSelectedSavedFilterId(result.filter.id);
+  };
+
+  const handleDeleteSelectedFilter = async () => {
+    const selected = userSavedFilters.find((filter) => filter.id === selectedSavedFilterId);
+    if (!selected) return;
+    if (!window.confirm(`Delete saved filter "${selected.name}"?`)) return;
+    const result = await window.electronAPI.deleteSavedFilter?.(selected.id);
+    if (!result?.success) {
+      alert(`Failed to delete filter: ${result?.error || "Unknown error"}`);
+      return;
+    }
+    setUserSavedFilters((prev) => prev.filter((filter) => filter.id !== selected.id));
+    setSelectedSavedFilterId('');
   };
 
   const handleCheckbox = (group, value) => {
@@ -132,6 +234,52 @@ const SearchSidebar = ({
               }}
               className="bg-transparent outline-none text-text flex-1 px-3 py-2 focus:outline-none -webkit-app-region-no-drag"
             />
+          </div>
+        </div>
+
+        {/* Saved filters */}
+        <div className="mb-6 border-b border-border pb-4">
+          <h4 className="font-bold mb-3">Saved Filters</h4>
+          <select
+            className="w-full p-2 bg-tertiary border border-border rounded mb-2 text-sm"
+            value={selectedSavedFilterId}
+            onChange={(e) => setSelectedSavedFilterId(e.target.value)}
+          >
+            <option value="">Select a saved filter...</option>
+            <optgroup label="Built-in">
+              {builtInSavedFilters.map((filter) => (
+                <option key={filter.id} value={filter.id}>{filter.name}</option>
+              ))}
+            </optgroup>
+            {userSavedFilters.length > 0 && (
+              <optgroup label="Saved">
+                {userSavedFilters.map((filter) => (
+                  <option key={filter.id} value={filter.id}>{filter.name}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <div className="flex gap-2">
+            <button
+              onClick={handleApplySelectedFilter}
+              disabled={!selectedSavedFilterId}
+              className="px-3 py-1 rounded text-sm bg-accent text-white disabled:opacity-50"
+            >
+              Apply
+            </button>
+            <button
+              onClick={handleSaveCurrentFilter}
+              className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-highlight"
+            >
+              Save Current
+            </button>
+            <button
+              onClick={handleDeleteSelectedFilter}
+              disabled={!userSavedFilters.some((filter) => filter.id === selectedSavedFilterId)}
+              className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-[DarkRed] disabled:opacity-50"
+            >
+              Delete
+            </button>
           </div>
         </div>
 
@@ -346,21 +494,24 @@ const SearchSidebar = ({
           </label>
         </div>
 
-        {/* Uninstalled */}
+        {/* Library scope */}
         <div className="mb-4">
-          <label className="flex items-center space-x-2 text-sm">
-            <input
-              type="checkbox"
-              checked={selectedFilters.includeUninstalled || false}
-              onChange={() =>
-                updateFilters({
-                  includeUninstalled: !selectedFilters.includeUninstalled,
-                })
-              }
-              className="-webkit-app-region-no-drag"
-            />
-            <span>Show uninstalled games</span>
-          </label>
+          <label className="block text-sm mb-1">Library scope</label>
+          <select
+            className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+            value={selectedFilters.installState}
+            onChange={(e) => {
+              const installState = e.target.value;
+              updateFilters({
+                installState,
+                includeUninstalled: ['all', 'uninstalled'].includes(installState),
+              });
+            }}
+          >
+            <option value="installed">Installed titles</option>
+            <option value="all">Installed and uninstalled</option>
+            <option value="uninstalled">Uninstalled only</option>
+          </select>
         </div>
 
         {/* Multiple installed versions */}

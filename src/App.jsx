@@ -160,8 +160,8 @@ const App = () => {
   }, [selectedGame])
 
   const handleSearchChange = useCallback((text) => {
-    setActiveFilters((prev) => ({ ...prev, text }))
-  }, [setActiveFilters])
+    handleFilterChange({ text })
+  }, [handleFilterChange])
 
   // ── DB update check ────────────────────────────────────────────────────────
   const clearDbUpdateStatusSoon = useCallback(() => {
@@ -485,6 +485,7 @@ const App = () => {
             activeFilters={activeFilters}
             onSearchChange={handleSearchChange}
             onFilterChange={handleFilterChange}
+            onApplySavedFilter={handleFilterChange}
             onClose={() => setShowSearchSidebar(false)}
           />
         )}

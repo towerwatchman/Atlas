@@ -2,7 +2,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const assert = require("assert");
-const { startScan } = require("../src/core/scanners/f95scanner");
+const { startScan } = require("../electron/scanners/f95scanner");
 
 function touch(file) {
   fs.mkdirSync(path.dirname(file), { recursive: true });

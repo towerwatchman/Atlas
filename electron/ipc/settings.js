@@ -2,6 +2,7 @@
 
 const { ipcMain } = require('electron')
 const fs = require('fs')
+const path = require('path')
 const ini = require('ini')
 
 const defaultConfig = {
@@ -64,6 +65,33 @@ function mergeWithDefaults(parsed, defaults) {
 
 module.exports = function registerSettingsHandlers(ctx) {
   const { createSettingsWindow } = ctx
+  const savedFiltersPath = () => path.join(ctx.dataDir, 'saved_filters.json')
+
+  const readSavedFiltersFile = async () => {
+    try {
+      const filePath = savedFiltersPath()
+      if (!fs.existsSync(filePath)) return { version: 1, filters: [] }
+      const parsed = JSON.parse(await fs.promises.readFile(filePath, 'utf8'))
+      return {
+        ...parsed,
+        version: Number(parsed?.version) || 1,
+        filters: Array.isArray(parsed?.filters) ? parsed.filters : [],
+      }
+    } catch (err) {
+      console.warn('Failed to read saved filters:', err.message)
+      return { version: 1, filters: [] }
+    }
+  }
+
+  const writeSavedFiltersFile = async (data) => {
+    const filePath = savedFiltersPath()
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true })
+    await fs.promises.writeFile(
+      filePath,
+      `${JSON.stringify({ version: 1, ...data }, null, 2)}\n`,
+      'utf8',
+    )
+  }
 
   ipcMain.handle('open-settings', () => {
     createSettingsWindow()
@@ -80,6 +108,52 @@ module.exports = function registerSettingsHandlers(ctx) {
       return { success: true }
     } catch (err) {
       console.error('save-settings error:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('get-saved-filters', async () => {
+    const data = await readSavedFiltersFile()
+    return data.filters.filter((filter) => filter && filter.id && filter.name)
+  })
+
+  ipcMain.handle('save-saved-filter', async (event, filter) => {
+    try {
+      const data = await readSavedFiltersFile()
+      const cleanFilter = {
+        ...filter,
+        id:
+          filter?.id ||
+          `filter-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: String(filter?.name || '').trim(),
+        builtIn: false,
+        filters: filter?.filters || {},
+      }
+      if (!cleanFilter.name) {
+        return { success: false, error: 'Filter name is required' }
+      }
+      const existingIndex = data.filters.findIndex((item) => item.id === cleanFilter.id)
+      const nextFilters = [...data.filters]
+      if (existingIndex >= 0) nextFilters[existingIndex] = cleanFilter
+      else nextFilters.push(cleanFilter)
+      await writeSavedFiltersFile({ ...data, filters: nextFilters })
+      return { success: true, filter: cleanFilter }
+    } catch (err) {
+      console.error('save-saved-filter error:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('delete-saved-filter', async (event, id) => {
+    try {
+      const data = await readSavedFiltersFile()
+      await writeSavedFiltersFile({
+        ...data,
+        filters: data.filters.filter((filter) => filter.id !== id),
+      })
+      return { success: true }
+    } catch (err) {
+      console.error('delete-saved-filter error:', err)
       return { success: false, error: err.message }
     }
   })

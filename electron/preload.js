@@ -63,6 +63,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   getConfig: () => ipcRenderer.invoke("get-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("save-settings", settings),
+  getSavedFilters: () => ipcRenderer.invoke("get-saved-filters"),
+  saveSavedFilter: (filter) => ipcRenderer.invoke("save-saved-filter", filter),
+  deleteSavedFilter: (id) => ipcRenderer.invoke("delete-saved-filter", id),
   startScan: (params) => ipcRenderer.invoke("start-scan", params),
   cancelScan: () => ipcRenderer.invoke("cancel-scan"),
   searchAtlasByF95Id: (f95Id) =>

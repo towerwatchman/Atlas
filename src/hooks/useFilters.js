@@ -14,6 +14,7 @@ export const defaultFilters = {
   tagLogic: 'AND',
   updateAvailable: false,
   includeUninstalled: false,
+  installState: 'installed',
   multipleInstalledVersions: false,
 }
 
@@ -22,8 +23,17 @@ export function useFilters(games, includeUninstalledRef, fetchGames, setSelected
 
   const handleFilterChange = useCallback(
     (filters) => {
-      setActiveFilters((prev) => ({ ...prev, ...filters, text: prev.text }))
-      const nextIncludeUninstalled = filters.includeUninstalled === true
+      const nextFilters = {
+        ...activeFilters,
+        ...filters,
+        text: Object.prototype.hasOwnProperty.call(filters, 'text')
+          ? filters.text
+          : activeFilters.text,
+      }
+      const nextIncludeUninstalled =
+        nextFilters.includeUninstalled === true ||
+        ['all', 'uninstalled'].includes(nextFilters.installState)
+      setActiveFilters(nextFilters)
       if (includeUninstalledRef.current !== nextIncludeUninstalled) {
         includeUninstalledRef.current = nextIncludeUninstalled
         fetchGames(nextIncludeUninstalled).then(() => {
@@ -35,7 +45,7 @@ export function useFilters(games, includeUninstalledRef, fetchGames, setSelected
         })
       }
     },
-    [includeUninstalledRef, fetchGames, setSelectedGame]
+    [activeFilters, includeUninstalledRef, fetchGames, setSelectedGame]
   )
 
   const filteredGames = useMemo(() => {
@@ -54,6 +64,12 @@ export function useFilters(games, includeUninstalledRef, fetchGames, setSelected
 
     if (activeFilters.updateAvailable) {
       result = result.filter((game) => game.isUpdateAvailable === true)
+    }
+
+    if (activeFilters.installState === 'installed') {
+      result = result.filter((game) => game.hasInstalledVersion !== false)
+    } else if (activeFilters.installState === 'uninstalled') {
+      result = result.filter((game) => game.hasInstalledVersion === false)
     }
 
     if (activeFilters.category.length > 0) {
