@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
+import { getGameTitle, normalizeGameForRenderer, normalizeGamesForRenderer } from '../utils/gameDisplay.js'
 
 const debounce = (func, delay) => {
   let timeout
@@ -14,9 +15,10 @@ export function useGames() {
   const includeUninstalledRef = useRef(false)
 
   const updateGamesState = useCallback((gamesArray) => {
-    setGames(gamesArray)
+    const normalizedGames = normalizeGamesForRenderer(gamesArray)
+    setGames(normalizedGames)
     setTotalVersions(
-      gamesArray.reduce((sum, game) => sum + (game.versionCount || 0), 0)
+      normalizedGames.reduce((sum, game) => sum + (game.versionCount || 0), 0)
     )
   }, [])
 
@@ -25,7 +27,7 @@ export function useGames() {
       window.electronAPI
         .getGames({ includeUninstalled })
         .then((allGames) => {
-          const gamesArray = Array.isArray(allGames) ? allGames : []
+          const gamesArray = normalizeGamesForRenderer(allGames)
           console.log(
             `Fetched ${gamesArray.length} games; includeUninstalled=${includeUninstalled}`
           )
@@ -40,21 +42,22 @@ export function useGames() {
   )
 
   const replaceGameInState = useCallback((game) => {
-    if (!game?.record_id) return
+    const normalizedGame = normalizeGameForRenderer(game)
+    if (!normalizedGame?.record_id) return
     setGames((prev) => {
       const shouldHideMissing =
-        !includeUninstalledRef.current && game.hasInstalledVersion === false
+        !includeUninstalledRef.current && normalizedGame.hasInstalledVersion === false
       const exists = prev.some(
-        (existing) => existing.record_id === game.record_id
+        (existing) => existing.record_id === normalizedGame.record_id
       )
       const newGames = shouldHideMissing
-        ? prev.filter((existing) => existing.record_id !== game.record_id)
+        ? prev.filter((existing) => existing.record_id !== normalizedGame.record_id)
         : exists
         ? prev.map((existing) =>
-            existing.record_id === game.record_id ? game : existing
+            existing.record_id === normalizedGame.record_id ? normalizedGame : existing
           )
-        : [...prev, game].sort((a, b) =>
-            (a.title || '').localeCompare(b.title || '')
+        : [...prev, normalizedGame].sort((a, b) =>
+            getGameTitle(a).localeCompare(getGameTitle(b))
           )
       setTotalVersions(
         newGames.reduce((sum, g) => sum + (g.versionCount || 0), 0)
@@ -79,15 +82,16 @@ export function useGames() {
       window.electronAPI
         .getGame(recordId)
         .then((updatedGame) => {
-          if (updatedGame) {
+          const normalizedGame = normalizeGameForRenderer(updatedGame)
+          if (normalizedGame) {
             setGames((prev) => {
               const shouldHideMissing =
                 !includeUninstalledRef.current &&
-                updatedGame.hasInstalledVersion === false
+                normalizedGame.hasInstalledVersion === false
               const newGames = shouldHideMissing
-                ? prev.filter((g) => g.record_id !== updatedGame.record_id)
+                ? prev.filter((g) => g.record_id !== normalizedGame.record_id)
                 : prev.map((g) =>
-                    g.record_id === updatedGame.record_id ? updatedGame : g
+                    g.record_id === normalizedGame.record_id ? normalizedGame : g
                   )
               setTotalVersions(
                 newGames.reduce((sum, game) => sum + (game.versionCount || 0), 0)

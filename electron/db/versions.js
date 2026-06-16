@@ -825,9 +825,14 @@ ${bannerJoinClauses}
 
           const metadataGames = (metadataRows || []).map((row) => ({
             ...row,
-            title: row.title || row.short_name || "Unknown Title",
-            creator: row.creator || "Unknown",
-            engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
+            title: String(row.title || row.short_name || "Unknown Title"),
+            creator: String(row.creator || "Unknown"),
+            engine: row.engine ? String(row.engine).replace(/''/g, "'") : row.engine,
+            status: row.status == null ? null : String(row.status),
+            category: row.category == null ? null : String(row.category),
+            censored: row.censored == null ? null : String(row.censored),
+            language: row.language == null ? null : String(row.language),
+            f95_tags: String(row.f95_tags || ""),
             versions: [],
             versionCount: 0,
             installedVersionCount: 0,

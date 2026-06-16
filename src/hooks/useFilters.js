@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
+import { getGameTitle, safeText } from '../utils/gameDisplay.js'
 
 export const defaultFilters = {
   text: '',
@@ -69,8 +70,8 @@ export const filterGamesWithState = (games, filters = {}) => {
   if (activeFilters.text) {
     const lower = activeFilters.text.toLowerCase()
     result = result.filter((game) => {
-      const title = (game.title || '').toLowerCase()
-      const creator = (game.creator || '').toLowerCase()
+      const title = getGameTitle(game).toLowerCase()
+      const creator = safeText(game.creator).toLowerCase()
       if (activeFilters.type === 'title') return title.includes(lower)
       if (activeFilters.type === 'creator') return creator.includes(lower)
       return title.includes(lower) || creator.includes(lower)
@@ -105,14 +106,14 @@ export const filterGamesWithState = (games, filters = {}) => {
 
   if (activeFilters.language.length > 0) {
     result = result.filter((game) => {
-      const langs = (game.language || '').split(',').map((l) => l.trim())
+      const langs = safeText(game.language).split(',').map((l) => l.trim())
       return activeFilters.language.some((l) => langs.includes(l))
     })
   }
 
   if (activeFilters.tags.length > 0) {
     result = result.filter((game) => {
-      const gameTags = (game.f95_tags || '').split(',').map((t) => t.trim())
+      const gameTags = safeText(game.f95_tags).split(',').map((t) => t.trim())
       if (activeFilters.tagLogic === 'AND') {
         return activeFilters.tags.every((tag) => gameTags.includes(tag))
       }
@@ -142,7 +143,7 @@ export const filterGamesWithState = (games, filters = {}) => {
     if (['likes', 'views', 'rating'].includes(activeFilters.sort)) {
       return parseMetric(b[activeFilters.sort]) - parseMetric(a[activeFilters.sort])
     }
-    return (a.title || '').localeCompare(b.title || '')
+    return getGameTitle(a).localeCompare(getGameTitle(b))
   })
 
   return result

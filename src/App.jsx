@@ -11,6 +11,7 @@ import { useGames } from './hooks/useGames.js'
 import { builtInSavedFilters, filterGamesWithState, normalizeFilterState, useFilters } from './hooks/useFilters.js'
 import { useAppUpdate } from './hooks/useAppUpdate.js'
 import { useWindowState } from './hooks/useWindowState.js'
+import { getGameTitle, normalizeGameForRenderer } from './utils/gameDisplay.js'
 
 const debounce = (func, delay) => {
   let timeout
@@ -127,9 +128,10 @@ const App = () => {
     window.electronAPI
       .getGame(game.record_id)
       .then((updatedGame) => {
-        if (updatedGame) {
+        const normalizedGame = normalizeGameForRenderer(updatedGame)
+        if (normalizedGame) {
           setShowSearchSidebar(false)
-          setSelectedGame(updatedGame)
+          setSelectedGame(normalizedGame)
         }
       })
       .catch((error) =>
@@ -598,7 +600,7 @@ const App = () => {
                   className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? 'bg-selected' : ''} ${game.hasInstalledVersion === false ? 'text-gray-500 italic' : ''}`}
                   onClick={() => selectGame(game)}
                 >
-                  {game.title}
+                  {getGameTitle(game)}
                 </div>
               ))
             )}

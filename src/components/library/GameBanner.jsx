@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import useImageFallback from '../../hooks/useImageFallback.js'
+import { getGameTitle } from '../../utils/gameDisplay.js'
 
 // Inline CSS for hover effects
 const bannerStyles = `
@@ -44,6 +45,7 @@ const GameBanner = ({ game, onSelect }) => {
   const resolvedGame = resolvedBannerUrl === game.banner_url
     ? game
     : { ...game, banner_url: resolvedBannerUrl };
+  const displayTitle = getGameTitle(resolvedGame);
 
   useEffect(() => {
     // Log banner_url on mount or update
@@ -162,7 +164,7 @@ const GameBanner = ({ game, onSelect }) => {
         data: {
           action: "removeTitleFromLibrary",
           recordId: game.record_id,
-          title: game.title,
+          title: displayTitle,
         },
       });
 
@@ -171,7 +173,7 @@ const GameBanner = ({ game, onSelect }) => {
         data: {
           action: "deleteTitleAndFiles",
           recordId: game.record_id,
-          title: game.title,
+          title: displayTitle,
         },
       });
     }
@@ -318,7 +320,7 @@ const GameBanner = ({ game, onSelect }) => {
                 key: `title-${game.record_id}`,
                 className:
                   "text-white text-xs font-semibold flex-1 text-center",
-                children: game.title || "Unknown",
+                children: displayTitle,
               }),
               // Status and Newest Version at bottom-right
               React.createElement(
@@ -370,7 +372,7 @@ const GameBanner = ({ game, onSelect }) => {
             React.createElement("img", {
               key: `banner-image-${game.record_id}`,
               src: game.banner_url,
-              alt: game.title,
+              alt: displayTitle,
               className: "w-[537px] h-[251px] object-contain",
               onError: () =>
                 console.error(
