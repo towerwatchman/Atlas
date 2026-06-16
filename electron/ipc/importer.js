@@ -1626,7 +1626,13 @@ ipcMain.handle("import-games", async (event, params) => {
           });
         }
       }
-      results.push({ success: true, recordId, atlasId: game.atlasId, steamId: game.steamId });
+      results.push({
+        success: true,
+        title: game.title,
+        recordId,
+        atlasId: game.atlasId,
+        steamId: game.steamId,
+      });
       session.cleanupPaths = [];
 
       progress++;
@@ -1703,6 +1709,8 @@ ipcMain.handle("import-games", async (event, params) => {
   // Phase 2: Image downloads
   if (downloadBannerImages || downloadPreviewImages) {
     progress = 0;
+    const successfulImports = results.filter((r) => r.success);
+    const skippedWithoutAtlas = successfulImports.filter((r) => !r.atlasId);
     const gamesWithImages = results
       .filter((r) => r.success && r.atlasId)
       .map((r) => ({
@@ -1713,12 +1721,34 @@ ipcMain.handle("import-games", async (event, params) => {
       }));
     const imageTotal = gamesWithImages.length;
 
-    mainWindow.webContents.send("import-progress", {
-      text: `Starting image download for ${imageTotal} games...`,
-      progress,
-      total: imageTotal,
-      canCancel: true,
-    });
+    for (const skipped of skippedWithoutAtlas) {
+      const skippedTitle =
+        skipped.title || games.find((g) => g.steamId === skipped.steamId)?.title || "Imported game";
+      mainWindow.webContents.send("import-progress", {
+        text: `Skipped image download for '${skippedTitle}': no Atlas mapping`,
+        progress,
+        total: imageTotal,
+        canCancel: true,
+      });
+    }
+
+    if (imageTotal === 0) {
+      mainWindow.webContents.send("import-progress", {
+        text: "Image download skipped: no imported games had Atlas mappings",
+        progress: 0,
+        total: 0,
+        canCancel: false,
+      });
+    }
+
+    if (imageTotal > 0) {
+      mainWindow.webContents.send("import-progress", {
+        text: `Starting image download for ${imageTotal} games...`,
+        progress,
+        total: imageTotal,
+        canCancel: true,
+      });
+    }
 
     for (const game of gamesWithImages) {
       try {
@@ -1740,7 +1770,7 @@ ipcMain.handle("import-games", async (event, params) => {
           canCancel: true,
         });
 
-        await downloadImages(
+        const downloadResult = await downloadImages(
           game.recordId,
           game.atlasId,
           (current, totalImages) => {
@@ -1767,8 +1797,11 @@ ipcMain.handle("import-games", async (event, params) => {
         mainWindow.webContents.send("game-updated", game.recordId);
 
         progress++;
+        const statusText = downloadResult.success
+          ? `Completed image download for '${game.title}' ${progress}/${imageTotal}, ${downloadResult.downloaded} local file(s) saved`
+          : `Image download finished with errors for '${game.title}' ${progress}/${imageTotal}, ${downloadResult.downloaded} local file(s) saved`;
         mainWindow.webContents.send("import-progress", {
-          text: `Completed image download for '${game.title}' ${progress}/${imageTotal}, ${totalImages} images downloaded`,
+          text: statusText,
           progress,
           total: imageTotal,
           canCancel: true,
@@ -1795,7 +1828,7 @@ ipcMain.handle("import-games", async (event, params) => {
       }
     }
 
-    if (!session.cancelRequested) {
+    if (!session.cancelRequested && imageTotal > 0) {
       mainWindow.webContents.send("import-progress", {
         text: `Image download complete for ${progress} games`,
         progress,

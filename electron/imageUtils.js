@@ -65,6 +65,13 @@ async function downloadImages(
   const imgDir = path.join(dataDir, "images", recordId.toString());
   if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
   const defaultPreviewSource = options.previewSource || options.source || "f95";
+  const result = {
+    success: true,
+    attempted: 0,
+    downloaded: 0,
+    skipped: 0,
+    errors: [],
+  };
 
   let imageProgress = 0;
   const bannerUrl = downloadBannerImages ? await getBannerUrl(atlasId) : null;
@@ -76,13 +83,29 @@ async function downloadImages(
       ? screenUrls.length
       : Math.min(parseInt(previewLimit), screenUrls.length)
     : 0;
-  const totalImages = (bannerUrl ? 3 : 0) + previewCount;
+  const totalImages = (bannerUrl ? 2 : 0) + previewCount;
 
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const reportProgress = () => {
+    if (typeof onImageProgress === "function") {
+      onImageProgress(imageProgress, totalImages);
+    }
+  };
+
+  if (downloadBannerImages && !bannerUrl) {
+    result.skipped++;
+    console.warn(`Skipped banner download for record ${recordId}: no banner URL found`);
+  }
+
+  if (downloadPreviewImages && previewCount === 0) {
+    result.skipped++;
+    console.warn(`Skipped preview download for record ${recordId}: no preview URLs found`);
+  }
 
   if (bannerUrl) {
     console.log(`Downloading banner from URL: ${bannerUrl}`);
     try {
+      result.attempted++;
       const ext = path.extname(new URL(bannerUrl).pathname).toLowerCase();
       const bannerSource = "f95";
       const baseName = buildBannerBaseName(bannerSource);
@@ -114,8 +137,9 @@ async function downloadImages(
           fs.writeFileSync(animatedPath, imageBytes);
         }
         await updateBanners(recordId, `${relativePath}${ext}`, "animated");
+        result.downloaded++;
         imageProgress++;
-        onImageProgress(imageProgress, totalImages);
+        reportProgress();
       }
 
       if (isPotentialAnimatedImage(ext)) {
@@ -142,8 +166,9 @@ async function downloadImages(
               `${relativePath}_animated.webp`,
               "animated",
             );
+            result.downloaded++;
             imageProgress++;
-            onImageProgress(imageProgress, totalImages);
+            reportProgress();
           }
         } catch (animatedErr) {
           console.warn(
@@ -162,8 +187,9 @@ async function downloadImages(
           .toFile(highResPath);
       }
       await updateBanners(recordId, `${relativePath}_mc.webp`, "small");
+      result.downloaded++;
       imageProgress++;
-      onImageProgress(imageProgress, totalImages);
+      reportProgress();
 
       const lowResPath = `${imagePath}_sc.webp`;
       if (!fs.existsSync(lowResPath)) {
@@ -174,8 +200,9 @@ async function downloadImages(
           .toFile(lowResPath);
       }
       await updateBanners(recordId, `${relativePath}_sc.webp`, "large");
+      result.downloaded++;
       imageProgress++;
-      onImageProgress(imageProgress, totalImages);
+      reportProgress();
 
       console.log("Banner images updated");
       if (downloaded) {
@@ -192,6 +219,8 @@ async function downloadImages(
       }
     } catch (err) {
       console.error("Error downloading or converting banner:", err);
+      result.success = false;
+      result.errors.push(`Banner: ${err.message || err}`);
     }
   }
 
@@ -204,6 +233,7 @@ async function downloadImages(
 
     console.log(`Downloading screen ${i + 1} from URL: ${url}`);
     try {
+      result.attempted++;
       const ext = path.extname(new URL(url).pathname).toLowerCase();
       const previewSource = typeof previewEntry === "object"
         ? previewEntry.source
@@ -237,6 +267,7 @@ async function downloadImages(
           fs.writeFileSync(videoPath, imageBytes);
         }
         await updatePreviews(recordId, `${relativePath}${ext}`);
+        result.downloaded++;
       }
 
       let animatedPreviewSaved = false;
@@ -263,6 +294,7 @@ async function downloadImages(
 
             await updatePreviews(recordId, `${relativePath}_animated.webp`);
             animatedPreviewSaved = true;
+            result.downloaded++;
           }
         } catch (animatedErr) {
           console.warn(
@@ -282,9 +314,10 @@ async function downloadImages(
       }
       if (!animatedPreviewSaved) {
         await updatePreviews(recordId, `${relativePath}_pr.webp`);
+        result.downloaded++;
       }
       imageProgress++;
-      onImageProgress(imageProgress, totalImages);
+      reportProgress();
 
       console.log(`Screen ${i + 1} updated`);
       if (downloaded) {
@@ -301,8 +334,12 @@ async function downloadImages(
       }
     } catch (err) {
       console.error(`Error downloading or converting screen ${i + 1}:`, err);
+      result.success = false;
+      result.errors.push(`Preview ${i + 1}: ${err.message || err}`);
     }
   }
+
+  return result;
 }
 
 module.exports = {

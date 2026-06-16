@@ -63,19 +63,10 @@ const buildBannerSelectFields = (baseImagePath, mediaStorageMode) => {
   const sourceSmallBannerExpression = `REPLACE('${baseImagePath}/' || source_small_banners.path, '\\', '/')`;
   const sourceLargeBannerExpression = `REPLACE('${baseImagePath}/' || source_large_banners.path, '\\', '/')`;
   const localBannerExpression = `COALESCE(${customAnimatedBannerExpression}, ${customSmallBannerExpression}, ${customLargeBannerExpression}, ${sourceAnimatedBannerExpression}, ${sourceSmallBannerExpression}, ${sourceLargeBannerExpression})`;
-  const remoteFirst = normalizeMediaStorageMode(mediaStorageMode) === "stream";
-  const bannerUrlExpression = remoteFirst
-    ? `COALESCE(${remoteBannerExpression}, ${localBannerExpression})`
-    : `COALESCE(${localBannerExpression}, ${remoteBannerExpression})`;
-  const bannerSourceExpression = remoteFirst
-    ? `CASE
-          WHEN ${remoteBannerExpression} IS NOT NULL THEN 'stream'
-          WHEN custom_animated_banners.path IS NOT NULL OR source_animated_banners.path IS NOT NULL THEN 'download-animated'
-          WHEN custom_small_banners.path IS NOT NULL OR custom_large_banners.path IS NOT NULL
-            OR source_small_banners.path IS NOT NULL OR source_large_banners.path IS NOT NULL THEN 'download'
-          ELSE ''
-        END`
-    : `CASE
+  const bannerUrlExpression =
+    `COALESCE(${localBannerExpression}, ${remoteBannerExpression})`;
+  const bannerSourceExpression =
+    `CASE
           WHEN custom_animated_banners.path IS NOT NULL OR source_animated_banners.path IS NOT NULL THEN 'download-animated'
           WHEN custom_small_banners.path IS NOT NULL OR custom_large_banners.path IS NOT NULL
             OR source_small_banners.path IS NOT NULL OR source_large_banners.path IS NOT NULL THEN 'download'

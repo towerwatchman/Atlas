@@ -27,7 +27,10 @@ const updateFolderSize = (recordId, version, size) => {
 const getBannerUrl = (atlasId) => {
   return new Promise((resolve, reject) => {
     getDb().get(
-      `SELECT banner_url FROM f95_zone_data WHERE atlas_id = ?`,
+      `SELECT COALESCE(f95_zone_data.banner_url, atlas_data.banner_wide, atlas_data.banner) AS banner_url
+       FROM atlas_data
+       LEFT JOIN f95_zone_data ON atlas_data.atlas_id = f95_zone_data.atlas_id
+       WHERE atlas_data.atlas_id = ?`,
       [atlasId],
       (err, row) => {
         if (err) {
@@ -43,20 +46,52 @@ const getBannerUrl = (atlasId) => {
 
 const getScreensUrlList = (atlasId) => {
   return new Promise((resolve, reject) => {
-    getDb().get(
-      `SELECT screens FROM f95_zone_data WHERE atlas_id = ?`,
-      [atlasId],
-      (err, row) => {
+    getDb().all(
+      `SELECT screen_url AS url, 'f95' AS source, 0 AS sort_order
+       FROM f95_zone_screens
+       JOIN f95_zone_data ON f95_zone_screens.f95_id = f95_zone_data.f95_id
+       WHERE f95_zone_data.atlas_id = ?
+       UNION ALL
+       SELECT preview_url AS url, 'atlas' AS source, 1 AS sort_order
+       FROM atlas_previews
+       WHERE atlas_id = ?
+       ORDER BY sort_order`,
+      [atlasId, atlasId],
+      (err, rows) => {
         if (err) {
           console.error("Error fetching screens:", err);
           reject(err);
-        } else {
-          const screens =
-            row && row.screens
-              ? row.screens.split(",").map((s) => s.trim())
-              : [];
-          resolve(screens);
+          return;
         }
+
+        getDb().get(
+          `SELECT screens FROM f95_zone_data WHERE atlas_id = ?`,
+          [atlasId],
+          (legacyErr, legacyRow) => {
+            if (legacyErr) {
+              console.error("Error fetching legacy screens:", legacyErr);
+              reject(legacyErr);
+              return;
+            }
+
+            const seen = new Set();
+            const screens = [];
+            const addScreen = (url, source) => {
+              const value = String(url || "").trim();
+              if (!value || seen.has(value)) return;
+              seen.add(value);
+              screens.push({ url: value, source });
+            };
+
+            rows.forEach((row) => addScreen(row.url, row.source));
+            if (legacyRow?.screens) {
+              legacyRow.screens
+                .split(",")
+                .forEach((screen) => addScreen(screen, "f95"));
+            }
+            resolve(screens);
+          },
+        );
       },
     );
   });
@@ -173,16 +208,9 @@ const getPreviews = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
               toLocalAssetPath(appPath, isDev, row.path),
             );
             const remotePreviews = await getRemotePreviewUrls(recordId);
-            const previews =
-              normalizeMediaStorageMode(mediaStorageMode) === "download"
-                ? [
-                    ...localPreviews,
-                    ...(localPreviews.length === 0 ? remotePreviews : []),
-                  ]
-                : [
-                    ...remotePreviews,
-                    ...(remotePreviews.length === 0 ? localPreviews : []),
-                  ];
+            const previews = localPreviews.length > 0
+              ? localPreviews
+              : remotePreviews;
 
             console.log("Previews fetched for recordId:", recordId, previews);
             resolve(previews);
@@ -264,16 +292,9 @@ const getBanner = (recordId, appPath, isDev, type, mediaStorageMode = "stream") 
             );
             const remoteBannerUrl = await getRemoteBannerUrl(recordId);
             const remoteBanners = remoteBannerUrl ? [remoteBannerUrl] : [];
-            const banners =
-              normalizeMediaStorageMode(mediaStorageMode) === "download"
-                ? [
-                    ...localBanners,
-                    ...(localBanners.length === 0 ? remoteBanners : []),
-                  ]
-                : [
-                    ...remoteBanners,
-                    ...(remoteBanners.length === 0 ? localBanners : []),
-                  ];
+            const banners = localBanners.length > 0
+              ? localBanners
+              : remoteBanners;
 
             console.log("Banners fetched for recordId:", recordId, banners);
             resolve(banners);
