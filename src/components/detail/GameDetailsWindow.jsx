@@ -5,6 +5,7 @@ import VersionsTab from './window/VersionsTab.jsx'
 import MediaTab from './window/MediaTab.jsx'
 import MappingsTab from './window/MappingsTab.jsx'
 import { sanitizePercentText } from '../../utils/formatPercent.js'
+import { formatVersionDate } from '../../utils/formatVersionDate.js'
 
 const isRemoteMediaUrl = (url) => /^https?:\/\//i.test(String(url || ''))
 const firstMediaUrl = (value) => Array.isArray(value) ? value[0] || '' : value || ''
@@ -26,6 +27,7 @@ const EMPTY_FORM = {
 const EMPTY_VERSION = {
   game_version: '', game_path: '', executable: '',
   last_played: '', playtime: '', version_size: '', date_added: '',
+  last_played_title: '', date_added_title: '',
 }
 
 const sanitizeProgressState = (progress = {}) => ({
@@ -63,18 +65,22 @@ function gameToFormData(g) {
 
 function versionToData(v) {
   const hasSize = v.folder_size !== undefined && v.folder_size !== null && v.folder_size !== ''
+  const lastPlayed = formatVersionDate(v.last_played, 'Never')
+  const dateAdded = formatVersionDate(v.date_added, 'Unknown')
   return {
     game_version: v.version || '',
     game_path: v.game_path || '',
     executable: v.exec_path || '',
-    last_played: v.last_played?.toString() || '',
+    last_played: lastPlayed.display,
+    last_played_title: lastPlayed.absolute || lastPlayed.display,
     playtime: v.version_playtime?.toString() || '',
     version_size: v.isInstalled === false
       ? 'Missing path'
       : hasSize
         ? formatBytes(v.folder_size)
         : 'Unknown',
-    date_added: v.date_added?.toString() || '',
+    date_added: dateAdded.display,
+    date_added_title: dateAdded.absolute || dateAdded.display,
   }
 }
 

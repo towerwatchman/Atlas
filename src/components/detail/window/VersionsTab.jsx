@@ -54,14 +54,20 @@ export default function VersionsTab({
           <button onClick={onChangeExecutable} className="ml-2 px-2 py-1 bg-tertiary hover:bg-buttonHover rounded">Change</button>
         </div>
         {[
-          { name: 'last_played', label: 'Last Played' },
+          { name: 'last_played', label: 'Last Played', titleName: 'last_played_title' },
           { name: 'playtime', label: 'Playtime' },
           { name: 'version_size', label: 'Version Size' },
-          { name: 'date_added', label: 'Date Added' },
-        ].map(({ name, label }) => (
+          { name: 'date_added', label: 'Date Added', titleName: 'date_added_title' },
+        ].map(({ name, label, titleName }) => (
           <div key={name} className="flex items-center opacity-75">
             <label className="w-24">{label}</label>
-            <input name={name} value={versionData[name] || ''} disabled className="flex-grow bg-tertiary border border-border p-1 rounded cursor-not-allowed" />
+            <input
+              name={name}
+              value={versionData[name] || ''}
+              title={titleName ? versionData[titleName] || versionData[name] || '' : ''}
+              disabled
+              className="flex-grow bg-tertiary border border-border p-1 rounded cursor-not-allowed"
+            />
             {name === 'version_size' && (
               <button
                 onClick={onRefreshVersionSize}

@@ -1,3 +1,5 @@
+import { formatVersionDate } from '../../../utils/formatVersionDate.js'
+
 export default function ScanTable({
   sortedRows, isNewScanRow, sortConfig,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
@@ -6,6 +8,11 @@ export default function ScanTable({
   const getSortIndicator = (key) => {
     if (sortConfig.key !== key) return ''
     return sortConfig.direction === 'asc' ? ' ▲' : ' ▼'
+  }
+
+  const formatReplaceVersionLabel = (version) => {
+    const dateAdded = formatVersionDate(version.date_added, '')
+    return `${version.version}${dateAdded.isValid ? ` - ${dateAdded.absolute}` : ''}`
   }
 
   const renderSortableHeader = (sortKey, label, className = '') => (
@@ -83,7 +90,7 @@ export default function ScanTable({
                   <option value="">None</option>
                   {(game.replaceOptions || []).map((version) => (
                     <option key={version.version} value={version.version}>
-                      {version.version}{version.date_added ? ` - ${new Date(version.date_added * 1000).toLocaleDateString()}` : ''}
+                      {formatReplaceVersionLabel(version)}
                     </option>
                   ))}
                 </select>
