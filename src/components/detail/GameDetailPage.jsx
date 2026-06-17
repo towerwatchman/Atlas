@@ -46,7 +46,6 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
           const urls = await window.electronAPI.getBrowsePreviewUrls?.({
             atlas_id: game.atlas_id,
             f95_id: game.f95_id,
-            limit: 4,
           })
           const safeUrls = Array.isArray(urls) ? urls : []
           browsePreviewCacheRef.current.set(cacheKey, safeUrls)

@@ -154,9 +154,8 @@ const parsePreviewList = (value) => {
   return raw.split(",").map((item) => item.trim());
 };
 
-const getBrowsePreviewUrls = ({ atlasId, f95Id, limit = 4 } = {}) => {
+const getBrowsePreviewUrls = ({ atlasId, f95Id } = {}) => {
   return new Promise((resolve, reject) => {
-    const maxUrls = Math.max(1, Math.min(20, parseInt(limit, 10) || 4));
     const atlasParam = atlasId || null;
     const f95Param = f95Id || null;
     const query = `
@@ -214,12 +213,11 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, limit = 4 } = {}) => {
             atlasRows.forEach((previewRow) => addUrl(previewRow.url));
             parsePreviewList(row?.previews).forEach(addUrl);
 
-            const limited = urls.slice(0, maxUrls);
             console.log(
               `Browse preview URLs resolved: atlasId=${atlasId || "none"} ` +
-              `f95Id=${f95Id || "none"} count=${limited.length} invalid=${invalidCount}`,
+              `f95Id=${f95Id || "none"} count=${urls.length} invalid=${invalidCount}`,
             );
-            resolve(limited);
+            resolve(urls);
           },
         );
       },
