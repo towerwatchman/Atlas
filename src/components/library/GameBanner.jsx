@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import useImageFallback from '../../hooks/useImageFallback.js'
+import SafeImage from '../ui/SafeImage.jsx'
 import { getGameTitle } from '../../utils/gameDisplay.js'
 
 // Inline CSS for hover effects
@@ -373,11 +374,13 @@ const GameBanner = ({ game, onSelect }) => {
               "absolute inset-0 w-full h-full z-0 bg-[#1F2937]",
           },
           [
-            React.createElement("img", {
+            React.createElement(SafeImage, {
               key: `banner-image-${game.record_id}`,
               src: game.banner_url,
               alt: displayTitle,
               className: "block w-full h-full object-contain",
+              fallbackLabel: "Banner unavailable",
+              fallbackDetail: displayTitle,
               onError: () =>
                 console.error(
                   `Failed to load banner image for recordId ${game.record_id}: ${game.banner_url}`,

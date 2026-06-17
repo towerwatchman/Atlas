@@ -1,4 +1,5 @@
 import useImageFallback from '../../../hooks/useImageFallback.js'
+import SafeImage from '../../ui/SafeImage.jsx'
 import { isSteamGame, htmlToText } from './gameDetailUtils.js'
 
 // Overview card shown directly beneath the action bar. For Steam games it shows
@@ -34,9 +35,10 @@ export default function InfoPanel({ game, latestVersion, isUpdateAvailable }) {
       <div style={{ display: 'flex', gap: 24, alignItems: 'stretch', flexWrap: 'wrap' }}>
         {showCapsule && (
           <div style={{ flexShrink: 0, width: 200, maxWidth: '100%' }}>
-            <img
+            <SafeImage
               src={capsuleUrl}
               alt={`${game.title || 'Game'} box art`}
+              fallbackLabel="Box art unavailable"
               style={{ width: '100%', height: '100%', maxHeight: 300, objectFit: 'contain', objectPosition: 'top', display: 'block', borderRadius: 4 }}
             />
           </div>

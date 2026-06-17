@@ -1,4 +1,5 @@
 import useImageFallback from '../../../hooks/useImageFallback.js'
+import SafeImage from '../../ui/SafeImage.jsx'
 
 export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask, onLoad, onBack }) {
   const isCatalogEntry = game.isCatalogEntry === true
@@ -20,18 +21,20 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
     <div ref={bannerRef} style={{ position: 'relative', height: 370, flexShrink: 0, overflow: 'hidden', backgroundColor: '#1a1f2e' }}>
       {/* Blurred background fill */}
       {heroUrl && (
-        <img src={heroUrl} alt="" style={{
+        <SafeImage src={heroUrl} alt="" fallbackContent={false} style={{
           position: 'absolute', inset: 0, width: '100%', height: '100%',
           objectFit: 'cover',
           filter: `blur(20px) ${hasInstalledVersion ? '' : 'grayscale(1)'}`,
           transform: 'scale(1.1)', opacity: 0.6,
-        }} />
+        }} placeholderStyle={{ background: 'transparent' }} />
       )}
       {!heroUrl && <div style={{ position: 'absolute', inset: 0, background: '#1d2734' }} />}
 
       {/* Foreground */}
       {heroUrl && (
-        <img src={heroUrl} alt=""
+        <SafeImage src={heroUrl} alt={`${game.title || 'Game'} hero image`}
+          fallbackLabel="Hero image unavailable"
+          fallbackDetail={game.title || undefined}
           onLoad={(e) => {
             bannerDimsRef.current = { w: e.target.naturalWidth, h: e.target.naturalHeight }
             onLoad()
@@ -66,9 +69,10 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
           action bar, which now overlaps the lower edge of the hero. */}
       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 24px 70px' }}>
         {showLogo ? (
-          <img
+          <SafeImage
             src={logoUrl}
             alt={game.title || 'Game logo'}
+            fallbackLabel="Logo unavailable"
             style={{ maxHeight: 220, maxWidth: '80%', objectFit: 'contain', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.8))' }}
           />
         ) : (

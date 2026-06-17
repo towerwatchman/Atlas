@@ -3,6 +3,7 @@ import HeroBanner from './page/HeroBanner.jsx'
 import ActionBar from './page/ActionBar.jsx'
 import InfoPanel from './page/InfoPanel.jsx'
 import PreviewLightbox from './page/PreviewLightbox.jsx'
+import SafeImage from '../ui/SafeImage.jsx'
 import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
   sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl, formatReleaseDate,
@@ -283,7 +284,12 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
                       </div>
                     </>
                   ) : (
-                    <img src={preview} alt={`Preview ${index + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    <SafeImage
+                      src={preview}
+                      alt={`Preview ${index + 1}`}
+                      fallbackLabel="Preview unavailable"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                    />
                   )}
                 </div>
               ))}

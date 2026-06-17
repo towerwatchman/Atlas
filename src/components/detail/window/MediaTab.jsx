@@ -1,3 +1,5 @@
+import SafeImage from '../../ui/SafeImage.jsx'
+
 export default function MediaTab({
   game, bannerUrl, bannerMediaStatus,
   validPreviewUrls, previewMediaStatus, previewHeight,
@@ -50,7 +52,13 @@ export default function MediaTab({
         <p className="text-xs opacity-60 mb-1">{bannerMediaStatus}</p>
         {bannerUrl ? (
           <div className="flex flex-col flex-grow">
-            <img src={bannerUrl} alt="Banner" className="w-full max-h-[350px] object-contain rounded" onError={() => console.error('Failed to load banner:', bannerUrl)} />
+            <SafeImage
+              src={bannerUrl}
+              alt="Banner"
+              className="w-full h-[350px] object-contain rounded"
+              fallbackLabel="Banner unavailable"
+              onError={() => console.error('Failed to load banner:', bannerUrl)}
+            />
             <div className="flex space-x-2 mt-2">
               <button onClick={onDownloadBanner} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Download Banner</button>
               <button onClick={onSelectCustomBanner} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Select Custom Banner</button>
@@ -72,11 +80,12 @@ export default function MediaTab({
           <div className="grid grid-cols-3 gap-2 p-2">
             {Array.isArray(validPreviewUrls) && validPreviewUrls.length > 0 ? (
               validPreviewUrls.map((url, index) => (
-                <img
+                <SafeImage
                   key={index}
                   src={url}
                   alt={`Preview ${index + 1}`}
-                  className="w-full max-w-[300px] h-auto rounded cursor-pointer"
+                  className="w-full max-w-[300px] aspect-video rounded cursor-pointer"
+                  fallbackLabel="Preview unavailable"
                   onClick={() => window.electronAPI.openExternalUrl(url)}
                 />
               ))
