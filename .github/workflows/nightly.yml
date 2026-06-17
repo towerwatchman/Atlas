@@ -79,12 +79,9 @@ jobs:
         run: npx electron-builder --win --x64 -p always --config.publish.releaseType=prerelease
         shell: cmd
 
-      - name: Build and publish nightly (Linux)
+      - name: Build nightly (Linux)
         if: matrix.os == 'ubuntu-latest'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --linux --x64 -p always --config.publish.releaseType=prerelease
+        run: npx electron-builder --linux --x64 -p never
         shell: bash
 
       - name: Upload Windows artifact
