@@ -2,6 +2,66 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  * {
+    scrollbar-color: #51535a #19191c;
+    scrollbar-width: thin;
+  }
+
+  *::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: #19191c;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: #51535a;
+    border: 2px solid #19191c;
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #2c8ea9;
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: #19191c;
+  }
+}
+
+@layer utilities {
+  .atlas-scrollbar {
+    scrollbar-color: #51535a #19191c;
+    scrollbar-width: thin;
+  }
+
+  .atlas-scrollbar::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+
+  .atlas-scrollbar::-webkit-scrollbar-track {
+    background: #19191c;
+  }
+
+  .atlas-scrollbar::-webkit-scrollbar-thumb {
+    background-color: #51535a;
+    border: 2px solid #19191c;
+    border-radius: 999px;
+  }
+
+  .atlas-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: #2c8ea9;
+  }
+
+  .atlas-scrollbar::-webkit-scrollbar-corner {
+    background: #19191c;
+  }
+}
+
 .-webkit-app-region-drag {
   -webkit-user-select: none;
   -webkit-app-region: drag;
