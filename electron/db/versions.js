@@ -811,7 +811,6 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         atlas_data.last_record_update AS atlas_last_record_update,
         MIN(steam_data.release_date) AS steam_release_date,
         f95_zone_data.thread_publish_date AS thread_publish_date,
-        f95_zone_data.last_record_update AS f95_last_record_update,
         COALESCE(NULLIF(atlas_data.voice, ''), MIN(steam_data.voice)) AS voice,
         MIN(steam_data.publisher) AS publisher,
         MIN(steam_data.developer) AS steam_developer,
