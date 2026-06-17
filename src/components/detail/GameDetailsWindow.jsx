@@ -4,6 +4,7 @@ import RecordTab from './window/RecordTab.jsx'
 import VersionsTab from './window/VersionsTab.jsx'
 import MediaTab from './window/MediaTab.jsx'
 import MappingsTab from './window/MappingsTab.jsx'
+import { sanitizePercentText } from '../../utils/formatPercent.js'
 
 const isRemoteMediaUrl = (url) => /^https?:\/\//i.test(String(url || ''))
 const firstMediaUrl = (value) => Array.isArray(value) ? value[0] || '' : value || ''
@@ -26,6 +27,11 @@ const EMPTY_VERSION = {
   game_version: '', game_path: '', executable: '',
   last_played: '', playtime: '', version_size: '', date_added: '',
 }
+
+const sanitizeProgressState = (progress = {}) => ({
+  ...progress,
+  text: sanitizePercentText(progress.text),
+})
 
 function gameToFormData(g) {
   const mapperNames = []
@@ -147,7 +153,7 @@ const GameDetailWindow = () => {
     window.electronAPI.onWindowStateChanged((state) => setIsMaximized(state === 'maximized'))
 
     const handleImportProgress = (progress) => {
-      setImportProgress(progress)
+      setImportProgress(sanitizeProgressState(progress))
       if (progress.progress >= progress.total && progress.total > 0) {
         setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000)
       }

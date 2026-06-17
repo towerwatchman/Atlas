@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { formatPercent } from '../utils/formatPercent.js'
+import { formatPercent, sanitizePercentText } from '../utils/formatPercent.js'
 
 const PACKAGE_NOT_READY_CODE = 'UPDATE_PACKAGE_NOT_READY'
 
@@ -22,7 +22,7 @@ export function useAppUpdate(setDbUpdateStatus) {
           visible: true,
           status: 'available',
           version: status.version || '',
-          text: `Atlas ${status.version} is available.`,
+          text: sanitizePercentText(`Atlas ${status.version} is available.`),
           percent: null,
         })
       } else if (status.status === 'downloading') {
@@ -49,7 +49,7 @@ export function useAppUpdate(setDbUpdateStatus) {
           visible: true,
           status: 'downloaded',
           version: status.version || '',
-          text: `Atlas ${status.version} is ready to install.`,
+          text: sanitizePercentText(`Atlas ${status.version} is ready to install.`),
           percent: null,
         })
       } else if (status.status === 'error') {
@@ -60,7 +60,7 @@ export function useAppUpdate(setDbUpdateStatus) {
           status: status.code === PACKAGE_NOT_READY_CODE ? 'package_not_ready' : 'error',
           code: status.code || '',
           version: '',
-          text: status.error || 'Update failed.',
+          text: sanitizePercentText(status.error || 'Update failed.'),
           percent: null,
         })
       }
@@ -92,7 +92,7 @@ export function useAppUpdate(setDbUpdateStatus) {
               status: 'package_not_ready',
               code: result.code,
               version: '',
-              text: result.error || 'Update package is not ready yet. Please try again in a few minutes.',
+              text: sanitizePercentText(result.error || 'Update package is not ready yet. Please try again in a few minutes.'),
               percent: null,
             })
             return
@@ -119,7 +119,7 @@ export function useAppUpdate(setDbUpdateStatus) {
               status: 'package_not_ready',
               code: result.code,
               version: '',
-              text: result.error || 'Update package is not ready yet. Please try again in a few minutes.',
+              text: sanitizePercentText(result.error || 'Update package is not ready yet. Please try again in a few minutes.'),
               percent: null,
             })
             return
@@ -143,7 +143,7 @@ export function useAppUpdate(setDbUpdateStatus) {
         status: 'error',
         code: '',
         version: '',
-        text: error.message || 'App update failed.',
+        text: sanitizePercentText(error.message || 'App update failed.'),
         percent: null,
       })
     } finally {

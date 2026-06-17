@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { formatPercent } from '../../utils/formatPercent.js'
+import { formatPercent, sanitizePercentText } from '../../utils/formatPercent.js'
 
 const visibleSidePanelModes = new Set(['games', 'savedFilters'])
 const PACKAGE_NOT_READY_CODE = 'UPDATE_PACKAGE_NOT_READY'
@@ -29,7 +29,7 @@ const Interface = () => {
     if (typeof status.percent === "number") {
       setUpdatePercent(status.percent);
     }
-    if (status.error) setUpdateError(status.error);
+    if (status.error) setUpdateError(sanitizePercentText(status.error));
     else if (status.status !== "error") setUpdateError("");
   };
 
@@ -120,7 +120,7 @@ const Interface = () => {
     const result = await window.electronAPI.checkAppUpdate();
     if (result?.success === false) {
       setUpdateStatus(result.code === PACKAGE_NOT_READY_CODE ? "package_not_ready" : "error");
-      setUpdateError(result.error || "Unable to check for updates");
+      setUpdateError(sanitizePercentText(result.error || "Unable to check for updates"));
     }
   };
 
@@ -135,7 +135,7 @@ const Interface = () => {
 
     if (result?.success === false) {
       setUpdateStatus(result.code === PACKAGE_NOT_READY_CODE ? "package_not_ready" : "error");
-      setUpdateError(result.error || "Unable to update Atlas");
+      setUpdateError(sanitizePercentText(result.error || "Unable to update Atlas"));
     }
   };
 

@@ -12,3 +12,9 @@ export const formatPercent = (value, { clamp = true } = {}) => {
 
   return `${displayValue}%`
 }
+
+export const sanitizePercentText = (value) =>
+  String(value || '').replace(
+    /(-?(?:\d+(?:\.\d+)?|Infinity)|NaN)%/gi,
+    (_, percentValue) => formatPercent(Number(percentValue)),
+  )

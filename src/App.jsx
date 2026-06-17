@@ -12,7 +12,7 @@ import { builtInSavedFilters, filterGamesWithState, normalizeFilterState, useFil
 import { useAppUpdate } from './hooks/useAppUpdate.js'
 import { useWindowState } from './hooks/useWindowState.js'
 import { getGameTitle, normalizeGameForRenderer } from './utils/gameDisplay.js'
-import { formatPercent } from './utils/formatPercent.js'
+import { formatPercent, sanitizePercentText } from './utils/formatPercent.js'
 
 const debounce = (func, delay) => {
   let timeout
@@ -35,6 +35,11 @@ const normalizeSidePanelMode = (value, legacyShowGameList = true) => {
   if (knownSidePanelModes.has(value)) return value
   return legacyShowGameList === false ? SIDE_PANEL_MODES.HIDDEN : SIDE_PANEL_MODES.GAMES
 }
+
+const sanitizeProgressState = (progress = {}) => ({
+  ...progress,
+  text: sanitizePercentText(progress.text),
+})
 
 export class AppErrorBoundary extends Component {
   constructor(props) {
@@ -148,7 +153,7 @@ const App = () => {
     appUpdateNotice.percent !== undefined &&
     appUpdateNotice.percent !== null
       ? `Downloading Atlas update: ${formatPercent(appUpdateNotice.percent)}`
-      : appUpdateNotice.text
+      : sanitizePercentText(appUpdateNotice.text)
   const appUpdateActionLabel = (() => {
     if (appUpdateNotice.status === 'downloaded') return 'Update and Restart'
     if (appUpdateNotice.status === 'downloading') return 'Downloading...'
@@ -506,15 +511,16 @@ const App = () => {
 
     // IPC handlers
     const handleDbUpdateProgress = (progress) => {
-      setDbUpdateStatus(progress)
+      setDbUpdateStatus(sanitizeProgressState(progress))
       if (progress.progress >= progress.total && progress.total > 0) {
         setTimeout(() => setDbUpdateStatus({ text: '', progress: 0, total: 0 }), 2000)
       }
     }
 
     const handleImportProgress = (progress) => {
-      setImportProgress(progress)
-      if (progress.progress >= progress.total && progress.total > 0 && progress.text.includes('Import complete')) {
+      const nextProgress = sanitizeProgressState(progress)
+      setImportProgress(nextProgress)
+      if (nextProgress.progress >= nextProgress.total && nextProgress.total > 0 && nextProgress.text.includes('Import complete')) {
         setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000)
       }
     }
