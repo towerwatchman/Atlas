@@ -590,7 +590,7 @@ function buildCtx() {
     recordGameLaunchStarted, recordGamePlaytime,
     addAtlasMapping, getGame, getGames, getCatalogGames, getGameRecordIds,
     removeGame, checkDbUpdates, updateFolderSize,
-    getBannerUrl, getScreensUrlList,
+    getBannerUrl, getScreensUrlList, getRemoteBannerUrl, getRemotePreviewUrls,
     getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension,
     GetAtlasIDbyRecord, getPreviews, getBanner, deleteBanner, deletePreviews,
     searchAtlas, searchAtlasByF95Id, findF95Id, checkPathExist,

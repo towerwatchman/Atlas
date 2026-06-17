@@ -1009,10 +1009,11 @@ module.exports = function registerImporterHandlers(ctx) {
   const {
     mainWindow, importerWindow, appConfig, configPath, dataDir,
     searchAtlas, searchAtlasByF95Id, findF95Id, getAtlasData,
-    addAtlasMapping, checkPathExist, findExistingRecordForImport,
+    addAtlasMapping, GetAtlasIDbyRecord, checkPathExist, findExistingRecordForImport,
     getImportRecordStatus, checkRecordExist, addGame, addVersion,
     upsertVersion, updateGame, updateFolderSize, getSteamIDbyRecord,
     addSteamMapping, getBannerUrl, getScreensUrlList,
+    getRemoteBannerUrl, getRemotePreviewUrls,
     getVersionForRecord, getVersionPathsForRecord,
     deleteVersion, deleteGameCompletely, deleteTitleRecord,
     getTrustedVersion, isAllowedDeletionPath, isPathInside,
@@ -1814,11 +1815,13 @@ ipcMain.handle("import-games", async (event, params) => {
     canCancel: false,
   });
 
+  const shouldDownloadImportImages = downloadBannerImages || downloadPreviewImages;
+
   // Enrich imported Steam games in the background so the import itself never
   // blocks on per-game network calls. Only touches games actually imported,
   // throttled gently, emitting game-updated as each row's metadata lands.
   const steamToEnrich = results.filter((r) => r.success && r.steamId);
-  if (steamToEnrich.length > 0) {
+  if (steamToEnrich.length > 0 && !shouldDownloadImportImages) {
     ;(async () => {
       for (const r of steamToEnrich) {
         try {
@@ -1833,34 +1836,45 @@ ipcMain.handle("import-games", async (event, params) => {
   }
 
   // Phase 2: Image downloads
-  if (downloadBannerImages || downloadPreviewImages) {
+  if (shouldDownloadImportImages) {
     progress = 0;
     const successfulImports = results.filter((r) => r.success);
-    const skippedWithoutAtlas = successfulImports.filter((r) => !r.atlasId);
-    const gamesWithImages = results
-      .filter((r) => r.success && r.atlasId)
-      .map((r) => ({
-        title:
-          games.find((g) => g.atlasId === r.atlasId)?.title || "Unknown Game",
-        atlasId: r.atlasId,
-        recordId: r.recordId,
-      }));
-    const imageTotal = gamesWithImages.length;
-
-    for (const skipped of skippedWithoutAtlas) {
-      const skippedTitle =
-        skipped.title || games.find((g) => g.steamId === skipped.steamId)?.title || "Imported game";
+    const imageTotal = successfulImports.length;
+    const isVideoUrl = (url) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ""));
+    const inferMediaSource = (url) => {
+      const value = String(url || "").toLowerCase();
+      if (value.includes("steamstatic") || value.includes("akamaihd") || value.includes("steam")) return "steam";
+      if (value.includes("f95")) return "f95";
+      return "metadata";
+    };
+    const sendImageTrace = (trace) => {
+      const message = [
+        `Images trace '${trace.title}'`,
+        `flags banner=${trace.downloadBannerImages} previews=${trace.downloadPreviewImages} limit=${trace.previewLimit}`,
+        `recordId=${trace.recordId}`,
+        `atlasId=${trace.atlasId || "none"}`,
+        `steamId=${trace.steamId || "none"}`,
+        `bannerUrls=${trace.bannerUrlCount}`,
+        `previewUrls=${trace.previewUrlCount}`,
+        `attempts=${trace.attempted || 0}`,
+        `writes=${trace.filesWritten || 0}`,
+        `dbBanners=${trace.bannerRowsWritten || 0}`,
+        `dbPreviews=${trace.previewRowsWritten || 0}`,
+        `localBanner=${trace.localBannerPath || "none"}`,
+        trace.reason ? `reason=${trace.reason}` : null,
+      ].filter(Boolean).join(" | ");
+      console.log(message);
       mainWindow.webContents.send("import-progress", {
-        text: `Skipped image download for '${skippedTitle}': no Atlas mapping`,
+        text: message,
         progress,
         total: imageTotal,
         canCancel: true,
       });
-    }
+    };
 
     if (imageTotal === 0) {
       mainWindow.webContents.send("import-progress", {
-        text: "Image download skipped: no imported games had Atlas mappings",
+        text: "Image download skipped: no games were imported",
         progress: 0,
         total: 0,
         canCancel: false,
@@ -1869,18 +1883,57 @@ ipcMain.handle("import-games", async (event, params) => {
 
     if (imageTotal > 0) {
       mainWindow.webContents.send("import-progress", {
-        text: `Starting image download for ${imageTotal} games...`,
+        text: `Starting image download for ${imageTotal} imported games...`,
         progress,
         total: imageTotal,
         canCancel: true,
       });
     }
 
-    for (const game of gamesWithImages) {
+    for (const importedGame of successfulImports) {
+      const title =
+        importedGame.title ||
+        games.find((g) => g.atlasId === importedGame.atlasId || g.steamId === importedGame.steamId)?.title ||
+        "Imported game";
       try {
         throwIfImportCanceled(session);
-        const bannerUrl = await getBannerUrl(game.atlasId);
-        const screenUrls = await getScreensUrlList(game.atlasId);
+
+        const recordId = importedGame.recordId;
+        const atlasId = importedGame.atlasId || (await GetAtlasIDbyRecord(recordId));
+        const steamId = importedGame.steamId || (await getSteamIDbyRecord(recordId));
+
+        if (steamId) {
+          try {
+            await fetchAndStoreSteamData(null, steamId);
+          } catch (steamErr) {
+            console.warn(`Import media trace: Steam metadata refresh failed for ${steamId}:`, steamErr);
+          }
+        }
+
+        if (!atlasId && !steamId) {
+          progress++;
+          sendImageTrace({
+            title,
+            downloadBannerImages,
+            downloadPreviewImages,
+            previewLimit,
+            recordId,
+            atlasId,
+            steamId,
+            bannerUrlCount: 0,
+            previewUrlCount: 0,
+            reason: "skipped, no Atlas or Steam mapping",
+          });
+          continue;
+        }
+
+        const bannerUrl = downloadBannerImages ? await getRemoteBannerUrl(recordId) : "";
+        const rawPreviewUrls = downloadPreviewImages ? await getRemotePreviewUrls(recordId) : [];
+        const screenUrls = rawPreviewUrls
+          .map((url) => String(url || "").trim())
+          .filter(Boolean)
+          .filter((url) => downloadVideos || !isVideoUrl(url))
+          .map((url) => ({ url, source: inferMediaSource(url) }));
         const previewCount = downloadPreviewImages
           ? previewLimit === "Unlimited"
             ? screenUrls.length
@@ -1889,19 +1942,36 @@ ipcMain.handle("import-games", async (event, params) => {
         const totalImages =
           (downloadBannerImages && bannerUrl ? 2 : 0) + previewCount;
 
+        if (!bannerUrl && previewCount === 0) {
+          progress++;
+          sendImageTrace({
+            title,
+            downloadBannerImages,
+            downloadPreviewImages,
+            previewLimit,
+            recordId,
+            atlasId,
+            steamId,
+            bannerUrlCount: bannerUrl ? 1 : 0,
+            previewUrlCount: screenUrls.length,
+            reason: "skipped, no banner/preview URLs in metadata",
+          });
+          continue;
+        }
+
         mainWindow.webContents.send("import-progress", {
-          text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, 0/${totalImages}`,
+          text: `Downloading images for '${title}' ${progress + 1}/${imageTotal}, 0/${totalImages}`,
           progress,
           total: imageTotal,
           canCancel: true,
         });
 
         const downloadResult = await downloadImages(
-          game.recordId,
-          game.atlasId,
+          recordId,
+          atlasId || recordId,
           (current, totalImages) => {
             mainWindow.webContents.send("import-progress", {
-              text: `Downloading images for '${game.title}' ${progress + 1}/${imageTotal}, ${current}/${totalImages}`,
+              text: `Downloading images for '${title}' ${progress + 1}/${imageTotal}, ${current}/${totalImages}`,
               progress,
               total: imageTotal,
               canCancel: true,
@@ -1912,25 +1982,38 @@ ipcMain.handle("import-games", async (event, params) => {
           previewLimit,
           downloadVideos,
           dataDir,
-          getBannerUrl,
-          getScreensUrlList,
+          async () => bannerUrl,
+          async () => screenUrls,
           updateBanners,
           updatePreviews,
-          { source: "f95" },
+          { source: inferMediaSource(bannerUrl) },
         );
         throwIfImportCanceled(session);
 
-        mainWindow.webContents.send("game-updated", game.recordId);
+        mainWindow.webContents.send("game-updated", recordId);
 
         progress++;
-        const statusText = downloadResult.success
-          ? `Completed image download for '${game.title}' ${progress}/${imageTotal}, ${downloadResult.downloaded} local file(s) saved`
-          : `Image download finished with errors for '${game.title}' ${progress}/${imageTotal}, ${downloadResult.downloaded} local file(s) saved`;
+        const urlCount = downloadResult.bannerUrlCount + downloadResult.previewUrlCount;
+        const failedWithUrls = urlCount > 0 && downloadResult.downloaded === 0;
+        const statusText = downloadResult.success && !failedWithUrls
+          ? `Images: downloaded ${downloadResult.bannerRowsWritten} banner row(s) and ${downloadResult.previewRowsWritten} preview row(s) for '${title}'`
+          : `Images: failed for '${title}', ${urlCount} URL(s) found but ${downloadResult.filesWritten} file(s) written`;
         mainWindow.webContents.send("import-progress", {
           text: statusText,
           progress,
           total: imageTotal,
           canCancel: true,
+        });
+        sendImageTrace({
+          title,
+          downloadBannerImages,
+          downloadPreviewImages,
+          previewLimit,
+          recordId,
+          atlasId,
+          steamId,
+          ...downloadResult,
+          reason: downloadResult.errors.length > 0 ? downloadResult.errors.join("; ") : "",
         });
       } catch (err) {
         if (isImportCancelledError(err)) {
@@ -1946,7 +2029,7 @@ ipcMain.handle("import-games", async (event, params) => {
         console.error("Error downloading images for game:", err);
         progress++;
         mainWindow.webContents.send("import-progress", {
-          text: `Error downloading images for '${game.title}' ${progress}/${imageTotal}: ${err.message}`,
+          text: `Error downloading images for '${title}' ${progress}/${imageTotal}: ${err.message}`,
           progress,
           total: imageTotal,
           canCancel: true,

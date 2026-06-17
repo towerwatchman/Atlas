@@ -69,6 +69,12 @@ async function downloadImages(
     success: true,
     attempted: 0,
     downloaded: 0,
+    bannerUrlCount: 0,
+    previewUrlCount: 0,
+    filesWritten: 0,
+    bannerRowsWritten: 0,
+    previewRowsWritten: 0,
+    localBannerPath: "",
     skipped: 0,
     errors: [],
   };
@@ -78,6 +84,8 @@ async function downloadImages(
   const screenUrls = downloadPreviewImages
     ? await getScreensUrlList(atlasId)
     : [];
+  result.bannerUrlCount = bannerUrl ? 1 : 0;
+  result.previewUrlCount = screenUrls.length;
   const previewCount = downloadPreviewImages
     ? previewLimit === "Unlimited"
       ? screenUrls.length
@@ -86,6 +94,12 @@ async function downloadImages(
   const totalImages = (bannerUrl ? 2 : 0) + previewCount;
 
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const verifyLocalFile = async (filePath) => {
+    const stat = await fs.promises.stat(filePath);
+    if (!stat.isFile() || stat.size <= 0) {
+      throw new Error(`Downloaded image file is empty: ${filePath}`);
+    }
+  };
   const reportProgress = () => {
     if (typeof onImageProgress === "function") {
       onImageProgress(imageProgress, totalImages);
@@ -123,6 +137,11 @@ async function downloadImages(
         if (!imageBytes) {
           const response = await axios.get(bannerUrl, {
             responseType: "arraybuffer",
+            maxRedirects: 5,
+            headers: {
+              "User-Agent": "Atlas/1.0 (+https://github.com/towerwatchman/Atlas)",
+              Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            },
           });
           imageBytes = Buffer.from(response.data);
           downloaded = true;
@@ -135,8 +154,11 @@ async function downloadImages(
         if (!fs.existsSync(animatedPath)) {
           await loadImageBytes();
           fs.writeFileSync(animatedPath, imageBytes);
+          result.filesWritten++;
         }
+        await verifyLocalFile(animatedPath);
         await updateBanners(recordId, `${relativePath}${ext}`, "animated");
+        result.bannerRowsWritten++;
         result.downloaded++;
         imageProgress++;
         reportProgress();
@@ -160,12 +182,15 @@ async function downloadImages(
                   loop: 0,
                 })
                 .toFile(animatedWebpPath);
+              result.filesWritten++;
             }
+            await verifyLocalFile(animatedWebpPath);
             await updateBanners(
               recordId,
               `${relativePath}_animated.webp`,
               "animated",
             );
+            result.bannerRowsWritten++;
             result.downloaded++;
             imageProgress++;
             reportProgress();
@@ -185,8 +210,12 @@ async function downloadImages(
           .webp({ quality: 90 })
           .resize({ width: 1260, withoutEnlargement: true })
           .toFile(highResPath);
+        result.filesWritten++;
       }
+      await verifyLocalFile(highResPath);
       await updateBanners(recordId, `${relativePath}_mc.webp`, "small");
+      result.bannerRowsWritten++;
+      result.localBannerPath = `${relativePath}_mc.webp`;
       result.downloaded++;
       imageProgress++;
       reportProgress();
@@ -198,8 +227,12 @@ async function downloadImages(
           .webp({ quality: 90 })
           .resize({ width: 600, withoutEnlargement: true })
           .toFile(lowResPath);
+        result.filesWritten++;
       }
+      await verifyLocalFile(lowResPath);
       await updateBanners(recordId, `${relativePath}_sc.webp`, "large");
+      result.bannerRowsWritten++;
+      if (!result.localBannerPath) result.localBannerPath = `${relativePath}_sc.webp`;
       result.downloaded++;
       imageProgress++;
       reportProgress();
@@ -253,6 +286,11 @@ async function downloadImages(
         if (!imageBytes) {
           const response = await axios.get(url, {
             responseType: "arraybuffer",
+            maxRedirects: 5,
+            headers: {
+              "User-Agent": "Atlas/1.0 (+https://github.com/towerwatchman/Atlas)",
+              Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            },
           });
           imageBytes = Buffer.from(response.data);
           downloaded = true;
@@ -265,8 +303,11 @@ async function downloadImages(
         if (!fs.existsSync(videoPath)) {
           await loadImageBytes();
           fs.writeFileSync(videoPath, imageBytes);
+          result.filesWritten++;
         }
+        await verifyLocalFile(videoPath);
         await updatePreviews(recordId, `${relativePath}${ext}`);
+        result.previewRowsWritten++;
         result.downloaded++;
       }
 
@@ -290,9 +331,12 @@ async function downloadImages(
                   loop: 0,
                 })
                 .toFile(animatedPreviewPath);
+              result.filesWritten++;
             }
+            await verifyLocalFile(animatedPreviewPath);
 
             await updatePreviews(recordId, `${relativePath}_animated.webp`);
+            result.previewRowsWritten++;
             animatedPreviewSaved = true;
             result.downloaded++;
           }
@@ -311,9 +355,12 @@ async function downloadImages(
           .webp({ quality: 90 })
           .resize({ width: 1260, withoutEnlargement: true })
           .toFile(targetPath);
+        result.filesWritten++;
       }
+      await verifyLocalFile(targetPath);
       if (!animatedPreviewSaved) {
         await updatePreviews(recordId, `${relativePath}_pr.webp`);
+        result.previewRowsWritten++;
         result.downloaded++;
       }
       imageProgress++;
