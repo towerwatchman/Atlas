@@ -284,7 +284,8 @@ const SearchSidebar = ({
                   value={selectedFilters.browseSort}
                   onChange={(e) => updateFilters({ browseSort: e.target.value })}
                 >
-                  <option value="name">Title A-Z</option>
+                  <option value="nameAsc">Title A/Z</option>
+                  <option value="nameDesc">Title Z/A</option>
                   <option value="newest">Newest first</option>
                   <option value="oldest">Oldest first</option>
                 </select>

@@ -47,7 +47,7 @@ const defaultSavedFilterState = {
   dateLimit: 0,
   browseSource: 'all',
   browseDateRange: 'any',
-  browseSort: 'name',
+  browseSort: 'nameAsc',
   tagLogic: 'AND',
   updateAvailable: false,
   includeUninstalled: false,
@@ -76,9 +76,10 @@ const normalizeSavedFilterState = (filters = {}) => {
   merged.browseDateRange = ['any', '7d', '30d', '90d', 'year'].includes(merged.browseDateRange)
     ? merged.browseDateRange
     : 'any'
-  merged.browseSort = ['name', 'newest', 'oldest'].includes(merged.browseSort)
+  if (merged.browseSort === 'name') merged.browseSort = 'nameAsc'
+  merged.browseSort = ['nameAsc', 'nameDesc', 'newest', 'oldest'].includes(merged.browseSort)
     ? merged.browseSort
-    : 'name'
+    : 'nameAsc'
   merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
   merged.updateAvailable = merged.updateAvailable === true
   merged.multipleInstalledVersions = merged.multipleInstalledVersions === true

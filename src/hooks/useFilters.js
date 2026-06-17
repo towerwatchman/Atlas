@@ -14,7 +14,7 @@ export const defaultFilters = {
   dateLimit: 0,
   browseSource: 'all',
   browseDateRange: 'any',
-  browseSort: 'name',
+  browseSort: 'nameAsc',
   tagLogic: 'AND',
   updateAvailable: false,
   includeUninstalled: false,
@@ -45,9 +45,10 @@ export const normalizeFilterState = (filters = {}) => {
   merged.browseDateRange = ['any', '7d', '30d', '90d', 'year'].includes(merged.browseDateRange)
     ? merged.browseDateRange
     : 'any'
-  merged.browseSort = ['name', 'newest', 'oldest'].includes(merged.browseSort)
+  if (merged.browseSort === 'name') merged.browseSort = 'nameAsc'
+  merged.browseSort = ['nameAsc', 'nameDesc', 'newest', 'oldest'].includes(merged.browseSort)
     ? merged.browseSort
-    : 'name'
+    : 'nameAsc'
   merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
   merged.updateAvailable = merged.updateAvailable === true
   merged.multipleInstalledVersions = merged.multipleInstalledVersions === true
@@ -75,25 +76,42 @@ const parseMetric = (value) => {
   return amount * multiplier
 }
 
+const parseDateParts = (year, month, day) => {
+  const date = new Date(Number(year), Number(month) - 1, Number(day))
+  if (
+    date.getFullYear() !== Number(year) ||
+    date.getMonth() !== Number(month) - 1 ||
+    date.getDate() !== Number(day)
+  ) {
+    return null
+  }
+  return date.getTime()
+}
+
 const parseBrowseDateValue = (value) => {
   if (value === undefined || value === null || value === '') return null
   if (typeof value === 'number' && Number.isFinite(value)) {
-    return value > 100000000000 ? Math.floor(value / 1000) : value
+    return value > 100000000000 ? value : value * 1000
   }
 
   const normalized = String(value).trim()
   if (!normalized) return null
 
+  const compactDate = normalized.match(/^(\d{4})(\d{2})(\d{2})$/)
+  if (compactDate) {
+    return parseDateParts(compactDate[1], compactDate[2], compactDate[3])
+  }
+
   if (/^\d+$/.test(normalized)) {
     const numericValue = Number(normalized)
     if (Number.isFinite(numericValue)) {
-      return numericValue > 100000000000 ? Math.floor(numericValue / 1000) : numericValue
+      return numericValue > 100000000000 ? numericValue : numericValue * 1000
     }
   }
 
   const parsed = Date.parse(normalized)
   if (!Number.isFinite(parsed)) return null
-  return Math.floor(parsed / 1000)
+  return parsed
 }
 
 export const getBrowseDate = (game = {}) => {
@@ -122,13 +140,61 @@ export const getBrowseSources = (game = {}) => {
   return sources
 }
 
-const getBrowseDateRangeCutoff = (range) => {
-  const now = new Date()
-  if (range === '7d') return Math.floor(now.getTime() / 1000) - 7 * 86400
-  if (range === '30d') return Math.floor(now.getTime() / 1000) - 30 * 86400
-  if (range === '90d') return Math.floor(now.getTime() / 1000) - 90 * 86400
-  if (range === 'year') return Math.floor(new Date(now.getFullYear(), 0, 1).getTime() / 1000)
+const getBrowseDateRangeBounds = (range) => {
+  const now = Date.now()
+  if (range === '7d') return { min: now - 7 * 86400000, max: now }
+  if (range === '30d') return { min: now - 30 * 86400000, max: now }
+  if (range === '90d') return { min: now - 90 * 86400000, max: now }
+  if (range === 'year') {
+    const currentYear = new Date(now).getFullYear()
+    return {
+      min: new Date(currentYear, 0, 1).getTime(),
+      max: new Date(currentYear + 1, 0, 1).getTime() - 1,
+    }
+  }
   return null
+}
+
+const compareBrowseTitle = (a, b, direction = 'asc') => {
+  const result = getGameTitle(a).localeCompare(getGameTitle(b))
+  return direction === 'desc' ? -result : result
+}
+
+const shouldLogBrowseDateDebug = () => {
+  try {
+    return globalThis.localStorage?.getItem('atlasDebugBrowseDates') === 'true'
+  } catch {
+    return false
+  }
+}
+
+const logBrowseDateDebug = (games, activeFilters, bounds) => {
+  if (
+    activeFilters.browseDateRange === 'any' ||
+    !shouldLogBrowseDateDebug()
+  ) {
+    return
+  }
+
+  console.debug(
+    'Browse date filter sample',
+    games.slice(0, 5).map((game) => {
+      const resolvedDate = getBrowseDate(game)
+      return {
+        title: getGameTitle(game),
+        range: activeFilters.browseDateRange,
+        rawDates: {
+          f95_last_record_update: game.f95_last_record_update,
+          atlas_last_record_update: game.atlas_last_record_update,
+          thread_publish_date: game.thread_publish_date,
+          release_date: game.release_date,
+          steam_release_date: game.steam_release_date,
+        },
+        resolvedDate: resolvedDate ? new Date(resolvedDate).toISOString() : null,
+        passes: resolvedDate !== null && resolvedDate >= bounds.min && resolvedDate <= bounds.max,
+      }
+    }),
+  )
 }
 
 export const filterGamesWithState = (games, filters = {}, options = {}) => {
@@ -202,11 +268,12 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
   }
 
   if (browseMode && activeFilters.browseDateRange !== 'any') {
-    const cutoff = getBrowseDateRangeCutoff(activeFilters.browseDateRange)
-    if (cutoff !== null) {
+    const bounds = getBrowseDateRangeBounds(activeFilters.browseDateRange)
+    if (bounds !== null) {
+      logBrowseDateDebug(result, activeFilters, bounds)
       result = result.filter((game) => {
         const browseDate = getBrowseDate(game)
-        return browseDate !== null && browseDate >= cutoff
+        return browseDate !== null && browseDate >= bounds.min && browseDate <= bounds.max
       })
     }
   }
@@ -233,7 +300,11 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
           return activeFilters.browseSort === 'oldest' ? aDate - bDate : bDate - aDate
         }
       }
-      return getGameTitle(a).localeCompare(getGameTitle(b))
+      return compareBrowseTitle(
+        a,
+        b,
+        activeFilters.browseSort === 'nameDesc' ? 'desc' : 'asc'
+      )
     }
     if (activeFilters.sort === 'date') {
       return (b.release_date || 0) - (a.release_date || 0)
