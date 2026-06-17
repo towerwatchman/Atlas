@@ -29,7 +29,15 @@ const SEED_THEMES = [
         shadow: '#000000',
         primary: '#100F15',
         secondary: '#17151D',
-        tertiary: '#1C1A23',
+        // Subtle vertical gradient — darkest in the middle, slightly
+        // lighter toward top and bottom — matching the reference
+        // screenshot's main background (sampled directly from the
+        // image: roughly #14121A/#1E1B26 at the edges down to
+        // #0A0A10 in the middle). This is the one surface the
+        // reference actually uses a gradient on; everything else
+        // (buttons, the active tab, etc.) is flat color there too,
+        // so this theme keeps those flat as well.
+        tertiary: { type: 'linear', angle: 180, stops: ['#1E1B26', '#0A0A10', '#1E1B26'] },
         border: '#322E3B',
         selected: '#2A2733',
         accent: '#E21D48',

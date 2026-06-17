@@ -6,7 +6,7 @@
  * process (see useTheme.js), independent of any component's render cycle.
  */
 
-import { THEME_COLOR_KEYS, NAV_SIZES, DEFAULT_THEME, getThemeById, normalizeTheme, normalizeLayout } from './themes.js'
+import { THEME_COLOR_KEYS, GRADIENT_ELIGIBLE_KEYS, NAV_SIZES, DEFAULT_THEME, getThemeById, normalizeTheme, normalizeLayout, resolveColorValue } from './themes.js'
 
 // camelCase color key -> kebab-case CSS variable name, e.g. 'dangerHover' -> '--color-danger-hover'
 const cssVarNameForColorKey = (key) =>
@@ -22,7 +22,11 @@ export function applyTheme(theme, layout) {
   const root = document.documentElement.style
 
   for (const key of THEME_COLOR_KEYS) {
-    root.setProperty(cssVarNameForColorKey(key), safeTheme.colors[key])
+    const { solid, gradient } = resolveColorValue(key, safeTheme.colors[key])
+    root.setProperty(cssVarNameForColorKey(key), solid)
+    if (GRADIENT_ELIGIBLE_KEYS.includes(key)) {
+      root.setProperty(`--gradient-${key}`, gradient)
+    }
   }
 
   root.setProperty('--radius-active', `var(--radius-${safeTheme.radius})`)

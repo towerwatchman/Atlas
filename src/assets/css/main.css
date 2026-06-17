@@ -32,6 +32,20 @@
   --color-overlay-top:        #000000;
   --color-overlay-bottom:     #000000;
 
+  /* Optional gradient layer for the 4 surfaces that are ever used as a
+     background (canvas/primary/secondary/tertiary — confirmed by grep,
+     none of the other color tokens are ever used as background-color
+     anywhere in the app, so gradients are only meaningful here).
+     Default 'none' means "just show the flat --color-X above" — a theme
+     only needs to set one of these if it actually wants a gradient on
+     that surface. See applyTheme.js for how a theme's JSON gradient
+     object becomes this CSS value, and main.css's @layer utilities below
+     for how it's painted on top of the flat color. */
+  --gradient-canvas:    none;
+  --gradient-primary:   none;
+  --gradient-secondary: none;
+  --gradient-tertiary:  none;
+
   /* Semantic status colors */
   --color-muted:              #9CA3AF; /* was text-gray-400/500 */
   --color-danger:             #DC2626; /* was bg-red-600/700 */
@@ -142,3 +156,20 @@
 .-webkit-app-region-no-drag {
   -webkit-app-region: no-drag;
 }
+
+/*
+ * Gradient layer for canvas/primary/secondary/tertiary backgrounds.
+ *
+ * Tailwind's bg-* utilities set `background-color`, which is correct and
+ * unchanged for flat-color themes — these rules ADD a `background-image`
+ * on top (defaulting to `none`, a no-op) rather than replacing anything,
+ * so existing markup using bg-primary etc. needs no changes at all. A
+ * theme that wants a gradient on one of these surfaces sets the matching
+ * --gradient-* variable (see applyTheme.js); --color-* still gets set to
+ * a solid fallback for that same surface, so nothing breaks if a gradient
+ * value somehow isn't supported in a given context.
+ */
+.bg-canvas    { background-image: var(--gradient-canvas); }
+.bg-primary   { background-image: var(--gradient-primary); }
+.bg-secondary { background-image: var(--gradient-secondary); }
+.bg-tertiary  { background-image: var(--gradient-tertiary); }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
-import { LAYOUT_OPTIONS } from '../../theme/themes.js'
+import { LAYOUT_OPTIONS, GRADIENT_ELIGIBLE_KEYS, resolveColorValue } from '../../theme/themes.js'
 
 // A handful of each theme's colors, shown as small swatches on its picker
 // card so people can tell themes apart at a glance rather than reading
@@ -17,6 +17,19 @@ const layoutDescriptions = {
   topnav: 'Navigation sits in a bar across the top of the window.',
 }
 
+// Turns a theme color value (flat hex OR a gradient object, see
+// GRADIENT_ELIGIBLE_KEYS in themes.js) into a CSS `background` value for
+// inline style props. Using the `background` shorthand rather than
+// `backgroundColor` here on purpose: a gradient resolves to a
+// background-image string (e.g. 'linear-gradient(...)'), which
+// backgroundColor can't hold, while `background` accepts either a plain
+// color or a gradient. For a non-eligible key (accent, text, etc.) this
+// is always just the flat hex passed straight through.
+const backgroundStyleFor = (key, value) => {
+  const { solid, gradient } = resolveColorValue(key, value)
+  return GRADIENT_ELIGIBLE_KEYS.includes(key) && gradient !== 'none' ? gradient : solid
+}
+
 const ThemeSwatchCard = ({ theme, isActive, onSelect }) => (
   <button
     type="button"
@@ -24,19 +37,19 @@ const ThemeSwatchCard = ({ theme, isActive, onSelect }) => (
     className={`text-left rounded-theme border-2 p-3 transition-colors ${
       isActive ? 'border-accent' : 'border-border hover:border-muted'
     }`}
-    style={{ backgroundColor: theme.colors.secondary }}
+    style={{ background: backgroundStyleFor('secondary', theme.colors.secondary) }}
   >
     <div className="flex gap-1 mb-3">
       {SWATCH_KEYS.map((key) => (
         <span
           key={key}
           className="block w-6 h-6 rounded-themeSm border border-border"
-          style={{ backgroundColor: theme.colors[key] }}
+          style={{ background: backgroundStyleFor(key, theme.colors[key]) }}
         />
       ))}
     </div>
     <div className="flex items-center justify-between">
-      <span className="text-sm font-semibold" style={{ color: theme.colors.text }}>
+      <span className="text-sm font-semibold" style={{ color: resolveColorValue('text', theme.colors.text).solid }}>
         {theme.name}
       </span>
       {isActive && (
