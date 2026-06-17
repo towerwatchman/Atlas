@@ -34,7 +34,7 @@ const {
 const {
   updateFolderSize, getBannerUrl, getScreensUrlList,
   updateBanners, updatePreviews, getRemotePreviewUrls,
-  getPreviews, getBanners, getBanner, getRemoteBannerUrl,
+  getPreviews, getBanners, getBanner, getRemoteBannerUrl, getBrowsePreviewUrls,
   deleteBanner, deletePreviews,
 } = require('./db/media')
 
@@ -661,6 +661,7 @@ function buildCtx() {
     getBannerUrl, getScreensUrlList, getRemoteBannerUrl, getRemotePreviewUrls,
     getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension,
     GetAtlasIDbyRecord, getPreviews, getBanner, deleteBanner, deletePreviews,
+    getBrowsePreviewUrls,
     searchAtlas, searchAtlasByF95Id, findF95Id, checkPathExist,
     findExistingRecordForImport, getImportRecordStatus,
     updateBanners, updatePreviews, getAtlasData, getSteamIDbyRecord, addSteamMapping,

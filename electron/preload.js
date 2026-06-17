@@ -117,6 +117,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking getPreviews for recordId:", recordId);
     return ipcRenderer.invoke("get-previews", recordId);
   },
+  getBrowsePreviewUrls: (record) =>
+    ipcRenderer.invoke("get-browse-preview-urls", record),
   updateBanners: (recordId) => {
     console.log("Invoking updateBanners for recordId:", recordId);
     return ipcRenderer.invoke("update-banners", recordId);

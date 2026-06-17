@@ -132,6 +132,101 @@ const updatePreviews = (recordId, previewPath) => {
   });
 };
 
+const isRemoteHttpUrl = (value) => /^https?:\/\//i.test(String(value || "").trim());
+
+const addRemotePreviewUrl = (target, seen, value) => {
+  const url = String(value || "").trim();
+  if (!isRemoteHttpUrl(url) || seen.has(url)) return false;
+  seen.add(url);
+  target.push(url);
+  return true;
+};
+
+const parsePreviewList = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => typeof item === "string" ? item : item?.url);
+    }
+  } catch {}
+  return raw.split(",").map((item) => item.trim());
+};
+
+const getBrowsePreviewUrls = ({ atlasId, f95Id, limit = 4 } = {}) => {
+  return new Promise((resolve, reject) => {
+    const maxUrls = Math.max(1, Math.min(20, parseInt(limit, 10) || 4));
+    const atlasParam = atlasId || null;
+    const f95Param = f95Id || null;
+    const query = `
+      SELECT url, source, sort_order FROM (
+        SELECT f95_zone_screens.screen_url AS url, 'f95_screens' AS source, 0 AS sort_order
+        FROM f95_zone_screens
+        JOIN f95_zone_data ON f95_zone_screens.f95_id = f95_zone_data.f95_id
+        WHERE (? IS NOT NULL AND f95_zone_data.f95_id = ?)
+           OR (? IS NOT NULL AND f95_zone_data.atlas_id = ?)
+        UNION ALL
+        SELECT atlas_previews.preview_url AS url, 'atlas_previews' AS source, 2 AS sort_order
+        FROM atlas_previews
+        WHERE ? IS NOT NULL AND atlas_previews.atlas_id = ?
+      )
+      WHERE url IS NOT NULL AND TRIM(url) != ''
+      ORDER BY sort_order
+    `;
+
+    getDb().all(
+      query,
+      [f95Param, f95Param, atlasParam, atlasParam, atlasParam, atlasParam],
+      (err, rows) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        const urls = [];
+        const seen = new Set();
+        let invalidCount = 0;
+        const addUrl = (value) => {
+          const before = urls.length;
+          addRemotePreviewUrl(urls, seen, value);
+          if (urls.length === before && value && !isRemoteHttpUrl(value)) invalidCount++;
+        };
+
+        const f95Rows = (rows || []).filter((row) => row.source === "f95_screens");
+        const atlasRows = (rows || []).filter((row) => row.source === "atlas_previews");
+        f95Rows.forEach((row) => addUrl(row.url));
+
+        getDb().get(
+          `SELECT f95_zone_data.screens, atlas_data.previews
+           FROM atlas_data
+           LEFT JOIN f95_zone_data ON atlas_data.atlas_id = f95_zone_data.atlas_id
+           WHERE (? IS NOT NULL AND atlas_data.atlas_id = ?)
+              OR (? IS NOT NULL AND f95_zone_data.f95_id = ?)
+           LIMIT 1`,
+          [atlasParam, atlasParam, f95Param, f95Param],
+          (legacyErr, row) => {
+            if (legacyErr) {
+              reject(legacyErr);
+              return;
+            }
+            parsePreviewList(row?.screens).forEach(addUrl);
+            atlasRows.forEach((previewRow) => addUrl(previewRow.url));
+            parsePreviewList(row?.previews).forEach(addUrl);
+
+            const limited = urls.slice(0, maxUrls);
+            console.log(
+              `Browse preview URLs resolved: atlasId=${atlasId || "none"} ` +
+              `f95Id=${f95Id || "none"} count=${limited.length} invalid=${invalidCount}`,
+            );
+            resolve(limited);
+          },
+        );
+      },
+    );
+  });
+};
+
 const getRemotePreviewUrls = (recordId) => {
   return new Promise((resolve, reject) => {
     const query = `
@@ -446,6 +541,7 @@ module.exports = {
   getScreensUrlList,
   updateBanners,
   updatePreviews,
+  getBrowsePreviewUrls,
   getRemotePreviewUrls,
   getPreviews,
   getBanners,

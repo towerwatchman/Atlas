@@ -13,6 +13,7 @@ import { buildExternalLinks } from './externalLinks.js'
 
 const GameDetailPage = ({ game, onBack, onRefresh }) => {
   const [previews, setPreviews] = useState([])
+  const [previewsLoading, setPreviewsLoading] = useState(false)
   const [selectedVersion, setSelectedVersion] = useState(null)
   const [isRefreshingMedia, setIsRefreshingMedia] = useState(false)
   const [launchState, setLaunchState] = useState(LAUNCH_STATE.IDLE)
@@ -23,6 +24,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   const rootRef       = useRef(null)
   const bannerRef     = useRef(null)
   const bannerDimsRef = useRef(null)
+  const browsePreviewCacheRef = useRef(new Map())
 
   // ── Effects ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -32,10 +34,36 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
       if (!current) return getDefaultVersion(versions)
       return versions.find((v) => v.version === current.version && v.game_path === current.game_path) || getDefaultVersion(versions)
     })
-    window.electronAPI.getPreviews(game.record_id)
-      .then((urls) => setPreviews(filterOutBanner(urls, game.banner_url)))
-      .catch((err) => { console.error('Failed to load previews:', err); setPreviews([]) })
-  }, [game?.record_id, game?.versions])
+    const loadPreviews = async () => {
+      setPreviewsLoading(true)
+      try {
+        if (game.isCatalogEntry === true) {
+          const cacheKey = `${game.atlas_id || ''}:${game.f95_id || ''}`
+          if (browsePreviewCacheRef.current.has(cacheKey)) {
+            setPreviews(filterOutBanner(browsePreviewCacheRef.current.get(cacheKey), game.banner_url))
+            return
+          }
+          const urls = await window.electronAPI.getBrowsePreviewUrls?.({
+            atlas_id: game.atlas_id,
+            f95_id: game.f95_id,
+            limit: 4,
+          })
+          const safeUrls = Array.isArray(urls) ? urls : []
+          browsePreviewCacheRef.current.set(cacheKey, safeUrls)
+          setPreviews(filterOutBanner(safeUrls, game.banner_url))
+          return
+        }
+        const urls = await window.electronAPI.getPreviews(game.record_id)
+        setPreviews(filterOutBanner(urls, game.banner_url))
+      } catch (err) {
+        console.error('Failed to load previews:', err)
+        setPreviews([])
+      } finally {
+        setPreviewsLoading(false)
+      }
+    }
+    loadPreviews()
+  }, [game?.record_id, game?.versions, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id])
 
   useEffect(() => {
     setLaunchState(LAUNCH_STATE.IDLE)
@@ -296,7 +324,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
             </div>
           ) : (
             <div style={{ minHeight: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
-              No previews available
+              {previewsLoading ? 'Loading previews...' : 'No previews available'}
             </div>
           )}
         </section>

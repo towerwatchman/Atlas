@@ -19,7 +19,7 @@ module.exports = function registerMediaHandlers(ctx) {
     getAssetBasePath, getMediaStorageMode, templatesDir, dataDir,
     getPreviews, getBanner, deleteBanner, deletePreviews,
     updateBanners, updatePreviews, getBannerUrl, getScreensUrlList,
-    GetAtlasIDbyRecord, firstMediaPath,
+    GetAtlasIDbyRecord, firstMediaPath, getBrowsePreviewUrls,
     appConfig, configPath,
     getMetadataSourceOrder,
   } = ctx
@@ -65,6 +65,20 @@ module.exports = function registerMediaHandlers(ctx) {
   ipcMain.handle('get-previews', async (event, recordId) => {
     const previews = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode())
     return orderPreviewsBySource(previews, getMetadataSourceOrder())
+  })
+
+  ipcMain.handle('get-browse-preview-urls', async (event, record = {}) => {
+    try {
+      const urls = await getBrowsePreviewUrls({
+        atlasId: record.atlasId ?? record.atlas_id,
+        f95Id: record.f95Id ?? record.f95_id,
+        limit: record.limit || 4,
+      })
+      return Array.isArray(urls) ? urls : []
+    } catch (err) {
+      console.error('get-browse-preview-urls error:', err)
+      return []
+    }
   })
 
   ipcMain.handle('update-banners', async (event, recordId) => {
