@@ -26,7 +26,12 @@ assert.strictEqual(formatPercent(Number.NaN), "0%");
 assert.strictEqual(formatPercent(Number.POSITIVE_INFINITY), "0%");
 
 assert.strictEqual(sanitizePercentText("Downloading 12.345678%"), "Downloading 12.4%");
+assert.strictEqual(sanitizePercentText("Downloading Atlas 12.345678%"), "Downloading Atlas 12.4%");
+assert.strictEqual(sanitizePercentText("Downloading... 99.01%"), "Downloading... 99.1%");
+assert.strictEqual(sanitizePercentText("Progress: 100.000000%"), "Progress: 100%");
 assert.strictEqual(sanitizePercentText("Downloading NaN%"), "Downloading 0%");
 assert.strictEqual(sanitizePercentText("Downloading Infinity%"), "Downloading 0%");
+assert.strictEqual(sanitizePercentText("Progress: NaN%"), "Progress: 0%");
+assert.strictEqual(sanitizePercentText("Progress: Infinity%"), "Progress: 0%");
 
 console.log("percentage formatting checks passed");

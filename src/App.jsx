@@ -44,6 +44,25 @@ const sanitizeProgressState = (progress = {}) => ({
   text: sanitizePercentText(progress.text),
 })
 
+const sanitizeFooterToastText = (value, source) => {
+  const raw = String(value || '')
+  const formatted = sanitizePercentText(raw)
+  if (formatted !== raw) {
+    try {
+      if (globalThis.localStorage?.getItem('atlasDebugFooterToastPercent') === 'true') {
+        console.debug('footer-toast percent formatted', {
+          source,
+          raw,
+          formatted,
+        })
+      }
+    } catch {
+      // Debug logging is best-effort only.
+    }
+  }
+  return formatted
+}
+
 export class AppErrorBoundary extends Component {
   constructor(props) {
     super(props)
@@ -154,12 +173,15 @@ const App = () => {
     handleUpdateStatus, handleAppUpdateAction,
   } = useAppUpdate(setDbUpdateStatus)
   const appUpdateNoticeText =
-    appUpdateNotice.status === 'downloading' &&
-    appUpdateNotice.percent !== undefined &&
-    appUpdateNotice.percent !== null
-      ? `Downloading Atlas update: ${formatPercent(appUpdateNotice.percent)}`
-      : sanitizePercentText(appUpdateNotice.text)
-  const appUpdateActionLabel = (() => {
+    sanitizeFooterToastText(
+      appUpdateNotice.status === 'downloading' &&
+      appUpdateNotice.percent !== undefined &&
+      appUpdateNotice.percent !== null
+        ? `Downloading Atlas update: ${formatPercent(appUpdateNotice.percent)}`
+        : appUpdateNotice.text,
+      'app-update-message',
+    )
+  const appUpdateActionLabel = sanitizeFooterToastText((() => {
     if (appUpdateNotice.status === 'installing') return 'Installing update...'
     if (appUpdateNotice.status === 'downloaded') return 'Install and restart'
     if (appUpdateNotice.status === 'downloading') return 'Downloading...'
@@ -168,7 +190,7 @@ const App = () => {
       return 'Check for updates'
     }
     return 'Download and install'
-  })()
+  })(), 'app-update-action')
   const isAppUpdateActionDisabled =
     (appUpdateActionBusy && appUpdateNotice.status !== 'downloaded') ||
     ['downloading', 'checking', 'installing'].includes(appUpdateNotice.status)
