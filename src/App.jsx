@@ -1,9 +1,11 @@
 import { Component, useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AutoSizer, Grid } from 'react-virtualized'
 import Sidebar from './components/ui/Sidebar.jsx'
+import TopNav from './components/ui/TopNav.jsx'
 import { atlasLogo } from './assets/icons/data.js'
 import GameBanner from './components/library/GameBanner.jsx'
 import SearchBox from './components/search/SearchBox.jsx'
+import SearchButton from './components/search/SearchButton.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
 import SavedFiltersPanel from './components/search/SavedFiltersPanel.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
@@ -11,6 +13,7 @@ import { useGames } from './hooks/useGames.js'
 import { builtInSavedFilters, filterGamesWithState, normalizeFilterState, useFilters } from './hooks/useFilters.js'
 import { useAppUpdate } from './hooks/useAppUpdate.js'
 import { useWindowState } from './hooks/useWindowState.js'
+import { useTheme } from './theme/ThemeProvider.jsx'
 import { getGameTitle, normalizeGameForRenderer } from './utils/gameDisplay.js'
 import { formatPercent, sanitizePercentText } from './utils/formatPercent.js'
 
@@ -143,6 +146,8 @@ const App = () => {
   const filteredGames = libraryMode === 'catalog' ? catalogFilteredGames : localFilteredGames
 
   const { isMaximized, version, handleWindowStateChanged, loadVersion } = useWindowState()
+  const { layout } = useTheme()
+  const isTopNav = layout === 'topnav'
 
   const {
     appUpdateNotice, setAppUpdateNotice, appUpdateActionBusy,
@@ -649,18 +654,39 @@ const App = () => {
           />
         </div>
         <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)]">
-          <div className="absolute top-0 left-[50px] right-[110px] h-[10px] bg-accentBar"></div>
-          <div className="absolute top-0 left-[40px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 100% 100%)' }}></div>
-          <div className="absolute top-0 right-[100px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 0% 100%)' }}></div>
-          <div className="w-full flex h-[70px]">
-            <div className="flex items-center ml-5 mt-3">
+          {!isTopNav && (
+            <>
+              <div className="absolute top-0 left-[50px] right-[110px] h-[10px] bg-accentBar"></div>
+              <div className="absolute top-0 left-[40px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 100% 100%)' }}></div>
+              <div className="absolute top-0 right-[100px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 0% 100%)' }}></div>
+            </>
+          )}
+          <div className="w-full flex h-[70px] items-center">
+            <div className="flex items-center ml-5">
               <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag" onClick={goHome} title="Back to Library">
                 {libraryMode === 'catalog' ? 'Browse' : 'Games'}
               </div>
             </div>
-            <div className="flex justify-center w-full">
-              <SearchBox value={activeFilters.text} onSearchChange={handleSearchChange} onToggleSidebar={toggleSearchSidebar} />
-            </div>
+            {isTopNav ? (
+              <>
+                <div className="ml-2">
+                  <TopNav
+                    onToggleGameList={toggleGameList}
+                    onCheckDbUpdates={runDbUpdateCheck}
+                    onGoHome={goHome}
+                    onBrowseCatalog={browseCatalog}
+                    showGameList={showLibrarySidebar}
+                    libraryMode={libraryMode}
+                  />
+                </div>
+                <div className="flex-1" />
+                <SearchButton onToggleSidebar={toggleSearchSidebar} />
+              </>
+            ) : (
+              <div className="flex justify-center w-full">
+                <SearchBox value={activeFilters.text} onSearchChange={handleSearchChange} onToggleSidebar={toggleSearchSidebar} />
+              </div>
+            )}
           </div>
           <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
             <button onClick={() => window.electronAPI.minimizeWindow()} className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200">
@@ -673,25 +699,29 @@ const App = () => {
               <i className="fas fa-times text-text fa-sm"></i>
             </button>
           </div>
-          <div className="absolute mt-10 top-0 right-0 flex h-[10px]">
-            <span className="text-text text-xs mr-4">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
-          </div>
+          {!isTopNav && (
+            <div className="absolute mt-10 top-0 right-0 flex h-[10px]">
+              <span className="text-text text-xs mr-4">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Main Content */}
       <div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
-        <Sidebar
-          onToggleGameList={toggleGameList}
-          onCheckDbUpdates={runDbUpdateCheck}
-          onGoHome={goHome}
-          onBrowseCatalog={browseCatalog}
-          showGameList={showLibrarySidebar}
-          libraryMode={libraryMode}
-        />
+        {!isTopNav && (
+          <Sidebar
+            onToggleGameList={toggleGameList}
+            onCheckDbUpdates={runDbUpdateCheck}
+            onGoHome={goHome}
+            onBrowseCatalog={browseCatalog}
+            showGameList={showLibrarySidebar}
+            libraryMode={libraryMode}
+          />
+        )}
 
         {showGameList && (
-          <div className="w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ml-[60px]">
+          <div className={`w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ${isTopNav ? '' : 'ml-[60px]'}`}>
             {filteredGames.length === 0 ? (
               <div className="p-2 text-center text-text">
                 {libraryMode === 'catalog' ? 'No browse titles match these filters.' : 'No games found'}
@@ -723,7 +753,7 @@ const App = () => {
 
         <div
           id="gameGrid"
-          className={`flex-1 bg-tertiary overflow-y-auto ${showLibrarySidebar ? 'ml-[260px]' : 'ml-[60px]'}`}
+          className={`flex-1 bg-tertiary overflow-y-auto ${isTopNav ? '' : showLibrarySidebar ? 'ml-[260px]' : 'ml-[60px]'}`}
           ref={gameGridRef}
           style={{ overflowX: 'hidden' }}
         >

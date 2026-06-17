@@ -73,12 +73,16 @@ export const LAYOUT_OPTIONS = ['sidebar', 'topnav']
 export const DEFAULT_LAYOUT = 'sidebar'
 
 /**
- * --nav-size differs by layout (sidebar width vs. topnav height), not by
- * theme, so it lives here rather than on individual theme objects.
+ * --nav-size is the horizontal space reserved on the left for the nav
+ * rail. Sidebar mode reserves 60px (Sidebar.jsx's width) for content to
+ * sit to the right of. Topnav mode reserves 0 — its nav icons are
+ * integrated directly into the existing top header bar (see TopNav.jsx /
+ * App.jsx), not a second bar that takes up extra space of its own, so
+ * there's no left-hand offset for the content area to account for.
  */
 export const NAV_SIZES = {
   sidebar: '60px',
-  topnav: '56px',
+  topnav: '0px',
 }
 
 export const DEFAULT_THEME = {
