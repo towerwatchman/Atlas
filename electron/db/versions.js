@@ -7,6 +7,7 @@ const dbModule = require('./index')
 const getDb = () => dbModule.db
 const { toLocalAssetPath, normalizeMediaStorageMode, remoteBannerExpression,
         buildBannerJoinClauses, buildBannerSelectFields, getAssetBasePath } = require('./helpers')
+const { calculatePathSize } = require('../pathSize')
 
 
 const DEFAULT_LAUNCHABLE_EXTENSIONS = [
@@ -105,13 +106,25 @@ function chooseLaunchableForRepair(gamePath, staleExecPath, extensions) {
   return launchables[0];
 }
 
-const addVersion = (game, recordId) => {
+const resolveVersionSize = async (game, gamePath) => {
+  const existingSize = Number(game.folderSize ?? game.folder_size ?? 0);
+  if (Number.isFinite(existingSize) && existingSize > 0) return existingSize;
+  if (!gamePath) return null;
+  const result = await calculatePathSize(gamePath);
+  if (result.errors?.length) {
+    console.warn(`Size calculation skipped some entries for ${gamePath}:`, result.errors);
+  }
+  return result.missing ? null : result.sizeBytes || 0;
+};
+
+const addVersion = async (game, recordId) => {
   const { version, folder, executables, folderSize = 0 } = game;
   const executable =
     executables && executables.length > 0 ? executables[0].value : "";
   const gamePath = String(folder || "");
   const execPath = executable ? path.join(gamePath, executable) : "";
   const dateAdded = Math.floor(Date.now() / 1000);
+  const calculatedSize = folderSize > 0 ? folderSize : await resolveVersionSize(game, gamePath);
 
   console.log("adding version");
   return new Promise((resolve, reject) => {
@@ -124,7 +137,7 @@ const addVersion = (game, recordId) => {
         execPath,
         true,
         dateAdded,
-        folderSize,
+        calculatedSize,
       ],
       (err) => {
         if (err) {
@@ -138,14 +151,14 @@ const addVersion = (game, recordId) => {
   });
 };
 
-const upsertVersion = (game, recordId) => {
+const upsertVersion = async (game, recordId) => {
   const version = String(game.version || "Unknown");
   const folder = String(game.folder || game.game_path || "");
   const executable =
     game.execPath ||
     game.exec_path ||
     (game.selectedValue ? path.join(folder, game.selectedValue) : "");
-  const folderSize = game.folderSize || game.folder_size || 0;
+  const folderSize = await resolveVersionSize(game, folder);
   const dateAdded = Math.floor(Date.now() / 1000);
 
   return new Promise((resolve, reject) => {
@@ -158,10 +171,7 @@ const upsertVersion = (game, recordId) => {
            game_path = excluded.game_path,
            exec_path = excluded.exec_path,
            in_place = excluded.in_place,
-           folder_size = CASE
-             WHEN excluded.folder_size > 0 THEN excluded.folder_size
-             ELSE versions.folder_size
-           END`,
+           folder_size = COALESCE(excluded.folder_size, versions.folder_size)`,
         [recordId, version, folder, executable, true, dateAdded, folderSize],
         (err) => {
           if (err) {
@@ -194,12 +204,9 @@ const upsertVersion = (game, recordId) => {
 
         getDb().run(
           `UPDATE versions
-           SET record_id = ?, version = ?, exec_path = ?, in_place = ?, folder_size = CASE
-             WHEN ? > 0 THEN ?
-             ELSE folder_size
-           END
+           SET record_id = ?, version = ?, exec_path = ?, in_place = ?, folder_size = COALESCE(?, folder_size)
            WHERE rowid = ?`,
-          [recordId, version, executable, true, folderSize, folderSize, row.rowid],
+          [recordId, version, executable, true, folderSize, row.rowid],
           (err) => {
             if (err) {
               console.error("Error repairing version by exact path:", err);

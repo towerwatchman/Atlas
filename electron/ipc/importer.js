@@ -1595,11 +1595,6 @@ ipcMain.handle("import-games", async (event, params) => {
         }
       }
 
-      if (scanSize) {
-        throwIfImportCanceled(session);
-        size = getFolderSize(gamePath);
-      }
-
       const add = {
         title: game.title,
         creator: game.creator,

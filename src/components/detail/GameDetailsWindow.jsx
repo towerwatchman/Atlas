@@ -7,6 +7,13 @@ import MappingsTab from './window/MappingsTab.jsx'
 
 const isRemoteMediaUrl = (url) => /^https?:\/\//i.test(String(url || ''))
 const firstMediaUrl = (value) => Array.isArray(value) ? value[0] || '' : value || ''
+const formatBytes = (bytes) => {
+  const value = Number(bytes)
+  if (!Number.isFinite(value) || value < 0) return 'Unknown'
+  const gb = value / (1024 * 1024 * 1024)
+  if (gb >= 1) return `${gb.toFixed(gb >= 10 ? 1 : 2)} GB`
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
 
 const EMPTY_FORM = {
   title: '', mappings: '', platform: '', engine: '', developer: '',
@@ -49,13 +56,18 @@ function gameToFormData(g) {
 }
 
 function versionToData(v) {
+  const hasSize = v.folder_size !== undefined && v.folder_size !== null && v.folder_size !== ''
   return {
     game_version: v.version || '',
     game_path: v.game_path || '',
     executable: v.exec_path || '',
     last_played: v.last_played?.toString() || '',
     playtime: v.version_playtime?.toString() || '',
-    version_size: v.folder_size?.toString() || '',
+    version_size: v.isInstalled === false
+      ? 'Missing path'
+      : hasSize
+        ? formatBytes(v.folder_size)
+        : 'Unknown',
     date_added: v.date_added?.toString() || '',
   }
 }
@@ -79,6 +91,7 @@ const GameDetailWindow = () => {
   const [loadError, setLoadError] = useState(false)
   const dataHandledRef = useRef(false)
   const retryLoadRef = useRef(null)
+  const sizeRefreshKeyRef = useRef(new Set())
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   const handleVersionSelect = (version) => {
@@ -108,6 +121,7 @@ const GameDetailWindow = () => {
       setVersions(fetchedGame.versions || [])
       setFormData(gameToFormData(fetchedGame))
       if (fetchedGame.versions?.length > 0) handleVersionSelect(fetchedGame.versions[0])
+      recalculateMissingVersionSizes(fetchedGame)
       setBannerUrl(fetchedGame.banner_url || '')
       window.electronAPI.getPreviews(fetchedGame.record_id)
         .then((urls) => setPreviewUrls(urls || []))
@@ -240,6 +254,32 @@ const GameDetailWindow = () => {
     if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion.version)
   }
 
+  const recalculateMissingVersionSizes = async (targetGame) => {
+    const targetVersions = targetGame?.versions || []
+    const versionsToRefresh = targetVersions.filter((version) => {
+      if (!version?.game_path || version.isInstalled === false) return false
+      if (Number(version.folder_size || 0) > 0) return false
+      const key = `${targetGame.record_id}|${version.version}|${version.game_path}`
+      if (sizeRefreshKeyRef.current.has(key)) return false
+      sizeRefreshKeyRef.current.add(key)
+      return true
+    })
+    if (versionsToRefresh.length === 0) return
+    try {
+      for (const version of versionsToRefresh) {
+        await window.electronAPI.recalculateVersionSize?.({
+          recordId: targetGame.record_id,
+          version: version.version,
+          gamePath: version.game_path,
+        })
+      }
+      const refreshedGame = await window.electronAPI.getGame(targetGame.record_id)
+      if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion?.version)
+    } catch (err) {
+      console.error('Failed to recalculate version sizes:', err)
+    }
+  }
+
   const handleSetPath = async () => {
     try {
       const selectedPath = await window.electronAPI.selectDirectory()
@@ -262,6 +302,33 @@ const GameDetailWindow = () => {
     } catch (err) {
       console.error('Failed to open game folder:', err)
       alert(`Failed to open game folder: ${err.message || 'Unknown error'}`)
+    }
+  }
+
+  const handleRefreshVersionSize = async () => {
+    if (!selectedVersion?.game_path) {
+      alert('No game path is set for this version.')
+      return
+    }
+    setVersionData((current) => ({ ...current, version_size: 'Calculating...' }))
+    try {
+      const result = await window.electronAPI.recalculateVersionSize?.({
+        recordId: game.record_id,
+        version: selectedVersion.version,
+        gamePath: selectedVersion.game_path,
+      })
+      if (!result?.success) {
+        setVersionData((current) => ({
+          ...current,
+          version_size: result?.missing ? 'Missing path' : 'Unable to calculate',
+        }))
+        return
+      }
+      const refreshedGame = await window.electronAPI.getGame(game.record_id)
+      if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion.version)
+    } catch (err) {
+      console.error('Failed to refresh version size:', err)
+      setVersionData((current) => ({ ...current, version_size: 'Unable to calculate' }))
     }
   }
 
@@ -444,6 +511,7 @@ const GameDetailWindow = () => {
                 onVersionInputChange={(e) => setVersionData({ ...versionData, [e.target.name]: e.target.value })}
                 onSetPath={handleSetPath}
                 onOpenGamePath={handleOpenGamePath}
+                onRefreshVersionSize={handleRefreshVersionSize}
                 onChangeExecutable={handleChangeExecutable}
                 onAddVersion={() => console.log('TODO: Add version')}
                 onRemoveVersion={handleRemoveVersion}

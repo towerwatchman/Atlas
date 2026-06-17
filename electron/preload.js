@@ -148,6 +148,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking updateVersion with version data:", version);
     return ipcRenderer.invoke("update-version", version, record_id);
   },
+  recalculateVersionSize: (params) =>
+    ipcRenderer.invoke("recalculate-version-size", params),
   onWindowStateChanged: (callback) => {
     ipcRenderer.on("window-state-changed", (event, state) => callback(state));
   },

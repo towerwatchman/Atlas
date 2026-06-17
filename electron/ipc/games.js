@@ -8,6 +8,7 @@ const { recordGameLaunchStarted, recordGamePlaytime } = require('../db/games')
 const { getEmulatorByExtension } = require('../db/settings')
 const { getSteamIDbyRecord } = require('../db/steam')
 const { applyMediaSources } = require('../db/mediaSources')
+const { calculatePathSize } = require('../pathSize')
 
 function emitGameUpdated(recordId) {
   if (!recordId) return
@@ -247,6 +248,28 @@ function registerGamesHandlers(ctx) {
 
   ipcMain.handle('update-version', async (event, version, record_id) => {
     return await upsertVersion(version, record_id)
+  })
+
+  ipcMain.handle('recalculate-version-size', async (event, { recordId, version, gamePath }) => {
+    try {
+      if (!recordId || !version || !gamePath) {
+        return { success: false, error: 'Missing version path details' }
+      }
+      const result = await calculatePathSize(gamePath)
+      if (result.missing) {
+        return { success: false, missing: true, error: 'Path is missing' }
+      }
+      await updateFolderSize(recordId, version, result.sizeBytes || 0)
+      emitGameUpdated(recordId)
+      return {
+        success: true,
+        folder_size: result.sizeBytes || 0,
+        warnings: result.errors || [],
+      }
+    } catch (err) {
+      console.error('recalculate-version-size failed:', err)
+      return { success: false, error: err.message }
+    }
   })
 
   ipcMain.handle('get-default-game-folder', async () => {
