@@ -87,6 +87,14 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [catalogImportError, setCatalogImportError] = useState('')
   const [catalogImportDragging, setCatalogImportDragging] = useState(false)
   const [catalogImportConflict, setCatalogImportConflict] = useState(null)
+  const [localImportPath, setLocalImportPath] = useState('')
+  const [localImportVersion, setLocalImportVersion] = useState('')
+  const [localImportBusy, setLocalImportBusy] = useState(false)
+  const [localImportStatus, setLocalImportStatus] = useState('')
+  const [localImportError, setLocalImportError] = useState('')
+  const [localImportDragging, setLocalImportDragging] = useState(false)
+  const [localReplaceExisting, setLocalReplaceExisting] = useState(false)
+  const [localReplaceVersionId, setLocalReplaceVersionId] = useState('')
   const isRunningRef  = useRef(false)
   const rootRef       = useRef(null)
   const bannerRef     = useRef(null)
@@ -148,6 +156,13 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     setCatalogImportError('')
     setCatalogImportDragging(false)
     setCatalogImportConflict(null)
+    setLocalImportPath('')
+    setLocalImportVersion('')
+    setLocalImportStatus('')
+    setLocalImportError('')
+    setLocalImportDragging(false)
+    setLocalReplaceExisting(false)
+    setLocalReplaceVersionId('')
     isRunningRef.current = false
   }, [game?.record_id, game?.isWishlisted, game?.isWishlistEntry])
 
@@ -290,6 +305,81 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     await window.electronAPI.openGameProperties(game.record_id)
   }
   const openWebsite = async () => { if (game.siteUrl) await window.electronAPI.openExternalUrl(game.siteUrl) }
+
+  const chooseDefaultReplaceVersionId = (nextVersion = localImportVersion) => {
+    const versions = game.versions || []
+    if (versions.length === 0) return ''
+    const normalized = String(nextVersion || '').trim().toLowerCase()
+    const matching = versions.find((version) => String(version.version || '').trim().toLowerCase() === normalized)
+    const current = selectedVersion
+      ? versions.find((version) => version.version_id === selectedVersion.version_id || (version.version === selectedVersion.version && version.game_path === selectedVersion.game_path))
+      : null
+    return String((matching || current || versions[0])?.version_id || '')
+  }
+
+  const chooseLocalImportSource = async () => {
+    if (!canManageLocalTitle || !window.electronAPI.selectCatalogImportSource) return
+    const selectedPath = await window.electronAPI.selectCatalogImportSource()
+    if (!selectedPath) return
+    const inferred = inferImportVersion(game, selectedPath)
+    setLocalImportPath(selectedPath)
+    setLocalImportVersion((current) => current || inferred)
+    if (localReplaceExisting && !localReplaceVersionId) setLocalReplaceVersionId(chooseDefaultReplaceVersionId(inferred))
+    setLocalImportError('')
+  }
+
+  const runLocalImport = async () => {
+    const sourcePath = localImportPath
+    const version = String(localImportVersion || inferImportVersion(game, sourcePath)).trim()
+    if (!sourcePath) {
+      setLocalImportError('Choose a game folder, archive, or executable first.')
+      return
+    }
+    if (!version) {
+      setLocalImportError('Version is required.')
+      return
+    }
+    if (localReplaceExisting && !localReplaceVersionId) {
+      setLocalImportError('Choose the version to replace.')
+      return
+    }
+    setLocalImportBusy(true)
+    setLocalImportError('')
+    setLocalImportStatus(localReplaceExisting ? 'Replacing version...' : 'Importing new version...')
+    try {
+      const result = await window.electronAPI.importLocalGameVersion?.({
+        recordId: game.record_id,
+        sourcePath,
+        version,
+        replaceExisting: localReplaceExisting,
+        replaceVersionId: localReplaceExisting ? localReplaceVersionId : null,
+      })
+      if (!result?.success) throw new Error(result?.error || 'Import failed')
+      setLocalImportPath('')
+      setLocalImportStatus(`${result.replaced ? 'Replaced' : 'Imported'} ${result.version || version}.`)
+      onRefresh?.(game.record_id)
+    } catch (err) {
+      setLocalImportStatus('')
+      setLocalImportError(err.message || String(err))
+    } finally {
+      setLocalImportBusy(false)
+    }
+  }
+
+  const handleLocalDrop = async (event) => {
+    event.preventDefault()
+    setLocalImportDragging(false)
+    const droppedPath = await getDroppedPath(event)
+    if (!droppedPath) {
+      setLocalImportError('Atlas could not read the dropped file path. Try using Import Files instead.')
+      return
+    }
+    const inferred = inferImportVersion(game, droppedPath)
+    setLocalImportPath(droppedPath)
+    setLocalImportVersion((current) => current || inferred)
+    if (localReplaceExisting && !localReplaceVersionId) setLocalReplaceVersionId(chooseDefaultReplaceVersionId(inferred))
+    setLocalImportError('')
+  }
 
   const chooseCatalogImportSource = async () => {
     if (!canManageWishlist || !window.electronAPI.selectCatalogImportSource) return
@@ -538,6 +628,93 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           )}
           {catalogImportStatus && <div style={{ color: '#86efac', fontSize: 12, marginTop: 8 }}>{catalogImportStatus}</div>}
           {catalogImportError && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 8 }}>{catalogImportError}</div>}
+        </section>
+      )}
+
+      {canManageLocalTitle && (
+        <section className="mx-6 mt-5 border border-border bg-secondary p-4">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+            <div>
+              <h2 className="text-lg font-semibold">Import Files for This Game</h2>
+              <p style={{ color: '#9ca3af', fontSize: 12 }}>
+                Drop a game folder, archive, or executable here to add files to this Library title.
+              </p>
+            </div>
+            <button
+              onClick={chooseLocalImportSource}
+              disabled={localImportBusy}
+              className="bg-primary border border-border px-3 py-2 hover:bg-selected disabled:opacity-60"
+            >
+              Import Files
+            </button>
+          </div>
+          <div
+            onDragOver={(event) => { event.preventDefault(); setLocalImportDragging(true) }}
+            onDragLeave={() => setLocalImportDragging(false)}
+            onDrop={handleLocalDrop}
+            className={`border border-dashed p-4 transition-colors ${localImportDragging ? 'border-accent bg-selected' : 'border-border bg-primary'}`}
+            style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 160px auto', gap: 10, alignItems: 'center' }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {localImportPath || 'No source selected'}
+              </div>
+              <div style={{ color: '#9ca3af', fontSize: 12 }}>
+                Accepted: folder, .zip, .7z, .rar, or launchable file.
+              </div>
+            </div>
+            <input
+              value={localImportVersion}
+              onChange={(event) => setLocalImportVersion(event.target.value)}
+              disabled={localImportBusy}
+              className="bg-secondary border border-border p-2"
+              placeholder="Version"
+            />
+            <button
+              onClick={runLocalImport}
+              disabled={localImportBusy || !localImportPath}
+              className="bg-accent px-4 py-2 hover:bg-accentHover disabled:opacity-60"
+            >
+              {localImportBusy ? 'Importing...' : 'Import'}
+            </button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={localReplaceExisting}
+                onChange={(event) => {
+                  const checked = event.target.checked
+                  setLocalReplaceExisting(checked)
+                  if (checked && !localReplaceVersionId) setLocalReplaceVersionId(chooseDefaultReplaceVersionId())
+                }}
+                disabled={localImportBusy || (game.versions || []).length === 0}
+              />
+              Replace existing version
+            </label>
+            {localReplaceExisting && (
+              <select
+                value={localReplaceVersionId}
+                onChange={(event) => setLocalReplaceVersionId(event.target.value)}
+                disabled={localImportBusy}
+                className="bg-primary border border-border p-2"
+                style={{ minWidth: 260 }}
+              >
+                {(game.versions || []).map((version) => (
+                  <option key={version.version_id || `${version.version}-${version.game_path}`} value={String(version.version_id || '')}>
+                    {version.version || 'Unknown version'} - {version.game_path || 'No path set'}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          {localReplaceExisting && (
+            <div style={{ color: '#9ca3af', fontSize: 12, marginTop: 6 }}>
+              Old files are not deleted automatically.
+            </div>
+          )}
+          {localImportStatus && <div style={{ color: '#86efac', fontSize: 12, marginTop: 8 }}>{localImportStatus}</div>}
+          {localImportError && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 8 }}>{localImportError}</div>}
         </section>
       )}
 

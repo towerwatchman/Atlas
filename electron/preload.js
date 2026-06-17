@@ -95,6 +95,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   selectCatalogImportSource: () =>
     ipcRenderer.invoke("select-catalog-import-source"),
   importCatalogEntry: (params) => ipcRenderer.invoke("import-catalog-entry", params),
+  importLocalGameVersion: (params) =>
+    ipcRenderer.invoke("import-local-game-version", params),
   getDroppedFilePath: (file) => {
     const webUtilsPath = webUtils?.getPathForFile?.(file) || "";
     const fallbackPath = file?.path || "";
