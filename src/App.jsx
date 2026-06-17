@@ -5,7 +5,6 @@ import TopNav from './components/ui/TopNav.jsx'
 import { atlasLogo } from './assets/icons/data.js'
 import GameBanner from './components/library/GameBanner.jsx'
 import SearchBox from './components/search/SearchBox.jsx'
-import SearchButton from './components/search/SearchButton.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
 import SavedFiltersPanel from './components/search/SavedFiltersPanel.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
@@ -201,7 +200,7 @@ const App = () => {
         : 'Games'
 
   const { isMaximized, version, handleWindowStateChanged, loadVersion } = useWindowState()
-  const { layout } = useTheme()
+  const { layout, accentBarEnabled } = useTheme()
   const isTopNav = layout === 'topnav'
 
   const {
@@ -551,6 +550,13 @@ const App = () => {
   // ── Actions ────────────────────────────────────────────────────────────────
   const addGame = () => window.electronAPI.openImporter()
 
+  // Stub — no help destination wired up yet (no docs site / in-app help
+  // content exists today). See navItems.js's Help item for more context;
+  // only this handler needs to change once a real destination is decided.
+  const openHelp = () => {
+    console.log('Help clicked (not yet implemented)')
+  }
+
   const cancelImport = async () => {
     try {
       setImportProgress((prev) => ({
@@ -781,7 +787,12 @@ const App = () => {
           />
         </div>
         <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)]">
-          {!isTopNav && (
+          {/* Accent bar: the notched strip tucked behind the logo block.
+              Shown in both layouts as long as the active theme's
+              nav.accentBarEnabled hasn't been turned off (see
+              ThemeProvider.jsx / Appearance.jsx) — previously this was
+              hardcoded to sidebar-only. */}
+          {accentBarEnabled && (
             <>
               <div className="absolute top-0 left-[50px] right-[110px] h-[10px] bg-accentBar"></div>
               <div className="absolute top-0 left-[40px] w-[10px] h-[10px] bg-accentBar" style={{ clipPath: 'polygon(0% 0%, 100% 0%, 100% 100%)' }}></div>
@@ -789,26 +800,64 @@ const App = () => {
             </>
           )}
           <div className="w-full flex h-[70px] items-center">
-            <div className="flex items-center ml-5">
-              <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag" onClick={goHome} title="Back to Library">
-                {viewTitle}
+            {!isTopNav && (
+              <div className="flex items-center ml-5">
+                <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag" onClick={goHome} title="Back to Library">
+                  {viewTitle}
+                </div>
               </div>
-            </div>
+            )}
             {isTopNav ? (
               <>
-                <div className="ml-2">
+                {/* mt-[14px] nudges this whole row down from dead-center
+                    (the parent row is vertically centered across the full
+                    70px header) so it visually clears the min/max/close
+                    row, which sits near the very top of the header. Both
+                    the left and right TopNav groups share this same
+                    mt-[14px]/flex row so they stay vertically aligned with
+                    each other — see the absolutely positioned
+                    window-controls block below for min/max/close. */}
+                <div className="ml-5 mt-[14px]">
                   <TopNav
+                    group="left"
                     onToggleGameList={toggleGameList}
                     onCheckDbUpdates={runDbUpdateCheck}
                     onGoHome={goHome}
                     onBrowseCatalog={browseCatalog}
                     onOpenWishlist={openWishlist}
+                    onToggleSearchSidebar={toggleSearchSidebar}
+                    onOpenHelp={openHelp}
                     showGameList={showLibrarySidebar}
                     libraryMode={libraryMode}
                   />
                 </div>
                 <div className="flex-1" />
-                <SearchButton onToggleSidebar={toggleSearchSidebar} />
+                {/* Shifted in from the right edge so it doesn't sit flush
+                    against the corner. Version text now lives in this same
+                    flex row, right after the icon group, so the icons are
+                    guaranteed to sit to its left with no overlap (rather
+                    than two independently-positioned absolute blocks that
+                    could collide). forceIconsOnly keeps this group
+                    icon-only regardless of the active theme's
+                    navDisplayMode, per the current request — Filters/Help
+                    etc. on the left can still show text if the theme says
+                    so. */}
+                <div className="mt-[14px] mr-[16px] flex items-center gap-3">
+                  <TopNav
+                    group="right"
+                    forceIconsOnly
+                    onToggleGameList={toggleGameList}
+                    onCheckDbUpdates={runDbUpdateCheck}
+                    onGoHome={goHome}
+                    onBrowseCatalog={browseCatalog}
+                    onOpenWishlist={openWishlist}
+                    onToggleSearchSidebar={toggleSearchSidebar}
+                    onOpenHelp={openHelp}
+                    showGameList={showLibrarySidebar}
+                    libraryMode={libraryMode}
+                  />
+                  <span className="text-text text-xs whitespace-nowrap">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
+                </div>
               </>
             ) : (
               <div className="flex justify-center w-full">
@@ -816,7 +865,7 @@ const App = () => {
               </div>
             )}
           </div>
-          <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
+          <div className="flex absolute top-1 right-2 h-[28px] -webkit-app-region-no-drag">
             <button onClick={() => window.electronAPI.minimizeWindow()} className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200">
               <i className="fas fa-minus text-text fa-sm"></i>
             </button>
@@ -827,6 +876,9 @@ const App = () => {
               <i className="fas fa-times text-text fa-sm"></i>
             </button>
           </div>
+          {/* Sidebar-mode version readout — topnav mode's version text now
+              lives inline next to the right TopNav group above instead, so
+              it isn't duplicated here. */}
           {!isTopNav && (
             <div className="absolute mt-10 top-0 right-0 flex h-[10px]">
               <span className="text-text text-xs mr-4">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
@@ -844,6 +896,8 @@ const App = () => {
             onGoHome={goHome}
             onBrowseCatalog={browseCatalog}
             onOpenWishlist={openWishlist}
+            onToggleSearchSidebar={toggleSearchSidebar}
+            onOpenHelp={openHelp}
             showGameList={showLibrarySidebar}
             libraryMode={libraryMode}
           />

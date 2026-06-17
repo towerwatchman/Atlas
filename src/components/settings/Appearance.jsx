@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
-import { LAYOUT_OPTIONS, GRADIENT_ELIGIBLE_KEYS, resolveColorValue } from '../../theme/themes.js'
+import { LAYOUT_OPTIONS, NAV_DISPLAY_MODE_OPTIONS, GRADIENT_ELIGIBLE_KEYS, resolveColorValue } from '../../theme/themes.js'
 
 // A handful of each theme's colors, shown as small swatches on its picker
 // card so people can tell themes apart at a glance rather than reading
@@ -15,6 +15,18 @@ const layoutLabels = {
 const layoutDescriptions = {
   sidebar: 'Navigation icons run down the left edge of the window.',
   topnav: 'Navigation sits in a bar across the top of the window.',
+}
+
+const navDisplayLabels = {
+  icons: 'Icons Only',
+  iconsAndText: 'Icons + Text',
+  text: 'Text Only',
+}
+
+const navDisplayDescriptions = {
+  icons: 'Nav buttons show only their icon.',
+  iconsAndText: 'Nav buttons show both an icon and a label.',
+  text: 'Nav buttons show only their text label.',
 }
 
 // Turns a theme color value (flat hex OR a gradient object, see
@@ -60,7 +72,7 @@ const ThemeSwatchCard = ({ theme, isActive, onSelect }) => (
 )
 
 const Appearance = () => {
-  const { theme, layout, setTheme, setLayout, availableThemes } = useTheme()
+  const { theme, layout, navDisplayMode, accentBarEnabled, setTheme, setLayout, setNavDisplayMode, setAccentBarEnabled, availableThemes } = useTheme()
 
   // ── Banner template + XAML editor — unrelated to the theme engine above.
   // These are a separate, pre-existing feature (per-game banner card
@@ -143,6 +155,48 @@ const Appearance = () => {
       </div>
       <p className="text-xs opacity-50 mb-2">
         Works with any theme — pick whichever layout you prefer independently of theme.
+      </p>
+      <div className="border-t border-text opacity-25 my-2"></div>
+
+      {/* ── Navigation display (icons/text) ─────────────────────────── */}
+      <div className="mb-2">
+        <label className="block mb-3">Navigation Display</label>
+        <div className="flex gap-3">
+          {NAV_DISPLAY_MODE_OPTIONS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setNavDisplayMode(option)}
+              className={`flex-1 text-left rounded-theme border-2 p-3 transition-colors ${
+                navDisplayMode === option ? 'border-accent bg-selected' : 'border-border bg-secondary hover:border-muted'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-semibold">{navDisplayLabels[option]}</span>
+                {navDisplayMode === option && <span className="text-xs text-accent font-medium">Active</span>}
+              </div>
+              <p className="text-xs opacity-60">{navDisplayDescriptions[option]}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="text-xs opacity-50 mb-2">
+        Applies to both Sidebar and Top Bar navigation, independently of theme or layout.
+      </p>
+      <div className="border-t border-text opacity-25 my-2"></div>
+
+      {/* ── Accent bar (header notch strip) ─────────────────────────── */}
+      <div className="flex items-center mb-2">
+        <label className="flex-1">Show Accent Bar</label>
+        <input
+          type="checkbox"
+          className="mr-5"
+          checked={accentBarEnabled}
+          onChange={(e) => setAccentBarEnabled(e.target.checked)}
+        />
+      </div>
+      <p className="text-xs opacity-50 mb-2">
+        Toggles the decorative accent-colored strip behind the logo at the top of the window.
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
 

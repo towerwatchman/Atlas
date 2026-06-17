@@ -39,6 +39,12 @@ const defaultConfig = {
     // layout is independent of theme — 'sidebar' or 'topnav' — see
     // LAYOUT_OPTIONS in src/theme/themes.js.
     layout: 'sidebar',
+    // Nav button presentation ('icons' | 'iconsAndText' | 'text') and
+    // whether the header's accent-bar notch strip is shown — independent
+    // of theme/layout, same pattern as layout above. See
+    // NAV_DISPLAY_MODE_OPTIONS / DEFAULT_NAV in src/theme/themes.js.
+    navDisplayMode: 'icons',
+    accentBarEnabled: true,
     // Reserved for a future custom theme editor: a JSON-stringified theme
     // object (same shape as the built-ins) the user has authored themselves.
     // Empty string means "no custom theme saved".

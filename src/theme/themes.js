@@ -39,10 +39,12 @@
  *           no CSS background-image slot for it to paint into.
  * }
  *
- * Note: nav position (sidebar vs. topnav) is intentionally NOT part of a
- * theme. It's a separate, independent setting (Appearance.layout in
- * config.ini) so any theme can be combined with either nav position. See
- * LAYOUT_OPTIONS / DEFAULT_LAYOUT below.
+ * Note: a theme's `nav` block (layout, displayMode, accentBarEnabled, glow)
+ * is a SUGGESTED default, applied when that theme is selected — but the
+ * actually-active values still live independently in Appearance.layout /
+ * Appearance.navDisplayMode / Appearance.accentBarEnabled in config.ini,
+ * exactly like radius/font, so they can still be changed afterward without
+ * switching themes. See LAYOUT_OPTIONS / DEFAULT_NAV / normalizeNav below.
  *
  * IMPORTANT: keep this object's `colors` keys in sync with the --color-*
  * variables declared in src/assets/css/main.css. THEME_COLOR_KEYS below is
@@ -155,11 +157,75 @@ export const resolveColorValue = (key, value) => {
 export const RADIUS_OPTIONS = ['sm', 'md', 'lg', 'pill']
 
 /**
- * Nav position is independent of theme — any theme can be paired with
- * either layout. Stored as Appearance.layout in config.ini.
+ * Nav position is independent of theme STATE (Appearance.layout in
+ * config.ini is still the durable source of truth for what's currently
+ * active), but each theme JSON file may specify its own preferred nav
+ * settings under a `nav` object — see DEFAULT_NAV / NAV_DISPLAY_MODE_OPTIONS
+ * below. Picking a theme in the Appearance picker re-applies that theme's
+ * `nav` block (layout + displayMode + accentBarEnabled + glow), overwriting
+ * whatever was set before — see ThemeProvider.jsx's setTheme/persist. This
+ * is intentional: a theme like XLibrary is designed around a specific nav
+ * arrangement (topnav, icons+text, no accent bar), and switching to it
+ * should look the way its author intended without an extra manual step.
  */
 export const LAYOUT_OPTIONS = ['sidebar', 'topnav']
 export const DEFAULT_LAYOUT = 'sidebar'
+
+/**
+ * How nav buttons render their label: icon only, icon + text side by side,
+ * or text only. Applies identically to both Sidebar.jsx (vertical rail) and
+ * TopNav.jsx (horizontal bar) — see renderNavLabel-style logic in each.
+ */
+export const NAV_DISPLAY_MODE_OPTIONS = ['icons', 'iconsAndText', 'text']
+export const DEFAULT_NAV_DISPLAY_MODE = 'icons'
+
+export const normalizeNavDisplayMode = (mode) =>
+  NAV_DISPLAY_MODE_OPTIONS.includes(mode) ? mode : DEFAULT_NAV_DISPLAY_MODE
+
+/**
+ * A theme's `nav` block: its preferred layout + nav button presentation +
+ * the optional glow effect applied only to the ACTIVE/selected button in
+ * TopNav.jsx's topnav bar (never Sidebar.jsx's vertical rail, and never
+ * an unselected button) — see GlowSpec below and applyTheme.js / main.css
+ * (.nav-glow) / TopNav.jsx for where it's actually painted.
+ *
+ * GlowSpec shape: { enabled: bool, color: hex string, offsetX: number,
+ * offsetY: number, intensity: number (blur radius in px, roughly 0-40) }.
+ * offsetX/offsetY let the glow be asymmetric (e.g. a glow that leans
+ * slightly downward); 0/0 is a centered, even glow — the common case.
+ */
+export const DEFAULT_GLOW = {
+  enabled: false,
+  color: '#2C8EA9',
+  offsetX: 0,
+  offsetY: 0,
+  intensity: 12,
+}
+
+export const DEFAULT_NAV = {
+  layout: DEFAULT_LAYOUT,
+  displayMode: DEFAULT_NAV_DISPLAY_MODE,
+  accentBarEnabled: true,
+  glow: { ...DEFAULT_GLOW },
+}
+
+/** Fills in any missing nav sub-fields (including nested glow fields) from
+ * DEFAULT_NAV, the same way normalizeTheme() does for the rest of a theme.
+ * Used wherever an external/untrusted theme's `nav` block is read. */
+export const normalizeNav = (nav) => {
+  const safeNav = nav && typeof nav === 'object' ? nav : {}
+  return {
+    ...DEFAULT_NAV,
+    ...safeNav,
+    layout: LAYOUT_OPTIONS.includes(safeNav.layout) ? safeNav.layout : DEFAULT_NAV.layout,
+    displayMode: normalizeNavDisplayMode(safeNav.displayMode),
+    accentBarEnabled: safeNav.accentBarEnabled !== false,
+    glow: {
+      ...DEFAULT_GLOW,
+      ...(safeNav.glow && typeof safeNav.glow === 'object' ? safeNav.glow : {}),
+    },
+  }
+}
 
 /**
  * --nav-size is the horizontal space reserved on the left for the nav
@@ -179,6 +245,7 @@ export const DEFAULT_THEME = {
   name: 'Default',
   radius: 'sm',
   font: '"Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif',
+  nav: { ...DEFAULT_NAV },
   colors: {
     canvas:         '#000000',
     shadow:         '#000000',
@@ -234,6 +301,7 @@ export const normalizeTheme = (theme) => {
   return {
     ...DEFAULT_THEME,
     ...theme,
+    nav: normalizeNav(theme.nav),
     colors: {
       ...DEFAULT_THEME.colors,
       ...(theme.colors || {}),

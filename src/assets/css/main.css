@@ -81,6 +81,11 @@
   /* Layout */
   --nav-size: 60px; /* sidebar width in 'sidebar' layout, topnav height in 'topnav' layout */
 
+  /* Nav button glow (Sidebar.jsx / TopNav.jsx only) — box-shadow value,
+     'none' by default. Set by applyTheme.js from the active theme's
+     nav.glow block. */
+  --nav-glow: none;
+
   /* Scrollbar (kept in sync with --color-border / --color-primary / --color-accent
      by default; themes may override these three independently if a theme
      wants a different scrollbar look than its main surfaces). */
@@ -155,6 +160,16 @@
 }
 .-webkit-app-region-no-drag {
   -webkit-app-region: no-drag;
+}
+
+/* Applied only to the active/selected button in TopNav.jsx (topnav layout
+   only — never in Sidebar.jsx's vertical rail), and only while that button
+   is active, not at all times. See DEFAULT_GLOW / theme.nav.glow in
+   themes.js. --nav-glow is 'none' unless the active theme has
+   nav.glow.enabled, so this is always safe to apply — it's a visual no-op
+   on any theme that doesn't opt in. */
+.nav-glow {
+  box-shadow: var(--nav-glow);
 }
 
 /*

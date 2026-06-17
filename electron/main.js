@@ -241,6 +241,15 @@ const defaultConfig = {
   Appearance: {
     themeId: 'default',
     layout: 'sidebar',
+    // Nav button presentation ('icons' | 'iconsAndText' | 'text') and
+    // whether the header's accent-bar notch strip is shown — both
+    // independent of theme/layout, same pattern as layout above. See
+    // NAV_DISPLAY_MODE_OPTIONS / DEFAULT_NAV in src/theme/themes.js.
+    // Falls back to the active theme's own nav defaults whenever this is
+    // unset (fresh install, or before a theme has ever been explicitly
+    // picked) — see ThemeProvider.jsx's parseAppearance.
+    navDisplayMode: 'icons',
+    accentBarEnabled: true,
     customTheme: '',
   },
   WindowBounds: {},

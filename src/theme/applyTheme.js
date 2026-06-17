@@ -6,7 +6,11 @@
  * process (see useTheme.js), independent of any component's render cycle.
  */
 
-import { THEME_COLOR_KEYS, GRADIENT_ELIGIBLE_KEYS, NAV_SIZES, DEFAULT_THEME, getThemeById, normalizeTheme, normalizeLayout, resolveColorValue } from './themes.js'
+import {
+  THEME_COLOR_KEYS, GRADIENT_ELIGIBLE_KEYS, NAV_SIZES, DEFAULT_THEME,
+  getThemeById, normalizeTheme, normalizeLayout, normalizeNavDisplayMode,
+  resolveColorValue,
+} from './themes.js'
 
 // camelCase color key -> kebab-case CSS variable name, e.g. 'dangerHover' -> '--color-danger-hover'
 const cssVarNameForColorKey = (key) =>
@@ -14,11 +18,23 @@ const cssVarNameForColorKey = (key) =>
 
 /**
  * Writes every design-token CSS variable onto :root for the given theme +
- * layout. Safe to call repeatedly (e.g. on every appearance-changed event).
+ * layout + nav-display-mode + accent-bar-enabled. Safe to call repeatedly
+ * (e.g. on every appearance-changed event).
+ *
+ * navOverrides lets the caller supply the actually-active
+ * navDisplayMode/accentBarEnabled (which live independently in
+ * Appearance.* once set — see ThemeProvider.jsx's parseAppearance) rather
+ * than always falling back to the theme's own nav defaults. Omitted
+ * fields fall back to safeTheme.nav's value.
  */
-export function applyTheme(theme, layout) {
+export function applyTheme(theme, layout, navOverrides = {}) {
   const safeTheme = normalizeTheme(theme)
-  const safeLayout = normalizeLayout(layout)
+  const safeLayout = normalizeLayout(layout !== undefined && layout !== '' ? layout : safeTheme.nav.layout)
+  const safeNavDisplayMode = normalizeNavDisplayMode(
+    navOverrides.navDisplayMode !== undefined ? navOverrides.navDisplayMode : safeTheme.nav.displayMode,
+  )
+  const safeAccentBarEnabled =
+    navOverrides.accentBarEnabled !== undefined ? navOverrides.accentBarEnabled !== false : safeTheme.nav.accentBarEnabled
   const root = document.documentElement.style
 
   for (const key of THEME_COLOR_KEYS) {
@@ -33,11 +49,24 @@ export function applyTheme(theme, layout) {
   root.setProperty('--font-sans', safeTheme.font)
   root.setProperty('--nav-size', NAV_SIZES[safeLayout])
 
-  // Exposed as a data attribute (rather than only a CSS variable) so
+  // Nav button glow — only ever painted on TopNav.jsx's active button (see
+  // DEFAULT_GLOW in themes.js). Always set --nav-glow (even to 'none') so
+  // a theme that disables glow cleanly removes any previous theme's glow
+  // rather than leaving it on. Order matches CSS box-shadow: offsetX
+  // offsetY blur color.
+  const glow = safeTheme.nav.glow
+  root.setProperty(
+    '--nav-glow',
+    glow.enabled ? `${glow.offsetX}px ${glow.offsetY}px ${glow.intensity}px ${glow.color}` : 'none',
+  )
+
+  // Exposed as data attributes (rather than only CSS variables) so
   // layout-branching components (Sidebar vs. TopNav) and plain CSS alike
-  // can key off it without reaching into JS state.
+  // can key off them without reaching into JS state.
   document.documentElement.setAttribute('data-layout', safeLayout)
   document.documentElement.setAttribute('data-theme', safeTheme.id)
+  document.documentElement.setAttribute('data-nav-display', safeNavDisplayMode)
+  document.documentElement.setAttribute('data-accent-bar', safeAccentBarEnabled ? 'on' : 'off')
 }
 
 /**
@@ -70,7 +99,13 @@ export async function applyThemeOnLoad() {
       : null
     const themeList = [DEFAULT_THEME, ...(Array.isArray(externalThemes) ? externalThemes : [])]
     const theme = customTheme || getThemeById(appearance.themeId, themeList)
-    applyTheme(theme, appearance.layout)
+    applyTheme(theme, appearance.layout, {
+      navDisplayMode: appearance.navDisplayMode,
+      accentBarEnabled:
+        appearance.accentBarEnabled !== undefined && appearance.accentBarEnabled !== ''
+          ? appearance.accentBarEnabled !== false && appearance.accentBarEnabled !== 'false'
+          : undefined,
+    })
   } catch (err) {
     console.error('Failed to apply saved theme on load:', err)
     applyTheme(DEFAULT_THEME, 'sidebar')

@@ -5,16 +5,31 @@
 // only needs to happen once, instead of being kept in sync across two
 // components that render this list in different directions.
 //
-// onToggleGameList / onCheckDbUpdates / onBrowseCatalog / onOpenWishlist are passed in by
-// the caller (App.jsx, same as before) rather than baked in here, since
-// they close over App.jsx's own state.
-export function getNavItems({ onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist }) {
+// onToggleGameList / onCheckDbUpdates / onBrowseCatalog / onOpenWishlist /
+// onToggleSearchSidebar / onOpenHelp are passed in by the caller (App.jsx,
+// same as before) rather than baked in here, since they close over
+// App.jsx's own state.
+export function getNavItems({
+  onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
+  onToggleSearchSidebar, onOpenHelp,
+}) {
   return [
     {
-      name: 'Home',
-      icon: 'home.svg',
+      // Was "Home" — renamed to "Library" everywhere (Sidebar's icon rail
+      // and TopNav's left-hand group both use this same entry) since it's
+      // the button that opens/returns to the game library, not literally a
+      // "home" screen. Icon swapped from a house to a books/library glyph
+      // to match.
+      name: 'Library',
+      icon: 'library.svg',
       path: [
-        '<path d="M12 2 A 1 1 0 0 0 11.289062 2.296875L1.203125 11.097656 A 0.5 0.5 0 0 0 1 11.5 A 0.5 0.5 0 0 0 1.5 12L4 12L4 20C4 20.552 4.448 21 5 21L9 21C9.552 21 10 20.552 10 20L10 14L14 14L14 20C14 20.552 14.448 21 15 21L19 21C19.552 21 20 20.552 20 20L20 12L22.5 12 A 0.5 0.5 0 0 0 23 11.5 A 0.5 0.5 0 0 0 22.796875 11.097656L12.716797 2.3027344 A 1 1 0 0 0 12.710938 2.296875 A 1 1 0 0 0 12 2 z"/>',
+        // Three upright books side-by-side (simple "library" glyph: a row
+        // of vertical spines of slightly different widths/heights, plus a
+        // horizontal shelf/base line underneath).
+        '<path d="M3 4C3 3.447715 3.447715 3 4 3H6C6.552285 3 7 3.447715 7 4V19C7 19.552285 6.552285 20 6 20H4C3.447715 20 3 19.552285 3 19V4Z"/>',
+        '<path d="M9.5 5C9.5 4.447715 9.947715 4 10.5 4H12.5C13.052285 4 13.5 4.447715 13.5 5V19C13.5 19.552285 13.052285 20 12.5 20H10.5C9.947715 20 9.5 19.552285 9.5 19V5Z"/>',
+        '<path d="M16.182 4.115C16.314 3.581 16.854 3.252 17.387 3.385L19.327 3.866C19.860 3.998 20.189 4.538 20.057 5.072L16.318 19.885C16.186 20.419 15.646 20.748 15.113 20.615L13.173 20.134C12.640 20.002 12.311 19.462 12.443 18.928L16.182 4.115Z"/>',
+        '<path d="M2 20.5C2 19.947715 2.447715 19.5 3 19.5H21C21.552285 19.5 22 19.947715 22 20.5C22 21.052285 21.552285 21.5 21 21.5H3C2.447715 21.5 2 21.052285 2 20.5Z"/>',
       ],
       viewBox: '0 0 24 22',
     },
@@ -66,6 +81,41 @@ export function getNavItems({ onToggleGameList, onCheckDbUpdates, onBrowseCatalo
       viewBox: '0 0 24 24',
       onClick: () => {
         if (onCheckDbUpdates) onCheckDbUpdates()
+      },
+    },
+    {
+      // Opens/closes the SearchSidebar (filter panel). Lives as a proper
+      // nav item now (rather than only the separate floating SearchButton
+      // used in topnav mode) so it can take a fixed position in the
+      // Library/Browse/Add/Settings/Filters ordering on the left side of
+      // the top bar. TopNav still renders SearchButton too today for the
+      // magnifying-glass search field trigger — see TopNav.jsx for how the
+      // two relate.
+      name: 'Filters',
+      path: [
+        '<path d="M3 4C3 3.447715 3.447715 3 4 3H20C20.552285 3 21 3.447715 21 4V5.585C21 5.850715 20.894643 6.105357 20.707107 6.292893L14.292893 12.707107C14.105357 12.894643 14 13.149285 14 13.415V18L10 20V13.415C10 13.149285 9.894643 12.894643 9.707107 12.707107L3.292893 6.292893C3.105357 6.105357 3 5.850715 3 5.585V4Z"/>',
+      ],
+      viewBox: '0 0 24 24',
+      onClick: () => {
+        if (onToggleSearchSidebar) onToggleSearchSidebar()
+      },
+    },
+    {
+      // Stub for now — no help destination wired up yet (no docs site /
+      // in-app help content exists today). Keeping this as a real nav item
+      // with a no-op-ish default click means the rest of the UI (ordering,
+      // icon-only rendering on the right side of TopNav, etc.) is already
+      // correct once a real destination (e.g. open Discord/GitHub/docs
+      // link) is decided later — only this one onClick will need to change.
+      name: 'Help',
+      path: [
+        '<path d="M12 2C6.477 2 2 6.477 2 12C2 17.523 6.477 22 12 22C17.523 22 22 17.523 22 12C22 6.477 17.523 2 12 2Z M 12 4C16.418 4 20 7.582 20 12C20 16.418 16.418 20 12 20C7.582 20 4 16.418 4 12C4 7.582 7.582 4 12 4Z"/>',
+        '<path d="M12 7C10.343 7 9 8.343 9 10C9 10.552 9.447 11 10 11C10.553 11 11 10.552 11 10C11 9.448 11.448 9 12 9C12.552 9 13 9.448 13 10C13 10.395 12.863 10.591 12.469 10.93C12.281 11.090 12.060 11.260 11.832 11.479C11.314 11.973 11 12.611 11 13.5C11 14.052 11.447 14.5 12 14.5C12.553 14.5 13 14.052 13 13.5C13 13.166 13.097 13.018 13.207 12.914C13.36 12.769 13.555 12.622 13.781 12.422C14.227 12.034 15 11.336 15 10C15 8.343 13.657 7 12 7Z"/>',
+        '<path d="M12 16C11.448 16 11 16.448 11 17C11 17.552 11.448 18 12 18C12.552 18 13 17.552 13 17C13 16.448 12.552 16 12 16Z"/>',
+      ],
+      viewBox: '0 0 24 24',
+      onClick: () => {
+        if (onOpenHelp) onOpenHelp()
       },
     },
     {

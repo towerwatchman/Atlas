@@ -24,6 +24,23 @@ const SEED_THEMES = [
       name: 'XLibrary',
       radius: 'lg',
       font: '"Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif',
+      // Requested defaults for this theme: nav buttons glow (accent-colored,
+      // matching the reference screenshot), nav sits at the top (topnav
+      // layout) with icon+text labels, and the header's accent-bar notch
+      // strip is turned off. Selecting this theme in Appearance adopts all
+      // of these — see ThemeProvider.jsx's setTheme.
+      nav: {
+        layout: 'topnav',
+        displayMode: 'iconsAndText',
+        accentBarEnabled: false,
+        glow: {
+          enabled: true,
+          color: '#E21D48',
+          offsetX: 0,
+          offsetY: 0,
+          intensity: 14,
+        },
+      },
       colors: {
         canvas: '#0B0A0F',
         shadow: '#000000',
