@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { formatPercent } from '../../utils/formatPercent.js'
 
 const visibleSidePanelModes = new Set(['games', 'savedFilters'])
 
@@ -136,7 +137,7 @@ const Interface = () => {
       return `Atlas ${updateVersion || "update"} is available.`;
     }
     if (updateStatus === "downloading") {
-      return `Downloading update: ${updatePercent.toFixed(0)}%`;
+      return `Downloading update: ${formatPercent(updatePercent)}`;
     }
     if (updateStatus === "downloaded") {
       return `Atlas ${updateVersion || "update"} is ready to install.`;

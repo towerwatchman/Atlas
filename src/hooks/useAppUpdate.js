@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { formatPercent } from '../utils/formatPercent.js'
 
 export function useAppUpdate(setDbUpdateStatus) {
   const [appUpdateNotice, setAppUpdateNotice] = useState({
@@ -22,9 +23,10 @@ export function useAppUpdate(setDbUpdateStatus) {
         })
       } else if (status.status === 'downloading') {
         const percent = Number(status.percent || 0)
+        const displayPercent = formatPercent(percent)
         setAppUpdateActionBusy(true)
         setDbUpdateStatus({
-          text: `Downloading update: ${percent.toFixed(0)}%`,
+          text: `Downloading update: ${displayPercent}`,
           progress: percent,
           total: 100,
         })
@@ -32,8 +34,8 @@ export function useAppUpdate(setDbUpdateStatus) {
           ...notice,
           visible: true,
           status: 'downloading',
-          text: status.percent
-            ? `Downloading Atlas update: ${percent.toFixed(0)}%`
+          text: status.percent !== undefined && status.percent !== null
+            ? `Downloading Atlas update: ${displayPercent}`
             : 'Downloading Atlas update...',
         }))
       } else if (status.status === 'downloaded') {

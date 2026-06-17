@@ -9,6 +9,15 @@ let canceled = false;
 let lastPercent = -1;
 let lastActivityMessageAt = 0;
 
+function formatPercent(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return "0%";
+  const roundedValue = Math.ceil(Math.min(100, Math.max(0, numericValue)) * 10) / 10;
+  return Number.isInteger(roundedValue)
+    ? `${roundedValue}%`
+    : `${roundedValue.toFixed(1)}%`;
+}
+
 function postProgress(percent, text, phase = "extracting") {
   if (typeof percent === "number") {
     const nextPercent = Math.max(0, Math.min(99, Math.floor(percent)));
@@ -35,7 +44,7 @@ function parseSevenZipProgress(chunk) {
   if (matches.length > 0) {
     const percent = Number(matches[matches.length - 1][1]);
     if (Number.isFinite(percent)) {
-      postProgress(percent, `Extracting... ${Math.min(percent, 99)}%`);
+      postProgress(percent, `Extracting... ${formatPercent(Math.min(percent, 99))}`);
     }
     return;
   }
