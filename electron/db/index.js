@@ -292,6 +292,14 @@ const initializeDatabase = (dataDir) => {
         engine TEXT,
         status TEXT,
         latest_version TEXT,
+        category TEXT,
+        genre TEXT,
+        rating TEXT,
+        tags TEXT,
+        overview TEXT,
+        external_ids TEXT,
+        steam_url TEXT,
+        preview_urls TEXT,
         site_url TEXT,
         banner_url TEXT,
         flagged_at INTEGER NOT NULL,
@@ -300,6 +308,14 @@ const initializeDatabase = (dataDir) => {
     `);
     db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_flagged_at ON wishlist_entries(flagged_at);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_source ON wishlist_entries(source);`);
+    db.run(`ALTER TABLE wishlist_entries ADD COLUMN category TEXT;`, () => {});
+    db.run(`ALTER TABLE wishlist_entries ADD COLUMN genre TEXT;`, () => {});
+    db.run(`ALTER TABLE wishlist_entries ADD COLUMN rating TEXT;`, () => {});
+    db.run(`ALTER TABLE wishlist_entries ADD COLUMN tags TEXT;`, () => {});
+    db.run(`ALTER TABLE wishlist_entries ADD COLUMN overview TEXT;`, () => {});
+    db.run(`ALTER TABLE wishlist_entries ADD COLUMN external_ids TEXT;`, () => {});
+    db.run(`ALTER TABLE wishlist_entries ADD COLUMN steam_url TEXT;`, () => {});
+    db.run(`ALTER TABLE wishlist_entries ADD COLUMN preview_urls TEXT;`, () => {});
     db.run(`
       CREATE TABLE IF NOT EXISTS data_change
       (

@@ -11,6 +11,33 @@ import {
 } from './page/gameDetailUtils.js'
 import { buildExternalLinks } from './externalLinks.js'
 
+const isValidHttpUrl = (url) => /^https?:\/\//i.test(String(url || '').trim())
+
+const buildDetailExternalLinks = (game = {}) => {
+  const links = []
+  const siteUrl = String(game.siteUrl || game.site_url || '').trim()
+  if (isValidHttpUrl(siteUrl)) {
+    links.push({
+      key: 'f95_thread',
+      label: 'F95 Thread',
+      value: siteUrl,
+      url: siteUrl,
+      icon: 'fas fa-comments',
+    })
+  }
+  for (const link of buildExternalLinks(game.external_ids)) {
+    if (link.url && !isValidHttpUrl(link.url)) continue
+    if (link.url && links.some((existing) => existing.url === link.url)) continue
+    links.push(link)
+  }
+  return links
+}
+
+const splitPreviewUrls = (value) => {
+  if (Array.isArray(value)) return value.map((url) => String(url || '').trim()).filter(Boolean)
+  return String(value || '').split(',').map((url) => url.trim()).filter(Boolean)
+}
+
 const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [previews, setPreviews] = useState([])
   const [previewsLoading, setPreviewsLoading] = useState(false)
@@ -40,6 +67,11 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       setPreviewsLoading(true)
       try {
         if (game.isCatalogEntry === true) {
+          const snapshotPreviews = splitPreviewUrls(game.preview_urls || game.previewUrls)
+          if (snapshotPreviews.length > 0) {
+            setPreviews(filterOutBanner(snapshotPreviews, game.banner_url))
+            return
+          }
           const cacheKey = `${game.atlas_id || ''}:${game.f95_id || ''}`
           if (browsePreviewCacheRef.current.has(cacheKey)) {
             setPreviews(filterOutBanner(browsePreviewCacheRef.current.get(cacheKey), game.banner_url))
@@ -186,7 +218,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
 
   const localVersion = actionVersion?.version || selectedVersion?.version || game.versions?.[0]?.version || game.version || ''
 
-  const externalLinks = buildExternalLinks(game.external_ids)
+  const externalLinks = buildDetailExternalLinks(game)
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const launchSelectedGame = async () => {

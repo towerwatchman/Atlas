@@ -234,6 +234,10 @@ module.exports = function registerWindowsHandlers(ctx) {
   })
 
   ipcMain.handle('open-external-url', async (event, url) => {
-    await shell.openExternal(url)
+    const value = String(url || '').trim()
+    if (!/^https?:\/\//i.test(value)) {
+      throw new Error('External URL must start with http or https')
+    }
+    await shell.openExternal(value)
   })
 }
