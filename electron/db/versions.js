@@ -234,26 +234,68 @@ const upsertVersion = async (game, recordId) => {
 
 const updateVersion = (version, record_id) => {
   const previousVersion = version.previousVersion || version.version;
+  const versionId = Number(version.version_id || version.versionId || 0);
+  const nextVersionName = String(version.version || "").trim();
 
   console.log("updating version with id:", record_id);
   return new Promise((resolve, reject) => {
-    getDb().run(
-      `UPDATE versions SET version = ?, game_path = ?, exec_path = ?
-       WHERE record_id = ? AND version = ?`,
-      [
-        version.version,
+    if (!nextVersionName) {
+      reject(new Error("Version name is required"));
+      return;
+    }
+
+    const applyUpdate = () => {
+      const params = [
+        nextVersionName,
         version.game_path,
         version.exec_path,
         record_id,
-        previousVersion,
-      ],
-      (err) => {
-        if (err) {
-          console.error("Error updating version:", err);
-          reject(err);
-        } else {
-          resolve();
+      ];
+      const identityClause = versionId > 0 ? "rowid = ?" : "version = ?";
+      params.push(versionId > 0 ? versionId : previousVersion);
+
+      getDb().run(
+        `UPDATE versions SET version = ?, game_path = ?, exec_path = ?
+         WHERE record_id = ? AND ${identityClause}`,
+        params,
+        function (err) {
+          if (err) {
+            console.error("Error updating version:", err);
+            reject(err);
+            return;
+          }
+          if (this.changes === 0) {
+            reject(new Error("Version not found"));
+            return;
+          }
+          resolve({ success: true, changes: this.changes });
+        },
+      );
+    };
+
+    const conflictParams = [record_id, nextVersionName];
+    let conflictClause = "";
+    if (versionId > 0) {
+      conflictClause = " AND rowid != ?";
+      conflictParams.push(versionId);
+    } else if (previousVersion) {
+      conflictClause = " AND version != ?";
+      conflictParams.push(previousVersion);
+    }
+
+    getDb().get(
+      `SELECT rowid FROM versions WHERE record_id = ? AND version = ?${conflictClause} LIMIT 1`,
+      conflictParams,
+      (conflictErr, existing) => {
+        if (conflictErr) {
+          reject(conflictErr);
+          return;
         }
+        if (existing) {
+          reject(new Error("A version with this name already exists for this game."));
+          return;
+        }
+        applyUpdate();
       },
     );
   });
@@ -423,6 +465,7 @@ function mapVersionRow(row, forceInstalled = false, options = {}) {
   const isInstalled = forceInstalled || (hasGamePath && hasExecPath);
 
   return {
+    version_id: row.version_id ?? row.rowid,
     version: row.version,
     game_path: row.game_path,
     exec_path: row.exec_path,
@@ -451,6 +494,7 @@ const getVersionForRecord = (recordId, version) => {
 
     getDb().get(
       `SELECT
+         v.rowid AS version_id,
          v.version,
          v.game_path,
          v.exec_path,
@@ -484,7 +528,7 @@ const getVersionForRecord = (recordId, version) => {
 const getInstalledVersionsForRecord = (recordId) => {
   return new Promise((resolve, reject) => {
     getDb().all(
-      `SELECT version, game_path, exec_path, folder_size, date_added
+      `SELECT rowid AS version_id, version, game_path, exec_path, folder_size, date_added
        FROM versions
        WHERE record_id = ?
        ORDER BY COALESCE(date_added, 0) DESC, version DESC`,
@@ -598,7 +642,7 @@ ${bannerJoinClauses}
       }
       // Fetch versions separately
       getDb().all(
-        `SELECT version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added
+        `SELECT rowid AS version_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added
          FROM versions
          WHERE record_id = ?`,
         [recordId],
@@ -717,7 +761,7 @@ ${bannerJoinClauses}
 
     // Query to aggregate versions for each game
     const versionsQuery = `
-      SELECT record_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added
+      SELECT rowid AS version_id, record_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added
       FROM versions
     `;
 

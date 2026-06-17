@@ -8,16 +8,21 @@ export default function VersionsTab({
     <div className="flex h-full">
       <div className="w-40 bg-primary border-r border-border">
         <ul className="space-y-1">
-          {versions.map((version, index) => (
+          {versions.map((version, index) => {
+            const isSelected = selectedVersion?.version_id && version.version_id
+              ? selectedVersion.version_id === version.version_id
+              : selectedVersion?.version === version.version && selectedVersion?.game_path === version.game_path
+            return (
             <li
-              key={index}
+              key={version.version_id || `${version.version}|${version.game_path}|${index}`}
               onClick={() => onVersionSelect(version)}
-              className={`p-2 cursor-pointer ${selectedVersion?.version === version.version ? 'bg-selected' : 'hover:bg-button_hover'} ${version.isInstalled === false ? 'text-red-300' : ''}`}
+              className={`p-2 cursor-pointer ${isSelected ? 'bg-selected' : 'hover:bg-button_hover'} ${version.isInstalled === false ? 'text-red-300' : ''}`}
             >
               {version.version}
               {version.isInstalled === false && <span className="block text-xs">Missing</span>}
             </li>
-          ))}
+            )
+          })}
         </ul>
         <div className="flex flex-col space-y-2 mt-2 px-2">
           <button onClick={onAddVersion} className="w-full px-3 py-1 bg-tertiary hover:bg-button_hover rounded text-xs">Add</button>

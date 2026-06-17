@@ -247,7 +247,14 @@ function registerGamesHandlers(ctx) {
   })
 
   ipcMain.handle('update-version', async (event, version, record_id) => {
-    return await upsertVersion(version, record_id)
+    try {
+      const result = await updateVersion(version, record_id)
+      emitGameUpdated(record_id)
+      return { success: true, ...result }
+    } catch (err) {
+      console.error('update-version failed:', err)
+      return { success: false, error: err.message || 'Failed to update version' }
+    }
   })
 
   ipcMain.handle('recalculate-version-size', async (event, { recordId, version, gamePath }) => {

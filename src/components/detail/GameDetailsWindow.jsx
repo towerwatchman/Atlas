@@ -110,8 +110,18 @@ const GameDetailWindow = () => {
     setFormData(gameToFormData(updatedGame))
     const updatedVersions = updatedGame.versions || []
     setVersions(updatedVersions)
+    const preferredVersionId = preferredVersion && typeof preferredVersion === 'object'
+      ? preferredVersion.version_id
+      : null
+    const preferredVersionName = preferredVersion && typeof preferredVersion === 'object'
+      ? preferredVersion.version
+      : preferredVersion
     const versionToSelect =
-      updatedVersions.find((v) => v.version === preferredVersion) || updatedVersions[0]
+      updatedVersions.find((v) =>
+        preferredVersionId
+          ? v.version_id === preferredVersionId
+          : v.version === preferredVersionName
+      ) || updatedVersions[0]
     if (versionToSelect) handleVersionSelect(versionToSelect)
     else { setSelectedVersion(null); setVersionData(EMPTY_VERSION) }
   }
@@ -246,6 +256,7 @@ const GameDetailWindow = () => {
     }
     const nextVersion = {
       ...selectedVersion,
+      version_id: selectedVersion.version_id,
       previousVersion: selectedVersion.version,
       version: selectedVersion.version,
       game_path: Object.prototype.hasOwnProperty.call(changes, 'game_path')
@@ -255,9 +266,10 @@ const GameDetailWindow = () => {
         ? changes.exec_path
         : selectedVersion.exec_path,
     }
-    await window.electronAPI.updateVersion(nextVersion, game.record_id)
+    const result = await window.electronAPI.updateVersion(nextVersion, game.record_id)
+    if (result?.success === false) throw new Error(result.error || 'Failed to update version')
     const refreshedGame = await window.electronAPI.getGame(game.record_id)
-    if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion.version)
+    if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion)
   }
 
   const recalculateMissingVersionSizes = async (targetGame) => {
@@ -280,7 +292,7 @@ const GameDetailWindow = () => {
         })
       }
       const refreshedGame = await window.electronAPI.getGame(targetGame.record_id)
-      if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion?.version)
+      if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion)
     } catch (err) {
       console.error('Failed to recalculate version sizes:', err)
     }
@@ -331,7 +343,7 @@ const GameDetailWindow = () => {
         return
       }
       const refreshedGame = await window.electronAPI.getGame(game.record_id)
-      if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion.version)
+      if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion)
     } catch (err) {
       console.error('Failed to refresh version size:', err)
       setVersionData((current) => ({ ...current, version_size: 'Unable to calculate' }))
@@ -382,7 +394,7 @@ const GameDetailWindow = () => {
     const result = await window.electronAPI.deleteFolderRecursive({ recordId: game.record_id, folderPath: selectedVersion.game_path })
     if (!result.success) { alert('Failed to delete files: ' + (result.error || 'Unknown error')); return }
     const refreshedGame = await window.electronAPI.getGame(game.record_id)
-    if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion.version)
+    if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion)
     alert(`Files for version "${versionLabel}" deleted.`)
   }
 
@@ -417,15 +429,23 @@ const GameDetailWindow = () => {
       genre: formData.genre, voice: formData.voice, rating: formData.rating,
     }
     await window.electronAPI.updateGame(updatedGame)
-    const savedVersion = versionData.game_version
-    for (const version of versions) {
-      await window.electronAPI.updateVersion({
-        ...version,
-        previousVersion: version.version,
-        version: version.version === selectedVersion?.version ? versionData.game_version : version.version,
-        game_path: version.version === selectedVersion?.version ? versionData.game_path : version.game_path,
-        exec_path: version.version === selectedVersion?.version ? versionData.executable : version.exec_path,
+    const savedVersion = {
+      version_id: selectedVersion?.version_id,
+      version: versionData.game_version,
+    }
+    if (selectedVersion) {
+      const result = await window.electronAPI.updateVersion({
+        ...selectedVersion,
+        version_id: selectedVersion.version_id,
+        previousVersion: selectedVersion.version,
+        version: versionData.game_version,
+        game_path: versionData.game_path,
+        exec_path: versionData.executable,
       }, game.record_id)
+      if (result?.success === false) {
+        alert(result.error || 'Failed to update version')
+        return
+      }
     }
     const refreshedGame = await window.electronAPI.getGame(game.record_id)
     if (refreshedGame) refreshFromGame(refreshedGame, savedVersion)
@@ -443,7 +463,7 @@ const GameDetailWindow = () => {
     try {
       await window.electronAPI.addAtlasMapping(game.record_id, atlasId)
       const updatedGame = await window.electronAPI.getGame(game.record_id)
-      refreshFromGame(updatedGame, selectedVersion?.version)
+      refreshFromGame(updatedGame, selectedVersion)
       setBannerUrl(updatedGame.banner_url || '')
       window.electronAPI.getPreviews(updatedGame.record_id)
         .then((urls) => setPreviewUrls(urls || []))
