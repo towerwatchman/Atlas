@@ -585,6 +585,7 @@ async function startSteamScan(db, params, event) {
         atlasId: "",
         f95Id: "",
         steamId: appId,
+        steamUrl: `https://store.steampowered.com/app/${appId}/`,
         folderSize: steamGame.size,
         results: [
           { key: "match", value: "No match found - Added as Steam game" },

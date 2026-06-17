@@ -963,6 +963,7 @@ const hydrateImportMatch = async (game, selectedValue) => {
       ...updatedGame,
       engine: atlasData.engine || updatedGame.engine || "Unknown",
       f95Id: updatedGame.f95Id || atlasData.f95_id || "",
+      siteUrl: atlasData.siteUrl || atlasData.site_url || updatedGame.siteUrl || "",
       latestVersion: atlasData.latestVersion || "",
     };
   }
@@ -1148,7 +1149,8 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
         return await hydrateImportMatch({
           ...game,
           atlasId: String(data[0].atlas_id),
-          f95Id: data[0].f95_id || "",
+          f95Id: data[0].f95_id || game.f95Id || "",
+          siteUrl: data[0].siteUrl || data[0].site_url || game.siteUrl || "",
           title: data[0].title,
           creator: data[0].creator,
           engine: data[0].engine || game.engine || "Unknown",
@@ -1167,7 +1169,7 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
         return await hydrateImportMatch({
           ...game,
           atlasId: "",
-          f95Id: "",
+          f95Id: game.f95Id || "",
           results: [],
           resultSelectedValue: "",
           resultVisibility: "hidden",

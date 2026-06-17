@@ -1,5 +1,36 @@
 import { formatVersionDate } from '../../../utils/formatVersionDate.js'
 
+const isValidHttpUrl = (value) => {
+  try {
+    const url = new URL(String(value || '').trim())
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+const getCleanId = (value) => {
+  const id = String(value || '').trim()
+  return /^\d+$/.test(id) ? id : ''
+}
+
+const getSourceUrls = (game = {}) => {
+  const f95Id = getCleanId(game.f95Id || game.f95_id)
+  const steamId = getCleanId(game.steamId || game.steam_id || game.appid)
+  const f95Url = [game.siteUrl, game.site_url, game.f95Url]
+    .find(isValidHttpUrl) || (f95Id ? `https://f95zone.to/threads/${f95Id}/` : '')
+  const steamUrl = [game.steamUrl, game.storeUrl]
+    .find(isValidHttpUrl) || (steamId ? `https://store.steampowered.com/app/${steamId}/` : '')
+  const atlasUrl = [game.atlasUrl, game.sourceUrl]
+    .find(isValidHttpUrl) || ''
+
+  return {
+    f95: isValidHttpUrl(f95Url) ? f95Url : '',
+    steam: isValidHttpUrl(steamUrl) ? steamUrl : '',
+    atlas: isValidHttpUrl(atlasUrl) ? atlasUrl : '',
+  }
+}
+
 export default function ScanTable({
   sortedRows, isNewScanRow, sortConfig,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
@@ -25,6 +56,19 @@ export default function ScanTable({
     </th>
   )
 
+  const openSourceUrl = async (url) => {
+    if (!isValidHttpUrl(url)) return
+    try {
+      const result = await window.electronAPI.openExternalUrl(url)
+      if (result?.success === false) {
+        alert(`Failed to open URL: ${result.error || 'Unknown error'}`)
+      }
+    } catch (err) {
+      console.error('Failed to open source URL:', err)
+      alert(`Failed to open URL: ${err.message || 'Unknown error'}`)
+    }
+  }
+
   return (
     <table className="border-collapse border border-border" style={{ minWidth: '1380px' }}>
       <thead>
@@ -40,7 +84,7 @@ export default function ScanTable({
           {renderSortableHeader('databaseMatch', 'Possible Database Matches', 'min-w-[220px] !max-w-[220px]')}
           {renderSortableHeader('source', 'Source', 'min-w-[250px]')}
           {renderSortableHeader('status', 'Status', 'min-w-[150px]')}
-          <th className="border border-border p-1 min-w-[150px]">Actions</th>
+          <th className="border border-border p-1 min-w-[220px]">Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -57,6 +101,7 @@ export default function ScanTable({
             : rowStatus.type === 'blocked' ? 'text-yellow-200'
             : rowStatus.type === 'missingLaunchable' ? 'text-red-300'
             : 'text-green-300'
+          const sourceUrls = getSourceUrls(game)
 
           return (
             <tr key={getGameKey(game)} className="bg-primary">
@@ -115,9 +160,41 @@ export default function ScanTable({
                 {game.isArchive ? game.sourceFile || game.folder || 'Archive' : game.folder || 'Metadata only'}
               </td>
               <td className={`border border-border p-1 ${statusClass}`}>{statusText}</td>
-              <td className="border border-border p-1 min-w-[150px] flex space-x-2">
+              <td className="border border-border p-1 min-w-[220px]">
+                <div className="flex flex-wrap gap-2">
+                  {sourceUrls.f95 && (
+                    <button
+                      onClick={() => openSourceUrl(sourceUrls.f95)}
+                      title="Open F95 thread"
+                      className="bg-tertiary hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
+                      style={{ pointerEvents: 'auto' }}
+                    >
+                      F95
+                    </button>
+                  )}
+                  {sourceUrls.steam && (
+                    <button
+                      onClick={() => openSourceUrl(sourceUrls.steam)}
+                      title="Open Steam store page"
+                      className="bg-tertiary hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
+                      style={{ pointerEvents: 'auto' }}
+                    >
+                      Steam
+                    </button>
+                  )}
+                  {sourceUrls.atlas && (
+                    <button
+                      onClick={() => openSourceUrl(sourceUrls.atlas)}
+                      title="Open source page"
+                      className="bg-tertiary hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
+                      style={{ pointerEvents: 'auto' }}
+                    >
+                      Atlas
+                    </button>
+                  )}
                 <button onClick={() => onDeleteGame(getGameKey(game))} className="bg-danger hover:bg-dangerHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Delete</button>
                 <button onClick={() => window.electronAPI.openDirectory(game.folder || game.sourceFile)} className="bg-accent hover:bg-accentHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Open Folder</button>
+                </div>
               </td>
             </tr>
           )

@@ -117,7 +117,8 @@ const searchAtlas = async (title, creator) => {
       a.version as latestVersion,
       a.short_name,
       a.normalized_title,
-      f.f95_id
+      f.f95_id,
+      f.site_url as siteUrl
     FROM atlas_data a
     LEFT JOIN f95_zone_data f ON f.atlas_id = a.atlas_id
     WHERE
@@ -259,7 +260,8 @@ const getAtlasData = (atlasId) => {
         a.creator,
         a.engine,
         a.version as latestVersion,
-        f.f95_id
+        f.f95_id,
+        f.site_url as siteUrl
       FROM atlas_data a
       LEFT JOIN f95_zone_data f ON a.atlas_id = f.atlas_id
       WHERE a.atlas_id = ?`,
@@ -547,6 +549,7 @@ const searchAtlasByF95Id = (f95Id) => {
       `SELECT
         a.atlas_id,
         f.f95_id,
+        f.site_url as siteUrl,
         a.title,
         a.creator,
         a.engine,

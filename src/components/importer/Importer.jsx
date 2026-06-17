@@ -228,7 +228,13 @@ const Importer = () => {
       updatedGame = { ...updatedGame, atlasId: parts[0], f95Id: parts[1] || '', title: parts[2], creator: parts[3] }
       try {
         const atlasData = await window.electronAPI.getAtlasData(updatedGame.atlasId)
-        updatedGame = { ...updatedGame, engine: atlasData.engine || 'Unknown', f95Id: updatedGame.f95Id || atlasData.f95_id || '', latestVersion: atlasData.latestVersion || '' }
+        updatedGame = {
+          ...updatedGame,
+          engine: atlasData.engine || 'Unknown',
+          f95Id: updatedGame.f95Id || atlasData.f95_id || '',
+          siteUrl: atlasData.siteUrl || atlasData.site_url || updatedGame.siteUrl || '',
+          latestVersion: atlasData.latestVersion || '',
+        }
       } catch (err) { console.error('Failed to hydrate selected match:', err) }
     }
     return applyImportStatus(updatedGame)
@@ -450,13 +456,25 @@ const Importer = () => {
         data = f95IdStr ? await window.electronAPI.searchAtlasByF95Id(f95IdStr) : await window.electronAPI.searchAtlas(game.title, game.creator)
       } catch { data = [] }
       if (data.length === 1) {
-        game = await applyImportStatus({ ...game, atlasId: String(data[0].atlas_id), f95Id: data[0].f95_id || '', title: data[0].title, creator: data[0].creator, engine: data[0].engine || game.engine || 'Unknown', latestVersion: data[0].latestVersion || '', results: [{ key: 'match', value: 'Match Found' }], resultSelectedValue: 'match', resultVisibility: 'visible' })
+        game = await applyImportStatus({
+          ...game,
+          atlasId: String(data[0].atlas_id),
+          f95Id: data[0].f95_id || game.f95Id || '',
+          siteUrl: data[0].siteUrl || data[0].site_url || game.siteUrl || '',
+          title: data[0].title,
+          creator: data[0].creator,
+          engine: data[0].engine || game.engine || 'Unknown',
+          latestVersion: data[0].latestVersion || '',
+          results: [{ key: 'match', value: 'Match Found' }],
+          resultSelectedValue: 'match',
+          resultVisibility: 'visible',
+        })
       } else if (data.length > 1) {
         const results = data.map((d) => ({ key: String(d.atlas_id), value: `${d.atlas_id} | ${d.f95_id || ''} | ${d.title} | ${d.creator}` }))
         const valid = results.find((r) => r.key === game.resultSelectedValue)
         game = await chooseInstalledMatch({ ...game, resultSelectedValue: valid ? game.resultSelectedValue : results[0].key }, results)
       } else {
-        game = await applyImportStatus({ ...game, atlasId: '', f95Id: '', results: [], resultSelectedValue: '', resultVisibility: 'hidden' })
+        game = await applyImportStatus({ ...game, atlasId: '', f95Id: game.f95Id || '', results: [], resultSelectedValue: '', resultVisibility: 'hidden' })
       }
       updatedGames[i] = game
       setProgress((prev) => ({ ...prev, value: i + 1 }))

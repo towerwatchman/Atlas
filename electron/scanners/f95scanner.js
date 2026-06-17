@@ -646,6 +646,7 @@ async function findGame(
       version,
       latestVersion:
         data.length === 1 ? data[0].latestVersion || data[0].version || "" : "",
+      siteUrl: data.length === 1 ? data[0].siteUrl || data[0].site_url || "" : "",
       singleExecutable,
       executables: potentialExecutables.map((e) => ({ key: e, value: e })),
       selectedValue,
