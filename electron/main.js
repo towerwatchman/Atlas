@@ -92,6 +92,22 @@ let updateDownloaded = false
 let lastUpdateStatus = { status: 'idle' }
 let installAfterDownload = false
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) {
+  console.log('Failed to acquire single instance lock, quitting')
+  app.quit()
+} else {
+  console.log('Acquired single instance lock')
+  app.on('second-instance', () => {
+    console.log('Second instance attempted, focusing existing window')
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      focusWindow(mainWindow)
+    } else if (app.isReady()) {
+      createWindow()
+    }
+  })
+}
+
 // In dev, VITE_DEV_SERVER_URL is set by the dev script
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
 
@@ -385,7 +401,18 @@ function quitFromMainWindow() {
 
 // ── Window creation ─────────────────────────────────────────────────────────
 
+function focusWindow(win) {
+  if (!win || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  if (!win.isVisible()) win.show()
+  win.focus()
+}
+
 function createWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    focusWindow(mainWindow)
+    return mainWindow
+  }
   mainWindow = new BrowserWindow({
     width: 1366,
     minWidth: 1366,
@@ -413,11 +440,13 @@ function createWindow() {
       mainWindow.hide()
     }
   })
+  mainWindow.on('closed', () => { mainWindow = null })
+  return mainWindow
 }
 
 function createSettingsWindow() {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.focus()
+    focusWindow(settingsWindow)
     return
   }
   settingsWindow = new BrowserWindow({
@@ -445,7 +474,7 @@ function createSettingsWindow() {
 
 function createImporterWindow() {
   if (importerWindow && !importerWindow.isDestroyed()) {
-    importerWindow.focus()
+    focusWindow(importerWindow)
     return
   }
   importerWindow = new BrowserWindow({
@@ -479,6 +508,13 @@ function createImporterWindow() {
 }
 
 function createGameDetailsWindow(recordId) {
+  const existingWindow = BrowserWindow.getAllWindows().find((win) => (
+    !win.isDestroyed() && gameDetailsRecordMap.get(win.webContents.id) === recordId
+  ))
+  if (existingWindow) {
+    focusWindow(existingWindow)
+    return
+  }
   const win = new BrowserWindow({
     width: 1100,
     height: 750,
@@ -505,6 +541,11 @@ function createGameDetailsWindow(recordId) {
 }
 
 function showExecutableChooser(title, version, executables) {
+  if (executableChooserWindow && !executableChooserWindow.isDestroyed()) {
+    focusWindow(executableChooserWindow)
+    executableChooserWindow.webContents.send('init-executable-chooser', { title, version, executables })
+    return
+  }
   executableChooserWindow = new BrowserWindow({
     width: 600,
     height: 400,
@@ -566,6 +607,8 @@ function buildCtx() {
 // ── App lifecycle ───────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) return
+
   // Initialize database
   initializeDatabase(dataDir)
 
@@ -662,4 +705,12 @@ app.on('before-quit', () => { isQuitting = true })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('activate', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    focusWindow(mainWindow)
+  } else if (hasSingleInstanceLock) {
+    createWindow()
+  }
 })
