@@ -226,8 +226,22 @@ const defaultConfig = {
 
 // ── autoUpdater setup ───────────────────────────────────────────────────────
 
-function sendUpdateStatus(status) {
+function getUpdateFooterAction(status) {
+  if (status.status === 'downloaded') return 'install'
+  if (status.status === 'downloading') return 'downloading'
+  if (status.status === 'checking') return 'checking'
+  if (['error', 'package_not_ready', 'not-available'].includes(status.status)) return 'check'
+  return 'download'
+}
+
+function sendUpdateStatus(status, source = 'unknown') {
+  const previousStatus = lastUpdateStatus?.status || 'idle'
+  const nextStatus = status.status || 'idle'
   lastUpdateStatus = status
+  console.log(
+    `update-state: ${previousStatus} -> ${nextStatus} via ${source}; ` +
+    `footerAction=${getUpdateFooterAction(status)}; canInstallUpdate=${nextStatus === 'downloaded'}`,
+  )
   BrowserWindow.getAllWindows().forEach((window) => {
     if (!window.isDestroyed()) window.webContents.send('update-status', status)
   })
@@ -250,27 +264,35 @@ if (!process.defaultApp && process.platform === 'win32') {
 
 autoUpdater.on('checking-for-update', () => {
   console.log('Checking for updates...')
-  sendUpdateStatus({ status: 'checking' })
+  sendUpdateStatus({ status: 'checking' }, 'checking-for-update')
 })
 autoUpdater.on('update-available', (info) => {
   updateInfo = info
   updateDownloaded = false
   installAfterDownload = false
-  sendUpdateStatus({ status: 'available', version: info.version })
+  sendUpdateStatus({ status: 'available', version: info.version }, 'update-available')
 })
 autoUpdater.on('update-not-available', () => {
   updateInfo = null
   updateDownloaded = false
   installAfterDownload = false
-  sendUpdateStatus({ status: 'not-available' })
+  sendUpdateStatus({ status: 'not-available' }, 'update-not-available')
 })
 autoUpdater.on('download-progress', (progress) => {
-  sendUpdateStatus({ status: 'downloading', percent: progress.percent })
+  if (updateDownloaded) {
+    console.log('update-state: ignored download-progress after update-downloaded')
+    return
+  }
+  sendUpdateStatus({
+    status: 'downloading',
+    version: updateInfo?.version || '',
+    percent: progress.percent,
+  }, 'download-progress')
 })
 autoUpdater.on('update-downloaded', (info) => {
   updateInfo = info
   updateDownloaded = true
-  sendUpdateStatus({ status: 'downloaded', version: info.version })
+  sendUpdateStatus({ status: 'downloaded', version: info.version, percent: null }, 'update-downloaded')
   if (installAfterDownload) {
     installAfterDownload = false
     setTimeout(() => autoUpdater.quitAndInstall(true, true), 500)
@@ -288,7 +310,7 @@ autoUpdater.on('error', (err) => {
     error: normalizedError.userMessage,
     code: normalizedError.code,
     retryable: normalizedError.retryable,
-  })
+  }, normalizedError.code === 'UPDATE_PACKAGE_NOT_READY' ? 'package-not-ready' : 'error')
 })
 
 // ── Shared helper functions ─────────────────────────────────────────────────

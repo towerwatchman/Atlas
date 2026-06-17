@@ -13,17 +13,38 @@ export function useAppUpdate(setDbUpdateStatus) {
   })
   const [appUpdateActionBusy, setAppUpdateActionBusy] = useState(false)
 
+  const getFooterActionState = useCallback((status) => {
+    if (status === 'downloaded') return { label: 'Install and restart', canInstallUpdate: true }
+    if (status === 'downloading') return { label: 'Downloading...', canInstallUpdate: false }
+    if (status === 'checking') return { label: 'Checking...', canInstallUpdate: false }
+    if (['error', 'package_not_ready', 'not-available'].includes(status)) {
+      return { label: 'Check for updates', canInstallUpdate: false }
+    }
+    return { label: 'Download update', canInstallUpdate: false }
+  }, [])
+
+  const logFooterTransition = useCallback((previousStatus, nextStatus, source) => {
+    const actionState = getFooterActionState(nextStatus)
+    console.log(
+      `update-state: ${previousStatus || 'idle'} -> ${nextStatus || 'idle'} via ${source}; ` +
+      `footerAction=${actionState.label}; canInstallUpdate=${actionState.canInstallUpdate}`,
+    )
+  }, [getFooterActionState])
+
   const handleUpdateStatus = useCallback(
     (status) => {
       console.log('Update status:', status)
       if (status.status === 'available') {
         setAppUpdateActionBusy(false)
-        setAppUpdateNotice({
+        setAppUpdateNotice((notice) => {
+          logFooterTransition(notice.status, 'available', 'update-status')
+          return {
           visible: true,
           status: 'available',
           version: status.version || '',
           text: sanitizePercentText(`Atlas ${status.version} is available.`),
           percent: null,
+          }
         })
       } else if (status.status === 'downloading') {
         const percent = Number(status.percent || 0)
@@ -34,48 +55,76 @@ export function useAppUpdate(setDbUpdateStatus) {
           progress: percent,
           total: 100,
         })
-        setAppUpdateNotice((notice) => ({
-          ...notice,
-          visible: true,
-          status: 'downloading',
-          percent,
-          text: status.percent !== undefined && status.percent !== null
-            ? `Downloading Atlas update: ${displayPercent}`
-            : 'Downloading Atlas update...',
-        }))
+        setAppUpdateNotice((notice) => {
+          logFooterTransition(notice.status, 'downloading', 'update-status')
+          return {
+            ...notice,
+            visible: true,
+            status: 'downloading',
+            version: status.version || notice.version || '',
+            percent,
+            text: status.version
+              ? `Downloading Atlas ${status.version}: ${displayPercent}`
+              : status.percent !== undefined && status.percent !== null
+                ? `Downloading Atlas update: ${displayPercent}`
+                : 'Downloading Atlas update...',
+          }
+        })
       } else if (status.status === 'downloaded') {
         setAppUpdateActionBusy(false)
-        setAppUpdateNotice({
-          visible: true,
-          status: 'downloaded',
-          version: status.version || '',
-          text: sanitizePercentText(`Atlas ${status.version} is ready to install.`),
-          percent: null,
+        setDbUpdateStatus({ text: '', progress: 0, total: 0 })
+        setAppUpdateNotice((notice) => {
+          const version = status.version || notice.version || ''
+          logFooterTransition(notice.status, 'downloaded', 'update-status')
+          return {
+            visible: true,
+            status: 'downloaded',
+            version,
+            text: sanitizePercentText(`Atlas ${version || 'update'} is ready to install.`),
+            percent: null,
+          }
         })
       } else if (status.status === 'error') {
         setAppUpdateActionBusy(false)
         console.error('Update error:', status.error)
-        setAppUpdateNotice({
-          visible: true,
-          status: status.code === PACKAGE_NOT_READY_CODE ? 'package_not_ready' : 'error',
-          code: status.code || '',
-          version: '',
-          text: sanitizePercentText(status.error || 'Update failed.'),
-          percent: null,
+        setAppUpdateNotice((notice) => {
+          const nextStatus = status.code === PACKAGE_NOT_READY_CODE ? 'package_not_ready' : 'error'
+          logFooterTransition(notice.status, nextStatus, 'update-status')
+          return {
+            visible: true,
+            status: nextStatus,
+            code: status.code || '',
+            version: '',
+            text: sanitizePercentText(status.error || 'Update failed.'),
+            percent: null,
+          }
         })
       }
     },
-    [setDbUpdateStatus]
+    [logFooterTransition, setDbUpdateStatus]
   )
+
+  const reconcileAppUpdateState = useCallback(async (source) => {
+    const status = await window.electronAPI.getAppUpdateState?.()
+    if (status?.status && status.status !== 'idle') {
+      handleUpdateStatus(status)
+      return status
+    }
+    return null
+  }, [handleUpdateStatus])
 
   const handleAppUpdateAction = useCallback(async () => {
     if (appUpdateActionBusy) return
     try {
       setAppUpdateActionBusy(true)
+      const latestStatus = await reconcileAppUpdateState('footer-action')
+      const effectiveStatus = latestStatus?.status === 'downloaded'
+        ? 'downloaded'
+        : appUpdateNotice.status
       if (
-        appUpdateNotice.status === 'error' ||
-        appUpdateNotice.status === 'package_not_ready' ||
-        appUpdateNotice.status === 'not-available'
+        effectiveStatus === 'error' ||
+        effectiveStatus === 'package_not_ready' ||
+        effectiveStatus === 'not-available'
       ) {
         setAppUpdateNotice((notice) => ({
           ...notice,
@@ -102,7 +151,7 @@ export function useAppUpdate(setDbUpdateStatus) {
         return
       }
 
-      if (appUpdateNotice.status === 'downloaded') {
+      if (effectiveStatus === 'downloaded') {
         const result = await window.electronAPI.installAppUpdate()
         if (!result?.success) {
           throw new Error(result?.error || 'Failed to update Atlas')
@@ -110,7 +159,7 @@ export function useAppUpdate(setDbUpdateStatus) {
         return
       }
 
-      if (appUpdateNotice.status === 'available') {
+      if (effectiveStatus === 'available') {
         const result = await window.electronAPI.downloadAppUpdate()
         if (!result?.success) {
           if (result?.code === PACKAGE_NOT_READY_CODE) {
@@ -135,6 +184,7 @@ export function useAppUpdate(setDbUpdateStatus) {
             ? `Downloading Atlas ${notice.version}...`
             : 'Downloading update...',
         }))
+        await reconcileAppUpdateState('download-complete')
       }
     } catch (error) {
       console.error('App update action failed:', error)
@@ -149,7 +199,7 @@ export function useAppUpdate(setDbUpdateStatus) {
     } finally {
       setAppUpdateActionBusy(false)
     }
-  }, [appUpdateActionBusy, appUpdateNotice.status])
+  }, [appUpdateActionBusy, appUpdateNotice.status, reconcileAppUpdateState])
 
   return {
     appUpdateNotice,
