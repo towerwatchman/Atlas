@@ -21,7 +21,7 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
     <>
       <div className="flex flex-col gap-4">
         <div className="flex justify-end">
-          <button onClick={onFindGame} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">
+          <button onClick={onFindGame} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">
             Add Mapping
           </button>
         </div>
@@ -117,11 +117,11 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
                 {searchResults.map((result, index) => (
                   <li
                     key={index}
-                    className="p-2 bg-tertiary hover:bg-button_hover rounded cursor-pointer"
+                    className="p-2 bg-tertiary hover:bg-buttonHover rounded cursor-pointer"
                     onClick={() => onSelectGame(result.atlas_id)}
                   >
                     <div>{result.title}</div>
-                    <div className="text-sm text-gray-400">
+                    <div className="text-sm text-muted">
                       Atlas ID: {result.atlas_id} | F95 ID: {result.f95_id || 'N/A'} | Creator: {result.creator || 'N/A'}
                     </div>
                   </li>
@@ -131,7 +131,7 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
               <p>No matches found</p>
             )}
             <div className="flex justify-end space-x-2 mt-4">
-              <button onClick={onCloseModal} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Cancel</button>
+              <button onClick={onCloseModal} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Cancel</button>
             </div>
           </div>
         </div>

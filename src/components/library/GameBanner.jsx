@@ -285,7 +285,7 @@ const GameBanner = ({ game, onSelect }) => {
               {
                 key: `update-button-${game.record_id}`,
                 className:
-                  "absolute top-[4px] right-2.5 w-[90px] h-[20px] bg-transparent border border-yellow-400 text-yellow-400 text-[10px] rounded-sm z-30 pointer-events-auto",
+                  "absolute top-[4px] right-2.5 w-[90px] h-[20px] bg-transparent border border-warning text-warning text-[10px] rounded-sm z-30 pointer-events-auto",
                 onClick: (e) => {
                   e.stopPropagation();
                   if (
@@ -435,7 +435,7 @@ const GameBanner = ({ game, onSelect }) => {
         {
           key: `uninstalled-marker-${game.record_id}`,
           className:
-            "absolute top-2 left-2 z-40 bg-gray-800 border border-gray-500 text-gray-100 text-[10px] px-2 py-1 pointer-events-none",
+            "absolute top-2 left-2 z-40 bg-primary border border-border text-text text-[10px] px-2 py-1 pointer-events-none",
         },
           "Uninstalled",
       ),

@@ -73,11 +73,11 @@ export default function SettingsStep({
           {moveGame && (
             <div className="mt-1 ml-6 text-sm">
               {defaultLibraryPath ? (
-                <span className="text-green-400">Current library: <strong>{defaultLibraryPath}</strong></span>
+                <span className="text-success">Current library: <strong>{defaultLibraryPath}</strong></span>
               ) : askingForLibraryFolder ? (
-                <span className="text-yellow-400">Waiting for selection...</span>
+                <span className="text-warning">Waiting for selection...</span>
               ) : (
-                <span className="text-yellow-400">No default folder set — you will be asked to choose one</span>
+                <span className="text-warning">No default folder set — you will be asked to choose one</span>
               )}
             </div>
           )}
@@ -86,13 +86,13 @@ export default function SettingsStep({
         <div className="mt-4">
           <input type="checkbox" checked={deleteAfter} onChange={(e) => setDeleteAfter(e.target.checked)} className="mr-2" disabled={!moveGame} />
           <label className="font-medium">Delete original folder/archive after successful import</label>
-          {!moveGame && <div className="mt-1 ml-6 text-sm text-gray-500">(Enable "Move imported games" first)</div>}
+          {!moveGame && <div className="mt-1 ml-6 text-sm text-muted">(Enable "Move imported games" first)</div>}
         </div>
 
         <div className="mt-4">
           <input type="checkbox" checked={autoSelectLatestReplaceVersion} onChange={onAutoSelectChange} className="mr-2" />
           <label className="font-medium">Auto-select latest installed version for replacement</label>
-          <div className="mt-1 ml-6 text-sm text-gray-500">
+          <div className="mt-1 ml-6 text-sm text-muted">
             Preselects the newest installed version in Replace Version dropdowns. You can still change it to None before importing.
           </div>
         </div>

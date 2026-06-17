@@ -264,14 +264,14 @@ const Interface = () => {
           <button
             onClick={handleCheckAppUpdate}
             disabled={["checking", "downloading", "installing"].includes(updateStatus)}
-            className="bg-accent px-4 py-2 rounded hover:bg-opacity-90 disabled:opacity-50"
+            className="bg-accent px-4 py-2 rounded hover:bg-accentHover disabled:opacity-50"
           >
             Check for updates
           </button>
           <button
             onClick={handleDownloadAndInstallAppUpdate}
             disabled={!["available", "downloaded"].includes(updateStatus)}
-            className="bg-accent px-4 py-2 rounded hover:bg-opacity-90 disabled:opacity-50"
+            className="bg-accent px-4 py-2 rounded hover:bg-accentHover disabled:opacity-50"
           >
             {updateStatus === "installing"
               ? "Installing update..."

@@ -81,17 +81,17 @@ export default function RecordTab({ formData, onChange, onFindGame, onRemoveTitl
           />
         </div>
         <div className="flex justify-end">
-          <button onClick={onFindGame} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">
+          <button onClick={onFindGame} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">
             Find Game
           </button>
         </div>
         <div className="border-t border-border pt-3 mt-3">
-          <div className="text-sm font-semibold text-red-300 mb-2">Title Actions</div>
+          <div className="text-sm font-semibold text-danger mb-2">Title Actions</div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={onRemoveTitle} className="px-4 py-1 bg-red-700 hover:bg-red-800 text-white rounded">
+            <button onClick={onRemoveTitle} className="px-4 py-1 bg-danger hover:bg-dangerHover text-white rounded">
               Remove Title from Library
             </button>
-            <button onClick={onDeleteTitleAndFiles} className="px-4 py-1 bg-red-900 hover:bg-red-950 text-white rounded">
+            <button onClick={onDeleteTitleAndFiles} className="px-4 py-1 bg-dangerStrong hover:bg-danger text-white rounded">
               Delete Title and Files
             </button>
           </div>

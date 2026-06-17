@@ -92,6 +92,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("update-progress", progress),
   getAvailableBannerTemplates: () =>
     ipcRenderer.invoke("get-available-banner-templates"),
+  getAvailableThemes: () => ipcRenderer.invoke("get-available-themes"),
 
   // ─── FIXED: Added missing banner template getter ────────────────────────
   getSelectedBannerTemplate: () =>
@@ -153,6 +154,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onWindowStateChanged: (callback) => {
     ipcRenderer.on("window-state-changed", (event, state) => callback(state));
   },
+  onAppearanceChanged: (callback) => {
+    ipcRenderer.on("appearance-changed", (event, appearance) => callback(appearance));
+    return () => ipcRenderer.removeAllListeners("appearance-changed");
+  },
   onDbUpdateProgress: (callback) => {
     ipcRenderer.on("db-update-progress", (event, progress) =>
       callback(progress),
@@ -202,6 +207,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "game-updated",
       "import-complete",
       "update-status",
+      "appearance-changed",
       "context-menu-command",
       "game-deleted",
       "library-validation-progress",

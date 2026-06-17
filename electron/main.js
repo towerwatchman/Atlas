@@ -69,6 +69,7 @@ const registerSettingsHandlers = require('./ipc/settings')
 const registerUpdaterHandlers = require('./ipc/updater')
 const registerMediaHandlers = require('./ipc/media')
 const registerImporterHandlers = require('./ipc/importer')
+const registerThemeHandlers = require('./ipc/themes')
 
 // ── Shared mutable state ────────────────────────────────────────────────────
 
@@ -193,6 +194,15 @@ if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true })
 const templatesDir = path.join(dataDir, 'templates/banner')
 if (!fs.existsSync(templatesDir)) fs.mkdirSync(templatesDir, { recursive: true })
 
+// User-editable theme JSON files live here — mirrors the banner template
+// folder convention above. The Default theme always stays code-defined
+// (src/theme/themes.js) as a guaranteed baseline; every other theme,
+// including the built-in-by-default "XLibrary" look, ships as a .json
+// file in this folder so it can be copied, edited, or replaced without a
+// rebuild. See electron/ipc/themes.js for the read/list/validate logic.
+const themeTemplatesDir = path.join(dataDir, 'templates/theme')
+if (!fs.existsSync(themeTemplatesDir)) fs.mkdirSync(themeTemplatesDir, { recursive: true })
+
 const configPath = path.join(dataDir, 'config.ini')
 const defaultConfig = {
   Interface: {
@@ -221,6 +231,11 @@ const defaultConfig = {
   },
   Performance: {
     maxHeapSize: 4096,
+  },
+  Appearance: {
+    themeId: 'default',
+    layout: 'sidebar',
+    customTheme: '',
   },
 }
 
@@ -616,7 +631,7 @@ function buildCtx() {
     createSettingsWindow, createImporterWindow, createGameDetailsWindow, showExecutableChooser,
     quitFromMainWindow,
     // state
-    appConfig, configPath, dataDir, launcherDir, templatesDir,
+    appConfig, configPath, dataDir, launcherDir, templatesDir, themeTemplatesDir,
     contextMenuData, contextMenuId, recentlyDeletedGamePaths, gameDetailsRecordMap,
     activeImportSession, activeScanSession, activeLibraryValidation, isQuitting,
     // updater state
@@ -735,6 +750,7 @@ app.whenReady().then(async () => {
   registerUpdaterHandlers(ctx)
   registerMediaHandlers(ctx)
   registerImporterHandlers(ctx)
+  registerThemeHandlers(ctx)
 
   if (appConfig?.Interface?.checkForAppUpdatesOnStartup) {
     autoUpdater.checkForUpdates().catch((err) => {

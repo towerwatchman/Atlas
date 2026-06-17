@@ -489,7 +489,7 @@ const GameDetailWindow = () => {
           {loadError ? (
             <>
               <span className="text-text">Couldn't load this game's data.</span>
-              <button onClick={() => retryLoadRef.current?.()} className="px-4 py-2 bg-accent text-white rounded hover:opacity-90" style={{ pointerEvents: 'auto' }}>Retry</button>
+              <button onClick={() => retryLoadRef.current?.()} className="px-4 py-2 bg-accent text-white rounded hover:bg-accentHover" style={{ pointerEvents: 'auto' }}>Retry</button>
             </>
           ) : (
             <span>Loading game data...</span>
@@ -574,8 +574,8 @@ const GameDetailWindow = () => {
         </div>
 
         <div className="shrink-0 p-4 bg-primary flex justify-end space-x-2 z-10 border-t border-border">
-          <button onClick={handleSave} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Save</button>
-          <button onClick={() => window.electronAPI.closeWindow()} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Cancel</button>
+          <button onClick={handleSave} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Save</button>
+          <button onClick={() => window.electronAPI.closeWindow()} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Cancel</button>
         </div>
       </div>
     </div>

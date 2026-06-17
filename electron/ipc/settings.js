@@ -1,6 +1,6 @@
 'use strict'
 
-const { ipcMain } = require('electron')
+const { ipcMain, BrowserWindow } = require('electron')
 const fs = require('fs')
 const path = require('path')
 const ini = require('ini')
@@ -31,6 +31,18 @@ const defaultConfig = {
   },
   Performance: {
     maxHeapSize: 4096,
+  },
+  Appearance: {
+    // themeId selects one of the built-in themes defined in src/theme/themes.js
+    // (see THEME_COLOR_KEYS / BUILT_IN_THEMES / getThemeById there).
+    themeId: 'default',
+    // layout is independent of theme — 'sidebar' or 'topnav' — see
+    // LAYOUT_OPTIONS in src/theme/themes.js.
+    layout: 'sidebar',
+    // Reserved for a future custom theme editor: a JSON-stringified theme
+    // object (same shape as the built-ins) the user has authored themselves.
+    // Empty string means "no custom theme saved".
+    customTheme: '',
   },
 }
 
@@ -178,8 +190,26 @@ module.exports = function registerSettingsHandlers(ctx) {
 
   ipcMain.handle('save-settings', async (event, settings) => {
     try {
+      const previousAppearance = ctx.appConfig?.Appearance
       ctx.appConfig = settings
       fs.writeFileSync(ctx.configPath, ini.stringify(settings))
+
+      // Theme changes need to apply live across every open window (main
+      // library, settings, importer, game details) since each is its own
+      // BrowserWindow with its own renderer process — saving to disk alone
+      // doesn't update windows that are already open. Only broadcast when
+      // Appearance actually changed so unrelated settings saves (e.g.
+      // toggling "check for updates") don't trigger a needless re-theme in
+      // every window.
+      const nextAppearance = settings?.Appearance
+      const appearanceChanged =
+        JSON.stringify(previousAppearance) !== JSON.stringify(nextAppearance)
+      if (appearanceChanged && nextAppearance) {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) win.webContents.send('appearance-changed', nextAppearance)
+        })
+      }
+
       return { success: true }
     } catch (err) {
       console.error('save-settings error:', err)

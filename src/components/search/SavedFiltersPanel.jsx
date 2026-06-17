@@ -19,14 +19,14 @@ const SavedFilterRow = ({
   >
     <div className="min-w-0 flex-1">
       <div className="truncate text-text">{filter.name}</div>
-      <div className="text-[11px] text-gray-400">
+      <div className="text-[11px] text-muted">
         {filter.builtIn ? 'Built-in' : 'Saved'} - {count ?? 0} matches
       </div>
       {deleteState?.confirming && (
         <div className="mt-2 flex items-center gap-2 text-[11px]">
-          <span className="text-red-300">Delete?</span>
+          <span className="text-danger">Delete?</span>
           <button
-            className="px-2 py-1 bg-[DarkRed] text-white rounded disabled:opacity-50"
+            className="px-2 py-1 bg-danger hover:bg-dangerHover text-white rounded disabled:opacity-50"
             disabled={deleteState.busy}
             onClick={(event) => {
               event.stopPropagation()
@@ -36,7 +36,7 @@ const SavedFilterRow = ({
             Delete
           </button>
           <button
-            className="px-2 py-1 bg-tertiary rounded disabled:opacity-50"
+            className="px-2 py-1 bg-tertiary hover:bg-buttonHover rounded disabled:opacity-50"
             disabled={deleteState.busy}
             onClick={(event) => {
               event.stopPropagation()
@@ -48,7 +48,7 @@ const SavedFilterRow = ({
         </div>
       )}
       {deleteState?.error && (
-        <div className="mt-1 text-[11px] text-red-400">{deleteState.error}</div>
+        <div className="mt-1 text-[11px] text-danger">{deleteState.error}</div>
       )}
     </div>
     {!filter.builtIn && (
@@ -120,22 +120,22 @@ const SavedFiltersPanel = ({
     <div className="w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ml-[60px]">
       <div className="px-2 py-3 border-b border-border">
         <div className="font-semibold text-sm">Saved Filters</div>
-        <div className="text-[11px] text-gray-400">Click to apply</div>
+        <div className="text-[11px] text-muted">Click to apply</div>
       </div>
 
       <div className="py-2">
-        <div className="px-2 pb-1 text-[11px] uppercase tracking-wide text-gray-400">
+        <div className="px-2 pb-1 text-[11px] uppercase tracking-wide text-muted">
           Built-in
         </div>
         {builtInSavedFilters.map(renderRow)}
       </div>
 
       <div className="py-2 border-t border-border">
-        <div className="px-2 pb-1 text-[11px] uppercase tracking-wide text-gray-400">
+        <div className="px-2 pb-1 text-[11px] uppercase tracking-wide text-muted">
           Saved
         </div>
         {sortedUserFilters.length === 0 ? (
-          <div className="px-2 py-2 text-xs text-gray-400">
+          <div className="px-2 py-2 text-xs text-muted">
             Save the current filters from the filter panel.
           </div>
         ) : (

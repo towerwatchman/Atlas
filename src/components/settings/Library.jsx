@@ -127,7 +127,7 @@ const Library = () => {
           />
           <button
             onClick={handleSetGameFolder}
-            className="bg-accent px-5 py-2 rounded hover:bg-opacity-90"
+            className="bg-accent px-5 py-2 rounded hover:bg-accentHover"
           >
             Set Folder
           </button>
@@ -185,7 +185,7 @@ const Library = () => {
           />
           <button
             onClick={handleSetSevenZip}
-            className="bg-accent px-5 py-2 rounded hover:bg-opacity-90"
+            className="bg-accent px-5 py-2 rounded hover:bg-accentHover"
           >
             Select 7z
           </button>

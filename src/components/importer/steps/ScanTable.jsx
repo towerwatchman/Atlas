@@ -109,8 +109,8 @@ export default function ScanTable({
               </td>
               <td className={`border border-border p-1 ${statusClass}`}>{statusText}</td>
               <td className="border border-border p-1 min-w-[150px] flex space-x-2">
-                <button onClick={() => onDeleteGame(getGameKey(game))} className="bg-red-600 hover:bg-red-700 text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Delete</button>
-                <button onClick={() => window.electronAPI.openDirectory(game.folder || game.sourceFile)} className="bg-accent hover:bg-selected text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Open Folder</button>
+                <button onClick={() => onDeleteGame(getGameKey(game))} className="bg-danger hover:bg-dangerHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Delete</button>
+                <button onClick={() => window.electronAPI.openDirectory(game.folder || game.sourceFile)} className="bg-accent hover:bg-accentHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Open Folder</button>
               </td>
             </tr>
           )

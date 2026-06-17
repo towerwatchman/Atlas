@@ -24,7 +24,7 @@ export default function TitleBar({ isMaximized }) {
           </button>
           <button
             onClick={close}
-            className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
+            className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-danger transition-colors duration-200"
             style={{ pointerEvents: 'auto', zIndex: 1000 }}
           >
             <i className="fas fa-times fa-xs text-text"></i>

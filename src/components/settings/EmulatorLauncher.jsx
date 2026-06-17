@@ -108,7 +108,7 @@ const EmulatorLauncher = () => {
               <button
                 type="button"
                 onClick={handleSelectProgram}
-                className="p-2 bg-accent text-text rounded hover:bg-highlight"
+                className="p-2 bg-accent text-text rounded hover:bg-accentHover"
               >
                 Browse
               </button>
@@ -128,7 +128,7 @@ const EmulatorLauncher = () => {
           </div>
           <button
             type="submit"
-            className="p-2 bg-accent text-text rounded hover:bg-highlight"
+            className="p-2 bg-accent text-text rounded hover:bg-accentHover"
           >
             Add Emulator/Launcher
           </button>
@@ -153,7 +153,7 @@ const EmulatorLauncher = () => {
               </div>
               <button
                 onClick={() => handleRemoveEmulator(emu.extension)}
-                className="p-1 bg-red-600 text-text rounded hover:bg-red-700"
+                className="p-1 bg-danger text-text rounded hover:bg-dangerHover"
               >
                 Remove
               </button>

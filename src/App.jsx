@@ -669,7 +669,7 @@ const App = () => {
             <button onClick={() => window.electronAPI.maximizeWindow()} className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200">
               <i className={isMaximized ? 'fas fa-window-restore text-text fa-sm' : 'fas fa-window-maximize text-text fa-sm'}></i>
             </button>
-            <button onClick={() => window.electronAPI.closeWindow()} className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200">
+            <button onClick={() => window.electronAPI.closeWindow()} className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-danger transition-colors duration-200">
               <i className="fas fa-times text-text fa-sm"></i>
             </button>
           </div>
@@ -700,7 +700,7 @@ const App = () => {
               filteredGames.map((game) => (
                 <div
                   key={game.record_id}
-                  className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? 'bg-selected' : ''} ${game.hasInstalledVersion === false && !game.isCatalogEntry ? 'text-gray-500 italic' : ''}`}
+                  className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? 'bg-selected' : ''} ${game.hasInstalledVersion === false && !game.isCatalogEntry ? 'text-muted italic' : ''}`}
                   onClick={() => selectGame(game)}
                 >
                   {getGameTitle(game)}
@@ -781,7 +781,7 @@ const App = () => {
           <div className="flex items-center w-[540px]">
             <span className="w-[300px] text-[10px] text-text">{dbUpdateStatus.text}</span>
             <div className="relative w-[300px]">
-              <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
+              <div className="h-[15px] bg-tertiary rounded overflow-hidden">
                 <div className="h-full bg-accent" style={{ width: `${(dbUpdateStatus.progress / (dbUpdateStatus.total || 1)) * 100}%` }}></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
@@ -797,7 +797,7 @@ const App = () => {
           <div className="flex items-center w-[540px]">
             <span className="w-[300px] text-[10px] text-text">{importStatus.text}</span>
             <div className="relative w-[300px]">
-              <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
+              <div className="h-[15px] bg-tertiary rounded overflow-hidden">
                 <div className="h-full bg-accent" style={{ width: `${(importStatus.progress / importStatus.total) * 100}%` }}></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
@@ -813,7 +813,7 @@ const App = () => {
           <div className="flex items-center w-[880px] gap-2">
             <span className="w-[450px] text-[10px] text-text">{importProgress.text}</span>
             <div className="relative w-[300px]">
-              <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
+              <div className="h-[15px] bg-tertiary rounded overflow-hidden">
                 <div className="h-full bg-accent" style={{ width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%` }}></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
@@ -821,7 +821,7 @@ const App = () => {
               </span>
             </div>
             {importProgress.canCancel && (
-              <button onClick={cancelImport} className="bg-red-700 hover:bg-red-800 px-3 py-1 text-[10px] text-white">
+              <button onClick={cancelImport} className="bg-danger hover:bg-dangerHover px-3 py-1 text-[10px] text-white">
                 Cancel Import
               </button>
             )}
@@ -839,7 +839,7 @@ const App = () => {
             <button
               onClick={handleAppUpdateAction}
               disabled={isAppUpdateActionDisabled}
-              className={`bg-accent px-3 py-1 hover:bg-opacity-90 ${isAppUpdateActionDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+              className={`bg-accent px-3 py-1 hover:bg-accentHover ${isAppUpdateActionDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
               {appUpdateActionLabel}
             </button>

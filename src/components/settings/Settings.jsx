@@ -62,7 +62,7 @@ const Settings = () => {
         </button>
         <button
           onClick={() => window.electronAPI.closeWindow()}
-          className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-[DarkRed] transition-colors duration-200"
+          className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-danger transition-colors duration-200"
         >
           <i className="fas fa-times text-text"></i>
         </button>

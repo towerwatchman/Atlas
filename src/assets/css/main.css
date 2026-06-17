@@ -2,9 +2,82 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * ── Design tokens ────────────────────────────────────────────────────────
+ * These CSS variables are the single source of truth for theming. They are
+ * read by tailwind.config.js (colors/borderRadius/fontFamily/spacing), so
+ * every existing `bg-primary`, `rounded-themeMd`, etc. utility class stays
+ * exactly the same in markup — only the underlying values change.
+ *
+ * Defaults below are the "Default" Atlas theme. The active theme (chosen in
+ * Settings → Appearance) overwrites these at runtime by setting inline
+ * style properties on :root via the theme engine (src/theme/ThemeProvider).
+ * Keeping defaults here means the app still looks correct even before the
+ * theme engine has applied anything (first paint, or if it fails to load).
+ */
+:root {
+  /* Surfaces / structure */
+  --color-canvas:             #000000;
+  --color-shadow:             #000000;
+  --color-primary:            #19191c;
+  --color-secondary:          #242629;
+  --color-tertiary:           #313338;
+  --color-border:             #51535A;
+  --color-selected:           #404249;
+  --color-accent:             #2C8EA9;
+  --color-accent-bar:         #2C8EA9;
+  --color-atlas-logo:         #FFFFFF;
+  --color-text:               #d2d2d2;
+  --color-highlight:          #2C8EA9;
+  --color-overlay-top:        #000000;
+  --color-overlay-bottom:     #000000;
+
+  /* Semantic status colors */
+  --color-muted:              #9CA3AF; /* was text-gray-400/500 */
+  --color-danger:             #DC2626; /* was bg-red-600/700 */
+  --color-danger-hover:       #B91C1C; /* was hover:bg-red-700/800 */
+  --color-danger-strong:      #7F1D1D; /* was bg-red-900/950 — reserved for the most severe/irreversible actions (e.g. "delete files from disk", not just "remove from library") */
+  --color-success:            #16A34A; /* was bg-green-600 */
+  --color-success-hover:      #15803D; /* was hover:bg-green-700 */
+  --color-warning:            #FACC15; /* was text/border-yellow-400 */
+  --color-info:               #38BDF8; /* was text-sky-300/blue-200 */
+
+  /* Button hover states. Separate from the status colors above because
+     these aren't "meanings" — they're just the hover shade for the two
+     most common button backgrounds (bg-tertiary and bg-accent). Several
+     buttons previously referenced undefined classes here (bg-button_hover,
+     bg-accent-dark, bg-hover) which were silent no-ops; these tokens fix
+     that and give every button a single consistent hover behavior. */
+  --color-button-hover:       var(--color-selected); /* hover shade for bg-tertiary buttons; matches the existing working hover:bg-selected pattern used elsewhere */
+  --color-accent-hover:       #24748A; /* hover shade for bg-accent buttons; ~18% darker than --color-accent */
+
+  /* Shape */
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   10px;
+  --radius-pill: 999px;
+  /* Which of the above the active theme has chosen — see applyTheme.js.
+     rounded-theme (buttons/cards) follows this; rounded-themeSm/Md/Lg/Pill
+     stay fixed regardless of theme. Defaults to the Default theme's choice. */
+  --radius-active: var(--radius-sm);
+
+  /* Typography */
+  --font-sans: "Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+
+  /* Layout */
+  --nav-size: 60px; /* sidebar width in 'sidebar' layout, topnav height in 'topnav' layout */
+
+  /* Scrollbar (kept in sync with --color-border / --color-primary / --color-accent
+     by default; themes may override these three independently if a theme
+     wants a different scrollbar look than its main surfaces). */
+  --scrollbar-thumb:       var(--color-border);
+  --scrollbar-track:       var(--color-primary);
+  --scrollbar-thumb-hover: var(--color-accent);
+}
+
 @layer base {
   * {
-    scrollbar-color: #51535a #19191c;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
     scrollbar-width: thin;
   }
 
@@ -14,27 +87,27 @@
   }
 
   *::-webkit-scrollbar-track {
-    background: #19191c;
+    background: var(--scrollbar-track);
   }
 
   *::-webkit-scrollbar-thumb {
-    background-color: #51535a;
-    border: 2px solid #19191c;
+    background-color: var(--scrollbar-thumb);
+    border: 2px solid var(--scrollbar-track);
     border-radius: 999px;
   }
 
   *::-webkit-scrollbar-thumb:hover {
-    background-color: #2c8ea9;
+    background-color: var(--scrollbar-thumb-hover);
   }
 
   *::-webkit-scrollbar-corner {
-    background: #19191c;
+    background: var(--scrollbar-track);
   }
 }
 
 @layer utilities {
   .atlas-scrollbar {
-    scrollbar-color: #51535a #19191c;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
     scrollbar-width: thin;
   }
 
@@ -44,21 +117,21 @@
   }
 
   .atlas-scrollbar::-webkit-scrollbar-track {
-    background: #19191c;
+    background: var(--scrollbar-track);
   }
 
   .atlas-scrollbar::-webkit-scrollbar-thumb {
-    background-color: #51535a;
-    border: 2px solid #19191c;
+    background-color: var(--scrollbar-thumb);
+    border: 2px solid var(--scrollbar-track);
     border-radius: 999px;
   }
 
   .atlas-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: #2c8ea9;
+    background-color: var(--scrollbar-thumb-hover);
   }
 
   .atlas-scrollbar::-webkit-scrollbar-corner {
-    background: #19191c;
+    background: var(--scrollbar-track);
   }
 }
 

@@ -67,13 +67,13 @@ export default function ScanStep({
           <button
             onClick={onUpdateMatches}
             disabled={isResolvingMatches}
-            className="bg-accent hover:bg-accent-dark px-4 py-2 rounded text-text"
+            className="bg-accent hover:bg-accentHover px-4 py-2 rounded text-text"
             style={{ pointerEvents: 'auto', zIndex: 1000 }}
           >
             {isResolvingMatches ? 'Resolving...' : 'Update Matches'}
           </button>
           {isResolvingMatches && (
-            <button onClick={onCancelMatch} className="bg-red-700 hover:bg-red-800 px-4 py-2 rounded text-white" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
+            <button onClick={onCancelMatch} className="bg-danger hover:bg-dangerHover px-4 py-2 rounded text-white" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
               Stop Matching
             </button>
           )}
@@ -83,13 +83,13 @@ export default function ScanStep({
           <button
             onClick={onImport}
             disabled={!canImport}
-            className={`px-6 py-2 rounded font-medium transition-colors ${canImport ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-600 cursor-not-allowed opacity-70 text-gray-300'}`}
+            className={`px-6 py-2 rounded font-medium transition-colors ${canImport ? 'bg-success hover:bg-successHover text-white' : 'bg-tertiary cursor-not-allowed opacity-70 text-muted'}`}
             title={getImportDisabledReason()}
             style={{ pointerEvents: 'auto' }}
           >
             Import
           </button>
-          <button onClick={() => window.electronAPI.closeWindow()} className="bg-red-700 hover:bg-red-800 px-6 py-2 rounded text-white" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
+          <button onClick={() => window.electronAPI.closeWindow()} className="bg-danger hover:bg-dangerHover px-6 py-2 rounded text-white" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
             Cancel
           </button>
         </div>

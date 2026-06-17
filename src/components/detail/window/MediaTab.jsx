@@ -34,7 +34,7 @@ export default function MediaTab({
           <div className="flex items-center w-[800px]">
             <span className="w-[450px] text-[10px] text-text">{importProgress.text}</span>
             <div className="relative w-[300px]">
-              <div className="h-[15px] bg-gray-700 rounded overflow-hidden">
+              <div className="h-[15px] bg-tertiary rounded overflow-hidden">
                 <div className="h-full bg-accent" style={{ width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%` }}></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
@@ -52,15 +52,15 @@ export default function MediaTab({
           <div className="flex flex-col flex-grow">
             <img src={bannerUrl} alt="Banner" className="w-full max-h-[350px] object-contain rounded" onError={() => console.error('Failed to load banner:', bannerUrl)} />
             <div className="flex space-x-2 mt-2">
-              <button onClick={onDownloadBanner} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Download Banner</button>
-              <button onClick={onSelectCustomBanner} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Select Custom Banner</button>
-              <button onClick={handleDeleteBanner} className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600">Delete Downloaded Banner</button>
+              <button onClick={onDownloadBanner} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Download Banner</button>
+              <button onClick={onSelectCustomBanner} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Select Custom Banner</button>
+              <button onClick={handleDeleteBanner} className="px-4 py-1 bg-danger text-white rounded hover:bg-dangerHover">Delete Downloaded Banner</button>
             </div>
           </div>
         ) : (
           <div className="flex space-x-2">
-            <button onClick={onDownloadBanner} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded" style={{ marginTop: '350px' }}>Download Banner</button>
-            <button onClick={onSelectCustomBanner} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded" style={{ marginTop: '350px' }}>Select Custom Banner</button>
+            <button onClick={onDownloadBanner} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded" style={{ marginTop: '350px' }}>Download Banner</button>
+            <button onClick={onSelectCustomBanner} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded" style={{ marginTop: '350px' }}>Select Custom Banner</button>
           </div>
         )}
       </div>
@@ -86,10 +86,10 @@ export default function MediaTab({
           </div>
         </div>
         <div className="flex space-x-2 mt-2">
-          <button onClick={onRefreshMetadata} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Refresh Media Links</button>
-          <button onClick={onDownloadPreviews} className="px-4 py-1 bg-tertiary hover:bg-button_hover rounded">Download All Previews</button>
+          <button onClick={onRefreshMetadata} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Refresh Media Links</button>
+          <button onClick={onDownloadPreviews} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Download All Previews</button>
           {Array.isArray(validPreviewUrls) && validPreviewUrls.length > 0 && (
-            <button onClick={handleDeletePreviews} className="px-4 py-1 bg-red-500 text-white rounded hover:bg-red-600">Delete Downloaded Previews</button>
+            <button onClick={handleDeletePreviews} className="px-4 py-1 bg-danger text-white rounded hover:bg-dangerHover">Delete Downloaded Previews</button>
           )}
         </div>
       </div>

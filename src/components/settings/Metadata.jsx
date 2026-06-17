@@ -149,7 +149,7 @@ const Metadata = () => {
             <button
               onClick={() => moveSource(index, -1)}
               disabled={index === 0}
-              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-button_hover disabled:opacity-30 disabled:cursor-not-allowed"
+              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-buttonHover disabled:opacity-30 disabled:cursor-not-allowed"
               title="Move up"
             >
               <i className="fas fa-chevron-up"></i>
@@ -157,14 +157,14 @@ const Metadata = () => {
             <button
               onClick={() => moveSource(index, 1)}
               disabled={index === sourceOrder.length - 1}
-              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-button_hover disabled:opacity-30 disabled:cursor-not-allowed"
+              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-buttonHover disabled:opacity-30 disabled:cursor-not-allowed"
               title="Move down"
             >
               <i className="fas fa-chevron-down"></i>
             </button>
             <button
               onClick={() => removeSource(id)}
-              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-[DarkRed]"
+              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-danger"
               title="Disable source"
             >
               <i className="fas fa-times"></i>

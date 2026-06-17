@@ -184,7 +184,7 @@ const SearchSidebar = ({
         {/* Saved filters */}
         <div className="mb-6 border-b border-border pb-4">
           <h4 className="font-bold mb-2">Saved Filters</h4>
-          <p className="text-xs text-gray-400 mb-3">
+          <p className="text-xs text-muted mb-3">
             Browse and apply saved filters from the left sidebar.
           </p>
           {!isSaveFormOpen ? (
@@ -217,7 +217,7 @@ const SearchSidebar = ({
                 disabled={saveBusy}
               />
               {saveError && (
-                <div className="text-xs text-red-400">{saveError}</div>
+                <div className="text-xs text-danger">{saveError}</div>
               )}
               <div className="flex gap-2">
                 <button
@@ -273,7 +273,7 @@ const SearchSidebar = ({
                   <option value="thread_updated">Latest Update</option>
                   <option value="thread_publish_date">Thread Published</option>
                 </select>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-muted mt-1">
                   Latest Update depends on AtlasDB thread update data. Some records may not appear until the database has finished updating.
                 </p>
               </label>
@@ -354,7 +354,7 @@ const SearchSidebar = ({
         <div className="mb-6 border-b border-border pb-4">
           <h4 className="font-bold mb-3 flex justify-between items-center">
             Tags (Max 10)
-            <span className="text-sm font-normal text-gray-400">
+            <span className="text-sm font-normal text-muted">
               {selectedFilters.tagLogic}
             </span>
           </h4>
@@ -424,10 +424,10 @@ const SearchSidebar = ({
               </span>
             ))}
           </div>
-          {tagError && <div className="text-xs text-red-400 mb-2">{tagError}</div>}
+          {tagError && <div className="text-xs text-danger mb-2">{tagError}</div>}
           <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
             {filteredTags.length === 0 ? (
-              <p className="text-sm text-gray-500">No tags found</p>
+              <p className="text-sm text-muted">No tags found</p>
             ) : (
               filteredTags.map((tag, index) => (
                 <label
@@ -460,7 +460,7 @@ const SearchSidebar = ({
           <h4 className="font-bold mb-3">Engine</h4>
           <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
             {options.engines.length === 0 ? (
-              <p className="text-sm text-gray-500">No engines found</p>
+              <p className="text-sm text-muted">No engines found</p>
             ) : (
               options.engines.map((engine) => (
                 <label
@@ -485,7 +485,7 @@ const SearchSidebar = ({
           <h4 className="font-bold mb-3">Status</h4>
           <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
             {options.statuses.length === 0 ? (
-              <p className="text-sm text-gray-500">No statuses found</p>
+              <p className="text-sm text-muted">No statuses found</p>
             ) : (
               options.statuses.map((status) => (
                 <label
