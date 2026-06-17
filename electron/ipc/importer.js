@@ -91,8 +91,16 @@ const toPositiveInteger = (value) => {
   return Number.isInteger(number) && number > 0 ? number : null;
 };
 
-const isArchiveFilePath = (filePath) =>
-  [".zip", ".7z", ".rar"].includes(path.extname(String(filePath || "")).toLowerCase());
+const getConfiguredExtractionExtensions = (appConfig) =>
+  String(appConfig?.Library?.extractionExtensions || "zip,7z,rar")
+    .split(",")
+    .map((ext) => ext.trim().toLowerCase().replace(/^\./, ""))
+    .filter(Boolean);
+
+const isArchiveFilePath = (filePath, appConfig) => {
+  const ext = path.extname(String(filePath || "")).toLowerCase().replace(/^\./, "");
+  return ext ? getConfiguredExtractionExtensions(appConfig).includes(ext) : false;
+};
 
 const inferCatalogImportVersion = (sourcePath, catalog = {}) => {
   const candidates = [
@@ -1111,11 +1119,14 @@ ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
 
 ipcMain.handle("select-catalog-import-source", async (event) => {
   const ownerWindow = BrowserWindow.fromWebContents(event.sender);
+  const currentConfig = ctx.appConfig || appConfig || {};
+  const archiveExtensions = getConfiguredExtractionExtensions(currentConfig);
+  const gameExtensions = getConfiguredGameExtensions(currentConfig);
   const result = await showOpenDialog(ownerWindow, {
     title: "Choose game folder, archive, or executable",
     properties: ["openFile", "openDirectory"],
     filters: [
-      { name: "Game files and archives", extensions: ["zip", "7z", "rar", "exe", "swf", "flv", "f4v", "rag", "cmd", "bat", "jar", "html"] },
+      { name: "Game files and archives", extensions: [...new Set([...archiveExtensions, ...gameExtensions])] },
       { name: "All files", extensions: ["*"] },
     ],
   });
@@ -1130,7 +1141,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
   }
 
   const catalog = payload.catalog || {};
-  const sourcePath = path.resolve(String(payload.sourcePath || ""));
+  const rawSourcePath = String(payload.sourcePath || "").trim();
   const requestedVersion = String(payload.version || "").trim();
   const conflictMode = String(payload.conflictMode || "check");
   const atlasId = toPositiveInteger(catalog.atlas_id ?? catalog.atlasId);
@@ -1138,7 +1149,17 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
   const steamId = toPositiveInteger(catalog.steam_id ?? catalog.steamId ?? catalog.steam_appid);
 
   try {
-    const stat = await fsp.stat(sourcePath);
+    if (!rawSourcePath) {
+      return { success: false, error: "Dropped path was empty" };
+    }
+    const sourcePath = path.resolve(rawSourcePath);
+    const stat = await fsp.stat(sourcePath).catch((err) => {
+      if (err?.code === "ENOENT") return null;
+      throw err;
+    });
+    if (!stat) {
+      return { success: false, error: "Dropped path does not exist" };
+    }
     if (!stat.isDirectory() && !stat.isFile()) {
       return { success: false, error: "Import source must be a folder or file" };
     }
@@ -1249,10 +1270,14 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
     let relativeExec = "";
     const targetBase = getUniquePath(buildStructuredImportPath(targetLibrary, destinationFormat, importGame));
     const extensions = getConfiguredGameExtensions(currentConfig);
-    if (stat.isFile() && !isArchiveFilePath(sourcePath)) {
+    const archiveExtensions = getConfiguredExtractionExtensions(currentConfig);
+    if (stat.isFile() && !isArchiveFilePath(sourcePath, currentConfig)) {
       const ext = path.extname(sourcePath).toLowerCase().replace(/^\./, "");
+      if (archiveExtensions.length > 0 && ["zip", "7z", "rar"].includes(ext) && !archiveExtensions.includes(ext)) {
+        return { success: false, error: `Archive type .${ext} is not enabled in extraction extensions` };
+      }
       if (!extensions.includes(ext)) {
-        return { success: false, error: `Unsupported standalone file type: .${ext || "unknown"}` };
+        return { success: false, error: `Dropped path is not a supported folder/archive/launchable file: .${ext || "unknown"}` };
       }
     }
 
@@ -1266,7 +1291,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
       const execs = findExecutables(gamePath, extensions);
       relativeExec = execs[0] || "";
       execPath = relativeExec ? path.join(gamePath, relativeExec) : "";
-    } else if (isArchiveFilePath(sourcePath)) {
+    } else if (isArchiveFilePath(sourcePath, currentConfig)) {
       const resolvedSevenZip = await resolveSevenZipExecutablePath({
         configuredPath: currentConfig?.Library?.sevenZipPath,
         currentConfig,

@@ -1,5 +1,5 @@
 // src/renderer.js
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
   isWindows: () => process.platform === "win32",
@@ -95,6 +95,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
   selectCatalogImportSource: () =>
     ipcRenderer.invoke("select-catalog-import-source"),
   importCatalogEntry: (params) => ipcRenderer.invoke("import-catalog-entry", params),
+  getDroppedFilePath: (file) => {
+    const webUtilsPath = webUtils?.getPathForFile?.(file) || "";
+    const fallbackPath = file?.path || "";
+    const resolvedPath = webUtilsPath || fallbackPath || "";
+    console.log("Dropped file path diagnostics", {
+      name: file?.name || "",
+      type: file?.type || "",
+      extension: file?.name?.includes(".") ? file.name.split(".").pop() : "",
+      webUtilsReturnedPath: Boolean(webUtilsPath),
+      fallbackPathExisted: Boolean(fallbackPath),
+      resolvedPath: Boolean(resolvedPath),
+    });
+    return resolvedPath;
+  },
   cancelImport: () => ipcRenderer.invoke("cancel-import"),
   log: (message) => ipcRenderer.invoke("log", message),
   sendUpdateProgress: (progress) =>

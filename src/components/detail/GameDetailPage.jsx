@@ -58,9 +58,15 @@ const inferImportVersion = (game = {}, sourcePath = '') => {
   return String(game.latestVersion || game.latest_version || 'Unknown').trim() || 'Unknown'
 }
 
-const getDroppedPath = (event) => {
+const getDroppedPath = async (event) => {
   const files = Array.from(event.dataTransfer?.files || [])
-  return files[0]?.path || ''
+  const items = Array.from(event.dataTransfer?.items || [])
+  const file = files[0] || items.find((item) => item.kind === 'file')?.getAsFile?.()
+  if (!file) return ''
+  if (window.electronAPI.getDroppedFilePath) {
+    return window.electronAPI.getDroppedFilePath(file)
+  }
+  return file.path || ''
 }
 
 const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
@@ -336,12 +342,12 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     }
   }
 
-  const handleCatalogDrop = (event) => {
+  const handleCatalogDrop = async (event) => {
     event.preventDefault()
     setCatalogImportDragging(false)
-    const droppedPath = getDroppedPath(event)
+    const droppedPath = await getDroppedPath(event)
     if (!droppedPath) {
-      setCatalogImportError('Atlas could not read that dropped path.')
+      setCatalogImportError('Atlas could not read the dropped file path. Try using Import Files instead.')
       return
     }
     setCatalogImportPath(droppedPath)
