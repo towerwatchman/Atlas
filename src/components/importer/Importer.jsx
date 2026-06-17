@@ -54,6 +54,7 @@ const Importer = () => {
   const autoSelectLatestReplaceVersionRef = useRef(false)
   const [libraryFormat, setLibraryFormat] = useState('{creator}/{title}/{version}')
   const [askingForLibraryFolder, setAskingForLibraryFolder] = useState(false)
+  const [importMode, setImportMode] = useState('games')
 
   // ── Scan results ──────────────────────────────────────────────────────────
   const [progress, setProgress] = useState({ value: 0, total: 0, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 })
@@ -69,6 +70,7 @@ const Importer = () => {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const getScanGameKey = (game) => {
+    if (game?.sourceType === 'renpySave') return `renpy:${game.savePath || game.saveId || game.title}`
     if (game?.sourceFile) return `source:${game.sourceFile}`
     if (game?.folder && game?.singleExecutable) return `folder-file:${game.folder}/${game.singleExecutable}`
     if (game?.folder) return `folder:${game.folder}`
@@ -82,6 +84,9 @@ const Importer = () => {
   const isUnmatchedGame = (game) => (game.results || []).length === 0
 
   const isImportableGame = (game, { includeUnmatchedGames = false, includeArchiveGames = false } = {}) => {
+    if (game.sourceType === 'renpySave') {
+      return (game.scanStatus || 'new') === 'new' && !!game.savePath
+    }
     if (!isNewScanRow(game) && !isExistingImportRow(game)) return false
     if (game.isArchive && !includeArchiveGames) return false
     if (!game.isArchive && !game.selectedValue) return false
@@ -103,6 +108,9 @@ const Importer = () => {
     if (scanStatus === 'steamVersion') return { text: 'Add as Steam version', type: 'steamVersion' }
     if (scanStatus === 'missingLaunchable') return { text: 'Missing launchable', type: 'missingLaunchable' }
     if (scanStatus === 'emptyFolder') return { text: 'Empty folder', type: 'emptyFolder' }
+    if (game.sourceType === 'renpySave') {
+      return { text: game.recordId ? 'Already in Library' : 'Ready as Uninstalled', type: 'ready' }
+    }
     if (scanStatus !== 'new') return { text: game.scanMessage || 'Skipped', type: 'blocked' }
 
     const needsUnmatched = isUnmatchedGame(game) && !includeUnmatched
@@ -123,6 +131,7 @@ const Importer = () => {
 
   const getImportDisabledReason = () => {
     if (canImport) return ''
+    if (importMode === 'renpySaves') return 'No Ren\'Py save rows are ready to import'
     const newRows = gamesList.filter((game) => isNewScanRow(game) || isExistingImportRow(game))
     if (newRows.length === 0) return 'No new importable scan rows found'
     const hasArchives = newRows.some((game) => game.isArchive)
@@ -236,6 +245,15 @@ const Importer = () => {
           latestVersion: atlasData.latestVersion || '',
         }
       } catch (err) { console.error('Failed to hydrate selected match:', err) }
+    }
+    if (updatedGame.sourceType === 'renpySave') {
+      return {
+        ...updatedGame,
+        version: 'No version',
+        selectedValue: '',
+        singleExecutable: 'N/A',
+        scanMessage: 'Ready as Uninstalled',
+      }
     }
     return applyImportStatus(updatedGame)
   }
@@ -380,6 +398,7 @@ const Importer = () => {
 
   const startScan = async () => {
     if (!folder) return alert('Select a folder')
+    setImportMode('games')
     setView('scan')
     deletedScanGameKeysRef.current.clear()
     setGamesList([])
@@ -400,6 +419,7 @@ const Importer = () => {
   // the same scan-progress / scan-complete / scan-complete-final channel as the
   // Atlas importer, so they flow into the existing ScanStep table unchanged.
   const startSteamScan = async (steamPath = null) => {
+    setImportMode('steam')
     setView('scan')
     deletedScanGameKeysRef.current.clear()
     setGamesList([])
@@ -409,6 +429,40 @@ const Importer = () => {
       // A "no games found" miss is surfaced via prompt-steam-directory instead
       // of an error, so only alert on genuine failures.
       console.error(`Steam scan error: ${result.error}`)
+    }
+  }
+
+  const startRenpyScan = async (renpyRoot = null) => {
+    setImportMode('renpySaves')
+    setView('scan')
+    deletedScanGameKeysRef.current.clear()
+    setGamesList([])
+    setProgressLabel("Ren'Py Save Folders")
+    try {
+      let result = await window.electronAPI.scanRenpySaves(renpyRoot ? { rootPath: renpyRoot } : {})
+      if (result?.needsSelection) {
+        alert(result.message || "Ren'Py save folder was not found. Select it manually.")
+        const selected = await window.electronAPI.selectRenpySaveDirectory()
+        if (!selected) {
+          setView('source')
+          return
+        }
+        result = await window.electronAPI.scanRenpySaves({ rootPath: selected })
+      }
+      if (!result?.success) {
+        alert(result?.error || "Ren'Py save scan failed")
+        setView('source')
+        return
+      }
+      const rows = result.games || []
+      setFolder(result.rootPath || renpyRoot || '')
+      setProgress({ value: rows.length, total: rows.length, potential: rows.length, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: rows.length })
+      setGamesList(rows)
+      setProgressLabel(null)
+    } catch (err) {
+      alert(`Ren'Py save scan failed: ${err.message || err}`)
+      setView('source')
+      setProgressLabel(null)
     }
   }
 
@@ -439,6 +493,10 @@ const Importer = () => {
     let updatedGames = gamesList.map((game) => ({ ...game }))
     for (let i = 0; i < updatedGames.length; i++) {
       let game = { ...updatedGames[i] }
+      if (game.sourceType === 'renpySave') {
+        setProgress((prev) => ({ ...prev, value: i + 1 }))
+        continue
+      }
       if (!isNewScanRow(game) && game.scanStatus !== 'pendingMatch') {
         setProgress((prev) => ({ ...prev, value: i + 1 }))
         await new Promise((r) => setTimeout(r, 0))
@@ -496,6 +554,19 @@ const Importer = () => {
   const importGamesFunc = async () => {
     const gamesToImport = gamesList.filter((game) => isImportableGame(game, importOptions))
     if (gamesToImport.length === 0) { alert('No games to import'); return }
+    if (importMode === 'renpySaves') {
+      try {
+        const result = await window.electronAPI.importRenpySaveGames(gamesToImport)
+        if (!result?.success) {
+          alert(result?.error || "Ren'Py save import failed")
+          return
+        }
+        window.electronAPI.closeWindow()
+      } catch (err) {
+        alert(`Ren'Py save import failed: ${err.message || 'Unknown error'}`)
+      }
+      return
+    }
     let finalLibraryPath = defaultLibraryPath
     if (moveGame && !finalLibraryPath) {
       setAskingForLibraryFolder(true)
@@ -552,7 +623,7 @@ const Importer = () => {
       </div>
 
       <div className="flex-1 p-4 bg-secondary overflow-y-auto">
-        {view === 'source' && <SourceStep onSelect={setView} onStartSteam={startSteamScan} />}
+        {view === 'source' && <SourceStep onSelect={setView} onStartSteam={startSteamScan} onStartRenpy={startRenpyScan} />}
 
         {view === 'settings' && (
           <SettingsStep

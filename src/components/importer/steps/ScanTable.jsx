@@ -102,6 +102,7 @@ export default function ScanTable({
             : rowStatus.type === 'missingLaunchable' ? 'text-red-300'
             : 'text-green-300'
           const sourceUrls = getSourceUrls(game)
+          const isRenpySave = game.sourceType === 'renpySave'
 
           return (
             <tr key={getGameKey(game)} className="bg-primary">
@@ -122,7 +123,7 @@ export default function ScanTable({
                 <input value={game.engine} disabled={!rowIsNew} onChange={(e) => onUpdateGame(getGameKey(game), 'engine', e.target.value)} className="w-full bg-secondary border border-border p-1" />
               </td>
               <td className="border border-border p-1">
-                <input value={game.version} disabled={!rowIsNew} onChange={(e) => onUpdateGame(getGameKey(game), 'version', e.target.value)} className="w-full bg-secondary border border-border p-1" />
+                <input value={game.version} disabled={!rowIsNew || isRenpySave} onChange={(e) => onUpdateGame(getGameKey(game), 'version', e.target.value)} className="w-full bg-secondary border border-border p-1" />
               </td>
               <td className="border border-border p-1">
                 <select
@@ -141,7 +142,7 @@ export default function ScanTable({
                 </select>
               </td>
               <td className="border border-border p-1">
-                {game.multipleVisible === 'visible' ? (
+                {isRenpySave ? 'N/A' : game.multipleVisible === 'visible' ? (
                   <select value={game.selectedValue} disabled={!rowIsNew} onChange={(e) => onUpdateGame(getGameKey(game), 'selectedValue', e.target.value)} className="w-full bg-secondary border border-border p-1">
                     {game.executables.map((opt) => <option key={opt.key} value={opt.key}>{opt.value}</option>)}
                   </select>
@@ -157,7 +158,7 @@ export default function ScanTable({
                 )}
               </td>
               <td className="border border-border p-1">
-                {game.isArchive ? game.sourceFile || game.folder || 'Archive' : game.folder || 'Metadata only'}
+                {isRenpySave ? game.savePath || game.folder : game.isArchive ? game.sourceFile || game.folder || 'Archive' : game.folder || 'Metadata only'}
               </td>
               <td className={`border border-border p-1 ${statusClass}`}>{statusText}</td>
               <td className="border border-border p-1 min-w-[220px]">
