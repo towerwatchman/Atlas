@@ -969,29 +969,34 @@ const hydrateImportMatch = async (game, selectedValue) => {
 
   const status = await getImportRecordStatus(updatedGame);
   const recordExist = status?.status === "alreadyImported";
+  const isSteamVersion = status?.status === "steamVersion";
   return {
     ...updatedGame,
     recordExist,
     existingRecordId: status?.recordId || "",
     scanStatus: recordExist
       ? "alreadyImported"
-      : status?.status === "repairPath"
-        ? "repairPath"
-        : "new",
+      : isSteamVersion
+        ? "steamVersion"
+        : status?.status === "repairPath"
+          ? "repairPath"
+          : "new",
     scanMessage: recordExist
       ? "Already imported"
-      : status?.status === "repairPath"
-        ? "Repair path"
-        : updatedGame.isArchive
-          ? "Archive"
-          : "Ready to import",
+      : isSteamVersion
+        ? "Add as Steam version"
+        : status?.status === "repairPath"
+          ? "Repair path"
+          : updatedGame.isArchive
+            ? "Archive"
+            : "Ready to import",
   };
 };
 
 const chooseInstalledImportMatch = async (game, results) => {
   for (const result of results) {
     const candidate = await hydrateImportMatch({ ...game, results }, result.key);
-    if (["alreadyImported", "repairPath"].includes(candidate.scanStatus)) {
+    if (["alreadyImported", "repairPath", "steamVersion"].includes(candidate.scanStatus)) {
       return candidate;
     }
   }
@@ -1254,7 +1259,7 @@ ipcMain.handle("import-games", async (event, params) => {
 
   const games = submittedGames.filter(
     (game) =>
-      ["new", "repairPath"].includes(game.scanStatus || "new") ||
+      ["new", "repairPath", "steamVersion"].includes(game.scanStatus || "new") ||
       (forceReimport && game.scanStatus === "alreadyImported"),
   );
   const destinationFormat =
@@ -1619,7 +1624,7 @@ ipcMain.handle("import-games", async (event, params) => {
       if (!recordId && game.steamId) {
         const steamMergeRecordId =
           (game.existingRecordId &&
-          String(game.scanStatus || "") === "repairPath"
+          ["steamVersion", "repairPath"].includes(String(game.scanStatus || ""))
             ? game.existingRecordId
             : null) || (await findRecordBySteamId(game.steamId));
         if (steamMergeRecordId) recordId = steamMergeRecordId;

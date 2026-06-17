@@ -58,6 +58,105 @@ export const formatPlaytime = (minutes) => {
 export const isVideoUrl = (url) =>
   /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ''))
 
+// True when the record is backed by a Steam appid (mapping or external id).
+export const isSteamGame = (game = {}) => !!(game.steam_appid || game.steam_id)
+
+// Developer should prefer the real developer. games.creator is sometimes a
+// placeholder ("Unknown") or the publisher captured at import time, so fall back
+// to the enriched steam_data.developer when creator is missing/placeholder.
+export const resolveDeveloper = (game = {}) => {
+  const creator = String(game.creator || '').trim()
+  if (creator && creator.toLowerCase() !== 'unknown') return creator
+  return String(game.steam_developer || '').trim()
+}
+
+// Language lists from Steam can be enormous. Collapse anything over the cap to a
+// short summary so the Details card stays readable.
+export const formatLanguages = (raw, cap = 5) => {
+  const list = String(raw || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (list.length === 0) return ''
+  if (list.length > cap) return `Multiple languages (${list.length})`
+  return list.join(', ')
+}
+
+// Convert Steam's HTML description (or plain/bbcode text) into readable plain
+// text. Avoids dangerouslySetInnerHTML — block tags become line breaks, list
+// items get bullets, everything else is stripped and entities decoded.
+export const htmlToText = (raw) => {
+  let s = String(raw || '')
+  if (!s) return ''
+  s = s
+    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+    .replace(/<\s*\/\s*(p|div|h[1-6]|tr|ul|ol)\s*>/gi, '\n')
+    .replace(/<\s*li[^>]*>/gi, '\u2022 ')
+    .replace(/<\s*\/\s*li\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+  const entities = {
+    '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"',
+    '&#39;': "'", '&apos;': "'", '&nbsp;': ' ',
+  }
+  s = s.replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&apos;|&nbsp;/g, (m) => entities[m] || m)
+  s = s.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+  return s.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim()
+}
+
+// Steam "category" descriptions → FontAwesome icon. Unknown categories fall back
+// to a neutral check so they still render as a clean line item.
+const STEAM_CATEGORY_ICONS = [
+  [/single-?player/i, 'fas fa-user'],
+  [/^mmo/i, 'fas fa-users'],
+  [/co-?op/i, 'fas fa-user-friends'],
+  [/multi-?player/i, 'fas fa-users'],
+  [/pvp/i, 'fas fa-crosshairs'],
+  [/split screen|shared/i, 'fas fa-columns'],
+  [/cross-?platform/i, 'fas fa-random'],
+  [/achievement/i, 'fas fa-trophy'],
+  [/leaderboard/i, 'fas fa-list-ol'],
+  [/trading card/i, 'fas fa-id-card'],
+  [/workshop/i, 'fas fa-tools'],
+  [/cloud/i, 'fas fa-cloud'],
+  [/full controller/i, 'fas fa-gamepad'],
+  [/partial controller/i, 'fas fa-gamepad'],
+  [/remote play/i, 'fas fa-mobile-alt'],
+  [/\bvr\b|virtual reality/i, 'fas fa-vr-cardboard'],
+  [/captions|subtitle/i, 'fas fa-closed-captioning'],
+  [/in-app purchase/i, 'fas fa-shopping-cart'],
+  [/level editor|editor/i, 'fas fa-pencil-ruler'],
+  [/anti-?cheat/i, 'fas fa-shield-alt'],
+  [/stats/i, 'fas fa-chart-bar'],
+  [/hdr/i, 'fas fa-adjust'],
+  [/commentary/i, 'fas fa-comment-dots'],
+]
+
+export const getCategoryIcon = (name) => {
+  const n = String(name || '')
+  for (const [re, icon] of STEAM_CATEGORY_ICONS) if (re.test(n)) return icon
+  return 'fas fa-check'
+}
+
+export const splitCsv = (raw) =>
+  String(raw || '').split(',').map((s) => s.trim()).filter(Boolean)
+
+// Atlas stores release_date as a Unix timestamp (seconds); Steam stores a
+// human string like "12 Jun, 2024". Prefer the Atlas timestamp (rendered as
+// YYYY-MM-DD), then fall back to the Steam string verbatim. Returns null when
+// neither is usable so the row is omitted.
+export const formatReleaseDate = (game = {}) => {
+  const atlas = game.release_date
+  if (atlas !== null && atlas !== undefined && String(atlas).trim() !== '') {
+    const ts = parseInt(atlas, 10)
+    if (Number.isFinite(ts) && ts > 0) {
+      const d = new Date(ts * 1000)
+      if (!Number.isNaN(d.getTime())) return d.toISOString().split('T')[0]
+    }
+  }
+  const steam = String(game.steam_release_date || '').trim()
+  return steam || null
+}
+
 export const LAUNCH_STATE = { IDLE: 'idle', LAUNCHING: 'launching', RUNNING: 'running' }
 
 export const STEAM_GREEN  = '#5ba300'

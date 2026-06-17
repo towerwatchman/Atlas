@@ -5,7 +5,8 @@ import InfoPanel from './page/InfoPanel.jsx'
 import PreviewLightbox from './page/PreviewLightbox.jsx'
 import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
-  sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl,
+  sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl, formatReleaseDate,
+  isSteamGame, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
 } from './page/gameDetailUtils.js'
 import { buildExternalLinks } from './externalLinks.js'
 
@@ -14,7 +15,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   const [selectedVersion, setSelectedVersion] = useState(null)
   const [isRefreshingMedia, setIsRefreshingMedia] = useState(false)
   const [launchState, setLaunchState] = useState(LAUNCH_STATE.IDLE)
-  const [showInfo, setShowInfo] = useState(false)
+  const [showInfo, setShowInfo] = useState(true)
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const [bannerMask, setBannerMask] = useState({ image: 'none', composite: null })
   const isRunningRef  = useRef(false)
@@ -37,7 +38,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
 
   useEffect(() => {
     setLaunchState(LAUNCH_STATE.IDLE)
-    setShowInfo(false)
+    setShowInfo(true)
     setLightboxIndex(null)
     isRunningRef.current = false
   }, [game?.record_id])
@@ -125,26 +126,35 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   const latestVersion = game.latestVersion || game.latest_version || ''
   const versionOptions = sortVersionsDesc(game.versions || [])
 
+  const steam = isSteamGame(game)
+  const developer = resolveDeveloper(game)
+  const categories = splitCsv(game.category)
+
+  // Comprehensive Details card. Only known fields render (empties filtered).
+  // Rules: collapse long language lists; hide Translations for Steam (its
+  // language list already covers it); Category renders specially for Steam.
   const metadataRows = [
-    ['Status', game.status], ['Engine', game.engine], ['Category', game.category],
-    ['Rating', game.rating], ['Likes', game.likes], ['Views', game.views],
-    ['Language', game.language], ['Censored', game.censored],
+    ['Developer', developer],
+    ['Publisher', game.publisher],
+    ['Release Date', formatReleaseDate(game)],
+    ['Status', game.status],
+    ['Engine', game.engine],
+    ['Genre', game.genre],
+    ['Language', formatLanguages(game.language)],
+    ...(steam ? [] : [['Translations', game.translations]]),
+    ['Voice', game.voice],
+    ['OS', game.os],
+    ['Censored', game.censored],
+    ['Rating', game.rating],
+    ['Likes', game.likes],
+    ['Views', game.views],
+    // Non-steam category stays a normal inline row; steam renders as a list.
+    ...(steam ? [] : [['Category', game.category]]),
   ].filter(([, v]) => v !== undefined && v !== null && v !== '')
 
   const localVersion = actionVersion?.version || selectedVersion?.version || game.versions?.[0]?.version || game.version || ''
 
   const externalLinks = buildExternalLinks(game.external_ids)
-
-  const infoRows = [
-    ['Installed Version', localVersion], ['Latest Version', latestVersion],
-    ['Developer', game.creator], ['Publisher', game.publisher],
-    ['Release Date', game.release_date ? new Date(parseInt(game.release_date) * 1000).toISOString().split('T')[0] : null],
-    ['Status', game.status], ['Engine', game.engine], ['Category', game.category],
-    ['Language', game.language], ['Translations', game.translations],
-    ['Genre', game.genre], ['Voice', game.voice], ['Rating', game.rating],
-    ['Censored', game.censored], ['Likes', game.likes], ['Views', game.views],
-    ['F95 ID', game.f95_id], ['Atlas ID', game.atlas_id],
-  ].filter(([, v]) => v !== undefined && v !== null && v !== '')
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const launchSelectedGame = async () => {
@@ -240,7 +250,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
 
       {showInfo && (
         <InfoPanel
-          infoRows={infoRows}
+          game={game}
           latestVersion={latestVersion}
           isUpdateAvailable={game.isUpdateAvailable}
         />
@@ -323,11 +333,28 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
             <div className="space-y-2 text-sm">
               {metadataRows.map(([label, value]) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 6 }}>
-                  <span style={{ color: '#9ca3af' }}>{label}</span>
-                  <span style={{ textAlign: 'right' }}>{value}</span>
+                  <span style={{ color: '#9ca3af', flexShrink: 0 }}>{label}</span>
+                  <span style={{ textAlign: 'right', minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{String(value)}</span>
                 </div>
               ))}
-              {metadataRows.length === 0 && <div style={{ color: '#9ca3af' }}>No metadata available</div>}
+
+              {steam && categories.length > 0 && (
+                <div style={{ paddingTop: 4 }}>
+                  <div style={{ color: '#9ca3af', marginBottom: 6 }}>Category</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {categories.map((cat) => (
+                      <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                        <i className={getCategoryIcon(cat)} style={{ width: 16, textAlign: 'center', color: '#7a9cc4', flexShrink: 0, fontSize: 13 }} aria-hidden="true"></i>
+                        <span style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{cat}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {metadataRows.length === 0 && !(steam && categories.length > 0) && (
+                <div style={{ color: '#9ca3af' }}>No metadata available</div>
+              )}
             </div>
           </section>
 

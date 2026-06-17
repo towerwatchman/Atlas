@@ -24,6 +24,7 @@ export default function ScanStep({
           <span>Archives {visibleStats.archives || 0}</span>
           <span>Already imported {visibleStats.alreadyImported || 0}</span>
           <span>Repairs {visibleStats.repairPath || 0}</span>
+          <span>Steam versions {visibleStats.steamVersion || 0}</span>
           <span>Missing launchable {visibleStats.missingLaunchable || 0}</span>
           <span>Empty folders {visibleStats.emptyFolder || 0}</span>
           <span>Total rows {visibleStats.totalFound || 0}</span>

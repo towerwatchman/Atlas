@@ -46,6 +46,7 @@ export default function ScanTable({
             : rowStatus.type === 'pending' ? 'text-blue-200'
             : rowStatus.type === 'emptyFolder' ? 'text-gray-300'
             : rowStatus.type === 'repairPath' ? 'text-cyan-300'
+            : rowStatus.type === 'steamVersion' ? 'text-sky-300'
             : rowStatus.type === 'blocked' ? 'text-yellow-200'
             : rowStatus.type === 'missingLaunchable' ? 'text-red-300'
             : 'text-green-300'

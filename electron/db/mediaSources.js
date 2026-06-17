@@ -36,12 +36,12 @@ const steamImages = (appid, game = {}) => ({
   // (steam_data.header) which is the exact image Steam serves, then fall back to
   // the unhashed library-CDN header.
   banner: (game && game.steam_header) || steamAsset(appid, 'header.jpg'),
-  // Tall key-art behind the details-page header.
+  // Tall key-art behind the details-page header. Prefer the exact API URL.
   hero: (game && game.steam_library_hero) || steamAsset(appid, 'library_hero.jpg'),
-  // Transparent title treatment shown bottom-left on the page. (Note: we do NOT
-  // use steam_data.logo here — the scanner stores the portrait cover there, not
-  // the transparent logo.)
-  logo: steamAsset(appid, 'logo.png'),
+  // Transparent title treatment shown bottom-left. steam_data.logo now holds the
+  // genuine transparent logo (resolved via the keyless GetItems endpoint); fall
+  // back to the buildable convention URL only if it's missing.
+  logo: (game && game.steam_logo) || steamAsset(appid, 'logo.png'),
 })
 
 // external_ids is stored as a JSON object string, e.g.
@@ -93,7 +93,8 @@ const dedupe = (list) => {
 // [unhashed CDN header, then the API/hashed shared.fastly header].
 const bannerCandidatesForSource = (source, game, appid) => {
   if (source === 'steam') {
-    return [steamAsset(appid, 'header.jpg'), game.steam_header]
+    // Exact API header (hashed, guaranteed) first; buildable convention second.
+    return [game.steam_header, steamAsset(appid, 'header.jpg')]
   }
   if (source === 'f95') {
     return [game.f95_banner]
@@ -112,10 +113,10 @@ const bannerCandidatesForOrder = (game, order, appid) => {
   return out
 }
 
-// Steam-only hero candidates: [unhashed CDN library_hero, then API library_hero].
+// Steam-only hero candidates: exact API library_hero first, convention second.
 const steamHeroCandidates = (game, appid) => [
-  steamAsset(appid, 'library_hero.jpg'),
   game.steam_library_hero,
+  steamAsset(appid, 'library_hero.jpg'),
 ]
 
 // Mutates `game` in place, attaching resolved media fields. Safe to call on any
@@ -161,9 +162,23 @@ const applyMediaSources = (game, options = {}) => {
   game.hero_candidates = heroCandidates
   game.hero_url = heroCandidates[0] || null
 
-  // Logo (bottom-left, steam-only). No cross-source fallback — f95/atlas have no
+  // Logo (bottom-left, steam-only). Exact API transparent logo first, then the
+  // buildable convention URL. No cross-source fallback — f95/atlas have no
   // equivalent; the renderer hides it and shows the title if it fails to load.
-  const logoCandidates = steamEnabled && appid ? dedupe([steamAsset(appid, 'logo.png')]) : []
+  //
+  // Guard against legacy rows: older enrichment wrongly stored the portrait
+  // capsule (library_600x900 / library_capsule) in the logo column. Reject any
+  // capsule-shaped URL so a stale value falls through to the real logo.png
+  // instead of rendering box art as the logo. Self-heals on next page load;
+  // a Refresh Media rewrites the column permanently.
+  const isCapsuleLike = (u) => /library_600x900|library_capsule/i.test(String(u || ''))
+  const logoCandidates = steamEnabled && appid
+    ? dedupe(
+        [game.steam_logo, steamAsset(appid, 'logo.png')]
+          .filter(Boolean)
+          .filter((u) => !isCapsuleLike(u)),
+      )
+    : []
   game.logo_candidates = logoCandidates
   game.logo_url = logoCandidates[0] || null
 

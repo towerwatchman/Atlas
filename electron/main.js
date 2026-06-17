@@ -53,7 +53,9 @@ const {
 } = require('./db/settings')
 
 const { initializeDatabase } = require('./db/index')
-const { db } = require('./db/index')
+// NOTE: do NOT destructure `db` from db/index at require time — it is null until
+// initializeDatabase() runs. Read it live via dbIndex.db inside buildCtx instead.
+const dbIndex = require('./db/index')
 
 const { startSteamScan } = require('./scanners/steamscanner')
 const { startScan } = require('./scanners/f95scanner')
@@ -555,7 +557,7 @@ function buildCtx() {
     updateBanners, updatePreviews, getAtlasData, getSteamIDbyRecord, addSteamMapping,
     countVersions, deleteVersion, deleteGameCompletely,
     getUniqueFilterOptions, getVersionForRecord, getInstalledVersionsForRecord,
-    getVersionPathsForRecord, db,
+    getVersionPathsForRecord, db: dbIndex.db,
     // scanners
     startSteamScan, startScan,
   }

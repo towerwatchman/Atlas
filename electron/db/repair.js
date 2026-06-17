@@ -153,8 +153,3 @@ module.exports = {
   repairDoubledApostropheRows,
   repairStaleVersionExecutables,
 }
-
-module.exports = {
-  repairDoubledApostropheRows,
-  repairStaleVersionExecutables,
-}

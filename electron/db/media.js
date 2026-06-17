@@ -209,9 +209,23 @@ const getPreviews = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
               toLocalAssetPath(appPath, isDev, row.path),
             );
             const remotePreviews = await getRemotePreviewUrls(recordId);
-            const previews = localPreviews.length > 0
-              ? localPreviews
-              : remotePreviews;
+
+            let previews;
+            if (localPreviews.length > 0) {
+              // Local art wins, BUT trailers are never downloaded in stream mode
+              // (and junk preview rows left by the old broken refresh-game-media
+              // could otherwise suppress the remote fallback entirely). So always
+              // surface remote *video* URLs that aren't already present, prepended
+              // so the trailer leads the grid. Screenshots stay local.
+              const isVideo = (u) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(u || ""));
+              const have = new Set(localPreviews);
+              const remoteTrailers = remotePreviews.filter(
+                (u) => isVideo(u) && !have.has(u),
+              );
+              previews = [...remoteTrailers, ...localPreviews];
+            } else {
+              previews = remotePreviews;
+            }
 
             console.log("Previews fetched for recordId:", recordId, previews);
             resolve(previews);

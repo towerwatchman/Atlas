@@ -9,6 +9,7 @@ const deriveImportStats = (games) => ({
   archives: games.filter((game) => game.isArchive && (game.scanStatus || 'new') === 'new').length,
   alreadyImported: games.filter((game) => game.scanStatus === 'alreadyImported').length,
   repairPath: games.filter((game) => game.scanStatus === 'repairPath').length,
+  steamVersion: games.filter((game) => game.scanStatus === 'steamVersion').length,
   missingLaunchable: games.filter((game) => game.scanStatus === 'missingLaunchable').length,
   emptyFolder: games.filter((game) => game.scanStatus === 'emptyFolder').length,
   totalFound: games.length,
@@ -55,7 +56,7 @@ const Importer = () => {
   const [askingForLibraryFolder, setAskingForLibraryFolder] = useState(false)
 
   // ── Scan results ──────────────────────────────────────────────────────────
-  const [progress, setProgress] = useState({ value: 0, total: 0, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 })
+  const [progress, setProgress] = useState({ value: 0, total: 0, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 })
   const [progressLabel, setProgressLabel] = useState(null)
   const [gamesList, setGamesList] = useState([])
   const [hideMatches, setHideMatches] = useState(false)
@@ -74,7 +75,7 @@ const Importer = () => {
     return [game?.sourceFile, game?.folder, game?.singleExecutable, game?.title, game?.creator, game?.version, game?.f95Id, game?.atlasId].join('|')
   }
 
-  const isNewScanRow = (game) => ['new', 'repairPath'].includes(game.scanStatus || 'new')
+  const isNewScanRow = (game) => ['new', 'repairPath', 'steamVersion'].includes(game.scanStatus || 'new')
   const isExistingImportRow = (game) => game.scanStatus === 'alreadyImported' && forceReimport
   const hasDatabaseMatch = (game) => game.results?.length === 1 && game.results[0]?.key === 'match'
   const hasSelectedDatabaseMatch = (game) => game.results?.length > 1 && !!game.resultSelectedValue
@@ -99,6 +100,7 @@ const Importer = () => {
     if (scanStatus === 'pendingMatch') return { text: 'Pending match', type: 'pending' }
     if (scanStatus === 'alreadyImported') return { text: 'Already imported', type: 'alreadyImported' }
     if (scanStatus === 'repairPath') return { text: 'Repair path', type: 'repairPath' }
+    if (scanStatus === 'steamVersion') return { text: 'Add as Steam version', type: 'steamVersion' }
     if (scanStatus === 'missingLaunchable') return { text: 'Missing launchable', type: 'missingLaunchable' }
     if (scanStatus === 'emptyFolder') return { text: 'Empty folder', type: 'emptyFolder' }
     if (scanStatus !== 'new') return { text: game.scanMessage || 'Skipped', type: 'blocked' }
@@ -208,11 +210,12 @@ const Importer = () => {
     try {
       const status = await window.electronAPI.getImportRecordStatus(game)
       const recordExist = status?.status === 'alreadyImported'
+      const isSteamVersion = status?.status === 'steamVersion'
       return applyReplaceOptions({
         ...game, recordExist,
         existingRecordId: status?.recordId || '',
-        scanStatus: recordExist ? 'alreadyImported' : status?.status === 'repairPath' ? 'repairPath' : 'new',
-        scanMessage: recordExist ? 'Already imported' : status?.status === 'repairPath' ? 'Repair path' : game.scanMessage || (game.isArchive ? 'Archive' : 'Ready to import'),
+        scanStatus: recordExist ? 'alreadyImported' : isSteamVersion ? 'steamVersion' : status?.status === 'repairPath' ? 'repairPath' : 'new',
+        scanMessage: recordExist ? 'Already imported' : isSteamVersion ? 'Add as Steam version' : status?.status === 'repairPath' ? 'Repair path' : game.scanMessage || (game.isArchive ? 'Archive' : 'Ready to import'),
       })
     } catch { return applyReplaceOptions(game) }
   }
@@ -234,7 +237,7 @@ const Importer = () => {
   const chooseInstalledMatch = async (game, results) => {
     for (const result of results) {
       const candidate = await applySelectedMatch({ ...game, results }, result.key)
-      if (['alreadyImported', 'repairPath'].includes(candidate.scanStatus)) return candidate
+      if (['alreadyImported', 'repairPath', 'steamVersion'].includes(candidate.scanStatus)) return candidate
     }
     return applySelectedMatch({ ...game, results }, results[0]?.key || '')
   }

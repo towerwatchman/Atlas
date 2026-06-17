@@ -69,7 +69,8 @@
     "linux": {
       "target": [
         "deb",
-        "AppImage"
+        "AppImage",
+        "pacman"
       ]
     }
   },

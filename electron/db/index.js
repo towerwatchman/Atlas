@@ -306,6 +306,7 @@ const initializeDatabase = (dataDir) => {
     release_date TEXT,
     header TEXT,
     library_hero TEXT,
+    library_capsule TEXT,
     logo TEXT,
     last_record_update TEXT
   );
@@ -370,6 +371,7 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN extras STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN translations STRING;`, () => {});
     db.run(`ALTER TABLE steam_data ADD COLUMN type STRING;`, () => {});
+    db.run(`ALTER TABLE steam_data ADD COLUMN library_capsule TEXT;`, () => {});
 
     // Drop the legacy UNIQUE constraint on atlas_data.id_name. id_name is no
     // longer a key (the remote anchors on f95_id/atlas_id), and leaving it

@@ -412,7 +412,7 @@ const getImportRecordStatus = (game) => {
             .then((recordId) => {
               resolve(
                 recordId
-                  ? { status: "repairPath", recordId, exactPath: false }
+                  ? { status: "steamVersion", recordId, exactPath: false }
                   : { status: "new", recordId: null, exactPath: false },
               );
             })

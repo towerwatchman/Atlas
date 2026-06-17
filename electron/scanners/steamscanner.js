@@ -61,6 +61,68 @@ function parseVDF(text) {
   return root;
 }
 
+// Steam serves canonical, hashed store art from this CDN. The IStoreBrowseService
+// GetItems endpoint hands back exact filenames (incl. cache-buster ?t=hash) which
+// we join onto this base — no guessing, no 404s, no mislabeled logo.
+const STORE_ASSET_BASE = "https://shared.fastly.steamstatic.com/store_item_assets/";
+
+// Resolve guaranteed-existing library art for an appid via the public (keyless)
+// IStoreBrowseService/GetItems endpoint — the same call the Steam store front-end
+// makes. Returns { header, hero, capsule, logo } of full https URLs; any field
+// may be absent. Returns {} on any failure so callers fall back to convention
+// URLs. NOTE: response shape assumed from the live store API — verify against a
+// real response if fields come back empty.
+async function fetchStoreItemAssets(appid) {
+  const id = parseInt(appid, 10);
+  if (!id) return {};
+  try {
+    const input = {
+      ids: [{ appid: id }],
+      context: { language: "english", country_code: "US" },
+      data_request: { include_assets: true },
+    };
+    const res = await fetch(
+      `https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=${encodeURIComponent(
+        JSON.stringify(input),
+      )}`,
+    );
+    const json = await res.json();
+    const item =
+      json &&
+      json.response &&
+      Array.isArray(json.response.store_items) &&
+      json.response.store_items[0];
+    const assets = item && item.assets;
+    if (!assets || !assets.asset_url_format) return {};
+
+    // asset_url_format looks like "steam/apps/440/${filename}". Each asset field
+    // (library_hero, logo, …) is just the filename (with its ?t= cache-buster).
+    const build = (filename) =>
+      filename
+        ? STORE_ASSET_BASE +
+          assets.asset_url_format.replace(/\$\{filename\}|\{filename\}/, filename)
+        : "";
+
+    const pick = (...keys) => {
+      for (const k of keys) if (assets[k]) return build(assets[k]);
+      return "";
+    };
+
+    return {
+      header: pick("header", "library_header"),
+      // Prefer the 2x (higher-res) variants when present.
+      hero: pick("library_hero_2x", "library_hero"),
+      capsule: pick("library_capsule_2x", "library_capsule"),
+      // The genuine transparent title treatment — fixes the long-standing bug of
+      // storing the portrait capsule in the logo slot.
+      logo: pick("logo_2x", "logo"),
+    };
+  } catch (err) {
+    console.error(`fetchStoreItemAssets failed for ${appid}:`, err);
+    return {};
+  }
+}
+
 async function getSteamGameData(steamId) {
   try {
     const steamResponse = await fetch(
@@ -111,19 +173,36 @@ async function getSteamGameData(steamId) {
       ? data.screenshots.map((s) => s.path_full)
       : [];
 
+    // Steam returns movie + thumbnail URLs as http://; in a packaged build the
+    // renderer runs in a secure context and will silently refuse to load mixed
+    // (http) content, so force https:// on every Steam-served media URL.
+    const forceHttps = (u) =>
+      typeof u === "string" ? u.replace(/^http:\/\//i, "https://") : u;
+
     // Trailers: prefer the highest-quality mp4 (broadly supported), fall back
     // to webm. Each movie carries a thumbnail and name.
     const movies = (data.movies || [])
       .map((m) => {
-        const url =
+        const url = forceHttps(
           (m.mp4 && (m.mp4.max || m.mp4["480"])) ||
-          (m.webm && (m.webm.max || m.webm["480"])) ||
-          "";
+            (m.webm && (m.webm.max || m.webm["480"])) ||
+            "",
+        );
         return url
-          ? { url, thumbnail: m.thumbnail || "", name: m.name || "" }
+          ? { url, thumbnail: forceHttps(m.thumbnail || ""), name: m.name || "" }
           : null;
       })
       .filter(Boolean);
+
+    console.log(
+      `Steam ${steamId}: ${movies.length} trailer(s), ${screenshots.length} screenshot(s)`,
+    );
+
+    // Canonical, hashed library art (keyless GetItems). Falls back to buildable
+    // convention URLs on the live fastly CDN (NOT the dead akamaihd host).
+    const assets = await fetchStoreItemAssets(steamId);
+    const conventionAsset = (file) =>
+      `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/${file}`;
 
     const game = {
       steam_id: parseInt(steamId),
@@ -145,9 +224,13 @@ async function getSteamGameData(steamId) {
       os: osArr.join(","),
       release_state: data.release_date.coming_soon ? "upcoming" : "released",
       release_date: data.release_date.date || "",
-      header: data.header_image || "",
-      library_hero: `https://steamcdn-a.akamaihd.net/steam/apps/${steamId}/library_hero.jpg`,
-      logo: `https://steamcdn-a.akamaihd.net/steam/apps/${steamId}/library_600x900.jpg`,
+      header: assets.header || data.header_image || conventionAsset("header.jpg"),
+      library_hero: assets.hero || conventionAsset("library_hero.jpg"),
+      // Portrait grid art (600x900) now lives in its own column.
+      library_capsule: assets.capsule || conventionAsset("library_600x900.jpg"),
+      // The transparent logo — the real one from GetItems, with a convention
+      // fallback. (Previously this column wrongly held the portrait capsule.)
+      logo: assets.logo || conventionAsset("logo.png"),
       last_record_update: new Date().toISOString(),
     };
 
@@ -162,8 +245,8 @@ async function insertSteamData(db, data) {
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT OR REPLACE INTO steam_data (
-        steam_id, atlas_id, title, category, engine, developer, publisher, overview, censored, language, translations, genre, tags, voice, os, release_state, release_date, header, library_hero, logo, last_record_update, type
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        steam_id, atlas_id, title, category, engine, developer, publisher, overview, censored, language, translations, genre, tags, voice, os, release_state, release_date, header, library_hero, library_capsule, logo, last_record_update, type
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.steam_id,
         data.atlas_id || null,
@@ -184,6 +267,7 @@ async function insertSteamData(db, data) {
         data.release_date,
         data.header,
         data.library_hero,
+        data.library_capsule || null,
         data.logo,
         data.last_record_update,
         data.type || "",
@@ -218,6 +302,20 @@ async function insertSteamScreens(db, steamId, screens) {
 async function insertSteamMovies(db, steamId, movies) {
   return new Promise((resolve, reject) => {
     db.serialize(() => {
+      // Defensive: older DBs created before the steam_movies migration shipped
+      // may not have this table. Screenshots are inserted just before movies, so
+      // without this a "no such table" error would silently drop every trailer
+      // while screenshots still landed — exactly the "screens but no trailers"
+      // symptom. CREATE IF NOT EXISTS is a no-op once the migration has run.
+      db.run(`
+        CREATE TABLE IF NOT EXISTS steam_movies (
+          steam_id INTEGER REFERENCES steam_data (steam_id),
+          movie_url TEXT NOT NULL,
+          thumbnail TEXT,
+          name TEXT,
+          UNIQUE (steam_id, movie_url)
+        )
+      `);
       db.run("BEGIN TRANSACTION");
       const stmt = db.prepare(
         `INSERT OR IGNORE INTO steam_movies (steam_id, movie_url, thumbnail, name) VALUES (?, ?, ?, ?)`,
@@ -347,6 +445,7 @@ async function getInstalledSteamGames(overridePath = null) {
               name: appState.name,
               installDir: path.join(lib, "common", appState.installdir),
               size: appState.SizeOnDisk ? parseInt(appState.SizeOnDisk) : 0,
+              buildId: appState.buildid ? String(appState.buildid) : "",
             };
             console.log(`Adding game: ${JSON.stringify(gameData)}`);
             games.push(gameData);
@@ -472,7 +571,11 @@ async function startSteamScan(db, params, event) {
         creator:
           (meta && meta.developer) || (meta && meta.publisher) || "Unknown",
         engine: (meta && meta.engine) || "Unknown",
-        version: "Steam",
+        // Label the version with the .acf buildid when present so successive
+        // Steam builds are distinguishable; fall back to a plain "Steam" label.
+        // (Dedup/merge resolves by appid, not this label, so the format is safe
+        // to vary — see getImportRecordStatus.)
+        version: steamGame.buildId ? `Steam build ${steamGame.buildId}` : "Steam",
         steamType: (meta && meta.type) || "game",
         folder: steamGame.installDir,
         executables: [{ key: "steam", value: "Launch via Steam" }],
@@ -506,9 +609,11 @@ async function startSteamScan(db, params, event) {
 module.exports = {
   getSteamGameData,
   fetchAndStoreSteamData,
+  fetchStoreItemAssets,
   findSteamId,
   insertSteamData,
   insertSteamScreens,
+  insertSteamMovies,
   getSteamLibraryFolders,
   getInstalledSteamGames,
   startSteamScan,
