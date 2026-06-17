@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import SafeImage from '../../ui/SafeImage.jsx'
+import PreviewLightbox from '../page/PreviewLightbox.jsx'
 
 export default function MediaTab({
   game, bannerUrl, bannerMediaStatus,
@@ -7,6 +9,8 @@ export default function MediaTab({
   onDownloadBanner, onSelectCustomBanner,
   onDownloadPreviews, onRefreshMetadata,
 }) {
+  const [lightboxIndex, setLightboxIndex] = useState(null)
+
   const handleDeleteBanner = async () => {
     try {
       await window.electronAPI.deleteBanner(game.record_id)
@@ -99,16 +103,19 @@ export default function MediaTab({
         <label>Preview Images</label>
         <p className="text-xs opacity-60 mb-1">{previewMediaStatus}</p>
         <div style={{ height: `${previewHeight}px`, overflowY: 'auto' }}>
-          <div className="grid grid-cols-3 gap-2 p-2">
+          <div
+            className="grid gap-2 p-2"
+            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}
+          >
             {Array.isArray(validPreviewUrls) && validPreviewUrls.length > 0 ? (
               validPreviewUrls.map((url, index) => (
                 <SafeImage
                   key={index}
                   src={url}
                   alt={`Preview ${index + 1}`}
-                  className="w-full max-w-[300px] aspect-video rounded cursor-pointer"
+                  className="w-full aspect-video object-contain bg-primary rounded cursor-pointer"
                   fallbackLabel="Preview unavailable"
-                  onClick={() => window.electronAPI.openExternalUrl(url)}
+                  onClick={() => setLightboxIndex(index)}
                 />
               ))
             ) : (
@@ -124,6 +131,13 @@ export default function MediaTab({
           )}
         </div>
       </div>
+      <PreviewLightbox
+        previews={validPreviewUrls || []}
+        lightboxIndex={lightboxIndex}
+        onClose={() => setLightboxIndex(null)}
+        onPrev={() => setLightboxIndex((i) => (i === null ? i : (i - 1 + validPreviewUrls.length) % validPreviewUrls.length))}
+        onNext={() => setLightboxIndex((i) => (i === null ? i : (i + 1) % validPreviewUrls.length))}
+      />
     </div>
   )
 }

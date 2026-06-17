@@ -359,12 +359,14 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             <span style={{ fontSize: 11, color: '#9ca3af' }}>{previews.length} available</span>
           </div>
           {previews.length > 0 ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div
+              className="grid gap-3"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}
+            >
               {previews.map((preview, index) => (
                 <div
                   key={`${preview}-${index}`}
                   className="border border-border overflow-hidden aspect-video cursor-pointer hover:border-accent transition-colors relative"
-                  style={{ maxWidth: 600 }}
                   onClick={() => setLightboxIndex(index)}
                   title={isVideoUrl(preview) ? 'Play trailer' : 'Click to view'}
                 >
