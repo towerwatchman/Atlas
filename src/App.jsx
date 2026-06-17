@@ -12,6 +12,7 @@ import { builtInSavedFilters, filterGamesWithState, normalizeFilterState, useFil
 import { useAppUpdate } from './hooks/useAppUpdate.js'
 import { useWindowState } from './hooks/useWindowState.js'
 import { getGameTitle, normalizeGameForRenderer } from './utils/gameDisplay.js'
+import { formatPercent } from './utils/formatPercent.js'
 
 const debounce = (func, delay) => {
   let timeout
@@ -142,6 +143,12 @@ const App = () => {
     appUpdateNotice, setAppUpdateNotice, appUpdateActionBusy,
     handleUpdateStatus, handleAppUpdateAction,
   } = useAppUpdate(setDbUpdateStatus)
+  const appUpdateNoticeText =
+    appUpdateNotice.status === 'downloading' &&
+    appUpdateNotice.percent !== undefined &&
+    appUpdateNotice.percent !== null
+      ? `Downloading Atlas update: ${formatPercent(appUpdateNotice.percent)}`
+      : appUpdateNotice.text
 
   // ── Scroll restore ─────────────────────────────────────────────────────────
   const restoreLibraryScrollIfNeeded = useCallback(() => {
@@ -803,7 +810,7 @@ const App = () => {
         <div className="fixed bottom-[40px] left-0 right-0 z-50 bg-primary border-t border-accent px-4 py-2 text-text flex items-center justify-between gap-3">
           <div className="flex items-center min-w-0">
             <i className="fas fa-arrow-circle-up mr-2 text-highlight"></i>
-            <span className="truncate">{appUpdateNotice.text}</span>
+            <span className="truncate">{appUpdateNoticeText}</span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button

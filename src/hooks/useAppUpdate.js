@@ -7,6 +7,7 @@ export function useAppUpdate(setDbUpdateStatus) {
     status: '',
     version: '',
     text: '',
+    percent: null,
   })
   const [appUpdateActionBusy, setAppUpdateActionBusy] = useState(false)
 
@@ -20,6 +21,7 @@ export function useAppUpdate(setDbUpdateStatus) {
           status: 'available',
           version: status.version || '',
           text: `Atlas ${status.version} is available.`,
+          percent: null,
         })
       } else if (status.status === 'downloading') {
         const percent = Number(status.percent || 0)
@@ -34,6 +36,7 @@ export function useAppUpdate(setDbUpdateStatus) {
           ...notice,
           visible: true,
           status: 'downloading',
+          percent,
           text: status.percent !== undefined && status.percent !== null
             ? `Downloading Atlas update: ${displayPercent}`
             : 'Downloading Atlas update...',
@@ -45,6 +48,7 @@ export function useAppUpdate(setDbUpdateStatus) {
           status: 'downloaded',
           version: status.version || '',
           text: `Atlas ${status.version} is ready to install.`,
+          percent: null,
         })
       } else if (status.status === 'error') {
         setAppUpdateActionBusy(false)
@@ -54,6 +58,7 @@ export function useAppUpdate(setDbUpdateStatus) {
           status: 'error',
           version: '',
           text: status.error || 'Update failed.',
+          percent: null,
         })
       }
     },
@@ -76,6 +81,7 @@ export function useAppUpdate(setDbUpdateStatus) {
           setAppUpdateNotice((notice) => ({
             ...notice,
             status: 'downloading',
+            percent: null,
             text: notice.version
               ? `Downloading Atlas ${notice.version}...`
               : 'Downloading update...',
@@ -89,6 +95,7 @@ export function useAppUpdate(setDbUpdateStatus) {
         status: 'error',
         version: '',
         text: error.message || 'App update failed.',
+        percent: null,
       })
     } finally {
       setAppUpdateActionBusy(false)
