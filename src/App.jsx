@@ -304,6 +304,11 @@ const App = () => {
   const applySavedFilter = useCallback((filter) => {
     if (!filter) return
     const nextFilters = normalizeFilterState(filter.filters)
+    pendingLibraryScrollTopRestoreRef.current = 0
+    libraryScrollTopRef.current = 0
+    setSelectedGame(null)
+    setLibraryMode('local')
+    setShowSearchSidebar(false)
     setActiveSavedFilterId(filter.id || '')
     handleFilterChange(nextFilters)
   }, [handleFilterChange])
