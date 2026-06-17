@@ -816,11 +816,11 @@ const App = () => {
       )}
 
       {/* Footer */}
-      <div className="bg-primary h-[40px] flex items-center justify-between px-4 fixed bottom-0 w-full border-t border-accent z-50">
-        <button onClick={addGame} className="flex items-center bg-transparent text-text hover:text-highlight">
+      <div className="bg-primary h-[40px] grid grid-cols-[1fr_auto_1fr] items-center px-4 fixed bottom-0 w-full border-t border-accent z-50">
+        <button onClick={addGame} className="justify-self-start flex items-center bg-transparent text-text hover:text-highlight">
           <i className="fas fa-plus mr-2 text-text"></i>Add Game
         </button>
-        <div className="flex items-center">
+        <div className="justify-self-center flex items-center text-center">
           <i className="fas fa-gamepad mr-2 text-text"></i>
           <span>
             {libraryMode === 'catalog'
@@ -830,6 +830,7 @@ const App = () => {
               : `${installedGameCount} Games Installed, ${totalVersions} Total Versions`}
           </span>
         </div>
+        <div aria-hidden="true"></div>
       </div>
     </div>
   )
