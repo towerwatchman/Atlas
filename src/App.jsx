@@ -137,7 +137,7 @@ const App = () => {
         installState: 'all',
         updateAvailable: false,
         multipleInstalledVersions: false,
-      }),
+      }, { browseMode: true }),
     [catalogGames, activeFilters],
   )
   const filteredGames = libraryMode === 'catalog' ? catalogFilteredGames : localFilteredGames
@@ -654,7 +654,7 @@ const App = () => {
           <div className="w-full flex h-[70px]">
             <div className="flex items-center ml-5 mt-3">
               <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag" onClick={goHome} title="Back to Library">
-                {libraryMode === 'catalog' ? 'AtlasDB' : 'Games'}
+                {libraryMode === 'catalog' ? 'Browse' : 'Games'}
               </div>
             </div>
             <div className="flex justify-center w-full">
@@ -692,7 +692,9 @@ const App = () => {
         {showGameList && (
           <div className="w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ml-[60px]">
             {filteredGames.length === 0 ? (
-              <div className="p-2 text-center text-text">No games found</div>
+              <div className="p-2 text-center text-text">
+                {libraryMode === 'catalog' ? 'No browse titles match these filters.' : 'No games found'}
+              </div>
             ) : (
               filteredGames.map((game) => (
                 <div
@@ -727,7 +729,9 @@ const App = () => {
           {selectedGame ? (
             <GameDetailPage game={selectedGame} onBack={goBackToLibrary} onRefresh={refreshGame} />
           ) : filteredGames.length === 0 ? (
-            <div className="text-center text-text">No games available</div>
+            <div className="text-center text-text">
+              {libraryMode === 'catalog' ? 'No browse titles match these filters.' : 'No games available'}
+            </div>
           ) : (
             <AutoSizer>
               {({ height, width }) => {
@@ -854,7 +858,7 @@ const App = () => {
           <i className="fas fa-gamepad mr-2 text-text"></i>
           <span>
             {libraryMode === 'catalog'
-              ? `${filteredGames.length} AtlasDB Catalog Entries`
+              ? `${filteredGames.length} Browse Titles`
               : activeFilters.includeUninstalled
               ? `${installedGameCount} Games Installed, ${uninstalledGameCount} Uninstalled, ${totalVersions} Total Versions`
               : `${installedGameCount} Games Installed, ${totalVersions} Total Versions`}

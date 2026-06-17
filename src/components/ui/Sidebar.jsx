@@ -32,9 +32,9 @@ const Sidebar = ({ onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog
       },
     },
     {
-      name: "AtlasDB",
+      name: "Browse",
       path: [
-        '<path d="M12 3C7.03 3 3 4.79 3 7v10c0 2.21 4.03 4 9 4s9-1.79 9-4V7c0-2.21-4.03-4-9-4zM5 10.18C6.65 11.28 9.19 12 12 12s5.35-.72 7-1.82V13c0 .76-2.73 2-7 2s-7-1.24-7-2v-2.82zM12 5c4.27 0 7 1.24 7 2s-2.73 2-7 2-7-1.24-7-2 2.73-2 7-2zm0 14c-4.27 0-7-1.24-7-2v-1.82C6.65 16.28 9.19 17 12 17s5.35-.72 7-1.82V17c0 .76-2.73 2-7 2z"/>',
+        '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 2c4.42 0 8 3.58 8 8s-3.58 8-8 8-8-3.58-8-8 3.58-8 8-8zm3.94 4.06-2.12 5.66a1 1 0 0 1-.59.59l-5.66 2.12 2.12-5.66a1 1 0 0 1 .59-.59l5.66-2.12zM12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/>',
       ],
       viewBox: "0 0 24 24",
       onClick: () => {
@@ -78,6 +78,8 @@ const Sidebar = ({ onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog
         {
           key: item.name,
           className: `w-full h-[60px] flex items-center justify-center relative cursor-pointer group`,
+          title: item.name,
+          "aria-label": item.name,
           onClick: () => {
             setSelected(item.name);
             if (item.name === "Home") {
@@ -104,7 +106,7 @@ const Sidebar = ({ onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog
         React.createElement(
           "svg",
           {
-            className: `w-6 h-6 ${(selected === item.name || (item.name === "AtlasDB" && libraryMode === "catalog")) ? "text-accent" : "text-border"}`,
+            className: `w-6 h-6 ${(selected === item.name || (item.name === "Browse" && libraryMode === "catalog")) ? "text-accent" : "text-border"}`,
             viewBox: item.viewBox || "0 0 24 24",
             fill: "currentColor",
           },

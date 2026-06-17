@@ -45,6 +45,9 @@ const defaultSavedFilterState = {
   tags: [],
   sort: 'name',
   dateLimit: 0,
+  browseSource: 'all',
+  browseDateRange: 'any',
+  browseSort: 'name',
   tagLogic: 'AND',
   updateAvailable: false,
   includeUninstalled: false,
@@ -67,6 +70,15 @@ const normalizeSavedFilterState = (filters = {}) => {
   merged.text = String(merged.text || '')
   merged.type = String(merged.type || 'all')
   merged.sort = String(merged.sort || 'name')
+  merged.browseSource = ['all', 'f95', 'steam', 'atlas'].includes(merged.browseSource)
+    ? merged.browseSource
+    : 'all'
+  merged.browseDateRange = ['any', '7d', '30d', '90d', 'year'].includes(merged.browseDateRange)
+    ? merged.browseDateRange
+    : 'any'
+  merged.browseSort = ['name', 'newest', 'oldest'].includes(merged.browseSort)
+    ? merged.browseSort
+    : 'name'
   merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
   merged.updateAvailable = merged.updateAvailable === true
   merged.multipleInstalledVersions = merged.multipleInstalledVersions === true

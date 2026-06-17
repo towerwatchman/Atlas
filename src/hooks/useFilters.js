@@ -12,6 +12,9 @@ export const defaultFilters = {
   tags: [],
   sort: 'name',
   dateLimit: 0,
+  browseSource: 'all',
+  browseDateRange: 'any',
+  browseSort: 'name',
   tagLogic: 'AND',
   updateAvailable: false,
   includeUninstalled: false,
@@ -36,6 +39,15 @@ export const normalizeFilterState = (filters = {}) => {
   merged.text = String(merged.text || '')
   merged.type = String(merged.type || 'all')
   merged.sort = String(merged.sort || 'name')
+  merged.browseSource = ['all', 'f95', 'steam', 'atlas'].includes(merged.browseSource)
+    ? merged.browseSource
+    : 'all'
+  merged.browseDateRange = ['any', '7d', '30d', '90d', 'year'].includes(merged.browseDateRange)
+    ? merged.browseDateRange
+    : 'any'
+  merged.browseSort = ['name', 'newest', 'oldest'].includes(merged.browseSort)
+    ? merged.browseSort
+    : 'name'
   merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
   merged.updateAvailable = merged.updateAvailable === true
   merged.multipleInstalledVersions = merged.multipleInstalledVersions === true
@@ -63,8 +75,65 @@ const parseMetric = (value) => {
   return amount * multiplier
 }
 
-export const filterGamesWithState = (games, filters = {}) => {
+const parseBrowseDateValue = (value) => {
+  if (value === undefined || value === null || value === '') return null
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 100000000000 ? Math.floor(value / 1000) : value
+  }
+
+  const normalized = String(value).trim()
+  if (!normalized) return null
+
+  if (/^\d+$/.test(normalized)) {
+    const numericValue = Number(normalized)
+    if (Number.isFinite(numericValue)) {
+      return numericValue > 100000000000 ? Math.floor(numericValue / 1000) : numericValue
+    }
+  }
+
+  const parsed = Date.parse(normalized)
+  if (!Number.isFinite(parsed)) return null
+  return Math.floor(parsed / 1000)
+}
+
+export const getBrowseDate = (game = {}) => {
+  const candidates = [
+    // Browse freshness should follow metadata/listing updates first, then fall
+    // back to publish/release dates for older records that lack update fields.
+    game.f95_last_record_update,
+    game.atlas_last_record_update,
+    game.thread_publish_date,
+    game.release_date,
+    game.steam_release_date,
+  ]
+
+  for (const candidate of candidates) {
+    const parsed = parseBrowseDateValue(candidate)
+    if (parsed !== null) return parsed
+  }
+  return null
+}
+
+export const getBrowseSources = (game = {}) => {
+  const sources = []
+  if (game.f95_id) sources.push('f95')
+  if (game.steam_id) sources.push('steam')
+  if (game.atlas_id) sources.push('atlas')
+  return sources
+}
+
+const getBrowseDateRangeCutoff = (range) => {
+  const now = new Date()
+  if (range === '7d') return Math.floor(now.getTime() / 1000) - 7 * 86400
+  if (range === '30d') return Math.floor(now.getTime() / 1000) - 30 * 86400
+  if (range === '90d') return Math.floor(now.getTime() / 1000) - 90 * 86400
+  if (range === 'year') return Math.floor(new Date(now.getFullYear(), 0, 1).getTime() / 1000)
+  return null
+}
+
+export const filterGamesWithState = (games, filters = {}, options = {}) => {
   const activeFilters = normalizeFilterState(filters)
+  const browseMode = options.browseMode === true
   let result = [...(Array.isArray(games) ? games : [])]
 
   if (activeFilters.text) {
@@ -126,6 +195,22 @@ export const filterGamesWithState = (games, filters = {}) => {
     result = result.filter((game) => (game.release_date || 0) >= cutoff)
   }
 
+  if (browseMode && activeFilters.browseSource !== 'all') {
+    result = result.filter((game) =>
+      getBrowseSources(game).includes(activeFilters.browseSource)
+    )
+  }
+
+  if (browseMode && activeFilters.browseDateRange !== 'any') {
+    const cutoff = getBrowseDateRangeCutoff(activeFilters.browseDateRange)
+    if (cutoff !== null) {
+      result = result.filter((game) => {
+        const browseDate = getBrowseDate(game)
+        return browseDate !== null && browseDate >= cutoff
+      })
+    }
+  }
+
   if (activeFilters.multipleInstalledVersions) {
     result = result.filter((game) => {
       const installedCount =
@@ -137,6 +222,19 @@ export const filterGamesWithState = (games, filters = {}) => {
   }
 
   result.sort((a, b) => {
+    if (browseMode) {
+      if (['newest', 'oldest'].includes(activeFilters.browseSort)) {
+        const aDate = getBrowseDate(a)
+        const bDate = getBrowseDate(b)
+        const aMissing = aDate === null
+        const bMissing = bDate === null
+        if (aMissing !== bMissing) return aMissing ? 1 : -1
+        if (!aMissing && aDate !== bDate) {
+          return activeFilters.browseSort === 'oldest' ? aDate - bDate : bDate - aDate
+        }
+      }
+      return getGameTitle(a).localeCompare(getGameTitle(b))
+    }
     if (activeFilters.sort === 'date') {
       return (b.release_date || 0) - (a.release_date || 0)
     }

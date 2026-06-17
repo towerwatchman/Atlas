@@ -248,6 +248,51 @@ const SearchSidebar = ({
           )}
         </div>
 
+        {isCatalogMode && (
+          <div className="mb-6 border-b border-border pb-4">
+            <h4 className="font-bold mb-3">Browse</h4>
+            <div className="space-y-3">
+              <label className="block text-sm">
+                <span className="block mb-1">Source</span>
+                <select
+                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                  value={selectedFilters.browseSource}
+                  onChange={(e) => updateFilters({ browseSource: e.target.value })}
+                >
+                  <option value="all">All sources</option>
+                  <option value="f95">F95</option>
+                </select>
+              </label>
+              <label className="block text-sm">
+                <span className="block mb-1">Date</span>
+                <select
+                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                  value={selectedFilters.browseDateRange}
+                  onChange={(e) => updateFilters({ browseDateRange: e.target.value })}
+                >
+                  <option value="any">Any time</option>
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d">Last 30 days</option>
+                  <option value="90d">Last 90 days</option>
+                  <option value="year">This year</option>
+                </select>
+              </label>
+              <label className="block text-sm">
+                <span className="block mb-1">Sort</span>
+                <select
+                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                  value={selectedFilters.browseSort}
+                  onChange={(e) => updateFilters({ browseSort: e.target.value })}
+                >
+                  <option value="name">Title A-Z</option>
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        )}
+
         {/* Category */}
         <div className="mb-6 border-b border-border pb-4">
           <h4 className="font-bold mb-3">Category</h4>
@@ -269,6 +314,7 @@ const SearchSidebar = ({
         </div>
 
         {/* Sorting */}
+        {!isCatalogMode && (
         <div className="mb-6 border-b border-border pb-4">
           <h4 className="font-bold mb-3">Sorting</h4>
           <div className="flex flex-wrap gap-2">
@@ -287,6 +333,7 @@ const SearchSidebar = ({
             ))}
           </div>
         </div>
+        )}
 
         {/* Tags */}
         <div className="mb-6 border-b border-border pb-4">
@@ -444,6 +491,7 @@ const SearchSidebar = ({
         </div>
 
         {/* Update Available */}
+        {!isCatalogMode && (
         <div className="mb-4">
           <label className="flex items-center space-x-2 text-sm">
             <input
@@ -459,6 +507,7 @@ const SearchSidebar = ({
             <span>Show only games with updates available</span>
           </label>
         </div>
+        )}
 
         {!isCatalogMode && (
           <div className="mb-4">
@@ -482,6 +531,7 @@ const SearchSidebar = ({
         )}
 
         {/* Multiple installed versions */}
+        {!isCatalogMode && (
         <div className="mb-4">
           <label className="flex items-center space-x-2 text-sm">
             <input
@@ -498,6 +548,7 @@ const SearchSidebar = ({
             <span>Show games with multiple installed versions</span>
           </label>
         </div>
+        )}
       </div>
     </div>
   );
