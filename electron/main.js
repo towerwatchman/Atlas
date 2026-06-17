@@ -13,6 +13,7 @@ const ini = require('ini')
 const cp = require('child_process')
 
 const { isNewerVersion } = require('./utils/versionUtils')
+const { normalizeUpdateError } = require('./utils/updateErrors')
 const {
   addVersion, upsertVersion, updateVersion,
   findExistingRecordForImport, checkRecordExist, checkPathExist,
@@ -276,9 +277,18 @@ autoUpdater.on('update-downloaded', (info) => {
   }
 })
 autoUpdater.on('error', (err) => {
+  const normalizedError = normalizeUpdateError(err)
   console.error('Updater error:', err)
+  console.error('Updater error normalized:', normalizedError)
   installAfterDownload = false
-  sendUpdateStatus({ status: 'error', error: err.message })
+  updateInfo = null
+  updateDownloaded = false
+  sendUpdateStatus({
+    status: 'error',
+    error: normalizedError.userMessage,
+    code: normalizedError.code,
+    retryable: normalizedError.retryable,
+  })
 })
 
 // ── Shared helper functions ─────────────────────────────────────────────────
@@ -696,7 +706,14 @@ app.whenReady().then(async () => {
 
   if (appConfig?.Interface?.checkForAppUpdatesOnStartup) {
     autoUpdater.checkForUpdates().catch((err) => {
-      console.warn('Startup update check failed:', err.message)
+      const normalizedError = normalizeUpdateError(err)
+      console.warn('Startup update check failed:', normalizedError.technicalMessage)
+      sendUpdateStatus({
+        status: 'error',
+        error: normalizedError.userMessage,
+        code: normalizedError.code,
+        retryable: normalizedError.retryable,
+      })
     })
   }
 })

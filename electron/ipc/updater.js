@@ -2,6 +2,7 @@
 
 const path = require('path')
 const { ipcMain } = require('electron')
+const { normalizeUpdateError } = require('../utils/updateErrors')
 
 module.exports = function registerUpdaterHandlers(ctx) {
   const { autoUpdater, checkDbUpdates, dataDir, mainWindow } = ctx
@@ -15,8 +16,16 @@ module.exports = function registerUpdaterHandlers(ctx) {
       await autoUpdater.checkForUpdates()
       return { success: true }
     } catch (err) {
+      const normalizedError = normalizeUpdateError(err)
       console.error('check-app-update error:', err)
-      return { success: false, error: err.message }
+      console.error('check-app-update normalized:', normalizedError)
+      ctx.lastUpdateStatus = {
+        status: 'error',
+        error: normalizedError.userMessage,
+        code: normalizedError.code,
+        retryable: normalizedError.retryable,
+      }
+      return { success: false, error: normalizedError.userMessage, code: normalizedError.code, retryable: normalizedError.retryable }
     }
   })
 
@@ -30,8 +39,10 @@ module.exports = function registerUpdaterHandlers(ctx) {
       await autoUpdater.downloadUpdate()
       return { success: true }
     } catch (err) {
+      const normalizedError = normalizeUpdateError(err)
       console.error('download-app-update error:', err)
-      return { success: false, error: err.message }
+      console.error('download-app-update normalized:', normalizedError)
+      return { success: false, error: normalizedError.userMessage, code: normalizedError.code, retryable: normalizedError.retryable }
     }
   })
 
@@ -49,8 +60,10 @@ module.exports = function registerUpdaterHandlers(ctx) {
       }
       return { success: true }
     } catch (err) {
+      const normalizedError = normalizeUpdateError(err)
       console.error('download-and-install-app-update error:', err)
-      return { success: false, error: err.message }
+      console.error('download-and-install-app-update normalized:', normalizedError)
+      return { success: false, error: normalizedError.userMessage, code: normalizedError.code, retryable: normalizedError.retryable }
     }
   })
 
@@ -59,8 +72,10 @@ module.exports = function registerUpdaterHandlers(ctx) {
       autoUpdater.quitAndInstall(true, true)
       return { success: true }
     } catch (err) {
+      const normalizedError = normalizeUpdateError(err)
       console.error('install-app-update error:', err)
-      return { success: false, error: err.message }
+      console.error('install-app-update normalized:', normalizedError)
+      return { success: false, error: normalizedError.userMessage, code: normalizedError.code, retryable: normalizedError.retryable }
     }
   })
 

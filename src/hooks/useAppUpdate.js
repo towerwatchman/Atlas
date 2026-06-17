@@ -49,11 +49,12 @@ export function useAppUpdate(setDbUpdateStatus) {
       } else if (status.status === 'error') {
         setAppUpdateActionBusy(false)
         console.error('Update error:', status.error)
-        setAppUpdateNotice((notice) => ({
-          ...notice,
-          visible: notice.visible,
+        setAppUpdateNotice({
+          visible: true,
+          status: 'error',
+          version: '',
           text: status.error || 'Update failed.',
-        }))
+        })
       }
     },
     [setDbUpdateStatus]
@@ -83,10 +84,12 @@ export function useAppUpdate(setDbUpdateStatus) {
       }
     } catch (error) {
       console.error('App update action failed:', error)
-      setAppUpdateNotice((notice) => ({
-        ...notice,
+      setAppUpdateNotice({
+        visible: true,
+        status: 'error',
+        version: '',
         text: error.message || 'App update failed.',
-      }))
+      })
     } finally {
       setAppUpdateActionBusy(false)
     }
