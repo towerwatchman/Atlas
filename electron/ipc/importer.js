@@ -1016,6 +1016,7 @@ module.exports = function registerImporterHandlers(ctx) {
     addSteamMapping, getBannerUrl, getScreensUrlList,
     updateBanners, updatePreviews,
     getRemoteBannerUrl, getRemotePreviewUrls,
+    getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
     getVersionForRecord, getVersionPathsForRecord,
     deleteVersion, deleteGameCompletely, deleteTitleRecord,
     getTrustedVersion, isAllowedDeletionPath, isPathInside,
@@ -1987,10 +1988,14 @@ ipcMain.handle("import-games", async (event, params) => {
             ? screenUrls.length
             : Math.min(parseInt(previewLimit), screenUrls.length)
           : 0;
+        const additionalAssets = (downloadBannerImages || downloadPreviewImages)
+          ? (await getAllDownloadableAssetUrlsForRecord(recordId, { downloadVideos }))
+              .filter((asset) => asset.targetKind !== "preview" && asset.url !== bannerUrl)
+          : [];
         const totalImages =
-          (downloadBannerImages && bannerUrl ? 2 : 0) + previewCount;
+          (downloadBannerImages && bannerUrl ? 2 : 0) + previewCount + additionalAssets.length;
 
-        if (!bannerUrl && previewCount === 0) {
+        if (!bannerUrl && previewCount === 0 && additionalAssets.length === 0) {
           progress++;
           imageSummary.processed++;
           imageSummary.skipped++;
@@ -2003,8 +2008,9 @@ ipcMain.handle("import-games", async (event, params) => {
             ...ids,
             bannerUrlCount: bannerUrl ? 1 : 0,
             previewUrlCount: screenUrls.length,
+            mediaAssetUrlCount: additionalAssets.length,
             imageDir: path.join(dataDir, "images", recordId.toString()),
-            reason: "skipped: no banner/preview URLs found",
+            reason: "skipped: no banner/preview/media asset URLs found",
           });
           continue;
         }
@@ -2036,7 +2042,11 @@ ipcMain.handle("import-games", async (event, params) => {
           async () => screenUrls,
           updateBanners,
           updatePreviews,
-          { source: inferMediaSource(bannerUrl) },
+          {
+            source: inferMediaSource(bannerUrl),
+            additionalAssets,
+            upsertMediaAsset,
+          },
         );
         throwIfImportCanceled(session);
 
@@ -2046,8 +2056,13 @@ ipcMain.handle("import-games", async (event, params) => {
         imageSummary.processed++;
         imageSummary.filesWritten += downloadResult.filesWritten || 0;
         imageSummary.dbRowsWritten +=
-          (downloadResult.bannerRowsWritten || 0) + (downloadResult.previewRowsWritten || 0);
-        const urlCount = downloadResult.bannerUrlCount + downloadResult.previewUrlCount;
+          (downloadResult.bannerRowsWritten || 0) +
+          (downloadResult.previewRowsWritten || 0) +
+          (downloadResult.mediaAssetRowsWritten || 0);
+        const urlCount =
+          downloadResult.bannerUrlCount +
+          downloadResult.previewUrlCount +
+          downloadResult.mediaAssetUrlCount;
         const failedWithUrls = urlCount > 0 && downloadResult.downloaded === 0 && downloadResult.errors.length > 0;
         if (failedWithUrls || !downloadResult.success) imageSummary.failed++;
         else if ((downloadResult.filesWritten || 0) > 0 || (downloadResult.filesExisting || 0) > 0) imageSummary.downloaded++;

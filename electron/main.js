@@ -35,6 +35,7 @@ const {
   updateFolderSize, getBannerUrl, getScreensUrlList,
   updateBanners, updatePreviews, getRemotePreviewUrls,
   getPreviews, getBanners, getBanner, getRemoteBannerUrl, getBrowsePreviewUrls,
+  getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
   deleteBanner, deletePreviews,
 } = require('./db/media')
 
@@ -809,6 +810,7 @@ function buildCtx() {
     addWishlistEntry, removeWishlistEntry, toggleWishlistEntry,
     getWishlistEntries, getWishlistEntryIdentities,
     getBannerUrl, getScreensUrlList, getRemoteBannerUrl, getRemotePreviewUrls,
+    getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
     getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension,
     GetAtlasIDbyRecord, getPreviews, getBanner, deleteBanner, deletePreviews,
     getBrowsePreviewUrls,

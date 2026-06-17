@@ -154,6 +154,146 @@ const parsePreviewList = (value) => {
   return raw.split(",").map((item) => item.trim());
 };
 
+const parseAssetList = (value) => parsePreviewList(value).filter(isRemoteHttpUrl);
+
+const dedupeAssetEntries = (entries) => {
+  const seen = new Set();
+  const out = [];
+  for (const entry of entries) {
+    const url = String(entry?.url || "").trim();
+    if (!isRemoteHttpUrl(url) || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ ...entry, url });
+  }
+  return out;
+};
+
+const steamCdnAsset = (steamId, file) =>
+  steamId ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${steamId}/${file}` : "";
+
+const isSteamCapsuleLike = (url) => /library_600x900|library_capsule/i.test(String(url || ""));
+
+const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
+  return new Promise((resolve, reject) => {
+    const includeVideos = options.downloadVideos === true;
+    const isVideo = (url) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ""));
+    getDb().get(
+      `SELECT
+        games.record_id,
+        atlas_mappings.atlas_id,
+        steam_mappings.steam_id,
+        f95_zone_data.banner_url AS f95_banner,
+        f95_zone_data.screens AS f95_legacy_screens,
+        atlas_data.banner AS atlas_banner,
+        atlas_data.banner_wide AS atlas_banner_wide,
+        atlas_data.cover AS atlas_cover,
+        atlas_data.logo AS atlas_logo,
+        atlas_data.wallpaper AS atlas_wallpaper,
+        atlas_data.previews AS atlas_legacy_previews,
+        steam_data.header AS steam_header,
+        steam_data.library_hero AS steam_hero,
+        steam_data.library_capsule AS steam_cover,
+        steam_data.logo AS steam_logo
+       FROM games
+       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
+       LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
+       LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
+       WHERE games.record_id = ?`,
+      [recordId],
+      (err, row) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        if (!row) {
+          resolve([]);
+          return;
+        }
+
+        const entries = [];
+        const add = (source, assetType, url, preferredFilename, targetKind = "asset") => {
+          const value = String(url || "").trim();
+          if (!isRemoteHttpUrl(value)) return;
+          if (!includeVideos && isVideo(value)) return;
+          entries.push({ source, assetType, url: value, preferredFilename, targetKind });
+        };
+
+        add("f95", "f95_banner", row.f95_banner, "f95_banner", "banner");
+        add("atlas", "atlas_banner", row.atlas_banner, "atlas_banner", "banner");
+        add("atlas", "atlas_banner_wide", row.atlas_banner_wide, "atlas_banner_wide", "banner");
+        add("atlas", "atlas_cover", row.atlas_cover, "atlas_cover");
+        add("atlas", "atlas_logo", row.atlas_logo, "atlas_logo");
+        add("atlas", "atlas_wallpaper", row.atlas_wallpaper, "atlas_wallpaper");
+
+        const steamId = row.steam_id;
+        const steamCoverUrl = row.steam_cover || (isSteamCapsuleLike(row.steam_logo) ? row.steam_logo : "");
+        const steamLogoUrl = isSteamCapsuleLike(row.steam_logo) ? "" : row.steam_logo;
+        add("steam", "steam_header", row.steam_header || steamCdnAsset(steamId, "header.jpg"), "steam_header", "banner");
+        add("steam", "steam_hero", row.steam_hero || steamCdnAsset(steamId, "library_hero.jpg"), "steam_hero");
+        add("steam", "steam_cover", steamCoverUrl || steamCdnAsset(steamId, "library_600x900.jpg"), "steam_cover");
+        add("steam", "steam_logo", steamLogoUrl || steamCdnAsset(steamId, "logo.png"), "steam_logo");
+
+        parseAssetList(row.atlas_legacy_previews).forEach((url, index) =>
+          add("atlas", "atlas_preview", url, `atlas_preview_${String(index + 1).padStart(3, "0")}`, "preview"));
+        parseAssetList(row.f95_legacy_screens).forEach((url, index) =>
+          add("f95", "f95_preview", url, `f95_preview_${String(index + 1).padStart(3, "0")}`, "preview"));
+
+        getDb().all(
+          `SELECT 'steam_screenshot' AS asset_type, screen_url AS url
+           FROM steam_screens
+           JOIN steam_mappings ON steam_screens.steam_id = steam_mappings.steam_id
+           WHERE steam_mappings.record_id = ?
+           UNION ALL
+           SELECT 'atlas_preview' AS asset_type, preview_url AS url
+           FROM atlas_previews
+           JOIN atlas_mappings ON atlas_previews.atlas_id = atlas_mappings.atlas_id
+           WHERE atlas_mappings.record_id = ?
+           UNION ALL
+           SELECT 'f95_preview' AS asset_type, screen_url AS url
+           FROM f95_zone_screens
+           JOIN f95_zone_data ON f95_zone_screens.f95_id = f95_zone_data.f95_id
+           JOIN atlas_mappings ON f95_zone_data.atlas_id = atlas_mappings.atlas_id
+           WHERE atlas_mappings.record_id = ?`,
+          [recordId, recordId, recordId],
+          (assetErr, rows) => {
+            if (assetErr) {
+              reject(assetErr);
+              return;
+            }
+            (rows || []).forEach((assetRow, index) => {
+              const type = assetRow.asset_type;
+              const source = type.startsWith("steam") ? "steam" : type.startsWith("f95") ? "f95" : "atlas";
+              add(source, type, assetRow.url, `${type}_${String(index + 1).padStart(3, "0")}`, "preview");
+            });
+            resolve(dedupeAssetEntries(entries));
+          },
+        );
+      },
+    );
+  });
+};
+
+const upsertMediaAsset = ({ recordId, source, assetType, path: assetPath, originalUrl, width = null, height = null }) => {
+  return new Promise((resolve, reject) => {
+    getDb().run(
+      `INSERT INTO media_assets
+       (record_id, source, asset_type, path, original_url, width, height, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(record_id, source, asset_type, original_url) DO UPDATE SET
+         path = excluded.path,
+         width = excluded.width,
+         height = excluded.height`,
+      [recordId, source, assetType, assetPath, originalUrl, width, height, Math.floor(Date.now() / 1000)],
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      },
+    );
+  });
+};
+
 const getBrowsePreviewUrls = ({ atlasId, f95Id } = {}) => {
   return new Promise((resolve, reject) => {
     const atlasParam = atlasId || null;
@@ -539,6 +679,8 @@ module.exports = {
   getScreensUrlList,
   updateBanners,
   updatePreviews,
+  getAllDownloadableAssetUrlsForRecord,
+  upsertMediaAsset,
   getBrowsePreviewUrls,
   getRemotePreviewUrls,
   getPreviews,

@@ -264,6 +264,21 @@ const initializeDatabase = (dataDir) => {
       );
     `);
     db.run(`
+      CREATE TABLE IF NOT EXISTS media_assets
+      (
+        record_id INTEGER REFERENCES games (record_id),
+        source TEXT NOT NULL,
+        asset_type TEXT NOT NULL,
+        path TEXT NOT NULL,
+        original_url TEXT,
+        width INTEGER,
+        height INTEGER,
+        created_at INTEGER NOT NULL,
+        UNIQUE (record_id, source, asset_type, original_url)
+      );
+    `);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_media_assets_record_type ON media_assets(record_id, asset_type);`);
+    db.run(`
       CREATE TABLE IF NOT EXISTS wishlist_entries
       (
         wishlist_id INTEGER PRIMARY KEY AUTOINCREMENT,

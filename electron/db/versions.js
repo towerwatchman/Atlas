@@ -9,6 +9,21 @@ const { toLocalAssetPath, normalizeMediaStorageMode, remoteBannerExpression,
         buildBannerJoinClauses, buildBannerSelectFields, getAssetBasePath } = require('./helpers')
 const { calculatePathSize } = require('../pathSize')
 
+const localMediaAssetSelect = (baseImagePath, assetType, fallbackExpression) => {
+  const safeBaseImagePath = String(baseImagePath || '').replace(/'/g, "''");
+  const safeAssetType = String(assetType || '').replace(/'/g, "''");
+  return `COALESCE(
+          (
+            SELECT REPLACE('${safeBaseImagePath}/' || media_assets.path, '\\', '/')
+            FROM media_assets
+            WHERE media_assets.record_id = games.record_id
+              AND media_assets.asset_type = '${safeAssetType}'
+            ORDER BY media_assets.created_at DESC
+            LIMIT 1
+          ),
+          ${fallbackExpression}
+        )`;
+};
 
 const getTableColumns = (tableName) =>
   new Promise((resolve) => {
@@ -608,14 +623,16 @@ ${bannerSelectFields},
         steam_data.developer AS steam_developer,
         atlas_data.short_name,
         atlas_data.external_ids as external_ids,
-        atlas_data.banner_wide as atlas_banner_wide,
-        atlas_data.banner as atlas_banner,
-        atlas_data.logo as atlas_logo,
+        ${localMediaAssetSelect(baseImagePath, "atlas_banner_wide", "atlas_data.banner_wide")} as atlas_banner_wide,
+        ${localMediaAssetSelect(baseImagePath, "atlas_banner", "atlas_data.banner")} as atlas_banner,
+        ${localMediaAssetSelect(baseImagePath, "atlas_cover", "atlas_data.cover")} as atlas_cover,
+        ${localMediaAssetSelect(baseImagePath, "atlas_wallpaper", "atlas_data.wallpaper")} as atlas_wallpaper,
+        ${localMediaAssetSelect(baseImagePath, "atlas_logo", "atlas_data.logo")} as atlas_logo,
         f95_zone_data.banner_url as f95_banner,
-        steam_data.header as steam_header,
-        steam_data.library_hero as steam_library_hero,
-        steam_data.library_capsule as steam_library_capsule,
-        steam_data.logo as steam_logo,
+        ${localMediaAssetSelect(baseImagePath, "steam_header", "steam_data.header")} as steam_header,
+        ${localMediaAssetSelect(baseImagePath, "steam_hero", "steam_data.library_hero")} as steam_library_hero,
+        ${localMediaAssetSelect(baseImagePath, "steam_cover", "steam_data.library_capsule")} as steam_library_capsule,
+        ${localMediaAssetSelect(baseImagePath, "steam_logo", "steam_data.logo")} as steam_logo,
         GROUP_CONCAT(tags.tag) AS tags
       FROM
         games
@@ -728,14 +745,16 @@ ${bannerSelectFields},
         steam_data.developer AS steam_developer,
         atlas_data.short_name,
         atlas_data.external_ids as external_ids,
-        atlas_data.banner_wide as atlas_banner_wide,
-        atlas_data.banner as atlas_banner,
-        atlas_data.logo as atlas_logo,
+        ${localMediaAssetSelect(baseImagePath, "atlas_banner_wide", "atlas_data.banner_wide")} as atlas_banner_wide,
+        ${localMediaAssetSelect(baseImagePath, "atlas_banner", "atlas_data.banner")} as atlas_banner,
+        ${localMediaAssetSelect(baseImagePath, "atlas_cover", "atlas_data.cover")} as atlas_cover,
+        ${localMediaAssetSelect(baseImagePath, "atlas_wallpaper", "atlas_data.wallpaper")} as atlas_wallpaper,
+        ${localMediaAssetSelect(baseImagePath, "atlas_logo", "atlas_data.logo")} as atlas_logo,
         f95_zone_data.banner_url as f95_banner,
-        steam_data.header as steam_header,
-        steam_data.library_hero as steam_library_hero,
-        steam_data.library_capsule as steam_library_capsule,
-        steam_data.logo as steam_logo,
+        ${localMediaAssetSelect(baseImagePath, "steam_header", "steam_data.header")} as steam_header,
+        ${localMediaAssetSelect(baseImagePath, "steam_hero", "steam_data.library_hero")} as steam_library_hero,
+        ${localMediaAssetSelect(baseImagePath, "steam_cover", "steam_data.library_capsule")} as steam_library_capsule,
+        ${localMediaAssetSelect(baseImagePath, "steam_logo", "steam_data.logo")} as steam_logo,
         GROUP_CONCAT(tags.tag) AS tags
       FROM
         games

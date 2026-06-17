@@ -32,6 +32,25 @@ function buildPreviewBaseName(source, index) {
   return `preview_${normalizeImageSource(source, "f95")}_${safeIndex}`;
 }
 
+function buildMediaAssetBaseName(asset) {
+  const preferred = String(asset?.preferredFilename || asset?.assetType || "media_asset")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const source = normalizeImageSource(asset?.source, "remote");
+  return preferred.startsWith(`${source}_`) ? preferred : `${source}_${preferred || "media_asset"}`;
+}
+
+
+function getMediaAssetMaxWidth(assetType) {
+  const type = String(assetType || "").toLowerCase();
+  if (/(hero|wallpaper|header|banner_wide)/.test(type)) return 1920;
+  if (/(cover|poster|capsule)/.test(type)) return 900;
+  if (/logo/.test(type)) return 1200;
+  return 1260;
+}
+
 
 const isPotentialAnimatedImage = (ext) =>
   ANIMATED_IMAGE_EXTENSIONS.has(String(ext || "").toLowerCase());
@@ -39,6 +58,21 @@ const isPotentialAnimatedImage = (ext) =>
 
 async function getImageMetadata(imageBytes, options = {}) {
   return await sharp(imageBytes, options).metadata();
+}
+
+
+function sendImageDownloadProgress(payload) {
+  if (!process.versions?.electron) return;
+  try {
+    const electron = require("electron");
+    const webContents = electron?.webContents;
+    if (!webContents || typeof webContents.getAllWebContents !== "function") return;
+    webContents.getAllWebContents().forEach((wc) => {
+      wc.send("game-details-import-progress", payload);
+    });
+  } catch {
+    // Running under a plain Node smoke test has no Electron runtime to notify.
+  }
 }
 
 
@@ -65,6 +99,17 @@ async function downloadImages(
   const imgDir = path.join(dataDir, "images", recordId.toString());
   if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
   const defaultPreviewSource = options.previewSource || options.source || "f95";
+  const additionalAssets = Array.isArray(options.additionalAssets)
+    ? options.additionalAssets
+        .map((asset) => ({
+          ...asset,
+          url: String(asset?.url || "").trim(),
+        }))
+        .filter((asset) => asset.url)
+    : [];
+  const upsertMediaAsset = typeof options.upsertMediaAsset === "function"
+    ? options.upsertMediaAsset
+    : null;
   const result = {
     success: true,
     recordId,
@@ -74,18 +119,22 @@ async function downloadImages(
     downloaded: 0,
     bannerUrlCount: 0,
     previewUrlCount: 0,
+    mediaAssetUrlCount: additionalAssets.length,
     filesWritten: 0,
     filesExisting: 0,
     bannerRowsWritten: 0,
     previewRowsWritten: 0,
+    mediaAssetRowsWritten: 0,
     localBannerPath: "",
     localPreviewPaths: [],
+    localMediaAssetPaths: [],
     skipped: false,
     skipReasons: [],
     errors: [],
   };
 
   let imageProgress = 0;
+  let requiredErrorCount = 0;
   const bannerUrl = downloadBannerImages ? await getBannerUrl(atlasId) : null;
   const screenUrls = downloadPreviewImages
     ? await getScreensUrlList(atlasId)
@@ -97,7 +146,7 @@ async function downloadImages(
       ? screenUrls.length
       : Math.min(parseInt(previewLimit), screenUrls.length)
     : 0;
-  const totalImages = (bannerUrl ? 2 : 0) + previewCount;
+  const totalImages = (bannerUrl ? 2 : 0) + previewCount + additionalAssets.length;
 
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const verifyLocalFile = async (filePath) => {
@@ -115,6 +164,11 @@ async function downloadImages(
   const addError = (label, err) => {
     const message = `${label}: ${err?.message || err}`;
     result.success = false;
+    requiredErrorCount++;
+    result.errors.push(message);
+  };
+  const addOptionalError = (label, err) => {
+    const message = `${label}: ${err?.message || err}`;
     result.errors.push(message);
   };
   const reportProgress = () => {
@@ -259,15 +313,11 @@ async function downloadImages(
 
       console.log("Banner images updated");
       if (downloaded) {
-        require("electron")
-          .webContents.getAllWebContents()
-          .forEach((wc) => {
-            wc.send("game-details-import-progress", {
-              text: `Completed banner download ${imageProgress}/${totalImages}`,
-              progress: imageProgress,
-              total: totalImages,
-            });
-          });
+        sendImageDownloadProgress({
+          text: `Completed banner download ${imageProgress}/${totalImages}`,
+          progress: imageProgress,
+          total: totalImages,
+        });
         await delay(500);
       }
     } catch (err) {
@@ -391,15 +441,11 @@ async function downloadImages(
 
       console.log(`Screen ${i + 1} updated`);
       if (downloaded) {
-        require("electron")
-          .webContents.getAllWebContents()
-          .forEach((wc) => {
-            wc.send("game-details-import-progress", {
-              text: `Completed preview download ${imageProgress}/${totalImages}`,
-              progress: imageProgress,
-              total: totalImages,
-            });
-          });
+        sendImageDownloadProgress({
+          text: `Completed preview download ${imageProgress}/${totalImages}`,
+          progress: imageProgress,
+          total: totalImages,
+        });
         await delay(500);
       }
     } catch (err) {
@@ -408,7 +454,108 @@ async function downloadImages(
     }
   }
 
-  if (result.attempted > 0 && result.filesWritten === 0 && result.errors.length > 0) {
+  for (let i = 0; i < additionalAssets.length; i++) {
+    const asset = additionalAssets[i];
+    const url = asset.url;
+    console.log(`Downloading media asset ${asset.assetType || i + 1} from URL: ${url}`);
+    try {
+      result.attempted++;
+      const parsedUrl = new URL(url);
+      const ext = path.extname(parsedUrl.pathname).toLowerCase();
+      const baseName = buildMediaAssetBaseName(asset);
+      const imagePath = path.join(imgDir, baseName);
+      const relativePath = path.join("data", "images", recordId.toString(), baseName);
+      const isVideo = [".mp4", ".webm", ".m4v"].includes(ext);
+
+      let localPath;
+      let relativeAssetPath;
+      let width = null;
+      let height = null;
+
+      const response = async () => axios.get(url, {
+        responseType: "arraybuffer",
+        maxRedirects: 5,
+        headers: {
+          "User-Agent": "Atlas/1.0 (+https://github.com/towerwatchman/Atlas)",
+          Accept: isVideo
+            ? "video/webm,video/mp4,video/*,*/*;q=0.8"
+            : "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        },
+      });
+
+      if (isVideo && downloadVideos) {
+        localPath = `${imagePath}${ext}`;
+        relativeAssetPath = `${relativePath}${ext}`;
+        const existedBefore = fs.existsSync(localPath);
+        if (!existedBefore) {
+          const videoResponse = await response();
+          fs.writeFileSync(localPath, Buffer.from(videoResponse.data));
+        }
+        await verifyTrackedFile(localPath, existedBefore);
+      } else if (!isVideo) {
+        localPath = `${imagePath}.webp`;
+        relativeAssetPath = `${relativePath}.webp`;
+        const existedBefore = fs.existsSync(localPath);
+        if (!existedBefore) {
+          const imageResponse = await response();
+          await sharp(Buffer.from(imageResponse.data))
+            .webp({ quality: 90 })
+            .resize({
+              width: getMediaAssetMaxWidth(asset.assetType),
+              withoutEnlargement: true,
+            })
+            .toFile(localPath);
+        }
+        await verifyTrackedFile(localPath, existedBefore);
+        try {
+          const metadata = await sharp(localPath).metadata();
+          width = Number.isFinite(metadata.width) ? metadata.width : null;
+          height = Number.isFinite(metadata.height) ? metadata.height : null;
+        } catch (metadataErr) {
+          console.warn(`Unable to read metadata for media asset ${localPath}:`, metadataErr);
+        }
+      } else {
+        result.skipReasons.push(`skipped video media asset ${asset.assetType || url}`);
+        imageProgress++;
+        reportProgress();
+        continue;
+      }
+
+      if (upsertMediaAsset) {
+        await upsertMediaAsset({
+          recordId,
+          source: asset.source || "remote",
+          assetType: asset.assetType || "media_asset",
+          path: relativeAssetPath,
+          originalUrl: url,
+          width,
+          height,
+        });
+        result.mediaAssetRowsWritten++;
+      }
+      result.localMediaAssetPaths.push(relativeAssetPath);
+      result.downloaded++;
+      imageProgress++;
+      reportProgress();
+
+      sendImageDownloadProgress({
+        text: `Completed media asset download ${imageProgress}/${totalImages}`,
+        progress: imageProgress,
+        total: totalImages,
+      });
+      await delay(100);
+    } catch (err) {
+      const host = (() => {
+        try { return new URL(url).host; } catch { return "unknown host"; }
+      })();
+      console.error(`Error downloading media asset ${asset.assetType || i + 1} from ${host}:`, err);
+      addOptionalError(`Media asset ${asset.assetType || i + 1} (${host})`, err);
+      imageProgress++;
+      reportProgress();
+    }
+  }
+
+  if (result.attempted > 0 && result.filesWritten === 0 && requiredErrorCount > 0) {
     result.success = false;
   }
   if (result.attempted === 0 && result.skipReasons.length > 0) {
@@ -422,9 +569,12 @@ module.exports = {
   downloadImages,
   buildBannerBaseName,
   buildPreviewBaseName,
+  buildMediaAssetBaseName,
   isPotentialAnimatedImage,
   getImageMetadata,
   hasMultiplePages,
+  sendImageDownloadProgress,
   ANIMATED_IMAGE_EXTENSIONS,
   normalizeImageSource,
+  getMediaAssetMaxWidth,
 }

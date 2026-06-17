@@ -10,6 +10,16 @@ const { orderPreviewsBySource } = require('../db/mediaSources')
 const { getSteamIDbyRecord } = require('../db/steam')
 const { fetchAndStoreSteamData } = require('../scanners/steamscanner')
 
+const isVideoUrl = (url) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ''))
+
+const inferMediaSource = (url) => {
+  const value = String(url || '').toLowerCase()
+  if (value.includes('steamstatic.com') || value.includes('/steam/apps/')) return 'steam'
+  if (value.includes('f95')) return 'f95'
+  if (value.includes('atlas')) return 'atlas'
+  return 'remote'
+}
+
 // ── IPC Handlers (image download helpers are in ../imageUtils.js) ─────────────
 
 // ── IPC Handlers ─────────────────────────────────────────────────────────────
@@ -19,7 +29,9 @@ module.exports = function registerMediaHandlers(ctx) {
     getAssetBasePath, getMediaStorageMode, templatesDir, dataDir,
     getPreviews, getBanner, deleteBanner, deletePreviews,
     updateBanners, updatePreviews, getBannerUrl, getScreensUrlList,
+    getRemoteBannerUrl, getRemotePreviewUrls,
     GetAtlasIDbyRecord, firstMediaPath, getBrowsePreviewUrls,
+    getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
     appConfig, configPath,
     getMetadataSourceOrder,
   } = ctx
@@ -170,6 +182,44 @@ module.exports = function registerMediaHandlers(ctx) {
       if (steamId) {
         await fetchAndStoreSteamData(null, steamId)
       }
+      const atlasId = await GetAtlasIDbyRecord(recordId)
+      const bannerUrl = await getRemoteBannerUrl(recordId)
+      const rawPreviewUrls = await getRemotePreviewUrls(recordId)
+      const screenUrls = rawPreviewUrls
+        .map((url) => String(url || '').trim())
+        .filter(Boolean)
+        .filter((url) => !isVideoUrl(url))
+        .map((url) => ({ url, source: inferMediaSource(url) }))
+      const additionalAssets = (await getAllDownloadableAssetUrlsForRecord(recordId, { downloadVideos: false }))
+        .filter((asset) => asset.targetKind !== 'preview' && asset.url !== bannerUrl)
+
+      const downloadResult = await downloadImages(
+        recordId,
+        atlasId || steamId || recordId,
+        (current, totalImages) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('game-details-import-progress', {
+              text: `Downloading media assets ${current}/${totalImages}`,
+              progress: current,
+              total: totalImages,
+            })
+          }
+        },
+        Boolean(bannerUrl),
+        screenUrls.length > 0,
+        'Unlimited',
+        false,
+        dataDir,
+        async () => bannerUrl,
+        async () => screenUrls,
+        updateBanners,
+        updatePreviews,
+        {
+          source: inferMediaSource(bannerUrl),
+          additionalAssets,
+          upsertMediaAsset,
+        },
+      )
       const previewUrls = orderPreviewsBySource(
         await getPreviews(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode()),
         getMetadataSourceOrder(),
@@ -177,7 +227,7 @@ module.exports = function registerMediaHandlers(ctx) {
       BrowserWindow.getAllWindows().forEach((win) => {
         if (!win.isDestroyed()) win.webContents.send('game-updated', recordId)
       })
-      return { success: true, previewUrls }
+      return { success: downloadResult.success, previewUrls, downloadResult }
     } catch (err) {
       console.error('refresh-game-media error:', err)
       return { success: false, error: err.message }
