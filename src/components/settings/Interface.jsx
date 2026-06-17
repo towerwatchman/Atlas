@@ -125,13 +125,14 @@ const Interface = () => {
   };
 
   const handleDownloadAndInstallAppUpdate = async () => {
-    setUpdateStatus("downloading");
+    if (["downloading", "installing", "checking"].includes(updateStatus)) return;
+    setUpdateStatus(updateStatus === "downloaded" ? "installing" : "downloading");
     setUpdateError("");
 
     const result =
       updateStatus === "downloaded"
         ? await window.electronAPI.installAppUpdate()
-        : await window.electronAPI.downloadAppUpdate();
+        : await window.electronAPI.downloadAndInstallAppUpdate();
 
     if (result?.success === false) {
       setUpdateStatus(result.code === PACKAGE_NOT_READY_CODE ? "package_not_ready" : "error");
@@ -150,6 +151,7 @@ const Interface = () => {
     if (updateStatus === "downloaded") {
       return `Atlas ${updateVersion || "update"} is ready to install.`;
     }
+    if (updateStatus === "installing") return "Installing update...";
     if (updateStatus === "not-available") return "Atlas is up to date.";
     if (updateStatus === "package_not_ready") return updateError;
     if (updateStatus === "error") return updateError || "Update check failed.";
@@ -261,7 +263,7 @@ const Interface = () => {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleCheckAppUpdate}
-            disabled={updateStatus === "checking"}
+            disabled={["checking", "downloading", "installing"].includes(updateStatus)}
             className="bg-accent px-4 py-2 rounded hover:bg-opacity-90 disabled:opacity-50"
           >
             Check for updates
@@ -271,9 +273,13 @@ const Interface = () => {
             disabled={!["available", "downloaded"].includes(updateStatus)}
             className="bg-accent px-4 py-2 rounded hover:bg-opacity-90 disabled:opacity-50"
           >
-            {updateStatus === "downloaded"
-              ? "Install and restart"
-              : "Download update"}
+            {updateStatus === "installing"
+              ? "Installing update..."
+              : updateStatus === "downloading"
+                ? "Downloading..."
+                : updateStatus === "downloaded"
+                  ? "Install and restart"
+                  : "Download and install"}
           </button>
         </div>
       </div>

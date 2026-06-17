@@ -14,13 +14,14 @@ export function useAppUpdate(setDbUpdateStatus) {
   const [appUpdateActionBusy, setAppUpdateActionBusy] = useState(false)
 
   const getFooterActionState = useCallback((status) => {
+    if (status === 'installing') return { label: 'Installing update...', canInstallUpdate: true }
     if (status === 'downloaded') return { label: 'Install and restart', canInstallUpdate: true }
     if (status === 'downloading') return { label: 'Downloading...', canInstallUpdate: false }
     if (status === 'checking') return { label: 'Checking...', canInstallUpdate: false }
     if (['error', 'package_not_ready', 'not-available'].includes(status)) {
       return { label: 'Check for updates', canInstallUpdate: false }
     }
-    return { label: 'Download update', canInstallUpdate: false }
+    return { label: 'Download and install', canInstallUpdate: false }
   }, [])
 
   const logFooterTransition = useCallback((previousStatus, nextStatus, source) => {
@@ -84,6 +85,32 @@ export function useAppUpdate(setDbUpdateStatus) {
             percent: null,
           }
         })
+      } else if (status.status === 'installing') {
+        setAppUpdateActionBusy(true)
+        setDbUpdateStatus({ text: '', progress: 0, total: 0 })
+        setAppUpdateNotice((notice) => {
+          const version = status.version || notice.version || ''
+          logFooterTransition(notice.status, 'installing', 'update-status')
+          return {
+            visible: true,
+            status: 'installing',
+            version,
+            text: 'Installing update...',
+            percent: null,
+          }
+        })
+      } else if (status.status === 'not-available') {
+        setAppUpdateActionBusy(false)
+        setAppUpdateNotice((notice) => {
+          logFooterTransition(notice.status, 'not-available', 'update-status')
+          return {
+            visible: true,
+            status: 'not-available',
+            version: '',
+            text: 'Atlas is up to date.',
+            percent: null,
+          }
+        })
       } else if (status.status === 'error') {
         setAppUpdateActionBusy(false)
         console.error('Update error:', status.error)
@@ -120,7 +147,12 @@ export function useAppUpdate(setDbUpdateStatus) {
       const latestStatus = await reconcileAppUpdateState('footer-action')
       const effectiveStatus = latestStatus?.status === 'downloaded'
         ? 'downloaded'
+        : latestStatus?.status === 'installing'
+          ? 'installing'
         : appUpdateNotice.status
+      if (effectiveStatus === 'installing' || effectiveStatus === 'downloading' || effectiveStatus === 'checking') {
+        return
+      }
       if (
         effectiveStatus === 'error' ||
         effectiveStatus === 'package_not_ready' ||
@@ -160,7 +192,7 @@ export function useAppUpdate(setDbUpdateStatus) {
       }
 
       if (effectiveStatus === 'available') {
-        const result = await window.electronAPI.downloadAppUpdate()
+        const result = await window.electronAPI.downloadAndInstallAppUpdate()
         if (!result?.success) {
           if (result?.code === PACKAGE_NOT_READY_CODE) {
             setAppUpdateNotice({

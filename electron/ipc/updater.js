@@ -1,11 +1,19 @@
 'use strict'
 
 const path = require('path')
-const { ipcMain } = require('electron')
+const { BrowserWindow, ipcMain } = require('electron')
 const { normalizeUpdateError } = require('../utils/updateErrors')
 
 const UPDATE_NOT_DOWNLOADED_MESSAGE =
   'The update package has not been downloaded yet. Please check for updates and download the update first.'
+
+function broadcastUpdateStatus(ctx, status, source) {
+  ctx.lastUpdateStatus = status
+  console.log(`update-state: ${status.status} via ${source}`)
+  BrowserWindow.getAllWindows().forEach((window) => {
+    if (!window.isDestroyed()) window.webContents.send('update-status', status)
+  })
+}
 
 module.exports = function registerUpdaterHandlers(ctx) {
   const { autoUpdater, checkDbUpdates, dataDir, mainWindow } = ctx
@@ -19,6 +27,7 @@ module.exports = function registerUpdaterHandlers(ctx) {
       await autoUpdater.checkForUpdates()
       return { success: true }
     } catch (err) {
+      ctx.installAfterDownload = false
       const normalizedError = normalizeUpdateError(err)
       console.error('check-app-update error:', err)
       console.error('check-app-update normalized:', normalizedError)
@@ -42,6 +51,7 @@ module.exports = function registerUpdaterHandlers(ctx) {
       await autoUpdater.downloadUpdate()
       return { success: true }
     } catch (err) {
+      ctx.installAfterDownload = false
       const normalizedError = normalizeUpdateError(err)
       console.error('download-app-update error:', err)
       console.error('download-app-update normalized:', normalizedError)
@@ -52,6 +62,10 @@ module.exports = function registerUpdaterHandlers(ctx) {
   ipcMain.handle('download-and-install-app-update', async () => {
     try {
       if (ctx.updateDownloaded) {
+        broadcastUpdateStatus(ctx, {
+          ...ctx.lastUpdateStatus,
+          status: 'installing',
+        }, 'download-and-install-app-update')
         // Silent install (no installer UI) so the NSIS mode/directory pages
         // never run. This avoids the stale per-machine prompt and lets the
         // /D= switch (set via autoUpdater.installDirectory) place the update
@@ -63,6 +77,7 @@ module.exports = function registerUpdaterHandlers(ctx) {
       }
       return { success: true }
     } catch (err) {
+      ctx.installAfterDownload = false
       const normalizedError = normalizeUpdateError(err)
       console.error('download-and-install-app-update error:', err)
       console.error('download-and-install-app-update normalized:', normalizedError)
@@ -76,6 +91,14 @@ module.exports = function registerUpdaterHandlers(ctx) {
         console.warn('install-app-update ignored: update has not been downloaded')
         return { success: false, error: UPDATE_NOT_DOWNLOADED_MESSAGE, code: 'UPDATE_NOT_DOWNLOADED', retryable: true }
       }
+      if (!['downloaded', 'installing'].includes(ctx.lastUpdateStatus?.status)) {
+        console.warn(`install-app-update ignored: invalid update state ${ctx.lastUpdateStatus?.status || 'unknown'}`)
+        return { success: false, error: UPDATE_NOT_DOWNLOADED_MESSAGE, code: 'UPDATE_NOT_DOWNLOADED', retryable: true }
+      }
+      broadcastUpdateStatus(ctx, {
+        ...ctx.lastUpdateStatus,
+        status: 'installing',
+      }, 'install-app-update')
       autoUpdater.quitAndInstall(true, true)
       return { success: true }
     } catch (err) {

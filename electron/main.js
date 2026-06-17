@@ -227,6 +227,7 @@ const defaultConfig = {
 // ── autoUpdater setup ───────────────────────────────────────────────────────
 
 function getUpdateFooterAction(status) {
+  if (status.status === 'installing') return 'installing'
   if (status.status === 'downloaded') return 'install'
   if (status.status === 'downloading') return 'downloading'
   if (status.status === 'checking') return 'checking'
@@ -240,7 +241,7 @@ function sendUpdateStatus(status, source = 'unknown') {
   lastUpdateStatus = status
   console.log(
     `update-state: ${previousStatus} -> ${nextStatus} via ${source}; ` +
-    `footerAction=${getUpdateFooterAction(status)}; canInstallUpdate=${nextStatus === 'downloaded'}`,
+    `footerAction=${getUpdateFooterAction(status)}; canInstallUpdate=${['downloaded', 'installing'].includes(nextStatus)}`,
   )
   BrowserWindow.getAllWindows().forEach((window) => {
     if (!window.isDestroyed()) window.webContents.send('update-status', status)
@@ -279,7 +280,7 @@ autoUpdater.on('update-not-available', () => {
   sendUpdateStatus({ status: 'not-available' }, 'update-not-available')
 })
 autoUpdater.on('download-progress', (progress) => {
-  if (updateDownloaded) {
+  if (updateDownloaded || lastUpdateStatus?.status === 'installing') {
     console.log('update-state: ignored download-progress after update-downloaded')
     return
   }
@@ -292,11 +293,20 @@ autoUpdater.on('download-progress', (progress) => {
 autoUpdater.on('update-downloaded', (info) => {
   updateInfo = info
   updateDownloaded = true
-  sendUpdateStatus({ status: 'downloaded', version: info.version, percent: null }, 'update-downloaded')
   if (installAfterDownload) {
     installAfterDownload = false
-    setTimeout(() => autoUpdater.quitAndInstall(true, true), 500)
+    sendUpdateStatus({ status: 'installing', version: info.version, percent: null }, 'update-downloaded')
+    setTimeout(() => {
+      try {
+        autoUpdater.quitAndInstall(true, true)
+      } catch (err) {
+        console.error('Auto install after download failed:', err)
+        sendUpdateStatus({ status: 'downloaded', version: info.version, percent: null }, 'auto-install-failed')
+      }
+    }, 500)
+    return
   }
+  sendUpdateStatus({ status: 'downloaded', version: info.version, percent: null }, 'update-downloaded')
 })
 autoUpdater.on('error', (err) => {
   const normalizedError = normalizeUpdateError(err)

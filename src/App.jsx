@@ -155,17 +155,18 @@ const App = () => {
       ? `Downloading Atlas update: ${formatPercent(appUpdateNotice.percent)}`
       : sanitizePercentText(appUpdateNotice.text)
   const appUpdateActionLabel = (() => {
+    if (appUpdateNotice.status === 'installing') return 'Installing update...'
     if (appUpdateNotice.status === 'downloaded') return 'Install and restart'
     if (appUpdateNotice.status === 'downloading') return 'Downloading...'
     if (appUpdateNotice.status === 'checking') return 'Checking...'
     if (['error', 'package_not_ready', 'not-available'].includes(appUpdateNotice.status)) {
       return 'Check for updates'
     }
-    return 'Download update'
+    return 'Download and install'
   })()
   const isAppUpdateActionDisabled =
     (appUpdateActionBusy && appUpdateNotice.status !== 'downloaded') ||
-    ['downloading', 'checking'].includes(appUpdateNotice.status)
+    ['downloading', 'checking', 'installing'].includes(appUpdateNotice.status)
 
   // ── Scroll restore ─────────────────────────────────────────────────────────
   const restoreLibraryScrollIfNeeded = useCallback(() => {
