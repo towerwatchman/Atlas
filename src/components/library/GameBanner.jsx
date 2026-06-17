@@ -5,9 +5,13 @@ import { getGameTitle } from '../../utils/gameDisplay.js'
 // Inline CSS for hover effects
 const bannerStyles = `
   .banner-root {
+    box-sizing: border-box;
     perspective: 1000px;
     transform-style: preserve-3d;
+    transform-origin: center center;
     transform: skewX(0.001deg);
+    backface-visibility: hidden;
+    will-change: transform;
     transition: transform 0.35s ease-in-out;
   }
   .banner-root:hover {
@@ -366,14 +370,14 @@ const GameBanner = ({ game, onSelect }) => {
           {
             key: `banner-image-container-${game.record_id}`,
             className:
-              "absolute top-0 left-0 w-[537px] h-[251px] z-0 bg-[#1F2937]",
+              "absolute inset-0 w-full h-full z-0 bg-[#1F2937]",
           },
           [
             React.createElement("img", {
               key: `banner-image-${game.record_id}`,
               src: game.banner_url,
               alt: displayTitle,
-              className: "w-[537px] h-[251px] object-contain",
+              className: "block w-full h-full object-contain",
               onError: () =>
                 console.error(
                   `Failed to load banner image for recordId ${game.record_id}: ${game.banner_url}`,
@@ -390,7 +394,7 @@ const GameBanner = ({ game, onSelect }) => {
         React.createElement("div", {
           key: `banner-fallback-${game.record_id}`,
           className:
-            "absolute top-0 left-0 w-[537px] h-[251px] bg-[#1F2937] z-0",
+            "absolute inset-0 w-full h-full bg-[#1F2937] z-0",
         }),
       );
     }
@@ -400,7 +404,7 @@ const GameBanner = ({ game, onSelect }) => {
       {
         key: `banner-root-${game.record_id}`,
         className:
-          "relative w-[537px] h-[251px] border border-black cursor-pointer overflow-hidden banner-root",
+          "relative w-[537px] h-[251px] border border-black cursor-pointer overflow-hidden box-border bg-[#1F2937] banner-root",
         onClick: onSelect,
         onContextMenu: handleContextMenu,
       },
