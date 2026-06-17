@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const fsp = require('fs').promises
@@ -242,6 +242,7 @@ const defaultConfig = {
     layout: 'sidebar',
     customTheme: '',
   },
+  WindowBounds: {},
 }
 
 // ── autoUpdater setup ───────────────────────────────────────────────────────
@@ -482,12 +483,144 @@ function focusWindow(win) {
   win.focus()
 }
 
+function getWindowStateKey(name) {
+  return String(name || '').replace(/[^A-Za-z0-9]/g, '')
+}
+
+function toPositiveInteger(value) {
+  const number = Number(value)
+  return Number.isFinite(number) && number > 0 ? Math.round(number) : null
+}
+
+function toBoundsBoolean(value) {
+  return value === true || value === 'true' || value === 1 || value === '1'
+}
+
+function getSavedWindowBounds(name) {
+  const section = appConfig?.WindowBounds || {}
+  const key = getWindowStateKey(name)
+  const x = Number(section[`${key}X`])
+  const y = Number(section[`${key}Y`])
+  const width = toPositiveInteger(section[`${key}Width`])
+  const height = toPositiveInteger(section[`${key}Height`])
+  if (!width || !height) return null
+  return {
+    x: Number.isFinite(x) ? Math.round(x) : null,
+    y: Number.isFinite(y) ? Math.round(y) : null,
+    width,
+    height,
+    maximized: toBoundsBoolean(section[`${key}Maximized`]),
+  }
+}
+
+function isBoundsVisibleOnAnyDisplay(bounds) {
+  if (!bounds || !Number.isFinite(bounds.x) || !Number.isFinite(bounds.y)) return false
+  const rect = {
+    x: bounds.x,
+    y: bounds.y,
+    width: Math.max(1, bounds.width || 1),
+    height: Math.max(1, bounds.height || 1),
+  }
+  return screen.getAllDisplays().some((display) => {
+    const area = display.workArea
+    return (
+      rect.x < area.x + area.width &&
+      rect.x + rect.width > area.x &&
+      rect.y < area.y + area.height &&
+      rect.y + rect.height > area.y
+    )
+  })
+}
+
+function applySavedWindowBounds(name, defaultOptions) {
+  const saved = getSavedWindowBounds(name)
+  if (!saved) return { options: { ...defaultOptions }, maximized: false }
+
+  const minWidth = defaultOptions.minWidth || 0
+  const minHeight = defaultOptions.minHeight || 0
+  const width = Math.max(saved.width, minWidth, 320)
+  const height = Math.max(saved.height, minHeight, 240)
+  const options = { ...defaultOptions, width, height }
+
+  if (isBoundsVisibleOnAnyDisplay({ ...saved, width, height })) {
+    options.x = saved.x
+    options.y = saved.y
+    console.log(`Restored window bounds for ${name}: ${JSON.stringify({ x: options.x, y: options.y, width, height, maximized: saved.maximized })}`)
+  } else {
+    console.log(`Ignored off-screen window position for ${name}; restoring saved size only`)
+  }
+
+  return { options, maximized: saved.maximized }
+}
+
+function writeConfigSafely() {
+  if (!appConfig || !configPath) return
+  try {
+    fs.writeFileSync(configPath, ini.stringify(appConfig))
+  } catch (err) {
+    console.error('Failed to save window bounds:', err)
+  }
+}
+
+function saveWindowBounds(name, win) {
+  if (!win || win.isDestroyed() || win.isMinimized()) return
+  const key = getWindowStateKey(name)
+  const bounds = win.isMaximized() && typeof win.getNormalBounds === 'function'
+    ? win.getNormalBounds()
+    : win.getBounds()
+  if (!bounds?.width || !bounds?.height) return
+
+  appConfig = {
+    ...appConfig,
+    WindowBounds: {
+      ...(appConfig?.WindowBounds || {}),
+      [`${key}X`]: bounds.x,
+      [`${key}Y`]: bounds.y,
+      [`${key}Width`]: bounds.width,
+      [`${key}Height`]: bounds.height,
+      [`${key}Maximized`]: win.isMaximized(),
+    },
+  }
+  writeConfigSafely()
+  console.log(`Saved window bounds for ${name}: ${JSON.stringify({ ...bounds, maximized: win.isMaximized() })}`)
+}
+
+function registerWindowBoundsPersistence(name, win, restoreState = {}) {
+  if (!win || win.isDestroyed()) return
+  let isRestoring = true
+  let saveTimer = null
+  const scheduleSave = () => {
+    if (isRestoring || win.isDestroyed()) return
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => saveWindowBounds(name, win), 300)
+  }
+  const saveNow = () => {
+    if (isRestoring || win.isDestroyed()) return
+    clearTimeout(saveTimer)
+    saveWindowBounds(name, win)
+  }
+
+  win.on('resize', scheduleSave)
+  win.on('move', scheduleSave)
+  win.on('maximize', saveNow)
+  win.on('unmaximize', saveNow)
+  win.on('close', saveNow)
+  win.on('closed', () => clearTimeout(saveTimer))
+
+  setTimeout(() => {
+    isRestoring = false
+    if (restoreState.maximized && !win.isDestroyed()) {
+      win.maximize()
+    }
+  }, 0)
+}
+
 function createWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     focusWindow(mainWindow)
     return mainWindow
   }
-  mainWindow = new BrowserWindow({
+  const windowState = applySavedWindowBounds('main', {
     width: 1366,
     minWidth: 1366,
     height: 800,
@@ -498,6 +631,8 @@ function createWindow() {
       nodeIntegration: false,
     },
   })
+  mainWindow = new BrowserWindow(windowState.options)
+  registerWindowBoundsPersistence('main', mainWindow, windowState)
   if (VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(VITE_DEV_SERVER_URL)
   } else {
@@ -522,7 +657,7 @@ function createSettingsWindow() {
     focusWindow(settingsWindow)
     return
   }
-  settingsWindow = new BrowserWindow({
+  const windowState = applySavedWindowBounds('settings', {
     width: 900,
     height: 650,
     frame: false,
@@ -532,6 +667,8 @@ function createSettingsWindow() {
       nodeIntegration: false,
     },
   })
+  settingsWindow = new BrowserWindow(windowState.options)
+  registerWindowBoundsPersistence('settings', settingsWindow, windowState)
   if (VITE_DEV_SERVER_URL) {
     settingsWindow.loadURL(VITE_DEV_SERVER_URL + '/settings.html')
   } else {
@@ -550,7 +687,7 @@ function createImporterWindow() {
     focusWindow(importerWindow)
     return
   }
-  importerWindow = new BrowserWindow({
+  const windowState = applySavedWindowBounds('importer', {
     width: 1100,
     height: 750,
     frame: false,
@@ -560,6 +697,8 @@ function createImporterWindow() {
       nodeIntegration: false,
     },
   })
+  importerWindow = new BrowserWindow(windowState.options)
+  registerWindowBoundsPersistence('importer', importerWindow, windowState)
   const importerUrl = VITE_DEV_SERVER_URL
     ? VITE_DEV_SERVER_URL + '/importer.html'
     : path.join(__dirname, '../dist/renderer/importer.html')
@@ -588,7 +727,7 @@ function createGameDetailsWindow(recordId) {
     focusWindow(existingWindow)
     return
   }
-  const win = new BrowserWindow({
+  const windowState = applySavedWindowBounds('gameDetails', {
     width: 1100,
     height: 750,
     frame: false,
@@ -598,6 +737,8 @@ function createGameDetailsWindow(recordId) {
       nodeIntegration: false,
     },
   })
+  const win = new BrowserWindow(windowState.options)
+  registerWindowBoundsPersistence('gameDetails', win, windowState)
   gameDetailsRecordMap.set(win.webContents.id, recordId)
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL + '/gamedetails.html')
@@ -619,7 +760,7 @@ function showExecutableChooser(title, version, executables) {
     executableChooserWindow.webContents.send('init-executable-chooser', { title, version, executables })
     return
   }
-  executableChooserWindow = new BrowserWindow({
+  const windowState = applySavedWindowBounds('executableChooser', {
     width: 600,
     height: 400,
     frame: false,
@@ -629,6 +770,8 @@ function showExecutableChooser(title, version, executables) {
       nodeIntegration: false,
     },
   })
+  executableChooserWindow = new BrowserWindow(windowState.options)
+  registerWindowBoundsPersistence('executableChooser', executableChooserWindow, windowState)
   executableChooserWindow.loadFile(
     path.join(__dirname, '../../src/assets/ui/executable-chooser.html')
   )
