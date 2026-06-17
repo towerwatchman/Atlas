@@ -12,6 +12,7 @@ const debounce = (func, delay) => {
 export function useGames() {
   const [games, setGames] = useState([])
   const [catalogGames, setCatalogGames] = useState([])
+  const [wishlistGames, setWishlistGames] = useState([])
   const [totalVersions, setTotalVersions] = useState(0)
   const includeUninstalledRef = useRef(false)
 
@@ -58,6 +59,29 @@ export function useGames() {
         })
         .catch((error) => {
           console.error('Failed to fetch AtlasDB catalog:', error)
+          return []
+        }),
+    []
+  )
+
+  const fetchWishlistGames = useCallback(
+    () =>
+      window.electronAPI
+        .getWishlistEntries()
+        .then((allGames) => {
+          const gamesArray = normalizeGamesForRenderer(allGames).map((game) => ({
+            ...game,
+            isCatalogEntry: true,
+            isMetadataOnly: true,
+            isWishlistEntry: true,
+            isWishlisted: true,
+          }))
+          console.log(`Fetched ${gamesArray.length} wishlist entries`)
+          setWishlistGames(gamesArray)
+          return gamesArray
+        })
+        .catch((error) => {
+          console.error('Failed to fetch wishlist entries:', error)
           return []
         }),
     []
@@ -134,9 +158,11 @@ export function useGames() {
   return {
     games,
     catalogGames,
+    wishlistGames,
     totalVersions,
     fetchGames,
     fetchCatalogGames,
+    fetchWishlistGames,
     updateGamesState,
     replaceGameInState,
     removeGameFromState,

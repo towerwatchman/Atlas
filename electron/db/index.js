@@ -264,6 +264,28 @@ const initializeDatabase = (dataDir) => {
       );
     `);
     db.run(`
+      CREATE TABLE IF NOT EXISTS wishlist_entries
+      (
+        wishlist_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        identity_key TEXT NOT NULL UNIQUE,
+        source TEXT NOT NULL,
+        atlas_id INTEGER,
+        f95_id INTEGER,
+        steam_id INTEGER,
+        title TEXT NOT NULL,
+        creator TEXT,
+        engine TEXT,
+        status TEXT,
+        latest_version TEXT,
+        site_url TEXT,
+        banner_url TEXT,
+        flagged_at INTEGER NOT NULL,
+        note TEXT
+      );
+    `);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_flagged_at ON wishlist_entries(flagged_at);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_source ON wishlist_entries(source);`);
+    db.run(`
       CREATE TABLE IF NOT EXISTS data_change
       (
         timestamp INTEGER,

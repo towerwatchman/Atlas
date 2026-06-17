@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return ipcRenderer.invoke("get-games", { offset, limit, options });
   },
   getCatalogGames: () => ipcRenderer.invoke("get-catalog-games"),
+  addWishlistEntry: (entry) => ipcRenderer.invoke("wishlist-add", entry),
+  removeWishlistEntry: (identity) =>
+    ipcRenderer.invoke("wishlist-remove", identity),
+  toggleWishlistEntry: (entry) => ipcRenderer.invoke("wishlist-toggle", entry),
+  getWishlistEntries: () => ipcRenderer.invoke("wishlist-list"),
+  getWishlistEntryIdentities: () => ipcRenderer.invoke("wishlist-identities"),
   validateLibraryPaths: () => ipcRenderer.invoke("validate-library-paths"),
   removeGame: (id) => ipcRenderer.invoke("remove-game", id),
   checkUpdates: () => ipcRenderer.invoke("check-updates"),

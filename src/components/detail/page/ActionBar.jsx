@@ -2,8 +2,9 @@ import { LAUNCH_STATE, ACTION_BTN, STEAM_GREEN, STEAM_BLUE, STEAM_YELLOW, STEAM_
 
 export default function ActionBar({
   game, actionVersion, latestVersion, canLaunch, canOpenFolder,
+  canManageWishlist = false, isWishlisted = false, wishlistBusy = false,
   launchState, isRefreshingMedia, showInfo, canManageLocalTitle = true,
-  onLaunch, onOpenFolder, onOpenProperties, onRefreshMedia,
+  onLaunch, onOpenFolder, onOpenProperties, onToggleWishlist, onRefreshMedia,
   onOpenWebsite, onRemoveTitle, onDeleteTitle, onToggleInfo,
 }) {
   const playBg =
@@ -87,6 +88,29 @@ export default function ActionBar({
 
         {/* Icon buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative' }}>
+          {canManageWishlist && (
+            <button
+              onClick={onToggleWishlist}
+              disabled={wishlistBusy}
+              title={isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
+              style={{
+                ...ACTION_BTN,
+                minWidth: 146,
+                height: 32,
+                background: isWishlisted ? '#6b2f42' : '#2f5f78',
+                color: isWishlisted ? '#ffd4df' : '#d4efff',
+                opacity: wishlistBusy ? 0.65 : 1,
+                cursor: wishlistBusy ? 'wait' : 'pointer',
+              }}
+              onMouseEnter={(e) => { if (!wishlistBusy) e.currentTarget.style.filter = 'brightness(1.12)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap' }}>
+                <i className={wishlistBusy ? 'fas fa-circle-notch fa-spin' : 'fas fa-heart'} style={{ fontSize: 11 }}></i>
+                {isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
+              </span>
+            </button>
+          )}
           <button onClick={onOpenFolder} disabled={!canOpenFolder} title="Open Folder" style={iconBtn(!canOpenFolder)} className="hover:bg-secondary hover:border-border">
             <i className="fas fa-folder-open" style={{ fontSize: 13 }}></i>
           </button>

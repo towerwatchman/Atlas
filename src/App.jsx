@@ -15,6 +15,7 @@ import { useAppUpdate } from './hooks/useAppUpdate.js'
 import { useWindowState } from './hooks/useWindowState.js'
 import { useTheme } from './theme/ThemeProvider.jsx'
 import { getGameTitle, normalizeGameForRenderer } from './utils/gameDisplay.js'
+import { getWishlistIdentityKey, withWishlistStates } from './utils/wishlistIdentity.js'
 import { formatPercent, formatProgressNumber, sanitizePercentText } from './utils/formatPercent.js'
 
 const debounce = (func, delay) => {
@@ -30,6 +31,7 @@ const SIDE_PANEL_MODES = {
   GAMES: 'games',
   SAVED_FILTERS: 'savedFilters',
   CATALOG: 'catalog',
+  WISHLIST: 'wishlist',
 }
 
 const knownSidePanelModes = new Set(Object.values(SIDE_PANEL_MODES))
@@ -104,6 +106,7 @@ const App = () => {
   const [libraryMode, setLibraryMode] = useState('local')
   const [showSearchSidebar, setShowSearchSidebar] = useState(false)
   const [userSavedFilters, setUserSavedFilters] = useState([])
+  const [wishlistIdentityKeys, setWishlistIdentityKeys] = useState(new Set())
   const [activeSavedFilterId, setActiveSavedFilterId] = useState('')
   const [savedFilterDeleteStateById, setSavedFilterDeleteStateById] = useState({})
   const [columnCount, setColumnCount] = useState(1)
@@ -134,7 +137,8 @@ const App = () => {
             sidePanelMode: nextMode,
             showGameList:
               nextMode !== SIDE_PANEL_MODES.HIDDEN &&
-              nextMode !== SIDE_PANEL_MODES.CATALOG,
+              nextMode !== SIDE_PANEL_MODES.CATALOG &&
+              nextMode !== SIDE_PANEL_MODES.WISHLIST,
           },
         })
       })
@@ -143,7 +147,8 @@ const App = () => {
 
   // ── Hooks ──────────────────────────────────────────────────────────────────
   const {
-    games, catalogGames, totalVersions, fetchGames, fetchCatalogGames, replaceGameInState,
+    games, catalogGames, wishlistGames, totalVersions, fetchGames, fetchCatalogGames,
+    fetchWishlistGames, replaceGameInState,
     removeGameFromState, refreshGame, includeUninstalledRef,
   } = useGames()
 
@@ -151,18 +156,49 @@ const App = () => {
     activeFilters, handleFilterChange,
     filteredGames: localFilteredGames, installedGameCount, uninstalledGameCount,
   } = useFilters(games, includeUninstalledRef, fetchGames, setSelectedGame)
+  const catalogWithWishlist = useMemo(
+    () => withWishlistStates(catalogGames, wishlistIdentityKeys),
+    [catalogGames, wishlistIdentityKeys],
+  )
+  const wishlistWithState = useMemo(
+    () => withWishlistStates(wishlistGames, wishlistIdentityKeys),
+    [wishlistGames, wishlistIdentityKeys],
+  )
   const catalogFilteredGames = useMemo(
     () =>
-      filterGamesWithState(catalogGames, {
+      filterGamesWithState(catalogWithWishlist, {
         ...activeFilters,
         includeUninstalled: true,
         installState: 'all',
         updateAvailable: false,
         multipleInstalledVersions: false,
       }, { browseMode: true }),
-    [catalogGames, activeFilters],
+    [catalogWithWishlist, activeFilters],
   )
-  const filteredGames = libraryMode === 'catalog' ? catalogFilteredGames : localFilteredGames
+  const wishlistFilteredGames = useMemo(
+    () =>
+      filterGamesWithState(wishlistWithState, {
+        ...activeFilters,
+        includeUninstalled: true,
+        installState: 'all',
+        updateAvailable: false,
+        multipleInstalledVersions: false,
+        browseDateRange: 'any',
+      }, { browseMode: true }),
+    [wishlistWithState, activeFilters],
+  )
+  const filteredGames =
+    libraryMode === 'catalog'
+      ? catalogFilteredGames
+      : libraryMode === 'wishlist'
+        ? wishlistFilteredGames
+        : localFilteredGames
+  const viewTitle =
+    libraryMode === 'catalog'
+      ? 'Browse'
+      : libraryMode === 'wishlist'
+        ? 'Wishlist'
+        : 'Games'
 
   const { isMaximized, version, handleWindowStateChanged, loadVersion } = useWindowState()
   const { layout } = useTheme()
@@ -222,7 +258,7 @@ const App = () => {
 
   const goHome = useCallback(() => {
     setLibraryMode('local')
-    if (sidebarMode === SIDE_PANEL_MODES.CATALOG) {
+    if (sidebarMode === SIDE_PANEL_MODES.CATALOG || sidebarMode === SIDE_PANEL_MODES.WISHLIST) {
       setAndPersistSidePanelMode(SIDE_PANEL_MODES.HIDDEN)
     }
     goBackToLibrary()
@@ -230,7 +266,8 @@ const App = () => {
 
   const selectGame = useCallback((game) => {
     setShowSearchSidebar(false)
-    setSelectedGame(game)
+    const selected = withWishlistStates([game], wishlistIdentityKeys)[0] || game
+    setSelectedGame(selected)
     if (!game?.record_id || game.isMetadataOnly) return
     window.electronAPI
       .getGame(game.record_id)
@@ -244,7 +281,7 @@ const App = () => {
       .catch((error) =>
         console.error(`Failed to refresh selected game ${game.record_id}:`, error)
       )
-  }, [])
+  }, [wishlistIdentityKeys])
 
   // ── Grid sizing ────────────────────────────────────────────────────────────
   const getScrollbarWidth = () => {
@@ -309,6 +346,51 @@ const App = () => {
     setShowSearchSidebar(false)
     fetchCatalogGames()
   }, [fetchCatalogGames, setAndPersistSidePanelMode])
+
+  const loadWishlistIdentities = useCallback(() => {
+    return window.electronAPI
+      .getWishlistEntryIdentities?.()
+      .then((ids) => {
+        const next = new Set((Array.isArray(ids) ? ids : []).filter(Boolean).map(String))
+        setWishlistIdentityKeys(next)
+        return next
+      })
+      .catch((err) => {
+        console.error('Failed to load wishlist identities:', err)
+        return new Set()
+      })
+  }, [])
+
+  const openWishlist = useCallback(() => {
+    setLibraryMode('wishlist')
+    setSelectedGame(null)
+    setAndPersistSidePanelMode(SIDE_PANEL_MODES.WISHLIST)
+    setShowSearchSidebar(false)
+    Promise.all([fetchWishlistGames(), loadWishlistIdentities()])
+      .catch((err) => console.error('Failed to open wishlist:', err))
+  }, [fetchWishlistGames, loadWishlistIdentities, setAndPersistSidePanelMode])
+
+  const handleWishlistChanged = useCallback(async (result = {}, sourceGame = null) => {
+    const identityKey = result.identityKey || getWishlistIdentityKey(sourceGame || result.entry || {})
+    setWishlistIdentityKeys((prev) => {
+      const next = new Set(prev)
+      if (result.isWishlisted === false || result.removed) next.delete(identityKey)
+      else if (identityKey) next.add(identityKey)
+      return next
+    })
+    await fetchWishlistGames()
+    if (libraryMode === 'wishlist' && result.isWishlisted === false) {
+      setSelectedGame((current) => {
+        if (!current) return current
+        return getWishlistIdentityKey(current) === identityKey ? null : current
+      })
+    } else if (sourceGame) {
+      setSelectedGame((current) => {
+        if (!current || getWishlistIdentityKey(current) !== identityKey) return current
+        return { ...current, isWishlisted: result.isWishlisted !== false }
+      })
+    }
+  }, [fetchWishlistGames, libraryMode])
 
   const toggleSearchSidebar = useCallback(() => {
     if (selectedGame) return
@@ -518,12 +600,20 @@ const App = () => {
           config.Interface?.showGameList ?? true,
         )
         setSidebarMode(nextMode)
-        setLibraryMode(nextMode === SIDE_PANEL_MODES.CATALOG ? 'catalog' : 'local')
+        setLibraryMode(
+          nextMode === SIDE_PANEL_MODES.CATALOG
+            ? 'catalog'
+            : nextMode === SIDE_PANEL_MODES.WISHLIST
+              ? 'wishlist'
+              : 'local',
+        )
         if (nextMode === SIDE_PANEL_MODES.CATALOG) fetchCatalogGames()
+        if (nextMode === SIDE_PANEL_MODES.WISHLIST) fetchWishlistGames()
       })
       .catch(() => setSidebarMode(SIDE_PANEL_MODES.GAMES))
 
     fetchGames(false).then(() => window.electronAPI.validateLibraryPaths?.())
+    loadWishlistIdentities()
     loadSavedFilters()
 
     window.electronAPI.getTemplate?.()
@@ -686,7 +776,7 @@ const App = () => {
           <div className="w-full flex h-[70px] items-center">
             <div className="flex items-center ml-5">
               <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag" onClick={goHome} title="Back to Library">
-                {libraryMode === 'catalog' ? 'Browse' : 'Games'}
+                {viewTitle}
               </div>
             </div>
             {isTopNav ? (
@@ -697,6 +787,7 @@ const App = () => {
                     onCheckDbUpdates={runDbUpdateCheck}
                     onGoHome={goHome}
                     onBrowseCatalog={browseCatalog}
+                    onOpenWishlist={openWishlist}
                     showGameList={showLibrarySidebar}
                     libraryMode={libraryMode}
                   />
@@ -737,6 +828,7 @@ const App = () => {
             onCheckDbUpdates={runDbUpdateCheck}
             onGoHome={goHome}
             onBrowseCatalog={browseCatalog}
+            onOpenWishlist={openWishlist}
             showGameList={showLibrarySidebar}
             libraryMode={libraryMode}
           />
@@ -746,7 +838,11 @@ const App = () => {
           <div className={`w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ${isTopNav ? '' : 'ml-[60px]'}`}>
             {filteredGames.length === 0 ? (
               <div className="p-2 text-center text-text">
-                {libraryMode === 'catalog' ? 'No browse titles match these filters.' : 'No games found'}
+                {libraryMode === 'catalog'
+                  ? 'No browse titles match these filters.'
+                  : libraryMode === 'wishlist'
+                    ? 'No wishlist entries yet. Add titles from Browse.'
+                    : 'No games found'}
               </div>
             ) : (
               filteredGames.map((game) => (
@@ -780,10 +876,19 @@ const App = () => {
           style={{ overflowX: 'hidden' }}
         >
           {selectedGame ? (
-            <GameDetailPage game={selectedGame} onBack={goBackToLibrary} onRefresh={refreshGame} />
+            <GameDetailPage
+              game={selectedGame}
+              onBack={goBackToLibrary}
+              onRefresh={refreshGame}
+              onWishlistChanged={handleWishlistChanged}
+            />
           ) : filteredGames.length === 0 ? (
             <div className="text-center text-text">
-              {libraryMode === 'catalog' ? 'No browse titles match these filters.' : 'No games available'}
+              {libraryMode === 'catalog'
+                ? 'No browse titles match these filters.'
+                : libraryMode === 'wishlist'
+                  ? 'No wishlist entries yet. Add titles from Browse.'
+                  : 'No games available'}
             </div>
           ) : (
             <AutoSizer>
@@ -912,6 +1017,8 @@ const App = () => {
           <span>
             {libraryMode === 'catalog'
               ? `${filteredGames.length} Browse Titles`
+              : libraryMode === 'wishlist'
+                ? `${filteredGames.length} Wishlist ${filteredGames.length === 1 ? 'Entry' : 'Entries'}`
               : activeFilters.includeUninstalled
               ? `${installedGameCount} Games Installed, ${uninstalledGameCount} Uninstalled, ${totalVersions} Total Versions`
               : `${installedGameCount} Games Installed, ${totalVersions} Total Versions`}

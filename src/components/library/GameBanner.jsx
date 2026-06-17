@@ -402,6 +402,27 @@ const GameBanner = ({ game, onSelect }) => {
       );
     }
 
+    if (game.isWishlisted || game.isWishlistEntry) {
+      children.push(
+        React.createElement(
+          "div",
+          {
+            key: `wishlist-marker-${game.record_id}`,
+            className:
+              "absolute top-2 right-2 z-40 bg-primary border border-accent text-text text-[10px] px-2 py-1 pointer-events-none",
+          },
+          [
+            React.createElement("i", {
+              key: "wishlist-icon",
+              className: "fas fa-heart",
+              style: { fontSize: 10, color: "#f9a8d4", marginRight: 5 },
+            }),
+            "Wishlist",
+          ],
+        ),
+      );
+    }
+
     return React.createElement(
       "div",
       {

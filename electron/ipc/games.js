@@ -97,6 +97,8 @@ function registerGamesHandlers(ctx) {
     getMetadataSourceOrder,
     // db functions
     addGame, getGame, getGames, getCatalogGames, getGameRecordIds, removeGame, updateGame,
+    addWishlistEntry, removeWishlistEntry, toggleWishlistEntry,
+    getWishlistEntries, getWishlistEntryIdentities,
     upsertVersion, updateVersion, deleteGameCompletely, getUniqueFilterOptions,
     updateFolderSize, countVersions, deleteVersion, getVersionForRecord,
     getVersionPathsForRecord, getInstalledVersionsForRecord,
@@ -200,6 +202,26 @@ function registerGamesHandlers(ctx) {
       },
     )
     return withMedia(games)
+  })
+
+  ipcMain.handle('wishlist-add', async (_, entry = {}) => {
+    return await addWishlistEntry(entry)
+  })
+
+  ipcMain.handle('wishlist-remove', async (_, identity = {}) => {
+    return await removeWishlistEntry(identity)
+  })
+
+  ipcMain.handle('wishlist-toggle', async (_, entry = {}) => {
+    return await toggleWishlistEntry(entry)
+  })
+
+  ipcMain.handle('wishlist-list', async () => {
+    return withMedia(await getWishlistEntries())
+  })
+
+  ipcMain.handle('wishlist-identities', async () => {
+    return await getWishlistEntryIdentities()
   })
 
   ipcMain.handle('validate-library-paths', async (event) => {

@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { getNavItems, parseIconParts } from './navItems.js'
 
-const Sidebar = ({ onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, showGameList, libraryMode = 'local' }) => {
+const Sidebar = ({ onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist, showGameList, libraryMode = 'local' }) => {
   const [selected, setSelected] = useState('Home')
-  const items = getNavItems({ onToggleGameList, onCheckDbUpdates, onBrowseCatalog })
+  const items = getNavItems({ onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist })
 
   const handleClick = (item) => {
     setSelected(item.name)
@@ -16,7 +16,10 @@ const Sidebar = ({ onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog
   return (
     <div className="w-navSize bg-primary flex flex-col items-center min-w-[60px] py-[1px] fixed h-full z-50">
       {items.map((item) => {
-        const isActive = selected === item.name || (item.name === 'Browse' && libraryMode === 'catalog')
+        const isActive =
+          selected === item.name ||
+          (item.name === 'Browse' && libraryMode === 'catalog') ||
+          (item.name === 'Wishlist' && libraryMode === 'wishlist')
         return (
           <div
             key={item.name}

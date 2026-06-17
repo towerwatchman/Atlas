@@ -10,6 +10,7 @@ const LABELS = {
   Add: 'Add Game',
   List: 'List',
   Browse: 'Browse',
+  Wishlist: 'Wishlist',
   Updates: 'Updates',
   Settings: 'Settings',
 }
@@ -26,9 +27,9 @@ const LABELS = {
  * that job (see App.jsx), so a second "go home" button would be
  * redundant.
  */
-const TopNav = ({ onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, showGameList, libraryMode = 'local' }) => {
+const TopNav = ({ onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist, showGameList, libraryMode = 'local' }) => {
   const [selected, setSelected] = useState(null)
-  const items = getNavItems({ onToggleGameList, onCheckDbUpdates, onBrowseCatalog })
+  const items = getNavItems({ onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist })
     .filter((item) => item.name !== 'Home')
 
   const handleClick = (item) => {
@@ -44,6 +45,7 @@ const TopNav = ({ onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog,
         const isActive =
           selected === item.name ||
           (item.name === 'Browse' && libraryMode === 'catalog') ||
+          (item.name === 'Wishlist' && libraryMode === 'wishlist') ||
           (item.name === 'List' && showGameList)
         return (
           <button

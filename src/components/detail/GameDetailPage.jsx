@@ -11,9 +11,11 @@ import {
 } from './page/gameDetailUtils.js'
 import { buildExternalLinks } from './externalLinks.js'
 
-const GameDetailPage = ({ game, onBack, onRefresh }) => {
+const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [previews, setPreviews] = useState([])
   const [previewsLoading, setPreviewsLoading] = useState(false)
+  const [isWishlisted, setIsWishlisted] = useState(game?.isWishlisted === true || game?.isWishlistEntry === true)
+  const [wishlistBusy, setWishlistBusy] = useState(false)
   const [selectedVersion, setSelectedVersion] = useState(null)
   const [isRefreshingMedia, setIsRefreshingMedia] = useState(false)
   const [launchState, setLaunchState] = useState(LAUNCH_STATE.IDLE)
@@ -68,8 +70,9 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
     setLaunchState(LAUNCH_STATE.IDLE)
     setShowInfo(true)
     setLightboxIndex(null)
+    setIsWishlisted(game?.isWishlisted === true || game?.isWishlistEntry === true)
     isRunningRef.current = false
-  }, [game?.record_id])
+  }, [game?.record_id, game?.isWishlisted, game?.isWishlistEntry])
 
   useEffect(() => {
     const findScroller = (el) => {
@@ -149,6 +152,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   const installedVersions = getInstalledVersions(game.versions || [])
   const actionVersion = selectedVersion || getDefaultVersion(installedVersions)
   const canManageLocalTitle = game.isMetadataOnly !== true && game.isCatalogEntry !== true
+  const canManageWishlist = game.isCatalogEntry === true || game.isWishlistEntry === true
   const canLaunch = Boolean(actionVersion && actionVersion.isInstalled !== false && (actionVersion.exec_path || game.record_id))
   const canOpenFolder = Boolean(actionVersion?.game_path && actionVersion.isInstalled !== false)
   const latestVersion = game.latestVersion || game.latest_version || ''
@@ -210,6 +214,31 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
   }
   const openWebsite = async () => { if (game.siteUrl) await window.electronAPI.openExternalUrl(game.siteUrl) }
 
+  const toggleWishlist = async () => {
+    if (!canManageWishlist || wishlistBusy) return
+    setWishlistBusy(true)
+    try {
+      const result = isWishlisted
+        ? await window.electronAPI.removeWishlistEntry?.(game)
+        : await window.electronAPI.toggleWishlistEntry?.(game)
+      if (!result?.success) {
+        if (result?.inLibrary) {
+          alert('This title is already in your Library.')
+          return
+        }
+        throw new Error(result?.error || 'Wishlist update failed')
+      }
+      const nextWishlisted = result.isWishlisted !== false
+      setIsWishlisted(nextWishlisted)
+      await onWishlistChanged?.({ ...result, isWishlisted: nextWishlisted }, game)
+    } catch (err) {
+      console.error('Failed to update wishlist:', err)
+      alert(`Failed to update Wishlist: ${err.message || err}`)
+    } finally {
+      setWishlistBusy(false)
+    }
+  }
+
   const removeTitleFromLibrary = async () => {
     if (!canManageLocalTitle) return
     if (!window.confirm(`Remove "${game.title}" from the local library?\n\nGame files will be kept on disk.`)) return
@@ -262,6 +291,9 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
         latestVersion={latestVersion}
         canLaunch={canLaunch}
         canOpenFolder={canOpenFolder}
+        canManageWishlist={canManageWishlist}
+        isWishlisted={isWishlisted}
+        wishlistBusy={wishlistBusy}
         launchState={launchState}
         isRefreshingMedia={isRefreshingMedia}
         showInfo={showInfo}
@@ -269,6 +301,7 @@ const GameDetailPage = ({ game, onBack, onRefresh }) => {
         onLaunch={launchSelectedGame}
         onOpenFolder={openSelectedFolder}
         onOpenProperties={openProperties}
+        onToggleWishlist={toggleWishlist}
         onRefreshMedia={refreshMetadataAndImages}
         onOpenWebsite={openWebsite}
         onRemoveTitle={removeTitleFromLibrary}

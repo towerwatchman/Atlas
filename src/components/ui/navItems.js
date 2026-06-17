@@ -5,10 +5,10 @@
 // only needs to happen once, instead of being kept in sync across two
 // components that render this list in different directions.
 //
-// onToggleGameList / onCheckDbUpdates / onBrowseCatalog are passed in by
+// onToggleGameList / onCheckDbUpdates / onBrowseCatalog / onOpenWishlist are passed in by
 // the caller (App.jsx, same as before) rather than baked in here, since
 // they close over App.jsx's own state.
-export function getNavItems({ onToggleGameList, onCheckDbUpdates, onBrowseCatalog }) {
+export function getNavItems({ onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist }) {
   return [
     {
       name: 'Home',
@@ -45,6 +45,16 @@ export function getNavItems({ onToggleGameList, onCheckDbUpdates, onBrowseCatalo
       viewBox: '0 0 24 24',
       onClick: () => {
         if (onBrowseCatalog) onBrowseCatalog()
+      },
+    },
+    {
+      name: 'Wishlist',
+      path: [
+        '<path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.08C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>',
+      ],
+      viewBox: '0 0 24 24',
+      onClick: () => {
+        if (onOpenWishlist) onOpenWishlist()
       },
     },
     {

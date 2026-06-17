@@ -53,6 +53,11 @@ const {
   saveEmulatorConfig, getEmulatorConfig, removeEmulatorConfig, getEmulatorByExtension,
 } = require('./db/settings')
 
+const {
+  addWishlistEntry, removeWishlistEntry, toggleWishlistEntry,
+  getWishlistEntries, getWishlistEntryIdentities,
+} = require('./db/wishlist')
+
 const { initializeDatabase } = require('./db/index')
 // NOTE: do NOT destructure `db` from db/index at require time — it is null until
 // initializeDatabase() runs. Read it live via dbIndex.db inside buildCtx instead.
@@ -658,6 +663,8 @@ function buildCtx() {
     recordGameLaunchStarted, recordGamePlaytime,
     addAtlasMapping, getGame, getGames, getCatalogGames, getGameRecordIds,
     removeGame, checkDbUpdates, updateFolderSize,
+    addWishlistEntry, removeWishlistEntry, toggleWishlistEntry,
+    getWishlistEntries, getWishlistEntryIdentities,
     getBannerUrl, getScreensUrlList, getRemoteBannerUrl, getRemotePreviewUrls,
     getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension,
     GetAtlasIDbyRecord, getPreviews, getBanner, deleteBanner, deletePreviews,
