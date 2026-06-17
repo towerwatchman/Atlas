@@ -185,6 +185,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("appearance-changed", (event, appearance) => callback(appearance));
     return () => ipcRenderer.removeAllListeners("appearance-changed");
   },
+  onMetadataChanged: (callback) => {
+    ipcRenderer.on("metadata-changed", (event, metadata) => callback(metadata));
+    return () => ipcRenderer.removeAllListeners("metadata-changed");
+  },
   onDbUpdateProgress: (callback) => {
     ipcRenderer.on("db-update-progress", (event, progress) =>
       callback(progress),
@@ -235,6 +239,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "import-complete",
       "update-status",
       "appearance-changed",
+      "metadata-changed",
       "context-menu-command",
       "game-deleted",
       "library-validation-progress",

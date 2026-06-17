@@ -686,6 +686,19 @@ const App = () => {
       setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000)
     }
 
+    // Metadata settings (e.g. source order for banner/hero art) are applied
+    // server-side on every get-games/get-game call, but the renderer caches
+    // its game list in state — refetch so the change is visible immediately
+    // instead of requiring a restart. This effect only runs once on mount,
+    // so it can't safely read the latest libraryMode from a stale closure;
+    // refreshing all three lists is cheap and keeps each one correct
+    // whenever the user does switch to it.
+    const handleMetadataChanged = () => {
+      fetchGames()
+      fetchCatalogGames()
+      fetchWishlistGames()
+    }
+
     window.electronAPI.onWindowStateChanged(handleWindowStateChanged)
     window.electronAPI.onDbUpdateProgress(handleDbUpdateProgress)
     window.electronAPI.onImportProgress(handleImportProgress)
@@ -695,6 +708,7 @@ const App = () => {
     window.electronAPI.onLibraryValidationProgress?.(handleLibraryValidationProgress)
     window.electronAPI.onImportComplete(handleImportComplete)
     window.electronAPI.onUpdateStatus(handleUpdateStatus)
+    const removeMetadataListener = window.electronAPI.onMetadataChanged?.(handleMetadataChanged)
 
     window.electronAPI.getAppUpdateState?.()
       .then((status) => { if (status?.status && status.status !== 'idle') handleUpdateStatus(status) })
@@ -713,6 +727,7 @@ const App = () => {
 
     return () => {
       window.electronAPI.removeUpdateStatusListener?.()
+      if (typeof removeMetadataListener === 'function') removeMetadataListener()
       window.removeEventListener('resize', debounceResize)
       ;[
         'window-state-changed', 'db-update-progress', 'import-progress',

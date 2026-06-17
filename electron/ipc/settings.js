@@ -191,6 +191,8 @@ module.exports = function registerSettingsHandlers(ctx) {
   ipcMain.handle('save-settings', async (event, settings) => {
     try {
       const previousAppearance = ctx.appConfig?.Appearance
+      const previousInterface = ctx.appConfig?.Interface
+      const previousMetadata = ctx.appConfig?.Metadata
       ctx.appConfig = settings
       fs.writeFileSync(ctx.configPath, ini.stringify(settings))
 
@@ -207,6 +209,36 @@ module.exports = function registerSettingsHandlers(ctx) {
       if (appearanceChanged && nextAppearance) {
         BrowserWindow.getAllWindows().forEach((win) => {
           if (!win.isDestroyed()) win.webContents.send('appearance-changed', nextAppearance)
+        })
+      }
+
+      // Show/hide DevTools on every open window immediately when the
+      // "Show debug console window" setting changes, instead of only taking
+      // effect for windows created after the toggle (which previously made
+      // it look like it needed a restart).
+      const previousShowDebugConsole = previousInterface?.showDebugConsole === true
+      const nextShowDebugConsole = settings?.Interface?.showDebugConsole === true
+      if (previousShowDebugConsole !== nextShowDebugConsole) {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (win.isDestroyed()) return
+          if (nextShowDebugConsole) {
+            if (!win.webContents.isDevToolsOpened()) win.webContents.openDevTools()
+          } else if (win.webContents.isDevToolsOpened()) {
+            win.webContents.closeDevTools()
+          }
+        })
+      }
+
+      // Metadata source order (and other Metadata settings) affect how
+      // games are returned from get-games/get-game, but the renderer caches
+      // its game list in React state — it won't see the new order until it
+      // re-fetches. Broadcast so open windows know to refresh their data.
+      const nextMetadata = settings?.Metadata
+      const metadataChanged =
+        JSON.stringify(previousMetadata) !== JSON.stringify(nextMetadata)
+      if (metadataChanged && nextMetadata) {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) win.webContents.send('metadata-changed', nextMetadata)
         })
       }
 
