@@ -1013,6 +1013,7 @@ module.exports = function registerImporterHandlers(ctx) {
     getImportRecordStatus, checkRecordExist, addGame, addVersion,
     upsertVersion, updateGame, updateFolderSize, getSteamIDbyRecord,
     addSteamMapping, getBannerUrl, getScreensUrlList,
+    updateBanners, updatePreviews,
     getRemoteBannerUrl, getRemotePreviewUrls,
     getVersionForRecord, getVersionPathsForRecord,
     deleteVersion, deleteGameCompletely, deleteTitleRecord,
@@ -1838,8 +1839,16 @@ ipcMain.handle("import-games", async (event, params) => {
   // Phase 2: Image downloads
   if (shouldDownloadImportImages) {
     progress = 0;
-    const successfulImports = results.filter((r) => r.success);
+    const successfulImports = results.filter((r) => r.success && r.recordId);
     const imageTotal = successfulImports.length;
+    const imageSummary = {
+      processed: 0,
+      downloaded: 0,
+      skipped: 0,
+      failed: 0,
+      filesWritten: 0,
+      dbRowsWritten: 0,
+    };
     const isVideoUrl = (url) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ""));
     const inferMediaSource = (url) => {
       const value = String(url || "").toLowerCase();
@@ -1847,20 +1856,42 @@ ipcMain.handle("import-games", async (event, params) => {
       if (value.includes("f95")) return "f95";
       return "metadata";
     };
+    const resolveImportMediaIdentifiers = async (recordId, importResult) => {
+      const dbAtlasId = await GetAtlasIDbyRecord(recordId);
+      const steamId = await getSteamIDbyRecord(recordId);
+      let f95Id = null;
+      if (dbAtlasId) {
+        try {
+          f95Id = await findF95Id(dbAtlasId);
+        } catch (err) {
+          console.warn(`Image identifier trace: failed to resolve F95 id for atlas ${dbAtlasId}:`, err);
+        }
+      }
+      return {
+        recordId,
+        resultAtlasId: importResult.atlasId || null,
+        dbAtlasId,
+        f95Id,
+        steamId,
+      };
+    };
     const sendImageTrace = (trace) => {
       const message = [
         `Images trace '${trace.title}'`,
-        `flags banner=${trace.downloadBannerImages} previews=${trace.downloadPreviewImages} limit=${trace.previewLimit}`,
         `recordId=${trace.recordId}`,
-        `atlasId=${trace.atlasId || "none"}`,
+        `resultAtlasId=${trace.resultAtlasId || "none"}`,
+        `dbAtlasId=${trace.dbAtlasId || "none"}`,
+        `f95Id=${trace.f95Id || "none"}`,
         `steamId=${trace.steamId || "none"}`,
+        `banner=${trace.downloadBannerImages} previews=${trace.downloadPreviewImages} limit=${trace.previewLimit} videos=${trace.downloadVideos}`,
         `bannerUrls=${trace.bannerUrlCount}`,
         `previewUrls=${trace.previewUrlCount}`,
         `attempts=${trace.attempted || 0}`,
         `writes=${trace.filesWritten || 0}`,
+        `existing=${trace.filesExisting || 0}`,
         `dbBanners=${trace.bannerRowsWritten || 0}`,
         `dbPreviews=${trace.previewRowsWritten || 0}`,
-        `localBanner=${trace.localBannerPath || "none"}`,
+        `imageDir=${trace.imageDir || "none"}`,
         trace.reason ? `reason=${trace.reason}` : null,
       ].filter(Boolean).join(" | ");
       console.log(message);
@@ -1872,9 +1903,22 @@ ipcMain.handle("import-games", async (event, params) => {
       });
     };
 
+    console.log(
+      `Import image flags | banner=${downloadBannerImages} previews=${downloadPreviewImages} ` +
+      `limit=${previewLimit} videos=${downloadVideos} importedRows=${games.length} successfulImports=${successfulImports.length}`,
+    );
+    mainWindow.webContents.send("import-progress", {
+      text:
+        `Image flags: banner=${downloadBannerImages}, previews=${downloadPreviewImages}, ` +
+        `limit=${previewLimit}, videos=${downloadVideos}, successful imports=${successfulImports.length}`,
+      progress,
+      total: imageTotal,
+      canCancel: true,
+    });
+
     if (imageTotal === 0) {
       mainWindow.webContents.send("import-progress", {
-        text: "Image download skipped: no games were imported",
+        text: "Image download skipped: no successful imports with record IDs",
         progress: 0,
         total: 0,
         canCancel: false,
@@ -1899,8 +1943,8 @@ ipcMain.handle("import-games", async (event, params) => {
         throwIfImportCanceled(session);
 
         const recordId = importedGame.recordId;
-        const atlasId = importedGame.atlasId || (await GetAtlasIDbyRecord(recordId));
-        const steamId = importedGame.steamId || (await getSteamIDbyRecord(recordId));
+        const ids = await resolveImportMediaIdentifiers(recordId, importedGame);
+        const { dbAtlasId, f95Id, steamId } = ids;
 
         if (steamId) {
           try {
@@ -1910,19 +1954,21 @@ ipcMain.handle("import-games", async (event, params) => {
           }
         }
 
-        if (!atlasId && !steamId) {
+        if (!dbAtlasId && !steamId) {
           progress++;
+          imageSummary.processed++;
+          imageSummary.skipped++;
           sendImageTrace({
             title,
             downloadBannerImages,
             downloadPreviewImages,
+            downloadVideos,
             previewLimit,
-            recordId,
-            atlasId,
-            steamId,
+            ...ids,
             bannerUrlCount: 0,
             previewUrlCount: 0,
-            reason: "skipped, no Atlas or Steam mapping",
+            imageDir: path.join(dataDir, "images", recordId.toString()),
+            reason: "skipped: no Atlas/F95/Steam mapping",
           });
           continue;
         }
@@ -1944,17 +1990,19 @@ ipcMain.handle("import-games", async (event, params) => {
 
         if (!bannerUrl && previewCount === 0) {
           progress++;
+          imageSummary.processed++;
+          imageSummary.skipped++;
           sendImageTrace({
             title,
             downloadBannerImages,
             downloadPreviewImages,
+            downloadVideos,
             previewLimit,
-            recordId,
-            atlasId,
-            steamId,
+            ...ids,
             bannerUrlCount: bannerUrl ? 1 : 0,
             previewUrlCount: screenUrls.length,
-            reason: "skipped, no banner/preview URLs in metadata",
+            imageDir: path.join(dataDir, "images", recordId.toString()),
+            reason: "skipped: no banner/preview URLs found",
           });
           continue;
         }
@@ -1968,7 +2016,7 @@ ipcMain.handle("import-games", async (event, params) => {
 
         const downloadResult = await downloadImages(
           recordId,
-          atlasId || recordId,
+          dbAtlasId || steamId || recordId,
           (current, totalImages) => {
             mainWindow.webContents.send("import-progress", {
               text: `Downloading images for '${title}' ${progress + 1}/${imageTotal}, ${current}/${totalImages}`,
@@ -1993,11 +2041,18 @@ ipcMain.handle("import-games", async (event, params) => {
         mainWindow.webContents.send("game-updated", recordId);
 
         progress++;
+        imageSummary.processed++;
+        imageSummary.filesWritten += downloadResult.filesWritten || 0;
+        imageSummary.dbRowsWritten +=
+          (downloadResult.bannerRowsWritten || 0) + (downloadResult.previewRowsWritten || 0);
         const urlCount = downloadResult.bannerUrlCount + downloadResult.previewUrlCount;
-        const failedWithUrls = urlCount > 0 && downloadResult.downloaded === 0;
+        const failedWithUrls = urlCount > 0 && downloadResult.downloaded === 0 && downloadResult.errors.length > 0;
+        if (failedWithUrls || !downloadResult.success) imageSummary.failed++;
+        else if ((downloadResult.filesWritten || 0) > 0 || (downloadResult.filesExisting || 0) > 0) imageSummary.downloaded++;
+        else imageSummary.skipped++;
         const statusText = downloadResult.success && !failedWithUrls
-          ? `Images: downloaded ${downloadResult.bannerRowsWritten} banner row(s) and ${downloadResult.previewRowsWritten} preview row(s) for '${title}'`
-          : `Images: failed for '${title}', ${urlCount} URL(s) found but ${downloadResult.filesWritten} file(s) written`;
+          ? `Downloaded images for '${title}': ${downloadResult.filesWritten} file(s) written, ${downloadResult.attempted} attempted`
+          : `Image download failed for '${title}': ${downloadResult.filesWritten} file(s) written, ${downloadResult.attempted} attempted, first error: ${downloadResult.errors[0] || "unknown"}`;
         mainWindow.webContents.send("import-progress", {
           text: statusText,
           progress,
@@ -2008,12 +2063,15 @@ ipcMain.handle("import-games", async (event, params) => {
           title,
           downloadBannerImages,
           downloadPreviewImages,
+          downloadVideos,
           previewLimit,
-          recordId,
-          atlasId,
-          steamId,
+          ...ids,
           ...downloadResult,
-          reason: downloadResult.errors.length > 0 ? downloadResult.errors.join("; ") : "",
+          reason: downloadResult.errors.length > 0
+            ? downloadResult.errors.join("; ")
+            : ((downloadResult.filesWritten || 0) > 0 || (downloadResult.filesExisting || 0) > 0)
+              ? "downloaded"
+              : "skipped: no local files written",
         });
       } catch (err) {
         if (isImportCancelledError(err)) {
@@ -2028,6 +2086,8 @@ ipcMain.handle("import-games", async (event, params) => {
         }
         console.error("Error downloading images for game:", err);
         progress++;
+        imageSummary.processed++;
+        imageSummary.failed++;
         mainWindow.webContents.send("import-progress", {
           text: `Error downloading images for '${title}' ${progress}/${imageTotal}: ${err.message}`,
           progress,
@@ -2038,8 +2098,15 @@ ipcMain.handle("import-games", async (event, params) => {
     }
 
     if (!session.cancelRequested && imageTotal > 0) {
+      const zeroFilesMessage = imageSummary.filesWritten === 0
+        ? " Image download phase completed with zero local files written. Check per-row image traces above."
+        : "";
       mainWindow.webContents.send("import-progress", {
-        text: `Image download complete for ${progress} games`,
+        text:
+          `Image download phase finished: processed=${imageSummary.processed}, ` +
+          `downloaded=${imageSummary.downloaded}, skipped=${imageSummary.skipped}, ` +
+          `failed=${imageSummary.failed}, filesWritten=${imageSummary.filesWritten}, ` +
+          `dbRows=${imageSummary.dbRowsWritten}.${zeroFilesMessage}`,
         progress,
         total: imageTotal,
         canCancel: false,

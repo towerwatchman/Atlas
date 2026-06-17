@@ -73,7 +73,7 @@ module.exports = function registerMediaHandlers(ctx) {
       const atlas_id = await GetAtlasIDbyRecord(recordId)
       let progress = 0
       const imageTotal = 1
-      await downloadImages(
+      const downloadResult = await downloadImages(
         recordId, atlas_id,
         (current, totalImages) => {
           if (!event.sender.isDestroyed()) {
@@ -91,8 +91,12 @@ module.exports = function registerMediaHandlers(ctx) {
       BrowserWindow.getAllWindows().forEach(win => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })
       progress++
       if (!event.sender.isDestroyed()) {
+        const cleanSuccess = downloadResult.success &&
+          ((downloadResult.filesWritten || 0) > 0 || (downloadResult.filesExisting || 0) > 0);
         event.sender.send('game-details-import-progress', {
-          text: `Completed image download ${progress}/${imageTotal}`,
+          text: cleanSuccess
+            ? `Downloaded banner: ${downloadResult.filesWritten} file(s) written`
+            : `Banner download finished with no local files written${downloadResult.errors?.[0] ? `: ${downloadResult.errors[0]}` : ''}`,
           progress,
           total: imageTotal,
         })
@@ -109,7 +113,7 @@ module.exports = function registerMediaHandlers(ctx) {
     try {
       const atlasId = await GetAtlasIDbyRecord(recordId)
       let imageTotal = 1
-      await downloadImages(
+      const downloadResult = await downloadImages(
         recordId, atlasId,
         (current, totalImages) => {
           imageTotal = totalImages || imageTotal
@@ -127,8 +131,12 @@ module.exports = function registerMediaHandlers(ctx) {
       const previewUrls = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, 'download')
       BrowserWindow.getAllWindows().forEach(win => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })
       if (!event.sender.isDestroyed()) {
+        const cleanSuccess = downloadResult.success &&
+          ((downloadResult.filesWritten || 0) > 0 || (downloadResult.filesExisting || 0) > 0);
         event.sender.send('game-details-import-progress', {
-          text: 'Completed previews download',
+          text: cleanSuccess
+            ? `Downloaded previews: ${downloadResult.filesWritten} file(s) written`
+            : `Preview download finished with no local files written${downloadResult.errors?.[0] ? `: ${downloadResult.errors[0]}` : ''}`,
           progress: imageTotal,
           total: imageTotal,
         })

@@ -67,15 +67,21 @@ async function downloadImages(
   const defaultPreviewSource = options.previewSource || options.source || "f95";
   const result = {
     success: true,
+    recordId,
+    atlasId,
+    imageDir: imgDir,
     attempted: 0,
     downloaded: 0,
     bannerUrlCount: 0,
     previewUrlCount: 0,
     filesWritten: 0,
+    filesExisting: 0,
     bannerRowsWritten: 0,
     previewRowsWritten: 0,
     localBannerPath: "",
-    skipped: 0,
+    localPreviewPaths: [],
+    skipped: false,
+    skipReasons: [],
     errors: [],
   };
 
@@ -99,6 +105,17 @@ async function downloadImages(
     if (!stat.isFile() || stat.size <= 0) {
       throw new Error(`Downloaded image file is empty: ${filePath}`);
     }
+    return stat;
+  };
+  const verifyTrackedFile = async (filePath, existedBefore) => {
+    await verifyLocalFile(filePath);
+    if (existedBefore) result.filesExisting++;
+    else result.filesWritten++;
+  };
+  const addError = (label, err) => {
+    const message = `${label}: ${err?.message || err}`;
+    result.success = false;
+    result.errors.push(message);
   };
   const reportProgress = () => {
     if (typeof onImageProgress === "function") {
@@ -107,12 +124,14 @@ async function downloadImages(
   };
 
   if (downloadBannerImages && !bannerUrl) {
-    result.skipped++;
+    result.skipped = true;
+    result.skipReasons.push("no banner URL found");
     console.warn(`Skipped banner download for record ${recordId}: no banner URL found`);
   }
 
   if (downloadPreviewImages && previewCount === 0) {
-    result.skipped++;
+    result.skipped = true;
+    result.skipReasons.push("no preview URLs found");
     console.warn(`Skipped preview download for record ${recordId}: no preview URLs found`);
   }
 
@@ -121,7 +140,7 @@ async function downloadImages(
     try {
       result.attempted++;
       const ext = path.extname(new URL(bannerUrl).pathname).toLowerCase();
-      const bannerSource = "f95";
+      const bannerSource = options.bannerSource || options.source || "f95";
       const baseName = buildBannerBaseName(bannerSource);
       const imagePath = path.join(imgDir, baseName);
       const relativePath = path.join(
@@ -151,12 +170,12 @@ async function downloadImages(
 
       if ([".mp4", ".webm"].includes(ext) && downloadVideos) {
         const animatedPath = `${imagePath}${ext}`;
-        if (!fs.existsSync(animatedPath)) {
+        const existedBefore = fs.existsSync(animatedPath);
+        if (!existedBefore) {
           await loadImageBytes();
           fs.writeFileSync(animatedPath, imageBytes);
-          result.filesWritten++;
         }
-        await verifyLocalFile(animatedPath);
+        await verifyTrackedFile(animatedPath, existedBefore);
         await updateBanners(recordId, `${relativePath}${ext}`, "animated");
         result.bannerRowsWritten++;
         result.downloaded++;
@@ -173,7 +192,8 @@ async function downloadImages(
 
           if (hasMultiplePages(animatedMetadata)) {
             const animatedWebpPath = `${imagePath}_animated.webp`;
-            if (!fs.existsSync(animatedWebpPath)) {
+            const existedBefore = fs.existsSync(animatedWebpPath);
+            if (!existedBefore) {
               await sharp(imageBytes, { animated: true })
                 .resize({ width: 1260, withoutEnlargement: true })
                 .webp({
@@ -182,9 +202,8 @@ async function downloadImages(
                   loop: 0,
                 })
                 .toFile(animatedWebpPath);
-              result.filesWritten++;
             }
-            await verifyLocalFile(animatedWebpPath);
+            await verifyTrackedFile(animatedWebpPath, existedBefore);
             await updateBanners(
               recordId,
               `${relativePath}_animated.webp`,
@@ -200,19 +219,20 @@ async function downloadImages(
             `Failed to create animated WebP banner for ${recordId}:`,
             animatedErr,
           );
+          result.errors.push(`Animated banner: ${animatedErr.message || animatedErr}`);
         }
       }
 
       const highResPath = `${imagePath}_mc.webp`;
-      if (!fs.existsSync(highResPath)) {
+      const highResExisted = fs.existsSync(highResPath);
+      if (!highResExisted) {
         await loadImageBytes();
         await sharp(imageBytes)
           .webp({ quality: 90 })
           .resize({ width: 1260, withoutEnlargement: true })
           .toFile(highResPath);
-        result.filesWritten++;
       }
-      await verifyLocalFile(highResPath);
+      await verifyTrackedFile(highResPath, highResExisted);
       await updateBanners(recordId, `${relativePath}_mc.webp`, "small");
       result.bannerRowsWritten++;
       result.localBannerPath = `${relativePath}_mc.webp`;
@@ -221,15 +241,15 @@ async function downloadImages(
       reportProgress();
 
       const lowResPath = `${imagePath}_sc.webp`;
-      if (!fs.existsSync(lowResPath)) {
+      const lowResExisted = fs.existsSync(lowResPath);
+      if (!lowResExisted) {
         await loadImageBytes();
         await sharp(imageBytes)
           .webp({ quality: 90 })
           .resize({ width: 600, withoutEnlargement: true })
           .toFile(lowResPath);
-        result.filesWritten++;
       }
-      await verifyLocalFile(lowResPath);
+      await verifyTrackedFile(lowResPath, lowResExisted);
       await updateBanners(recordId, `${relativePath}_sc.webp`, "large");
       result.bannerRowsWritten++;
       if (!result.localBannerPath) result.localBannerPath = `${relativePath}_sc.webp`;
@@ -252,8 +272,7 @@ async function downloadImages(
       }
     } catch (err) {
       console.error("Error downloading or converting banner:", err);
-      result.success = false;
-      result.errors.push(`Banner: ${err.message || err}`);
+      addError("Banner", err);
     }
   }
 
@@ -300,14 +319,15 @@ async function downloadImages(
 
       if ([".mp4", ".webm"].includes(ext) && downloadVideos) {
         const videoPath = `${imagePath}${ext}`;
-        if (!fs.existsSync(videoPath)) {
+        const existedBefore = fs.existsSync(videoPath);
+        if (!existedBefore) {
           await loadImageBytes();
           fs.writeFileSync(videoPath, imageBytes);
-          result.filesWritten++;
         }
-        await verifyLocalFile(videoPath);
+        await verifyTrackedFile(videoPath, existedBefore);
         await updatePreviews(recordId, `${relativePath}${ext}`);
         result.previewRowsWritten++;
+        result.localPreviewPaths.push(`${relativePath}${ext}`);
         result.downloaded++;
       }
 
@@ -322,7 +342,8 @@ async function downloadImages(
 
           if (hasMultiplePages(animatedMetadata)) {
             const animatedPreviewPath = `${imagePath}_animated.webp`;
-            if (!fs.existsSync(animatedPreviewPath)) {
+            const existedBefore = fs.existsSync(animatedPreviewPath);
+            if (!existedBefore) {
               await sharp(imageBytes, { animated: true })
                 .resize({ width: 1260, withoutEnlargement: true })
                 .webp({
@@ -331,12 +352,12 @@ async function downloadImages(
                   loop: 0,
                 })
                 .toFile(animatedPreviewPath);
-              result.filesWritten++;
             }
-            await verifyLocalFile(animatedPreviewPath);
+            await verifyTrackedFile(animatedPreviewPath, existedBefore);
 
             await updatePreviews(recordId, `${relativePath}_animated.webp`);
             result.previewRowsWritten++;
+            result.localPreviewPaths.push(`${relativePath}_animated.webp`);
             animatedPreviewSaved = true;
             result.downloaded++;
           }
@@ -345,22 +366,24 @@ async function downloadImages(
             `Failed to create animated WebP preview for ${recordId} from ${url}:`,
             animatedErr,
           );
+          result.errors.push(`Animated preview ${i + 1}: ${animatedErr.message || animatedErr}`);
         }
       }
 
       const targetPath = `${imagePath}_pr.webp`;
-      if (!fs.existsSync(targetPath)) {
+      const targetExisted = fs.existsSync(targetPath);
+      if (!targetExisted) {
         await loadImageBytes();
         await sharp(imageBytes)
           .webp({ quality: 90 })
           .resize({ width: 1260, withoutEnlargement: true })
           .toFile(targetPath);
-        result.filesWritten++;
       }
-      await verifyLocalFile(targetPath);
+      await verifyTrackedFile(targetPath, targetExisted);
       if (!animatedPreviewSaved) {
         await updatePreviews(recordId, `${relativePath}_pr.webp`);
         result.previewRowsWritten++;
+        result.localPreviewPaths.push(`${relativePath}_pr.webp`);
         result.downloaded++;
       }
       imageProgress++;
@@ -381,9 +404,15 @@ async function downloadImages(
       }
     } catch (err) {
       console.error(`Error downloading or converting screen ${i + 1}:`, err);
-      result.success = false;
-      result.errors.push(`Preview ${i + 1}: ${err.message || err}`);
+      addError(`Preview ${i + 1}`, err);
     }
+  }
+
+  if (result.attempted > 0 && result.filesWritten === 0 && result.errors.length > 0) {
+    result.success = false;
+  }
+  if (result.attempted === 0 && result.skipReasons.length > 0) {
+    result.skipped = true;
   }
 
   return result;
