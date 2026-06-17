@@ -60,13 +60,13 @@ function runElevatedWindowsDelete(targetPath, { recursive = true, force = true }
     const innerEncoded = encodePowerShell(innerCommand)
     const outerCommand = [
       '$ErrorActionPreference = "Stop"',
-      `$argsList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', '${innerEncoded}')`,
-      'Start-Process -FilePath "powershell.exe" -ArgumentList $argsList -Verb RunAs -Wait',
+      `$argsList = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-EncodedCommand', '${innerEncoded}')`,
+      'Start-Process -FilePath "powershell.exe" -ArgumentList $argsList -Verb RunAs -WindowStyle Hidden -Wait',
     ].join('; ')
     const outerEncoded = encodePowerShell(outerCommand)
     const child = spawn(
       'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', outerEncoded],
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-EncodedCommand', outerEncoded],
       { windowsHide: true },
     )
 
