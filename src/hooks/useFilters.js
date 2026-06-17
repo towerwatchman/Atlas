@@ -13,6 +13,7 @@ export const defaultFilters = {
   sort: 'name',
   dateLimit: 0,
   browseSource: 'all',
+  browseDateBasis: 'thread_updated',
   browseDateRange: 'any',
   browseSort: 'nameAsc',
   tagLogic: 'AND',
@@ -42,6 +43,9 @@ export const normalizeFilterState = (filters = {}) => {
   merged.browseSource = ['all', 'f95', 'steam', 'atlas'].includes(merged.browseSource)
     ? merged.browseSource
     : 'all'
+  merged.browseDateBasis = ['thread_updated', 'thread_publish_date'].includes(merged.browseDateBasis)
+    ? merged.browseDateBasis
+    : 'thread_updated'
   merged.browseDateRange = ['any', '7d', '30d', '90d', 'year'].includes(merged.browseDateRange)
     ? merged.browseDateRange
     : 'any'
@@ -88,9 +92,10 @@ const parseDateParts = (year, month, day) => {
   return date.getTime()
 }
 
-const parseBrowseDateValue = (value) => {
+export const parseAtlasDbThreadDate = (value) => {
   if (value === undefined || value === null || value === '') return null
   if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value <= 0) return null
     return value > 100000000000 ? value : value * 1000
   }
 
@@ -105,6 +110,7 @@ const parseBrowseDateValue = (value) => {
   if (/^\d+$/.test(normalized)) {
     const numericValue = Number(normalized)
     if (Number.isFinite(numericValue)) {
+      if (numericValue <= 0) return null
       return numericValue > 100000000000 ? numericValue : numericValue * 1000
     }
   }
@@ -114,22 +120,14 @@ const parseBrowseDateValue = (value) => {
   return parsed
 }
 
-export const getBrowseDate = (game = {}) => {
-  const candidates = [
-    // Browse freshness should follow metadata/listing updates first, then fall
-    // back to publish/release dates for older records that lack update fields.
-    game.f95_last_record_update,
-    game.atlas_last_record_update,
-    game.thread_publish_date,
-    game.release_date,
-    game.steam_release_date,
-  ]
-
-  for (const candidate of candidates) {
-    const parsed = parseBrowseDateValue(candidate)
-    if (parsed !== null) return parsed
-  }
-  return null
+export const getBrowseDate = (game = {}, dateBasis = 'thread_updated') => {
+  const basis = dateBasis === 'thread_publish_date'
+    ? 'thread_publish_date'
+    : 'thread_updated'
+  const rawValue = basis === 'thread_publish_date'
+    ? game.threadPublishDate ?? game.thread_publish_date
+    : game.threadUpdated ?? game.thread_updated
+  return parseAtlasDbThreadDate(rawValue)
 }
 
 export const getBrowseSources = (game = {}) => {
@@ -157,6 +155,11 @@ const getBrowseDateRangeBounds = (range) => {
 
 const compareBrowseTitle = (a, b, direction = 'asc') => {
   const result = getGameTitle(a).localeCompare(getGameTitle(b))
+  if (result === 0) {
+    const idResult = safeText(a?.record_id || a?.atlas_id || a?.f95_id)
+      .localeCompare(safeText(b?.record_id || b?.atlas_id || b?.f95_id))
+    return direction === 'desc' ? -idResult : idResult
+  }
   return direction === 'desc' ? -result : result
 }
 
@@ -179,22 +182,46 @@ const logBrowseDateDebug = (games, activeFilters, bounds) => {
   console.debug(
     'Browse date filter sample',
     games.slice(0, 5).map((game) => {
-      const resolvedDate = getBrowseDate(game)
+      const selectedDate = getBrowseDate(game, activeFilters.browseDateBasis)
       return {
         title: getGameTitle(game),
+        basis: activeFilters.browseDateBasis,
         range: activeFilters.browseDateRange,
         rawDates: {
-          f95_last_record_update: game.f95_last_record_update,
-          atlas_last_record_update: game.atlas_last_record_update,
+          thread_updated: game.thread_updated,
+          threadUpdated: game.threadUpdated,
           thread_publish_date: game.thread_publish_date,
-          release_date: game.release_date,
-          steam_release_date: game.steam_release_date,
+          threadPublishDate: game.threadPublishDate,
         },
-        resolvedDate: resolvedDate ? new Date(resolvedDate).toISOString() : null,
-        passes: resolvedDate !== null && resolvedDate >= bounds.min && resolvedDate <= bounds.max,
+        selectedDate: selectedDate ? new Date(selectedDate).toISOString() : null,
+        passes: selectedDate !== null && selectedDate >= bounds.min && selectedDate <= bounds.max,
       }
     }),
   )
+}
+
+const logBrowseDateSmokeCounts = (games, activeFilters) => {
+  if (!shouldLogBrowseDateDebug()) return
+  const ranges = ['7d', '30d']
+  const bases = [
+    ['Latest Update', 'thread_updated'],
+    ['Thread Published', 'thread_publish_date'],
+  ]
+  const counts = {}
+  for (const [label, basis] of bases) {
+    for (const range of ranges) {
+      const bounds = getBrowseDateRangeBounds(range)
+      counts[`${label} / Last ${range.replace('d', ' days')}`] = games.filter((game) => {
+        const date = getBrowseDate(game, basis)
+        return bounds && date !== null && date >= bounds.min && date <= bounds.max
+      }).length
+    }
+  }
+  console.debug('Browse date smoke counts', {
+    basis: activeFilters.browseDateBasis,
+    total: games.length,
+    counts,
+  })
 }
 
 export const filterGamesWithState = (games, filters = {}, options = {}) => {
@@ -272,11 +299,12 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
     if (bounds !== null) {
       logBrowseDateDebug(result, activeFilters, bounds)
       result = result.filter((game) => {
-        const browseDate = getBrowseDate(game)
+        const browseDate = getBrowseDate(game, activeFilters.browseDateBasis)
         return browseDate !== null && browseDate >= bounds.min && browseDate <= bounds.max
       })
     }
   }
+  if (browseMode) logBrowseDateSmokeCounts(result, activeFilters)
 
   if (activeFilters.multipleInstalledVersions) {
     result = result.filter((game) => {
@@ -291,8 +319,8 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
   result.sort((a, b) => {
     if (browseMode) {
       if (['newest', 'oldest'].includes(activeFilters.browseSort)) {
-        const aDate = getBrowseDate(a)
-        const bDate = getBrowseDate(b)
+        const aDate = getBrowseDate(a, activeFilters.browseDateBasis)
+        const bDate = getBrowseDate(b, activeFilters.browseDateBasis)
         const aMissing = aDate === null
         const bMissing = bDate === null
         if (aMissing !== bMissing) return aMissing ? 1 : -1

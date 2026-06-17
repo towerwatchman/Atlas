@@ -264,7 +264,21 @@ const SearchSidebar = ({
                 </select>
               </label>
               <label className="block text-sm">
-                <span className="block mb-1">Date</span>
+                <span className="block mb-1">Date field</span>
+                <select
+                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                  value={selectedFilters.browseDateBasis}
+                  onChange={(e) => updateFilters({ browseDateBasis: e.target.value })}
+                >
+                  <option value="thread_updated">Latest Update</option>
+                  <option value="thread_publish_date">Thread Published</option>
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  Latest Update depends on AtlasDB thread update data. Some records may not appear until the database has finished updating.
+                </p>
+              </label>
+              <label className="block text-sm">
+                <span className="block mb-1">Date Range</span>
                 <select
                   className="w-full p-2 bg-tertiary border border-border rounded text-sm"
                   value={selectedFilters.browseDateRange}

@@ -10,6 +10,17 @@ const { toLocalAssetPath, normalizeMediaStorageMode, remoteBannerExpression,
 const { calculatePathSize } = require('../pathSize')
 
 
+const getTableColumns = (tableName) =>
+  new Promise((resolve) => {
+    getDb().all(`PRAGMA table_info(${tableName})`, (err, rows) => {
+      if (err || !Array.isArray(rows)) {
+        resolve(new Set())
+        return
+      }
+      resolve(new Set(rows.map((row) => row.name)))
+    })
+  })
+
 const DEFAULT_LAUNCHABLE_EXTENSIONS = [
   "exe",
   "swf",
@@ -777,7 +788,12 @@ ${bannerJoinClauses}
 
 const getCatalogGames = (appPath, isDev, options = {}) => {
   return new Promise((resolve, reject) => {
-    const query = `
+    getTableColumns('f95_zone_data').then((f95Columns) => {
+      const hasThreadUpdated = f95Columns.has('thread_updated')
+      const threadUpdatedSelect = hasThreadUpdated
+        ? 'f95_zone_data.thread_updated AS thread_updated'
+        : 'NULL AS thread_updated'
+      const query = `
       SELECT
         'catalog:' || atlas_data.atlas_id as record_id,
         atlas_data.atlas_id as atlas_id,
@@ -810,6 +826,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         atlas_data.release_date,
         atlas_data.last_record_update AS atlas_last_record_update,
         MIN(steam_data.release_date) AS steam_release_date,
+        ${threadUpdatedSelect},
         f95_zone_data.thread_publish_date AS thread_publish_date,
         f95_zone_data.last_record_update AS f95_last_record_update,
         COALESCE(NULLIF(atlas_data.voice, ''), MIN(steam_data.voice)) AS voice,
@@ -832,36 +849,46 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       GROUP BY atlas_data.atlas_id
     `;
 
-    getDb().all(query, [], (err, rows) => {
-      if (err) {
-        console.error("Error fetching AtlasDB catalog games:", err);
-        reject(err);
-        return;
-      }
+      getDb().all(query, [], (err, rows) => {
+        if (err) {
+          console.error("Error fetching AtlasDB catalog games:", err);
+          reject(err);
+          return;
+        }
 
-      const games = (rows || []).map((row) => ({
-        ...row,
-        title: String(row.title || row.short_name || "Unknown Title"),
-        creator: String(row.creator || "Unknown"),
-        engine: row.engine ? String(row.engine).replace(/''/g, "'") : row.engine,
-        status: row.status == null ? null : String(row.status),
-        category: row.category == null ? null : String(row.category),
-        censored: row.censored == null ? null : String(row.censored),
-        language: row.language == null ? null : String(row.language),
-        f95_tags: String(row.f95_tags || ""),
-        versions: [],
-        versionCount: 0,
-        installedVersionCount: 0,
-        totalVersionCount: 0,
-        hasInstalledVersion: false,
-        isUpdateAvailable: false,
-        isCatalogEntry: true,
-        isMetadataOnly: true,
-      }));
+        const games = (rows || []).map((row) => ({
+          ...row,
+          title: String(row.title || row.short_name || "Unknown Title"),
+          creator: String(row.creator || "Unknown"),
+          engine: row.engine ? String(row.engine).replace(/''/g, "'") : row.engine,
+          status: row.status == null ? null : String(row.status),
+          category: row.category == null ? null : String(row.category),
+          censored: row.censored == null ? null : String(row.censored),
+          language: row.language == null ? null : String(row.language),
+          f95_tags: String(row.f95_tags || ""),
+          threadUpdated: row.thread_updated || null,
+          threadPublishDate: row.thread_publish_date || null,
+          versions: [],
+          versionCount: 0,
+          installedVersionCount: 0,
+          totalVersionCount: 0,
+          hasInstalledVersion: false,
+          isUpdateAvailable: false,
+          isCatalogEntry: true,
+          isMetadataOnly: true,
+        }));
 
-      console.log(`Fetched ${games.length} AtlasDB catalog games`);
-      resolve(games);
-    });
+        const threadUpdatedCount = games.filter((game) => game.threadUpdated).length;
+        const threadPublishDateCount = games.filter((game) => game.threadPublishDate).length;
+        console.log(
+          `Fetched ${games.length} AtlasDB catalog games ` +
+          `(thread_updated column ${hasThreadUpdated ? 'available' : 'unavailable'}, ` +
+          `thread_updated populated ${threadUpdatedCount}, ` +
+          `thread_publish_date populated ${threadPublishDateCount})`,
+        );
+        resolve(games);
+      });
+    }).catch(reject);
   });
 };
 

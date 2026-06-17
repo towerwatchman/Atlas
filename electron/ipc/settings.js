@@ -46,6 +46,7 @@ const defaultSavedFilterState = {
   sort: 'name',
   dateLimit: 0,
   browseSource: 'all',
+  browseDateBasis: 'thread_updated',
   browseDateRange: 'any',
   browseSort: 'nameAsc',
   tagLogic: 'AND',
@@ -73,6 +74,9 @@ const normalizeSavedFilterState = (filters = {}) => {
   merged.browseSource = ['all', 'f95', 'steam', 'atlas'].includes(merged.browseSource)
     ? merged.browseSource
     : 'all'
+  merged.browseDateBasis = ['thread_updated', 'thread_publish_date'].includes(merged.browseDateBasis)
+    ? merged.browseDateBasis
+    : 'thread_updated'
   merged.browseDateRange = ['any', '7d', '30d', '90d', 'year'].includes(merged.browseDateRange)
     ? merged.browseDateRange
     : 'any'

@@ -310,6 +310,7 @@ const updateTableColumns = {
     "banner_url",
     "site_url",
     "last_thread_comment",
+    "thread_updated",
     "thread_publish_date",
     "last_record_update",
     "views",
