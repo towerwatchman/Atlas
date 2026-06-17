@@ -122,6 +122,17 @@ function processTemplate(items, sender, ctx) {
 module.exports = function registerWindowsHandlers(ctx) {
   const { mainWindow, settingsWindow, createImporterWindow, contextMenuData } = ctx
 
+  const isMainWindowCloseRequest = (win, sender) => {
+    if (!win) return false
+    if (ctx.mainWindow && !ctx.mainWindow.isDestroyed() && win === ctx.mainWindow) return true
+    try {
+      const url = String(sender?.getURL?.() || win.webContents?.getURL?.() || '')
+      return /(?:^|[/\\])index\.html(?:[?#].*)?$/i.test(url) || /\/$/.test(url)
+    } catch {
+      return false
+    }
+  }
+
   ipcMain.handle('minimize-window', () => {
     const win = BrowserWindow.getFocusedWindow()
     if (win) win.minimize()
@@ -136,7 +147,14 @@ module.exports = function registerWindowsHandlers(ctx) {
 
   ipcMain.handle('close-window', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    if (win) win.close()
+    if (!win) return { success: false, error: 'No sender window found' }
+    if (isMainWindowCloseRequest(win, event.sender)) {
+      ctx.quitFromMainWindow()
+      return { success: true, quitting: true }
+    }
+    console.log('Secondary window close requested; closing sender only')
+    win.close()
+    return { success: true, quitting: false }
   })
 
   ipcMain.handle('select-file', async (event) => {

@@ -452,7 +452,19 @@ async function deleteTitleRecord(recordId, { deleteFiles = false } = {}) {
 }
 
 function quitFromMainWindow() {
+  if (isQuitting) return
+  console.log('Main window close requested; quitting Atlas')
   isQuitting = true
+  if (activeImportSession) activeImportSession.cancelRequested = true
+  if (activeScanSession) activeScanSession.cancelRequested = true
+  if (activeLibraryValidation) activeLibraryValidation.cancelRequested = true
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win || win.isDestroyed() || win === mainWindow) return
+    let url = 'unknown url'
+    try { url = win.webContents?.getURL?.() || url } catch {}
+    console.log(`Closing secondary window during app quit: ${url}`)
+    win.close()
+  })
   app.quit()
 }
 
@@ -492,10 +504,9 @@ function createWindow() {
   mainWindow.on('maximize', () => mainWindow.webContents.send('window-state-changed', 'maximized'))
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('window-state-changed', 'normal'))
   mainWindow.on('close', (e) => {
-    if (!isQuitting && appConfig?.Interface?.minimizeToTray) {
-      e.preventDefault()
-      mainWindow.hide()
-    }
+    if (isQuitting) return
+    e.preventDefault()
+    quitFromMainWindow()
   })
   mainWindow.on('closed', () => { mainWindow = null })
   return mainWindow
