@@ -3,13 +3,18 @@ import Interface from './Interface.jsx'
 import Library from './Library.jsx'
 import Appearance from './Appearance.jsx'
 import Metadata from './Metadata.jsx'
-import Platforms from './Platforms.jsx'
 import EmulatorLauncher from './EmulatorLauncher.jsx'
 import { settingsIcons } from './settingsIcons.js'
 
+const visibleSettingsTabs = settingsIcons.filter((item) => !item.hidden)
+const defaultSettingsTab = visibleSettingsTabs[0]?.name || "Interface"
+
 const Settings = () => {
-  const [selected, setSelected] = useState("Interface");
+  const [selected, setSelected] = useState(defaultSettingsTab);
   const [isMaximized, setIsMaximized] = useState(false);
+  const activeSelected = visibleSettingsTabs.some((item) => item.name === selected)
+    ? selected
+    : defaultSettingsTab;
 
   useEffect(() => {
     window.electronAPI.onWindowStateChanged((state) => {
@@ -17,14 +22,16 @@ const Settings = () => {
     });
   }, []);
 
+  useEffect(() => {
+    if (selected !== activeSelected) setSelected(activeSelected);
+  }, [activeSelected, selected]);
+
   const renderContent = () => {
-    switch (selected) {
+    switch (activeSelected) {
       case "Interface":
         return <Interface />;
       case "Library":
         return <Library />;
-      case "Platforms":
-        return <Platforms />;
       case "Emulators":
         return <EmulatorLauncher />;
       case "Appearance":
@@ -32,7 +39,7 @@ const Settings = () => {
       case "Metadata":
         return <Metadata />;
       default:
-        return <div className="p-4 text-text">Select a settings category</div>;
+        return <Interface />;
     }
   };
 
@@ -75,11 +82,11 @@ const Settings = () => {
             ATLAS SETTINGS
           </div>
           <ul>
-            {settingsIcons.map((item) => (
+            {visibleSettingsTabs.map((item) => (
               <>
                 <li
                   key={item.name}
-                  className={`pt-2 pb-2 pl-4 pr-4 cursor-pointer hover:bg-highlight flex items-center text-text ${selected === item.name ? "bg-selected" : ""} ${item.disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+                  className={`pt-2 pb-2 pl-4 pr-4 cursor-pointer hover:bg-highlight flex items-center text-text ${activeSelected === item.name ? "bg-selected" : ""} ${item.disabled ? "opacity-50 cursor-not-allowed" : ""}`}
                   onClick={() => !item.disabled && setSelected(item.name)}
                 >
                   <svg
@@ -100,7 +107,7 @@ const Settings = () => {
         </div>
         {/* Settings Content */}
         <div className="flex-1 bg-secondary p-4 overflow-y-auto">
-          <h2 className="text-2xl font-bold mb-4 text-text">{selected}</h2>
+          <h2 className="text-2xl font-bold mb-4 text-text">{activeSelected}</h2>
           {renderContent()}
         </div>
       </div>
