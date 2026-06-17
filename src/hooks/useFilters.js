@@ -116,9 +116,10 @@ const parseBrowseDateValue = (value) => {
 
 export const getBrowseDate = (game = {}) => {
   const candidates = [
-    // Browse freshness follows the source dates stored in AtlasDB. For F95
-    // records, thread_publish_date is the useful listing date; last_record_update
-    // tracks package refreshes and last_thread_comment is just comment activity.
+    // Browse freshness should follow metadata/listing updates first, then fall
+    // back to publish/release dates for older records that lack update fields.
+    game.f95_last_record_update,
+    game.atlas_last_record_update,
     game.thread_publish_date,
     game.release_date,
     game.steam_release_date,
@@ -183,6 +184,8 @@ const logBrowseDateDebug = (games, activeFilters, bounds) => {
         title: getGameTitle(game),
         range: activeFilters.browseDateRange,
         rawDates: {
+          f95_last_record_update: game.f95_last_record_update,
+          atlas_last_record_update: game.atlas_last_record_update,
           thread_publish_date: game.thread_publish_date,
           release_date: game.release_date,
           steam_release_date: game.steam_release_date,
