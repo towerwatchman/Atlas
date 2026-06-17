@@ -149,6 +149,18 @@ const App = () => {
     appUpdateNotice.percent !== null
       ? `Downloading Atlas update: ${formatPercent(appUpdateNotice.percent)}`
       : appUpdateNotice.text
+  const appUpdateActionLabel = (() => {
+    if (appUpdateNotice.status === 'downloaded') return 'Update and Restart'
+    if (appUpdateNotice.status === 'downloading') return 'Downloading...'
+    if (appUpdateNotice.status === 'checking') return 'Checking...'
+    if (['error', 'package_not_ready', 'not-available'].includes(appUpdateNotice.status)) {
+      return 'Check for updates'
+    }
+    return 'Download update'
+  })()
+  const isAppUpdateActionDisabled =
+    appUpdateActionBusy ||
+    ['downloading', 'checking'].includes(appUpdateNotice.status)
 
   // ── Scroll restore ─────────────────────────────────────────────────────────
   const restoreLibraryScrollIfNeeded = useCallback(() => {
@@ -815,10 +827,10 @@ const App = () => {
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={handleAppUpdateAction}
-              disabled={appUpdateActionBusy || appUpdateNotice.status === 'downloading'}
-              className={`bg-accent px-3 py-1 hover:bg-opacity-90 ${appUpdateActionBusy || appUpdateNotice.status === 'downloading' ? 'opacity-60 cursor-not-allowed' : ''}`}
+              disabled={isAppUpdateActionDisabled}
+              className={`bg-accent px-3 py-1 hover:bg-opacity-90 ${isAppUpdateActionDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
-              {appUpdateNotice.status === 'downloaded' ? 'Install Now' : appUpdateNotice.status === 'downloading' ? 'Downloading...' : 'Update and Restart'}
+              {appUpdateActionLabel}
             </button>
             <button onClick={() => setAppUpdateNotice((n) => ({ ...n, visible: false }))} className="bg-transparent px-2 py-1 hover:text-highlight" aria-label="Dismiss update notice">
               <i className="fas fa-times"></i>

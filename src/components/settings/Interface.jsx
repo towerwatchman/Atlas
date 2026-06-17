@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { formatPercent } from '../../utils/formatPercent.js'
 
 const visibleSidePanelModes = new Set(['games', 'savedFilters'])
+const PACKAGE_NOT_READY_CODE = 'UPDATE_PACKAGE_NOT_READY'
 
 const Interface = () => {
   const [language, setLanguage] = useState("English");
@@ -19,7 +20,11 @@ const Interface = () => {
 
   const applyUpdateStatus = (status) => {
     if (!status?.status) return;
-    setUpdateStatus(status.status);
+    setUpdateStatus(
+      status.status === "error" && status.code === PACKAGE_NOT_READY_CODE
+        ? "package_not_ready"
+        : status.status,
+    );
     if (status.version) setUpdateVersion(status.version);
     if (typeof status.percent === "number") {
       setUpdatePercent(status.percent);
@@ -114,7 +119,7 @@ const Interface = () => {
     setUpdateError("");
     const result = await window.electronAPI.checkAppUpdate();
     if (result?.success === false) {
-      setUpdateStatus("error");
+      setUpdateStatus(result.code === PACKAGE_NOT_READY_CODE ? "package_not_ready" : "error");
       setUpdateError(result.error || "Unable to check for updates");
     }
   };
@@ -123,10 +128,13 @@ const Interface = () => {
     setUpdateStatus("downloading");
     setUpdateError("");
 
-    const result = await window.electronAPI.downloadAndInstallAppUpdate();
+    const result =
+      updateStatus === "downloaded"
+        ? await window.electronAPI.installAppUpdate()
+        : await window.electronAPI.downloadAppUpdate();
 
     if (result?.success === false) {
-      setUpdateStatus("error");
+      setUpdateStatus(result.code === PACKAGE_NOT_READY_CODE ? "package_not_ready" : "error");
       setUpdateError(result.error || "Unable to update Atlas");
     }
   };
@@ -143,6 +151,7 @@ const Interface = () => {
       return `Atlas ${updateVersion || "update"} is ready to install.`;
     }
     if (updateStatus === "not-available") return "Atlas is up to date.";
+    if (updateStatus === "package_not_ready") return updateError;
     if (updateStatus === "error") return updateError || "Update check failed.";
     return "No update check has run in this window.";
   })();
@@ -264,7 +273,7 @@ const Interface = () => {
           >
             {updateStatus === "downloaded"
               ? "Install and restart"
-              : "Update and restart"}
+              : "Download update"}
           </button>
         </div>
       </div>

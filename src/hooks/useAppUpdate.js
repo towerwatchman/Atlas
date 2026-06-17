@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react'
 import { formatPercent } from '../utils/formatPercent.js'
 
+const PACKAGE_NOT_READY_CODE = 'UPDATE_PACKAGE_NOT_READY'
+
 export function useAppUpdate(setDbUpdateStatus) {
   const [appUpdateNotice, setAppUpdateNotice] = useState({
     visible: false,
@@ -55,7 +57,8 @@ export function useAppUpdate(setDbUpdateStatus) {
         console.error('Update error:', status.error)
         setAppUpdateNotice({
           visible: true,
-          status: 'error',
+          status: status.code === PACKAGE_NOT_READY_CODE ? 'package_not_ready' : 'error',
+          code: status.code || '',
           version: '',
           text: status.error || 'Update failed.',
           percent: null,
@@ -70,29 +73,75 @@ export function useAppUpdate(setDbUpdateStatus) {
     try {
       setAppUpdateActionBusy(true)
       if (
-        appUpdateNotice.status === 'available' ||
-        appUpdateNotice.status === 'downloaded'
+        appUpdateNotice.status === 'error' ||
+        appUpdateNotice.status === 'package_not_ready' ||
+        appUpdateNotice.status === 'not-available'
       ) {
-        const result = await window.electronAPI.downloadAndInstallAppUpdate()
+        setAppUpdateNotice((notice) => ({
+          ...notice,
+          status: 'checking',
+          code: '',
+          text: 'Checking for updates...',
+          percent: null,
+        }))
+        const result = await window.electronAPI.checkAppUpdate()
+        if (!result?.success) {
+          if (result?.code === PACKAGE_NOT_READY_CODE) {
+            setAppUpdateNotice({
+              visible: true,
+              status: 'package_not_ready',
+              code: result.code,
+              version: '',
+              text: result.error || 'Update package is not ready yet. Please try again in a few minutes.',
+              percent: null,
+            })
+            return
+          }
+          throw new Error(result?.error || 'Failed to check for updates')
+        }
+        return
+      }
+
+      if (appUpdateNotice.status === 'downloaded') {
+        const result = await window.electronAPI.installAppUpdate()
         if (!result?.success) {
           throw new Error(result?.error || 'Failed to update Atlas')
         }
-        if (appUpdateNotice.status === 'available') {
-          setAppUpdateNotice((notice) => ({
-            ...notice,
-            status: 'downloading',
-            percent: null,
-            text: notice.version
-              ? `Downloading Atlas ${notice.version}...`
-              : 'Downloading update...',
-          }))
+        return
+      }
+
+      if (appUpdateNotice.status === 'available') {
+        const result = await window.electronAPI.downloadAppUpdate()
+        if (!result?.success) {
+          if (result?.code === PACKAGE_NOT_READY_CODE) {
+            setAppUpdateNotice({
+              visible: true,
+              status: 'package_not_ready',
+              code: result.code,
+              version: '',
+              text: result.error || 'Update package is not ready yet. Please try again in a few minutes.',
+              percent: null,
+            })
+            return
+          }
+          throw new Error(result?.error || 'Failed to update Atlas')
         }
+        setAppUpdateNotice((notice) => ({
+          ...notice,
+          status: 'downloading',
+          code: '',
+          percent: null,
+          text: notice.version
+            ? `Downloading Atlas ${notice.version}...`
+            : 'Downloading update...',
+        }))
       }
     } catch (error) {
       console.error('App update action failed:', error)
       setAppUpdateNotice({
         visible: true,
         status: 'error',
+        code: '',
         version: '',
         text: error.message || 'App update failed.',
         percent: null,

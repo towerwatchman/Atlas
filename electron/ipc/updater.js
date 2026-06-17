@@ -4,6 +4,9 @@ const path = require('path')
 const { ipcMain } = require('electron')
 const { normalizeUpdateError } = require('../utils/updateErrors')
 
+const UPDATE_NOT_DOWNLOADED_MESSAGE =
+  'The update package has not been downloaded yet. Please check for updates and download the update first.'
+
 module.exports = function registerUpdaterHandlers(ctx) {
   const { autoUpdater, checkDbUpdates, dataDir, mainWindow } = ctx
 
@@ -69,6 +72,10 @@ module.exports = function registerUpdaterHandlers(ctx) {
 
   ipcMain.handle('install-app-update', async () => {
     try {
+      if (!ctx.updateDownloaded) {
+        console.warn('install-app-update ignored: update has not been downloaded')
+        return { success: false, error: UPDATE_NOT_DOWNLOADED_MESSAGE, code: 'UPDATE_NOT_DOWNLOADED', retryable: true }
+      }
       autoUpdater.quitAndInstall(true, true)
       return { success: true }
     } catch (err) {
