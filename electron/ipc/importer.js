@@ -1731,23 +1731,51 @@ ipcMain.handle("select-renpy-save-directory", async (event) => {
 });
 
 ipcMain.handle("scan-renpy-saves", async (event, params = {}) => {
-  const rootPath = params.rootPath || getDefaultRenpySaveRoot();
-  if (!rootPath || !fs.existsSync(rootPath)) {
+  const rootPath = params.rootPath || getDefaultRenpySaveRoot(app);
+  const appDataPath = (() => {
+    try { return app.getPath("appData"); } catch { return ""; }
+  })();
+  const rootExists = Boolean(rootPath && fs.existsSync(rootPath));
+  console.log("Ren'Py save scan starting", {
+    platform: process.platform,
+    envAPPDATA: process.env.APPDATA || "",
+    appDataPath,
+    rootPath: rootPath || "",
+    rootExists,
+  });
+  if (!rootPath || !rootExists) {
     return {
       success: false,
       needsSelection: true,
+      canSelectManually: true,
       rootPath: rootPath || "",
+      error: "Ren'Py save folder was not found",
       message: "Ren'Py save folder was not found. Select it manually.",
     };
   }
 
   try {
-    const rows = await scanRenpySaveFolders(rootPath);
+    const scanResult = await scanRenpySaveFolders(rootPath);
+    const rows = scanResult.rows || [];
+    console.log("Ren'Py save scan folders", {
+      rootPath: scanResult.rootPath,
+      totalFolders: scanResult.totalFolders,
+      skippedFolders: scanResult.skippedFolders,
+      sampleFolders: scanResult.sampleFolders,
+    });
     const games = [];
     for (const row of rows) {
       games.push(await makeRenpyImportRow(row, searchAtlas, db));
     }
-    return { success: true, rootPath, games };
+    return {
+      success: true,
+      rootPath: scanResult.rootPath || rootPath,
+      games,
+      rows: games,
+      totalFolders: scanResult.totalFolders,
+      skippedFolders: scanResult.skippedFolders,
+      warning: scanResult.totalFolders === 0 ? `Found 0 folders in ${scanResult.rootPath || rootPath}` : "",
+    };
   } catch (err) {
     return { success: false, error: err.message || String(err) };
   }

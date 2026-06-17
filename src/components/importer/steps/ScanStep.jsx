@@ -4,8 +4,10 @@ export default function ScanStep({
   progress, progressLabel, visibleStats, sortedRows, isNewScanRow, sortConfig,
   hideMatches, includeUnmatched, includeArchives, forceReimport,
   canImport, isResolvingMatches, getImportDisabledReason,
+  importMode, scanPath, scanMessage,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
   getRowImportStatus, onUpdateMatches, onCancelMatch, onImport,
+  onSelectRenpyFolder,
   setHideMatches, setIncludeUnmatched, setIncludeArchives, setForceReimport,
 }) {
   return (
@@ -18,6 +20,21 @@ export default function ScanStep({
             {progress.value}/{progress.total} {progressLabel ?? 'Folders Scanned'}
           </span>
         </div>
+        {importMode === 'renpySaves' && (
+          <div className="mb-4 border border-border bg-primary p-3 text-sm">
+            <div style={{ overflowWrap: 'anywhere' }}>
+              <span className="text-muted">Scanning:</span> {scanPath || 'Looking for Ren\'Py save folder...'}
+            </div>
+            {scanMessage && <div className="mt-1 text-yellow-200">{scanMessage}</div>}
+            <button
+              onClick={onSelectRenpyFolder}
+              className="mt-2 bg-accent hover:bg-accentHover px-3 py-1 rounded text-text"
+              style={{ pointerEvents: 'auto' }}
+            >
+              Select Ren'Py Save Folder
+            </button>
+          </div>
+        )}
         <div className="mb-4 flex flex-wrap gap-4 text-sm">
           <span>Ready {visibleStats.potential || 0}</span>
           <span>Pending matches {visibleStats.pendingMatch || 0}</span>

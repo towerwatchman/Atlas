@@ -55,6 +55,8 @@ const Importer = () => {
   const [libraryFormat, setLibraryFormat] = useState('{creator}/{title}/{version}')
   const [askingForLibraryFolder, setAskingForLibraryFolder] = useState(false)
   const [importMode, setImportMode] = useState('games')
+  const [scanPath, setScanPath] = useState('')
+  const [scanMessage, setScanMessage] = useState('')
 
   // ── Scan results ──────────────────────────────────────────────────────────
   const [progress, setProgress] = useState({ value: 0, total: 0, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 })
@@ -399,6 +401,8 @@ const Importer = () => {
   const startScan = async () => {
     if (!folder) return alert('Select a folder')
     setImportMode('games')
+    setScanPath(folder)
+    setScanMessage('')
     setView('scan')
     deletedScanGameKeysRef.current.clear()
     setGamesList([])
@@ -420,6 +424,8 @@ const Importer = () => {
   // Atlas importer, so they flow into the existing ScanStep table unchanged.
   const startSteamScan = async (steamPath = null) => {
     setImportMode('steam')
+    setScanPath(steamPath || 'Steam library')
+    setScanMessage('')
     setView('scan')
     deletedScanGameKeysRef.current.clear()
     setGamesList([])
@@ -437,33 +443,43 @@ const Importer = () => {
     setView('scan')
     deletedScanGameKeysRef.current.clear()
     setGamesList([])
-    setProgressLabel("Ren'Py Save Folders")
+    setProgress({ value: 0, total: 1, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 })
+    setProgressLabel("Looking for Ren'Py save folder...")
+    setScanPath(renpyRoot || '')
+    setScanMessage('')
     try {
       let result = await window.electronAPI.scanRenpySaves(renpyRoot ? { rootPath: renpyRoot } : {})
       if (result?.needsSelection) {
-        alert(result.message || "Ren'Py save folder was not found. Select it manually.")
-        const selected = await window.electronAPI.selectRenpySaveDirectory()
-        if (!selected) {
-          setView('source')
-          return
-        }
-        result = await window.electronAPI.scanRenpySaves({ rootPath: selected })
+        setScanPath(result.rootPath || '')
+        setScanMessage(result.message || "Ren'Py save folder was not found. Select it manually.")
+        setProgress({ value: 0, total: 0, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 })
+        setProgressLabel("Ren'Py save folder not found")
+        return
       }
       if (!result?.success) {
-        alert(result?.error || "Ren'Py save scan failed")
-        setView('source')
+        setScanPath(result?.rootPath || renpyRoot || '')
+        setScanMessage(result?.error || "Ren'Py save scan failed")
+        setProgress({ value: 0, total: 0, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 })
+        setProgressLabel("Ren'Py save scan failed")
         return
       }
       const rows = result.games || []
       setFolder(result.rootPath || renpyRoot || '')
+      setScanPath(result.rootPath || renpyRoot || '')
+      setScanMessage(result.warning || (rows.length === 0 ? `Found 0 folders in ${result.rootPath || renpyRoot || 'selected folder'}` : ''))
       setProgress({ value: rows.length, total: rows.length, potential: rows.length, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: rows.length })
       setGamesList(rows)
-      setProgressLabel(null)
+      setProgressLabel("Ren'Py Save Folders")
     } catch (err) {
-      alert(`Ren'Py save scan failed: ${err.message || err}`)
-      setView('source')
-      setProgressLabel(null)
+      setScanMessage(`Ren'Py save scan failed: ${err.message || err}`)
+      setProgress({ value: 0, total: 0, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 })
+      setProgressLabel("Ren'Py save scan failed")
     }
+  }
+
+  const selectRenpySaveFolder = async () => {
+    const selected = await window.electronAPI.selectRenpySaveDirectory()
+    if (selected) startRenpyScan(selected)
   }
 
   const updateGame = (gameKey, field, value) => {
@@ -651,9 +667,11 @@ const Importer = () => {
             includeArchives={includeArchives} forceReimport={forceReimport}
             canImport={canImport} isResolvingMatches={isResolvingMatches}
             getImportDisabledReason={getImportDisabledReason}
+            importMode={importMode} scanPath={scanPath} scanMessage={scanMessage}
             onSort={handleSort} onUpdateGame={updateGame} onDeleteGame={deleteGame}
             onResultChange={handleResultChange} onUpdateMatches={updateMatches}
             onCancelMatch={cancelScanOrMatch} onImport={importGamesFunc}
+            onSelectRenpyFolder={selectRenpySaveFolder}
             getGameKey={getScanGameKey} getRowImportStatus={getRowImportStatus}
             setHideMatches={setHideMatches} setIncludeUnmatched={setIncludeUnmatched}
             setIncludeArchives={setIncludeArchives} setForceReimport={setForceReimport}

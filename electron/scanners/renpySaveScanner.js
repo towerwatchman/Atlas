@@ -11,11 +11,11 @@ const SAVE_FILE_PATTERNS = [
   /^quick-/i,
 ]
 
-const getDefaultRenpySaveRoot = () => {
-  if (process.platform === 'win32' && process.env.APPDATA) {
-    return path.join(process.env.APPDATA, 'RenPy')
-  }
-  return null
+const getDefaultRenpySaveRoot = (electronApp = null) => {
+  const appData = process.platform === 'win32'
+    ? process.env.APPDATA || electronApp?.getPath?.('appData')
+    : electronApp?.getPath?.('appData')
+  return appData ? path.join(appData, 'RenPy') : null
 }
 
 const isPathInside = (candidate, root) => {
@@ -67,11 +67,15 @@ const scanRenpySaveFolders = async (rootPath) => {
   }
 
   const entries = await fs.promises.readdir(root, { withFileTypes: true })
+  const childDirectories = entries.filter((entry) => entry.isDirectory())
   const rows = []
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
+  let skippedFolders = 0
+  for (const entry of childDirectories) {
     const savePath = path.join(root, entry.name)
-    if (!isPathInside(savePath, root)) continue
+    if (!isPathInside(savePath, root)) {
+      skippedFolders += 1
+      continue
+    }
     const details = await inspectSaveFolder(savePath)
     rows.push({
       sourceType: 'renpySave',
@@ -83,7 +87,13 @@ const scanRenpySaveFolders = async (rootPath) => {
       latestSaveMtime: details.latestSaveMtime,
     })
   }
-  return rows
+  return {
+    rootPath: root,
+    rows,
+    totalFolders: childDirectories.length,
+    skippedFolders,
+    sampleFolders: childDirectories.slice(0, 5).map((entry) => entry.name),
+  }
 }
 
 module.exports = {
