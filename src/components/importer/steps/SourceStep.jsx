@@ -1,6 +1,6 @@
 import atlasLogo from '../../../assets/icons/atlas_logo.svg'
 
-export default function SourceStep({ onSelect, onStartSteam }) {
+export default function SourceStep({ onSelect, onStartSteam, onStartRenpy }) {
   return (
     <div className="flex items-center justify-center h-full">
       <div className="flex flex-col space-y-4 max-w-md w-full">
@@ -18,6 +18,13 @@ export default function SourceStep({ onSelect, onStartSteam }) {
         >
           <i className="fab fa-steam"></i>
           Steam Library
+        </button>
+        <button
+          onClick={() => onStartRenpy?.()}
+          className="bg-secondary hover:bg-selected text-text p-2 rounded flex items-center justify-center gap-2"
+        >
+          <i className="fas fa-save"></i>
+          Ren'Py Save Importer
         </button>
       </div>
     </div>

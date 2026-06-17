@@ -271,6 +271,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.removeListener("game-details-import-progress", callback);
   },
   startSteamScan: (params) => ipcRenderer.invoke("start-steam-scan", params),
+  scanRenpySaves: (params) => ipcRenderer.invoke("scan-renpy-saves", params),
+  importRenpySaveGames: (games) =>
+    ipcRenderer.invoke("import-renpy-save-games", games),
+  selectRenpySaveDirectory: () =>
+    ipcRenderer.invoke("select-renpy-save-directory"),
   selectSteamDirectory: () => {
     console.log("Invoking selectSteamDirectory");
     return ipcRenderer.invoke("select-steam-directory");

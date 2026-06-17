@@ -13,6 +13,7 @@ const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
 const { getGame } = require('../db/versions')
 const { fetchAndStoreSteamData, findSteamId } = require('../scanners/steamscanner')
 const { findExecutables } = require("../scanners/executableScanner");
+const { getDefaultRenpySaveRoot, scanRenpySaveFolders } = require("../scanners/renpySaveScanner");
 const { findRecordBySteamId } = require('../db/steam')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
 
@@ -1414,6 +1415,192 @@ ipcMain.handle("start-scan", async (event, params) => {
   } finally {
     ctx.activeScanSession = null;
   }
+});
+
+const makeRenpyImportRow = async (saveRow, searchAtlas, db) => {
+  const base = {
+    ...saveRow,
+    title: saveRow.inferredTitle || saveRow.saveId || "Unknown",
+    creator: "Unknown",
+    engine: "Ren'Py",
+    version: "No version",
+    selectedValue: "",
+    singleExecutable: "N/A",
+    multipleVisible: "hidden",
+    executables: [],
+    isArchive: false,
+    scanStatus: "new",
+    scanMessage: "Ready as Uninstalled",
+    resultVisibility: "hidden",
+    results: [],
+    resultSelectedValue: "",
+    atlasId: "",
+    f95Id: "",
+    steamId: "",
+  };
+
+  let matches = [];
+  try {
+    matches = await searchAtlas(base.title, "");
+  } catch (err) {
+    console.warn("Ren'Py save metadata match failed:", err.message || err);
+  }
+
+  if (matches.length === 1) {
+    const match = matches[0];
+    base.atlasId = String(match.atlas_id || "");
+    base.f95Id = match.f95_id || "";
+    base.title = match.title || base.title;
+    base.creator = match.creator || base.creator;
+    base.engine = match.engine || base.engine;
+    base.description = match.overview || match.description || "";
+    base.siteUrl = match.siteUrl || match.site_url || "";
+    base.results = [{ key: "match", value: "Match Found" }];
+    base.resultSelectedValue = "match";
+    base.resultVisibility = "visible";
+  } else if (matches.length > 1) {
+    base.results = matches.map((match) => ({
+      key: String(match.atlas_id),
+      value: `${match.atlas_id} | ${match.f95_id || ""} | ${match.title} | ${match.creator}`,
+    }));
+    base.resultSelectedValue = base.results[0]?.key || "";
+    base.resultVisibility = "visible";
+  }
+
+  const existing = await findExistingRenpyRecord(base, db).catch(() => null);
+  if (existing?.record_id) {
+    base.recordId = existing.record_id;
+    base.existingRecordId = existing.record_id;
+    base.scanMessage = "Already in Library";
+  }
+
+  return base;
+};
+
+const findExistingRenpyRecord = async (game, db) => {
+  const atlasId = toPositiveInteger(game.atlasId || game.atlas_id);
+  const f95Id = toPositiveInteger(game.f95Id || game.f95_id);
+  const steamId = toPositiveInteger(game.steamId || game.steam_id);
+  const title = String(game.title || "").trim();
+  const creator = String(game.creator || "Unknown").trim() || "Unknown";
+  const engine = String(game.engine || "Ren'Py").trim() || "Ren'Py";
+
+  if (atlasId || f95Id || steamId) {
+    const row = await dbGet(
+      db,
+      `SELECT record_id FROM atlas_mappings WHERE ? IS NOT NULL AND atlas_id = ?
+       UNION
+       SELECT record_id FROM f95_zone_mappings WHERE ? IS NOT NULL AND f95_id = ?
+       UNION
+       SELECT record_id FROM steam_mappings WHERE ? IS NOT NULL AND steam_id = ?
+       LIMIT 1`,
+      [atlasId, atlasId, f95Id, f95Id, steamId, steamId],
+    );
+    if (row?.record_id) return row;
+  }
+
+  if (!title) return null;
+  return await dbGet(
+    db,
+    `SELECT record_id FROM games
+     WHERE (title = ? AND creator = ?)
+        OR (title = ? AND creator = 'Unknown' AND engine = ?)
+        OR (title = ? AND engine = ?)
+     ORDER BY
+       CASE
+         WHEN title = ? AND creator = ? THEN 0
+         WHEN title = ? AND creator = 'Unknown' AND engine = ? THEN 1
+         ELSE 2
+       END
+     LIMIT 1`,
+    [title, creator, title, engine, title, engine, title, creator, title, engine],
+  );
+};
+
+ipcMain.handle("select-renpy-save-directory", async (event) => {
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender);
+  const result = await showOpenDialog(ownerWindow, {
+    title: "Select Ren'Py save folder",
+    properties: ["openDirectory"],
+  });
+  if (result.canceled || !result.filePaths?.length) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle("scan-renpy-saves", async (event, params = {}) => {
+  const rootPath = params.rootPath || getDefaultRenpySaveRoot();
+  if (!rootPath || !fs.existsSync(rootPath)) {
+    return {
+      success: false,
+      needsSelection: true,
+      rootPath: rootPath || "",
+      message: "Ren'Py save folder was not found. Select it manually.",
+    };
+  }
+
+  try {
+    const rows = await scanRenpySaveFolders(rootPath);
+    const games = [];
+    for (const row of rows) {
+      games.push(await makeRenpyImportRow(row, searchAtlas, db));
+    }
+    return { success: true, rootPath, games };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle("import-renpy-save-games", async (event, games = []) => {
+  const rows = Array.isArray(games) ? games : [];
+  const results = [];
+  for (const row of rows) {
+    try {
+      const savePath = path.resolve(String(row.savePath || row.folder || ""));
+      const stat = await fsp.stat(savePath).catch(() => null);
+      if (!stat?.isDirectory()) {
+        results.push({ success: false, title: row.title, error: "Ren'Py save path is not a folder" });
+        continue;
+      }
+
+      const importGame = {
+        title: String(row.title || row.inferredTitle || row.saveId || "Unknown").trim() || "Unknown",
+        creator: String(row.creator || "Unknown").trim() || "Unknown",
+        engine: "Ren'Py",
+        description: row.description || row.overview || null,
+      };
+      let recordId = row.recordId || row.existingRecordId || null;
+      if (!recordId) {
+        const existing = await findExistingRenpyRecord({ ...row, ...importGame }, db);
+        if (existing?.record_id) recordId = existing.record_id;
+      }
+      if (!recordId) recordId = await addGame(importGame);
+      if (importGame.description) {
+        await updateGame({ ...importGame, record_id: recordId });
+      }
+      if (row.atlasId) await addAtlasMapping(recordId, row.atlasId);
+      if (row.f95Id) {
+        await dbRun(
+          db,
+          `INSERT INTO f95_zone_mappings (record_id, f95_id)
+           SELECT ?, ?
+           WHERE NOT EXISTS (
+             SELECT 1 FROM f95_zone_mappings WHERE record_id = ? AND f95_id = ?
+           )`,
+          [recordId, row.f95Id, recordId, row.f95Id],
+        );
+      }
+      if (row.steamId) await addSteamMapping(recordId, parseInt(row.steamId, 10));
+
+      const refreshedGame = await getGame(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode()).catch(() => null);
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send("game-updated", refreshedGame || recordId);
+      });
+      results.push({ success: true, recordId, title: importGame.title });
+    } catch (err) {
+      results.push({ success: false, title: row.title, error: err.message || String(err) });
+    }
+  }
+  return { success: true, results };
 });
 
 ipcMain.handle("cancel-scan", async () => {
