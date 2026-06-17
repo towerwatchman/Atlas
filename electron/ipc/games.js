@@ -339,6 +339,29 @@ function registerGamesHandlers(ctx) {
     }
   })
 
+  ipcMain.handle('open-game-image-folder', async (event, recordId) => {
+    try {
+      const id = String(recordId ?? '').trim()
+      if (!/^\d+$/.test(id)) {
+        return { success: false, error: 'A valid game record ID is required.' }
+      }
+
+      const imagesRoot = path.resolve(getAssetBasePath(), 'data', 'images')
+      const folderPath = path.resolve(imagesRoot, id)
+      const relativePath = path.relative(imagesRoot, folderPath)
+      if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+        return { success: false, error: 'Resolved image folder is outside the media cache.' }
+      }
+
+      await fs.promises.mkdir(folderPath, { recursive: true })
+      const openError = await shell.openPath(folderPath)
+      if (openError) return { success: false, error: openError }
+      return { success: true, path: folderPath }
+    } catch (err) {
+      return { success: false, error: err.message || String(err) }
+    }
+  })
+
   ipcMain.handle('open-game-properties', async (event, recordId) => {
     createGameDetailsWindow(recordId)
     return { success: true }

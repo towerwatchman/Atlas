@@ -29,6 +29,18 @@ export default function MediaTab({
     }
   }
 
+  const handleOpenImageFolder = async () => {
+    try {
+      const result = await window.electronAPI.openGameImageFolder?.(game.record_id)
+      if (!result?.success) {
+        alert(`Failed to open image folder: ${result?.error || 'Unknown error'}`)
+      }
+    } catch (err) {
+      console.error('Error opening image folder:', err)
+      alert(`Failed to open image folder: ${err.message || 'Unknown error'}`)
+    }
+  }
+
   return (
     <div className="flex flex-col flex-grow gap-4 relative">
       {importProgress.text && (
@@ -46,6 +58,16 @@ export default function MediaTab({
           </div>
         </div>
       )}
+
+      <div className="flex justify-end">
+        <button
+          onClick={handleOpenImageFolder}
+          disabled={!game?.record_id}
+          className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Open Image Folder
+        </button>
+      </div>
 
       <div className="flex flex-col h-[414px]">
         <label>Banner Image</label>

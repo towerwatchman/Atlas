@@ -111,6 +111,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openExternalUrl: (url) => ipcRenderer.invoke("open-external-url", url),
   launchGame: (data) => ipcRenderer.invoke("launch-game", data),
   openGameFolder: (data) => ipcRenderer.invoke("open-game-folder", data),
+  openGameImageFolder: (recordId) =>
+    ipcRenderer.invoke("open-game-image-folder", recordId),
   openGameProperties: (recordId) =>
     ipcRenderer.invoke("open-game-properties", recordId),
 
