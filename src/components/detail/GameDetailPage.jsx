@@ -38,6 +38,31 @@ const splitPreviewUrls = (value) => {
   return String(value || '').split(',').map((url) => url.trim()).filter(Boolean)
 }
 
+const inferImportVersion = (game = {}, sourcePath = '') => {
+  const name = String(sourcePath || '').split(/[\\/]/).pop() || ''
+  const parent = String(sourcePath || '').split(/[\\/]/).slice(-2, -1)[0] || ''
+  const candidates = [name.replace(/\.[^.]+$/, ''), parent, game.latestVersion, game.latest_version, game.version]
+  const patterns = [
+    /\bv(?:ersion)?[\s._-]*([0-9]+(?:[._-][0-9a-z]+){0,4})\b/i,
+    /\b((?:ch|chapter)[\s._-]*[0-9]+[a-z]?)\b/i,
+    /\b([0-9]+(?:\.[0-9a-z]+){1,4})\b/i,
+  ]
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim()
+    if (!value) continue
+    for (const pattern of patterns) {
+      const match = value.match(pattern)
+      if (match?.[0]) return match[0]
+    }
+  }
+  return String(game.latestVersion || game.latest_version || 'Unknown').trim() || 'Unknown'
+}
+
+const getDroppedPath = (event) => {
+  const files = Array.from(event.dataTransfer?.files || [])
+  return files[0]?.path || ''
+}
+
 const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [previews, setPreviews] = useState([])
   const [previewsLoading, setPreviewsLoading] = useState(false)
@@ -49,6 +74,13 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [showInfo, setShowInfo] = useState(true)
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const [bannerMask, setBannerMask] = useState({ image: 'none', composite: null })
+  const [catalogImportPath, setCatalogImportPath] = useState('')
+  const [catalogImportVersion, setCatalogImportVersion] = useState('')
+  const [catalogImportBusy, setCatalogImportBusy] = useState(false)
+  const [catalogImportStatus, setCatalogImportStatus] = useState('')
+  const [catalogImportError, setCatalogImportError] = useState('')
+  const [catalogImportDragging, setCatalogImportDragging] = useState(false)
+  const [catalogImportConflict, setCatalogImportConflict] = useState(null)
   const isRunningRef  = useRef(false)
   const rootRef       = useRef(null)
   const bannerRef     = useRef(null)
@@ -72,7 +104,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             setPreviews(filterOutBanner(snapshotPreviews, game.banner_url))
             return
           }
-          const cacheKey = `${game.atlas_id || ''}:${game.f95_id || ''}`
+          const cacheKey = `${game.atlas_id || ''}:${game.f95_id || ''}:${game.steam_id || ''}`
           if (browsePreviewCacheRef.current.has(cacheKey)) {
             setPreviews(filterOutBanner(browsePreviewCacheRef.current.get(cacheKey), game.banner_url))
             return
@@ -80,6 +112,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           const urls = await window.electronAPI.getBrowsePreviewUrls?.({
             atlas_id: game.atlas_id,
             f95_id: game.f95_id,
+            steam_id: game.steam_id,
           })
           const safeUrls = Array.isArray(urls) ? urls : []
           browsePreviewCacheRef.current.set(cacheKey, safeUrls)
@@ -96,13 +129,19 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       }
     }
     loadPreviews()
-  }, [game?.record_id, game?.versions, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id])
+  }, [game?.record_id, game?.versions, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.steam_id])
 
   useEffect(() => {
     setLaunchState(LAUNCH_STATE.IDLE)
     setShowInfo(true)
     setLightboxIndex(null)
     setIsWishlisted(game?.isWishlisted === true || game?.isWishlistEntry === true)
+    setCatalogImportPath('')
+    setCatalogImportVersion(String(game?.latestVersion || game?.latest_version || 'Unknown').trim() || 'Unknown')
+    setCatalogImportStatus('')
+    setCatalogImportError('')
+    setCatalogImportDragging(false)
+    setCatalogImportConflict(null)
     isRunningRef.current = false
   }, [game?.record_id, game?.isWishlisted, game?.isWishlistEntry])
 
@@ -246,6 +285,71 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   }
   const openWebsite = async () => { if (game.siteUrl) await window.electronAPI.openExternalUrl(game.siteUrl) }
 
+  const chooseCatalogImportSource = async () => {
+    if (!canManageWishlist || !window.electronAPI.selectCatalogImportSource) return
+    const selectedPath = await window.electronAPI.selectCatalogImportSource()
+    if (!selectedPath) return
+    setCatalogImportPath(selectedPath)
+    setCatalogImportVersion((current) => current || inferImportVersion(game, selectedPath))
+    setCatalogImportError('')
+    setCatalogImportConflict(null)
+  }
+
+  const runCatalogImport = async (options = {}) => {
+    const sourcePath = options.sourcePath || catalogImportPath
+    const version = String(options.version || catalogImportVersion || inferImportVersion(game, sourcePath)).trim()
+    if (!sourcePath) {
+      setCatalogImportError('Choose a game folder, archive, or executable first.')
+      return
+    }
+    if (!version) {
+      setCatalogImportError('Version is required.')
+      return
+    }
+    setCatalogImportBusy(true)
+    setCatalogImportError('')
+    setCatalogImportStatus('Importing this title...')
+    setCatalogImportConflict(null)
+    try {
+      const result = await window.electronAPI.importCatalogEntry?.({
+        catalog: game,
+        sourcePath,
+        version,
+        conflictMode: options.conflictMode || 'check',
+      })
+      if (result?.conflict) {
+        const suggested = result.suggestedVersion || `${version} (2)`
+        setCatalogImportVersion(suggested)
+        setCatalogImportStatus('')
+        setCatalogImportConflict({ sourcePath, version, suggestedVersion: suggested })
+        return
+      }
+      if (!result?.success) throw new Error(result?.error || 'Import failed')
+      setCatalogImportPath('')
+      setCatalogImportStatus(`Imported ${result.version || version} into the Library.`)
+      onRefresh?.(result.recordId)
+    } catch (err) {
+      setCatalogImportStatus('')
+      setCatalogImportError(err.message || String(err))
+    } finally {
+      setCatalogImportBusy(false)
+    }
+  }
+
+  const handleCatalogDrop = (event) => {
+    event.preventDefault()
+    setCatalogImportDragging(false)
+    const droppedPath = getDroppedPath(event)
+    if (!droppedPath) {
+      setCatalogImportError('Atlas could not read that dropped path.')
+      return
+    }
+    setCatalogImportPath(droppedPath)
+    setCatalogImportVersion((current) => current || inferImportVersion(game, droppedPath))
+    setCatalogImportError('')
+    setCatalogImportConflict(null)
+  }
+
   const toggleWishlist = async () => {
     if (!canManageWishlist || wishlistBusy) return
     setWishlistBusy(true)
@@ -347,6 +451,88 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           latestVersion={latestVersion}
           isUpdateAvailable={game.isUpdateAvailable}
         />
+      )}
+
+      {canManageWishlist && (
+        <section className="mx-6 mt-5 border border-border bg-secondary p-4">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+            <div>
+              <h2 className="text-lg font-semibold">Import Files for This Title</h2>
+              <p style={{ color: '#9ca3af', fontSize: 12 }}>
+                Drop a game folder, archive, or executable here to attach it to this Browse title.
+              </p>
+            </div>
+            <button
+              onClick={chooseCatalogImportSource}
+              disabled={catalogImportBusy}
+              className="bg-primary border border-border px-3 py-2 hover:bg-selected disabled:opacity-60"
+            >
+              Import Files
+            </button>
+          </div>
+          <div
+            onDragOver={(event) => { event.preventDefault(); setCatalogImportDragging(true) }}
+            onDragLeave={() => setCatalogImportDragging(false)}
+            onDrop={handleCatalogDrop}
+            className={`border border-dashed p-4 transition-colors ${catalogImportDragging ? 'border-accent bg-selected' : 'border-border bg-primary'}`}
+            style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 160px auto', gap: 10, alignItems: 'center' }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {catalogImportPath || 'No source selected'}
+              </div>
+              <div style={{ color: '#9ca3af', fontSize: 12 }}>
+                Accepted: folder, .zip, .7z, .rar, or launchable file.
+              </div>
+            </div>
+            <input
+              value={catalogImportVersion}
+              onChange={(event) => setCatalogImportVersion(event.target.value)}
+              disabled={catalogImportBusy}
+              className="bg-secondary border border-border p-2"
+              placeholder="Version"
+            />
+            <button
+              onClick={() => runCatalogImport()}
+              disabled={catalogImportBusy || !catalogImportPath}
+              className="bg-accent px-4 py-2 hover:bg-accentHover disabled:opacity-60"
+            >
+              {catalogImportBusy ? 'Importing...' : 'Import'}
+            </button>
+          </div>
+          {catalogImportConflict && (
+            <div className="border border-border bg-primary p-3" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 10 }}>
+              <div style={{ color: '#facc15', fontSize: 12 }}>
+                Version "{catalogImportConflict.version}" already exists for this title.
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => runCatalogImport({
+                    sourcePath: catalogImportConflict.sourcePath,
+                    version: catalogImportConflict.suggestedVersion,
+                    conflictMode: 'unique',
+                  })}
+                  disabled={catalogImportBusy}
+                  className="bg-accent px-3 py-2 hover:bg-accentHover disabled:opacity-60"
+                >
+                  Use {catalogImportConflict.suggestedVersion}
+                </button>
+                <button
+                  onClick={() => {
+                    setCatalogImportConflict(null)
+                    setCatalogImportError('Import canceled because that version already exists.')
+                  }}
+                  disabled={catalogImportBusy}
+                  className="bg-primary border border-border px-3 py-2 hover:bg-selected disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {catalogImportStatus && <div style={{ color: '#86efac', fontSize: 12, marginTop: 8 }}>{catalogImportStatus}</div>}
+          {catalogImportError && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 8 }}>{catalogImportError}</div>}
+        </section>
       )}
 
       {/* Body */}

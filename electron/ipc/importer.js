@@ -12,6 +12,7 @@ const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
         checkRecordExist, checkPathExist } = require('../db/atlas')
 const { getGame } = require('../db/versions')
 const { fetchAndStoreSteamData, findSteamId } = require('../scanners/steamscanner')
+const { findExecutables } = require("../scanners/executableScanner");
 const { findRecordBySteamId } = require('../db/steam')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
 
@@ -84,6 +85,60 @@ function getUniquePath(basePath) {
   }
   return uniquePath;
 }
+
+const toPositiveInteger = (value) => {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : null;
+};
+
+const isArchiveFilePath = (filePath) =>
+  [".zip", ".7z", ".rar"].includes(path.extname(String(filePath || "")).toLowerCase());
+
+const inferCatalogImportVersion = (sourcePath, catalog = {}) => {
+  const candidates = [
+    path.basename(String(sourcePath || ""), path.extname(String(sourcePath || ""))),
+    path.basename(path.dirname(String(sourcePath || ""))),
+    catalog.latestVersion,
+    catalog.latest_version,
+    catalog.version,
+  ];
+  const patterns = [
+    /\bv(?:ersion)?[\s._-]*([0-9]+(?:[._-][0-9a-z]+){0,4})\b/i,
+    /\b((?:ch|chapter)[\s._-]*[0-9]+[a-z]?)\b/i,
+    /\b([0-9]+(?:\.[0-9a-z]+){1,4})\b/i,
+  ];
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (!value) continue;
+    for (const pattern of patterns) {
+      const match = value.match(pattern);
+      if (match?.[1]) return match[0].startsWith("v") ? match[0] : match[1];
+    }
+  }
+  return String(catalog.latestVersion || catalog.latest_version || catalog.version || "Unknown").trim() || "Unknown";
+};
+
+const getConfiguredGameExtensions = (appConfig) =>
+  String(appConfig?.Library?.gameExtensions || "exe,swf,flv,f4v,rag,cmd,bat,jar,html")
+    .split(",")
+    .map((ext) => ext.trim().toLowerCase().replace(/^\./, ""))
+    .filter(Boolean);
+
+const dbGet = (db, sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) reject(err);
+      else resolve(row || null);
+    });
+  });
+
+const dbRun = (db, sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.run(sql, params, function onRun(err) {
+      if (err) reject(err);
+      else resolve(this);
+    });
+  });
 
 function getUniqueTempPath(basePath) {
   return getUniquePath(`${basePath}.__atlas_extract_${Date.now()}`);
@@ -1051,6 +1106,258 @@ ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
     return { success: true, extractPath: extraction.finalPath || extractPath };
   } catch (err) {
     return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("select-catalog-import-source", async (event) => {
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender);
+  const result = await showOpenDialog(ownerWindow, {
+    title: "Choose game folder, archive, or executable",
+    properties: ["openFile", "openDirectory"],
+    filters: [
+      { name: "Game files and archives", extensions: ["zip", "7z", "rar", "exe", "swf", "flv", "f4v", "rag", "cmd", "bat", "jar", "html"] },
+      { name: "All files", extensions: ["*"] },
+    ],
+  });
+  if (result.canceled || !result.filePaths?.length) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  if (ctx.activeImportSession) {
+    return { success: false, error: "Another import is already running" };
+  }
+
+  const catalog = payload.catalog || {};
+  const sourcePath = path.resolve(String(payload.sourcePath || ""));
+  const requestedVersion = String(payload.version || "").trim();
+  const conflictMode = String(payload.conflictMode || "check");
+  const atlasId = toPositiveInteger(catalog.atlas_id ?? catalog.atlasId);
+  const f95Id = toPositiveInteger(catalog.f95_id ?? catalog.f95Id);
+  const steamId = toPositiveInteger(catalog.steam_id ?? catalog.steamId ?? catalog.steam_appid);
+
+  try {
+    const stat = await fsp.stat(sourcePath);
+    if (!stat.isDirectory() && !stat.isFile()) {
+      return { success: false, error: "Import source must be a folder or file" };
+    }
+
+    const currentConfig = ctx.appConfig || appConfig || {};
+    let targetLibrary = currentConfig?.Library?.gameFolder;
+    if (!targetLibrary || !fs.existsSync(targetLibrary)) {
+      const pick = await showOpenDialog(ownerWindow, {
+        title: "Choose Library folder for this import",
+        properties: ["openDirectory", "createDirectory"],
+      });
+      if (pick.canceled || !pick.filePaths?.length) {
+        return { success: false, canceled: true, error: "Library folder is required" };
+      }
+      targetLibrary = pick.filePaths[0];
+      const nextConfig = {
+        ...currentConfig,
+        Library: {
+          ...(currentConfig?.Library || {}),
+          gameFolder: targetLibrary,
+        },
+      };
+      fs.writeFileSync(configPath, ini.stringify(nextConfig));
+      ctx.appConfig = nextConfig;
+    }
+
+    const version = requestedVersion || inferCatalogImportVersion(sourcePath, catalog);
+    const destinationFormat = currentConfig?.Library?.libraryFolderStructure || "{creator}/{title}/{version}";
+    const importGame = {
+      title: String(catalog.title || catalog.name || catalog.short_name || "Untitled").trim(),
+      creator: String(catalog.creator || catalog.developer || catalog.steam_developer || "Unknown").trim(),
+      engine: String(catalog.engine || "").trim(),
+      description: String(catalog.overview || catalog.description || "").trim(),
+      version,
+      atlasId,
+      f95Id,
+      steamId,
+    };
+
+    let recordId = null;
+    const mappingRow = await dbGet(
+      db,
+      `SELECT record_id FROM atlas_mappings WHERE ? IS NOT NULL AND atlas_id = ?
+       UNION
+       SELECT record_id FROM f95_zone_mappings WHERE ? IS NOT NULL AND f95_id = ?
+       UNION
+       SELECT record_id FROM steam_mappings WHERE ? IS NOT NULL AND steam_id = ?
+       LIMIT 1`,
+      [atlasId, atlasId, f95Id, f95Id, steamId, steamId],
+    );
+    if (mappingRow?.record_id) recordId = mappingRow.record_id;
+    if (!recordId && steamId) recordId = await findRecordBySteamId(steamId);
+    if (!recordId) {
+      const titleRow = await dbGet(
+        db,
+        `SELECT record_id FROM games WHERE title = ? AND creator = ? LIMIT 1`,
+        [importGame.title, importGame.creator],
+      );
+      if (titleRow?.record_id) recordId = titleRow.record_id;
+    }
+
+    if (recordId) {
+      const existingVersion = await dbGet(
+        db,
+        `SELECT rowid AS version_id, version FROM versions WHERE record_id = ? AND version = ? LIMIT 1`,
+        [recordId, version],
+      );
+      if (existingVersion && conflictMode === "check") {
+        let counter = 2;
+        let suggestedVersion = `${version} (${counter})`;
+        while (await dbGet(db, `SELECT 1 FROM versions WHERE record_id = ? AND version = ? LIMIT 1`, [recordId, suggestedVersion])) {
+          counter++;
+          suggestedVersion = `${version} (${counter})`;
+        }
+        return {
+          success: false,
+          conflict: true,
+          recordId,
+          existingVersion: existingVersion.version,
+          suggestedVersion,
+          message: `Version "${version}" already exists for this title.`,
+        };
+      }
+      if (existingVersion && conflictMode === "cancel") {
+        return { success: false, canceled: true, conflict: true };
+      }
+    }
+
+    const session = {
+      cancelRequested: false,
+      progress: 0,
+      total: 100,
+      cleanupPaths: [],
+      currentExtractionWorker: null,
+    };
+    ctx.activeImportSession = session;
+    const notify = (text, progress = 0, total = 100) => {
+      ownerWindow?.webContents?.send("import-progress", {
+        text,
+        progress,
+        total,
+        canCancel: false,
+      });
+    };
+
+    let gamePath = "";
+    let execPath = "";
+    let relativeExec = "";
+    const targetBase = getUniquePath(buildStructuredImportPath(targetLibrary, destinationFormat, importGame));
+    const extensions = getConfiguredGameExtensions(currentConfig);
+    if (stat.isFile() && !isArchiveFilePath(sourcePath)) {
+      const ext = path.extname(sourcePath).toLowerCase().replace(/^\./, "");
+      if (!extensions.includes(ext)) {
+        return { success: false, error: `Unsupported standalone file type: .${ext || "unknown"}` };
+      }
+    }
+
+    notify(`Importing ${importGame.title}...`, 5);
+
+    if (stat.isDirectory()) {
+      notify(`Copying ${importGame.title} to Library...`, 20);
+      await fsp.mkdir(path.dirname(targetBase), { recursive: true });
+      await fsp.cp(sourcePath, targetBase, { recursive: true });
+      gamePath = targetBase;
+      const execs = findExecutables(gamePath, extensions);
+      relativeExec = execs[0] || "";
+      execPath = relativeExec ? path.join(gamePath, relativeExec) : "";
+    } else if (isArchiveFilePath(sourcePath)) {
+      const resolvedSevenZip = await resolveSevenZipExecutablePath({
+        configuredPath: currentConfig?.Library?.sevenZipPath,
+        currentConfig,
+        currentConfigPath: configPath,
+        ownerWindow,
+        notify: (text) => notify(text, 10),
+      });
+      if (!resolvedSevenZip?.path) throw new Error("7-Zip is required for archive import");
+      notify(`Extracting ${importGame.title}...`, 15);
+      const extraction = await extractArchive(sourcePath, targetBase, resolvedSevenZip.path, session, ownerWindow);
+      gamePath = extraction.finalPath || targetBase;
+
+      const items = await fsp.readdir(gamePath, { withFileTypes: true }).catch(() => []);
+      const dirs = items.filter((item) => item.isDirectory());
+      const files = items.filter((item) => item.isFile());
+      if (dirs.length === 1 && files.length === 0) {
+        const subPath = path.join(gamePath, dirs[0].name);
+        const subItems = await fsp.readdir(subPath);
+        for (const item of subItems) {
+          await fsp.rename(path.join(subPath, item), path.join(gamePath, item));
+        }
+        await fsp.rmdir(subPath).catch(() => {});
+      }
+
+      const execs = findExecutables(gamePath, extensions);
+      relativeExec = execs[0] || "";
+      execPath = relativeExec ? path.join(gamePath, relativeExec) : "";
+    } else if (stat.isFile()) {
+      notify(`Copying ${path.basename(sourcePath)}...`, 25);
+      await fsp.mkdir(targetBase, { recursive: true });
+      const destFile = path.join(targetBase, path.basename(sourcePath));
+      await fsp.copyFile(sourcePath, destFile);
+      gamePath = targetBase;
+      relativeExec = path.basename(destFile);
+      execPath = destFile;
+    }
+
+    if (!gamePath) throw new Error("Import did not produce a game folder");
+
+    if (!recordId) {
+      recordId = await addGame({
+        title: importGame.title,
+        creator: importGame.creator,
+        engine: importGame.engine,
+        description: importGame.description,
+      });
+      if (importGame.description) {
+        await updateGame({
+          record_id: recordId,
+          title: importGame.title,
+          creator: importGame.creator,
+          engine: importGame.engine,
+          description: importGame.description,
+        });
+      }
+    }
+
+    if (atlasId) await addAtlasMapping(recordId, atlasId);
+    if (f95Id) await dbRun(db, `INSERT OR IGNORE INTO f95_zone_mappings (record_id, f95_id) VALUES (?, ?)`, [recordId, f95Id]);
+    if (steamId) await addSteamMapping(recordId, steamId);
+
+    notify(`Saving ${importGame.title} ${version}...`, 85);
+    await upsertVersion(
+      {
+        version,
+        folder: gamePath,
+        execPath,
+        selectedValue: relativeExec,
+      },
+      recordId,
+    );
+
+    notify(`Imported ${importGame.title}`, 100);
+    const refreshedGame = await getGame(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode()).catch(() => null);
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) win.webContents.send("game-updated", refreshedGame || recordId);
+    });
+    return {
+      success: true,
+      recordId,
+      version,
+      gamePath,
+      execPath,
+      game: refreshedGame,
+      mappings: { atlasId, f95Id, steamId },
+    };
+  } catch (err) {
+    console.error("import-catalog-entry error:", err);
+    return { success: false, error: err.message || String(err) };
+  } finally {
+    ctx.activeImportSession = null;
   }
 });
 

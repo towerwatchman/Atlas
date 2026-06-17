@@ -261,6 +261,8 @@ const SearchSidebar = ({
                 >
                   <option value="all">All sources</option>
                   <option value="f95">F95</option>
+                  <option value="steam">Steam</option>
+                  <option value="atlas">AtlasDB</option>
                 </select>
               </label>
               <label className="block text-sm">

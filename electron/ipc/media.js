@@ -84,6 +84,7 @@ module.exports = function registerMediaHandlers(ctx) {
       const urls = await getBrowsePreviewUrls({
         atlasId: record.atlasId ?? record.atlas_id,
         f95Id: record.f95Id ?? record.f95_id,
+        steamId: record.steamId ?? record.steam_id ?? record.steam_appid,
       })
       return Array.isArray(urls) ? urls : []
     } catch (err) {

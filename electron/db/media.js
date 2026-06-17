@@ -294,10 +294,11 @@ const upsertMediaAsset = ({ recordId, source, assetType, path: assetPath, origin
   });
 };
 
-const getBrowsePreviewUrls = ({ atlasId, f95Id } = {}) => {
+const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId } = {}) => {
   return new Promise((resolve, reject) => {
     const atlasParam = atlasId || null;
     const f95Param = f95Id || null;
+    const steamParam = steamId || null;
     const query = `
       SELECT url, source, sort_order FROM (
         SELECT f95_zone_screens.screen_url AS url, 'f95_screens' AS source, 0 AS sort_order
@@ -309,6 +310,12 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id } = {}) => {
         SELECT atlas_previews.preview_url AS url, 'atlas_previews' AS source, 2 AS sort_order
         FROM atlas_previews
         WHERE ? IS NOT NULL AND atlas_previews.atlas_id = ?
+        UNION ALL
+        SELECT steam_screens.screen_url AS url, 'steam_screens' AS source, 3 AS sort_order
+        FROM steam_screens
+        JOIN steam_data ON steam_screens.steam_id = steam_data.steam_id
+        WHERE (? IS NOT NULL AND steam_screens.steam_id = ?)
+           OR (? IS NOT NULL AND steam_data.atlas_id = ?)
       )
       WHERE url IS NOT NULL AND TRIM(url) != ''
       ORDER BY sort_order
@@ -316,7 +323,13 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id } = {}) => {
 
     getDb().all(
       query,
-      [f95Param, f95Param, atlasParam, atlasParam, atlasParam, atlasParam],
+      [
+        f95Param, f95Param,
+        atlasParam, atlasParam,
+        atlasParam, atlasParam,
+        steamParam, steamParam,
+        atlasParam, atlasParam,
+      ],
       (err, rows) => {
         if (err) {
           reject(err);
@@ -334,6 +347,7 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id } = {}) => {
 
         const f95Rows = (rows || []).filter((row) => row.source === "f95_screens");
         const atlasRows = (rows || []).filter((row) => row.source === "atlas_previews");
+        const steamRows = (rows || []).filter((row) => row.source === "steam_screens");
         f95Rows.forEach((row) => addUrl(row.url));
 
         getDb().get(
@@ -352,10 +366,12 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id } = {}) => {
             parsePreviewList(row?.screens).forEach(addUrl);
             atlasRows.forEach((previewRow) => addUrl(previewRow.url));
             parsePreviewList(row?.previews).forEach(addUrl);
+            steamRows.forEach((previewRow) => addUrl(previewRow.url));
 
             console.log(
               `Browse preview URLs resolved: atlasId=${atlasId || "none"} ` +
-              `f95Id=${f95Id || "none"} count=${urls.length} invalid=${invalidCount}`,
+              `f95Id=${f95Id || "none"} steamId=${steamId || "none"} ` +
+              `count=${urls.length} invalid=${invalidCount}`,
             );
             resolve(urls);
           },

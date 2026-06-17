@@ -859,6 +859,12 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       const query = `
       SELECT
         'catalog:' || atlas_data.atlas_id as record_id,
+        'atlas:' || atlas_data.atlas_id as catalogKey,
+        CASE
+          WHEN f95_zone_data.f95_id IS NOT NULL THEN 'f95'
+          WHEN MIN(steam_data.steam_id) IS NOT NULL THEN 'steam'
+          ELSE 'atlas'
+        END as source,
         atlas_data.atlas_id as atlas_id,
         MIN(steam_data.steam_id) as steam_id,
         atlas_data.title as title,
@@ -905,11 +911,80 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         MIN(steam_data.library_hero) as steam_library_hero,
         MIN(steam_data.library_capsule) as steam_library_capsule,
         MIN(steam_data.logo) as steam_logo,
-        '' AS tags
+        '' AS tags,
+        CASE
+          WHEN EXISTS (SELECT 1 FROM atlas_mappings WHERE atlas_mappings.atlas_id = atlas_data.atlas_id)
+            OR (f95_zone_data.f95_id IS NOT NULL AND EXISTS (SELECT 1 FROM f95_zone_mappings WHERE f95_zone_mappings.f95_id = f95_zone_data.f95_id))
+            OR EXISTS (
+              SELECT 1
+              FROM steam_mappings
+              JOIN steam_data mapped_steam ON steam_mappings.steam_id = mapped_steam.steam_id
+              WHERE mapped_steam.atlas_id = atlas_data.atlas_id
+            )
+          THEN 1 ELSE 0
+        END AS is_installed
       FROM atlas_data
       LEFT JOIN f95_zone_data ON atlas_data.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN steam_data ON atlas_data.atlas_id = steam_data.atlas_id
       GROUP BY atlas_data.atlas_id
+      UNION ALL
+      SELECT
+        'catalog:steam:' || steam_data.steam_id as record_id,
+        'steam:' || steam_data.steam_id as catalogKey,
+        'steam' as source,
+        NULL as atlas_id,
+        steam_data.steam_id as steam_id,
+        steam_data.title as title,
+        COALESCE(NULLIF(steam_data.developer, ''), steam_data.publisher) as creator,
+        steam_data.engine as engine,
+        steam_data.overview as description,
+        0 as total_playtime,
+        0 as last_played_r,
+        '' as last_played_version,
+        COALESCE(steam_data.header, steam_data.library_hero) AS banner_url,
+        CASE WHEN COALESCE(steam_data.header, steam_data.library_hero) IS NOT NULL THEN 'stream' ELSE '' END AS banner_source,
+        0 AS has_downloaded_banner,
+        NULL as f95_id,
+        CASE WHEN steam_data.steam_id IS NOT NULL THEN 'https://store.steampowered.com/app/' || steam_data.steam_id || '/' ELSE NULL END as siteUrl,
+        NULL as views,
+        NULL as likes,
+        steam_data.tags as f95_tags,
+        NULL as rating,
+        steam_data.release_state as status,
+        NULL as latestVersion,
+        steam_data.category AS category,
+        steam_data.censored AS censored,
+        steam_data.genre AS genre,
+        steam_data.language AS language,
+        steam_data.os AS os,
+        steam_data.overview AS overview,
+        steam_data.translations AS translations,
+        steam_data.release_date AS release_date,
+        NULL AS atlas_last_record_update,
+        steam_data.release_date AS steam_release_date,
+        NULL AS thread_updated,
+        steam_data.release_date AS thread_publish_date,
+        NULL AS f95_last_record_update,
+        steam_data.voice AS voice,
+        steam_data.publisher AS publisher,
+        steam_data.developer AS steam_developer,
+        steam_data.title AS short_name,
+        '{"steam_appid":"' || steam_data.steam_id || '"}' as external_ids,
+        NULL as atlas_banner_wide,
+        NULL as atlas_banner,
+        NULL as atlas_logo,
+        NULL as f95_banner,
+        steam_data.header as steam_header,
+        steam_data.library_hero as steam_library_hero,
+        steam_data.library_capsule as steam_library_capsule,
+        steam_data.logo as steam_logo,
+        steam_data.tags AS tags,
+        CASE WHEN EXISTS (SELECT 1 FROM steam_mappings WHERE steam_mappings.steam_id = steam_data.steam_id)
+          THEN 1 ELSE 0
+        END AS is_installed
+      FROM steam_data
+      LEFT JOIN atlas_data ON steam_data.atlas_id = atlas_data.atlas_id
+      WHERE steam_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL
     `;
 
       getDb().all(query, [], (err, rows) => {
@@ -933,9 +1008,9 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           threadPublishDate: row.thread_publish_date || null,
           versions: [],
           versionCount: 0,
-          installedVersionCount: 0,
-          totalVersionCount: 0,
-          hasInstalledVersion: false,
+          installedVersionCount: row.is_installed ? 1 : 0,
+          totalVersionCount: row.is_installed ? 1 : 0,
+          hasInstalledVersion: row.is_installed === 1,
           isUpdateAvailable: false,
           isCatalogEntry: true,
           isMetadataOnly: true,

@@ -124,9 +124,10 @@ export const getBrowseDate = (game = {}, dateBasis = 'thread_updated') => {
   const basis = dateBasis === 'thread_publish_date'
     ? 'thread_publish_date'
     : 'thread_updated'
+  const isSteamOnly = game.source === 'steam' && !game.atlas_id && !game.atlasId && !game.f95_id && !game.f95Id
   const rawValue = basis === 'thread_publish_date'
-    ? game.threadPublishDate ?? game.thread_publish_date
-    : game.threadUpdated ?? game.thread_updated
+    ? game.threadPublishDate ?? game.thread_publish_date ?? (isSteamOnly ? game.steam_release_date ?? game.release_date : null)
+    : game.threadUpdated ?? game.thread_updated ?? (isSteamOnly ? game.steam_release_date ?? game.release_date : null)
   return parseAtlasDbThreadDate(rawValue)
 }
 

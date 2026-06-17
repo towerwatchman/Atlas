@@ -92,6 +92,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   resolveImportMatches: (games) =>
     ipcRenderer.invoke("resolve-import-matches", games),
   importGames: (params) => ipcRenderer.invoke("import-games", params),
+  selectCatalogImportSource: () =>
+    ipcRenderer.invoke("select-catalog-import-source"),
+  importCatalogEntry: (params) => ipcRenderer.invoke("import-catalog-entry", params),
   cancelImport: () => ipcRenderer.invoke("cancel-import"),
   log: (message) => ipcRenderer.invoke("log", message),
   sendUpdateProgress: (progress) =>
