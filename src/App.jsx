@@ -15,7 +15,7 @@ import { useAppUpdate } from './hooks/useAppUpdate.js'
 import { useWindowState } from './hooks/useWindowState.js'
 import { useTheme } from './theme/ThemeProvider.jsx'
 import { getGameTitle, normalizeGameForRenderer } from './utils/gameDisplay.js'
-import { formatPercent, sanitizePercentText } from './utils/formatPercent.js'
+import { formatPercent, formatProgressNumber, sanitizePercentText } from './utils/formatPercent.js'
 
 const debounce = (func, delay) => {
   let timeout
@@ -837,7 +837,7 @@ const App = () => {
                 <div className="h-full bg-accent" style={{ width: `${(dbUpdateStatus.progress / (dbUpdateStatus.total || 1)) * 100}%` }}></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
-                Update {dbUpdateStatus.progress}/{dbUpdateStatus.total}
+                Update {formatProgressNumber(dbUpdateStatus.progress)}/{formatProgressNumber(dbUpdateStatus.total)}
               </span>
             </div>
           </div>
@@ -853,7 +853,7 @@ const App = () => {
                 <div className="h-full bg-accent" style={{ width: `${(importStatus.progress / importStatus.total) * 100}%` }}></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
-                File {importStatus.progress}/{importStatus.total}
+                File {formatProgressNumber(importStatus.progress, { clamp: false })}/{formatProgressNumber(importStatus.total, { clamp: false })}
               </span>
             </div>
           </div>
@@ -869,7 +869,7 @@ const App = () => {
                 <div className="h-full bg-accent" style={{ width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%` }}></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
-                Game {importProgress.progress}/{importProgress.total}
+                Game {formatProgressNumber(importProgress.progress, { clamp: false })}/{formatProgressNumber(importProgress.total, { clamp: false })}
               </span>
             </div>
             {importProgress.canCancel && (
