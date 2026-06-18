@@ -308,6 +308,8 @@ const countVersions = (recordId) =>
 
 const deleteVersion = (recordId, version) =>
   new Promise((resolve, reject) => {
+    // Version deletion intentionally leaves games.total_playtime untouched.
+    // Title playtime is a lifetime total and can outlive individual version rows.
     getDb().run(
       `DELETE FROM versions WHERE record_id = ? AND version = ?`,
       [recordId, version],

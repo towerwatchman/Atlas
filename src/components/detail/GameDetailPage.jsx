@@ -360,11 +360,13 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const steam = isSteamGame(game)
   const developer = resolveDeveloper(game)
   const categories = splitCsv(game.category)
+  const totalTitlePlaytime = game.totalPlaytime ?? game.total_playtime
 
   // Comprehensive Details card. Only known fields render (empties filtered).
   // Rules: collapse long language lists; hide Translations for Steam (its
   // language list already covers it); Category renders specially for Steam.
   const metadataRows = [
+    ['Total Playtime', formatPlaytime(totalTitlePlaytime)],
     ['Developer', developer],
     ['Publisher', game.publisher],
     ['Release Date', formatReleaseDate(game)],

@@ -635,12 +635,13 @@ const applyLocalSortAggregates = (game, allVersions = [], installedVersions = []
   const lastPlayed = lastPlayedFromGame > 0
     ? lastPlayedFromGame
     : maxPositiveNumber(allVersions.map((version) => version.last_played));
-  const totalPlaytime = totalPlaytimeFromGame > 0
-    ? totalPlaytimeFromGame
-    : sumPositiveNumbers(allVersions.map((version) => version.version_playtime));
+  const versionPlaytimeSum = sumPositiveNumbers(allVersions.map((version) => version.version_playtime));
+  const totalPlaytime = Math.max(totalPlaytimeFromGame, versionPlaytimeSum);
 
   return {
     ...game,
+    last_played_r: lastPlayed,
+    total_playtime: totalPlaytime,
     lastPlayed,
     totalPlaytime,
     lastInstalled: maxPositiveNumber(allVersions.map((version) => version.date_added)),

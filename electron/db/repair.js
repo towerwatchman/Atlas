@@ -197,8 +197,67 @@ const repairBlankVersionNames = () => {
   });
 };
 
+const repairMissingTotalPlaytime = () => {
+  if (!getDb()) return Promise.resolve(0);
+
+  const run = (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      getDb().run(sql, params, function (err) {
+        if (err) reject(err);
+        else resolve(this.changes || 0);
+      });
+    });
+  const all = (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      getDb().all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+    });
+
+  return new Promise((resolve, reject) => {
+    getDb().serialize(async () => {
+      try {
+        const rows = await all(
+          `SELECT
+             g.record_id,
+             COALESCE(g.total_playtime, 0) AS total_playtime,
+             COALESCE(SUM(
+               CASE
+                 WHEN v.version_playtime > 0 THEN v.version_playtime
+                 ELSE 0
+               END
+             ), 0) AS version_playtime_sum
+           FROM games g
+           LEFT JOIN versions v ON g.record_id = v.record_id
+           GROUP BY g.record_id`,
+        );
+        let repaired = 0;
+
+        for (const row of rows) {
+          const titleTotal = Number(row.total_playtime);
+          const versionTotal = Number(row.version_playtime_sum);
+          const safeTitleTotal = Number.isFinite(titleTotal) && titleTotal > 0 ? titleTotal : 0;
+          const safeVersionTotal = Number.isFinite(versionTotal) && versionTotal > 0 ? versionTotal : 0;
+          if (safeVersionTotal <= safeTitleTotal) continue;
+          repaired += await run(
+            `UPDATE games SET total_playtime = ? WHERE record_id = ?`,
+            [safeVersionTotal, row.record_id],
+          );
+        }
+
+        if (repaired > 0) {
+          console.log(`Repaired total playtime for ${repaired} game${repaired === 1 ? "" : "s"}`);
+        }
+        resolve(repaired);
+      } catch (err) {
+        console.error("Error repairing total playtime:", err);
+        reject(err);
+      }
+    });
+  });
+};
+
 module.exports = {
   repairDoubledApostropheRows,
   repairStaleVersionExecutables,
   repairBlankVersionNames,
+  repairMissingTotalPlaytime,
 }
