@@ -1702,6 +1702,16 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
       }
     }
 
+    ownerWindow?.webContents?.send("import-progress", {
+      text: `${replaceExisting ? "Replacement" : "Import"} complete`,
+      progress: 100,
+      total: 100,
+      canCancel: false,
+      complete: true,
+      done: true,
+      phase: "done",
+    });
+    ownerWindow?.webContents?.send("import-complete");
     return {
       success: true,
       recordId,
@@ -1720,6 +1730,14 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
     if (gamePath && !importCommitted) {
       await removePathIfExists(gamePath);
     }
+    ownerWindow?.webContents?.send("import-progress", {
+      text: `Import failed: ${err.message || String(err)}`,
+      progress: 100,
+      total: 100,
+      canCancel: false,
+      complete: true,
+      phase: "failed",
+    });
     return { success: false, error: err.message || String(err) };
   } finally {
     ctx.activeImportSession = null;

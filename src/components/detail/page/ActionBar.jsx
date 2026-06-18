@@ -5,7 +5,7 @@ export default function ActionBar({
   canManageWishlist = false, isWishlisted = false, wishlistBusy = false,
   launchState, isRefreshingMedia, showInfo, canManageLocalTitle = true,
   onLaunch, onOpenFolder, onOpenProperties, onToggleWishlist, onRefreshMedia,
-  onOpenWebsite, onToggleLocalImport, showLocalImportPanel = false,
+  onOpenWebsite, onToggleLocalImport,
   onRemoveTitle, onDeleteTitle, onToggleInfo,
 }) {
   const playBg =
@@ -66,20 +66,6 @@ export default function ActionBar({
           >
             <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <i className="fas fa-arrow-up" style={{ fontSize: 11 }}></i>UPDATE
-            </span>
-          </button>
-        )}
-
-        {canManageLocalTitle && (
-          <button
-            onClick={onToggleLocalImport}
-            title="Import files for this game"
-            style={{ ...ACTION_BTN, minWidth: game.isUpdateAvailable ? 44 : 130, background: showLocalImportPanel ? '#3a4f69' : '#263444', color: '#d9e8f7' }}
-            className="hover:bg-secondary hover:border-border"
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 7, justifyContent: 'center' }}>
-              <i className="fas fa-file-import" style={{ fontSize: 12 }}></i>
-              {!game.isUpdateAvailable && 'IMPORT'}
             </span>
           </button>
         )}

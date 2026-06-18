@@ -581,7 +581,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         onRefreshMedia={refreshMetadataAndImages}
         onOpenWebsite={openWebsite}
         onToggleLocalImport={() => setShowLocalImportPanel((value) => !value)}
-        showLocalImportPanel={showLocalImportPanel}
         onRemoveTitle={removeTitleFromLibrary}
         onDeleteTitle={deleteTitleAndFiles}
         onToggleInfo={() => setShowInfo((s) => !s)}

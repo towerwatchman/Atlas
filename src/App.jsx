@@ -653,7 +653,19 @@ const App = () => {
     const handleImportProgress = (progress) => {
       const nextProgress = sanitizeProgressState(progress)
       setImportProgress(nextProgress)
-      if (nextProgress.progress >= nextProgress.total && nextProgress.total > 0 && nextProgress.text.includes('Import complete')) {
+      const isComplete =
+        nextProgress.done === true ||
+        nextProgress.complete === true ||
+        nextProgress.canceled === true ||
+        nextProgress.phase === 'done' ||
+        nextProgress.phase === 'failed' ||
+        nextProgress.phase === 'canceled' ||
+        (
+          nextProgress.progress >= nextProgress.total &&
+          nextProgress.total > 0 &&
+          nextProgress.canCancel === false
+        )
+      if (isComplete) {
         setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000)
       }
     }
