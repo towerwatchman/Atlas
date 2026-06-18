@@ -471,6 +471,10 @@ const SearchSidebar = ({
               <option value="views">Views</option>
               <option value="rating">Rating</option>
               <option value="installedVersionCount">Installed Versions</option>
+              <option value="newlyInstalled">Newly Installed</option>
+              <option value="newlyPlayed">Newly Played</option>
+              <option value="playtime">Playtime</option>
+              <option value="fileSize">File Size</option>
             </select>
             <button
               type="button"

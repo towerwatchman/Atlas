@@ -522,6 +522,43 @@ function mapVersionRow(row, forceInstalled = false, options = {}) {
   };
 }
 
+const toFiniteNumber = (value, fallback = 0) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+};
+
+const maxPositiveNumber = (values = []) =>
+  values.reduce((max, value) => {
+    const number = toFiniteNumber(value, 0);
+    return number > max ? number : max;
+  }, 0);
+
+const sumPositiveNumbers = (values = []) =>
+  values.reduce((sum, value) => {
+    const number = toFiniteNumber(value, 0);
+    return number > 0 ? sum + number : sum;
+  }, 0);
+
+const applyLocalSortAggregates = (game, allVersions = [], installedVersions = []) => {
+  const lastPlayedFromGame = toFiniteNumber(game.last_played_r, 0);
+  const totalPlaytimeFromGame = toFiniteNumber(game.total_playtime, 0);
+  const lastPlayed = lastPlayedFromGame > 0
+    ? lastPlayedFromGame
+    : maxPositiveNumber(allVersions.map((version) => version.last_played));
+  const totalPlaytime = totalPlaytimeFromGame > 0
+    ? totalPlaytimeFromGame
+    : sumPositiveNumbers(allVersions.map((version) => version.version_playtime));
+
+  return {
+    ...game,
+    lastPlayed,
+    totalPlaytime,
+    lastInstalled: maxPositiveNumber(allVersions.map((version) => version.date_added)),
+    totalFolderSize: sumPositiveNumbers(installedVersions.map((version) => version.folder_size)),
+    installedVersionCount: installedVersions.length,
+  };
+};
+
 const getVersionForRecord = (recordId, version) => {
   return new Promise((resolve, reject) => {
     const params = [recordId];
@@ -694,16 +731,16 @@ ${bannerJoinClauses}
             reject(err);
             return;
           }
-          const game = {
+          const allVersions = versionRows.map((v) => mapVersionRow(v, !!row.steam_id));
+          const installedVersions = allVersions.filter((v) => v.isInstalled);
+          const game = applyLocalSortAggregates({
             ...row,
             isFavorite: row.is_favorite === 1,
             engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
-            versions: versionRows.map((v) => mapVersionRow(v, !!row.steam_id)),
+            versions: allVersions,
             versionCount: versionRows.length,
             isUpdateAvailable: false,
-          };
-          const installedVersions = game.versions.filter((v) => v.isInstalled);
-          game.installedVersionCount = installedVersions.length;
+          }, allVersions, installedVersions);
           game.hasInstalledVersion = installedVersions.length > 0;
           game.totalVersionCount = versionRows.length;
           game.versionCount = installedVersions.length;
@@ -850,7 +887,7 @@ ${bannerJoinClauses}
               ? allVersions
               : installedVersions;
 
-            return {
+            return applyLocalSortAggregates({
               ...row,
               isFavorite: row.is_favorite === 1,
               // Unescape engine to fix 'Ren''Py' issue
@@ -864,7 +901,7 @@ ${bannerJoinClauses}
                 row.latestVersion,
                 installedVersions,
               ),
-            };
+            }, allVersions, installedVersions);
           })
           .filter(
             (game) => includeUninstalled || game.hasInstalledVersion,

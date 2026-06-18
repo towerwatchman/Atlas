@@ -45,7 +45,20 @@ const arrayFilterKeys = [
 ]
 const searchTypes = ['all', 'title', 'creator', 'atlasId', 'f95Id', 'steamId', 'anyId']
 const sourceTypes = ['all', 'f95', 'steam', 'atlas']
-const sortTypes = ['name', 'creator', 'date', 'likes', 'views', 'rating', 'installedVersionCount']
+const sortTypes = [
+  'name',
+  'creator',
+  'date',
+  'likes',
+  'views',
+  'rating',
+  'installedVersionCount',
+  'newlyInstalled',
+  'newlyPlayed',
+  'playtime',
+  'fileSize',
+]
+const defaultDescSortTypes = ['date', 'likes', 'views', 'rating', 'newlyInstalled', 'newlyPlayed', 'playtime', 'fileSize']
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value.filter((item) => item !== undefined && item !== null).map(String)
@@ -83,7 +96,7 @@ export const normalizeFilterState = (filters = {}) => {
   merged.type = normalizeSearchType(merged.type)
   merged.source = normalizeSourceType(merged.source)
   merged.sort = normalizeSortType(merged.sort)
-  if (!hasSortDirection && ['date', 'likes', 'views', 'rating'].includes(merged.sort)) {
+  if (!hasSortDirection && defaultDescSortTypes.includes(merged.sort)) {
     merged.sortDirection = 'desc'
   } else {
     merged.sortDirection = merged.sortDirection === 'desc' ? 'desc' : 'asc'
@@ -162,6 +175,16 @@ const getInstalledVersionCount = (game = {}) => {
     .filter((version) => version?.isInstalled !== false).length
 }
 
+const getFiniteNumber = (value, fallback = 0) => {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+const getPositiveNumberOrNull = (value) => {
+  const number = Number(value)
+  return Number.isFinite(number) && number > 0 ? number : null
+}
+
 const directionMultiplier = (direction) => direction === 'desc' ? -1 : 1
 
 const compareText = (aValue, bValue, direction = 'asc') => {
@@ -193,6 +216,14 @@ const compareLocalGames = (a, b, activeFilters) => {
     result = compareMaybeNumber(parseSortableMetric(a[activeFilters.sort]), parseSortableMetric(b[activeFilters.sort]), direction)
   } else if (activeFilters.sort === 'installedVersionCount') {
     result = compareMaybeNumber(getInstalledVersionCount(a), getInstalledVersionCount(b), direction)
+  } else if (activeFilters.sort === 'newlyInstalled') {
+    result = compareMaybeNumber(getPositiveNumberOrNull(a.lastInstalled), getPositiveNumberOrNull(b.lastInstalled), direction)
+  } else if (activeFilters.sort === 'newlyPlayed') {
+    result = compareMaybeNumber(getPositiveNumberOrNull(a.lastPlayed), getPositiveNumberOrNull(b.lastPlayed), direction)
+  } else if (activeFilters.sort === 'playtime') {
+    result = compareMaybeNumber(getFiniteNumber(a.totalPlaytime), getFiniteNumber(b.totalPlaytime), direction)
+  } else if (activeFilters.sort === 'fileSize') {
+    result = compareMaybeNumber(getFiniteNumber(a.totalFolderSize), getFiniteNumber(b.totalFolderSize), direction)
   } else {
     result = compareTitle(a, b, direction)
   }
