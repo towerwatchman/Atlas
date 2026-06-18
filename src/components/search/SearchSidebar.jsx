@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { builtInSavedFilters, defaultFilters, normalizeFilterState } from '../../hooks/useFilters.js'
+import { builtInSavedFilters, normalizeFilterState } from '../../hooks/useFilters.js'
 
 const SearchSidebar = ({
   isVisible,
@@ -10,6 +10,7 @@ const SearchSidebar = ({
   onSavedFilterSaved,
   onSearchChange,
   onFilterChange,
+  onResetFilters,
   onClose,
   // mode: 'overlay' (default, original behavior) floats fixed on top of
   // the library grid without affecting its layout. 'inline' instead
@@ -182,9 +183,9 @@ const SearchSidebar = ({
         <div className="flex space-x-3">
           <button
             onClick={() => {
-              onFilterChange?.(defaultFilters);
               setTagSearch("");
-              onSearchChange?.("");
+              setHighlightedTagIndex(-1);
+              onResetFilters?.();
             }}
             className="text-text hover:text-accent text-sm flex items-center"
           >

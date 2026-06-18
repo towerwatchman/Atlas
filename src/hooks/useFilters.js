@@ -497,6 +497,20 @@ export function useFilters(games, includeUninstalledRef, fetchGames, setSelected
     [activeFilters, includeUninstalledRef, fetchGames, setSelectedGame]
   )
 
+  const handleResetFilters = useCallback(() => {
+    const nextFilters = normalizeFilterState(defaultFilters)
+    const wasIncludingUninstalled = includeUninstalledRef.current === true
+    includeUninstalledRef.current = false
+    setActiveFilters(nextFilters)
+    if (wasIncludingUninstalled) {
+      fetchGames(false).then(() => {
+        setSelectedGame((current) =>
+          current?.hasInstalledVersion === false ? null : current
+        )
+      })
+    }
+  }, [includeUninstalledRef, fetchGames, setSelectedGame])
+
   const filteredGames = useMemo(() => {
     return filterGamesWithState(games, activeFilters)
   }, [games, activeFilters])
@@ -511,6 +525,7 @@ export function useFilters(games, includeUninstalledRef, fetchGames, setSelected
     activeFilters,
     setActiveFilters,
     handleFilterChange,
+    handleResetFilters,
     filteredGames,
     installedGameCount,
     uninstalledGameCount,

@@ -152,7 +152,7 @@ const App = () => {
   } = useGames()
 
   const {
-    activeFilters, handleFilterChange,
+    activeFilters, handleFilterChange, handleResetFilters,
     filteredGames: localFilteredGames, installedGameCount, uninstalledGameCount,
   } = useFilters(games, includeUninstalledRef, fetchGames, setSelectedGame)
   const catalogWithWishlist = useMemo(
@@ -400,6 +400,15 @@ const App = () => {
     setActiveSavedFilterId('')
     handleFilterChange({ text })
   }, [handleFilterChange])
+
+  const resetFilters = useCallback(() => {
+    setActiveSavedFilterId('')
+    pendingLibraryScrollTopRestoreRef.current = 0
+    libraryScrollTopRef.current = 0
+    handleResetFilters()
+    gridRef.current?.recomputeGridSize?.()
+    gridRef.current?.forceUpdate?.()
+  }, [handleResetFilters])
 
   const loadSavedFilters = useCallback(() => {
     return window.electronAPI
@@ -970,6 +979,7 @@ const App = () => {
               side="left"
               onSearchChange={handleSearchChange}
               onFilterChange={handleFilterChange}
+              onResetFilters={resetFilters}
               onSavedFilterSaved={handleSavedFilterSaved}
               onClose={() => setShowSearchSidebar(false)}
             />
@@ -1046,6 +1056,7 @@ const App = () => {
             side="right"
             onSearchChange={handleSearchChange}
             onFilterChange={handleFilterChange}
+            onResetFilters={resetFilters}
             onSavedFilterSaved={handleSavedFilterSaved}
             onClose={() => setShowSearchSidebar(false)}
           />
@@ -1062,6 +1073,7 @@ const App = () => {
             side={filterSidebarSide}
             onSearchChange={handleSearchChange}
             onFilterChange={handleFilterChange}
+            onResetFilters={resetFilters}
             onSavedFilterSaved={handleSavedFilterSaved}
             onClose={() => setShowSearchSidebar(false)}
           />
