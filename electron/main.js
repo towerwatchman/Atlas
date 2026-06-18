@@ -756,9 +756,22 @@ function createThemeBuilderWindow() {
   })
 }
 
-function createImporterWindow() {
+function normalizeImporterSource(source) {
+  const value = String(source || '').trim().toLowerCase()
+  return ['atlas', 'steam', 'renpy'].includes(value) ? value : 'atlas'
+}
+
+function sendImporterSource(source) {
+  if (importerWindow && !importerWindow.isDestroyed()) {
+    importerWindow.webContents.send('import-source', normalizeImporterSource(source))
+  }
+}
+
+function createImporterWindow(source = 'atlas') {
+  const importerSource = normalizeImporterSource(source)
   if (importerWindow && !importerWindow.isDestroyed()) {
     focusWindow(importerWindow)
+    sendImporterSource(importerSource)
     return
   }
   const windowState = applySavedWindowBounds('importer', {
@@ -774,14 +787,15 @@ function createImporterWindow() {
   importerWindow = new BrowserWindow(windowState.options)
   registerWindowBoundsPersistence('importer', importerWindow, windowState)
   const importerUrl = VITE_DEV_SERVER_URL
-    ? VITE_DEV_SERVER_URL + '/importer.html'
+    ? `${VITE_DEV_SERVER_URL}/importer.html?source=${encodeURIComponent(importerSource)}`
     : path.join(__dirname, '../dist/renderer/importer.html')
   console.log('Loading importer:', importerUrl);
   (VITE_DEV_SERVER_URL
     ? importerWindow.loadURL(importerUrl)
-    : importerWindow.loadFile(importerUrl)
+    : importerWindow.loadFile(importerUrl, { query: { source: importerSource } })
   ).then(() => {
     console.log('importer.html loaded successfully')
+    sendImporterSource(importerSource)
     if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
       importerWindow.webContents.openDevTools()
     }

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { getNavItems, parseIconParts } from './navItems.js'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
+import ImporterSourceMenu from '../importer/ImporterSourceMenu.jsx'
 
 const Sidebar = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
@@ -20,11 +21,15 @@ const Sidebar = ({
   const showIcon = navDisplayMode !== 'text'
   const showText = navDisplayMode !== 'icons'
 
+  const openImporterSource = (source) => {
+    setSelected('Add')
+    window.electronAPI.openImporter(source)
+  }
+
   const handleClick = (item) => {
     setSelected(item.name)
     if (item.name === 'Library' && onGoHome) onGoHome()
     if (item.name === 'Settings') window.electronAPI.openSettings()
-    if (item.name === 'Add') window.electronAPI.openImporter()
     if (item.onClick) item.onClick()
   }
 
@@ -35,17 +40,8 @@ const Sidebar = ({
           selected === item.name ||
           (item.name === 'Browse' && libraryMode === 'catalog') ||
           (item.name === 'Wishlist' && libraryMode === 'wishlist')
-        return (
-          <div
-            key={item.name}
-            className={`btn-shadow btn-glow w-full flex flex-col items-center justify-center gap-1 relative cursor-pointer group ${
-              showText ? 'h-[56px] py-1.5' : 'h-[56px]'
-            } ${isActive ? 'active' : ''}`}
-            title={item.name}
-            aria-label={item.name}
-            onClick={() => handleClick(item)}
-          >
-            {/* Left accent bar on hover */}
+        const buttonContent = (
+          <>
             <div className="absolute left-0 w-[3px] h-full bg-accent transition-opacity opacity-0 group-hover:opacity-100" />
 
             {showIcon && (
@@ -66,6 +62,37 @@ const Sidebar = ({
                 {item.name}
               </span>
             )}
+          </>
+        )
+        const buttonClassName = `btn-shadow btn-glow w-full flex flex-col items-center justify-center gap-1 relative cursor-pointer group ${
+          showText ? 'h-[56px] py-1.5' : 'h-[56px]'
+        } ${isActive ? 'active' : ''}`
+        if (item.name === 'Add') {
+          return (
+            <ImporterSourceMenu key={item.name} placement="sidebar" onSelect={openImporterSource}>
+              {({ toggle, buttonProps }) => (
+                <button
+                  type="button"
+                  className={buttonClassName}
+                  title={item.name}
+                  {...buttonProps}
+                  onClick={toggle}
+                >
+                  {buttonContent}
+                </button>
+              )}
+            </ImporterSourceMenu>
+          )
+        }
+        return (
+          <div
+            key={item.name}
+            className={buttonClassName}
+            title={item.name}
+            aria-label={item.name}
+            onClick={() => handleClick(item)}
+          >
+            {buttonContent}
           </div>
         )
       })}

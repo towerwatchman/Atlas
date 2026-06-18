@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import SourceStep from './steps/SourceStep.jsx'
 import SettingsStep from './steps/SettingsStep.jsx'
 import ScanStep from './steps/ScanStep.jsx'
+import { normalizeImporterSource } from './importerSources.js'
 
 const deriveImportStats = (games) => ({
   potential: games.filter((game) => (game.scanStatus || 'new') === 'new').length,
@@ -31,7 +31,7 @@ const toBoolean = (value, fallback = false) => {
 
 const Importer = () => {
   // ── View ──────────────────────────────────────────────────────────────────
-  const [view, setView] = useState('source')
+  const [view, setView] = useState('settings')
   const [isMaximized, setIsMaximized] = useState(false)
 
   // ── Scan settings ─────────────────────────────────────────────────────────
@@ -72,6 +72,7 @@ const Importer = () => {
   const matchCancelRef = useRef(false)
   const steamScanActiveRef = useRef(false)
   const currentScanIdRef = useRef(null)
+  const lastSourceSelectionRef = useRef({ source: null, at: 0 })
   const [isScanActive, setIsScanActive] = useState(false)
   const [isCancelingScan, setIsCancelingScan] = useState(false)
 
@@ -448,6 +449,21 @@ const Importer = () => {
     })
   }
 
+  const resetImporterSourceState = () => {
+    currentScanIdRef.current = null
+    steamScanActiveRef.current = false
+    matchCancelRef.current = true
+    deletedScanGameKeysRef.current.clear()
+    setIsScanActive(false)
+    setIsCancelingScan(false)
+    setIsResolvingMatches(false)
+    setGamesList([])
+    setProgress(initialScanProgress)
+    setProgressLabel(null)
+    setScanPath('')
+    setScanMessage('')
+  }
+
   // Re-read config when user navigates to settings step so latest saved settings apply
   useEffect(() => {
     if (view === 'settings') loadConfig()
@@ -573,6 +589,37 @@ const Importer = () => {
     const selected = await window.electronAPI.selectRenpySaveDirectory()
     if (selected) startRenpyScan(selected)
   }
+
+  useEffect(() => {
+    const handleImporterSource = (source) => {
+      const safeSource = normalizeImporterSource(source)
+      const now = Date.now()
+      if (
+        lastSourceSelectionRef.current.source === safeSource &&
+        now - lastSourceSelectionRef.current.at < 750
+      ) {
+        return
+      }
+      lastSourceSelectionRef.current = { source: safeSource, at: now }
+
+      if (safeSource === 'steam') {
+        startSteamScan()
+        return
+      }
+      if (safeSource === 'renpy') {
+        startRenpyScan()
+        return
+      }
+      resetImporterSourceState()
+      setImportMode('games')
+      setView('settings')
+    }
+
+    const querySource = new URLSearchParams(window.location.search).get('source') || 'atlas'
+    handleImporterSource(querySource)
+    window.electronAPI.onImportSource?.(handleImporterSource)
+    return () => window.electronAPI.removeAllListeners?.('import-source')
+  }, [])
 
   const updateGame = (gameKey, field, value) => {
     setGamesList((prev) => prev.map((g) => getScanGameKey(g) === gameKey ? { ...g, [field]: value } : g))
@@ -746,8 +793,6 @@ const Importer = () => {
       </div>
 
       <div className="flex-1 p-4 bg-secondary overflow-y-auto">
-        {view === 'source' && <SourceStep onSelect={setView} onStartSteam={startSteamScan} onStartRenpy={startRenpyScan} />}
-
         {view === 'settings' && (
           <SettingsStep
             folder={folder} customFormat={customFormat} useUnstructured={useUnstructured}

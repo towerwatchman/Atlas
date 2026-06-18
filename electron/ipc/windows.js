@@ -232,8 +232,8 @@ module.exports = function registerWindowsHandlers(ctx) {
     }
   })
 
-  ipcMain.handle('open-importer', async () => {
-    createImporterWindow()
+  ipcMain.handle('open-importer', async (event, source = 'atlas') => {
+    createImporterWindow(source)
   })
 
   ipcMain.handle('show-context-menu', (event, template) => {

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { getNavItems, parseIconParts } from './navItems.js'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
+import ImporterSourceMenu from '../importer/ImporterSourceMenu.jsx'
 
 // Visible text labels (used in 'iconsAndText' and 'text' display modes) /
 // tooltip text (always, via title/aria-label regardless of display mode).
@@ -65,11 +66,15 @@ const TopNav = ({
   const showIcon = effectiveDisplayMode !== 'text'
   const showText = effectiveDisplayMode !== 'icons'
 
+  const openImporterSource = (source) => {
+    setSelected('Add')
+    window.electronAPI.openImporter(source)
+  }
+
   const handleClick = (item) => {
     setSelected(item.name)
     if (item.name === 'Library' && onGoHome) onGoHome()
     if (item.name === 'Settings') window.electronAPI.openSettings()
-    if (item.name === 'Add') window.electronAPI.openImporter()
     if (item.onClick) item.onClick()
   }
 
@@ -81,17 +86,8 @@ const TopNav = ({
           (item.name === 'Browse' && libraryMode === 'catalog') ||
           (item.name === 'Wishlist' && libraryMode === 'wishlist') ||
           (item.name === 'List' && showGameList)
-        return (
-          <button
-            key={item.name}
-            type="button"
-            onClick={() => handleClick(item)}
-            title={LABELS[item.name] || item.name}
-            aria-label={LABELS[item.name] || item.name}
-            className={`btn-shadow btn-glow flex items-center justify-center gap-1.5 rounded-theme transition-colors ${
-              showText ? 'h-8 px-2.5' : 'w-8 h-8'
-            } ${isActive ? 'nav-glow bg-accent text-white active' : 'text-text hover:bg-tertiary'}`}
-          >
+        const buttonContent = (
+          <>
             {showIcon && (
               <svg className="w-[18px] h-[18px] flex-shrink-0" viewBox={item.viewBox || '0 0 24 24'} fill="currentColor">
                 {parseIconParts(item, { showGameList }).map((part, index) =>
@@ -106,6 +102,38 @@ const TopNav = ({
                 {LABELS[item.name] || item.name}
               </span>
             )}
+          </>
+        )
+        const buttonClassName = `btn-shadow btn-glow flex items-center justify-center gap-1.5 rounded-theme transition-colors ${
+          showText ? 'h-8 px-2.5' : 'w-8 h-8'
+        } ${isActive ? 'nav-glow bg-accent text-white active' : 'text-text hover:bg-tertiary'}`
+        if (item.name === 'Add') {
+          return (
+            <ImporterSourceMenu key={item.name} placement="topnav" onSelect={openImporterSource}>
+              {({ toggle, buttonProps }) => (
+                <button
+                  type="button"
+                  onClick={toggle}
+                  title={LABELS[item.name] || item.name}
+                  className={buttonClassName}
+                  {...buttonProps}
+                >
+                  {buttonContent}
+                </button>
+              )}
+            </ImporterSourceMenu>
+          )
+        }
+        return (
+          <button
+            key={item.name}
+            type="button"
+            onClick={() => handleClick(item)}
+            title={LABELS[item.name] || item.name}
+            aria-label={LABELS[item.name] || item.name}
+            className={buttonClassName}
+          >
+            {buttonContent}
           </button>
         )
       })}

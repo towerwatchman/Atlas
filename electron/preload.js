@@ -261,6 +261,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "scan-progress",
       "scan-complete",
       "scan-complete-final",
+      "import-source",
       "update-progress",
       "import-progress",
       "game-imported",

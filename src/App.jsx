@@ -2,6 +2,7 @@ import { Component, useState, useEffect, useRef, useCallback, useMemo } from 're
 import { AutoSizer, Grid } from 'react-virtualized'
 import Sidebar from './components/ui/Sidebar.jsx'
 import TopNav from './components/ui/TopNav.jsx'
+import ImporterSourceMenu from './components/importer/ImporterSourceMenu.jsx'
 import { atlasLogo } from './assets/icons/data.js'
 import GameBanner from './components/library/GameBanner.jsx'
 import SearchBox from './components/search/SearchBox.jsx'
@@ -552,7 +553,7 @@ const App = () => {
   }, [clearDbUpdateStatusSoon])
 
   // ── Actions ────────────────────────────────────────────────────────────────
-  const addGame = () => window.electronAPI.openImporter()
+  const addGame = (source = 'atlas') => window.electronAPI.openImporter(source)
 
   // Stub — no help destination wired up yet (no docs site / in-app help
   // content exists today). See navItems.js's Help item for more context;
@@ -1181,9 +1182,18 @@ const App = () => {
 
       {/* Footer */}
       <div className="bg-primary h-[40px] grid grid-cols-[1fr_auto_1fr] items-center px-4 fixed bottom-0 w-full border-t border-accent z-50">
-        <button onClick={addGame} className="justify-self-start flex items-center bg-transparent text-text hover:text-highlight">
-          <i className="fas fa-plus mr-2 text-text"></i>Add Game
-        </button>
+        <ImporterSourceMenu placement="footer" onSelect={addGame}>
+          {({ toggle, buttonProps }) => (
+            <button
+              type="button"
+              onClick={toggle}
+              className="justify-self-start flex items-center bg-transparent text-text hover:text-highlight"
+              {...buttonProps}
+            >
+              <i className="fas fa-plus mr-2 text-text"></i>Add Game
+            </button>
+          )}
+        </ImporterSourceMenu>
         <div className="justify-self-center flex items-center text-center">
           <i className="fas fa-gamepad mr-2 text-text"></i>
           <span>
