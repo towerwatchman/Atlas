@@ -16,6 +16,7 @@ const inferMediaSource = (url) => {
   const value = String(url || '').toLowerCase()
   if (value.includes('steamstatic.com') || value.includes('/steam/apps/')) return 'steam'
   if (value.includes('f95')) return 'f95'
+  if (value.includes('lewdcorner.com')) return 'lewdcorner'
   if (value.includes('atlas')) return 'atlas'
   return 'remote'
 }
@@ -84,6 +85,7 @@ module.exports = function registerMediaHandlers(ctx) {
       const urls = await getBrowsePreviewUrls({
         atlasId: record.atlasId ?? record.atlas_id,
         f95Id: record.f95Id ?? record.f95_id,
+        lcId: record.lcId ?? record.lc_id ?? record.lewdCornerId ?? record.lewdcornerId,
         steamId: record.steamId ?? record.steam_id ?? record.steam_appid,
       })
       return Array.isArray(urls) ? urls : []

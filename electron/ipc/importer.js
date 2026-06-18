@@ -16,6 +16,7 @@ const { fetchAndStoreSteamData, findSteamId } = require('../scanners/steamscanne
 const { findExecutables } = require("../scanners/executableScanner");
 const { getDefaultRenpySaveRoot, scanRenpySaveFolders } = require("../scanners/renpySaveScanner");
 const { findRecordBySteamId } = require('../db/steam')
+const { addLewdCornerMapping, findRecordByLewdCornerId, parseLewdCornerIdFromUrl } = require('../db/lewdcorner')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
 
 let ownerMainWindow = null
@@ -46,6 +47,7 @@ function buildStructuredImportPath(targetLibrary, format, game) {
           if (key === "version") return game.version || "v1";
           if (key === "engine") return game.engine || "Unknown";
           if (key === "f95id") return game.f95Id || "Unknown";
+          if (key === "lcid" || key === "lewdcornerid") return game.lcId || game.lewdCornerId || "Unknown";
           return "Unknown";
         }),
       ),
@@ -92,6 +94,16 @@ const toPositiveInteger = (value) => {
   const number = Number(value);
   return Number.isInteger(number) && number > 0 ? number : null;
 };
+
+const getLewdCornerIdFromGame = (game = {}) =>
+  toPositiveInteger(
+    game.lcId ||
+    game.lc_id ||
+    game.lewdCornerId ||
+    game.lewdcornerId ||
+    game.lewdcorner_id ||
+    parseLewdCornerIdFromUrl(game.lewdCornerSiteUrl || game.lewdcornerSiteUrl || game.siteUrl || game.site_url || game.sourceUrl || game.url),
+  );
 
 const getConfiguredExtractionExtensions = (appConfig) =>
   String(appConfig?.Library?.extractionExtensions || "zip,7z,rar")
@@ -1173,6 +1185,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
   const conflictMode = String(payload.conflictMode || "check");
   const atlasId = toPositiveInteger(catalog.atlas_id ?? catalog.atlasId);
   const f95Id = toPositiveInteger(catalog.f95_id ?? catalog.f95Id);
+  const lcId = getLewdCornerIdFromGame(catalog);
   const steamId = toPositiveInteger(catalog.steam_id ?? catalog.steamId ?? catalog.steam_appid);
 
   try {
@@ -1223,6 +1236,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
       version,
       atlasId,
       f95Id,
+      lcId,
       steamId,
     };
 
@@ -1231,13 +1245,16 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
       db,
       `SELECT record_id FROM atlas_mappings WHERE ? IS NOT NULL AND atlas_id = ?
        UNION
+       SELECT record_id FROM lewdcorner_mappings WHERE ? IS NOT NULL AND lc_id = ?
+       UNION
        SELECT record_id FROM f95_zone_mappings WHERE ? IS NOT NULL AND f95_id = ?
        UNION
        SELECT record_id FROM steam_mappings WHERE ? IS NOT NULL AND steam_id = ?
        LIMIT 1`,
-      [atlasId, atlasId, f95Id, f95Id, steamId, steamId],
+      [atlasId, atlasId, lcId, lcId, f95Id, f95Id, steamId, steamId],
     );
     if (mappingRow?.record_id) recordId = mappingRow.record_id;
+    if (!recordId && lcId) recordId = await findRecordByLewdCornerId(lcId);
     if (!recordId && steamId) recordId = await findRecordBySteamId(steamId);
     if (!recordId) {
       const titleRow = await dbGet(
@@ -1377,6 +1394,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
     }
 
     if (atlasId) await addAtlasMapping(recordId, atlasId);
+    if (lcId) await addLewdCornerMapping(recordId, lcId);
     if (f95Id) await dbRun(db, `INSERT OR IGNORE INTO f95_zone_mappings (record_id, f95_id) VALUES (?, ?)`, [recordId, f95Id]);
     if (steamId) await addSteamMapping(recordId, steamId);
 
@@ -1403,7 +1421,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
       gamePath,
       execPath,
       game: refreshedGame,
-      mappings: { atlasId, f95Id, steamId },
+      mappings: { atlasId, f95Id, lcId, steamId },
     };
   } catch (err) {
     console.error("import-catalog-entry error:", err);
@@ -1837,23 +1855,30 @@ const makeRenpyImportRow = async (saveRow, searchAtlas, db) => {
 const findExistingRenpyRecord = async (game, db) => {
   const atlasId = toPositiveInteger(game.atlasId || game.atlas_id);
   const f95Id = toPositiveInteger(game.f95Id || game.f95_id);
+  const lcId = getLewdCornerIdFromGame(game);
   const steamId = toPositiveInteger(game.steamId || game.steam_id);
   const title = String(game.title || "").trim();
   const creator = String(game.creator || "Unknown").trim() || "Unknown";
   const engine = String(game.engine || "Ren'Py").trim() || "Ren'Py";
 
-  if (atlasId || f95Id || steamId) {
+  if (atlasId || f95Id || lcId || steamId) {
     const row = await dbGet(
       db,
       `SELECT record_id FROM atlas_mappings WHERE ? IS NOT NULL AND atlas_id = ?
+       UNION
+       SELECT record_id FROM lewdcorner_mappings WHERE ? IS NOT NULL AND lc_id = ?
        UNION
        SELECT record_id FROM f95_zone_mappings WHERE ? IS NOT NULL AND f95_id = ?
        UNION
        SELECT record_id FROM steam_mappings WHERE ? IS NOT NULL AND steam_id = ?
        LIMIT 1`,
-      [atlasId, atlasId, f95Id, f95Id, steamId, steamId],
+      [atlasId, atlasId, lcId, lcId, f95Id, f95Id, steamId, steamId],
     );
     if (row?.record_id) return row;
+    if (lcId) {
+      const recordId = await findRecordByLewdCornerId(lcId);
+      if (recordId) return { record_id: recordId };
+    }
   }
 
   if (!title) return null;
@@ -1963,6 +1988,8 @@ ipcMain.handle("import-renpy-save-games", async (event, games = []) => {
         await updateGame({ ...importGame, record_id: recordId });
       }
       if (row.atlasId) await addAtlasMapping(recordId, row.atlasId);
+      const rowLcId = getLewdCornerIdFromGame(row);
+      if (rowLcId) await addLewdCornerMapping(recordId, rowLcId);
       if (row.f95Id) {
         await dbRun(
           db,
@@ -2602,6 +2629,16 @@ ipcMain.handle("import-games", async (event, params) => {
           console.log("f95 mapping added");
         } catch (err) {
           console.error("Failed to add F95 mapping:", err);
+          throw err;
+        }
+      }
+      const lcId = getLewdCornerIdFromGame(game);
+      if (lcId) {
+        try {
+          await addLewdCornerMapping(recordId, lcId);
+          console.log("lewdcorner mapping added");
+        } catch (err) {
+          console.error("Failed to add LewdCorner mapping:", err);
           throw err;
         }
       }

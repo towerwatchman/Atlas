@@ -10,6 +10,7 @@ const getDb = () => dbModule.db
 const { toLocalAssetPath } = require('./helpers')
 const { checkRecordExist, checkPathExist, findExistingRecordForImport, normalizePathForCompare } = require('./versions')
 const { findRecordBySteamId } = require('./steam')
+const { findRecordByLewdCornerId } = require('./lewdcorner')
 const { resetCachedFilterOptions } = require('./games')
 
 
@@ -91,6 +92,7 @@ const scoreAtlasSearchRow = (row, searchKeys, title, creator) => {
     score += 60;
   }
   if (row.f95_id) score += 20;
+  if (row.lc_id) score += 10;
 
   return score;
 };
@@ -118,9 +120,12 @@ const searchAtlas = async (title, creator) => {
       a.short_name,
       a.normalized_title,
       f.f95_id,
-      f.site_url as siteUrl
+      f.site_url as siteUrl,
+      lc.lc_id,
+      lc.site_url as lewdCornerSiteUrl
     FROM atlas_data a
     LEFT JOIN f95_zone_data f ON f.atlas_id = a.atlas_id
+    LEFT JOIN lewdcorner_data lc ON lc.atlas_id = a.atlas_id
     WHERE
       a.title LIKE ?
       OR a.creator LIKE ?
@@ -261,9 +266,12 @@ const getAtlasData = (atlasId) => {
         a.engine,
         a.version as latestVersion,
         f.f95_id,
-        f.site_url as siteUrl
+        f.site_url as siteUrl,
+        lc.lc_id,
+        lc.site_url as lewdCornerSiteUrl
       FROM atlas_data a
       LEFT JOIN f95_zone_data f ON a.atlas_id = f.atlas_id
+      LEFT JOIN lewdcorner_data lc ON a.atlas_id = lc.atlas_id
       WHERE a.atlas_id = ?`,
       [atlasId],
       (err, row) => {
@@ -327,6 +335,23 @@ const updateTableColumns = {
     "replies",
     "f95_latest_order",
   ]),
+  lewdcorner_data: new Set([
+    "lc_id",
+    "atlas_id",
+    "banner_url",
+    "site_url",
+    "register_date",
+    "thread_updated",
+    "last_record_update",
+    "tier",
+    "prefixes",
+    "views",
+    "likes",
+    "tags",
+    "rating",
+    "screens",
+    "downloads",
+  ]),
 };
 
 const getImportRecordStatus = (game) => {
@@ -335,6 +360,7 @@ const getImportRecordStatus = (game) => {
   const selectedExecPath =
     gamePath && selectedValue ? path.join(gamePath, selectedValue) : "";
   const atlasId = game.atlasId || game.atlas_id || null;
+  const lcId = game.lcId || game.lc_id || game.lewdCornerId || game.lewdcornerId || null;
   const version = String(game.version || "").trim();
 
   const normalizeImportVersion = (value) =>
@@ -371,6 +397,10 @@ const getImportRecordStatus = (game) => {
     // (attach as another version); otherwise it's new.
     if (steamId) {
       resolveBySteamId(steamId);
+      return;
+    }
+    if (lcId) {
+      resolveByLewdCornerId(lcId);
       return;
     }
 
@@ -417,6 +447,36 @@ const getImportRecordStatus = (game) => {
               resolve(
                 recordId
                   ? { status: "steamVersion", recordId, exactPath: false }
+                  : { status: "new", recordId: null, exactPath: false },
+              );
+            })
+            .catch(reject);
+        },
+      );
+    }
+
+    function resolveByLewdCornerId(id) {
+      getDb().get(
+        `SELECT record_id FROM lewdcorner_mappings WHERE lc_id = ? LIMIT 1`,
+        [id],
+        (err, row) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          if (row?.record_id) {
+            resolve({
+              status: "alreadyImported",
+              recordId: row.record_id,
+              exactPath: false,
+            });
+            return;
+          }
+          findRecordByLewdCornerId(id)
+            .then((recordId) => {
+              resolve(
+                recordId
+                  ? { status: "lewdCornerVersion", recordId, exactPath: false }
                   : { status: "new", recordId: null, exactPath: false },
               );
             })

@@ -16,16 +16,20 @@ const getCleanId = (value) => {
 
 const getSourceUrls = (game = {}) => {
   const f95Id = getCleanId(game.f95Id || game.f95_id)
+  const lcId = getCleanId(game.lcId || game.lc_id || game.lewdCornerId || game.lewdcornerId)
   const steamId = getCleanId(game.steamId || game.steam_id || game.appid)
   const f95Url = [game.siteUrl, game.site_url, game.f95Url]
     .find(isValidHttpUrl) || (f95Id ? `https://f95zone.to/threads/${f95Id}/` : '')
   const steamUrl = [game.steamUrl, game.storeUrl]
     .find(isValidHttpUrl) || (steamId ? `https://store.steampowered.com/app/${steamId}/` : '')
+  const lewdCornerUrl = [game.lewdCornerSiteUrl, game.lewdcornerSiteUrl]
+    .find(isValidHttpUrl) || (lcId ? `https://lewdcorner.com/threads/${lcId}/` : '')
   const atlasUrl = [game.atlasUrl, game.sourceUrl]
     .find(isValidHttpUrl) || ''
 
   return {
     f95: isValidHttpUrl(f95Url) ? f95Url : '',
+    lewdcorner: isValidHttpUrl(lewdCornerUrl) ? lewdCornerUrl : '',
     steam: isValidHttpUrl(steamUrl) ? steamUrl : '',
     atlas: isValidHttpUrl(atlasUrl) ? atlasUrl : '',
   }
@@ -70,11 +74,12 @@ export default function ScanTable({
   }
 
   return (
-    <table className="border-collapse border border-border" style={{ minWidth: '1380px' }}>
+    <table className="border-collapse border border-border" style={{ minWidth: '1460px' }}>
       <thead>
         <tr className="bg-secondary sticky top-0">
           {renderSortableHeader('atlasId', 'Atlas ID', 'min-w-[80px]')}
           {renderSortableHeader('f95Id', 'F95 ID', 'min-w-[80px]')}
+          {renderSortableHeader('lcId', 'LC ID', 'min-w-[80px]')}
           {renderSortableHeader('title', 'Title', 'min-w-[200px]')}
           {renderSortableHeader('creator', 'Creator', 'min-w-[150px]')}
           {renderSortableHeader('engine', 'Engine', 'min-w-[100px]')}
@@ -98,6 +103,7 @@ export default function ScanTable({
             : rowStatus.type === 'emptyFolder' ? 'text-gray-300'
             : rowStatus.type === 'repairPath' ? 'text-cyan-300'
             : rowStatus.type === 'steamVersion' ? 'text-sky-300'
+            : rowStatus.type === 'lewdCornerVersion' ? 'text-pink-300'
             : rowStatus.type === 'blocked' ? 'text-yellow-200'
             : rowStatus.type === 'missingLaunchable' ? 'text-red-300'
             : 'text-green-300'
@@ -117,6 +123,9 @@ export default function ScanTable({
               </td>
               <td className="border border-border p-1 min-w-[100px]">
                 <input value={game.f95Id} disabled={!rowIsNew} onChange={(e) => onUpdateGame(getGameKey(game), 'f95Id', e.target.value)} className="w-full bg-secondary border border-border p-1" />
+              </td>
+              <td className="border border-border p-1 min-w-[100px]">
+                <input value={game.lcId || game.lewdCornerId || ''} disabled={!rowIsNew} onChange={(e) => onUpdateGame(getGameKey(game), 'lcId', e.target.value)} className="w-full bg-secondary border border-border p-1" />
               </td>
               <td className="border border-border p-1">
                 <input value={game.title} disabled={!rowIsNew} onChange={(e) => onUpdateGame(getGameKey(game), 'title', e.target.value)} className="w-full bg-secondary border border-border p-1" />
@@ -183,6 +192,16 @@ export default function ScanTable({
                       style={{ pointerEvents: 'auto' }}
                     >
                       F95
+                    </button>
+                  )}
+                  {sourceUrls.lewdcorner && (
+                    <button
+                      onClick={() => openSourceUrl(sourceUrls.lewdcorner)}
+                      title="Open LewdCorner thread"
+                      className="bg-tertiary hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
+                      style={{ pointerEvents: 'auto' }}
+                    >
+                      LewdCorner
                     </button>
                   )}
                   {sourceUrls.steam && (

@@ -28,9 +28,10 @@ const updateFolderSize = (recordId, version, size) => {
 const getBannerUrl = (atlasId) => {
   return new Promise((resolve, reject) => {
     getDb().get(
-      `SELECT COALESCE(f95_zone_data.banner_url, atlas_data.banner_wide, atlas_data.banner) AS banner_url
+      `SELECT COALESCE(f95_zone_data.banner_url, lewdcorner_data.banner_url, atlas_data.banner_wide, atlas_data.banner) AS banner_url
        FROM atlas_data
        LEFT JOIN f95_zone_data ON atlas_data.atlas_id = f95_zone_data.atlas_id
+       LEFT JOIN lewdcorner_data ON atlas_data.atlas_id = lewdcorner_data.atlas_id
        WHERE atlas_data.atlas_id = ?`,
       [atlasId],
       (err, row) => {
@@ -53,11 +54,15 @@ const getScreensUrlList = (atlasId) => {
        JOIN f95_zone_data ON f95_zone_screens.f95_id = f95_zone_data.f95_id
        WHERE f95_zone_data.atlas_id = ?
        UNION ALL
-       SELECT preview_url AS url, 'atlas' AS source, 1 AS sort_order
+       SELECT NULL AS url, 'lewdcorner' AS source, 1 AS sort_order
+       FROM lewdcorner_data
+       WHERE lewdcorner_data.atlas_id = ?
+       UNION ALL
+       SELECT preview_url AS url, 'atlas' AS source, 2 AS sort_order
        FROM atlas_previews
        WHERE atlas_id = ?
        ORDER BY sort_order`,
-      [atlasId, atlasId],
+      [atlasId, atlasId, atlasId],
       (err, rows) => {
         if (err) {
           console.error("Error fetching screens:", err);
@@ -66,7 +71,11 @@ const getScreensUrlList = (atlasId) => {
         }
 
         getDb().get(
-          `SELECT screens FROM f95_zone_data WHERE atlas_id = ?`,
+          `SELECT f95_zone_data.screens AS f95_screens, lewdcorner_data.screens AS lewdcorner_screens
+           FROM atlas_data
+           LEFT JOIN f95_zone_data ON atlas_data.atlas_id = f95_zone_data.atlas_id
+           LEFT JOIN lewdcorner_data ON atlas_data.atlas_id = lewdcorner_data.atlas_id
+           WHERE atlas_data.atlas_id = ?`,
           [atlasId],
           (legacyErr, legacyRow) => {
             if (legacyErr) {
@@ -85,10 +94,15 @@ const getScreensUrlList = (atlasId) => {
             };
 
             rows.forEach((row) => addScreen(row.url, row.source));
-            if (legacyRow?.screens) {
-              legacyRow.screens
+            if (legacyRow?.f95_screens) {
+              legacyRow.f95_screens
                 .split(",")
                 .forEach((screen) => addScreen(screen, "f95"));
+            }
+            if (legacyRow?.lewdcorner_screens) {
+              legacyRow.lewdcorner_screens
+                .split(",")
+                .forEach((screen) => addScreen(screen, "lewdcorner"));
             }
             resolve(screens);
           },
@@ -184,6 +198,8 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
         steam_mappings.steam_id,
         f95_zone_data.banner_url AS f95_banner,
         f95_zone_data.screens AS f95_legacy_screens,
+        lewdcorner_data.banner_url AS lewdcorner_banner,
+        lewdcorner_data.screens AS lewdcorner_legacy_screens,
         atlas_data.banner AS atlas_banner,
         atlas_data.banner_wide AS atlas_banner_wide,
         atlas_data.cover AS atlas_cover,
@@ -198,6 +214,7 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
        LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
        LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
        LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
+       LEFT JOIN lewdcorner_data ON atlas_mappings.atlas_id = lewdcorner_data.atlas_id
        LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
        LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
        WHERE games.record_id = ?`,
@@ -221,6 +238,7 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
         };
 
         add("f95", "f95_banner", row.f95_banner, "f95_banner", "banner");
+        add("lewdcorner", "lewdcorner_banner", row.lewdcorner_banner, "lewdcorner_banner", "banner");
         add("atlas", "atlas_banner", row.atlas_banner, "atlas_banner", "banner");
         add("atlas", "atlas_banner_wide", row.atlas_banner_wide, "atlas_banner_wide", "banner");
         add("atlas", "atlas_cover", row.atlas_cover, "atlas_cover");
@@ -239,6 +257,8 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
           add("atlas", "atlas_preview", url, `atlas_preview_${String(index + 1).padStart(3, "0")}`, "preview"));
         parseAssetList(row.f95_legacy_screens).forEach((url, index) =>
           add("f95", "f95_preview", url, `f95_preview_${String(index + 1).padStart(3, "0")}`, "preview"));
+        parseAssetList(row.lewdcorner_legacy_screens).forEach((url, index) =>
+          add("lewdcorner", "lewdcorner_preview", url, `lewdcorner_preview_${String(index + 1).padStart(3, "0")}`, "preview"));
 
         getDb().all(
           `SELECT 'steam_screenshot' AS asset_type, screen_url AS url
@@ -264,7 +284,7 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
             }
             (rows || []).forEach((assetRow, index) => {
               const type = assetRow.asset_type;
-              const source = type.startsWith("steam") ? "steam" : type.startsWith("f95") ? "f95" : "atlas";
+              const source = type.startsWith("steam") ? "steam" : type.startsWith("f95") ? "f95" : type.startsWith("lewdcorner") ? "lewdcorner" : "atlas";
               add(source, type, assetRow.url, `${type}_${String(index + 1).padStart(3, "0")}`, "preview");
             });
             resolve(dedupeAssetEntries(entries));
@@ -294,11 +314,12 @@ const upsertMediaAsset = ({ recordId, source, assetType, path: assetPath, origin
   });
 };
 
-const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId } = {}) => {
+const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId } = {}) => {
   return new Promise((resolve, reject) => {
     const atlasParam = atlasId || null;
     const f95Param = f95Id || null;
     const steamParam = steamId || null;
+    const lcParam = lcId || null;
     const query = `
       SELECT url, source, sort_order FROM (
         SELECT f95_zone_screens.screen_url AS url, 'f95_screens' AS source, 0 AS sort_order
@@ -306,6 +327,11 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId } = {}) => {
         JOIN f95_zone_data ON f95_zone_screens.f95_id = f95_zone_data.f95_id
         WHERE (? IS NOT NULL AND f95_zone_data.f95_id = ?)
            OR (? IS NOT NULL AND f95_zone_data.atlas_id = ?)
+        UNION ALL
+        SELECT NULL AS url, 'lewdcorner_screens' AS source, 1 AS sort_order
+        FROM lewdcorner_data
+        WHERE (? IS NOT NULL AND lewdcorner_data.lc_id = ?)
+           OR (? IS NOT NULL AND lewdcorner_data.atlas_id = ?)
         UNION ALL
         SELECT atlas_previews.preview_url AS url, 'atlas_previews' AS source, 2 AS sort_order
         FROM atlas_previews
@@ -325,6 +351,8 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId } = {}) => {
       query,
       [
         f95Param, f95Param,
+        atlasParam, atlasParam,
+        lcParam, lcParam,
         atlasParam, atlasParam,
         atlasParam, atlasParam,
         steamParam, steamParam,
@@ -346,31 +374,36 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId } = {}) => {
         };
 
         const f95Rows = (rows || []).filter((row) => row.source === "f95_screens");
+        const lewdCornerRows = (rows || []).filter((row) => row.source === "lewdcorner_screens");
         const atlasRows = (rows || []).filter((row) => row.source === "atlas_previews");
         const steamRows = (rows || []).filter((row) => row.source === "steam_screens");
         f95Rows.forEach((row) => addUrl(row.url));
 
         getDb().get(
-          `SELECT f95_zone_data.screens, atlas_data.previews
+          `SELECT f95_zone_data.screens, lewdcorner_data.screens AS lewdcorner_screens, atlas_data.previews
            FROM atlas_data
            LEFT JOIN f95_zone_data ON atlas_data.atlas_id = f95_zone_data.atlas_id
+           LEFT JOIN lewdcorner_data ON atlas_data.atlas_id = lewdcorner_data.atlas_id
            WHERE (? IS NOT NULL AND atlas_data.atlas_id = ?)
               OR (? IS NOT NULL AND f95_zone_data.f95_id = ?)
+              OR (? IS NOT NULL AND lewdcorner_data.lc_id = ?)
            LIMIT 1`,
-          [atlasParam, atlasParam, f95Param, f95Param],
+          [atlasParam, atlasParam, f95Param, f95Param, lcParam, lcParam],
           (legacyErr, row) => {
             if (legacyErr) {
               reject(legacyErr);
               return;
             }
             parsePreviewList(row?.screens).forEach(addUrl);
+            lewdCornerRows.forEach((previewRow) => addUrl(previewRow.url));
+            parsePreviewList(row?.lewdcorner_screens).forEach(addUrl);
             atlasRows.forEach((previewRow) => addUrl(previewRow.url));
             parsePreviewList(row?.previews).forEach(addUrl);
             steamRows.forEach((previewRow) => addUrl(previewRow.url));
 
             console.log(
               `Browse preview URLs resolved: atlasId=${atlasId || "none"} ` +
-              `f95Id=${f95Id || "none"} steamId=${steamId || "none"} ` +
+              `f95Id=${f95Id || "none"} lcId=${lcId || "none"} steamId=${steamId || "none"} ` +
               `count=${urls.length} invalid=${invalidCount}`,
             );
             resolve(urls);
@@ -396,6 +429,10 @@ const getRemotePreviewUrls = (recordId) => {
         JOIN atlas_mappings ON f95_zone_data.atlas_id = atlas_mappings.atlas_id
         WHERE atlas_mappings.record_id = ?
         UNION
+        SELECT NULL AS url, 1 AS sort_order
+        FROM lewdcorner_mappings
+        WHERE lewdcorner_mappings.record_id = ?
+        UNION
         SELECT atlas_previews.preview_url AS url, 1 AS sort_order
         FROM atlas_previews
         JOIN atlas_mappings ON atlas_previews.atlas_id = atlas_mappings.atlas_id
@@ -410,7 +447,7 @@ const getRemotePreviewUrls = (recordId) => {
       ORDER BY sort_order
     `;
 
-    getDb().all(query, [recordId, recordId, recordId, recordId], (err, rows) => {
+    getDb().all(query, [recordId, recordId, recordId, recordId, recordId], (err, rows) => {
       if (err) {
         reject(err);
         return;
@@ -422,10 +459,14 @@ const getRemotePreviewUrls = (recordId) => {
       }
 
       getDb().get(
-        `SELECT f95_zone_data.screens
-         FROM f95_zone_data
-         JOIN atlas_mappings ON f95_zone_data.atlas_id = atlas_mappings.atlas_id
-         WHERE atlas_mappings.record_id = ?`,
+        `SELECT f95_zone_data.screens AS f95_screens, lewdcorner_data.screens AS lewdcorner_screens
+         FROM games
+         LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+         LEFT JOIN f95_zone_data ON f95_zone_data.atlas_id = atlas_mappings.atlas_id
+         LEFT JOIN lewdcorner_mappings ON games.record_id = lewdcorner_mappings.record_id
+         LEFT JOIN lewdcorner_data ON lewdcorner_data.lc_id = lewdcorner_mappings.lc_id
+           OR (lewdcorner_mappings.lc_id IS NULL AND lewdcorner_data.atlas_id = atlas_mappings.atlas_id)
+         WHERE games.record_id = ?`,
         [recordId],
         (screensErr, row) => {
           if (screensErr) {
@@ -433,9 +474,10 @@ const getRemotePreviewUrls = (recordId) => {
             return;
           }
           resolve(
-            row?.screens
-              ? row.screens.split(",").map((screen) => screen.trim()).filter(Boolean)
-              : [],
+            [
+              ...String(row?.f95_screens || "").split(","),
+              ...String(row?.lewdcorner_screens || "").split(","),
+            ].map((screen) => screen.trim()).filter(Boolean),
           );
         },
       );
@@ -514,11 +556,14 @@ const getBanners = (recordId, appPath, isDev) => {
 const getRemoteBannerUrl = (recordId) => {
   return new Promise((resolve, reject) => {
     getDb().get(
-      `SELECT COALESCE(f95_zone_data.banner_url, steam_data.header, steam_data.library_hero, atlas_data.banner_wide, atlas_data.banner) AS banner_url
+      `SELECT COALESCE(f95_zone_data.banner_url, lewdcorner_data.banner_url, steam_data.header, steam_data.library_hero, atlas_data.banner_wide, atlas_data.banner) AS banner_url
        FROM games
        LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
        LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
        LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
+       LEFT JOIN lewdcorner_mappings ON games.record_id = lewdcorner_mappings.record_id
+       LEFT JOIN lewdcorner_data ON lewdcorner_data.lc_id = lewdcorner_mappings.lc_id
+         OR (lewdcorner_mappings.lc_id IS NULL AND lewdcorner_data.atlas_id = atlas_mappings.atlas_id)
        LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
        LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
        WHERE games.record_id = ?`,

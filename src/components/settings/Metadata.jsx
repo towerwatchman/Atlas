@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react'
 // and they'll automatically appear in the ordering UI.
 const AVAILABLE_SOURCES = [
   { id: 'f95', label: 'F95Zone' },
+  { id: 'lewdcorner', label: 'LewdCorner' },
   { id: 'steam', label: 'Steam' },
 ]
 
@@ -34,7 +35,7 @@ const parseOrder = (raw) => {
 const Metadata = () => {
   const [mediaStorageMode, setMediaStorageMode] = useState('stream')
   const [downloadPreviews, setDownloadPreviews] = useState(false)
-  const [sourceOrder, setSourceOrder] = useState(['f95', 'steam'])
+  const [sourceOrder, setSourceOrder] = useState(['f95', 'lewdcorner', 'steam'])
 
   useEffect(() => {
     window.electronAPI.getConfig().then((config) => {
@@ -42,7 +43,7 @@ const Metadata = () => {
       setMediaStorageMode(metadataSettings.mediaStorageMode || 'stream')
       setDownloadPreviews(toBoolean(metadataSettings.downloadPreviews, false))
       const parsed = parseOrder(metadataSettings.sourceOrder)
-      setSourceOrder(parsed.length ? parsed : ['f95', 'steam'])
+      setSourceOrder(parsed.length ? parsed : ['f95', 'lewdcorner', 'steam'])
     })
   }, [])
 

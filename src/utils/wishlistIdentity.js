@@ -9,13 +9,16 @@ const slug = (value) => cleanText(value).toLowerCase().replace(/\s+/g, ' ')
 
 export const getWishlistIdentityKey = (game = {}) => {
   if (game.identity_key) return cleanText(game.identity_key)
+  const atlasId = cleanId(game.atlas_id ?? game.atlasId)
+  const lcId = cleanId(game.lc_id ?? game.lcId ?? game.lewdCornerId ?? game.lewdcornerId)
+  const source = cleanText(game.source).toLowerCase() || 'atlas'
+  if (source === 'lewdcorner' && atlasId) return `atlas:${atlasId}`
   const f95Id = cleanId(game.f95_id ?? game.f95Id)
   if (f95Id) return `f95:${f95Id}`
+  if (lcId) return `lewdcorner:${lcId}`
   const steamId = cleanId(game.steam_id ?? game.steamId ?? game.steam_appid)
   if (steamId) return `steam:${steamId}`
-  const atlasId = cleanId(game.atlas_id ?? game.atlasId)
   if (atlasId) return `atlas:${atlasId}`
-  const source = cleanText(game.source).toLowerCase() || 'atlas'
   const title = cleanText(game.title || game.name || game.short_name || 'Untitled')
   const creator = cleanText(game.creator || game.developer || 'Unknown')
   return `${source}:title:${slug(title)}:${slug(creator)}`

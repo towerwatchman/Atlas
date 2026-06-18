@@ -15,7 +15,7 @@ const normalizeMediaStorageMode = (mode) =>
   mode === "download" ? "download" : "stream";
 
 const remoteBannerExpression =
-  "COALESCE(f95_zone_data.banner_url, steam_data.header, steam_data.library_hero, atlas_data.banner_wide, atlas_data.banner)";
+  "COALESCE(f95_zone_data.banner_url, lewdcorner_data.banner_url, steam_data.header, steam_data.library_hero, atlas_data.banner_wide, atlas_data.banner)";
 
 const buildBannerJoinClauses = () => `
       LEFT JOIN (

@@ -54,10 +54,20 @@ const buildDetailExternalLinks = (game = {}) => {
   if (isValidHttpUrl(siteUrl)) {
     links.push({
       key: 'f95_thread',
-      label: 'F95 Thread',
+      label: siteUrl.includes('lewdcorner.com') ? 'LewdCorner' : 'F95 Thread',
       value: siteUrl,
       url: siteUrl,
       icon: 'fas fa-comments',
+    })
+  }
+  const lewdCornerUrl = String(game.lewdCornerSiteUrl || game.lewdcornerSiteUrl || '').trim()
+  if (isValidHttpUrl(lewdCornerUrl) && !links.some((existing) => existing.url === lewdCornerUrl)) {
+    links.push({
+      key: 'lewdcorner',
+      label: 'LewdCorner',
+      value: lewdCornerUrl,
+      url: lewdCornerUrl,
+      icon: 'fas fa-link',
     })
   }
   for (const link of buildExternalLinks(game.external_ids)) {
@@ -173,7 +183,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             setPreviews(filterOutBanner(snapshotPreviews, game.banner_url))
             return
           }
-          const cacheKey = `${game.atlas_id || ''}:${game.f95_id || ''}:${game.steam_id || ''}`
+          const cacheKey = `${game.atlas_id || ''}:${game.f95_id || ''}:${game.lc_id || game.lcId || ''}:${game.steam_id || ''}`
           if (browsePreviewCacheRef.current.has(cacheKey)) {
             setPreviews(filterOutBanner(browsePreviewCacheRef.current.get(cacheKey), game.banner_url))
             return
@@ -181,6 +191,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           const urls = await window.electronAPI.getBrowsePreviewUrls?.({
             atlas_id: game.atlas_id,
             f95_id: game.f95_id,
+            lc_id: game.lc_id || game.lcId,
             steam_id: game.steam_id,
           })
           const safeUrls = Array.isArray(urls) ? urls : []
@@ -198,7 +209,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       }
     }
     loadPreviews()
-  }, [game?.record_id, game?.versions, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.steam_id])
+  }, [game?.record_id, game?.versions, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.lc_id, game?.lcId, game?.steam_id])
 
   useEffect(() => {
     setLaunchState(LAUNCH_STATE.IDLE)
@@ -365,9 +376,11 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     ['Voice', game.voice],
     ['OS', game.os],
     ['Censored', game.censored],
-    ['Rating', game.rating],
-    ['Likes', game.likes],
-    ['Views', game.views],
+    ['Rating', game.rating || game.lewdcornerRating],
+    ['Likes', game.likes || game.lewdcornerLikes],
+    ['Views', game.views || game.lewdcornerViews],
+    ['LewdCorner Tier', game.lewdcornerTier],
+    ['LewdCorner Prefixes', game.lewdcornerPrefixes],
     // Non-steam category stays a normal inline row; steam renders as a list.
     ...(steam ? [] : [['Category', game.category]]),
   ].filter(([, v]) => v !== undefined && v !== null && v !== '')

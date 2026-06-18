@@ -209,6 +209,26 @@ const initializeDatabase = (dataDir) => {
       );
     `);
     db.run(`
+      CREATE TABLE IF NOT EXISTS lewdcorner_data
+      (
+        lc_id INTEGER UNIQUE PRIMARY KEY,
+        atlas_id INTEGER REFERENCES atlas_data(atlas_id),
+        banner_url STRING,
+        site_url STRING,
+        register_date STRING,
+        thread_updated STRING,
+        last_record_update STRING,
+        tier STRING,
+        prefixes STRING,
+        views STRING,
+        likes STRING,
+        tags STRING,
+        rating STRING,
+        screens STRING,
+        downloads STRING
+      );
+    `);
+    db.run(`
       CREATE TABLE IF NOT EXISTS updates
       (
         update_time INTEGER PRIMARY KEY,
@@ -300,6 +320,7 @@ const initializeDatabase = (dataDir) => {
         overview TEXT,
         external_ids TEXT,
         steam_url TEXT,
+        lc_id INTEGER,
         preview_urls TEXT,
         site_url TEXT,
         banner_url TEXT,
@@ -316,6 +337,7 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN overview TEXT;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN external_ids TEXT;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN steam_url TEXT;`, () => {});
+    db.run(`ALTER TABLE wishlist_entries ADD COLUMN lc_id INTEGER;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN preview_urls TEXT;`, () => {});
     db.run(`
       CREATE TABLE IF NOT EXISTS data_change
@@ -329,6 +351,14 @@ const initializeDatabase = (dataDir) => {
       (
         record_id INTEGER REFERENCES games(record_id),
         f95_id INTEGER REFERENCES f95_zone_data(f95_id)
+      );
+    `);
+    db.run(`
+      CREATE TABLE IF NOT EXISTS lewdcorner_mappings
+      (
+        record_id INTEGER REFERENCES games(record_id),
+        lc_id INTEGER REFERENCES lewdcorner_data(lc_id),
+        UNIQUE(record_id, lc_id)
       );
     `);
     db.run(`
@@ -402,6 +432,9 @@ const initializeDatabase = (dataDir) => {
     db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_short_name ON atlas_data(short_name);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_creator ON atlas_data(creator);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_data_atlas_id ON f95_zone_data(atlas_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_lewdcorner_data_atlas_id ON lewdcorner_data(atlas_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_lewdcorner_mappings_lc_id ON lewdcorner_mappings(lc_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_lewdcorner_mappings_record_id ON lewdcorner_mappings(record_id);`);
     db.run(`ALTER TABLE games ADD COLUMN is_favorite INTEGER DEFAULT 0;`, () => {});
     db.run(`
       CREATE TABLE IF NOT EXISTS game_personal_ratings
@@ -439,6 +472,20 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN translations STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN thread_updated STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN f95_latest_order STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN atlas_id INTEGER REFERENCES atlas_data(atlas_id);`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN banner_url STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN site_url STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN register_date STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN thread_updated STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN last_record_update STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN tier STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN prefixes STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN views STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN likes STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN tags STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN rating STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN screens STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN downloads STRING;`, () => {});
     db.run(`ALTER TABLE steam_data ADD COLUMN type STRING;`, () => {});
     db.run(`ALTER TABLE steam_data ADD COLUMN library_capsule TEXT;`, () => {});
 

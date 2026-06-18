@@ -49,8 +49,8 @@ const arrayFilterKeys = [
   'excludedStatuses',
   'excludedTags',
 ]
-const searchTypes = ['all', 'title', 'creator', 'atlasId', 'f95Id', 'steamId', 'anyId']
-const sourceTypes = ['all', 'f95', 'steam', 'atlas']
+const searchTypes = ['all', 'title', 'creator', 'atlasId', 'f95Id', 'lewdcornerId', 'steamId', 'anyId']
+const sourceTypes = ['all', 'f95', 'lewdcorner', 'steam', 'atlas']
 const dateFields = ['none', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded']
 const dateRanges = ['any', '7d', '30d', '90d', 'year', 'custom']
 const sortTypes = [
@@ -353,13 +353,14 @@ export const getBrowseDateInfo = (game = {}, dateBasis = 'thread_updated') => {
   const basis = dateBasis === 'thread_publish_date'
     ? 'thread_publish_date'
     : 'thread_updated'
-  const isSteamOnly = game.source === 'steam' && !game.atlas_id && !game.atlasId && !game.f95_id && !game.f95Id
+  const isSteamOnly = game.source === 'steam' && !game.atlas_id && !game.atlasId && !game.f95_id && !game.f95Id && !game.lc_id && !game.lcId
+  const isLewdCornerOnly = game.source === 'lewdcorner' && !game.atlas_id && !game.atlasId
   const rawValue = basis === 'thread_publish_date'
-    ? game.threadPublishDate ?? game.thread_publish_date ?? (isSteamOnly ? game.steam_release_date ?? game.release_date : null)
-    : game.threadUpdated ?? game.thread_updated ?? (isSteamOnly ? game.steam_release_date ?? game.release_date : null)
+    ? game.threadPublishDate ?? game.thread_publish_date ?? (isLewdCornerOnly ? game.lewdcornerRegisterDate ?? game.register_date : null) ?? (isSteamOnly ? game.steam_release_date ?? game.release_date : null)
+    : game.threadUpdated ?? game.thread_updated ?? game.lewdcornerThreadUpdated ?? (isSteamOnly ? game.steam_release_date ?? game.release_date : null)
   const field = basis === 'thread_publish_date'
-    ? (isSteamOnly && rawValue === (game.steam_release_date ?? game.release_date) ? 'steam.release_date' : 'f95_zone.thread_publish_date')
-    : (isSteamOnly && rawValue === (game.steam_release_date ?? game.release_date) ? 'steam.release_date' : 'f95_zone.thread_updated')
+    ? (isLewdCornerOnly ? 'lewdcorner.register_date' : isSteamOnly && rawValue === (game.steam_release_date ?? game.release_date) ? 'steam.release_date' : 'f95_zone.thread_publish_date')
+    : (game.lewdcornerThreadUpdated && rawValue === game.lewdcornerThreadUpdated ? 'lewdcorner.thread_updated' : isSteamOnly && rawValue === (game.steam_release_date ?? game.release_date) ? 'steam.release_date' : 'f95_zone.thread_updated')
   return {
     timestamp: parseAtlasDbThreadDate(rawValue),
     rawValue,
@@ -468,6 +469,11 @@ const getSteamIdValues = (game = {}) => [
   ...getExternalValues(game, ['steam_id', 'steamId', 'steam_appid', 'steamAppId']),
 ]
 
+const getLewdCornerIdValues = (game = {}) => [
+  ...collectValues(game, ['lc_id', 'lcId', 'lewdcornerId', 'lewdCornerId', 'lewdcorner_id']),
+  ...getExternalValues(game, ['lc_id', 'lcId', 'lewdcornerId', 'lewdCornerId', 'lewdcorner_id']),
+]
+
 const hasSteamMapping = (game = {}) =>
   getSteamIdValues(game).some((value) => /^\d+$/.test(cleanIdText(value))) ||
   getUrlValues(game).some((url) => urlMatchesSource(url, 'steam'))
@@ -489,6 +495,9 @@ const getUrlValues = (game = {}) => {
       'f95_url',
       'steamUrl',
       'steam_url',
+      'lewdCornerSiteUrl',
+      'lewdcornerSiteUrl',
+      'lewdcorner_site_url',
       'storeUrl',
       'store_url',
       'atlasUrl',
@@ -504,6 +513,7 @@ const getUrlValues = (game = {}) => {
 const urlMatchesSource = (url, source) => {
   const value = cleanSearchText(url)
   if (source === 'f95') return value.includes('f95zone') || value.includes('f95.zone')
+  if (source === 'lewdcorner') return value.includes('lewdcorner.com')
   if (source === 'steam') return value.includes('steampowered.com') || value.includes('steamcommunity.com')
   if (source === 'atlas') return value.includes('atlas') || value.includes('atlasdb')
   return false
@@ -517,6 +527,9 @@ export const getGameSources = (game = {}) => {
   }
   if (getF95IdValues(game).length > 0 || getUrlValues(game).some((url) => urlMatchesSource(url, 'f95'))) {
     sources.add('f95')
+  }
+  if (getLewdCornerIdValues(game).length > 0 || getUrlValues(game).some((url) => urlMatchesSource(url, 'lewdcorner'))) {
+    sources.add('lewdcorner')
   }
   if (getSteamIdValues(game).length > 0 || getUrlValues(game).some((url) => urlMatchesSource(url, 'steam'))) {
     sources.add('steam')
@@ -537,6 +550,7 @@ const parseSearchQuery = (text, type) => {
   const query = match[2].trim()
   if (prefix === 'id') return { type: 'anyId', query, urlSource: null }
   if (prefix === 'f95') return { type: 'f95Id', query, urlSource: null }
+  if (prefix === 'lc' || prefix === 'lewdcorner') return { type: 'lewdcornerId', query, urlSource: null }
   if (prefix === 'atlas') return { type: 'atlasId', query, urlSource: null }
   if (prefix === 'steam') return { type: 'steamId', query, urlSource: null }
   if (prefix === 'url') return { type, query, urlSource: normalizeSourceType(query) }
@@ -771,11 +785,13 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
       }
       if (type === 'atlasId') return idMatches(getAtlasIdValues(game), query)
       if (type === 'f95Id') return idMatches(getF95IdValues(game), query)
+      if (type === 'lewdcornerId') return idMatches(getLewdCornerIdValues(game), query)
       if (type === 'steamId') return idMatches(getSteamIdValues(game), query)
       if (type === 'anyId') {
         return (
           idMatches(getAtlasIdValues(game), query) ||
           idMatches(getF95IdValues(game), query) ||
+          idMatches(getLewdCornerIdValues(game), query) ||
           idMatches(getSteamIdValues(game), query)
         )
       }

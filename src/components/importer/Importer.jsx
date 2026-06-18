@@ -76,10 +76,10 @@ const Importer = () => {
     if (game?.sourceFile) return `source:${game.sourceFile}`
     if (game?.folder && game?.singleExecutable) return `folder-file:${game.folder}/${game.singleExecutable}`
     if (game?.folder) return `folder:${game.folder}`
-    return [game?.sourceFile, game?.folder, game?.singleExecutable, game?.title, game?.creator, game?.version, game?.f95Id, game?.atlasId].join('|')
+    return [game?.sourceFile, game?.folder, game?.singleExecutable, game?.title, game?.creator, game?.version, game?.f95Id, game?.lcId, game?.lewdCornerId, game?.atlasId].join('|')
   }
 
-  const isNewScanRow = (game) => ['new', 'repairPath', 'steamVersion'].includes(game.scanStatus || 'new')
+  const isNewScanRow = (game) => ['new', 'repairPath', 'steamVersion', 'lewdCornerVersion'].includes(game.scanStatus || 'new')
   const isExistingImportRow = (game) => game.scanStatus === 'alreadyImported' && forceReimport
   const hasDatabaseMatch = (game) => game.results?.length === 1 && game.results[0]?.key === 'match'
   const hasSelectedDatabaseMatch = (game) => game.results?.length > 1 && !!game.resultSelectedValue
@@ -124,6 +124,7 @@ const Importer = () => {
     if (scanStatus === 'alreadyImported') return { text: 'Already imported', type: 'alreadyImported' }
     if (scanStatus === 'repairPath') return { text: 'Repair path', type: 'repairPath' }
     if (scanStatus === 'steamVersion') return { text: 'Add as Steam version', type: 'steamVersion' }
+    if (scanStatus === 'lewdCornerVersion') return { text: 'Add as LewdCorner version', type: 'lewdCornerVersion' }
     if (scanStatus === 'missingLaunchable') return { text: 'Missing launchable', type: 'missingLaunchable' }
     if (scanStatus === 'emptyFolder') return { text: 'Empty folder', type: 'emptyFolder' }
     if (scanStatus !== 'new') return { text: game.scanMessage || 'Skipped', type: 'blocked' }
@@ -174,6 +175,7 @@ const Importer = () => {
     switch (key) {
       case 'atlasId': return game.atlasId || ''
       case 'f95Id': return game.f95Id || ''
+      case 'lcId': return game.lcId || game.lewdCornerId || ''
       case 'title': return game.title || ''
       case 'creator': return game.creator || ''
       case 'engine': return game.engine || ''
@@ -242,11 +244,12 @@ const Importer = () => {
       const status = await window.electronAPI.getImportRecordStatus(game)
       const recordExist = status?.status === 'alreadyImported'
       const isSteamVersion = status?.status === 'steamVersion'
+      const isLewdCornerVersion = status?.status === 'lewdCornerVersion'
       return applyReplaceOptions({
         ...game, recordExist,
         existingRecordId: status?.recordId || '',
-        scanStatus: recordExist ? 'alreadyImported' : isSteamVersion ? 'steamVersion' : status?.status === 'repairPath' ? 'repairPath' : 'new',
-        scanMessage: recordExist ? 'Already imported' : isSteamVersion ? 'Add as Steam version' : status?.status === 'repairPath' ? 'Repair path' : game.scanMessage || (game.isArchive ? 'Archive' : 'Ready to import'),
+        scanStatus: recordExist ? 'alreadyImported' : isSteamVersion ? 'steamVersion' : isLewdCornerVersion ? 'lewdCornerVersion' : status?.status === 'repairPath' ? 'repairPath' : 'new',
+        scanMessage: recordExist ? 'Already imported' : isSteamVersion ? 'Add as Steam version' : isLewdCornerVersion ? 'Add as LewdCorner version' : status?.status === 'repairPath' ? 'Repair path' : game.scanMessage || (game.isArchive ? 'Archive' : 'Ready to import'),
       })
     } catch { return applyReplaceOptions(game) }
   }
@@ -568,7 +571,7 @@ const Importer = () => {
         const valid = results.find((r) => r.key === game.resultSelectedValue)
         game = await chooseInstalledMatch({ ...game, resultSelectedValue: valid ? game.resultSelectedValue : results[0].key }, results)
       } else {
-        game = await applyImportStatus({ ...game, atlasId: '', f95Id: game.f95Id || '', results: [], resultSelectedValue: '', resultVisibility: 'hidden' })
+        game = await applyImportStatus({ ...game, atlasId: '', f95Id: game.f95Id || '', lcId: game.lcId || game.lewdCornerId || '', results: [], resultSelectedValue: '', resultVisibility: 'hidden' })
       }
       updatedGames[i] = game
       setProgress((prev) => ({ ...prev, value: i + 1 }))

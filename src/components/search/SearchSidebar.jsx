@@ -319,6 +319,7 @@ const SearchSidebar = ({
               <option value="anyId">Any ID</option>
               <option value="atlasId">Atlas ID</option>
               <option value="f95Id">F95 ID</option>
+              <option value="lewdcornerId">LewdCorner ID</option>
               <option value="steamId">Steam ID</option>
             </select>
           </div>
@@ -404,6 +405,7 @@ const SearchSidebar = ({
                 >
                   <option value="all">All sources</option>
                   <option value="f95">F95</option>
+                  <option value="lewdcorner">LewdCorner</option>
                   <option value="steam">Steam</option>
                   <option value="atlas">AtlasDB</option>
                 </select>

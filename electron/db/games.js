@@ -343,6 +343,7 @@ const deleteGameCompletely = async (recordId, appPath, isDev) => {
       "atlas_mappings",
       "steam_mappings",
       "f95_zone_mappings",
+      "lewdcorner_mappings",
       "tag_mappings",
       // add others if you have more
     ];
@@ -414,9 +415,11 @@ const getUniqueFilterOptions = () => {
                         if (err) return reject(err);
                         options.languages = rows.map((r) => r.language);
 
-                        // Tags from f95_zone_data
+                        // Tags from source-specific remote tables
                         getDb().all(
-                          "SELECT tags FROM f95_zone_data WHERE tags IS NOT NULL",
+                          `SELECT tags FROM f95_zone_data WHERE tags IS NOT NULL
+                           UNION ALL
+                           SELECT tags FROM lewdcorner_data WHERE tags IS NOT NULL`,
                           [],
                           (err, rows) => {
                             if (err) return reject(err);

@@ -15,6 +15,7 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
   const externalIds = parseExternalIds(game.external_ids)
   const steamAppId = game.steam_id || game.steam_appid || externalIds.steam_appid || externalIds.steam_id || null
   const f95DisplayId = normalizeF95DisplayId(game.f95_id)
+  const lewdCornerId = game.lc_id || game.lcId || game.lewdCornerId || externalIds.lc_id || externalIds.lewdcorner_id || null
   const iconCellClass = 'p-2 w-24 align-middle'
   const iconFrameClass = 'flex h-10 w-20 items-center justify-center'
 
@@ -22,10 +23,10 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
   // the mappings table alongside Atlas/F95. Everything else in external_ids is a
   // plain link (patreon, twitter, itch, …).
   const otherLinks = buildExternalLinks(externalIds).filter(
-    (link) => link.key.toLowerCase() !== 'steam_appid' && link.key.toLowerCase() !== 'steam_id',
+    (link) => !['steam_appid', 'steam_id', 'lc_id', 'lewdcorner_id'].includes(link.key.toLowerCase()),
   )
 
-  const hasAnyMapping = f95DisplayId || game.atlas_id || steamAppId
+  const hasAnyMapping = f95DisplayId || game.atlas_id || steamAppId || lewdCornerId
 
   return (
     <>
@@ -75,6 +76,17 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
                 </td>
                 <td className="p-2">Steam</td>
                 <td className="p-2">{steamAppId}</td>
+              </tr>
+            )}
+            {lewdCornerId && (
+              <tr className="border-b border-border">
+                <td className={iconCellClass}>
+                  <div className={iconFrameClass}>
+                    <i className="fas fa-link block text-[24px] leading-none" aria-hidden="true"></i>
+                  </div>
+                </td>
+                <td className="p-2">LewdCorner</td>
+                <td className="p-2">{lewdCornerId}</td>
               </tr>
             )}
             {!hasAnyMapping && (

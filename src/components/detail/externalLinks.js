@@ -27,6 +27,9 @@ const ensureScheme = (value) => {
 const LINK_DEFS = {
   steam_appid: { label: 'Steam', url: (v) => `https://store.steampowered.com/app/${v}` },
   steam_id: { label: 'Steam', url: (v) => `https://store.steampowered.com/app/${v}` },
+  lc_id: { label: 'LewdCorner', url: (v) => `https://lewdcorner.com/threads/${v}/` },
+  lewdcorner_id: { label: 'LewdCorner', url: (v) => `https://lewdcorner.com/threads/${v}/` },
+  lewdcorner_url: { label: 'LewdCorner', url: (v) => ensureScheme(v) },
   patreon: { label: 'Patreon', url: (v) => ensureScheme(v) || `https://www.patreon.com/${v}` },
   twitter: { label: 'Twitter / X', url: (v) => ensureScheme(v) || `https://twitter.com/${v}` },
   subscribestar: { label: 'SubscribeStar', url: (v) => ensureScheme(v) || `https://subscribestar.adult/${v}` },
@@ -40,6 +43,9 @@ const LINK_DEFS = {
 const ICONS = {
   steam_appid: 'fab fa-steam',
   steam_id: 'fab fa-steam',
+  lc_id: 'fas fa-link',
+  lewdcorner_id: 'fas fa-link',
+  lewdcorner_url: 'fas fa-link',
   patreon: 'fab fa-patreon',
   twitter: 'fab fa-x-twitter',
   subscribestar: 'fas fa-star',

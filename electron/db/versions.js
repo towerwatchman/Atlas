@@ -346,6 +346,7 @@ const updateVersion = (version, record_id) => {
 const findExistingRecordForImport = (game) => {
   const atlasId = game.atlasId || game.atlas_id || null;
   const f95Id = game.f95Id || game.f95_id || null;
+  const lcId = game.lcId || game.lc_id || game.lewdCornerId || game.lewdcornerId || null;
   const title = String(game.title || "").trim();
   const creator = String(game.creator || "").trim();
   const version = String(game.version || "").trim();
@@ -401,6 +402,29 @@ const findExistingRecordForImport = (game) => {
         getDb().get(
           `SELECT record_id FROM f95_zone_mappings WHERE f95_id = ? LIMIT 1`,
           [f95Id],
+          (err, row) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            if (row?.record_id) {
+              resolve(row.record_id);
+              return;
+            }
+            findByLewdCornerMapping();
+          },
+        );
+        return;
+      }
+
+      findByLewdCornerMapping();
+    }
+
+    function findByLewdCornerMapping() {
+      if (lcId) {
+        getDb().get(
+          `SELECT record_id FROM lewdcorner_mappings WHERE lc_id = ? LIMIT 1`,
+          [lcId],
           (err, row) => {
             if (err) {
               reject(err);
@@ -652,6 +676,26 @@ const getInstalledVersionsForRecord = (recordId) => {
   });
 };
 
+const lewdCornerJoinClauses = `
+      LEFT JOIN lewdcorner_mappings ON games.record_id = lewdcorner_mappings.record_id
+      LEFT JOIN lewdcorner_data direct_lewdcorner_data ON lewdcorner_mappings.lc_id = direct_lewdcorner_data.lc_id
+      LEFT JOIN lewdcorner_data ON direct_lewdcorner_data.lc_id IS NULL AND atlas_mappings.atlas_id = lewdcorner_data.atlas_id`;
+
+const lewdCornerSelectFields = `
+        COALESCE(direct_lewdcorner_data.lc_id, lewdcorner_data.lc_id) as lc_id,
+        COALESCE(direct_lewdcorner_data.lc_id, lewdcorner_data.lc_id) as lcId,
+        COALESCE(direct_lewdcorner_data.lc_id, lewdcorner_data.lc_id) as lewdCornerId,
+        COALESCE(direct_lewdcorner_data.site_url, lewdcorner_data.site_url) as lewdCornerSiteUrl,
+        COALESCE(direct_lewdcorner_data.banner_url, lewdcorner_data.banner_url) as lewdCornerBannerUrl,
+        COALESCE(direct_lewdcorner_data.tags, lewdcorner_data.tags) as lewdcornerTags,
+        COALESCE(direct_lewdcorner_data.rating, lewdcorner_data.rating) as lewdcornerRating,
+        COALESCE(direct_lewdcorner_data.views, lewdcorner_data.views) as lewdcornerViews,
+        COALESCE(direct_lewdcorner_data.likes, lewdcorner_data.likes) as lewdcornerLikes,
+        COALESCE(direct_lewdcorner_data.tier, lewdcorner_data.tier) as lewdcornerTier,
+        COALESCE(direct_lewdcorner_data.prefixes, lewdcorner_data.prefixes) as lewdcornerPrefixes,
+        COALESCE(direct_lewdcorner_data.thread_updated, lewdcorner_data.thread_updated) as lewdcornerThreadUpdated,
+        COALESCE(direct_lewdcorner_data.register_date, lewdcorner_data.register_date) as lewdcornerRegisterDate,`;
+
 const getVersionPathsForRecord = (recordId) => {
   return new Promise((resolve, reject) => {
     getDb().all(
@@ -696,11 +740,12 @@ const getGame = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
         games.last_played_version,
 ${bannerSelectFields},
         f95_zone_data.f95_id as f95_id,
-        f95_zone_data.site_url as siteUrl,
+        COALESCE(f95_zone_data.site_url, direct_lewdcorner_data.site_url, lewdcorner_data.site_url) as siteUrl,
         f95_zone_data.views as views,
         f95_zone_data.likes as likes,
         f95_zone_data.tags as f95_tags,
         f95_zone_data.rating as rating,
+${lewdCornerSelectFields}
         atlas_data.status,
         atlas_data.version as latestVersion,
         COALESCE(NULLIF(atlas_data.category, ''), steam_data.category) AS category,
@@ -732,6 +777,7 @@ ${bannerSelectFields},
         games
       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
       LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
+${lewdCornerJoinClauses}
       LEFT JOIN game_personal_ratings ON games.record_id = game_personal_ratings.record_id
 ${bannerJoinClauses}
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
@@ -826,11 +872,12 @@ const getGames = (
         games.last_played_version,
 ${bannerSelectFields},
         f95_zone_data.f95_id as f95_id,
-        f95_zone_data.site_url as siteUrl,
+        COALESCE(f95_zone_data.site_url, direct_lewdcorner_data.site_url, lewdcorner_data.site_url) as siteUrl,
         f95_zone_data.views as views,
         f95_zone_data.likes as likes,
         f95_zone_data.tags as f95_tags,
         f95_zone_data.rating as rating,
+${lewdCornerSelectFields}
         atlas_data.status,
         atlas_data.version as latestVersion,
         COALESCE(NULLIF(atlas_data.category, ''), steam_data.category) AS category,
@@ -862,6 +909,7 @@ ${bannerSelectFields},
         games
       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
       LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
+${lewdCornerJoinClauses}
       LEFT JOIN game_personal_ratings ON games.record_id = game_personal_ratings.record_id
 ${bannerJoinClauses}
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
@@ -970,11 +1018,15 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         'atlas:' || atlas_data.atlas_id as catalogKey,
         CASE
           WHEN f95_zone_data.f95_id IS NOT NULL THEN 'f95'
+          WHEN lewdcorner_data.lc_id IS NOT NULL THEN 'lewdcorner'
           WHEN MIN(steam_data.steam_id) IS NOT NULL THEN 'steam'
           ELSE 'atlas'
         END as source,
         atlas_data.atlas_id as atlas_id,
         MIN(steam_data.steam_id) as steam_id,
+        lewdcorner_data.lc_id as lc_id,
+        lewdcorner_data.lc_id as lcId,
+        lewdcorner_data.lc_id as lewdCornerId,
         atlas_data.title as title,
         COALESCE(NULLIF(atlas_data.creator, ''), atlas_data.developer) as creator,
         atlas_data.engine as engine,
@@ -986,11 +1038,21 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         CASE WHEN ${remoteBannerExpression} IS NOT NULL THEN 'stream' ELSE '' END AS banner_source,
         0 AS has_downloaded_banner,
         f95_zone_data.f95_id as f95_id,
-        f95_zone_data.site_url as siteUrl,
+        COALESCE(f95_zone_data.site_url, lewdcorner_data.site_url) as siteUrl,
         f95_zone_data.views as views,
         f95_zone_data.likes as likes,
         f95_zone_data.tags as f95_tags,
         f95_zone_data.rating as rating,
+        lewdcorner_data.site_url as lewdCornerSiteUrl,
+        lewdcorner_data.banner_url as lewdCornerBannerUrl,
+        lewdcorner_data.tags as lewdcornerTags,
+        lewdcorner_data.rating as lewdcornerRating,
+        lewdcorner_data.views as lewdcornerViews,
+        lewdcorner_data.likes as lewdcornerLikes,
+        lewdcorner_data.tier as lewdcornerTier,
+        lewdcorner_data.prefixes as lewdcornerPrefixes,
+        lewdcorner_data.thread_updated as lewdcornerThreadUpdated,
+        lewdcorner_data.register_date as lewdcornerRegisterDate,
         atlas_data.status,
         atlas_data.version as latestVersion,
         COALESCE(NULLIF(atlas_data.category, ''), MIN(steam_data.category)) AS category,
@@ -1016,6 +1078,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         atlas_data.banner as atlas_banner,
         atlas_data.logo as atlas_logo,
         f95_zone_data.banner_url as f95_banner,
+        lewdcorner_data.banner_url as lewdcorner_banner,
         MIN(steam_data.header) as steam_header,
         MIN(steam_data.library_hero) as steam_library_hero,
         MIN(steam_data.library_capsule) as steam_library_capsule,
@@ -1024,6 +1087,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         CASE
           WHEN EXISTS (SELECT 1 FROM atlas_mappings WHERE atlas_mappings.atlas_id = atlas_data.atlas_id)
             OR (f95_zone_data.f95_id IS NOT NULL AND EXISTS (SELECT 1 FROM f95_zone_mappings WHERE f95_zone_mappings.f95_id = f95_zone_data.f95_id))
+            OR (lewdcorner_data.lc_id IS NOT NULL AND EXISTS (SELECT 1 FROM lewdcorner_mappings WHERE lewdcorner_mappings.lc_id = lewdcorner_data.lc_id))
             OR EXISTS (
               SELECT 1
               FROM steam_mappings
@@ -1034,6 +1098,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         END AS is_installed
       FROM atlas_data
       LEFT JOIN f95_zone_data ON atlas_data.atlas_id = f95_zone_data.atlas_id
+      LEFT JOIN lewdcorner_data ON atlas_data.atlas_id = lewdcorner_data.atlas_id
       LEFT JOIN steam_data ON atlas_data.atlas_id = steam_data.atlas_id
       GROUP BY atlas_data.atlas_id
       UNION ALL
@@ -1043,6 +1108,9 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         'steam' as source,
         NULL as atlas_id,
         steam_data.steam_id as steam_id,
+        NULL as lc_id,
+        NULL as lcId,
+        NULL as lewdCornerId,
         steam_data.title as title,
         COALESCE(NULLIF(steam_data.developer, ''), steam_data.publisher) as creator,
         steam_data.engine as engine,
@@ -1059,6 +1127,16 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         NULL as likes,
         steam_data.tags as f95_tags,
         NULL as rating,
+        NULL as lewdCornerSiteUrl,
+        NULL as lewdCornerBannerUrl,
+        NULL as lewdcornerTags,
+        NULL as lewdcornerRating,
+        NULL as lewdcornerViews,
+        NULL as lewdcornerLikes,
+        NULL as lewdcornerTier,
+        NULL as lewdcornerPrefixes,
+        NULL as lewdcornerThreadUpdated,
+        NULL as lewdcornerRegisterDate,
         steam_data.release_state as status,
         NULL as latestVersion,
         steam_data.category AS category,
@@ -1084,6 +1162,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         NULL as atlas_banner,
         NULL as atlas_logo,
         NULL as f95_banner,
+        NULL as lewdcorner_banner,
         steam_data.header as steam_header,
         steam_data.library_hero as steam_library_hero,
         steam_data.library_capsule as steam_library_capsule,
@@ -1095,6 +1174,79 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       FROM steam_data
       LEFT JOIN atlas_data ON steam_data.atlas_id = atlas_data.atlas_id
       WHERE steam_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL
+      UNION ALL
+      SELECT
+        'catalog:lewdcorner:' || lewdcorner_data.lc_id as record_id,
+        'lewdcorner:' || lewdcorner_data.lc_id as catalogKey,
+        'lewdcorner' as source,
+        NULL as atlas_id,
+        NULL as steam_id,
+        lewdcorner_data.lc_id as lc_id,
+        lewdcorner_data.lc_id as lcId,
+        lewdcorner_data.lc_id as lewdCornerId,
+        'LewdCorner #' || lewdcorner_data.lc_id as title,
+        'Unknown' as creator,
+        NULL as engine,
+        NULL as description,
+        0 as total_playtime,
+        0 as last_played_r,
+        '' as last_played_version,
+        lewdcorner_data.banner_url AS banner_url,
+        CASE WHEN lewdcorner_data.banner_url IS NOT NULL THEN 'stream' ELSE '' END AS banner_source,
+        0 AS has_downloaded_banner,
+        NULL as f95_id,
+        lewdcorner_data.site_url as siteUrl,
+        lewdcorner_data.views as views,
+        lewdcorner_data.likes as likes,
+        lewdcorner_data.tags as f95_tags,
+        lewdcorner_data.rating as rating,
+        lewdcorner_data.site_url as lewdCornerSiteUrl,
+        lewdcorner_data.banner_url as lewdCornerBannerUrl,
+        lewdcorner_data.tags as lewdcornerTags,
+        lewdcorner_data.rating as lewdcornerRating,
+        lewdcorner_data.views as lewdcornerViews,
+        lewdcorner_data.likes as lewdcornerLikes,
+        lewdcorner_data.tier as lewdcornerTier,
+        lewdcorner_data.prefixes as lewdcornerPrefixes,
+        lewdcorner_data.thread_updated as lewdcornerThreadUpdated,
+        lewdcorner_data.register_date as lewdcornerRegisterDate,
+        NULL as status,
+        NULL as latestVersion,
+        NULL AS category,
+        NULL AS censored,
+        NULL AS genre,
+        NULL AS language,
+        NULL AS os,
+        NULL AS overview,
+        NULL AS translations,
+        NULL AS release_date,
+        NULL AS atlas_last_record_update,
+        NULL AS steam_release_date,
+        lewdcorner_data.thread_updated AS thread_updated,
+        lewdcorner_data.register_date AS thread_publish_date,
+        NULL AS f95_latest_order,
+        lewdcorner_data.last_record_update AS f95_last_record_update,
+        NULL AS voice,
+        NULL AS publisher,
+        NULL AS steam_developer,
+        'LewdCorner #' || lewdcorner_data.lc_id AS short_name,
+        NULL as external_ids,
+        NULL as atlas_banner_wide,
+        NULL as atlas_banner,
+        NULL as atlas_logo,
+        NULL as f95_banner,
+        lewdcorner_data.banner_url as lewdcorner_banner,
+        NULL as steam_header,
+        NULL as steam_library_hero,
+        NULL as steam_library_capsule,
+        NULL as steam_logo,
+        lewdcorner_data.tags AS tags,
+        CASE WHEN EXISTS (SELECT 1 FROM lewdcorner_mappings WHERE lewdcorner_mappings.lc_id = lewdcorner_data.lc_id)
+          THEN 1 ELSE 0
+        END AS is_installed
+      FROM lewdcorner_data
+      LEFT JOIN atlas_data ON lewdcorner_data.atlas_id = atlas_data.atlas_id
+      WHERE lewdcorner_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL
     `;
 
       getDb().all(query, [], (err, rows) => {

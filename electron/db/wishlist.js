@@ -56,8 +56,9 @@ const steamStoreUrl = (steamId) =>
 
 const normalizeSource = (entry = {}) => {
   const source = normalizeText(entry.source).toLowerCase()
-  if (source === 'f95' || source === 'steam' || source === 'atlas') return source
+  if (source === 'f95' || source === 'steam' || source === 'atlas' || source === 'lewdcorner') return source
   if (normalizeId(entry.f95_id ?? entry.f95Id)) return 'f95'
+  if (normalizeId(entry.lc_id ?? entry.lcId ?? entry.lewdCornerId ?? entry.lewdcornerId)) return 'lewdcorner'
   if (normalizeId(entry.steam_id ?? entry.steamId ?? entry.steam_appid)) return 'steam'
   return 'atlas'
 }
@@ -66,11 +67,14 @@ const normalizeWishlistEntry = (entry = {}) => {
   const source = normalizeSource(entry)
   const atlasId = normalizeId(entry.atlas_id ?? entry.atlasId)
   const f95Id = normalizeId(entry.f95_id ?? entry.f95Id)
+  const lcId = normalizeId(entry.lc_id ?? entry.lcId ?? entry.lewdCornerId ?? entry.lewdcornerId)
   const steamId = normalizeId(entry.steam_id ?? entry.steamId ?? entry.steam_appid)
   const title = normalizeText(entry.title || entry.name || entry.short_name, 'Untitled')
   const creator = normalizeText(entry.creator || entry.developer, 'Unknown')
   const identityKey =
-    f95Id ? `f95:${f95Id}`
+    source === 'lewdcorner' && atlasId ? `atlas:${atlasId}`
+      : f95Id ? `f95:${f95Id}`
+      : lcId ? `lewdcorner:${lcId}`
       : steamId ? `steam:${steamId}`
       : atlasId ? `atlas:${atlasId}`
       : `${source}:title:${slug(title)}:${slug(creator)}`
@@ -80,6 +84,7 @@ const normalizeWishlistEntry = (entry = {}) => {
     source,
     atlasId,
     f95Id,
+    lcId,
     steamId,
     title,
     creator,
@@ -89,15 +94,15 @@ const normalizeWishlistEntry = (entry = {}) => {
     category: normalizeText(entry.category) || null,
     genre: normalizeText(entry.genre) || null,
     rating: normalizeText(entry.rating) || null,
-    tags: normalizeText(entry.f95_tags ?? entry.tags) || null,
+    tags: normalizeText(entry.f95_tags ?? entry.lewdcornerTags ?? entry.tags) || null,
     overview: normalizeText(entry.overview ?? entry.description) || null,
     externalIds: stringifyExternalIds(entry.external_ids),
     steamUrl: normalizeText(entry.steamUrl ?? entry.steam_url ?? entry.storeUrl) || steamStoreUrl(steamId),
     previewUrls: Array.isArray(entry.preview_urls)
       ? entry.preview_urls.filter(Boolean).join(',')
       : normalizeText(entry.preview_urls ?? entry.previewUrls) || null,
-    siteUrl: normalizeText(entry.siteUrl ?? entry.site_url) || null,
-    bannerUrl: normalizeText(entry.banner_url ?? entry.bannerUrl) || null,
+    siteUrl: normalizeText(entry.lewdCornerSiteUrl ?? entry.lewdcornerSiteUrl ?? entry.siteUrl ?? entry.site_url) || null,
+    bannerUrl: normalizeText(entry.lewdCornerBannerUrl ?? entry.lewdcornerBannerUrl ?? entry.banner_url ?? entry.bannerUrl) || null,
     note: normalizeText(entry.note) || null,
   }
 }
@@ -115,6 +120,7 @@ const normalizeWishlistIdentity = (identity = {}) => {
 const mapWishlistRow = (row = {}) => {
   const atlasId = normalizeId(row.atlas_id ?? row.current_atlas_id)
   const f95Id = normalizeId(row.f95_id ?? row.current_f95_id)
+  const lcId = normalizeId(row.lc_id ?? row.current_lc_id)
   const steamId = normalizeId(row.steam_id ?? row.current_steam_id)
   const externalIds = mergeExternalIds(
     firstText(row.current_external_ids, row.external_ids),
@@ -122,13 +128,14 @@ const mapWishlistRow = (row = {}) => {
       steam_appid: steamId,
     },
   )
-  const tags = firstText(row.current_f95_tags, row.tags, row.current_atlas_tags, row.current_steam_tags)
+  const tags = firstText(row.current_f95_tags, row.current_lewdcorner_tags, row.tags, row.current_atlas_tags, row.current_steam_tags)
   const overview = firstText(row.current_overview, row.overview)
   const latestVersion = firstText(row.current_latest_version, row.latest_version)
-  const bannerUrl = firstText(row.banner_url, row.current_f95_banner, row.current_steam_header, row.current_steam_hero, row.current_atlas_banner_wide, row.current_atlas_banner)
+  const bannerUrl = firstText(row.banner_url, row.current_f95_banner, row.current_lewdcorner_banner, row.current_steam_header, row.current_steam_hero, row.current_atlas_banner_wide, row.current_atlas_banner)
   const source = firstText(
     row.source,
     f95Id ? 'f95' : '',
+    lcId ? 'lewdcorner' : '',
     steamId ? 'steam' : '',
     atlasId ? 'atlas' : '',
   ) || 'atlas'
@@ -140,6 +147,9 @@ const mapWishlistRow = (row = {}) => {
     source,
     atlas_id: atlasId,
     f95_id: f95Id,
+    lc_id: lcId,
+    lcId,
+    lewdCornerId: lcId,
     steam_id: steamId,
     title: firstText(row.current_title, row.title, row.current_short_name, 'Untitled'),
     creator: firstText(row.current_creator, row.creator, row.current_developer, 'Unknown'),
@@ -159,13 +169,16 @@ const mapWishlistRow = (row = {}) => {
     f95_tags: tags,
     tags,
     external_ids: externalIds,
-    siteUrl: firstText(row.current_site_url, row.site_url) || null,
-    site_url: firstText(row.current_site_url, row.site_url) || null,
+    siteUrl: firstText(row.current_site_url, row.current_lewdcorner_site_url, row.site_url) || null,
+    site_url: firstText(row.current_site_url, row.current_lewdcorner_site_url, row.site_url) || null,
+    lewdCornerSiteUrl: firstText(row.current_lewdcorner_site_url) || null,
     steamUrl: firstText(row.steam_url, steamStoreUrl(steamId)) || null,
     steam_url: firstText(row.steam_url, steamStoreUrl(steamId)) || null,
     banner_url: bannerUrl || null,
     banner_source: bannerUrl ? 'stream' : '',
     f95_banner: firstText(row.current_f95_banner) || null,
+    lewdcorner_banner: firstText(row.current_lewdcorner_banner) || null,
+    lewdCornerBannerUrl: firstText(row.current_lewdcorner_banner) || null,
     steam_header: firstText(row.current_steam_header) || null,
     steam_library_hero: firstText(row.current_steam_hero) || null,
     steam_library_capsule: firstText(row.current_steam_cover) || null,
@@ -173,7 +186,7 @@ const mapWishlistRow = (row = {}) => {
     atlas_banner_wide: firstText(row.current_atlas_banner_wide) || null,
     atlas_banner: firstText(row.current_atlas_banner) || null,
     atlas_logo: firstText(row.current_atlas_logo) || null,
-    preview_urls: firstText(row.preview_urls, row.current_atlas_previews, row.current_f95_screens) || null,
+    preview_urls: firstText(row.preview_urls, row.current_atlas_previews, row.current_f95_screens, row.current_lewdcorner_screens) || null,
     flagged_at: row.flagged_at,
     note: row.note,
     versions: [],
@@ -192,8 +205,9 @@ const mapWishlistRow = (row = {}) => {
 const wishlistHydratedSelect = `
   SELECT
     wishlist_entries.*,
-    COALESCE(wishlist_entries.atlas_id, f95_zone_data.atlas_id, steam_data.atlas_id) AS current_atlas_id,
+    COALESCE(wishlist_entries.atlas_id, f95_zone_data.atlas_id, lewdcorner_data.atlas_id, steam_data.atlas_id) AS current_atlas_id,
     COALESCE(wishlist_entries.f95_id, f95_zone_data.f95_id) AS current_f95_id,
+    COALESCE(wishlist_entries.lc_id, lewdcorner_data.lc_id) AS current_lc_id,
     COALESCE(wishlist_entries.steam_id, steam_data.steam_id) AS current_steam_id,
     atlas_data.title AS current_title,
     atlas_data.short_name AS current_short_name,
@@ -219,9 +233,14 @@ const wishlistHydratedSelect = `
     atlas_data.previews AS current_atlas_previews,
     f95_zone_data.site_url AS current_site_url,
     f95_zone_data.tags AS current_f95_tags,
-    f95_zone_data.rating AS current_rating,
+    COALESCE(f95_zone_data.rating, lewdcorner_data.rating) AS current_rating,
     f95_zone_data.banner_url AS current_f95_banner,
     f95_zone_data.screens AS current_f95_screens,
+    lewdcorner_data.site_url AS current_lewdcorner_site_url,
+    lewdcorner_data.tags AS current_lewdcorner_tags,
+    lewdcorner_data.rating AS current_lewdcorner_rating,
+    lewdcorner_data.banner_url AS current_lewdcorner_banner,
+    lewdcorner_data.screens AS current_lewdcorner_screens,
     steam_data.header AS current_steam_header,
     steam_data.library_hero AS current_steam_hero,
     steam_data.library_capsule AS current_steam_cover,
@@ -244,7 +263,16 @@ const wishlistHydratedSelect = `
       WHERE steam_lookup.atlas_id = wishlist_entries.atlas_id
     )
   )
-  LEFT JOIN atlas_data ON atlas_data.atlas_id = COALESCE(wishlist_entries.atlas_id, f95_zone_data.atlas_id, steam_data.atlas_id)
+  LEFT JOIN lewdcorner_data ON lewdcorner_data.lc_id = COALESCE(
+    wishlist_entries.lc_id,
+    (
+      SELECT lc_lookup.lc_id
+      FROM lewdcorner_data lc_lookup
+      WHERE lc_lookup.atlas_id = wishlist_entries.atlas_id
+      LIMIT 1
+    )
+  )
+  LEFT JOIN atlas_data ON atlas_data.atlas_id = COALESCE(wishlist_entries.atlas_id, f95_zone_data.atlas_id, lewdcorner_data.atlas_id, steam_data.atlas_id)
 `
 
 const findInstalledRecord = (entry = {}) => {
@@ -259,6 +287,15 @@ const findInstalledRecord = (entry = {}) => {
   if (normalized.f95Id) {
     clauses.push('SELECT record_id FROM f95_zone_mappings WHERE f95_id = ?')
     params.push(normalized.f95Id)
+  }
+  if (normalized.lcId) {
+    clauses.push('SELECT record_id FROM lewdcorner_mappings WHERE lc_id = ?')
+    params.push(normalized.lcId)
+    clauses.push(`SELECT am.record_id
+                 FROM lewdcorner_data lc
+                 JOIN atlas_mappings am ON lc.atlas_id = am.atlas_id
+                 WHERE lc.lc_id = ?`)
+    params.push(normalized.lcId)
   }
   if (normalized.steamId) {
     clauses.push('SELECT record_id FROM steam_mappings WHERE steam_id = ?')
@@ -295,14 +332,15 @@ const addWishlistEntry = async (entry = {}) => {
   return new Promise((resolve, reject) => {
     getDb().run(
       `INSERT INTO wishlist_entries
-       (identity_key, source, atlas_id, f95_id, steam_id, title, creator, engine, status,
+       (identity_key, source, atlas_id, f95_id, lc_id, steam_id, title, creator, engine, status,
         latest_version, category, genre, rating, tags, overview, external_ids, steam_url,
         preview_urls, site_url, banner_url, flagged_at, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(identity_key) DO UPDATE SET
         source = excluded.source,
         atlas_id = excluded.atlas_id,
         f95_id = excluded.f95_id,
+        lc_id = excluded.lc_id,
         steam_id = excluded.steam_id,
         title = excluded.title,
         creator = excluded.creator,
@@ -325,6 +363,7 @@ const addWishlistEntry = async (entry = {}) => {
         normalized.source,
         normalized.atlasId,
         normalized.f95Id,
+        normalized.lcId,
         normalized.steamId,
         normalized.title,
         normalized.creator,
