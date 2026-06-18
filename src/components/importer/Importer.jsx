@@ -85,6 +85,20 @@ const Importer = () => {
   const hasSelectedDatabaseMatch = (game) => game.results?.length > 1 && !!game.resultSelectedValue
   const isUnmatchedGame = (game) => (game.results || []).length === 0
 
+  const normalizeMatchState = (game = {}) => {
+    const results = Array.isArray(game.results) ? game.results : []
+    if (results.length === 1 && results[0]?.key === 'match') {
+      return { ...game, results, resultSelectedValue: 'match', resultVisibility: 'visible' }
+    }
+    if (results.length > 1) {
+      const selectedValue = results.some((result) => result.key === game.resultSelectedValue)
+        ? game.resultSelectedValue
+        : results[0]?.key || ''
+      return { ...game, results, resultSelectedValue: selectedValue, resultVisibility: 'visible' }
+    }
+    return { ...game, results: [], resultSelectedValue: '', resultVisibility: 'hidden' }
+  }
+
   const isImportableGame = (game, { includeUnmatchedGames = false, includeArchiveGames = false } = {}) => {
     if (game.sourceType === 'renpySave') {
       return (game.scanStatus || 'new') === 'new' && !!game.savePath
@@ -232,7 +246,7 @@ const Importer = () => {
   }
 
   const applySelectedMatch = async (game, value) => {
-    let updatedGame = { ...game, resultSelectedValue: value }
+    let updatedGame = normalizeMatchState({ ...game, resultSelectedValue: value })
     const selected = game.results?.find((r) => r.key === value)
     if (selected && value !== 'match') {
       const parts = selected.value.split(' | ')
@@ -249,23 +263,24 @@ const Importer = () => {
       } catch (err) { console.error('Failed to hydrate selected match:', err) }
     }
     if (updatedGame.sourceType === 'renpySave') {
-      return {
+      return normalizeMatchState({
         ...updatedGame,
         version: 'No version',
         selectedValue: '',
         singleExecutable: 'N/A',
         scanMessage: 'Ready as Uninstalled',
-      }
+      })
     }
-    return applyImportStatus(updatedGame)
+    return applyImportStatus(normalizeMatchState(updatedGame))
   }
 
   const chooseInstalledMatch = async (game, results) => {
+    const baseGame = normalizeMatchState({ ...game, results })
     for (const result of results) {
-      const candidate = await applySelectedMatch({ ...game, results }, result.key)
+      const candidate = await applySelectedMatch(baseGame, result.key)
       if (['alreadyImported', 'repairPath', 'steamVersion'].includes(candidate.scanStatus)) return candidate
     }
-    return applySelectedMatch({ ...game, results }, results[0]?.key || '')
+    return applySelectedMatch(baseGame, baseGame.resultSelectedValue || results[0]?.key || '')
   }
 
   const resolvePendingMatches = async (rows) => {

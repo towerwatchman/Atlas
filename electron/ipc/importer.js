@@ -1020,8 +1020,22 @@ async function replaceInstalledVersionAfterImport({
 
 
 
+const normalizeImportMatchState = (game = {}) => {
+  const results = Array.isArray(game.results) ? game.results : [];
+  if (results.length === 1 && results[0]?.key === "match") {
+    return { ...game, results, resultSelectedValue: "match", resultVisibility: "visible" };
+  }
+  if (results.length > 1) {
+    const selectedValue = results.some((result) => result.key === game.resultSelectedValue)
+      ? game.resultSelectedValue
+      : results[0]?.key || "";
+    return { ...game, results, resultSelectedValue: selectedValue, resultVisibility: "visible" };
+  }
+  return { ...game, results: [], resultSelectedValue: "", resultVisibility: "hidden" };
+};
+
 const hydrateImportMatch = async (game, selectedValue) => {
-  let updatedGame = { ...game, resultSelectedValue: selectedValue };
+  let updatedGame = normalizeImportMatchState({ ...game, resultSelectedValue: selectedValue });
   const selected = game.results?.find((result) => result.key === selectedValue);
 
   if (selected && selectedValue !== "match") {
@@ -1046,7 +1060,7 @@ const hydrateImportMatch = async (game, selectedValue) => {
   const status = await getImportRecordStatus(updatedGame);
   const recordExist = status?.status === "alreadyImported";
   const isSteamVersion = status?.status === "steamVersion";
-  return {
+  return normalizeImportMatchState({
     ...updatedGame,
     recordExist,
     existingRecordId: status?.recordId || "",
@@ -1066,17 +1080,18 @@ const hydrateImportMatch = async (game, selectedValue) => {
           : updatedGame.isArchive
             ? "Archive"
             : "Ready to import",
-  };
+  });
 };
 
 const chooseInstalledImportMatch = async (game, results) => {
+  const baseGame = normalizeImportMatchState({ ...game, results });
   for (const result of results) {
-    const candidate = await hydrateImportMatch({ ...game, results }, result.key);
+    const candidate = await hydrateImportMatch(baseGame, result.key);
     if (["alreadyImported", "repairPath", "steamVersion"].includes(candidate.scanStatus)) {
       return candidate;
     }
   }
-  return hydrateImportMatch({ ...game, results }, results[0]?.key || "");
+  return hydrateImportMatch(baseGame, baseGame.resultSelectedValue || results[0]?.key || "");
 };
 
 // ── IPC Handlers ───────────────────────────────────────────────────

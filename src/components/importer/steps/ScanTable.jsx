@@ -103,11 +103,16 @@ export default function ScanTable({
             : 'text-green-300'
           const sourceUrls = getSourceUrls(game)
           const isRenpySave = game.sourceType === 'renpySave'
+          const matchResults = Array.isArray(game.results) ? game.results : []
+          const showMatchCell = matchResults.length > 0 || game.resultVisibility === 'visible'
+          const selectedMatchValue = matchResults.some((result) => result.key === game.resultSelectedValue)
+            ? game.resultSelectedValue
+            : matchResults[0]?.key || ''
 
           return (
             <tr key={getGameKey(game)} className="bg-primary">
               <td className="border border-border p-1 min-w-[100px]">
-                {game.results?.length > 1 && <i className="fa-solid fa-triangle-exclamation text-yellow-400 mr-1"></i>}
+                {matchResults.length > 1 && <i className="fa-solid fa-triangle-exclamation text-yellow-400 mr-1"></i>}
                 {game.atlasId}
               </td>
               <td className="border border-border p-1 min-w-[100px]">
@@ -148,12 +153,12 @@ export default function ScanTable({
                   </select>
                 ) : game.singleExecutable}
               </td>
-              <td className="border border-border p-1" style={{ visibility: game.resultVisibility }}>
-                {game.results?.length === 1 && game.results[0]?.key === 'match' ? (
-                  <span className="text-text select-none">{game.results[0].value}</span>
-                ) : game.results?.length > 1 && (
-                  <select value={game.resultSelectedValue} disabled={!rowIsNew} onChange={(e) => onResultChange(getGameKey(game), e.target.value)} className="w-full bg-secondary border border-border p-1">
-                    {game.results.map((opt) => <option key={opt.key} value={opt.key}>{opt.value}</option>)}
+              <td className="border border-border p-1" style={{ visibility: showMatchCell ? 'visible' : 'hidden' }}>
+                {matchResults.length === 1 && matchResults[0]?.key === 'match' ? (
+                  <span className="text-text select-none">{matchResults[0].value}</span>
+                ) : matchResults.length > 1 && (
+                  <select value={selectedMatchValue} disabled={!rowIsNew} onChange={(e) => onResultChange(getGameKey(game), e.target.value)} className="w-full bg-secondary border border-border p-1">
+                    {matchResults.map((opt) => <option key={opt.key} value={opt.key}>{opt.value}</option>)}
                   </select>
                 )}
               </td>
