@@ -163,7 +163,14 @@ export default function ScanTable({
                 )}
               </td>
               <td className="border border-border p-1">
-                {isRenpySave ? game.savePath || game.folder : game.isArchive ? game.sourceFile || game.folder || 'Archive' : game.folder || 'Metadata only'}
+                <div title={game.glInfosPath || undefined}>
+                  {game.hasGlInfos && (
+                    <span className="inline-block mr-1 px-1 rounded bg-tertiary text-[10px] text-green-300">
+                      GL
+                    </span>
+                  )}
+                  {isRenpySave ? game.savePath || game.folder : game.isArchive ? game.sourceFile || game.folder || 'Archive' : game.folder || 'Metadata only'}
+                </div>
               </td>
               <td className={`border border-border p-1 ${statusClass}`}>{statusText}</td>
               <td className="border border-border p-1 min-w-[220px]">

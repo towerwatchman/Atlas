@@ -318,6 +318,7 @@ const updateVersion = (version, record_id) => {
 
 const findExistingRecordForImport = (game) => {
   const atlasId = game.atlasId || game.atlas_id || null;
+  const f95Id = game.f95Id || game.f95_id || null;
   const title = String(game.title || "").trim();
   const creator = String(game.creator || "").trim();
   const version = String(game.version || "").trim();
@@ -346,26 +347,49 @@ const findExistingRecordForImport = (game) => {
     findByAtlasMapping();
 
     function findByAtlasMapping() {
-    if (atlasId) {
-      getDb().get(
-        `SELECT record_id FROM atlas_mappings WHERE atlas_id = ? LIMIT 1`,
-        [atlasId],
-        (err, row) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          if (row?.record_id) {
-            resolve(row.record_id);
-            return;
-          }
-          findByTitleCreatorVersion();
-        },
-      );
-      return;
+      if (atlasId) {
+        getDb().get(
+          `SELECT record_id FROM atlas_mappings WHERE atlas_id = ? LIMIT 1`,
+          [atlasId],
+          (err, row) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            if (row?.record_id) {
+              resolve(row.record_id);
+              return;
+            }
+            findByF95Mapping();
+          },
+        );
+        return;
+      }
+
+      findByF95Mapping();
     }
 
-    findByTitleCreatorVersion();
+    function findByF95Mapping() {
+      if (f95Id) {
+        getDb().get(
+          `SELECT record_id FROM f95_zone_mappings WHERE f95_id = ? LIMIT 1`,
+          [f95Id],
+          (err, row) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            if (row?.record_id) {
+              resolve(row.record_id);
+              return;
+            }
+            findByTitleCreatorVersion();
+          },
+        );
+        return;
+      }
+
+      findByTitleCreatorVersion();
     }
 
     function findByTitleCreatorVersion() {

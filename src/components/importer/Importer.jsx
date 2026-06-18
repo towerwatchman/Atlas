@@ -256,7 +256,7 @@ const Importer = () => {
     const selected = game.results?.find((r) => r.key === value)
     if (selected && value !== 'match') {
       const parts = selected.value.split(' | ')
-      updatedGame = { ...updatedGame, atlasId: parts[0], f95Id: parts[1] || '', title: parts[2], creator: parts[3] }
+      updatedGame = { ...updatedGame, atlasId: parts[0], f95Id: parts[1] || updatedGame.f95Id || '', title: parts[2], creator: parts[3] }
       try {
         const atlasData = await window.electronAPI.getAtlasData(updatedGame.atlasId)
         updatedGame = {
@@ -544,7 +544,10 @@ const Importer = () => {
       let data
       try {
         const f95IdStr = String(game.f95Id || '').trim()
-        data = f95IdStr ? await window.electronAPI.searchAtlasByF95Id(f95IdStr) : await window.electronAPI.searchAtlas(game.title, game.creator)
+        data = f95IdStr ? await window.electronAPI.searchAtlasByF95Id(f95IdStr) : []
+        if (!data.length) {
+          data = await window.electronAPI.searchAtlas(game.lookupTitle || game.title, game.creator)
+        }
       } catch { data = [] }
       if (data.length === 1) {
         game = await applyImportStatus({

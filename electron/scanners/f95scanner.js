@@ -5,6 +5,7 @@ const {
   searchAtlasByF95Id,
   checkRecordExist,
 } = require("../db/index");
+const { findGlInfosForGameFolder } = require("./glInfosParser");
 
 const engineMap = {
   rpgm: [
@@ -530,9 +531,23 @@ async function findGame(
     let version = "";
     let atlasId = "";
     let f95Id = "";
+    let glInfos = null;
+
+    if (!isFile) {
+      glInfos = findGlInfosForGameFolder(t, selectedValue);
+      if (glInfos) {
+        console.log(`Using GL_Infos.ini metadata for ${t}: ${JSON.stringify({
+          version: glInfos.version,
+          f95Id: glInfos.f95Id,
+          title: glInfos.title,
+          threadUrl: glInfos.threadUrl,
+        })}`);
+      }
+    }
 
     const relativePath = t.replace(`${rootPath}${path.sep}`, "");
     console.log(`Relative path: ${relativePath}, Format: ${format}`);
+    let structuredTitleFound = false;
     if (format && format.trim() !== "") {
       const parsePath = isFile ? path.dirname(relativePath) : relativePath;
       const pathParts = parsePath.split(path.sep);
@@ -547,6 +562,7 @@ async function findGame(
         title = mapping.title || "";
         lookupTitle = title;
         version = mapping.version || "";
+        structuredTitleFound = Boolean(title);
         if (mapping.f95id) {
           f95Id = cleanIdValue(mapping.f95id);
         }
@@ -557,6 +573,17 @@ async function findGame(
           `Structured match: creator=${creator}, title=${title}, version=${version}, f95Id=${f95Id}, atlasId=${atlasId}`,
         );
       }
+    }
+
+    if (glInfos?.f95Id) {
+      f95Id = glInfos.f95Id;
+    }
+    if (glInfos?.version) {
+      version = glInfos.version;
+    }
+    if (glInfos?.title && (!structuredTitleFound || !title || title.trim() === "")) {
+      title = glInfos.title;
+      lookupTitle = glInfos.title;
     }
 
     const canHydrateTitleFromId = Boolean(f95Id || atlasId);
@@ -578,6 +605,17 @@ async function findGame(
       }
     }
 
+    if (glInfos?.title && !structuredTitleFound) {
+      title = glInfos.title;
+      lookupTitle = glInfos.title;
+    }
+    if (glInfos?.version) {
+      version = glInfos.version;
+    }
+    if (glInfos?.f95Id) {
+      f95Id = glInfos.f95Id;
+    }
+
     if ((!title || title.trim() === "") && canHydrateTitleFromId) {
       title = f95Id ? `F95 ${f95Id}` : `Atlas ${atlasId}`;
       lookupTitle = title;
@@ -593,11 +631,16 @@ async function findGame(
     );
     let data;
     try {
-      data = params.deferMatching
-        ? []
-        : f95Id
-          ? await searchAtlasByF95Id(f95Id)
-          : await searchAtlas(lookupTitle || title, creator);
+      if (params.deferMatching) {
+        data = [];
+      } else if (f95Id) {
+        data = await searchAtlasByF95Id(f95Id);
+        if (data.length === 0) {
+          data = await searchAtlas(lookupTitle || title, creator);
+        }
+      } else {
+        data = await searchAtlas(lookupTitle || title, creator);
+      }
       console.log(`searchAtlas returned: ${JSON.stringify(data)}`);
     } catch (err) {
       console.error(`searchAtlas error for ${title}: ${err.message}`);
@@ -646,7 +689,11 @@ async function findGame(
       version,
       latestVersion:
         data.length === 1 ? data[0].latestVersion || data[0].version || "" : "",
-      siteUrl: data.length === 1 ? data[0].siteUrl || data[0].site_url || "" : "",
+      siteUrl: data.length === 1 ? data[0].siteUrl || data[0].site_url || "" : glInfos?.threadUrl || "",
+      f95Url: glInfos?.threadUrl || "",
+      metadataSource: glInfos?.source || "",
+      hasGlInfos: glInfos?.hasGlInfos === true,
+      glInfosPath: glInfos?.filePath || "",
       singleExecutable,
       executables: potentialExecutables.map((e) => ({ key: e, value: e })),
       selectedValue,

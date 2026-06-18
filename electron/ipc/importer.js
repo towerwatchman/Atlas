@@ -1043,7 +1043,7 @@ const hydrateImportMatch = async (game, selectedValue) => {
     updatedGame = {
       ...updatedGame,
       atlasId: parts[0],
-      f95Id: parts[1] || "",
+      f95Id: parts[1] || updatedGame.f95Id || "",
       title: parts[2],
       creator: parts[3],
     };
@@ -2006,6 +2006,15 @@ ipcMain.handle("search-atlas", async (event, params) => {
 ipcMain.handle("resolve-import-matches", async (event, games = []) => {
   const searchCache = new Map();
 
+  const resolveSearchData = async (game = {}) => {
+    const f95Id = String(game.f95Id || "").trim();
+    if (f95Id) {
+      const byF95 = await searchAtlasByF95Id(f95Id);
+      if (byF95.length > 0) return byF95;
+    }
+    return await searchAtlas(game.lookupTitle || game.title, game.creator);
+  };
+
   // ── Pre-warm search cache for all unique keys in parallel ──────────────
   const pending = games.filter(
     (g) => g && g.scanStatus === "pendingMatch",
@@ -2025,9 +2034,7 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
   await Promise.all(
     Array.from(uniqueSearches.entries()).map(async ([cacheKey, { f95Id, game }]) => {
       try {
-        const data = f95Id
-          ? await searchAtlasByF95Id(f95Id)
-          : await searchAtlas(game.lookupTitle || game.title, game.creator);
+        const data = await resolveSearchData(game);
         searchCache.set(cacheKey, data);
       } catch (err) {
         console.error("resolve-import-matches pre-warm failed:", err);
@@ -2578,6 +2585,23 @@ ipcMain.handle("import-games", async (event, params) => {
           console.log("mapping added");
         } catch (err) {
           console.error("Failed to add atlas mapping:", err);
+          throw err;
+        }
+      }
+      if (game.f95Id) {
+        try {
+          await dbRun(
+            db,
+            `INSERT INTO f95_zone_mappings (record_id, f95_id)
+             SELECT ?, ?
+             WHERE NOT EXISTS (
+               SELECT 1 FROM f95_zone_mappings WHERE record_id = ? AND f95_id = ?
+             )`,
+            [recordId, game.f95Id, recordId, game.f95Id],
+          );
+          console.log("f95 mapping added");
+        } catch (err) {
+          console.error("Failed to add F95 mapping:", err);
           throw err;
         }
       }
