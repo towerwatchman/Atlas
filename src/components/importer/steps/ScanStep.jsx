@@ -10,6 +10,8 @@ export default function ScanStep({
   onSelectRenpyFolder,
   setHideMatches, setIncludeUnmatched, setIncludeArchives, setForceReimport,
 }) {
+  const isRenpyMode = importMode === 'renpySaves'
+
   return (
     <div className="h-full flex flex-col">
       <div className="shrink-0">
@@ -68,16 +70,20 @@ export default function ScanStep({
             <input type="checkbox" id="include-unmatched" checked={includeUnmatched} onChange={(e) => setIncludeUnmatched(e.target.checked)} className="h-4 w-4" />
             <label htmlFor="include-unmatched" className="text-sm text-text">Import unmatched games</label>
           </div>
-          <div className="flex items-center space-x-2">
-            <input type="checkbox" id="include-archives" checked={includeArchives} onChange={(e) => setIncludeArchives(e.target.checked)} className="h-4 w-4" />
-            <label htmlFor="include-archives" className="text-sm text-text">Extract and import archives</label>
-          </div>
-          <div className="flex items-center space-x-2">
-            <input type="checkbox" id="force-reimport" checked={forceReimport} onChange={(e) => setForceReimport(e.target.checked)} className="h-4 w-4" />
-            <label htmlFor="force-reimport" className="text-sm text-text" title="Safely repairs existing rows and refreshes selected media without creating duplicate game records.">
-              Force re-import existing games
-            </label>
-          </div>
+          {!isRenpyMode && (
+            <>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="include-archives" checked={includeArchives} onChange={(e) => setIncludeArchives(e.target.checked)} className="h-4 w-4" />
+                <label htmlFor="include-archives" className="text-sm text-text">Extract and import archives</label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="force-reimport" checked={forceReimport} onChange={(e) => setForceReimport(e.target.checked)} className="h-4 w-4" />
+                <label htmlFor="force-reimport" className="text-sm text-text" title="Safely repairs existing rows and refreshes selected media without creating duplicate game records.">
+                  Force re-import existing games
+                </label>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="flex items-center space-x-2">

@@ -101,7 +101,9 @@ const Importer = () => {
 
   const isImportableGame = (game, { includeUnmatchedGames = false, includeArchiveGames = false } = {}) => {
     if (game.sourceType === 'renpySave') {
-      return (game.scanStatus || 'new') === 'new' && !!game.savePath
+      if ((game.scanStatus || 'new') !== 'new' || !game.savePath) return false
+      if (hasDatabaseMatch(game) || hasSelectedDatabaseMatch(game)) return true
+      return includeUnmatchedGames && isUnmatchedGame(game)
     }
     if (!isNewScanRow(game) && !isExistingImportRow(game)) return false
     if (game.isArchive && !includeArchiveGames) return false
@@ -124,13 +126,17 @@ const Importer = () => {
     if (scanStatus === 'steamVersion') return { text: 'Add as Steam version', type: 'steamVersion' }
     if (scanStatus === 'missingLaunchable') return { text: 'Missing launchable', type: 'missingLaunchable' }
     if (scanStatus === 'emptyFolder') return { text: 'Empty folder', type: 'emptyFolder' }
-    if (game.sourceType === 'renpySave') {
-      return { text: game.recordId ? 'Already in Library' : 'Ready as Uninstalled', type: 'ready' }
-    }
     if (scanStatus !== 'new') return { text: game.scanMessage || 'Skipped', type: 'blocked' }
 
     const needsUnmatched = isUnmatchedGame(game) && !includeUnmatched
     const needsArchive = game.isArchive && !includeArchives
+
+    if (game.sourceType === 'renpySave') {
+      if (needsUnmatched) return { text: 'Requires Import unmatched games', type: 'blocked' }
+      if (game.recordId) return { text: 'Already in Library', type: 'ready' }
+      if (isImportableGame(game, importOptions)) return { text: 'Ready to import', type: 'ready' }
+      return { text: game.scanMessage || 'Not importable', type: 'blocked' }
+    }
 
     if (needsUnmatched && needsArchive) {
       return { text: 'Requires unmatched + archive import', type: 'blocked' }
@@ -524,16 +530,12 @@ const Importer = () => {
     let updatedGames = gamesList.map((game) => ({ ...game }))
     for (let i = 0; i < updatedGames.length; i++) {
       let game = { ...updatedGames[i] }
-      if (game.sourceType === 'renpySave') {
-        setProgress((prev) => ({ ...prev, value: i + 1 }))
-        continue
-      }
       if (!isNewScanRow(game) && game.scanStatus !== 'pendingMatch') {
         setProgress((prev) => ({ ...prev, value: i + 1 }))
         await new Promise((r) => setTimeout(r, 0))
         continue
       }
-      if (game.atlasId && game.results?.length === 1 && game.results[0]?.key === 'match' && game.resultVisibility === 'visible') {
+      if (game.sourceType !== 'renpySave' && game.atlasId && game.results?.length === 1 && game.results[0]?.key === 'match' && game.resultVisibility === 'visible') {
         updatedGames[i] = game
         setProgress((prev) => ({ ...prev, value: i + 1 }))
         await new Promise((r) => setTimeout(r, 0))
