@@ -87,6 +87,7 @@ let contextMenuId = 0
 let mainWindow
 let settingsWindow
 let importerWindow
+let themeBuilderWindow
 let importSourceDialog
 let executableChooserWindow = null
 let appConfig
@@ -698,6 +699,61 @@ function createSettingsWindow() {
   settingsWindow.on('closed', () => { settingsWindow = null })
 }
 
+// A genuinely separate OS-level window, NOT a React modal layered over the
+// Settings window — same general shape as createSettingsWindow above, its
+// own frameless BrowserWindow with its own bounds-persistence slot
+// ('themeBuilder'). While open, every draft edit is broadcast to all OTHER
+// windows via 'theme-preview-changed' (see ipc/themes.js's
+// broadcast-theme-preview handler) so the live preview is visible
+// app-wide, not just within this window — and however this window closes
+// (the in-app Back button, titlebar, Alt+F4), the 'closed' handler below
+// broadcasts 'theme-preview-ended' so those windows revert to whatever
+// theme is actually persisted, rather than being stuck showing the
+// in-progress draft forever.
+function createThemeBuilderWindow() {
+  if (themeBuilderWindow && !themeBuilderWindow.isDestroyed()) {
+    focusWindow(themeBuilderWindow)
+    return
+  }
+  const windowState = applySavedWindowBounds('themeBuilder', {
+    width: 1000,
+    height: 720,
+    frame: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  themeBuilderWindow = new BrowserWindow(windowState.options)
+  registerWindowBoundsPersistence('themeBuilder', themeBuilderWindow, windowState)
+  if (VITE_DEV_SERVER_URL) {
+    themeBuilderWindow.loadURL(VITE_DEV_SERVER_URL + '/themebuilder.html')
+  } else {
+    themeBuilderWindow.loadFile(path.join(__dirname, '../dist/renderer/themebuilder.html'))
+  }
+  if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
+    themeBuilderWindow.webContents.openDevTools()
+  }
+  themeBuilderWindow.on('maximize', () => themeBuilderWindow.webContents.send('window-state-changed', 'maximized'))
+  themeBuilderWindow.on('unmaximize', () => themeBuilderWindow.webContents.send('window-state-changed', 'normal'))
+  themeBuilderWindow.on('closed', () => {
+    themeBuilderWindow = null
+    // Tell every remaining window the preview session is over, so they
+    // drop the draft theme and re-apply whatever is actually persisted.
+    // This fires no matter how the window closed (the in-app Back button
+    // calling window.close(), the titlebar X, Alt+F4, etc.) since it's
+    // bound to the BrowserWindow's own 'closed' event rather than any
+    // particular UI action — so there's exactly one place this broadcast
+    // needs to happen. Same inline BrowserWindow.getAllWindows() pattern
+    // save-settings already uses for 'appearance-changed' below, rather
+    // than a new helper function.
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) win.webContents.send('theme-preview-ended')
+    })
+  })
+}
+
 function createImporterWindow() {
   if (importerWindow && !importerWindow.isDestroyed()) {
     focusWindow(importerWindow)
@@ -802,8 +858,9 @@ function showExecutableChooser(title, version, executables) {
 function buildCtx() {
   return {
     // windows
-    mainWindow, settingsWindow, importerWindow, executableChooserWindow,
+    mainWindow, settingsWindow, importerWindow, executableChooserWindow, themeBuilderWindow,
     createSettingsWindow, createImporterWindow, createGameDetailsWindow, showExecutableChooser,
+    createThemeBuilderWindow,
     quitFromMainWindow,
     // state
     appConfig, configPath, dataDir, launcherDir, templatesDir, themeTemplatesDir,

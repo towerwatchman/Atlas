@@ -15,6 +15,7 @@ export default defineConfig({
         settings:    resolve(__dirname, 'src/settings.html'),
         importer:    resolve(__dirname, 'src/importer.html'),
         gamedetails: resolve(__dirname, 'src/gamedetails.html'),
+        themebuilder: resolve(__dirname, 'src/themebuilder.html'),
       },
     },
   },

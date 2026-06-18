@@ -39,11 +39,44 @@ const COLOR_LABELS = {
 }
 
 const RADIUS_LABELS = { sm: 'Small', md: 'Medium', lg: 'Large', pill: 'Pill' }
+const RADIUS_DESCRIPTIONS = {
+  sm: 'Slightly rounded corners — close to square.',
+  md: 'Moderately rounded corners, a balanced default.',
+  lg: 'Noticeably rounded corners for a softer look.',
+  pill: 'Fully rounded ends, like a capsule or pill shape.',
+}
+
 const LAYOUT_LABELS = { sidebar: 'Sidebar', topnav: 'Top Bar' }
+const LAYOUT_DESCRIPTIONS = {
+  sidebar: 'Navigation icons run down the left edge of the window.',
+  topnav: 'Navigation sits in a bar across the top of the window.',
+}
+
 const NAV_DISPLAY_LABELS = { icons: 'Icons Only', iconsAndText: 'Icons + Text', text: 'Text Only' }
+const NAV_DISPLAY_DESCRIPTIONS = {
+  icons: 'Nav buttons show only their icon — the most compact option.',
+  iconsAndText: 'Nav buttons show both an icon and a label.',
+  text: 'Nav buttons show only their text label, no icon.',
+}
+
 const FILTER_SIDE_LABELS = { left: 'Left', right: 'Right' }
+const FILTER_SIDE_DESCRIPTIONS = {
+  left: 'The Filters panel opens on the left edge of the library.',
+  right: 'The Filters panel opens on the right edge of the library.',
+}
+
 const FILTER_MODE_LABELS = { overlay: 'Overlay', inline: 'Inline' }
+const FILTER_MODE_DESCRIPTIONS = {
+  overlay: 'Floats on top of the library grid without resizing it.',
+  inline: 'Shares space with the library grid, which shrinks to fit.',
+}
+
 const TEXT_CONTEXT_LABELS = { navLabels: 'Nav Labels', pageTitles: 'Page Titles', gameTitles: 'Game Titles' }
+const TEXT_CONTEXT_DESCRIPTIONS = {
+  navLabels: 'Text labels on Sidebar/Top Bar nav buttons (Icons + Text or Text Only display modes).',
+  pageTitles: 'The section heading shown next to the logo in Sidebar layout (e.g. "Library", "Browse").',
+  gameTitles: 'Game names shown on grid banners and in the library list view.',
+}
 
 const FONT_PRESETS = [
   '"Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif',
@@ -169,7 +202,7 @@ const EffectSpecEditor = ({ label, spec, onChange, alwaysOnNote }) => (
     {spec.enabled && (
       <div className="grid grid-cols-2 gap-2">
         <ColorField label="Color" value={spec.color} onChange={(hex) => onChange({ ...spec, color: hex })} />
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" title="How far the glow/shadow spreads outward, in pixels. Higher = softer and wider.">
           <span className="text-xs flex-1">Intensity</span>
           <input
             type="number"
@@ -180,7 +213,7 @@ const EffectSpecEditor = ({ label, spec, onChange, alwaysOnNote }) => (
             className="w-16 bg-secondary border border-border text-text text-xs rounded p-1"
           />
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" title="Horizontal shift, in pixels. Positive moves right, negative moves left. 0 is centered.">
           <span className="text-xs flex-1">Offset X</span>
           <input
             type="number"
@@ -189,7 +222,7 @@ const EffectSpecEditor = ({ label, spec, onChange, alwaysOnNote }) => (
             className="w-16 bg-secondary border border-border text-text text-xs rounded p-1"
           />
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" title="Vertical shift, in pixels. Positive moves down, negative moves up. 0 is centered.">
           <span className="text-xs flex-1">Offset Y</span>
           <input
             type="number"
@@ -207,18 +240,28 @@ const SectionHeader = ({ children }) => (
   <h3 className="text-sm font-bold uppercase tracking-wide opacity-70 mt-5 mb-2 first:mt-0">{children}</h3>
 )
 
-const OptionPicker = ({ options, labels, value, onChange }) => (
+// descriptions is optional — when provided, renders richer cards (label +
+// short blurb) instead of bare pill buttons, matching the style
+// Appearance.jsx's old Layout/Filter Mode pickers used.
+const OptionPicker = ({ options, labels, descriptions, value, onChange }) => (
   <div className="flex gap-2 flex-wrap">
     {options.map((option) => (
       <button
         key={option}
         type="button"
         onClick={() => onChange(option)}
-        className={`text-xs px-3 py-1.5 rounded-theme border-2 transition-colors ${
+        title={descriptions?.[option]}
+        className={`text-left rounded-theme border-2 transition-colors ${descriptions ? 'p-2.5 min-w-[140px]' : 'text-xs px-3 py-1.5'} ${
           value === option ? 'border-accent bg-selected' : 'border-border bg-secondary hover:border-muted'
         }`}
       >
-        {labels[option] || option}
+        <div className={descriptions ? 'flex items-center justify-between mb-0.5' : ''}>
+          <span className={descriptions ? 'text-xs font-semibold' : 'text-xs'}>{labels[option] || option}</span>
+          {descriptions && value === option && <span className="text-[10px] text-accent font-medium ml-2">Active</span>}
+        </div>
+        {descriptions?.[option] && (
+          <p className="text-[10px] opacity-60 leading-tight">{descriptions[option]}</p>
+        )}
       </button>
     ))}
   </div>
@@ -228,16 +271,24 @@ const OptionPicker = ({ options, labels, value, onChange }) => (
  * Full theme authoring tool: every themeable property (colors, radius,
  * font, nav layout/display/accent-bar/filter-sidebar, nav glow, app-wide
  * button shadow/glow, text shadow/glow + per-context toggles) in one
- * place, with a live preview — every change calls applyTheme() against
- * the draft immediately, so the whole running app visibly updates as you
- * adjust sliders/pickers, the same way picking a different theme in the
- * regular Appearance picker does.
+ * place, with a LIVE PREVIEW that's visible APP-WIDE, not just in this
+ * window — every draft change both re-applies locally (so the Theme
+ * Builder window's own UI reflects it too) and broadcasts via
+ * window.electronAPI.broadcastThemePreview(), which every other open
+ * window (main library, Settings, etc.) picks up through its own
+ * ThemeProvider's onThemePreviewChanged listener and applies the same
+ * way. See electron/ipc/themes.js's broadcast-theme-preview handler.
  *
- * Opened via the "Open Theme Builder" button on Appearance.jsx; closing
- * it (Cancel, or after a successful Save) restores whatever theme was
- * actually active before the builder opened, via the cleanup effect
- * below — the live-preview changes made while in here are never
- * persisted unless the person explicitly clicks Save.
+ * Rendered inside its OWN BrowserWindow (see createThemeBuilderWindow in
+ * electron/main.js + ThemeBuilderWindow.jsx, which provides this
+ * window's chrome) — not a view swap inside Appearance.jsx or a React
+ * modal over Settings. Opened via the "Open Theme Builder" button on
+ * Appearance.jsx, which calls window.electronAPI.openThemeBuilder().
+ * However this window closes (the in-app Back button, titlebar, Alt+F4),
+ * every other window's ThemeProvider receives a 'theme-preview-ended'
+ * broadcast and reverts to whatever theme is actually persisted — the
+ * live-preview changes made while in here are never persisted unless the
+ * person explicitly clicks Save.
  */
 const ThemeBuilder = ({ onClose }) => {
   const { theme: activeTheme, layout: activeLayout } = useTheme()
@@ -250,23 +301,31 @@ const ThemeBuilder = ({ onClose }) => {
   const [saveState, setSaveState] = useState({ status: 'idle', error: null })
   const [activeSection, setActiveSection] = useState('colors')
 
-  // Live preview: every draft change re-applies immediately, exactly like
-  // picking a theme in Appearance.jsx does. layout/navDisplayMode/
-  // accentBarEnabled overrides intentionally mirror the DRAFT's own nav
-  // block (not whatever the person's real Appearance settings currently
-  // are), so the preview always reflects what's actually in the draft —
-  // toggling "Top Bar" in here should immediately show a topnav preview
-  // regardless of the user's normal saved layout preference.
+  // Live preview: every draft change re-applies immediately in THIS
+  // window, exactly like picking a theme in Appearance.jsx does, AND
+  // broadcasts the same draft to every OTHER open window (main library,
+  // Settings, etc. — see electron/ipc/themes.js's broadcast-theme-preview
+  // handler and each window's own 'theme-preview-changed' listener) so
+  // the live preview is visible app-wide, not just inside this window.
+  // layout/navDisplayMode/accentBarEnabled overrides intentionally mirror
+  // the DRAFT's own nav block (not whatever the person's real Appearance
+  // settings currently are), so the preview always reflects what's
+  // actually in the draft — toggling "Top Bar" in here should immediately
+  // show a topnav preview regardless of the user's normal saved layout
+  // preference.
   useEffect(() => {
     applyTheme(draft, draft.nav.layout, {
       navDisplayMode: draft.nav.displayMode,
       accentBarEnabled: draft.nav.accentBarEnabled,
     })
+    window.electronAPI.broadcastThemePreview(draft)
   }, [draft])
 
-  // Restore the actually-active theme/layout on unmount (Cancel, Save-then-
-  // close, or navigating away some other way) so the live preview never
-  // leaks into the rest of the app after leaving the builder.
+  // Restore this window's own CSS state on unmount, right before the
+  // window itself closes (Back button, titlebar, Alt+F4 all eventually
+  // unmount this component) — mostly redundant with the window actually
+  // disappearing a moment later, but cheap and avoids any flash of the
+  // draft theme during that brief window-close transition.
   useEffect(() => {
     return () => {
       applyTheme(activeTheme, activeLayout)
@@ -331,11 +390,11 @@ const ThemeBuilder = ({ onClose }) => {
   }
 
   const sections = useMemo(() => ([
-    { id: 'colors', label: 'Colors' },
-    { id: 'general', label: 'Radius & Font' },
-    { id: 'nav', label: 'Navigation' },
-    { id: 'buttonEffects', label: 'Button Effects' },
-    { id: 'textEffects', label: 'Text Effects' },
+    { id: 'colors', label: 'Colors', description: 'Every color used throughout the app, including gradients for the main surfaces.' },
+    { id: 'general', label: 'Radius & Font', description: 'Corner roundedness and the font family used everywhere.' },
+    { id: 'nav', label: 'Navigation', description: 'Navigation position/display, the accent bar, filter sidebar placement, and nav button glow.' },
+    { id: 'buttonEffects', label: 'Button Effects', description: 'Shadow and glow effects applied to every button in the app.' },
+    { id: 'textEffects', label: 'Text Effects', description: 'Shadow and glow effects for nav labels, page titles, and game titles.' },
   ]), [])
 
   return (
@@ -391,6 +450,7 @@ const ThemeBuilder = ({ onClose }) => {
             key={section.id}
             type="button"
             onClick={() => setActiveSection(section.id)}
+            title={section.description}
             className={`text-xs px-3 py-2 border-b-2 transition-colors -mb-px ${
               activeSection === section.id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'
             }`}
@@ -402,29 +462,39 @@ const ThemeBuilder = ({ onClose }) => {
 
       <div>
         {activeSection === 'colors' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {THEME_COLOR_KEYS.map((key) => (
-              <ColorKeyEditor
-                key={key}
-                themeKey={key}
-                value={draft.colors[key]}
-                onChange={(value) => updateColor(key, value)}
-              />
-            ))}
+          <div>
+            <p className="text-[10px] opacity-50 mb-2">
+              Every color used throughout the app. Most are flat colors; the 4 main
+              surfaces (Canvas, Primary, Secondary, Tertiary Surface) can also be set
+              as a gradient using the "Gradient" checkbox on each.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {THEME_COLOR_KEYS.map((key) => (
+                <ColorKeyEditor
+                  key={key}
+                  themeKey={key}
+                  value={draft.colors[key]}
+                  onChange={(value) => updateColor(key, value)}
+                />
+              ))}
+            </div>
           </div>
         )}
 
         {activeSection === 'general' && (
           <div>
             <SectionHeader>Corner Radius</SectionHeader>
+            <p className="text-[10px] opacity-50 mb-2">How rounded buttons, cards, and panels are throughout the app.</p>
             <OptionPicker
               options={RADIUS_OPTIONS}
               labels={RADIUS_LABELS}
+              descriptions={RADIUS_DESCRIPTIONS}
               value={draft.radius}
               onChange={(radius) => setDraft((prev) => ({ ...prev, radius }))}
             />
 
             <SectionHeader>Font</SectionHeader>
+            <p className="text-[10px] opacity-50 mb-2">The font family used for all text in the app. Pick a preset or paste a custom CSS font-family value below.</p>
             <select
               value={draft.font}
               onChange={(e) => setDraft((prev) => ({ ...prev, font: e.target.value }))}
@@ -450,37 +520,47 @@ const ThemeBuilder = ({ onClose }) => {
         {activeSection === 'nav' && (
           <div>
             <SectionHeader>Navigation Position</SectionHeader>
-            <OptionPicker options={LAYOUT_OPTIONS} labels={LAYOUT_LABELS} value={draft.nav.layout} onChange={(layout) => updateNav({ layout })} />
+            <p className="text-[10px] opacity-50 mb-2">Where the app's main navigation buttons (Library, Browse, Settings, etc.) are positioned.</p>
+            <OptionPicker options={LAYOUT_OPTIONS} labels={LAYOUT_LABELS} descriptions={LAYOUT_DESCRIPTIONS} value={draft.nav.layout} onChange={(layout) => updateNav({ layout })} />
 
             <SectionHeader>Navigation Display</SectionHeader>
-            <OptionPicker options={NAV_DISPLAY_MODE_OPTIONS} labels={NAV_DISPLAY_LABELS} value={draft.nav.displayMode} onChange={(displayMode) => updateNav({ displayMode })} />
+            <p className="text-[10px] opacity-50 mb-2">How each navigation button presents itself — icon, text, or both.</p>
+            <OptionPicker options={NAV_DISPLAY_MODE_OPTIONS} labels={NAV_DISPLAY_LABELS} descriptions={NAV_DISPLAY_DESCRIPTIONS} value={draft.nav.displayMode} onChange={(displayMode) => updateNav({ displayMode })} />
 
             <SectionHeader>Accent Bar</SectionHeader>
+            <p className="text-[10px] opacity-50 mb-2">A decorative accent-colored notch behind the logo at the top of the window. Purely cosmetic — safe to turn off for a flatter header.</p>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" checked={draft.nav.accentBarEnabled} onChange={(e) => updateNav({ accentBarEnabled: e.target.checked })} />
               Show the accent-colored strip behind the logo
             </label>
 
             <SectionHeader>Filter Sidebar Side</SectionHeader>
-            <OptionPicker options={FILTER_SIDEBAR_SIDE_OPTIONS} labels={FILTER_SIDE_LABELS} value={draft.nav.filterSidebar.side} onChange={(side) => updateFilterSidebar({ side })} />
+            <p className="text-[10px] opacity-50 mb-2">Which edge of the window the Filters panel (search/sort/filter controls) opens on.</p>
+            <OptionPicker options={FILTER_SIDEBAR_SIDE_OPTIONS} labels={FILTER_SIDE_LABELS} descriptions={FILTER_SIDE_DESCRIPTIONS} value={draft.nav.filterSidebar.side} onChange={(side) => updateFilterSidebar({ side })} />
 
             <SectionHeader>Filter Sidebar Mode</SectionHeader>
-            <OptionPicker options={FILTER_SIDEBAR_MODE_OPTIONS} labels={FILTER_MODE_LABELS} value={draft.nav.filterSidebar.mode} onChange={(mode) => updateFilterSidebar({ mode })} />
+            <p className="text-[10px] opacity-50 mb-2">Whether the Filters panel floats over the library grid or shares space with it.</p>
+            <OptionPicker options={FILTER_SIDEBAR_MODE_OPTIONS} labels={FILTER_MODE_LABELS} descriptions={FILTER_MODE_DESCRIPTIONS} value={draft.nav.filterSidebar.mode} onChange={(mode) => updateFilterSidebar({ mode })} />
 
             <SectionHeader>Nav Button Glow</SectionHeader>
-            <p className="text-[10px] opacity-50 mb-2">Only ever shown on the Top Bar's active/selected button — never the Sidebar, never a permanent effect.</p>
+            <p className="text-[10px] opacity-50 mb-2">A colored glow effect. Only ever shown on the Top Bar's active/selected button — never the Sidebar, and never a permanent effect (it disappears when nothing is selected).</p>
             <EffectSpecEditor label="Nav Glow" spec={draft.nav.glow} onChange={(glow) => updateNav({ glow })} />
           </div>
         )}
 
         {activeSection === 'buttonEffects' && (
           <div>
+            <p className="text-[10px] opacity-50 mb-2">
+              These effects apply to every button in the app — Settings, dialogs, the
+              filter sidebar, and more — not just navigation buttons (which have their
+              own separate glow setting on the Navigation tab).
+            </p>
             <SectionHeader>Button Shadow</SectionHeader>
             <EffectSpecEditor
               label="Shadow"
               spec={draft.buttonEffects.shadow}
               onChange={(shadow) => updateButtonEffect('shadow', shadow)}
-              alwaysOnNote="Applies to every button in the app, permanently, whenever enabled."
+              alwaysOnNote="A drop shadow shown permanently on every button in the app whenever enabled — it doesn't depend on hover, focus, or selection."
             />
 
             <SectionHeader>Button Glow</SectionHeader>
@@ -488,19 +568,24 @@ const ThemeBuilder = ({ onClose }) => {
               label="Glow"
               spec={draft.buttonEffects.glow}
               onChange={(glow) => updateButtonEffect('glow', glow)}
-              alwaysOnNote="Applies to every button in the app, but only on hover, focus, or active state — never a permanent effect."
+              alwaysOnNote="A colored glow shown on every button in the app, but only while hovered, focused, or marked active — it disappears the rest of the time, never a permanent effect."
             />
           </div>
         )}
 
         {activeSection === 'textEffects' && (
           <div>
+            <p className="text-[10px] opacity-50 mb-2">
+              One shared shadow style and one shared glow style for text — turn each on
+              for whichever contexts (below) you want it to affect. Useful for making
+              navigation labels or game titles stand out against busy backgrounds.
+            </p>
             <SectionHeader>Text Shadow</SectionHeader>
             <EffectSpecEditor
               label="Shadow"
               spec={draft.textEffects.shadow}
               onChange={(shadow) => updateTextEffect('shadow', shadow)}
-              alwaysOnNote="Permanent whenever enabled, for any context checked below."
+              alwaysOnNote="Shown permanently (whenever a context below has Shadow checked) — it doesn't depend on hover or selection."
             />
 
             <SectionHeader>Text Glow</SectionHeader>
@@ -508,14 +593,16 @@ const ThemeBuilder = ({ onClose }) => {
               label="Glow"
               spec={draft.textEffects.glow}
               onChange={(glow) => updateTextEffect('glow', glow)}
-              alwaysOnNote="Only shown on hover or selection, for any context checked below — never a permanent effect."
+              alwaysOnNote="Only shown while hovered or selected (for any context below with Glow checked) — never a permanent effect."
             />
 
             <SectionHeader>Apply To</SectionHeader>
+            <p className="text-[10px] opacity-50 mb-2">Check Shadow and/or Glow independently for each text context below.</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {TEXT_EFFECT_CONTEXTS.map((context) => (
                 <div key={context} className="border border-border rounded-theme p-2">
-                  <p className="text-xs font-semibold mb-1">{TEXT_CONTEXT_LABELS[context] || context}</p>
+                  <p className="text-xs font-semibold mb-0.5">{TEXT_CONTEXT_LABELS[context] || context}</p>
+                  <p className="text-[10px] opacity-60 mb-1.5 leading-tight">{TEXT_CONTEXT_DESCRIPTIONS[context]}</p>
                   <label className="flex items-center gap-1 text-[11px] cursor-pointer">
                     <input
                       type="checkbox"

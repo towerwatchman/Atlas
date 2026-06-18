@@ -193,6 +193,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("appearance-changed", (event, appearance) => callback(appearance));
     return () => ipcRenderer.removeAllListeners("appearance-changed");
   },
+  // Theme Builder live preview — see electron/ipc/themes.js. Sent only
+  // while a Theme Builder window is open, to every OTHER window, as the
+  // person edits the draft theme; 'ended' fires once when that window
+  // closes (however it closes), telling receivers to drop the draft and
+  // go back to whatever theme is actually persisted (e.g. by re-applying
+  // their own current theme/layout state, already held in ThemeProvider).
+  onThemePreviewChanged: (callback) => {
+    ipcRenderer.on("theme-preview-changed", (event, draftTheme) => callback(draftTheme));
+    return () => ipcRenderer.removeAllListeners("theme-preview-changed");
+  },
+  onThemePreviewEnded: (callback) => {
+    ipcRenderer.on("theme-preview-ended", () => callback());
+    return () => ipcRenderer.removeAllListeners("theme-preview-ended");
+  },
+  openThemeBuilder: () => ipcRenderer.invoke("open-theme-builder"),
+  broadcastThemePreview: (draftTheme) => ipcRenderer.invoke("broadcast-theme-preview", draftTheme),
   onMetadataChanged: (callback) => {
     ipcRenderer.on("metadata-changed", (event, metadata) => callback(metadata));
     return () => ipcRenderer.removeAllListeners("metadata-changed");

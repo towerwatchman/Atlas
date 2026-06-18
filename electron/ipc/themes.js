@@ -1,6 +1,6 @@
 'use strict'
 
-const { ipcMain } = require('electron')
+const { ipcMain, BrowserWindow } = require('electron')
 const fs = require('fs')
 const path = require('path')
 
@@ -115,7 +115,7 @@ function idFromFilename(filename) {
 }
 
 module.exports = function registerThemeHandlers(ctx) {
-  const { themeTemplatesDir } = ctx
+  const { themeTemplatesDir, createThemeBuilderWindow } = ctx
 
   // Seed the example theme(s) on first run only — i.e. only if the folder
   // is completely empty. If a person deletes xlibrary.json on purpose,
@@ -213,5 +213,31 @@ module.exports = function registerThemeHandlers(ctx) {
       console.error('save-theme error:', err)
       return { success: false, error: err.message }
     }
+  })
+
+  // Opens the Theme Builder as its own BrowserWindow (see
+  // createThemeBuilderWindow in main.js) — called from the "Open Theme
+  // Builder" button on Appearance.jsx, same pattern as open-settings/
+  // open-importer elsewhere in this app.
+  ipcMain.handle('open-theme-builder', () => {
+    createThemeBuilderWindow()
+  })
+
+  // Relays a live draft theme from the Theme Builder window to every
+  // OTHER open window, so the in-progress edit is visible app-wide (main
+  // library, Settings, etc.) as the person adjusts colors/effects/nav
+  // settings — not just within the builder window itself. Sent on every
+  // draft change (see ThemeBuilder.jsx's live-preview effect), so this is
+  // a high-frequency channel during an active drag/slider interaction;
+  // kept deliberately simple (no diffing/throttling here) since a full
+  // theme object is small and applyTheme() on the receiving end is cheap.
+  // event.sender is excluded so the builder window doesn't needlessly
+  // re-receive and re-apply its own change.
+  ipcMain.handle('broadcast-theme-preview', (event, draftTheme) => {
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed() && win.webContents.id !== event.sender.id) {
+        win.webContents.send('theme-preview-changed', draftTheme)
+      }
+    })
   })
 }

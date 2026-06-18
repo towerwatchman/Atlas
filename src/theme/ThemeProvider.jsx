@@ -158,6 +158,34 @@ export function ThemeProvider({ children }) {
     applyTheme(theme, layout, { navDisplayMode, accentBarEnabled })
   }, [theme, layout, navDisplayMode, accentBarEnabled])
 
+  // Theme Builder live preview (see ThemeBuilder.jsx + electron/ipc/
+  // themes.js's broadcast-theme-preview / open-theme-builder handlers).
+  // This is a deliberate SIDE CHANNEL, not provider state: 'changed' calls
+  // applyTheme() directly with the incoming draft, bypassing
+  // theme/layout/etc. state entirely, so a preview can never get
+  // persisted (persist() only ever runs from setTheme/setLayout/etc.,
+  // none of which fire here) and never collides with the "re-apply on
+  // state change" effect above. 'ended' simply re-runs that same
+  // applyTheme() call using this window's own already-held (real) state,
+  // which is exactly what restores the actually-active theme once the
+  // preview session is over — no extra fetch needed, since this window
+  // never stopped tracking its real state while the preview was showing.
+  useEffect(() => {
+    const removePreviewListener = window.electronAPI.onThemePreviewChanged?.((draftTheme) => {
+      applyTheme(draftTheme, draftTheme?.nav?.layout, {
+        navDisplayMode: draftTheme?.nav?.displayMode,
+        accentBarEnabled: draftTheme?.nav?.accentBarEnabled,
+      })
+    })
+    const removeEndedListener = window.electronAPI.onThemePreviewEnded?.(() => {
+      applyTheme(theme, layout, { navDisplayMode, accentBarEnabled })
+    })
+    return () => {
+      if (typeof removePreviewListener === 'function') removePreviewListener()
+      if (typeof removeEndedListener === 'function') removeEndedListener()
+    }
+  }, [theme, layout, navDisplayMode, accentBarEnabled])
+
   const persist = useCallback((nextAppearance) => {
     window.electronAPI.getConfig().then((config) => {
       window.electronAPI.saveSettings({
