@@ -966,6 +966,7 @@ const App = () => {
             activeSavedFilterId={activeSavedFilterId}
             counts={savedFilterCounts}
             deleteStateById={savedFilterDeleteStateById}
+            leftOffsetClassName={isTopNav ? '' : 'ml-[60px]'}
             onApplyFilter={applySavedFilter}
             onDeleteFilter={deleteSavedFilter}
           />

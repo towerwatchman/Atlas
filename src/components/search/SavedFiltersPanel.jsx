@@ -72,6 +72,7 @@ const SavedFiltersPanel = ({
   activeSavedFilterId = '',
   counts = {},
   deleteStateById = {},
+  leftOffsetClassName = '',
   onApplyFilter,
   onDeleteFilter,
 }) => {
@@ -117,7 +118,7 @@ const SavedFiltersPanel = ({
   )
 
   return (
-    <div className="w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ml-[60px]">
+    <div className={`w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ${leftOffsetClassName}`}>
       <div className="px-2 py-3 border-b border-border">
         <div className="font-semibold text-sm">Saved Filters</div>
         <div className="text-[11px] text-muted">Click to apply</div>
