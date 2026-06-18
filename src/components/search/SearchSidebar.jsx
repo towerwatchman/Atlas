@@ -138,22 +138,17 @@ const SearchSidebar = ({
   const isOverlay = mode !== "inline";
   const isLeft = side === "left";
 
-  // Overlay mode: fixed, floats above the grid, pinned to one edge — same
-  // visual treatment as before (rounded on all 4 corners, drop shadow),
-  // just mirrored horizontally when side='left'. Inline mode: a normal
-  // block-level flex sibling (see App.jsx) that takes up real horizontal
-  // space — margins/height are simplified accordingly since there's no
-  // "floating over other content" to account for, and only the inner
-  // edge (the one facing the grid) is square so it reads as attached
-  // rather than floating, matching how the existing library-list panel
-  // sits flush against the grid.
+  // The only thing that differs between overlay and inline is the
+  // positioning mechanism: overlay is `fixed` and pinned to an edge so it
+  // floats above the grid; inline is a normal in-flow block (a flex
+  // sibling of #gameGrid in App.jsx) that the grid shares space with
+  // instead. Border, border-radius, drop shadow, and margin are the same
+  // in both — this is the same panel, just docked differently.
   const containerClassName = [
-    "w-[320px] bg-secondary overflow-hidden -webkit-app-region-no-drag flex-shrink-0",
-    isOverlay ? "fixed shadow-2xl border border-accent" : "relative border-r-0",
+    "w-[320px] bg-secondary border border-accent overflow-hidden shadow-2xl -webkit-app-region-no-drag flex-shrink-0",
+    isOverlay ? "fixed" : "relative",
     isOverlay && isLeft ? "left-0" : "",
     isOverlay && !isLeft ? "right-0" : "",
-    !isOverlay && isLeft ? "border-r border-border" : "",
-    !isOverlay && !isLeft ? "border-l border-border" : "",
   ].filter(Boolean).join(" ");
 
   const containerStyle = isOverlay
@@ -167,9 +162,14 @@ const SearchSidebar = ({
       }
     : {
         // Inline mode lives inside App.jsx's main-content flex row, which
-        // is already top:70px/bottom:40px-bounded — no extra positioning
-        // needed here, just fill that row's height.
-        height: "100%",
+        // is already top:70px/bottom:40px-bounded, so no top/bottom
+        // positioning is needed here — but margin/radius/shadow stay
+        // identical to overlay mode so the panel looks the same either
+        // way, just docked instead of floating.
+        margin: isLeft ? "10px 0 10px 10px" : "10px 10px 10px 0",
+        borderRadius: "8px",
+        boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+        height: "calc(100% - 20px)", // fill the row, minus the 10px top/bottom margin
       };
 
   return (
