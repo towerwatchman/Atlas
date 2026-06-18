@@ -92,6 +92,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   resolveImportMatches: (games) =>
     ipcRenderer.invoke("resolve-import-matches", games),
   importGames: (params) => ipcRenderer.invoke("import-games", params),
+  scanRenpySaves: (params) => ipcRenderer.invoke("scan-renpy-saves", params),
+  selectRenpySaveDirectory: () =>
+    ipcRenderer.invoke("select-renpy-save-directory"),
+  importRenpySaveGames: (games) =>
+    ipcRenderer.invoke("import-renpy-save-games", games),
   selectCatalogImportSource: () =>
     ipcRenderer.invoke("select-catalog-import-source"),
   importCatalogEntry: (params) => ipcRenderer.invoke("import-catalog-entry", params),
