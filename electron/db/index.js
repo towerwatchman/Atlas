@@ -403,6 +403,17 @@ const initializeDatabase = (dataDir) => {
     db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_creator ON atlas_data(creator);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_data_atlas_id ON f95_zone_data(atlas_id);`);
     db.run(`ALTER TABLE games ADD COLUMN is_favorite INTEGER DEFAULT 0;`, () => {});
+    db.run(`
+      CREATE TABLE IF NOT EXISTS game_personal_ratings
+      (
+        record_id INTEGER PRIMARY KEY REFERENCES games(record_id) ON DELETE CASCADE,
+        story INTEGER,
+        graphics INTEGER,
+        gameplay INTEGER,
+        fappability INTEGER,
+        updated_at INTEGER
+      );
+    `);
 
     // Add pre-computed normalized_title column if it doesn't exist, then populate and index it
     db.run(`ALTER TABLE atlas_data ADD COLUMN normalized_title TEXT;`, () => {

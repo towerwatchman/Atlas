@@ -67,20 +67,44 @@ const defaultSavedFilterState = {
   censored: [],
   language: [],
   tags: [],
+  excludedCategories: [],
+  excludedEngines: [],
+  excludedStatuses: [],
+  excludedTags: [],
   sort: 'name',
+  sortDirection: 'asc',
   dateLimit: 0,
+  dateField: 'none',
+  dateRange: 'any',
+  dateFrom: '',
+  dateTo: '',
   browseSource: 'all',
   browseDateBasis: 'thread_updated',
   browseDateRange: 'any',
   browseSort: 'nameAsc',
   tagLogic: 'AND',
   updateAvailable: false,
+  favoritesOnly: false,
+  steamMapped: false,
+  personalRatingMin: 0,
+  personalRatingRatedOnly: false,
   includeUninstalled: false,
   installState: 'installed',
   multipleInstalledVersions: false,
 }
 
-const savedFilterArrayKeys = ['category', 'engine', 'status', 'censored', 'language', 'tags']
+const savedFilterArrayKeys = [
+  'category',
+  'engine',
+  'status',
+  'censored',
+  'language',
+  'tags',
+  'excludedCategories',
+  'excludedEngines',
+  'excludedStatuses',
+  'excludedTags',
+]
 
 const toSavedFilterArray = (value) => {
   if (Array.isArray(value)) return value.filter((item) => item !== undefined && item !== null).map(String)
@@ -95,6 +119,15 @@ const normalizeSavedFilterState = (filters = {}) => {
   merged.text = String(merged.text || '')
   merged.type = String(merged.type || 'all')
   merged.sort = String(merged.sort || 'name')
+  merged.sortDirection = merged.sortDirection === 'desc' ? 'desc' : 'asc'
+  merged.dateField = ['none', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded'].includes(merged.dateField)
+    ? merged.dateField
+    : 'none'
+  merged.dateRange = ['any', '7d', '30d', '90d', 'year', 'custom'].includes(merged.dateRange)
+    ? merged.dateRange
+    : 'any'
+  merged.dateFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(merged.dateFrom || '')) ? String(merged.dateFrom) : ''
+  merged.dateTo = /^\d{4}-\d{2}-\d{2}$/.test(String(merged.dateTo || '')) ? String(merged.dateTo) : ''
   merged.browseSource = ['all', 'f95', 'steam', 'atlas'].includes(merged.browseSource)
     ? merged.browseSource
     : 'all'
@@ -110,6 +143,13 @@ const normalizeSavedFilterState = (filters = {}) => {
     : 'nameAsc'
   merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
   merged.updateAvailable = merged.updateAvailable === true
+  merged.favoritesOnly = merged.favoritesOnly === true
+  merged.steamMapped = merged.steamMapped === true
+  const personalRatingMin = Number(merged.personalRatingMin)
+  merged.personalRatingMin = Number.isFinite(personalRatingMin)
+    ? Math.max(0, Math.min(10, Math.round(personalRatingMin)))
+    : 0
+  merged.personalRatingRatedOnly = merged.personalRatingRatedOnly === true
   merged.multipleInstalledVersions = merged.multipleInstalledVersions === true
   if (!['installed', 'uninstalled', 'all'].includes(merged.installState)) {
     merged.installState = merged.includeUninstalled ? 'all' : 'installed'

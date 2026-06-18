@@ -193,6 +193,35 @@ const SearchSidebar = ({
     tag.toLowerCase().includes(tagSearch.toLowerCase()),
   );
 
+  const dateFieldOptions = isCatalogMode
+    ? [
+        ["none", "No date filter"],
+        ["latestUpdate", "Latest Update"],
+        ["threadPublished", "Thread Published"],
+        ["releaseDate", "Release Date"],
+      ]
+    : [
+        ["none", "No date filter"],
+        ["releaseDate", "Release Date"],
+        ["lastInstalled", "Last Installed"],
+        ["lastPlayed", "Last Played"],
+        ["wishlistAdded", "Wishlist Added"],
+      ];
+
+  const handleDateFieldChange = (value) => {
+    const changes = { dateField: value };
+    if (value === "latestUpdate") changes.browseDateBasis = "thread_updated";
+    if (value === "threadPublished") changes.browseDateBasis = "thread_publish_date";
+    updateFilters(changes);
+  };
+
+  const handleDateRangeChange = (value) => {
+    updateFilters({
+      dateRange: value,
+      browseDateRange: value === "custom" ? "any" : value,
+    });
+  };
+
   useEffect(() => {
     setHighlightedTagIndex(-1);
   }, [tagSearch]);
@@ -380,34 +409,6 @@ const SearchSidebar = ({
                 </select>
               </label>
               <label className="block text-sm">
-                <span className="block mb-1">Date field</span>
-                <select
-                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                  value={selectedFilters.browseDateBasis}
-                  onChange={(e) => updateFilters({ browseDateBasis: e.target.value })}
-                >
-                  <option value="thread_updated">Latest Update</option>
-                  <option value="thread_publish_date">Thread Published</option>
-                </select>
-                <p className="text-xs text-muted mt-1">
-                  Latest Update depends on AtlasDB thread update data. Some records may not appear until the database has finished updating.
-                </p>
-              </label>
-              <label className="block text-sm">
-                <span className="block mb-1">Date Range</span>
-                <select
-                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                  value={selectedFilters.browseDateRange}
-                  onChange={(e) => updateFilters({ browseDateRange: e.target.value })}
-                >
-                  <option value="any">Any time</option>
-                  <option value="7d">Last 7 days</option>
-                  <option value="30d">Last 30 days</option>
-                  <option value="90d">Last 90 days</option>
-                  <option value="year">This year</option>
-                </select>
-              </label>
-              <label className="block text-sm">
                 <span className="block mb-1">Sort</span>
                 <select
                   className="w-full p-2 bg-tertiary border border-border rounded text-sm"
@@ -423,6 +424,68 @@ const SearchSidebar = ({
             </div>
           </div>
         )}
+
+        {/* Dates */}
+        <div className="mb-6 border-b border-border pb-4">
+          <h4 className="font-bold mb-3">Dates</h4>
+          <div className="space-y-3">
+            <label className="block text-sm">
+              <span className="block mb-1">Date field</span>
+              <select
+                className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                value={selectedFilters.dateField}
+                onChange={(e) => handleDateFieldChange(e.target.value)}
+              >
+                {dateFieldOptions.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              {isCatalogMode && selectedFilters.dateField === "latestUpdate" && (
+                <p className="text-xs text-muted mt-1">
+                  Latest Update depends on AtlasDB thread update data. Some records may not appear until the database has finished updating.
+                </p>
+              )}
+            </label>
+            <label className="block text-sm">
+              <span className="block mb-1">Date range</span>
+              <select
+                className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                value={selectedFilters.dateRange}
+                onChange={(e) => handleDateRangeChange(e.target.value)}
+                disabled={selectedFilters.dateField === "none"}
+              >
+                <option value="any">Any time</option>
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+                <option value="90d">Last 90 days</option>
+                <option value="year">This year</option>
+                <option value="custom">Custom range</option>
+              </select>
+            </label>
+            {selectedFilters.dateRange === "custom" && selectedFilters.dateField !== "none" && (
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block text-sm">
+                  <span className="block mb-1">From</span>
+                  <input
+                    type="date"
+                    className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                    value={selectedFilters.dateFrom}
+                    onChange={(e) => updateFilters({ dateFrom: e.target.value })}
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="block mb-1">To</span>
+                  <input
+                    type="date"
+                    className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                    value={selectedFilters.dateTo}
+                    onChange={(e) => updateFilters({ dateTo: e.target.value })}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Steam mapping */}
         <div className="mb-6 border-b border-border pb-4">
@@ -475,6 +538,7 @@ const SearchSidebar = ({
               <option value="newlyPlayed">Newly Played</option>
               <option value="playtime">Playtime</option>
               <option value="fileSize">File Size</option>
+              <option value="personalRating">Personal Rating</option>
             </select>
             <button
               type="button"
@@ -486,6 +550,42 @@ const SearchSidebar = ({
             >
               {selectedFilters.sortDirection === "asc" ? "Ascending" : "Descending"}
             </button>
+          </div>
+        </div>
+        )}
+
+        {/* Personal rating */}
+        {!isCatalogMode && (
+        <div className="mb-6 border-b border-border pb-4">
+          <h4 className="font-bold mb-3">Personal Rating</h4>
+          <div className="space-y-3">
+            <label className="block text-sm">
+              <span className="block mb-1">Minimum rating</span>
+              <select
+                className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                value={selectedFilters.personalRatingMin}
+                onChange={(e) => updateFilters({ personalRatingMin: Number(e.target.value) })}
+              >
+                <option value={0}>Any</option>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((rating) => (
+                  <option key={rating} value={rating}>{rating}+</option>
+                ))}
+                <option value={10}>10</option>
+              </select>
+            </label>
+            <label className="flex items-center space-x-2 text-sm">
+              <input
+                type="checkbox"
+                checked={selectedFilters.personalRatingRatedOnly || false}
+                onChange={() =>
+                  updateFilters({
+                    personalRatingRatedOnly: !selectedFilters.personalRatingRatedOnly,
+                  })
+                }
+                className="-webkit-app-region-no-drag"
+              />
+              <span>Rated only</span>
+            </label>
           </div>
         </div>
         )}

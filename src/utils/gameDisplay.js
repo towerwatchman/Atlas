@@ -19,6 +19,11 @@ export const normalizeGameForRenderer = (game) => {
     const number = Number(value || 0)
     return Number.isFinite(number) ? number : 0
   }
+  const nullableNumber = (value) => {
+    if (value === undefined || value === null || value === '') return null
+    const number = Number(value)
+    return Number.isFinite(number) ? number : null
+  }
   return {
     ...game,
     record_id: game.record_id ?? safeText(game.atlas_id || game.f95_id || title),
@@ -45,6 +50,12 @@ export const normalizeGameForRenderer = (game) => {
     totalFolderSize: safeNumber(game.totalFolderSize),
     isUpdateAvailable: game.isUpdateAvailable === true,
     isFavorite: game.isFavorite === true || game.is_favorite === 1,
+    personalRatingStory: nullableNumber(game.personalRatingStory ?? game.personal_rating_story),
+    personalRatingGraphics: nullableNumber(game.personalRatingGraphics ?? game.personal_rating_graphics),
+    personalRatingGameplay: nullableNumber(game.personalRatingGameplay ?? game.personal_rating_gameplay),
+    personalRatingFappability: nullableNumber(game.personalRatingFappability ?? game.personal_rating_fappability),
+    personalRatingOverall: nullableNumber(game.personalRatingOverall ?? game.personal_rating_overall),
+    personalRatingUpdatedAt: nullableNumber(game.personalRatingUpdatedAt ?? game.personal_rating_updated_at),
   }
 }
 

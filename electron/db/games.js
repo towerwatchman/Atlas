@@ -186,6 +186,95 @@ const setGameFavorite = (recordId, isFavorite) => {
   });
 };
 
+const normalizePersonalRatingValue = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Math.max(0, Math.min(10, Math.round(number)));
+};
+
+const computePersonalRatingOverall = (ratings) => {
+  const values = [
+    ratings.story,
+    ratings.graphics,
+    ratings.gameplay,
+    ratings.fappability,
+  ].filter((value) => Number.isFinite(value));
+  if (values.length === 0) return null;
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+  return Math.round(average * 10) / 10;
+};
+
+const buildPersonalRatingPayload = (recordId, ratings, updatedAt = Math.floor(Date.now() / 1000)) => {
+  const normalized = {
+    story: normalizePersonalRatingValue(ratings?.story),
+    graphics: normalizePersonalRatingValue(ratings?.graphics),
+    gameplay: normalizePersonalRatingValue(ratings?.gameplay),
+    fappability: normalizePersonalRatingValue(ratings?.fappability),
+  };
+  return {
+    recordId,
+    personalRatingStory: normalized.story,
+    personalRatingGraphics: normalized.graphics,
+    personalRatingGameplay: normalized.gameplay,
+    personalRatingFappability: normalized.fappability,
+    personalRatingOverall: computePersonalRatingOverall(normalized),
+    personalRatingUpdatedAt: updatedAt,
+  };
+};
+
+const setGamePersonalRatings = (recordId, ratings = {}) => {
+  const id = Number.parseInt(recordId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    return Promise.resolve({ success: false, error: "Invalid recordId" });
+  }
+
+  const updatedAt = Math.floor(Date.now() / 1000);
+  const payload = buildPersonalRatingPayload(id, ratings, updatedAt);
+
+  return new Promise((resolve) => {
+    getDb().get(`SELECT record_id FROM games WHERE record_id = ?`, [id], (selectErr, row) => {
+      if (selectErr) {
+        console.error("Error checking game before rating update:", selectErr);
+        resolve({ success: false, error: selectErr.message });
+        return;
+      }
+      if (!row) {
+        resolve({ success: false, error: "Game record not found" });
+        return;
+      }
+
+      getDb().run(
+        `INSERT INTO game_personal_ratings
+          (record_id, story, graphics, gameplay, fappability, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(record_id) DO UPDATE SET
+          story = excluded.story,
+          graphics = excluded.graphics,
+          gameplay = excluded.gameplay,
+          fappability = excluded.fappability,
+          updated_at = excluded.updated_at`,
+        [
+          id,
+          payload.personalRatingStory,
+          payload.personalRatingGraphics,
+          payload.personalRatingGameplay,
+          payload.personalRatingFappability,
+          updatedAt,
+        ],
+        (err) => {
+          if (err) {
+            console.error("Error updating personal ratings:", err);
+            resolve({ success: false, error: err.message });
+            return;
+          }
+          resolve({ success: true, ...payload });
+        },
+      );
+    });
+  });
+};
+
 const getGameRecordIds = () => {
   return new Promise((resolve, reject) => {
     getDb().all(`SELECT record_id FROM games ORDER BY title COLLATE NOCASE`, [], (err, rows) => {
@@ -368,6 +457,7 @@ module.exports = {
   recordGameLaunchStarted,
   recordGamePlaytime,
   setGameFavorite,
+  setGamePersonalRatings,
   getUniqueFilterOptions,
   resetCachedFilterOptions,
 }

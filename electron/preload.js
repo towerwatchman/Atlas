@@ -143,6 +143,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("open-game-properties", recordId),
   setGameFavorite: (recordId, isFavorite) =>
     ipcRenderer.invoke("set-game-favorite", { recordId, isFavorite }),
+  setGamePersonalRatings: (recordId, ratings) =>
+    ipcRenderer.invoke("set-game-personal-ratings", { recordId, ratings }),
 
   saveEmulatorConfig: (config) =>
     ipcRenderer.invoke("save-emulator-config", config),

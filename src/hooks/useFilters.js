@@ -18,6 +18,10 @@ export const defaultFilters = {
   sort: 'name',
   sortDirection: 'asc',
   dateLimit: 0,
+  dateField: 'none',
+  dateRange: 'any',
+  dateFrom: '',
+  dateTo: '',
   browseSource: 'all',
   browseDateBasis: 'thread_updated',
   browseDateRange: 'any',
@@ -26,6 +30,8 @@ export const defaultFilters = {
   updateAvailable: false,
   favoritesOnly: false,
   steamMapped: false,
+  personalRatingMin: 0,
+  personalRatingRatedOnly: false,
   includeUninstalled: false,
   installState: 'installed',
   multipleInstalledVersions: false,
@@ -45,6 +51,8 @@ const arrayFilterKeys = [
 ]
 const searchTypes = ['all', 'title', 'creator', 'atlasId', 'f95Id', 'steamId', 'anyId']
 const sourceTypes = ['all', 'f95', 'steam', 'atlas']
+const dateFields = ['none', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded']
+const dateRanges = ['any', '7d', '30d', '90d', 'year', 'custom']
 const sortTypes = [
   'name',
   'creator',
@@ -57,8 +65,9 @@ const sortTypes = [
   'newlyPlayed',
   'playtime',
   'fileSize',
+  'personalRating',
 ]
-const defaultDescSortTypes = ['date', 'likes', 'views', 'rating', 'newlyInstalled', 'newlyPlayed', 'playtime', 'fileSize']
+const defaultDescSortTypes = ['date', 'likes', 'views', 'rating', 'newlyInstalled', 'newlyPlayed', 'playtime', 'fileSize', 'personalRating']
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value.filter((item) => item !== undefined && item !== null).map(String)
@@ -79,6 +88,23 @@ const normalizeSourceType = (value) => {
 const normalizeSortType = (value) => {
   const normalized = String(value || 'name')
   return sortTypes.includes(normalized) ? normalized : 'name'
+}
+
+const normalizeDateField = (value) => {
+  const normalized = String(value || 'none')
+  return dateFields.includes(normalized) ? normalized : 'none'
+}
+
+const normalizeDateRange = (value) => {
+  const normalized = String(value || 'any')
+  return dateRanges.includes(normalized) ? normalized : 'any'
+}
+
+const normalizeIsoDateInput = (value) => {
+  const text = String(value || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return ''
+  const parsed = new Date(`${text}T00:00:00`)
+  return Number.isNaN(parsed.getTime()) ? '' : text
 }
 
 export const normalizeFilterState = (filters = {}) => {
@@ -102,6 +128,10 @@ export const normalizeFilterState = (filters = {}) => {
     merged.sortDirection = merged.sortDirection === 'desc' ? 'desc' : 'asc'
   }
   merged.browseSource = normalizeSourceType(merged.browseSource)
+  merged.dateField = normalizeDateField(merged.dateField)
+  merged.dateRange = normalizeDateRange(merged.dateRange)
+  merged.dateFrom = normalizeIsoDateInput(merged.dateFrom)
+  merged.dateTo = normalizeIsoDateInput(merged.dateTo)
   merged.browseDateBasis = ['thread_updated', 'thread_publish_date'].includes(merged.browseDateBasis)
     ? merged.browseDateBasis
     : 'thread_updated'
@@ -116,6 +146,11 @@ export const normalizeFilterState = (filters = {}) => {
   merged.updateAvailable = merged.updateAvailable === true
   merged.favoritesOnly = merged.favoritesOnly === true
   merged.steamMapped = merged.steamMapped === true
+  const personalRatingMin = Number(merged.personalRatingMin)
+  merged.personalRatingMin = Number.isFinite(personalRatingMin)
+    ? Math.max(0, Math.min(10, Math.round(personalRatingMin)))
+    : 0
+  merged.personalRatingRatedOnly = merged.personalRatingRatedOnly === true
   merged.multipleInstalledVersions = merged.multipleInstalledVersions === true
   if (!['installed', 'uninstalled', 'all'].includes(merged.installState)) {
     merged.installState = merged.includeUninstalled ? 'all' : 'installed'
@@ -124,6 +159,10 @@ export const normalizeFilterState = (filters = {}) => {
   if (['all', 'uninstalled'].includes(merged.installState)) merged.includeUninstalled = true
   const dateLimit = Number(merged.dateLimit)
   merged.dateLimit = Number.isFinite(dateLimit) && dateLimit > 0 ? dateLimit : 0
+  if (merged.dateField === 'none' && [7, 30, 90].includes(merged.dateLimit)) {
+    merged.dateField = 'releaseDate'
+    merged.dateRange = `${merged.dateLimit}d`
+  }
   return merged
 }
 
@@ -167,6 +206,29 @@ const getReleaseDateValue = (game = {}) => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+const normalizeDateValueMs = (value) => {
+  if (value === undefined || value === null || value === '') return null
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value <= 0) return null
+    return value > 100000000000 ? value : value * 1000
+  }
+  const normalized = String(value).trim()
+  if (!normalized) return null
+  if (/^\d+$/.test(normalized)) {
+    const numericValue = Number(normalized)
+    if (Number.isFinite(numericValue)) {
+      if (numericValue <= 0) return null
+      return numericValue > 100000000000 ? numericValue : numericValue * 1000
+    }
+  }
+  const compactDate = normalized.match(/^(\d{4})(\d{2})(\d{2})$/)
+  if (compactDate) {
+    return parseDateParts(compactDate[1], compactDate[2], compactDate[3])
+  }
+  const parsed = Date.parse(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 const getInstalledVersionCount = (game = {}) => {
   const rawValue = game.installedVersionCount ?? game.versionCount
   const numericValue = Number(rawValue)
@@ -183,6 +245,12 @@ const getFiniteNumber = (value, fallback = 0) => {
 const getPositiveNumberOrNull = (value) => {
   const number = Number(value)
   return Number.isFinite(number) && number > 0 ? number : null
+}
+
+const getNullableNumber = (value) => {
+  if (value === undefined || value === null || value === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
 }
 
 const directionMultiplier = (direction) => direction === 'desc' ? -1 : 1
@@ -224,6 +292,8 @@ const compareLocalGames = (a, b, activeFilters) => {
     result = compareMaybeNumber(getFiniteNumber(a.totalPlaytime), getFiniteNumber(b.totalPlaytime), direction)
   } else if (activeFilters.sort === 'fileSize') {
     result = compareMaybeNumber(getFiniteNumber(a.totalFolderSize), getFiniteNumber(b.totalFolderSize), direction)
+  } else if (activeFilters.sort === 'personalRating') {
+    result = compareMaybeNumber(getNullableNumber(a.personalRatingOverall), getNullableNumber(b.personalRatingOverall), direction)
   } else {
     result = compareTitle(a, b, direction)
   }
@@ -488,6 +558,77 @@ const getBrowseDateRangeBounds = (range) => {
   return null
 }
 
+const getDateRangeBounds = (range, dateFrom = '', dateTo = '') => {
+  const now = Date.now()
+  if (range === '7d') return { min: now - 7 * 86400000, max: now }
+  if (range === '30d') return { min: now - 30 * 86400000, max: now }
+  if (range === '90d') return { min: now - 90 * 86400000, max: now }
+  if (range === 'year') {
+    const currentYear = new Date(now).getFullYear()
+    return {
+      min: new Date(currentYear, 0, 1).getTime(),
+      max: new Date(currentYear + 1, 0, 1).getTime() - 1,
+    }
+  }
+  if (range === 'custom') {
+    const fromMs = dateFrom ? Date.parse(`${dateFrom}T00:00:00`) : Number.NaN
+    const toMs = dateTo ? Date.parse(`${dateTo}T23:59:59.999`) : Number.NaN
+    const min = Number.isFinite(fromMs) ? fromMs : null
+    const max = Number.isFinite(toMs) ? toMs : null
+    if (min === null && max === null) return null
+    return { min, max }
+  }
+  return null
+}
+
+const getDateFieldValue = (game = {}, field) => {
+  if (field === 'releaseDate') {
+    return normalizeDateValueMs(game.release_date ?? game.releaseDate ?? game.steam_release_date ?? game.steamReleaseDate)
+  }
+  if (field === 'lastInstalled') {
+    return normalizeDateValueMs(game.lastInstalled)
+  }
+  if (field === 'lastPlayed') {
+    return normalizeDateValueMs(game.lastPlayed)
+  }
+  if (field === 'latestUpdate') {
+    return getBrowseDate(game, 'thread_updated')
+  }
+  if (field === 'threadPublished') {
+    return getBrowseDate(game, 'thread_publish_date')
+  }
+  if (field === 'wishlistAdded') {
+    return normalizeDateValueMs(game.flagged_at ?? game.flaggedAt)
+  }
+  return null
+}
+
+const applyDateFilter = (games, activeFilters) => {
+  const hasNewDateFilter = activeFilters.dateField !== 'none' && activeFilters.dateRange !== 'any'
+  if (hasNewDateFilter) {
+    const bounds = getDateRangeBounds(activeFilters.dateRange, activeFilters.dateFrom, activeFilters.dateTo)
+    if (!bounds) return games
+    return games.filter((game) => {
+      const dateValue = getDateFieldValue(game, activeFilters.dateField)
+      if (dateValue === null) return false
+      if (bounds.min !== null && dateValue < bounds.min) return false
+      if (bounds.max !== null && dateValue > bounds.max) return false
+      return true
+    })
+  }
+
+  if (activeFilters.dateLimit > 0) {
+    const bounds = getDateRangeBounds(`${activeFilters.dateLimit}d`)
+    const fallbackBounds = bounds || { min: Date.now() - activeFilters.dateLimit * 86400000, max: Date.now() }
+    return games.filter((game) => {
+      const dateValue = getDateFieldValue(game, 'releaseDate')
+      return dateValue !== null && dateValue >= fallbackBounds.min && dateValue <= fallbackBounds.max
+    })
+  }
+
+  return games
+}
+
 const compareBrowseTitle = (a, b, direction = 'asc') => {
   const result = getGameTitle(a).localeCompare(getGameTitle(b))
   if (result === 0) {
@@ -650,6 +791,14 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
     result = result.filter((game) => game.isFavorite === true || game.is_favorite === 1)
   }
 
+  if (activeFilters.personalRatingRatedOnly || activeFilters.personalRatingMin > 0) {
+    result = result.filter((game) => {
+      const rating = getNullableNumber(game.personalRatingOverall)
+      if (rating === null) return false
+      return activeFilters.personalRatingMin <= 0 || rating >= activeFilters.personalRatingMin
+    })
+  }
+
   if (activeFilters.steamMapped) {
     result = result.filter(hasSteamMapping)
   }
@@ -705,10 +854,7 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
     result = result.filter((game) => !hasAnyExact(splitListText(game.f95_tags), activeFilters.excludedTags))
   }
 
-  if (activeFilters.dateLimit > 0) {
-    const cutoff = Date.now() / 1000 - activeFilters.dateLimit * 86400
-    result = result.filter((game) => (game.release_date || 0) >= cutoff)
-  }
+  result = applyDateFilter(result, activeFilters)
 
   const sourceFilter = browseMode ? activeFilters.browseSource : activeFilters.source
   if (sourceFilter !== 'all') {
@@ -721,7 +867,7 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
     result = result.filter(hasLatestUpdateDate)
   }
 
-  if (browseMode && activeFilters.browseDateRange !== 'any') {
+  if (browseMode && activeFilters.dateField === 'none' && activeFilters.browseDateRange !== 'any') {
     const bounds = getBrowseDateRangeBounds(activeFilters.browseDateRange)
     if (bounds !== null) {
       logBrowseDateDebug(result, activeFilters, bounds)
@@ -812,10 +958,29 @@ export const builtInSavedFilters = [
     filters: normalizeFilterState({ favoritesOnly: true, includeUninstalled: true, installState: 'all' }),
   },
   {
+    id: 'builtin-highly-rated',
+    name: 'Highly rated',
+    builtIn: true,
+    filters: normalizeFilterState({
+      personalRatingMin: 8,
+      sort: 'personalRating',
+      sortDirection: 'desc',
+      includeUninstalled: true,
+      installState: 'all',
+    }),
+  },
+  {
     id: 'builtin-recent',
     name: 'Recently released',
     builtIn: true,
-    filters: normalizeFilterState({ sort: 'date', sortDirection: 'desc', includeUninstalled: true, installState: 'all' }),
+    filters: normalizeFilterState({
+      dateField: 'releaseDate',
+      dateRange: '90d',
+      sort: 'date',
+      sortDirection: 'desc',
+      includeUninstalled: true,
+      installState: 'all',
+    }),
   },
 ]
 

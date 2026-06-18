@@ -36,6 +36,33 @@ const getTableColumns = (tableName) =>
     })
   })
 
+const normalizePersonalRating = (value) => {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+const getPersonalRatingOverall = (row = {}) => {
+  const values = [
+    normalizePersonalRating(row.personal_rating_story),
+    normalizePersonalRating(row.personal_rating_graphics),
+    normalizePersonalRating(row.personal_rating_gameplay),
+    normalizePersonalRating(row.personal_rating_fappability),
+  ].filter((value) => value !== null)
+  if (values.length === 0) return null
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length
+  return Math.round(average * 10) / 10
+}
+
+const applyPersonalRatings = (game, row = {}) => ({
+  ...game,
+  personalRatingStory: normalizePersonalRating(row.personal_rating_story),
+  personalRatingGraphics: normalizePersonalRating(row.personal_rating_graphics),
+  personalRatingGameplay: normalizePersonalRating(row.personal_rating_gameplay),
+  personalRatingFappability: normalizePersonalRating(row.personal_rating_fappability),
+  personalRatingOverall: getPersonalRatingOverall(row),
+  personalRatingUpdatedAt: normalizePersonalRating(row.personal_rating_updated_at),
+})
+
 const DEFAULT_LAUNCHABLE_EXTENSIONS = [
   "exe",
   "swf",
@@ -659,6 +686,11 @@ const getGame = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
         games.engine as engine,
         games.description,
         COALESCE(games.is_favorite, 0) as is_favorite,
+        game_personal_ratings.story as personal_rating_story,
+        game_personal_ratings.graphics as personal_rating_graphics,
+        game_personal_ratings.gameplay as personal_rating_gameplay,
+        game_personal_ratings.fappability as personal_rating_fappability,
+        game_personal_ratings.updated_at as personal_rating_updated_at,
         games.total_playtime,
         games.last_played_r,
         games.last_played_version,
@@ -700,6 +732,7 @@ ${bannerSelectFields},
         games
       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
       LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
+      LEFT JOIN game_personal_ratings ON games.record_id = game_personal_ratings.record_id
 ${bannerJoinClauses}
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
@@ -733,14 +766,14 @@ ${bannerJoinClauses}
           }
           const allVersions = versionRows.map((v) => mapVersionRow(v, !!row.steam_id));
           const installedVersions = allVersions.filter((v) => v.isInstalled);
-          const game = applyLocalSortAggregates({
+          const game = applyLocalSortAggregates(applyPersonalRatings({
             ...row,
             isFavorite: row.is_favorite === 1,
             engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
             versions: allVersions,
             versionCount: versionRows.length,
             isUpdateAvailable: false,
-          }, allVersions, installedVersions);
+          }, row), allVersions, installedVersions);
           game.hasInstalledVersion = installedVersions.length > 0;
           game.totalVersionCount = versionRows.length;
           game.versionCount = installedVersions.length;
@@ -783,6 +816,11 @@ const getGames = (
         games.engine as engine,
         games.description,
         COALESCE(games.is_favorite, 0) as is_favorite,
+        game_personal_ratings.story as personal_rating_story,
+        game_personal_ratings.graphics as personal_rating_graphics,
+        game_personal_ratings.gameplay as personal_rating_gameplay,
+        game_personal_ratings.fappability as personal_rating_fappability,
+        game_personal_ratings.updated_at as personal_rating_updated_at,
         games.total_playtime,
         games.last_played_r,
         games.last_played_version,
@@ -824,6 +862,7 @@ ${bannerSelectFields},
         games
       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
       LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
+      LEFT JOIN game_personal_ratings ON games.record_id = game_personal_ratings.record_id
 ${bannerJoinClauses}
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
@@ -887,7 +926,7 @@ ${bannerJoinClauses}
               ? allVersions
               : installedVersions;
 
-            return applyLocalSortAggregates({
+            return applyLocalSortAggregates(applyPersonalRatings({
               ...row,
               isFavorite: row.is_favorite === 1,
               // Unescape engine to fix 'Ren''Py' issue
@@ -901,7 +940,7 @@ ${bannerJoinClauses}
                 row.latestVersion,
                 installedVersions,
               ),
-            }, allVersions, installedVersions);
+            }, row), allVersions, installedVersions);
           })
           .filter(
             (game) => includeUninstalled || game.hasInstalledVersion,

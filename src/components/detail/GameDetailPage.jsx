@@ -13,6 +13,41 @@ import { buildExternalLinks } from './externalLinks.js'
 
 const isValidHttpUrl = (url) => /^https?:\/\//i.test(String(url || '').trim())
 
+const personalRatingFields = [
+  ['story', 'Story', 'personalRatingStory'],
+  ['graphics', 'Graphics', 'personalRatingGraphics'],
+  ['gameplay', 'Gameplay', 'personalRatingGameplay'],
+  ['fappability', 'Fappability', 'personalRatingFappability'],
+]
+
+const normalizeRatingInput = (value) => {
+  if (value === undefined || value === null || value === '') return ''
+  const number = Number(value)
+  if (!Number.isFinite(number)) return ''
+  return String(Math.max(0, Math.min(10, Math.round(number))))
+}
+
+const buildPersonalRatingsDraft = (game = {}) =>
+  Object.fromEntries(
+    personalRatingFields.map(([key, , gameKey]) => [key, normalizeRatingInput(game?.[gameKey])]),
+  )
+
+const getPersonalRatingsPayload = (draft = {}) =>
+  Object.fromEntries(
+    personalRatingFields.map(([key]) => [
+      key,
+      draft[key] === '' ? null : Math.max(0, Math.min(10, Math.round(Number(draft[key])))),
+    ]),
+  )
+
+const getPersonalRatingsOverall = (draft = {}) => {
+  const values = Object.values(getPersonalRatingsPayload(draft))
+    .filter((value) => Number.isFinite(value))
+  if (values.length === 0) return null
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length
+  return Math.round(average * 10) / 10
+}
+
 const buildDetailExternalLinks = (game = {}) => {
   const links = []
   const siteUrl = String(game.siteUrl || game.site_url || '').trim()
@@ -111,6 +146,10 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [localDeleteSourceArchive, setLocalDeleteSourceArchive] = useState(false)
   const [showLocalImportPanel, setShowLocalImportPanel] = useState(false)
   const [localArchiveExtensions, setLocalArchiveExtensions] = useState(['zip', '7z', 'rar'])
+  const [personalRatingsDraft, setPersonalRatingsDraft] = useState(() => buildPersonalRatingsDraft(game))
+  const [personalRatingsSaved, setPersonalRatingsSaved] = useState(() => buildPersonalRatingsDraft(game))
+  const [personalRatingsBusy, setPersonalRatingsBusy] = useState(false)
+  const [personalRatingsError, setPersonalRatingsError] = useState('')
   const isRunningRef  = useRef(false)
   const rootRef       = useRef(null)
   const bannerRef     = useRef(null)
@@ -182,8 +221,23 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     setLocalReplaceVersionId('')
     setLocalDeleteSourceArchive(false)
     setShowLocalImportPanel(false)
+    const nextRatings = buildPersonalRatingsDraft(game)
+    setPersonalRatingsDraft(nextRatings)
+    setPersonalRatingsSaved(nextRatings)
+    setPersonalRatingsError('')
+    setPersonalRatingsBusy(false)
     isRunningRef.current = false
-  }, [game?.record_id, game?.isWishlisted, game?.isWishlistEntry, game?.isFavorite, game?.is_favorite])
+  }, [
+    game?.record_id,
+    game?.isWishlisted,
+    game?.isWishlistEntry,
+    game?.isFavorite,
+    game?.is_favorite,
+    game?.personalRatingStory,
+    game?.personalRatingGraphics,
+    game?.personalRatingGameplay,
+    game?.personalRatingFappability,
+  ])
 
   useEffect(() => {
     let canceled = false
@@ -282,6 +336,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const actionVersion = selectedVersion || getDefaultVersion(installedVersions)
   const canManageLocalTitle = game.isMetadataOnly !== true && game.isCatalogEntry !== true
   const canManageFavorite = canManageLocalTitle && Boolean(Number.parseInt(game.record_id, 10) > 0)
+  const canManagePersonalRatings = canManageFavorite
   const canManageWishlist = game.isCatalogEntry === true || game.isWishlistEntry === true
   const canLaunch = Boolean(actionVersion && actionVersion.isInstalled !== false && (actionVersion.exec_path || game.record_id))
   const canInstallFromDetail = !canLaunch && (canManageWishlist || canManageLocalTitle || game.hasInstalledVersion === false)
@@ -321,6 +376,8 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const localImportIsArchive = isArchiveSourcePath(localImportPath, localArchiveExtensions)
 
   const externalLinks = buildDetailExternalLinks(game)
+  const personalRatingsDirty = JSON.stringify(personalRatingsDraft) !== JSON.stringify(personalRatingsSaved)
+  const personalRatingsOverall = getPersonalRatingsOverall(personalRatingsDraft)
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const launchSelectedGame = async () => {
@@ -551,6 +608,39 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       alert(`Failed to update Favorite: ${err.message || err}`)
     } finally {
       setFavoriteBusy(false)
+    }
+  }
+
+  const updatePersonalRatingDraft = (field, value) => {
+    setPersonalRatingsError('')
+    setPersonalRatingsDraft((current) => ({
+      ...current,
+      [field]: normalizeRatingInput(value),
+    }))
+  }
+
+  const savePersonalRatings = async () => {
+    if (!canManagePersonalRatings || personalRatingsBusy || !personalRatingsDirty) return
+    setPersonalRatingsBusy(true)
+    setPersonalRatingsError('')
+    try {
+      const payload = getPersonalRatingsPayload(personalRatingsDraft)
+      const result = await window.electronAPI.setGamePersonalRatings?.(game.record_id, payload)
+      if (!result?.success) throw new Error(result?.error || 'Personal rating update failed')
+      const saved = {
+        story: normalizeRatingInput(result.personalRatingStory),
+        graphics: normalizeRatingInput(result.personalRatingGraphics),
+        gameplay: normalizeRatingInput(result.personalRatingGameplay),
+        fappability: normalizeRatingInput(result.personalRatingFappability),
+      }
+      setPersonalRatingsDraft(saved)
+      setPersonalRatingsSaved(saved)
+      onRefresh?.(game.record_id)
+    } catch (err) {
+      console.error('Failed to update personal ratings:', err)
+      setPersonalRatingsError(err.message || 'Failed to update personal ratings')
+    } finally {
+      setPersonalRatingsBusy(false)
     }
   }
 
@@ -893,6 +983,45 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               <div style={{ color: '#9ca3af' }}>No versions recorded</div>
             )}
           </section>
+
+          {canManagePersonalRatings && (
+            <section className="bg-secondary border border-border p-4">
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+                <h2 className="text-lg font-semibold">Personal Rating</h2>
+                <span style={{ color: personalRatingsOverall === null ? '#9ca3af' : '#facc15', fontWeight: 700 }}>
+                  {personalRatingsOverall === null ? 'Unrated' : `${personalRatingsOverall}/10`}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {personalRatingFields.map(([key, label]) => (
+                  <label key={key} className="text-sm" style={{ display: 'grid', gridTemplateColumns: '1fr 72px', gap: 10, alignItems: 'center' }}>
+                    <span style={{ color: '#d1d5db' }}>{label}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="10"
+                      step="1"
+                      value={personalRatingsDraft[key]}
+                      onChange={(event) => updatePersonalRatingDraft(key, event.target.value)}
+                      placeholder="-"
+                      className="bg-primary border border-border px-2 py-1 text-sm text-right"
+                    />
+                  </label>
+                ))}
+              </div>
+              {personalRatingsError && (
+                <div className="text-xs text-danger mt-3">{personalRatingsError}</div>
+              )}
+              <button
+                type="button"
+                onClick={savePersonalRatings}
+                disabled={!personalRatingsDirty || personalRatingsBusy}
+                className="mt-3 w-full px-3 py-2 rounded text-sm bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:hover:bg-accent"
+              >
+                {personalRatingsBusy ? 'Saving...' : personalRatingsDirty ? 'Save ratings' : 'Ratings saved'}
+              </button>
+            </section>
+          )}
 
           <section className="bg-secondary border border-border p-4">
             <h2 className="text-lg font-semibold mb-3">Details</h2>
