@@ -11,6 +11,10 @@ export const defaultFilters = {
   censored: [],
   language: [],
   tags: [],
+  excludedCategories: [],
+  excludedEngines: [],
+  excludedStatuses: [],
+  excludedTags: [],
   sort: 'name',
   sortDirection: 'asc',
   dateLimit: 0,
@@ -25,7 +29,18 @@ export const defaultFilters = {
   multipleInstalledVersions: false,
 }
 
-const arrayFilterKeys = ['category', 'engine', 'status', 'censored', 'language', 'tags']
+const arrayFilterKeys = [
+  'category',
+  'engine',
+  'status',
+  'censored',
+  'language',
+  'tags',
+  'excludedCategories',
+  'excludedEngines',
+  'excludedStatuses',
+  'excludedTags',
+]
 const searchTypes = ['all', 'title', 'creator', 'atlasId', 'f95Id', 'steamId', 'anyId']
 const sourceTypes = ['all', 'f95', 'steam', 'atlas']
 const sortTypes = ['name', 'creator', 'date', 'likes', 'views', 'rating', 'installedVersionCount']
@@ -58,6 +73,10 @@ export const normalizeFilterState = (filters = {}) => {
   for (const key of arrayFilterKeys) {
     merged[key] = toArray(merged[key])
   }
+  merged.excludedCategories = merged.excludedCategories.filter((value) => !includesExact(merged.category, value))
+  merged.excludedEngines = merged.excludedEngines.filter((value) => !includesExact(merged.engine, value))
+  merged.excludedStatuses = merged.excludedStatuses.filter((value) => !includesExact(merged.status, value))
+  merged.excludedTags = merged.excludedTags.filter((value) => !includesExact(merged.tags, value))
   merged.text = String(merged.text || '').trim()
   merged.type = normalizeSearchType(merged.type)
   merged.source = normalizeSourceType(merged.source)
@@ -274,6 +293,40 @@ const parseExternalIds = (raw) => {
 
 const cleanSearchText = (value) =>
   safeText(value).trim().toLowerCase().replace(/\s+/g, ' ')
+
+const splitListText = (value) =>
+  safeText(value).split(',').map((item) => item.trim()).filter(Boolean)
+
+const includesExact = (values, value) =>
+  values.some((item) => safeText(item).toLowerCase() === safeText(value).toLowerCase())
+
+const hasAnyExact = (values, excludedValues) =>
+  excludedValues.some((value) => includesExact(values, value))
+
+const parseTextTerms = (query) => {
+  const positive = []
+  const negative = []
+  for (const token of safeText(query).trim().split(/\s+/)) {
+    if (!token) continue
+    if (token.startsWith('-') && token.length > 1) {
+      negative.push(cleanSearchText(token.slice(1)))
+    } else {
+      positive.push(cleanSearchText(token))
+    }
+  }
+  return { positive, negative }
+}
+
+const getSearchableText = (game = {}) =>
+  cleanSearchText([
+    getGameTitle(game),
+    game.creator,
+    game.f95_tags,
+    game.tags,
+    game.engine,
+    game.status,
+    game.category,
+  ].join(' '))
 
 const cleanIdText = (value) =>
   safeText(value).trim().toLowerCase().replace(/\s+/g, '')
@@ -512,14 +565,30 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
   if (activeFilters.text) {
     const { type, query, urlSource } = parseSearchQuery(activeFilters.text, activeFilters.type)
     const lower = cleanSearchText(query)
+    const textTerms = ['all', 'title', 'creator'].includes(type)
+      ? parseTextTerms(query)
+      : null
     result = result.filter((game) => {
       if (urlSource && urlSource !== 'all') {
         return getGameSources(game).includes(urlSource)
       }
       const title = cleanSearchText(getGameTitle(game))
       const creator = cleanSearchText(game.creator)
-      if (type === 'title') return title.includes(lower)
-      if (type === 'creator') return creator.includes(lower)
+      if (textTerms) {
+        const searchableText = getSearchableText(game)
+        if (textTerms.negative.some((term) => term && searchableText.includes(term))) {
+          return false
+        }
+        if (type === 'title') {
+          return textTerms.positive.length === 0 || textTerms.positive.every((term) => title.includes(term))
+        }
+        if (type === 'creator') {
+          return textTerms.positive.length === 0 || textTerms.positive.every((term) => creator.includes(term))
+        }
+        return textTerms.positive.length === 0 || textTerms.positive.every((term) =>
+          title.includes(term) || creator.includes(term) || searchableText.includes(term)
+        )
+      }
       if (type === 'atlasId') return idMatches(getAtlasIdValues(game), query)
       if (type === 'f95Id') return idMatches(getF95IdValues(game), query)
       if (type === 'steamId') return idMatches(getSteamIdValues(game), query)
@@ -547,13 +616,22 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
   if (activeFilters.category.length > 0) {
     result = result.filter((game) => activeFilters.category.includes(game.category))
   }
+  if (activeFilters.excludedCategories.length > 0) {
+    result = result.filter((game) => !includesExact(activeFilters.excludedCategories, game.category))
+  }
 
   if (activeFilters.engine.length > 0) {
     result = result.filter((game) => activeFilters.engine.includes(game.engine))
   }
+  if (activeFilters.excludedEngines.length > 0) {
+    result = result.filter((game) => !includesExact(activeFilters.excludedEngines, game.engine))
+  }
 
   if (activeFilters.status.length > 0) {
     result = result.filter((game) => activeFilters.status.includes(game.status))
+  }
+  if (activeFilters.excludedStatuses.length > 0) {
+    result = result.filter((game) => !includesExact(activeFilters.excludedStatuses, game.status))
   }
 
   if (activeFilters.censored.length > 0) {
@@ -569,12 +647,15 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
 
   if (activeFilters.tags.length > 0) {
     result = result.filter((game) => {
-      const gameTags = safeText(game.f95_tags).split(',').map((t) => t.trim())
+      const gameTags = splitListText(game.f95_tags)
       if (activeFilters.tagLogic === 'AND') {
         return activeFilters.tags.every((tag) => gameTags.includes(tag))
       }
       return activeFilters.tags.some((tag) => gameTags.includes(tag))
     })
+  }
+  if (activeFilters.excludedTags.length > 0) {
+    result = result.filter((game) => !hasAnyExact(splitListText(game.f95_tags), activeFilters.excludedTags))
   }
 
   if (activeFilters.dateLimit > 0) {

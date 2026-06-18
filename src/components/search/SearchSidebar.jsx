@@ -118,6 +118,69 @@ const SearchSidebar = ({
     updateFilters({ [group]: newVals });
   };
 
+  const togglePairedFilter = (includeGroup, excludeGroup, value, mode) => {
+    const targetGroup = mode === "exclude" ? excludeGroup : includeGroup;
+    const otherGroup = mode === "exclude" ? includeGroup : excludeGroup;
+    const currentValues = Array.isArray(selectedFilters[targetGroup])
+      ? selectedFilters[targetGroup]
+      : [];
+    const otherValues = Array.isArray(selectedFilters[otherGroup])
+      ? selectedFilters[otherGroup]
+      : [];
+    const exists = currentValues.includes(value);
+    const nextValues = exists
+      ? currentValues.filter((item) => item !== value)
+      : [...currentValues, value];
+
+    if (!exists && targetGroup === "tags" && nextValues.length > 10) {
+      setTagError("Max 10 tags allowed.");
+      return;
+    }
+    if (!exists && targetGroup === "excludedTags" && nextValues.length > 10) {
+      setTagError("Max 10 excluded tags allowed.");
+      return;
+    }
+    if (includeGroup === "tags") setTagError("");
+
+    updateFilters({
+      [targetGroup]: nextValues,
+      [otherGroup]: exists ? otherValues : otherValues.filter((item) => item !== value),
+    });
+  };
+
+  const renderIncludeExcludeButtons = (includeGroup, excludeGroup, value) => {
+    const included = selectedFilters[includeGroup].includes(value);
+    const excluded = selectedFilters[excludeGroup].includes(value);
+    return (
+      <div className="inline-flex rounded overflow-hidden border border-border">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            togglePairedFilter(includeGroup, excludeGroup, value, "include");
+          }}
+          className={`px-2 py-1 text-xs ${included ? "bg-accent text-white" : "bg-tertiary hover:bg-highlight"}`}
+          title={`Include ${value}`}
+        >
+          +
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            togglePairedFilter(includeGroup, excludeGroup, value, "exclude");
+          }}
+          className={`px-2 py-1 text-xs ${excluded ? "bg-danger text-white" : "bg-tertiary hover:bg-highlight"}`}
+          title={`Exclude ${value}`}
+        >
+          -
+        </button>
+      </div>
+    );
+  };
+
   const sortedTags = useMemo(
     () =>
       [...options.tags].sort((a, b) =>
@@ -366,17 +429,10 @@ const SearchSidebar = ({
           <h4 className="font-bold mb-3">Category</h4>
           <div className="flex flex-wrap gap-2">
             {options.categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => handleCheckbox("category", cat)}
-                className={`px-3 py-1 rounded text-sm ${
-                  selectedFilters.category.includes(cat)
-                    ? "bg-accent text-white"
-                    : "bg-tertiary hover:bg-highlight"
-                }`}
-              >
-                {cat}
-              </button>
+              <span key={cat} className="inline-flex items-center gap-1 bg-primary border border-border rounded px-2 py-1 text-sm">
+                <span>{cat}</span>
+                {renderIncludeExcludeButtons("category", "excludedCategories", cat)}
+              </span>
             ))}
           </div>
         </div>
@@ -482,7 +538,21 @@ const SearchSidebar = ({
                   onClick={() => handleCheckbox("tags", tag)}
                   className="ml-2 text-white text-xs"
                 >
-                  ×
+                  x
+                </button>
+              </span>
+            ))}
+            {selectedFilters.excludedTags.map((tag) => (
+              <span
+                key={`excluded-${tag}`}
+                className="bg-danger px-3 py-1 rounded text-sm flex items-center"
+              >
+                -{tag}
+                <button
+                  onClick={() => togglePairedFilter("tags", "excludedTags", tag, "exclude")}
+                  className="ml-2 text-white text-xs"
+                >
+                  x
                 </button>
               </span>
             ))}
@@ -504,14 +574,30 @@ const SearchSidebar = ({
                   <input
                     type="checkbox"
                     checked={selectedFilters.tags.includes(tag)}
-                    onChange={() => handleCheckbox("tags", tag)}
+                    onChange={() => togglePairedFilter("tags", "excludedTags", tag, "include")}
                     disabled={
                       selectedFilters.tags.length >= 10 &&
                       !selectedFilters.tags.includes(tag)
                     }
                     className="-webkit-app-region-no-drag"
                   />
-                  <span>{tag}</span>
+                  <span className="flex-1">{tag}</span>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      togglePairedFilter("tags", "excludedTags", tag, "exclude");
+                    }}
+                    className={`px-2 py-0.5 rounded text-xs ${
+                      selectedFilters.excludedTags.includes(tag)
+                        ? "bg-danger text-white"
+                        : "bg-primary hover:bg-selected"
+                    }`}
+                    title={`Exclude ${tag}`}
+                  >
+                    -
+                  </button>
                 </label>
               ))
             )}
@@ -528,15 +614,16 @@ const SearchSidebar = ({
               options.engines.map((engine) => (
                 <label
                   key={engine}
-                  className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
+                  className="flex items-center gap-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
                 >
                   <input
                     type="checkbox"
                     checked={selectedFilters.engine.includes(engine)}
-                    onChange={() => handleCheckbox("engine", engine)}
+                    onChange={() => togglePairedFilter("engine", "excludedEngines", engine, "include")}
                     className="-webkit-app-region-no-drag"
                   />
-                  <span>{engine}</span>
+                  <span className="flex-1">{engine}</span>
+                  {renderIncludeExcludeButtons("engine", "excludedEngines", engine)}
                 </label>
               ))
             )}
@@ -553,15 +640,16 @@ const SearchSidebar = ({
               options.statuses.map((status) => (
                 <label
                   key={status}
-                  className="flex items-center space-x-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
+                  className="flex items-center gap-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
                 >
                   <input
                     type="checkbox"
                     checked={selectedFilters.status.includes(status)}
-                    onChange={() => handleCheckbox("status", status)}
+                    onChange={() => togglePairedFilter("status", "excludedStatuses", status, "include")}
                     className="-webkit-app-region-no-drag"
                   />
-                  <span>{status}</span>
+                  <span className="flex-1">{status}</span>
+                  {renderIncludeExcludeButtons("status", "excludedStatuses", status)}
                 </label>
               ))
             )}
