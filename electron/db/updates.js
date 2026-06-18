@@ -147,6 +147,16 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
         await insertJsonData(withF95LatestOrder(data.f95_zone, date), "f95_zone_data");
       }
 
+      // Process lewdcorner_data
+      mainWindow.webContents.send("db-update-progress", {
+        text: `Processing LewdCorner Metadata ${processed + 1}/${total}`,
+        progress: processed,
+        total,
+      });
+      if (data.lewdcorner && data.lewdcorner.length > 0) {
+        await insertJsonData(data.lewdcorner, "lewdcorner_data");
+      }
+
       // Insert update record
       const processedTime = Math.floor(Date.now() / 1000);
       await new Promise((resolve, reject) => {
