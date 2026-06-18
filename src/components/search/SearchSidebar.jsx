@@ -385,20 +385,30 @@ const SearchSidebar = ({
         {!isCatalogMode && (
         <div className="mb-6 border-b border-border pb-4">
           <h4 className="font-bold mb-3">Sorting</h4>
-          <div className="flex flex-wrap gap-2">
-            {["name", "date", "likes", "views", "rating"].map((s) => (
-              <button
-                key={s}
-                onClick={() => updateFilters({ sort: s })}
-                className={`px-3 py-1 rounded text-sm ${
-                  selectedFilters.sort === s
-                    ? "bg-accent text-white"
-                    : "bg-tertiary hover:bg-highlight"
-                }`}
-              >
-                {s.charAt(0).toUpperCase() + s.slice(1)}
-              </button>
-            ))}
+          <div className="flex gap-2">
+            <select
+              className="min-w-0 flex-1 p-2 bg-tertiary border border-border rounded text-sm"
+              value={selectedFilters.sort}
+              onChange={(e) => updateFilters({ sort: e.target.value })}
+            >
+              <option value="name">Title</option>
+              <option value="creator">Creator</option>
+              <option value="date">Release Date</option>
+              <option value="likes">Likes</option>
+              <option value="views">Views</option>
+              <option value="rating">Rating</option>
+              <option value="installedVersionCount">Installed Versions</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => updateFilters({
+                sortDirection: selectedFilters.sortDirection === "asc" ? "desc" : "asc",
+              })}
+              className="w-[112px] px-3 py-2 rounded text-sm bg-tertiary hover:bg-highlight border border-border"
+              title="Toggle sort direction"
+            >
+              {selectedFilters.sortDirection === "asc" ? "Ascending" : "Descending"}
+            </button>
           </div>
         </div>
         )}

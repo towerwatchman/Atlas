@@ -182,7 +182,7 @@ const App = () => {
         updateAvailable: false,
         multipleInstalledVersions: false,
         browseDateRange: 'any',
-      }, { browseMode: true }),
+      }),
     [wishlistWithState, activeFilters],
   )
   const filteredGames =

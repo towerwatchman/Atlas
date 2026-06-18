@@ -12,6 +12,7 @@ export const defaultFilters = {
   language: [],
   tags: [],
   sort: 'name',
+  sortDirection: 'asc',
   dateLimit: 0,
   browseSource: 'all',
   browseDateBasis: 'thread_updated',
@@ -27,6 +28,7 @@ export const defaultFilters = {
 const arrayFilterKeys = ['category', 'engine', 'status', 'censored', 'language', 'tags']
 const searchTypes = ['all', 'title', 'creator', 'atlasId', 'f95Id', 'steamId', 'anyId']
 const sourceTypes = ['all', 'f95', 'steam', 'atlas']
+const sortTypes = ['name', 'creator', 'date', 'likes', 'views', 'rating', 'installedVersionCount']
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value.filter((item) => item !== undefined && item !== null).map(String)
@@ -44,8 +46,14 @@ const normalizeSourceType = (value) => {
   return sourceTypes.includes(normalized) ? normalized : 'all'
 }
 
+const normalizeSortType = (value) => {
+  const normalized = String(value || 'name')
+  return sortTypes.includes(normalized) ? normalized : 'name'
+}
+
 export const normalizeFilterState = (filters = {}) => {
   const source = filters && typeof filters === 'object' ? filters : {}
+  const hasSortDirection = Object.prototype.hasOwnProperty.call(source, 'sortDirection')
   const merged = { ...defaultFilters, ...source }
   for (const key of arrayFilterKeys) {
     merged[key] = toArray(merged[key])
@@ -53,7 +61,12 @@ export const normalizeFilterState = (filters = {}) => {
   merged.text = String(merged.text || '').trim()
   merged.type = normalizeSearchType(merged.type)
   merged.source = normalizeSourceType(merged.source)
-  merged.sort = String(merged.sort || 'name')
+  merged.sort = normalizeSortType(merged.sort)
+  if (!hasSortDirection && ['date', 'likes', 'views', 'rating'].includes(merged.sort)) {
+    merged.sortDirection = 'desc'
+  } else {
+    merged.sortDirection = merged.sortDirection === 'desc' ? 'desc' : 'asc'
+  }
   merged.browseSource = normalizeSourceType(merged.browseSource)
   merged.browseDateBasis = ['thread_updated', 'thread_publish_date'].includes(merged.browseDateBasis)
     ? merged.browseDateBasis
@@ -90,6 +103,78 @@ const parseMetric = (value) => {
   const multiplier =
     match[2] === 'm' ? 1000000 : match[2] === 'k' ? 1000 : 1
   return amount * multiplier
+}
+
+const parseSortableMetric = (value) => {
+  if (value === undefined || value === null || value === '') return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  const normalized = String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/,/g, '')
+  const match = normalized.match(/^([0-9]+(?:\.[0-9]+)?)\s*([km])?$/)
+  if (!match) return null
+  const amount = Number(match[1])
+  const multiplier =
+    match[2] === 'm' ? 1000000 : match[2] === 'k' ? 1000 : 1
+  return Number.isFinite(amount) ? amount * multiplier : null
+}
+
+const getReleaseDateValue = (game = {}) => {
+  const rawValue = game.release_date ?? game.releaseDate ?? game.steam_release_date ?? game.steamReleaseDate
+  if (rawValue === undefined || rawValue === null || rawValue === '') return null
+  if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+    if (rawValue <= 0) return null
+    return rawValue > 100000000000 ? rawValue : rawValue * 1000
+  }
+  const parsed = Date.parse(String(rawValue).trim())
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const getInstalledVersionCount = (game = {}) => {
+  const rawValue = game.installedVersionCount ?? game.versionCount
+  const numericValue = Number(rawValue)
+  if (Number.isFinite(numericValue)) return numericValue
+  return (Array.isArray(game.versions) ? game.versions : [])
+    .filter((version) => version?.isInstalled !== false).length
+}
+
+const directionMultiplier = (direction) => direction === 'desc' ? -1 : 1
+
+const compareText = (aValue, bValue, direction = 'asc') => {
+  const result = safeText(aValue).localeCompare(safeText(bValue), undefined, { sensitivity: 'base' })
+  return result * directionMultiplier(direction)
+}
+
+const compareTitle = (a, b, direction = 'asc') =>
+  compareText(getGameTitle(a), getGameTitle(b), direction)
+
+const compareMaybeNumber = (aValue, bValue, direction = 'asc') => {
+  const aMissing = aValue === null || aValue === undefined || !Number.isFinite(aValue)
+  const bMissing = bValue === null || bValue === undefined || !Number.isFinite(bValue)
+  if (aMissing !== bMissing) return aMissing ? 1 : -1
+  if (aMissing && bMissing) return 0
+  if (aValue === bValue) return 0
+  return (aValue - bValue) * directionMultiplier(direction)
+}
+
+const compareLocalGames = (a, b, activeFilters) => {
+  const direction = activeFilters.sortDirection
+  let result = 0
+
+  if (activeFilters.sort === 'creator') {
+    result = compareText(a.creator, b.creator, direction)
+  } else if (activeFilters.sort === 'date') {
+    result = compareMaybeNumber(getReleaseDateValue(a), getReleaseDateValue(b), direction)
+  } else if (['likes', 'views', 'rating'].includes(activeFilters.sort)) {
+    result = compareMaybeNumber(parseSortableMetric(a[activeFilters.sort]), parseSortableMetric(b[activeFilters.sort]), direction)
+  } else if (activeFilters.sort === 'installedVersionCount') {
+    result = compareMaybeNumber(getInstalledVersionCount(a), getInstalledVersionCount(b), direction)
+  } else {
+    result = compareTitle(a, b, direction)
+  }
+
+  return result || compareTitle(a, b, 'asc')
 }
 
 const parseDateParts = (year, month, day) => {
@@ -559,13 +644,7 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
         activeFilters.browseSort === 'nameDesc' ? 'desc' : 'asc'
       )
     }
-    if (activeFilters.sort === 'date') {
-      return (b.release_date || 0) - (a.release_date || 0)
-    }
-    if (['likes', 'views', 'rating'].includes(activeFilters.sort)) {
-      return parseMetric(b[activeFilters.sort]) - parseMetric(a[activeFilters.sort])
-    }
-    return getGameTitle(a).localeCompare(getGameTitle(b))
+    return compareLocalGames(a, b, activeFilters)
   })
 
   if (browseMode) logBrowseLatestAudit(result, activeFilters)
@@ -602,7 +681,7 @@ export const builtInSavedFilters = [
     id: 'builtin-recent',
     name: 'Recently released',
     builtIn: true,
-    filters: normalizeFilterState({ sort: 'date', includeUninstalled: true, installState: 'all' }),
+    filters: normalizeFilterState({ sort: 'date', sortDirection: 'desc', includeUninstalled: true, installState: 'all' }),
   },
 ]
 
