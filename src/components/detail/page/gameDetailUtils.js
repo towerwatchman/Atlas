@@ -58,8 +58,43 @@ export const formatPlaytime = (minutes) => {
 export const isVideoUrl = (url) =>
   /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ''))
 
+const parseExternalIds = (raw) => {
+  if (!raw) return {}
+  if (typeof raw === 'object') return raw
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+const cleanSteamAppId = (value) => {
+  const match = String(value || '').trim().match(/^\d+$/)
+  return match ? match[0] : ''
+}
+
+export const getSteamAppId = (game = {}) => {
+  const externalIds = parseExternalIds(game.external_ids ?? game.externalIds)
+  const candidates = [
+    game.steam_appid,
+    game.steam_id,
+    game.steamAppId,
+    game.steamId,
+    externalIds.steam_appid,
+    externalIds.steam_id,
+    externalIds.steamAppId,
+    externalIds.steamId,
+  ]
+  for (const candidate of candidates) {
+    const appId = cleanSteamAppId(candidate)
+    if (appId) return appId
+  }
+  return ''
+}
+
 // True when the record is backed by a Steam appid (mapping or external id).
-export const isSteamGame = (game = {}) => !!(game.steam_appid || game.steam_id)
+export const isSteamGame = (game = {}) => !!getSteamAppId(game)
 
 // Developer should prefer the real developer. games.creator is sometimes a
 // placeholder ("Unknown") or the publisher captured at import time, so fall back

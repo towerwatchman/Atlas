@@ -7,7 +7,7 @@ import SafeImage from '../ui/SafeImage.jsx'
 import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
   sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl, formatReleaseDate,
-  isSteamGame, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
+  isSteamGame, getSteamAppId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
 } from './page/gameDetailUtils.js'
 import { buildExternalLinks } from './externalLinks.js'
 
@@ -286,6 +286,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const latestVersion = game.latestVersion || game.latest_version || ''
   const versionOptions = sortVersionsDesc(game.versions || [])
 
+  const steamAppId = getSteamAppId(game)
   const steam = isSteamGame(game)
   const developer = resolveDeveloper(game)
   const categories = splitCsv(game.category)
@@ -342,6 +343,18 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     await window.electronAPI.openGameProperties(game.record_id)
   }
   const openWebsite = async () => { if (game.siteUrl) await window.electronAPI.openExternalUrl(game.siteUrl) }
+  const openSteam = steamAppId
+    ? async () => { await window.electronAPI.openExternalUrl(`steam://nav/games/details/${steamAppId}`) }
+    : null
+  const uninstallSteam = steamAppId && canManageLocalTitle
+    ? async () => {
+        const confirmed = window.confirm(
+          `Ask Steam to uninstall "${game.title}"?\n\nAtlas will keep this title and its metadata. Atlas local files are not deleted by this action.`,
+        )
+        if (!confirmed) return
+        await window.electronAPI.openExternalUrl(`steam://uninstall/${steamAppId}`)
+      }
+    : null
 
   const chooseDefaultReplaceVersionId = (nextVersion = localImportVersion) => {
     const versions = game.versions || []
@@ -584,6 +597,8 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         onToggleWishlist={toggleWishlist}
         onRefreshMedia={refreshMetadataAndImages}
         onOpenWebsite={openWebsite}
+        onOpenSteam={openSteam}
+        onUninstallSteam={uninstallSteam}
         onToggleLocalImport={() => setShowLocalImportPanel((value) => !value)}
         onRemoveTitle={removeTitleFromLibrary}
         onDeleteTitle={deleteTitleAndFiles}

@@ -6,7 +6,7 @@ export default function ActionBar({
   canManageWishlist = false, isWishlisted = false, wishlistBusy = false,
   launchState, isRefreshingMedia, showInfo, canManageLocalTitle = true,
   onLaunch, onOpenFolder, onOpenProperties, onToggleWishlist, onRefreshMedia,
-  onOpenWebsite, onToggleLocalImport,
+  onOpenWebsite, onOpenSteam, onUninstallSteam, onToggleLocalImport,
   onRemoveTitle, onDeleteTitle, onToggleInfo,
 }) {
   const showInstallCta = !canLaunch && canInstallFromDetail
@@ -137,6 +137,16 @@ export default function ActionBar({
           {game.siteUrl && (
             <button onClick={onOpenWebsite} title="Website" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
               <i className="fas fa-external-link-alt" style={{ fontSize: 13 }}></i>
+            </button>
+          )}
+          {onOpenSteam && (
+            <button onClick={onOpenSteam} title="Open in Steam" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
+              <i className="fab fa-steam" style={{ fontSize: 14 }}></i>
+            </button>
+          )}
+          {onUninstallSteam && (
+            <button onClick={onUninstallSteam} title="Uninstall from Steam" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
+              <i className="fas fa-unlink" style={{ fontSize: 13, color: '#fca5a5' }}></i>
             </button>
           )}
           {canManageLocalTitle && (

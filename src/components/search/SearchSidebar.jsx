@@ -424,6 +424,23 @@ const SearchSidebar = ({
           </div>
         )}
 
+        {/* Steam mapping */}
+        <div className="mb-6 border-b border-border pb-4">
+          <label className="flex items-center space-x-2 text-sm">
+            <input
+              type="checkbox"
+              checked={selectedFilters.steamMapped || false}
+              onChange={() =>
+                updateFilters({
+                  steamMapped: !selectedFilters.steamMapped,
+                })
+              }
+              className="-webkit-app-region-no-drag"
+            />
+            <span>Has Steam mapping</span>
+          </label>
+        </div>
+
         {/* Category */}
         <div className="mb-6 border-b border-border pb-4">
           <h4 className="font-bold mb-3">Category</h4>
@@ -520,7 +537,7 @@ const SearchSidebar = ({
               } else if (e.key === "Enter" && highlightedTagIndex >= 0) {
                 e.preventDefault();
                 const selectedTag = filteredTags[highlightedTagIndex];
-                handleCheckbox("tags", selectedTag);
+                togglePairedFilter("tags", "excludedTags", selectedTag, "include");
                 setTagSearch("");
                 setHighlightedTagIndex(-1);
               }

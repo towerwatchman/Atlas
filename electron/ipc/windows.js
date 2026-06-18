@@ -233,10 +233,14 @@ module.exports = function registerWindowsHandlers(ctx) {
     menu.popup({ window: senderWindow })
   })
 
+  const isAllowedExternalUrl = (value) =>
+    /^https?:\/\//i.test(value) ||
+    /^steam:\/\/(?:nav\/games\/details|uninstall|rungameid)\/\d+$/i.test(value)
+
   ipcMain.handle('open-external-url', async (event, url) => {
     const value = String(url || '').trim()
-    if (!/^https?:\/\//i.test(value)) {
-      throw new Error('External URL must start with http or https')
+    if (!isAllowedExternalUrl(value)) {
+      throw new Error('External URL must be http(s) or an approved Steam app URL')
     }
     await shell.openExternal(value)
   })

@@ -24,6 +24,7 @@ export const defaultFilters = {
   browseSort: 'nameAsc',
   tagLogic: 'AND',
   updateAvailable: false,
+  steamMapped: false,
   includeUninstalled: false,
   installState: 'installed',
   multipleInstalledVersions: false,
@@ -99,6 +100,7 @@ export const normalizeFilterState = (filters = {}) => {
     : 'nameAsc'
   merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
   merged.updateAvailable = merged.updateAvailable === true
+  merged.steamMapped = merged.steamMapped === true
   merged.multipleInstalledVersions = merged.multipleInstalledVersions === true
   if (!['installed', 'uninstalled', 'all'].includes(merged.installState)) {
     merged.installState = merged.includeUninstalled ? 'all' : 'installed'
@@ -363,6 +365,10 @@ const getSteamIdValues = (game = {}) => [
   ...getExternalValues(game, ['steam_id', 'steamId', 'steam_appid', 'steamAppId']),
 ]
 
+const hasSteamMapping = (game = {}) =>
+  getSteamIdValues(game).some((value) => /^\d+$/.test(cleanIdText(value))) ||
+  getUrlValues(game).some((url) => urlMatchesSource(url, 'steam'))
+
 const idMatches = (values, query) => {
   const needle = cleanIdText(query)
   return needle !== '' && values.some((value) => cleanIdText(value).includes(needle))
@@ -605,6 +611,10 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
 
   if (activeFilters.updateAvailable) {
     result = result.filter((game) => game.isUpdateAvailable === true)
+  }
+
+  if (activeFilters.steamMapped) {
+    result = result.filter(hasSteamMapping)
   }
 
   if (activeFilters.installState === 'installed') {
