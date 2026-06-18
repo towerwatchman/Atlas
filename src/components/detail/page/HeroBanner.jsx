@@ -21,7 +21,7 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
     <div ref={bannerRef} style={{ position: 'relative', height: 370, flexShrink: 0, overflow: 'hidden', backgroundColor: '#1a1f2e' }}>
       {/* Blurred background fill */}
       {heroUrl && (
-        <SafeImage src={heroUrl} alt="" fallbackContent={false} style={{
+        <SafeImage src={heroUrl} alt="" fallbackMode="hidden" fallbackContent={false} style={{
           position: 'absolute', inset: 0, width: '100%', height: '100%',
           objectFit: 'cover',
           filter: `blur(20px) ${hasInstalledVersion ? '' : 'grayscale(1)'}`,
@@ -72,7 +72,7 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
           <SafeImage
             src={logoUrl}
             alt={game.title || 'Game logo'}
-            fallbackLabel="Logo unavailable"
+            fallbackMode="hidden"
             style={{ maxHeight: 220, maxWidth: '80%', objectFit: 'contain', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.8))' }}
           />
         ) : (

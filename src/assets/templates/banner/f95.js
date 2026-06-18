@@ -1,3 +1,5 @@
+import SafeImage from '../../../components/ui/SafeImage.jsx';
+
 const F95BannerTemplate = ({ game, onSelect }) => {
   // Engine background color mapping based on C# DataTriggers
   const getEngineBackgroundColor = (engine) => {
@@ -76,10 +78,12 @@ const F95BannerTemplate = ({ game, onSelect }) => {
           className: "w-full h-[300px] bg-[#1F2937]",
         },
         [
-          React.createElement("img", {
+          React.createElement(SafeImage, {
             src: game.banner_url,
             alt: game.title,
             className: "w-full h-full object-cover",
+            fallbackMode: "transparent",
+            fallbackContent: false,
           }),
         ],
       ),

@@ -8,6 +8,7 @@ export default function SafeImage({
   fallbackLabel = 'Image unavailable',
   fallbackDetail,
   fallbackContent = true,
+  fallbackMode,
   placeholderStyle,
   onError,
   ...imgProps
@@ -19,8 +20,13 @@ export default function SafeImage({
   }, [src])
 
   const showFallback = !src || failed
+  const mode = fallbackMode || (fallbackContent === false ? 'transparent' : 'placeholder')
 
   if (showFallback) {
+    if (mode === 'hidden') return null
+
+    const isTransparent = mode === 'transparent'
+
     return (
       <div
         {...imgProps}
@@ -30,7 +36,7 @@ export default function SafeImage({
         aria-hidden={alt ? undefined : true}
         style={{
           ...style,
-          background: '#1f2937',
+          background: isTransparent ? 'transparent' : '#1f2937',
           color: '#9ca3af',
           display: 'flex',
           alignItems: 'center',
@@ -40,7 +46,7 @@ export default function SafeImage({
           ...placeholderStyle,
         }}
       >
-        {fallbackContent && (
+        {!isTransparent && fallbackContent && (
           <div style={{ padding: 12, maxWidth: '100%' }}>
             <i className="fas fa-image" style={{ display: 'block', fontSize: 22, marginBottom: 8, opacity: 0.8 }}></i>
             <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.3 }}>{fallbackLabel}</div>

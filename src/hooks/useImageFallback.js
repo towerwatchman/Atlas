@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react'
 
 // Given an ordered list of candidate image URLs, resolves to the first one that
-// actually loads. Used to implement cross-source image fallback (e.g. Steam CDN
-// → Steam shared.fastly → F95) without requiring the consuming markup to wire
-// up onError — handy for user-provided banner templates that just read a url.
+// actually loads. Used to implement cross-source image fallback, for example
+// Steam CDN to Steam shared.fastly to F95, without requiring every consumer to
+// wire up onError handling.
 //
 // Returns { src, failed, loading }:
-//   - src:     the candidate currently believed best (optimistically the first
-//              while probing; swapped to the first that loads).
-//   - failed:  true once every candidate has errored.
+//   - src: the candidate currently believed best while probing, swapped to the
+//          first that loads, or null when no candidate loads.
+//   - failed: true once every candidate has errored.
 //   - loading: true while probing is still in progress.
 export function useImageFallback(candidates) {
   const list = Array.isArray(candidates) ? candidates.filter(Boolean) : []
@@ -25,17 +25,11 @@ export function useImageFallback(candidates) {
     setLoading(list.length > 0)
 
     if (list.length === 0) return undefined
-    // A single candidate needs no probing — render it directly.
-    if (list.length === 1) {
-      setLoading(false)
-      return undefined
-    }
 
     const tryAt = (i) => {
       if (cancelled) return
       if (i >= list.length) {
-        // Nothing loaded; leave the first candidate in place (it'll show the
-        // browser's broken-image / alt handling) and report failure.
+        setSrc(null)
         setFailed(true)
         setLoading(false)
         return

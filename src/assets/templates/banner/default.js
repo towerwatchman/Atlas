@@ -1,3 +1,5 @@
+import SafeImage from '../../../components/ui/SafeImage.jsx';
+
 const CustomBannerTemplate = ({ game, onSelect }) => {
   // Engine background color mapping based on C# DataTriggers
   const getEngineBackgroundColor = (engine) => {
@@ -180,10 +182,12 @@ const CustomBannerTemplate = ({ game, onSelect }) => {
             "absolute inset-0 w-full h-full z-0 bg-[#1F2937]",
         },
         [
-          React.createElement("img", {
+          React.createElement(SafeImage, {
             src: game.banner_url,
             alt: game.title,
             className: "block w-full h-full object-cover",
+            fallbackMode: "transparent",
+            fallbackContent: false,
           }),
         ],
       ),
