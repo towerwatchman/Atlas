@@ -856,6 +856,10 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       const threadUpdatedSelect = hasThreadUpdated
         ? 'f95_zone_data.thread_updated AS thread_updated'
         : 'NULL AS thread_updated'
+      const hasF95LatestOrder = f95Columns.has('f95_latest_order')
+      const f95LatestOrderSelect = hasF95LatestOrder
+        ? 'f95_zone_data.f95_latest_order AS f95_latest_order'
+        : 'NULL AS f95_latest_order'
       const query = `
       SELECT
         'catalog:' || atlas_data.atlas_id as record_id,
@@ -897,6 +901,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         MIN(steam_data.release_date) AS steam_release_date,
         ${threadUpdatedSelect},
         f95_zone_data.thread_publish_date AS thread_publish_date,
+        ${f95LatestOrderSelect},
         f95_zone_data.last_record_update AS f95_last_record_update,
         COALESCE(NULLIF(atlas_data.voice, ''), MIN(steam_data.voice)) AS voice,
         MIN(steam_data.publisher) AS publisher,
@@ -964,6 +969,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         steam_data.release_date AS steam_release_date,
         NULL AS thread_updated,
         steam_data.release_date AS thread_publish_date,
+        NULL AS f95_latest_order,
         NULL AS f95_last_record_update,
         steam_data.voice AS voice,
         steam_data.publisher AS publisher,
@@ -1006,6 +1012,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           f95_tags: String(row.f95_tags || ""),
           threadUpdated: row.thread_updated || null,
           threadPublishDate: row.thread_publish_date || null,
+          f95LatestOrder: row.f95_latest_order || null,
           versions: [],
           versionCount: 0,
           installedVersionCount: row.is_installed ? 1 : 0,
@@ -1021,6 +1028,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         console.log(
           `Fetched ${games.length} AtlasDB catalog games ` +
           `(thread_updated column ${hasThreadUpdated ? 'available' : 'unavailable'}, ` +
+          `f95_latest_order column ${hasF95LatestOrder ? 'available' : 'unavailable'}, ` +
           `thread_updated populated ${threadUpdatedCount}, ` +
           `thread_publish_date populated ${threadPublishDateCount})`,
         );

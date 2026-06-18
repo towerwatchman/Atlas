@@ -92,11 +92,20 @@ const parseDateParts = (year, month, day) => {
   return date.getTime()
 }
 
+const MIN_BROWSE_DATE_MS = Date.UTC(2000, 0, 1)
+const MAX_BROWSE_DATE_MS = Date.UTC(2100, 0, 1)
+
+const normalizeBrowseDateMs = (value) => {
+  if (!Number.isFinite(value)) return null
+  if (value < MIN_BROWSE_DATE_MS || value > MAX_BROWSE_DATE_MS) return null
+  return value
+}
+
 export const parseAtlasDbThreadDate = (value) => {
   if (value === undefined || value === null || value === '') return null
   if (typeof value === 'number' && Number.isFinite(value)) {
     if (value <= 0) return null
-    return value > 100000000000 ? value : value * 1000
+    return normalizeBrowseDateMs(value > 100000000000 ? value : value * 1000)
   }
 
   const normalized = String(value).trim()
@@ -104,23 +113,22 @@ export const parseAtlasDbThreadDate = (value) => {
 
   const compactDate = normalized.match(/^(\d{4})(\d{2})(\d{2})$/)
   if (compactDate) {
-    return parseDateParts(compactDate[1], compactDate[2], compactDate[3])
+    return normalizeBrowseDateMs(parseDateParts(compactDate[1], compactDate[2], compactDate[3]))
   }
 
   if (/^\d+$/.test(normalized)) {
     const numericValue = Number(normalized)
     if (Number.isFinite(numericValue)) {
       if (numericValue <= 0) return null
-      return numericValue > 100000000000 ? numericValue : numericValue * 1000
+      return normalizeBrowseDateMs(numericValue > 100000000000 ? numericValue : numericValue * 1000)
     }
   }
 
   const parsed = Date.parse(normalized)
-  if (!Number.isFinite(parsed)) return null
-  return parsed
+  return normalizeBrowseDateMs(parsed)
 }
 
-export const getBrowseDate = (game = {}, dateBasis = 'thread_updated') => {
+export const getBrowseDateInfo = (game = {}, dateBasis = 'thread_updated') => {
   const basis = dateBasis === 'thread_publish_date'
     ? 'thread_publish_date'
     : 'thread_updated'
@@ -128,7 +136,32 @@ export const getBrowseDate = (game = {}, dateBasis = 'thread_updated') => {
   const rawValue = basis === 'thread_publish_date'
     ? game.threadPublishDate ?? game.thread_publish_date ?? (isSteamOnly ? game.steam_release_date ?? game.release_date : null)
     : game.threadUpdated ?? game.thread_updated ?? (isSteamOnly ? game.steam_release_date ?? game.release_date : null)
-  return parseAtlasDbThreadDate(rawValue)
+  const field = basis === 'thread_publish_date'
+    ? (isSteamOnly && rawValue === (game.steam_release_date ?? game.release_date) ? 'steam.release_date' : 'f95_zone.thread_publish_date')
+    : (isSteamOnly && rawValue === (game.steam_release_date ?? game.release_date) ? 'steam.release_date' : 'f95_zone.thread_updated')
+  return {
+    timestamp: parseAtlasDbThreadDate(rawValue),
+    rawValue,
+    field,
+    basis,
+  }
+}
+
+export const getBrowseDate = (game = {}, dateBasis = 'thread_updated') => {
+  return getBrowseDateInfo(game, dateBasis).timestamp
+}
+
+const getF95LatestOrder = (game = {}) => {
+  const rawValue = game.f95LatestOrder ?? game.f95_latest_order
+  if (rawValue === undefined || rawValue === null || rawValue === '') return null
+  const numericValue = Number(rawValue)
+  return Number.isFinite(numericValue) ? numericValue : null
+}
+
+const hasLatestUpdateDate = (game = {}) => {
+  const info = getBrowseDateInfo(game, 'thread_updated')
+  if (info.field !== 'f95_zone.thread_updated') return true
+  return info.timestamp !== null
 }
 
 export const getBrowseSources = (game = {}) => {
@@ -183,22 +216,59 @@ const logBrowseDateDebug = (games, activeFilters, bounds) => {
   console.debug(
     'Browse date filter sample',
     games.slice(0, 5).map((game) => {
-      const selectedDate = getBrowseDate(game, activeFilters.browseDateBasis)
+      const selectedInfo = getBrowseDateInfo(game, activeFilters.browseDateBasis)
       return {
         title: getGameTitle(game),
         basis: activeFilters.browseDateBasis,
         range: activeFilters.browseDateRange,
+        selectedField: selectedInfo.field,
+        selectedRawValue: selectedInfo.rawValue,
         rawDates: {
           thread_updated: game.thread_updated,
           threadUpdated: game.threadUpdated,
           thread_publish_date: game.thread_publish_date,
           threadPublishDate: game.threadPublishDate,
+          f95_latest_order: game.f95_latest_order,
+          f95LatestOrder: game.f95LatestOrder,
+          f95_last_record_update: game.f95_last_record_update,
         },
-        selectedDate: selectedDate ? new Date(selectedDate).toISOString() : null,
-        passes: selectedDate !== null && selectedDate >= bounds.min && selectedDate <= bounds.max,
+        selectedDate: selectedInfo.timestamp ? new Date(selectedInfo.timestamp).toISOString() : null,
+        passes: selectedInfo.timestamp !== null && selectedInfo.timestamp >= bounds.min && selectedInfo.timestamp <= bounds.max,
       }
     }),
   )
+}
+
+const logBrowseLatestAudit = (games, activeFilters) => {
+  if (!shouldLogBrowseDateDebug()) return
+  if (activeFilters.browseDateBasis !== 'thread_updated') return
+
+  const f95Rows = games.filter((game) => getBrowseSources(game).includes('f95'))
+  const sample = f95Rows.slice(0, 30)
+  const conquering = f95Rows.find((game) =>
+    getGameTitle(game).toLowerCase().includes('conquering eluria empire')
+  )
+  const rows = conquering && !sample.includes(conquering)
+    ? [...sample, conquering]
+    : sample
+
+  console.debug('Browse F95 latest audit', rows.map((game, index) => {
+    const info = getBrowseDateInfo(game, activeFilters.browseDateBasis)
+    return {
+      index,
+      title: getGameTitle(game),
+      atlas_id: game.atlas_id ?? game.atlasId,
+      f95_id: game.f95_id ?? game.f95Id,
+      selectedField: info.field,
+      selectedRawValue: info.rawValue,
+      selectedDate: info.timestamp ? new Date(info.timestamp).toISOString() : null,
+      f95_latest_order: game.f95_latest_order ?? game.f95LatestOrder,
+      thread_updated: game.thread_updated ?? game.threadUpdated,
+      thread_publish_date: game.thread_publish_date ?? game.threadPublishDate,
+      last_thread_comment: game.last_thread_comment ?? game.lastThreadComment,
+      f95_last_record_update: game.f95_last_record_update,
+    }
+  }))
 }
 
 const logBrowseDateSmokeCounts = (games, activeFilters) => {
@@ -295,6 +365,10 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
     )
   }
 
+  if (browseMode && activeFilters.browseDateBasis === 'thread_updated') {
+    result = result.filter(hasLatestUpdateDate)
+  }
+
   if (browseMode && activeFilters.browseDateRange !== 'any') {
     const bounds = getBrowseDateRangeBounds(activeFilters.browseDateRange)
     if (bounds !== null) {
@@ -320,6 +394,17 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
   result.sort((a, b) => {
     if (browseMode) {
       if (['newest', 'oldest'].includes(activeFilters.browseSort)) {
+        if (
+          activeFilters.browseDateBasis === 'thread_updated' &&
+          getBrowseSources(a).includes('f95') &&
+          getBrowseSources(b).includes('f95')
+        ) {
+          const aOrder = getF95LatestOrder(a)
+          const bOrder = getF95LatestOrder(b)
+          if (aOrder !== null && bOrder !== null && aOrder !== bOrder) {
+            return activeFilters.browseSort === 'oldest' ? aOrder - bOrder : bOrder - aOrder
+          }
+        }
         const aDate = getBrowseDate(a, activeFilters.browseDateBasis)
         const bDate = getBrowseDate(b, activeFilters.browseDateBasis)
         const aMissing = aDate === null
@@ -343,6 +428,8 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
     }
     return getGameTitle(a).localeCompare(getGameTitle(b))
   })
+
+  if (browseMode) logBrowseLatestAudit(result, activeFilters)
 
   return result
 }

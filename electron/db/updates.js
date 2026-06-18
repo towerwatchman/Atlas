@@ -7,6 +7,64 @@ const getDb = () => dbModule.db
 const { insertJsonData } = require('./atlas')
 const { isNewerVersion } = require('../utils/versionUtils')
 
+const withF95LatestOrder = (rows, updateDate) =>
+  rows.map((row, index) => ({
+    ...row,
+    f95_latest_order: (Number(updateDate) * 100000) + (100000 - index),
+  }))
+
+const backfillF95LatestOrderFromUpdateFiles = async (updatesDir) => {
+  const lz4 = require("lz4js");
+  if (!fs.existsSync(updatesDir)) return 0;
+
+  const files = fs.readdirSync(updatesDir)
+    .filter((name) => /^\d+\.update$/.test(name))
+    .sort((a, b) => Number(a.replace(".update", "")) - Number(b.replace(".update", "")));
+  if (files.length === 0) return 0;
+
+  return new Promise((resolve) => {
+    const db = getDb();
+    db.all(`PRAGMA table_info(f95_zone_data)`, [], (columnErr, columns = []) => {
+      if (
+        columnErr ||
+        !Array.isArray(columns) ||
+        !columns.some((column) => column.name === "f95_latest_order")
+      ) {
+        resolve(0);
+        return;
+      }
+
+      db.serialize(() => {
+        let updated = 0;
+        db.run("BEGIN TRANSACTION");
+        const stmt = db.prepare(
+          `UPDATE f95_zone_data SET f95_latest_order = ? WHERE f95_id = ?`,
+        );
+
+        for (const name of files) {
+          try {
+            const updateDate = Number(name.replace(".update", ""));
+            const compressedData = fs.readFileSync(path.join(updatesDir, name));
+            const data = JSON.parse(Buffer.from(lz4.decompress(compressedData)).toString("utf8"));
+            if (!Array.isArray(data.f95_zone)) continue;
+            for (const row of withF95LatestOrder(data.f95_zone, updateDate)) {
+              if (!row.f95_id) continue;
+              stmt.run([row.f95_latest_order, row.f95_id]);
+              updated++;
+            }
+          } catch (err) {
+            console.warn(`Unable to backfill F95 latest order from ${name}:`, err.message);
+          }
+        }
+
+        stmt.finalize(() => {
+          db.run("COMMIT", () => resolve(updated));
+        });
+      });
+    });
+  });
+}
+
 
 const checkDbUpdates = async (updatesDir, mainWindow) => {
   const axios = require("axios");
@@ -39,6 +97,7 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
     const total = newUpdates.length;
 
     if (total === 0) {
+      await backfillF95LatestOrderFromUpdateFiles(updatesDir);
       return {
         success: true,
         message: "No new updates available",
@@ -85,7 +144,7 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
         total,
       });
       if (data.f95_zone && data.f95_zone.length > 0) {
-        await insertJsonData(data.f95_zone, "f95_zone_data");
+        await insertJsonData(withF95LatestOrder(data.f95_zone, date), "f95_zone_data");
       }
 
       // Insert update record

@@ -325,6 +325,7 @@ const updateTableColumns = {
     "extras",
     "translations",
     "replies",
+    "f95_latest_order",
   ]),
 };
 

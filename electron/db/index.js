@@ -197,7 +197,8 @@ const initializeDatabase = (dataDir) => {
         patches STRING,
         extras STRING,
         translations STRING,
-        replies STRING
+        replies STRING,
+        f95_latest_order STRING
       );
     `);
     db.run(`
@@ -425,6 +426,7 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN extras STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN translations STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN thread_updated STRING;`, () => {});
+    db.run(`ALTER TABLE f95_zone_data ADD COLUMN f95_latest_order STRING;`, () => {});
     db.run(`ALTER TABLE steam_data ADD COLUMN type STRING;`, () => {});
     db.run(`ALTER TABLE steam_data ADD COLUMN library_capsule TEXT;`, () => {});
 

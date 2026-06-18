@@ -2,9 +2,19 @@ import f95Logo from '../../../assets/images/f95_full.png'
 import atlasLogo from '../../../assets/images/atlas_logo.svg'
 import { parseExternalIds, buildExternalLinks } from '../externalLinks.js'
 
+const normalizeF95DisplayId = (value) => {
+  const normalized = String(value ?? '').trim()
+  if (!normalized) return ''
+  if (/^\d+$/.test(normalized)) return normalized
+
+  const threadMatch = normalized.match(/\/threads\/(?:[^/\s.]+\.)?(\d+)(?:[/?#]|$)/i)
+  return threadMatch ? threadMatch[1] : normalized
+}
+
 export default function MappingsTab({ game, showModal, searchResults, onFindGame, onSelectGame, onCloseModal }) {
   const externalIds = parseExternalIds(game.external_ids)
   const steamAppId = game.steam_id || game.steam_appid || externalIds.steam_appid || externalIds.steam_id || null
+  const f95DisplayId = normalizeF95DisplayId(game.f95_id)
   const iconCellClass = 'p-2 w-24 align-middle'
   const iconFrameClass = 'flex h-10 w-20 items-center justify-center'
 
@@ -15,7 +25,7 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
     (link) => link.key.toLowerCase() !== 'steam_appid' && link.key.toLowerCase() !== 'steam_id',
   )
 
-  const hasAnyMapping = game.f95_id || game.atlas_id || steamAppId
+  const hasAnyMapping = f95DisplayId || game.atlas_id || steamAppId
 
   return (
     <>
@@ -34,7 +44,7 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
             </tr>
           </thead>
           <tbody>
-            {game.f95_id && (
+            {f95DisplayId && (
               <tr className="border-b border-border">
                 <td className={iconCellClass}>
                   <div className={iconFrameClass}>
@@ -42,7 +52,7 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
                   </div>
                 </td>
                 <td className="p-2">F95Zone</td>
-                <td className="p-2">{game.f95_id}</td>
+                <td className="p-2">{f95DisplayId}</td>
               </tr>
             )}
             {game.atlas_id && (
@@ -122,7 +132,7 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
                   >
                     <div>{result.title}</div>
                     <div className="text-sm text-muted">
-                      Atlas ID: {result.atlas_id} | F95 ID: {result.f95_id || 'N/A'} | Creator: {result.creator || 'N/A'}
+                      Atlas ID: {result.atlas_id} | F95 ID: {normalizeF95DisplayId(result.f95_id) || 'N/A'} | Creator: {result.creator || 'N/A'}
                     </div>
                   </li>
                 ))}
