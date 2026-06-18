@@ -170,4 +170,48 @@ module.exports = function registerThemeHandlers(ctx) {
       return []
     }
   })
+
+  // Used by the Theme Builder (src/components/settings/ThemeBuilder.jsx)
+  // "Save as New Theme" step. Writes a new file into templates/theme/ —
+  // the SAME directory get-available-themes reads from above, and the
+  // SAME mechanism XLibrary's seed file already uses — so a saved theme
+  // immediately shows up in the regular Appearance theme picker on next
+  // load, no separate storage path needed.
+  //
+  // name is slugified into a filename the same way idFromFilename()
+  // derives an id from one, so the resulting id is predictable from the
+  // name the person typed. If that slug collides with an existing file,
+  // overwrite is required to proceed — this is a deliberate "are you
+  // sure" gate rather than silently appending "-2" to the filename, since
+  // a person picking an existing theme's exact name most likely means to
+  // replace it.
+  ipcMain.handle('save-theme', async (event, theme, { overwrite = false } = {}) => {
+    try {
+      if (!theme || typeof theme !== 'object' || !theme.name || typeof theme.name !== 'string') {
+        return { success: false, error: 'Theme must have a name.' }
+      }
+      if (!isPlausibleTheme(theme)) {
+        return { success: false, error: 'Theme is missing a colors object.' }
+      }
+      if (!fs.existsSync(themeTemplatesDir)) {
+        fs.mkdirSync(themeTemplatesDir, { recursive: true })
+      }
+      const slug = idFromFilename(theme.name)
+      const filename = `${slug}.json`
+      const filePath = path.join(themeTemplatesDir, filename)
+      if (fs.existsSync(filePath) && !overwrite) {
+        return { success: false, error: 'A theme with this name already exists.', exists: true }
+      }
+      // Strip id before writing — id is always derived from the filename
+      // on read (see idFromFilename() above), so persisting a stale id
+      // field here would just be dead weight that get-available-themes
+      // ignores anyway.
+      const { id, ...themeToWrite } = theme
+      fs.writeFileSync(filePath, JSON.stringify(themeToWrite, null, 2) + '\n', 'utf8')
+      return { success: true, theme: { ...themeToWrite, id: slug } }
+    } catch (err) {
+      console.error('save-theme error:', err)
+      return { success: false, error: err.message }
+    }
+  })
 }

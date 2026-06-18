@@ -95,8 +95,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   selectCatalogImportSource: () =>
     ipcRenderer.invoke("select-catalog-import-source"),
   importCatalogEntry: (params) => ipcRenderer.invoke("import-catalog-entry", params),
-  importLocalGameVersion: (params) =>
-    ipcRenderer.invoke("import-local-game-version", params),
   getDroppedFilePath: (file) => {
     const webUtilsPath = webUtils?.getPathForFile?.(file) || "";
     const fallbackPath = file?.path || "";
@@ -118,6 +116,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getAvailableBannerTemplates: () =>
     ipcRenderer.invoke("get-available-banner-templates"),
   getAvailableThemes: () => ipcRenderer.invoke("get-available-themes"),
+  saveTheme: (theme, options) => ipcRenderer.invoke("save-theme", theme, options),
 
   // ─── FIXED: Added missing banner template getter ────────────────────────
   getSelectedBannerTemplate: () =>
@@ -278,11 +277,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.removeListener("game-details-import-progress", callback);
   },
   startSteamScan: (params) => ipcRenderer.invoke("start-steam-scan", params),
-  scanRenpySaves: (params) => ipcRenderer.invoke("scan-renpy-saves", params),
-  importRenpySaveGames: (games) =>
-    ipcRenderer.invoke("import-renpy-save-games", games),
-  selectRenpySaveDirectory: () =>
-    ipcRenderer.invoke("select-renpy-save-directory"),
   selectSteamDirectory: () => {
     console.log("Invoking selectSteamDirectory");
     return ipcRenderer.invoke("select-steam-directory");

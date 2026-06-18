@@ -227,6 +227,91 @@ export const normalizeFilterSidebarSide = (side) =>
 export const normalizeFilterSidebarMode = (mode) =>
   FILTER_SIDEBAR_MODE_OPTIONS.includes(mode) ? mode : DEFAULT_FILTER_SIDEBAR_MODE
 
+/**
+ * App-wide button effects — distinct from nav.glow above, which is scoped
+ * specifically to TopNav's active/selected button. This block applies to
+ * ALL buttons across the app (Settings, dialogs, the filter sidebar's
+ * Reset/Close, etc.), at the theme's top level rather than under `nav`,
+ * since it isn't nav-specific.
+ *
+ * - shadow: always-on whenever enabled (a permanent drop shadow on every
+ *   button, regardless of interaction state).
+ * - glow: only painted on hover/active/focus — never a permanent effect —
+ *   same reasoning as nav.glow's active-only scoping, just generalized to
+ *   every button instead of only the active nav button.
+ *
+ * Both reuse the same { enabled, color, offsetX, offsetY, intensity }
+ * GlowSpec shape as DEFAULT_GLOW.
+ */
+export const DEFAULT_BUTTON_EFFECTS = {
+  shadow: { ...DEFAULT_GLOW },
+  glow: { ...DEFAULT_GLOW },
+}
+
+const normalizeEffectSpec = (spec) => ({
+  ...DEFAULT_GLOW,
+  ...(spec && typeof spec === 'object' ? spec : {}),
+})
+
+export const normalizeButtonEffects = (buttonEffects) => {
+  const safe = buttonEffects && typeof buttonEffects === 'object' ? buttonEffects : {}
+  return {
+    shadow: normalizeEffectSpec(safe.shadow),
+    glow: normalizeEffectSpec(safe.glow),
+  }
+}
+
+/**
+ * Text effects — a single shared shadow style and a single shared glow
+ * style (same GlowSpec shape again), each independently toggleable per
+ * text context rather than each context getting its own fully independent
+ * color/offset/intensity. Keeps the config surface manageable: changing
+ * "the" text glow color changes it everywhere it's turned on, rather than
+ * needing to update 3 separate color pickers that are likely meant to
+ * match anyway.
+ *
+ * - shadow: always-on (per context) whenever that context's shadow toggle
+ *   is true.
+ * - glow: only painted on hover/select (per context) when that context's
+ *   glow toggle is true — never a permanent effect, same as button glow.
+ *
+ * contexts lists which UI text each effect can apply to:
+ *   - navLabels: Sidebar.jsx / TopNav.jsx button text (iconsAndText/text
+ *     display modes only — see NAV_DISPLAY_MODE_OPTIONS)
+ *   - pageTitles: section heading text (e.g. the Games/Browse/Wishlist
+ *     title shown in sidebar layout's header — see App.jsx's viewTitle)
+ *   - gameTitles: game name text in the library grid/list views
+ */
+export const TEXT_EFFECT_CONTEXTS = ['navLabels', 'pageTitles', 'gameTitles']
+
+export const DEFAULT_TEXT_EFFECTS = {
+  shadow: { ...DEFAULT_GLOW },
+  glow: { ...DEFAULT_GLOW },
+  contexts: {
+    navLabels: { shadow: false, glow: false },
+    pageTitles: { shadow: false, glow: false },
+    gameTitles: { shadow: false, glow: false },
+  },
+}
+
+export const normalizeTextEffects = (textEffects) => {
+  const safe = textEffects && typeof textEffects === 'object' ? textEffects : {}
+  const safeContexts = safe.contexts && typeof safe.contexts === 'object' ? safe.contexts : {}
+  const contexts = {}
+  for (const ctx of TEXT_EFFECT_CONTEXTS) {
+    const safeCtx = safeContexts[ctx] && typeof safeContexts[ctx] === 'object' ? safeContexts[ctx] : {}
+    contexts[ctx] = {
+      shadow: safeCtx.shadow === true,
+      glow: safeCtx.glow === true,
+    }
+  }
+  return {
+    shadow: normalizeEffectSpec(safe.shadow),
+    glow: normalizeEffectSpec(safe.glow),
+    contexts,
+  }
+}
+
 export const DEFAULT_NAV = {
   layout: DEFAULT_LAYOUT,
   displayMode: DEFAULT_NAV_DISPLAY_MODE,
@@ -280,6 +365,8 @@ export const DEFAULT_THEME = {
   radius: 'sm',
   font: '"Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif',
   nav: { ...DEFAULT_NAV },
+  buttonEffects: { ...DEFAULT_BUTTON_EFFECTS },
+  textEffects: { ...DEFAULT_TEXT_EFFECTS },
   colors: {
     canvas:         '#000000',
     shadow:         '#000000',
@@ -336,6 +423,8 @@ export const normalizeTheme = (theme) => {
     ...DEFAULT_THEME,
     ...theme,
     nav: normalizeNav(theme.nav),
+    buttonEffects: normalizeButtonEffects(theme.buttonEffects),
+    textEffects: normalizeTextEffects(theme.textEffects),
     colors: {
       ...DEFAULT_THEME.colors,
       ...(theme.colors || {}),

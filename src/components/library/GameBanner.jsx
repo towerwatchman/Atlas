@@ -324,7 +324,7 @@ const GameBanner = ({ game, onSelect }) => {
               React.createElement("div", {
                 key: `title-${game.record_id}`,
                 className:
-                  "text-white text-xs font-semibold flex-1 text-center",
+                  "text-shadow-fx text-glow-fx game-titles text-white text-xs font-semibold flex-1 text-center",
                 children: displayTitle,
               }),
               // Status and Newest Version at bottom-right

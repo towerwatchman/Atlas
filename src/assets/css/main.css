@@ -78,13 +78,31 @@
   /* Typography */
   --font-sans: "Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
 
+  /* Nav button glow — only ever painted on TopNav.jsx's active/selected
+     button (never Sidebar.jsx, never an unselected button). box-shadow
+     value, 'none' by default. Set by applyTheme.js from the active
+     theme's nav.glow block. */
+  --nav-glow: none;
+
+  /* App-wide button effects (DEFAULT_BUTTON_EFFECTS in themes.js) — apply
+     to every button, not just nav buttons. --button-shadow is a
+     permanent box-shadow value (see .btn-shadow below); --button-glow is
+     the same shape but only ever applied on hover/focus/active (see
+     .btn-glow below), never as a permanent effect. */
+  --button-shadow: none;
+  --button-glow: none;
+
+  /* Text effects (DEFAULT_TEXT_EFFECTS in themes.js) — one shared shadow
+     value and one shared glow value; which text actually uses them is
+     controlled per-context via data-text-shadow-(context) and
+     data-text-glow-(context) attributes on <html> (see applyTheme.js)
+     rather than per-element CSS variables, since the style itself is
+     shared across all contexts. */
+  --text-shadow: none;
+  --text-glow: none;
+
   /* Layout */
   --nav-size: 60px; /* sidebar width in 'sidebar' layout, topnav height in 'topnav' layout */
-
-  /* Nav button glow (Sidebar.jsx / TopNav.jsx only) — box-shadow value,
-     'none' by default. Set by applyTheme.js from the active theme's
-     nav.glow block. */
-  --nav-glow: none;
 
   /* Scrollbar (kept in sync with --color-border / --color-primary / --color-accent
      by default; themes may override these three independently if a theme
@@ -170,6 +188,60 @@
    on any theme that doesn't opt in. */
 .nav-glow {
   box-shadow: var(--nav-glow);
+}
+
+/* App-wide button effects (DEFAULT_BUTTON_EFFECTS in themes.js) — meant to
+   be applied to every button in the app, unlike .nav-glow above which is
+   nav-specific. .btn-shadow is a PERMANENT effect (always visible while
+   the theme has it enabled); .btn-glow is intentionally only painted on
+   hover/focus/active — there is no bare ".btn-glow { box-shadow: ... }"
+   rule, by design, so it can never become an always-on effect by
+   accident. Both are safe no-ops on any theme that hasn't enabled them,
+   same as .nav-glow. */
+.btn-shadow {
+  box-shadow: var(--button-shadow);
+}
+.btn-glow:hover,
+.btn-glow:focus,
+.btn-glow.active {
+  box-shadow: var(--button-glow);
+}
+
+/* Text effects (DEFAULT_TEXT_EFFECTS in themes.js) — .text-shadow-fx is a
+   PERMANENT effect (text-shadow doesn't have a meaningful "always vs.
+   on-state" split the way box-shadow's spread does, but per the product
+   decision here shadow is always-on while glow is hover/select-only).
+   .text-glow-fx mirrors .btn-glow's hover/focus/active-only pattern, plus
+   a `.selected` class for contexts like a selected game title that use a
+   class rather than native :focus to represent "selected".
+
+   One single combined class per context+effect (e.g. "text-shadow-fx
+   nav-labels" as TWO classes on the same element) — a component applies
+   both: the generic effect class plus a context class telling it which
+   data-text-*-on attribute to check. This keeps each context's CSS rule
+   to one line instead of duplicating full selectors per context. */
+.text-shadow-fx.nav-labels { text-shadow: none; }
+.text-shadow-fx.page-titles { text-shadow: none; }
+.text-shadow-fx.game-titles { text-shadow: none; }
+html[data-text-shadow-nav-labels="on"] .text-shadow-fx.nav-labels,
+html[data-text-shadow-page-titles="on"] .text-shadow-fx.page-titles,
+html[data-text-shadow-game-titles="on"] .text-shadow-fx.game-titles {
+  text-shadow: var(--text-shadow);
+}
+html[data-text-glow-nav-labels="on"] .text-glow-fx.nav-labels:hover,
+html[data-text-glow-nav-labels="on"] .text-glow-fx.nav-labels:focus,
+html[data-text-glow-nav-labels="on"] .text-glow-fx.nav-labels.selected,
+html[data-text-glow-page-titles="on"] .text-glow-fx.page-titles:hover,
+html[data-text-glow-page-titles="on"] .text-glow-fx.page-titles:focus,
+html[data-text-glow-page-titles="on"] .text-glow-fx.page-titles.selected,
+html[data-text-glow-game-titles="on"] .text-glow-fx.game-titles:hover,
+html[data-text-glow-game-titles="on"] .text-glow-fx.game-titles:focus,
+html[data-text-glow-game-titles="on"] .text-glow-fx.game-titles.selected,
+/* Game titles specifically live inside a hoverable card (.banner-root in
+   GameBanner.jsx) rather than being hovered directly themselves — the
+   glow should still trigger when the card as a whole is hovered. */
+html[data-text-glow-game-titles="on"] .banner-root:hover .text-glow-fx.game-titles {
+  text-shadow: var(--text-glow);
 }
 
 /*

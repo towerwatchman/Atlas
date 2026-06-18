@@ -802,7 +802,11 @@ const App = () => {
           <div className="w-full flex h-[70px] items-center">
             {!isTopNav && (
               <div className="flex items-center ml-5">
-                <div className="text-accent font-semibold cursor-pointer -webkit-app-region-no-drag" onClick={goHome} title="Back to Library">
+                <div
+                  className="text-shadow-fx text-glow-fx page-titles text-accent font-semibold cursor-pointer -webkit-app-region-no-drag"
+                  onClick={goHome}
+                  title="Back to Library"
+                >
                   {viewTitle}
                 </div>
               </div>
@@ -914,15 +918,18 @@ const App = () => {
                     : 'No games found'}
               </div>
             ) : (
-              filteredGames.map((game) => (
-                <div
-                  key={game.record_id}
-                  className={`p-2 cursor-pointer hover:bg-selected ${selectedGame?.record_id === game.record_id ? 'bg-selected' : ''} ${game.hasInstalledVersion === false && !game.isCatalogEntry ? 'text-muted italic' : ''}`}
-                  onClick={() => selectGame(game)}
-                >
-                  {getGameTitle(game)}
-                </div>
-              ))
+              filteredGames.map((game) => {
+                const isSelected = selectedGame?.record_id === game.record_id
+                return (
+                  <div
+                    key={game.record_id}
+                    className={`text-shadow-fx text-glow-fx game-titles p-2 cursor-pointer hover:bg-selected ${isSelected ? 'bg-selected selected' : ''} ${game.hasInstalledVersion === false && !game.isCatalogEntry ? 'text-muted italic' : ''}`}
+                    onClick={() => selectGame(game)}
+                  >
+                    {getGameTitle(game)}
+                  </div>
+                )
+              })
             )}
           </div>
         )}

@@ -38,9 +38,9 @@ const Sidebar = ({
         return (
           <div
             key={item.name}
-            className={`w-full flex flex-col items-center justify-center gap-1 relative cursor-pointer group ${
+            className={`btn-shadow btn-glow w-full flex flex-col items-center justify-center gap-1 relative cursor-pointer group ${
               showText ? 'h-[56px] py-1.5' : 'h-[56px]'
-            }`}
+            } ${isActive ? 'active' : ''}`}
             title={item.name}
             aria-label={item.name}
             onClick={() => handleClick(item)}
@@ -62,7 +62,7 @@ const Sidebar = ({
               </svg>
             )}
             {showText && (
-              <span className={`text-[10px] leading-none font-medium ${isActive ? 'text-accent' : 'text-border'}`}>
+              <span className={`text-shadow-fx text-glow-fx nav-labels text-[10px] leading-none font-medium ${isActive ? 'text-accent selected' : 'text-border'}`}>
                 {item.name}
               </span>
             )}

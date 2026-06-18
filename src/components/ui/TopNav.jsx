@@ -88,9 +88,9 @@ const TopNav = ({
             onClick={() => handleClick(item)}
             title={LABELS[item.name] || item.name}
             aria-label={LABELS[item.name] || item.name}
-            className={`flex items-center justify-center gap-1.5 rounded-theme transition-colors ${
+            className={`btn-shadow btn-glow flex items-center justify-center gap-1.5 rounded-theme transition-colors ${
               showText ? 'h-8 px-2.5' : 'w-8 h-8'
-            } ${isActive ? 'nav-glow bg-accent text-white' : 'text-text hover:bg-tertiary'}`}
+            } ${isActive ? 'nav-glow bg-accent text-white active' : 'text-text hover:bg-tertiary'}`}
           >
             {showIcon && (
               <svg className="w-[18px] h-[18px] flex-shrink-0" viewBox={item.viewBox || '0 0 24 24'} fill="currentColor">
@@ -102,7 +102,9 @@ const TopNav = ({
               </svg>
             )}
             {showText && (
-              <span className="text-sm font-medium whitespace-nowrap">{LABELS[item.name] || item.name}</span>
+              <span className={`text-shadow-fx text-glow-fx nav-labels text-sm font-medium whitespace-nowrap ${isActive ? 'selected' : ''}`}>
+                {LABELS[item.name] || item.name}
+              </span>
             )}
           </button>
         )

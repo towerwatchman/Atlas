@@ -8,6 +8,7 @@
 
 import {
   THEME_COLOR_KEYS, GRADIENT_ELIGIBLE_KEYS, NAV_SIZES, DEFAULT_THEME,
+  TEXT_EFFECT_CONTEXTS,
   getThemeById, normalizeTheme, normalizeLayout, normalizeNavDisplayMode,
   resolveColorValue,
 } from './themes.js'
@@ -15,6 +16,16 @@ import {
 // camelCase color key -> kebab-case CSS variable name, e.g. 'dangerHover' -> '--color-danger-hover'
 const cssVarNameForColorKey = (key) =>
   `--color-${key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()}`
+
+// Builds a CSS box-shadow/text-shadow value string from a GlowSpec (see
+// DEFAULT_GLOW in themes.js), or 'none' if disabled — shared by nav glow,
+// app-wide button shadow/glow, and per-context text shadow/glow so the
+// offsetX/offsetY/blur/color ordering only needs to be right in one place.
+const buildShadowValue = (spec) =>
+  spec?.enabled ? `${spec.offsetX}px ${spec.offsetY}px ${spec.intensity}px ${spec.color}` : 'none'
+
+// kebab-case for a TEXT_EFFECT_CONTEXTS entry, e.g. 'navLabels' -> 'nav-labels'
+const kebabCase = (key) => key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
 
 /**
  * Writes every design-token CSS variable onto :root for the given theme +
@@ -52,13 +63,34 @@ export function applyTheme(theme, layout, navOverrides = {}) {
   // Nav button glow — only ever painted on TopNav.jsx's active button (see
   // DEFAULT_GLOW in themes.js). Always set --nav-glow (even to 'none') so
   // a theme that disables glow cleanly removes any previous theme's glow
-  // rather than leaving it on. Order matches CSS box-shadow: offsetX
-  // offsetY blur color.
-  const glow = safeTheme.nav.glow
-  root.setProperty(
-    '--nav-glow',
-    glow.enabled ? `${glow.offsetX}px ${glow.offsetY}px ${glow.intensity}px ${glow.color}` : 'none',
-  )
+  // rather than leaving it on.
+  root.setProperty('--nav-glow', buildShadowValue(safeTheme.nav.glow))
+
+  // App-wide button effects (DEFAULT_BUTTON_EFFECTS in themes.js) — unlike
+  // nav.glow above, these apply to every button in the app, not just the
+  // active TopNav one. --button-shadow is painted unconditionally via
+  // .btn-shadow (see main.css); --button-glow is only painted on
+  // hover/focus/active via .btn-glow:hover/:focus/.active, never as a
+  // permanent effect, mirroring how nav.glow itself is scoped to an
+  // interaction state rather than always-on.
+  root.setProperty('--button-shadow', buildShadowValue(safeTheme.buttonEffects.shadow))
+  root.setProperty('--button-glow', buildShadowValue(safeTheme.buttonEffects.glow))
+
+  // Text effects (DEFAULT_TEXT_EFFECTS in themes.js) — one shared shadow
+  // value and one shared glow value, written once here, plus a per-context
+  // on/off data attribute for each entry in TEXT_EFFECT_CONTEXTS so CSS
+  // can decide which text actually uses them (see the .text-shadow /
+  // .text-glow utility classes + [data-text-shadow-*]/[data-text-glow-*]
+  // attribute selectors in main.css). Text-shadow only needs x/y/blur/color
+  // — the same 4 values buildShadowValue already produces — so it's reused
+  // as-is rather than a separate builder.
+  root.setProperty('--text-shadow', buildShadowValue(safeTheme.textEffects.shadow))
+  root.setProperty('--text-glow', buildShadowValue(safeTheme.textEffects.glow))
+  for (const ctx of TEXT_EFFECT_CONTEXTS) {
+    const ctxConfig = safeTheme.textEffects.contexts[ctx] || { shadow: false, glow: false }
+    document.documentElement.setAttribute(`data-text-shadow-${kebabCase(ctx)}`, ctxConfig.shadow ? 'on' : 'off')
+    document.documentElement.setAttribute(`data-text-glow-${kebabCase(ctx)}`, ctxConfig.glow ? 'on' : 'off')
+  }
 
   // Exposed as data attributes (rather than only CSS variables) so
   // layout-branching components (Sidebar vs. TopNav) and plain CSS alike

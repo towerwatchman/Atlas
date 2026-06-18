@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
 import { LAYOUT_OPTIONS, NAV_DISPLAY_MODE_OPTIONS, FILTER_SIDEBAR_SIDE_OPTIONS, FILTER_SIDEBAR_MODE_OPTIONS, GRADIENT_ELIGIBLE_KEYS, resolveColorValue } from '../../theme/themes.js'
+import ThemeBuilder from './ThemeBuilder.jsx'
 
 // A handful of each theme's colors, shown as small swatches on its picker
 // card so people can tell themes apart at a glance rather than reading
@@ -93,6 +94,13 @@ const Appearance = () => {
     setFilterSidebarSide, setFilterSidebarMode, availableThemes,
   } = useTheme()
 
+  // Theme Builder is a separate full-page tool for AUTHORING a new theme
+  // from scratch (every color, radius, font, nav/glow/shadow setting, with
+  // a live preview) — kept apart from the picker/quick-overrides above so
+  // this page stays simple for the common case of just picking an
+  // existing theme. Opened via the button below; closing it returns here.
+  const [isBuilderOpen, setIsBuilderOpen] = useState(false)
+
   // ── Banner template + XAML editor — unrelated to the theme engine above.
   // These are a separate, pre-existing feature (per-game banner card
   // layout, not app chrome) with its own future editor planned, so this
@@ -129,21 +137,32 @@ const Appearance = () => {
     alert('XAML Editor is not implemented in this version.')
   }
 
+  if (isBuilderOpen) {
+    return <ThemeBuilder onClose={() => setIsBuilderOpen(false)} />
+  }
+
   return (
     <div className="p-5 text-text -webkit-app-region-no-drag">
       {/* ── Theme picker ────────────────────────────────────────────── */}
-      <div className="mb-2">
+      <div className="mb-2 flex items-center justify-between">
         <label className="block mb-3">Theme</label>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {availableThemes.map((t) => (
-            <ThemeSwatchCard
-              key={t.id}
-              theme={t}
-              isActive={t.id === theme.id}
-              onSelect={setTheme}
-            />
-          ))}
-        </div>
+        <button
+          type="button"
+          onClick={() => setIsBuilderOpen(true)}
+          className="btn-shadow btn-glow text-sm bg-accent text-white px-3 py-1.5 rounded-theme hover:bg-accentHover"
+        >
+          <i className="fas fa-palette mr-1.5"></i>Open Theme Builder
+        </button>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {availableThemes.map((t) => (
+          <ThemeSwatchCard
+            key={t.id}
+            theme={t}
+            isActive={t.id === theme.id}
+            onSelect={setTheme}
+          />
+        ))}
       </div>
       <p className="text-xs opacity-50 mb-2">
         Changes apply immediately across all open Atlas windows.
