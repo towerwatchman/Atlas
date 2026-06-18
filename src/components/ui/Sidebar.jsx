@@ -29,7 +29,7 @@ const Sidebar = ({
   }
 
   return (
-    <div className="w-navSize bg-primary flex flex-col items-center min-w-[60px] py-[1px] fixed h-full z-50">
+    <div className="w-navSize bg-primary flex flex-col items-center min-w-[60px] py-[1px] fixed top-[70px] bottom-[40px] z-50">
       {items.map((item) => {
         const isActive =
           selected === item.name ||
