@@ -4,6 +4,7 @@ import { getGameTitle, safeText } from '../utils/gameDisplay.js'
 export const defaultFilters = {
   text: '',
   type: 'all',
+  source: 'all',
   category: [],
   engine: [],
   status: [],
@@ -24,11 +25,23 @@ export const defaultFilters = {
 }
 
 const arrayFilterKeys = ['category', 'engine', 'status', 'censored', 'language', 'tags']
+const searchTypes = ['all', 'title', 'creator', 'atlasId', 'f95Id', 'steamId', 'anyId']
+const sourceTypes = ['all', 'f95', 'steam', 'atlas']
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value.filter((item) => item !== undefined && item !== null).map(String)
   if (value === undefined || value === null || value === '') return []
   return [String(value)]
+}
+
+const normalizeSearchType = (value) => {
+  const normalized = String(value || 'all')
+  return searchTypes.includes(normalized) ? normalized : 'all'
+}
+
+const normalizeSourceType = (value) => {
+  const normalized = String(value || 'all').toLowerCase()
+  return sourceTypes.includes(normalized) ? normalized : 'all'
 }
 
 export const normalizeFilterState = (filters = {}) => {
@@ -37,12 +50,11 @@ export const normalizeFilterState = (filters = {}) => {
   for (const key of arrayFilterKeys) {
     merged[key] = toArray(merged[key])
   }
-  merged.text = String(merged.text || '')
-  merged.type = String(merged.type || 'all')
+  merged.text = String(merged.text || '').trim()
+  merged.type = normalizeSearchType(merged.type)
+  merged.source = normalizeSourceType(merged.source)
   merged.sort = String(merged.sort || 'name')
-  merged.browseSource = ['all', 'f95', 'steam', 'atlas'].includes(merged.browseSource)
-    ? merged.browseSource
-    : 'all'
+  merged.browseSource = normalizeSourceType(merged.browseSource)
   merged.browseDateBasis = ['thread_updated', 'thread_publish_date'].includes(merged.browseDateBasis)
     ? merged.browseDateBasis
     : 'thread_updated'
@@ -164,12 +176,124 @@ const hasLatestUpdateDate = (game = {}) => {
   return info.timestamp !== null
 }
 
-export const getBrowseSources = (game = {}) => {
-  const sources = []
-  if (game.f95_id) sources.push('f95')
-  if (game.steam_id) sources.push('steam')
-  if (game.atlas_id) sources.push('atlas')
-  return sources
+const parseExternalIds = (raw) => {
+  if (!raw) return {}
+  if (typeof raw === 'object') return raw
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+const cleanSearchText = (value) =>
+  safeText(value).trim().toLowerCase().replace(/\s+/g, ' ')
+
+const cleanIdText = (value) =>
+  safeText(value).trim().toLowerCase().replace(/\s+/g, '')
+
+const hasValue = (value) => cleanIdText(value) !== ''
+
+const collectValues = (game = {}, keys = []) =>
+  keys.map((key) => game[key]).filter(hasValue)
+
+const getExternalIds = (game = {}) => parseExternalIds(game.external_ids ?? game.externalIds)
+
+const getExternalValues = (game = {}, keys = []) => {
+  const externalIds = getExternalIds(game)
+  return keys.map((key) => externalIds[key]).filter(hasValue)
+}
+
+const getAtlasIdValues = (game = {}) => [
+  ...collectValues(game, ['atlas_id', 'atlasId', 'record_id']),
+  ...getExternalValues(game, ['atlas_id', 'atlasId']),
+]
+
+const getAtlasSourceIdValues = (game = {}) => [
+  ...collectValues(game, ['atlas_id', 'atlasId']),
+  ...getExternalValues(game, ['atlas_id', 'atlasId']),
+]
+
+const getF95IdValues = (game = {}) => [
+  ...collectValues(game, ['f95_id', 'f95Id']),
+  ...getExternalValues(game, ['f95_id', 'f95Id']),
+]
+
+const getSteamIdValues = (game = {}) => [
+  ...collectValues(game, ['steam_id', 'steamId', 'steam_appid', 'steamAppId']),
+  ...getExternalValues(game, ['steam_id', 'steamId', 'steam_appid', 'steamAppId']),
+]
+
+const idMatches = (values, query) => {
+  const needle = cleanIdText(query)
+  return needle !== '' && values.some((value) => cleanIdText(value).includes(needle))
+}
+
+const getUrlValues = (game = {}) => {
+  const externalIds = getExternalIds(game)
+  return [
+    ...collectValues(game, [
+      'siteUrl',
+      'site_url',
+      'sourceUrl',
+      'source_url',
+      'f95Url',
+      'f95_url',
+      'steamUrl',
+      'steam_url',
+      'storeUrl',
+      'store_url',
+      'atlasUrl',
+      'atlas_url',
+      'threadUrl',
+      'thread_url',
+      'url',
+    ]),
+    ...Object.values(externalIds).filter(hasValue),
+  ]
+}
+
+const urlMatchesSource = (url, source) => {
+  const value = cleanSearchText(url)
+  if (source === 'f95') return value.includes('f95zone') || value.includes('f95.zone')
+  if (source === 'steam') return value.includes('steampowered.com') || value.includes('steamcommunity.com')
+  if (source === 'atlas') return value.includes('atlas') || value.includes('atlasdb')
+  return false
+}
+
+export const getGameSources = (game = {}) => {
+  const sources = new Set()
+  const explicitSource = cleanSearchText(game.source || game.sourceType)
+  if (sourceTypes.includes(explicitSource) && explicitSource !== 'all') {
+    sources.add(explicitSource)
+  }
+  if (getF95IdValues(game).length > 0 || getUrlValues(game).some((url) => urlMatchesSource(url, 'f95'))) {
+    sources.add('f95')
+  }
+  if (getSteamIdValues(game).length > 0 || getUrlValues(game).some((url) => urlMatchesSource(url, 'steam'))) {
+    sources.add('steam')
+  }
+  if (getAtlasSourceIdValues(game).length > 0 || getUrlValues(game).some((url) => urlMatchesSource(url, 'atlas'))) {
+    sources.add('atlas')
+  }
+  return [...sources]
+}
+
+export const getBrowseSources = getGameSources
+
+const parseSearchQuery = (text, type) => {
+  const raw = String(text || '').trim()
+  const match = raw.match(/^([a-z]+):\s*(.+)$/i)
+  if (!match) return { type, query: raw, urlSource: null }
+  const prefix = match[1].toLowerCase()
+  const query = match[2].trim()
+  if (prefix === 'id') return { type: 'anyId', query, urlSource: null }
+  if (prefix === 'f95') return { type: 'f95Id', query, urlSource: null }
+  if (prefix === 'atlas') return { type: 'atlasId', query, urlSource: null }
+  if (prefix === 'steam') return { type: 'steamId', query, urlSource: null }
+  if (prefix === 'url') return { type, query, urlSource: normalizeSourceType(query) }
+  return { type, query: raw, urlSource: null }
 }
 
 const getBrowseDateRangeBounds = (range) => {
@@ -301,12 +425,26 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
   let result = [...(Array.isArray(games) ? games : [])]
 
   if (activeFilters.text) {
-    const lower = activeFilters.text.toLowerCase()
+    const { type, query, urlSource } = parseSearchQuery(activeFilters.text, activeFilters.type)
+    const lower = cleanSearchText(query)
     result = result.filter((game) => {
-      const title = getGameTitle(game).toLowerCase()
-      const creator = safeText(game.creator).toLowerCase()
-      if (activeFilters.type === 'title') return title.includes(lower)
-      if (activeFilters.type === 'creator') return creator.includes(lower)
+      if (urlSource && urlSource !== 'all') {
+        return getGameSources(game).includes(urlSource)
+      }
+      const title = cleanSearchText(getGameTitle(game))
+      const creator = cleanSearchText(game.creator)
+      if (type === 'title') return title.includes(lower)
+      if (type === 'creator') return creator.includes(lower)
+      if (type === 'atlasId') return idMatches(getAtlasIdValues(game), query)
+      if (type === 'f95Id') return idMatches(getF95IdValues(game), query)
+      if (type === 'steamId') return idMatches(getSteamIdValues(game), query)
+      if (type === 'anyId') {
+        return (
+          idMatches(getAtlasIdValues(game), query) ||
+          idMatches(getF95IdValues(game), query) ||
+          idMatches(getSteamIdValues(game), query)
+        )
+      }
       return title.includes(lower) || creator.includes(lower)
     })
   }
@@ -359,9 +497,10 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
     result = result.filter((game) => (game.release_date || 0) >= cutoff)
   }
 
-  if (browseMode && activeFilters.browseSource !== 'all') {
+  const sourceFilter = browseMode ? activeFilters.browseSource : activeFilters.source
+  if (sourceFilter !== 'all') {
     result = result.filter((game) =>
-      getBrowseSources(game).includes(activeFilters.browseSource)
+      getGameSources(game).includes(sourceFilter)
     )
   }
 

@@ -204,7 +204,7 @@ const SearchSidebar = ({
       <div className="h-[calc(100%-60px)] overflow-y-auto p-4">
         {/* Search Input */}
         <div className="mb-6">
-          <div className="flex items-center border border-border rounded bg-tertiary">
+          <div className="flex items-center border border-border rounded bg-tertiary overflow-hidden">
             <i className="fas fa-search w-6 h-6 text-text pl-3 flex items-center justify-center"></i>
             <input
               type="text"
@@ -215,6 +215,20 @@ const SearchSidebar = ({
               }}
               className="bg-transparent outline-none text-text flex-1 px-3 py-2 focus:outline-none -webkit-app-region-no-drag"
             />
+            <select
+              value={selectedFilters.type}
+              onChange={(e) => updateFilters({ type: e.target.value })}
+              className="bg-primary border-l border-border text-text text-xs px-2 py-2 outline-none -webkit-app-region-no-drag"
+              title="Search mode"
+            >
+              <option value="all">All</option>
+              <option value="title">Title</option>
+              <option value="creator">Creator</option>
+              <option value="anyId">Any ID</option>
+              <option value="atlasId">Atlas ID</option>
+              <option value="f95Id">F95 ID</option>
+              <option value="steamId">Steam ID</option>
+            </select>
           </div>
         </div>
 
