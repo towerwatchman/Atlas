@@ -15,6 +15,8 @@ const deriveImportStats = (games) => ({
   totalFound: games.length,
 })
 
+const initialScanProgress = { value: 0, total: 0, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 }
+
 const toBoolean = (value, fallback = false) => {
   if (value === true || value === false) return value
   if (value === 1 || value === '1') return true
@@ -59,7 +61,7 @@ const Importer = () => {
   const [scanMessage, setScanMessage] = useState('')
 
   // ── Scan results ──────────────────────────────────────────────────────────
-  const [progress, setProgress] = useState({ value: 0, total: 0, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 })
+  const [progress, setProgress] = useState(initialScanProgress)
   const [progressLabel, setProgressLabel] = useState(null)
   const [gamesList, setGamesList] = useState([])
   const [hideMatches, setHideMatches] = useState(false)
@@ -69,6 +71,9 @@ const Importer = () => {
   const deletedScanGameKeysRef = useRef(new Set())
   const matchCancelRef = useRef(false)
   const steamScanActiveRef = useRef(false)
+  const currentScanIdRef = useRef(null)
+  const [isScanActive, setIsScanActive] = useState(false)
+  const [isCancelingScan, setIsCancelingScan] = useState(false)
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const getScanGameKey = (game) => {
@@ -305,9 +310,10 @@ const Importer = () => {
     for (let i = 0; i < pendingRows.length; i += chunkSize) {
       if (matchCancelRef.current) break
       const chunk = pendingRows.slice(i, i + chunkSize)
-      const resolvedChunk = await Promise.all(
-        (await window.electronAPI.resolveImportMatches(chunk)).map((game) => applyImportStatus(game))
-      )
+      const resolvedRows = await window.electronAPI.resolveImportMatches(chunk)
+      if (matchCancelRef.current) break
+      const resolvedChunk = await Promise.all(resolvedRows.map((game) => applyImportStatus(game)))
+      if (matchCancelRef.current) break
       resolvedCount += resolvedChunk.length
       const resolvedByKey = new Map(resolvedChunk.map((game) => [getScanGameKey(game), game]))
       setGamesList((prev) => prev.map((game) => resolvedByKey.get(getScanGameKey(game)) || game))
@@ -340,12 +346,30 @@ const Importer = () => {
       .catch((err) => console.error('Error loading config:', err))
   }, [])
 
+  const isCurrentScanEvent = (payload) => {
+    const eventScanId = payload?.scanId
+    return !eventScanId || eventScanId === currentScanIdRef.current
+  }
+
+  const normalizeScanFinalPayload = (payload) => {
+    if (Array.isArray(payload)) return { games: payload, scanId: null, canceled: false }
+    return {
+      games: Array.isArray(payload?.games) ? payload.games : [],
+      scanId: payload?.scanId || null,
+      canceled: payload?.canceled === true,
+    }
+  }
+
   useEffect(() => {
     window.electronAPI.log('Importer component mounted')
     window.electronAPI.onWindowStateChanged((state) => setIsMaximized(state === 'maximized'))
-    window.electronAPI.onScanProgress((prog) => setProgress(prog))
+    window.electronAPI.onScanProgress((prog) => {
+      if (!isCurrentScanEvent(prog)) return
+      setProgress(prog)
+    })
 
     window.electronAPI.onScanComplete(async (game) => {
+      if (!isCurrentScanEvent(game)) return
       if (game.scanStatus === 'pendingMatch') { addScannedGame(game); return }
       if (game.results?.length > 1 && game.resultSelectedValue && game.resultSelectedValue !== 'match') {
         addScannedGame(await chooseInstalledMatch(game, game.results))
@@ -354,8 +378,20 @@ const Importer = () => {
       }
     })
 
-    window.electronAPI.onScanCompleteFinal(async (games) => {
+    window.electronAPI.onScanCompleteFinal(async (payload) => {
+      const { games, canceled, scanId } = normalizeScanFinalPayload(payload)
+      if (scanId && scanId !== currentScanIdRef.current) return
       steamScanActiveRef.current = false
+      setIsScanActive(false)
+      setIsCancelingScan(false)
+      if (currentScanIdRef.current === scanId) currentScanIdRef.current = null
+      if (canceled) {
+        matchCancelRef.current = true
+        setIsResolvingMatches(false)
+        setProgressLabel('Scan canceled')
+        setScanMessage('Scan canceled')
+        return
+      }
       const visibleGamesList = await Promise.all(
         games
           .filter((game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game)))
@@ -424,14 +460,23 @@ const Importer = () => {
 
   const startScan = async () => {
     if (!folder) return alert('Select a folder')
+    if (isScanActive || isCancelingScan) return alert('Another scan is already running')
+    const scanId = `local-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    currentScanIdRef.current = scanId
     setImportMode('games')
     setScanPath(folder)
     setScanMessage('')
+    setProgressLabel('Scanning')
+    setProgress(initialScanProgress)
     setView('scan')
+    setIsScanActive(true)
+    setIsCancelingScan(false)
+    matchCancelRef.current = false
+    steamScanActiveRef.current = false
     deletedScanGameKeysRef.current.clear()
     setGamesList([])
     const params = {
-      folder, mode: 'local', deferMatching: true,
+      folder, mode: 'local', scanId, deferMatching: true,
       format: useUnstructured ? '' : customFormat,
       gameExt: gameExt.split(',').map((e) => e.trim()),
       archiveExt: archiveExt.split(',').map((e) => e.trim()),
@@ -440,17 +485,36 @@ const Importer = () => {
     }
     window.electronAPI.log(`Scan params: ${JSON.stringify(params)}`)
     const result = await window.electronAPI.startScan(params)
-    if (!result.success) { console.error(`Scan error: ${result.error}`); alert(`Error: ${result.error}`) }
+    if (result?.scanId && result.scanId !== currentScanIdRef.current) return
+    if (result?.canceled) {
+      setScanMessage('Scan canceled')
+      setProgressLabel('Scan canceled')
+      return
+    }
+    if (!result.success) {
+      currentScanIdRef.current = null
+      setIsScanActive(false)
+      setIsCancelingScan(false)
+      setProgressLabel(null)
+      console.error(`Scan error: ${result.error}`)
+      alert(`Error: ${result.error}`)
+    }
   }
 
   // Kick off a scan of the local Steam library. Steam rows are emitted through
   // the same scan-progress / scan-complete / scan-complete-final channel as the
   // Atlas importer, so they flow into the existing ScanStep table unchanged.
   const startSteamScan = async (steamPath = null) => {
+    currentScanIdRef.current = null
     setImportMode('steam')
     setScanPath(steamPath || 'Steam library')
     setScanMessage('')
+    setProgressLabel('Scanning Steam')
+    setProgress(initialScanProgress)
     setView('scan')
+    setIsScanActive(false)
+    setIsCancelingScan(false)
+    matchCancelRef.current = false
     deletedScanGameKeysRef.current.clear()
     setGamesList([])
     steamScanActiveRef.current = true
@@ -463,11 +527,15 @@ const Importer = () => {
   }
 
   const startRenpyScan = async (renpyRoot = null) => {
+    currentScanIdRef.current = null
     setImportMode('renpySaves')
     setView('scan')
+    setIsScanActive(false)
+    setIsCancelingScan(false)
+    matchCancelRef.current = false
     deletedScanGameKeysRef.current.clear()
     setGamesList([])
-    setProgress({ value: 0, total: 1, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 })
+    setProgress({ ...initialScanProgress, total: 1 })
     setProgressLabel("Looking for Ren'Py save folder...")
     setScanPath(renpyRoot || '')
     setScanMessage('')
@@ -476,14 +544,14 @@ const Importer = () => {
       if (result?.needsSelection) {
         setScanPath(result.rootPath || '')
         setScanMessage(result.message || "Ren'Py save folder was not found. Select it manually.")
-        setProgress({ value: 0, total: 0, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 })
+        setProgress(initialScanProgress)
         setProgressLabel("Ren'Py save folder not found")
         return
       }
       if (!result?.success) {
         setScanPath(result?.rootPath || renpyRoot || '')
         setScanMessage(result?.error || "Ren'Py save scan failed")
-        setProgress({ value: 0, total: 0, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 })
+        setProgress(initialScanProgress)
         setProgressLabel("Ren'Py save scan failed")
         return
       }
@@ -491,12 +559,12 @@ const Importer = () => {
       setFolder(result.rootPath || renpyRoot || '')
       setScanPath(result.rootPath || renpyRoot || '')
       setScanMessage(result.warning || (rows.length === 0 ? `Found 0 folders in ${result.rootPath || renpyRoot || 'selected folder'}` : ''))
-      setProgress({ value: rows.length, total: rows.length, potential: rows.length, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: rows.length })
+      setProgress({ ...initialScanProgress, value: rows.length, total: rows.length, potential: rows.length, totalFound: rows.length })
       setGamesList(rows)
       setProgressLabel("Ren'Py Save Folders")
     } catch (err) {
       setScanMessage(`Ren'Py save scan failed: ${err.message || err}`)
-      setProgress({ value: 0, total: 0, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 })
+      setProgress(initialScanProgress)
       setProgressLabel("Ren'Py save scan failed")
     }
   }
@@ -527,11 +595,14 @@ const Importer = () => {
   const updateMatches = async () => {
     const total = gamesList.length
     if (total === 0) return
+    matchCancelRef.current = false
+    setIsResolvingMatches(true)
     setProgressLabel('Updating Matches')
     setProgress((prev) => ({ ...prev, value: 0, total }))
     await new Promise((r) => setTimeout(r, 16))
     let updatedGames = gamesList.map((game) => ({ ...game }))
     for (let i = 0; i < updatedGames.length; i++) {
+      if (matchCancelRef.current) break
       let game = { ...updatedGames[i] }
       if (!isNewScanRow(game) && game.scanStatus !== 'pendingMatch') {
         setProgress((prev) => ({ ...prev, value: i + 1 }))
@@ -548,9 +619,11 @@ const Importer = () => {
       try {
         const f95IdStr = String(game.f95Id || '').trim()
         data = f95IdStr ? await window.electronAPI.searchAtlasByF95Id(f95IdStr) : []
+        if (matchCancelRef.current) break
         if (!data.length) {
           data = await window.electronAPI.searchAtlas(game.lookupTitle || game.title, game.creator)
         }
+        if (matchCancelRef.current) break
       } catch { data = [] }
       if (data.length === 1) {
         game = await applyImportStatus({
@@ -566,27 +639,38 @@ const Importer = () => {
           resultSelectedValue: 'match',
           resultVisibility: 'visible',
         })
+        if (matchCancelRef.current) break
       } else if (data.length > 1) {
         const results = data.map((d) => ({ key: String(d.atlas_id), value: `${d.atlas_id} | ${d.f95_id || ''} | ${d.title} | ${d.creator}` }))
         const valid = results.find((r) => r.key === game.resultSelectedValue)
         game = await chooseInstalledMatch({ ...game, resultSelectedValue: valid ? game.resultSelectedValue : results[0].key }, results)
+        if (matchCancelRef.current) break
       } else {
         game = await applyImportStatus({ ...game, atlasId: '', f95Id: game.f95Id || '', lcId: game.lcId || game.lewdCornerId || '', results: [], resultSelectedValue: '', resultVisibility: 'hidden' })
+        if (matchCancelRef.current) break
       }
       updatedGames[i] = game
       setProgress((prev) => ({ ...prev, value: i + 1 }))
       window.electronAPI.sendUpdateProgress({ value: i + 1, total })
       await new Promise((r) => setTimeout(r, 50))
     }
-    setGamesList(updatedGames.filter((game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game))))
-    setProgress((prev) => ({ ...prev, value: total }))
-    window.electronAPI.sendUpdateProgress({ value: total, total })
+    if (!matchCancelRef.current) {
+      setGamesList(updatedGames.filter((game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game))))
+      setProgress((prev) => ({ ...prev, value: total }))
+      window.electronAPI.sendUpdateProgress({ value: total, total })
+    }
+    setIsResolvingMatches(false)
     setProgressLabel(null)
   }
 
-  const cancelScanOrMatch = () => {
+  const cancelScanOrMatch = async () => {
     matchCancelRef.current = true
-    window.electronAPI.cancelScan?.()
+    if (isScanActive && !isCancelingScan) {
+      setIsCancelingScan(true)
+      setProgressLabel('Canceling scan...')
+      setScanMessage('Canceling scan...')
+      await window.electronAPI.cancelScan?.()
+    }
     setIsResolvingMatches(false)
   }
 
@@ -689,6 +773,7 @@ const Importer = () => {
             hideMatches={hideMatches} includeUnmatched={includeUnmatched}
             includeArchives={includeArchives} forceReimport={forceReimport}
             canImport={canImport} isResolvingMatches={isResolvingMatches}
+            isScanActive={isScanActive} isCancelingScan={isCancelingScan}
             getImportDisabledReason={getImportDisabledReason}
             importMode={importMode} scanPath={scanPath} scanMessage={scanMessage}
             onSort={handleSort} onUpdateGame={updateGame} onDeleteGame={deleteGame}

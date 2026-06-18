@@ -20,6 +20,7 @@ const { addLewdCornerMapping, findRecordByLewdCornerId, parseLewdCornerIdFromUrl
 const { deletePathWithElevationFallback } = require('../deleteUtils')
 
 let ownerMainWindow = null
+let nextScanId = 1
 
 // ── Importer helper functions ──────────────────────────────────────
 
@@ -1781,14 +1782,33 @@ ipcMain.handle("cancel-import", async () => {
 
 ipcMain.handle("start-scan", async (event, params) => {
   const window = BrowserWindow.fromWebContents(event.sender);
-  ctx.activeScanSession = { canceled: false };
+  if (ctx.activeScanSession && !ctx.activeScanSession.finished) {
+    return { success: false, error: "Another scan is already running" };
+  }
+
+  const session = {
+    scanId: params?.scanId || `scan-${Date.now()}-${nextScanId++}`,
+    canceled: false,
+    cancelRequested: false,
+    startedAt: Date.now(),
+    finished: false,
+  };
+  ctx.activeScanSession = session;
   try {
-    await startScan(params, window, ctx.activeScanSession);
-    return { success: true };
+    await startScan(params, window, session);
+    session.finished = true;
+    return { success: true, canceled: false, scanId: session.scanId };
   } catch (err) {
-    return { success: false, error: err.message };
+    session.finished = true;
+    if (err?.canceled || err?.code === "SCAN_CANCELED") {
+      return { success: false, canceled: true, error: "Scan canceled", scanId: session.scanId };
+    }
+    return { success: false, canceled: false, error: err.message, scanId: session.scanId };
   } finally {
-    ctx.activeScanSession = null;
+    session.finished = true;
+    if (ctx.activeScanSession?.scanId === session.scanId) {
+      ctx.activeScanSession = null;
+    }
   }
 });
 
@@ -2018,8 +2038,10 @@ ipcMain.handle("import-renpy-save-games", async (event, games = []) => {
 ipcMain.handle("cancel-scan", async () => {
   if (ctx.activeScanSession) {
     ctx.activeScanSession.canceled = true;
+    ctx.activeScanSession.cancelRequested = true;
+    return { success: true, scanId: ctx.activeScanSession.scanId };
   }
-  return { success: true };
+  return { success: false, error: "No scan is currently running" };
 });
 
 ipcMain.handle("get-steam-game-data", async (event, steamId) => {

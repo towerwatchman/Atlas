@@ -19,7 +19,7 @@ async function runScan(root) {
     webContents: {
       send(channel, payload) {
         if (channel === "scan-complete-final") {
-          finalRows = payload;
+          finalRows = Array.isArray(payload) ? payload : payload.games;
         }
       },
     },

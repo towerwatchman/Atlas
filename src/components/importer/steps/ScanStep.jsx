@@ -3,7 +3,7 @@ import ScanTable from './ScanTable.jsx'
 export default function ScanStep({
   progress, progressLabel, visibleStats, sortedRows, isNewScanRow, sortConfig,
   hideMatches, includeUnmatched, includeArchives, forceReimport,
-  canImport, isResolvingMatches, getImportDisabledReason,
+  canImport, isResolvingMatches, isScanActive, isCancelingScan, getImportDisabledReason,
   importMode, scanPath, scanMessage,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
   getRowImportStatus, onUpdateMatches, onCancelMatch, onImport,
@@ -89,15 +89,20 @@ export default function ScanStep({
         <div className="flex items-center space-x-2">
           <button
             onClick={onUpdateMatches}
-            disabled={isResolvingMatches}
-            className="bg-accent hover:bg-accentHover px-4 py-2 rounded text-text"
+            disabled={isResolvingMatches || isScanActive || isCancelingScan}
+            className={`px-4 py-2 rounded text-text ${(isResolvingMatches || isScanActive || isCancelingScan) ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-accent hover:bg-accentHover'}`}
             style={{ pointerEvents: 'auto', zIndex: 1000 }}
           >
             {isResolvingMatches ? 'Resolving...' : 'Update Matches'}
           </button>
-          {isResolvingMatches && (
-            <button onClick={onCancelMatch} className="bg-danger hover:bg-dangerHover px-4 py-2 rounded text-white" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
-              Stop Matching
+          {(isResolvingMatches || isScanActive || isCancelingScan) && (
+            <button
+              onClick={onCancelMatch}
+              disabled={isCancelingScan}
+              className={`px-4 py-2 rounded text-white ${isCancelingScan ? 'bg-danger cursor-not-allowed opacity-70' : 'bg-danger hover:bg-dangerHover'}`}
+              style={{ pointerEvents: 'auto', zIndex: 1000 }}
+            >
+              {isScanActive || isCancelingScan ? (isCancelingScan ? 'Canceling...' : 'Cancel Scan') : 'Stop Matching'}
             </button>
           )}
           <button onClick={() => setHideMatches(!hideMatches)} className="bg-tertiary hover:bg-selected px-4 py-2 rounded text-text" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
@@ -105,8 +110,8 @@ export default function ScanStep({
           </button>
           <button
             onClick={onImport}
-            disabled={!canImport}
-            className={`px-6 py-2 rounded font-medium transition-colors ${canImport ? 'bg-success hover:bg-successHover text-white' : 'bg-tertiary cursor-not-allowed opacity-70 text-muted'}`}
+            disabled={!canImport || isScanActive || isCancelingScan}
+            className={`px-6 py-2 rounded font-medium transition-colors ${(canImport && !isScanActive && !isCancelingScan) ? 'bg-success hover:bg-successHover text-white' : 'bg-tertiary cursor-not-allowed opacity-70 text-muted'}`}
             title={getImportDisabledReason()}
             style={{ pointerEvents: 'auto' }}
           >
