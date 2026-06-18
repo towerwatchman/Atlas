@@ -108,7 +108,6 @@ const App = () => {
   const [wishlistIdentityKeys, setWishlistIdentityKeys] = useState(new Set())
   const [activeSavedFilterId, setActiveSavedFilterId] = useState('')
   const [savedFilterDeleteStateById, setSavedFilterDeleteStateById] = useState({})
-  const [columnCount, setColumnCount] = useState(1)
   const [bannerSize, setBannerSize] = useState({ bannerWidth: 537, bannerHeight: 251 })
   const [importStatus, setImportStatus] = useState({ text: '', progress: 0, total: 0 })
   const [importProgress, setImportProgress] = useState({ text: '', progress: 0, total: 0 })
@@ -290,24 +289,20 @@ const App = () => {
     return 16
   }
 
-  const getColumnCount = (width) => {
-    const containerWidth = width || gameGridRef.current?.clientWidth || window.innerWidth - 260
-    const adjustedWidth = containerWidth - getScrollbarWidth()
-    return Math.max(1, Math.floor(adjustedWidth / (bannerSize.bannerWidth + 8)))
+  const getColumnCountForWidth = (width) => {
+    const availableWidth = Math.max(0, Number(width) || 0)
+    return Math.max(1, Math.floor(availableWidth / (bannerSize.bannerWidth + 8)))
   }
 
   const debounceResize = debounce(() => {
-    const containerWidth = gameGridRef.current?.clientWidth || window.innerWidth - 260
-    const adjustedWidth = Math.max(0, containerWidth - getScrollbarWidth())
-    setColumnCount(getColumnCount(adjustedWidth))
     if (gridRef.current) {
       gridRef.current.recomputeGridSize()
       gridRef.current.forceUpdate()
     }
   }, 16)
 
-  const cellRenderer = ({ columnIndex, rowIndex, style }) => {
-    const index = rowIndex * columnCount + columnIndex
+  const getCellRenderer = (currentColumnCount) => ({ columnIndex, rowIndex, style }) => {
+    const index = rowIndex * currentColumnCount + columnIndex
     if (index >= filteredGames.length) return null
     const game = filteredGames[index]
     return (
@@ -765,8 +760,8 @@ const App = () => {
   }, [])
 
   useEffect(() => {
-    setTimeout(() => debounceResize(), 0)
-  }, [showLibrarySidebar])
+    requestAnimationFrame(() => debounceResize())
+  }, [showLibrarySidebar, showSearchSidebar, filterSidebarMode, filterSidebarSide, libraryMode])
 
   useEffect(() => {
     if (!showSavedFilters || includeUninstalledRef.current) return
@@ -777,7 +772,17 @@ const App = () => {
   useEffect(() => {
     if (selectedGame) return
     restoreLibraryScrollIfNeeded()
-  }, [selectedGame, filteredGames.length, columnCount, bannerSize.bannerHeight, showLibrarySidebar, restoreLibraryScrollIfNeeded])
+  }, [
+    selectedGame,
+    filteredGames.length,
+    bannerSize.bannerHeight,
+    showLibrarySidebar,
+    showSearchSidebar,
+    filterSidebarMode,
+    filterSidebarSide,
+    libraryMode,
+    restoreLibraryScrollIfNeeded,
+  ])
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -1033,17 +1038,23 @@ const App = () => {
           ) : (
             <AutoSizer>
               {({ height, width }) => {
-                const adjustedWidth = Math.max(0, width - getScrollbarWidth())
+                const availableWidth = Math.max(0, width)
+                const adjustedWidth = Math.max(0, availableWidth - getScrollbarWidth())
+                const currentColumnCount = getColumnCountForWidth(adjustedWidth)
+                const currentColumnWidth = currentColumnCount > 1
+                  ? adjustedWidth / currentColumnCount - 8
+                  : adjustedWidth / currentColumnCount - 14
+                const currentRowCount = Math.ceil(filteredGames.length / currentColumnCount)
                 return (
                   <Grid
                     ref={gridRef}
-                    columnCount={columnCount}
-                    columnWidth={() => columnCount > 1 ? adjustedWidth / columnCount - 8 : adjustedWidth / columnCount - 14}
-                    rowCount={Math.ceil(filteredGames.length / columnCount)}
+                    columnCount={currentColumnCount}
+                    columnWidth={currentColumnWidth}
+                    rowCount={currentRowCount}
                     rowHeight={bannerSize.bannerHeight + 16}
                     height={height}
                     width={adjustedWidth}
-                    cellRenderer={cellRenderer}
+                    cellRenderer={getCellRenderer(currentColumnCount)}
                     onScroll={({ scrollTop }) => {
                       if (pendingLibraryScrollTopRestoreRef.current === null) {
                         libraryScrollTopRef.current = scrollTop || 0
