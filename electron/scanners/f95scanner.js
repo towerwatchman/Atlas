@@ -276,10 +276,9 @@ async function startScan(params, window, cancelToken = {}) {
     format,
     gameExt,
     archiveExt,
-    isCompressed,
   } = params;
   const archiveExtensions = normalizeExtensions(archiveExt);
-  const extensions = normalizeExtensions(isCompressed ? archiveExt : gameExt);
+  const extensions = normalizeExtensions(gameExt);
   const games = [];
 
   console.log(
@@ -288,38 +287,6 @@ async function startScan(params, window, cancelToken = {}) {
 
   try {
     throwIfScanCanceled(cancelToken);
-    if (isCompressed) {
-      const allFiles = await getAllFiles(folder, extensions, cancelToken);
-      const totalFiles = allFiles.length;
-      let i = 0;
-      for (const file of allFiles) {
-        throwIfScanCanceled(cancelToken);
-        i++;
-        if (i % 25 === 0) {
-          await yieldToCancelHandler();
-          throwIfScanCanceled(cancelToken);
-        }
-        console.log(`Scanning file: ${file} (isFile: true)`);
-        const success = await findGame(
-          file,
-          format,
-          extensions,
-          folder,
-          5,
-          true,
-          games,
-          window,
-          params,
-          [],
-          cancelToken,
-        );
-        throwIfScanCanceled(cancelToken);
-        if (success) {
-          window.webContents.send("scan-complete", withScanId(games[games.length - 1], cancelToken));
-        }
-        sendScanProgress(window, i, totalFiles, games, cancelToken);
-      }
-    } else {
       const directories = safeReadDir(folder)
         .filter((d) => d.isDirectory())
         .map((d) => path.join(folder, d.name));
@@ -352,7 +319,7 @@ async function startScan(params, window, cancelToken = {}) {
           true,
           games,
           window,
-          { ...params, isCompressed: true },
+          { ...params, isArchiveSource: true },
           [],
           cancelToken,
         );
@@ -459,7 +426,6 @@ async function startScan(params, window, cancelToken = {}) {
 
         sendScanProgress(window, ittr, totalDirs, games, cancelToken);
       }
-    }
 
     const stats = getScanStats(games);
     console.log(
@@ -586,7 +552,7 @@ async function findGame(
         );
         return false;
       }
-      isArchive = params.isCompressed;
+      isArchive = params.isArchiveSource === true;
       singleExecutable = path.basename(t);
       selectedValue = singleExecutable;
       singleVisible = "visible";
@@ -796,7 +762,7 @@ async function findGame(
         : importRecordStatus?.status === "repairPath"
           ? "Repair path"
           : isArchive
-            ? "Archive"
+            ? "Archive detected - will extract on import"
             : "Ready to import",
     };
     console.log(`Adding game to list: ${JSON.stringify(gd)}`);

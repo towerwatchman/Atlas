@@ -50,16 +50,13 @@ const Importer = () => {
   const [customFormat, setCustomFormat] = useState('{creator}/{title}/{version}')
   const [gameExt, setGameExt] = useState('exe,swf,flv,f4v,rag,cmd,bat,jar,html')
   const [archiveExt, setArchiveExt] = useState('zip,7z,rar')
-  const [isCompressed, setIsCompressed] = useState(false)
   const [downloadBannerImages, setDownloadBannerImages] = useState(false)
   const [downloadPreviewImages, setDownloadPreviewImages] = useState(false)
   const [previewLimit, setPreviewLimit] = useState('Unlimited')
   const [downloadVideos, setDownloadVideos] = useState(false)
   const [scanSize, setScanSize] = useState(false)
-  const [deleteAfter, setDeleteAfter] = useState(false)
-  const [moveGame, setMoveGame] = useState(false)
+  const [deleteSourceArchiveAfterImport, setDeleteSourceArchiveAfterImport] = useState(false)
   const [includeUnmatched, setIncludeUnmatched] = useState(false)
-  const [includeArchives, setIncludeArchives] = useState(false)
   const [forceReimport, setForceReimport] = useState(false)
   const [defaultLibraryPath, setDefaultLibraryPath] = useState(null)
   const [autoSelectLatestReplaceVersion, setAutoSelectLatestReplaceVersion] = useState(false)
@@ -115,20 +112,19 @@ const Importer = () => {
     return { ...game, results: [], resultSelectedValue: '', resultVisibility: 'hidden' }
   }
 
-  const isImportableGame = (game, { includeUnmatchedGames = false, includeArchiveGames = false } = {}) => {
+  const isImportableGame = (game, { includeUnmatchedGames = false } = {}) => {
     if (game.sourceType === 'renpySave') {
       if ((game.scanStatus || 'new') !== 'new' || !game.savePath) return false
       if (hasDatabaseMatch(game) || hasSelectedDatabaseMatch(game)) return true
       return includeUnmatchedGames && isUnmatchedGame(game)
     }
     if (!isNewScanRow(game) && !isExistingImportRow(game)) return false
-    if (game.isArchive && !includeArchiveGames) return false
     if (!game.isArchive && !game.selectedValue) return false
     if (hasDatabaseMatch(game) || hasSelectedDatabaseMatch(game)) return true
     return includeUnmatchedGames && isUnmatchedGame(game)
   }
 
-  const importOptions = { includeUnmatchedGames: includeUnmatched, includeArchiveGames: includeArchives }
+  const importOptions = { includeUnmatchedGames: includeUnmatched }
   const importableGames = gamesList.filter((game) => isImportableGame(game, importOptions))
   const visibleStats = useMemo(() => deriveImportStats(gamesList), [gamesList])
   const canImport = importableGames.length > 0
@@ -146,7 +142,6 @@ const Importer = () => {
     if (scanStatus !== 'new') return { text: game.scanMessage || 'Skipped', type: 'blocked' }
 
     const needsUnmatched = isUnmatchedGame(game) && !includeUnmatched
-    const needsArchive = game.isArchive && !includeArchives
 
     if (game.sourceType === 'renpySave') {
       if (needsUnmatched) return { text: 'Requires Import unmatched games', type: 'blocked' }
@@ -155,15 +150,11 @@ const Importer = () => {
       return { text: game.scanMessage || 'Not importable', type: 'blocked' }
     }
 
-    if (needsUnmatched && needsArchive) {
-      return { text: 'Requires unmatched + archive import', type: 'blocked' }
-    }
     if (needsUnmatched) return { text: 'Requires Import unmatched games', type: 'blocked' }
-    if (needsArchive) return { text: 'Requires archive import', type: 'blocked' }
     if (!game.isArchive && !game.selectedValue) {
       return { text: 'Missing launchable', type: 'missingLaunchable' }
     }
-    if (isImportableGame(game, importOptions)) return { text: 'Ready to import', type: 'ready' }
+    if (isImportableGame(game, importOptions)) return { text: game.isArchive ? 'Ready to extract' : 'Ready to import', type: 'ready' }
 
     return { text: game.scanMessage || 'Not importable', type: 'blocked' }
   }
@@ -173,14 +164,8 @@ const Importer = () => {
     if (importMode === 'renpySaves') return 'No Ren\'Py save rows are ready to import'
     const newRows = gamesList.filter((game) => isNewScanRow(game) || isExistingImportRow(game))
     if (newRows.length === 0) return 'No new importable scan rows found'
-    const hasArchives = newRows.some((game) => game.isArchive)
     const hasUnmatched = newRows.some(isUnmatchedGame)
-    const hasMatchedArchive = newRows.some((game) => game.isArchive && (hasDatabaseMatch(game) || hasSelectedDatabaseMatch(game)))
-    const hasUnmatchedArchive = newRows.some((game) => game.isArchive && isUnmatchedGame(game))
-    if (hasUnmatchedArchive && (!includeArchives || !includeUnmatched)) return 'Archive rows without database matches require both checkboxes'
-    if (hasMatchedArchive && !includeArchives) return "Archive rows require 'Extract and import archives'"
     if (hasUnmatched && !includeUnmatched) return "Unmatched rows require 'Import unmatched games'"
-    if (hasArchives && !includeArchives) return "Archive rows require 'Extract and import archives'"
     return 'No eligible rows are ready to import'
   }
 
@@ -235,7 +220,7 @@ const Importer = () => {
       .filter(({ game }) => !(hideMatches && game.results?.length === 1 && game.results[0]?.value === 'Match Found'))
     if (!sortConfig.key) return rows
     return [...rows].sort((a, b) => compareRows(a, b, sortConfig.key, sortConfig.direction))
-  }, [gamesList, hideMatches, sortConfig, includeUnmatched, includeArchives, forceReimport])
+  }, [gamesList, hideMatches, sortConfig, includeUnmatched, forceReimport])
 
   // ── Match resolution ──────────────────────────────────────────────────────
   const applyReplaceOptions = async (game) => {
@@ -506,7 +491,7 @@ const Importer = () => {
       format: useUnstructured ? '' : customFormat,
       gameExt: gameExt.split(',').map((e) => e.trim()),
       archiveExt: archiveExt.split(',').map((e) => e.trim()),
-      isCompressed, deleteAfter, scanSize, downloadBannerImages,
+      scanSize, downloadBannerImages,
       downloadPreviewImages, previewLimit, downloadVideos,
     }
     window.electronAPI.log(`Scan params: ${JSON.stringify(params)}`)
@@ -841,20 +826,38 @@ const Importer = () => {
       return
     }
     let finalLibraryPath = defaultLibraryPath
-    if (moveGame && !finalLibraryPath) {
+    if (!finalLibraryPath) {
       setAskingForLibraryFolder(true)
       const selected = await window.electronAPI.selectDirectory()
       setAskingForLibraryFolder(false)
-      if (!selected) { if (!confirm('No library folder selected.\n\nContinue import without moving folders?')) return }
+      if (!selected) return alert('Choose a library folder to continue')
       else {
         try {
           const saveResult = await window.electronAPI.setDefaultGameFolder(selected)
           if (saveResult.success) { finalLibraryPath = selected; setDefaultLibraryPath(selected) }
-          else alert('Failed to save default library folder.\nImport continues without moving.')
-        } catch { alert('Error saving library path. Import continues without moving.') }
+          else {
+            alert('Failed to save default library folder.')
+            return
+          }
+        } catch {
+          alert('Error saving library path.')
+          return
+        }
       }
     }
-    const importParams = { games: gamesToImport, sourceRoot: folder, deleteAfter, scanSize, downloadBannerImages, downloadPreviewImages, previewLimit, downloadVideos, gameExt: gameExt.split(',').map((e) => e.trim()), moveToDefaultFolder: moveGame && !!finalLibraryPath, forceReimport, libraryFormat }
+    const importParams = {
+      games: gamesToImport,
+      sourceRoot: folder,
+      deleteSourceArchiveAfterImport,
+      scanSize,
+      downloadBannerImages,
+      downloadPreviewImages,
+      previewLimit,
+      downloadVideos,
+      gameExt: gameExt.split(',').map((e) => e.trim()),
+      forceReimport,
+      libraryFormat,
+    }
     try {
       window.electronAPI.importGames(importParams)
       window.electronAPI.closeWindow()
@@ -899,17 +902,18 @@ const Importer = () => {
         {view === 'settings' && (
           <SettingsStep
             folder={folder} customFormat={customFormat} useUnstructured={useUnstructured}
-            gameExt={gameExt} archiveExt={archiveExt} isCompressed={isCompressed}
+            gameExt={gameExt} archiveExt={archiveExt}
             downloadBannerImages={downloadBannerImages} downloadPreviewImages={downloadPreviewImages}
-            previewLimit={previewLimit} moveGame={moveGame} deleteAfter={deleteAfter}
+            previewLimit={previewLimit} deleteSourceArchiveAfterImport={deleteSourceArchiveAfterImport}
             autoSelectLatestReplaceVersion={autoSelectLatestReplaceVersion}
             defaultLibraryPath={defaultLibraryPath} askingForLibraryFolder={askingForLibraryFolder}
             onSelectFolder={selectFolder} onStartScan={startScan}
             setCustomFormat={setCustomFormat} setUseUnstructured={setUseUnstructured}
             setGameExt={setGameExt} setArchiveExt={setArchiveExt}
-            setIsCompressed={setIsCompressed} setDownloadBannerImages={setDownloadBannerImages}
-            setDownloadPreviewImages={setDownloadPreviewImages} setMoveGame={setMoveGame}
-            setDeleteAfter={setDeleteAfter} onAutoSelectChange={handleAutoSelectChange}
+            setDownloadBannerImages={setDownloadBannerImages}
+            setDownloadPreviewImages={setDownloadPreviewImages}
+            setDeleteSourceArchiveAfterImport={setDeleteSourceArchiveAfterImport}
+            onAutoSelectChange={handleAutoSelectChange}
           />
         )}
 
@@ -919,7 +923,7 @@ const Importer = () => {
             visibleStats={visibleStats}
             sortedRows={sortedRows} isNewScanRow={isNewScanRow} sortConfig={sortConfig}
             hideMatches={hideMatches} includeUnmatched={includeUnmatched}
-            includeArchives={includeArchives} forceReimport={forceReimport}
+            forceReimport={forceReimport}
             canImport={canImport} isResolvingMatches={isResolvingMatches}
             isScanActive={isScanActive} isCancelingScan={isCancelingScan}
             getImportDisabledReason={getImportDisabledReason}
@@ -931,7 +935,7 @@ const Importer = () => {
             onSelectRenpyFolder={selectRenpySaveFolder}
             getGameKey={getScanGameKey} getRowImportStatus={getRowImportStatus}
             setHideMatches={setHideMatches} setIncludeUnmatched={setIncludeUnmatched}
-            setIncludeArchives={setIncludeArchives} setForceReimport={setForceReimport}
+            setForceReimport={setForceReimport}
           />
         )}
       </div>

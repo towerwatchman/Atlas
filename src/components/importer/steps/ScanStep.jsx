@@ -2,13 +2,13 @@ import ScanTable from './ScanTable.jsx'
 
 export default function ScanStep({
   progress, progressLabel, visibleStats, sortedRows, isNewScanRow, sortConfig,
-  hideMatches, includeUnmatched, includeArchives, forceReimport,
+  hideMatches, includeUnmatched, forceReimport,
   canImport, isResolvingMatches, isScanActive, isCancelingScan, getImportDisabledReason,
   importMode, scanPath, scanMessage,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
   getRowImportStatus, onUpdateMatches, onHydrateManualF95Id, onCancelMatch, onImport,
   onSelectRenpyFolder,
-  setHideMatches, setIncludeUnmatched, setIncludeArchives, setForceReimport,
+  setHideMatches, setIncludeUnmatched, setForceReimport,
 }) {
   const isRenpyMode = importMode === 'renpySaves'
 
@@ -73,10 +73,6 @@ export default function ScanStep({
           </div>
           {!isRenpyMode && (
             <>
-              <div className="flex items-center space-x-2">
-                <input type="checkbox" id="include-archives" checked={includeArchives} onChange={(e) => setIncludeArchives(e.target.checked)} className="h-4 w-4" />
-                <label htmlFor="include-archives" className="text-sm text-text">Extract and import archives</label>
-              </div>
               <div className="flex items-center space-x-2">
                 <input type="checkbox" id="force-reimport" checked={forceReimport} onChange={(e) => setForceReimport(e.target.checked)} className="h-4 w-4" />
                 <label htmlFor="force-reimport" className="text-sm text-text" title="Safely repairs existing rows and refreshes selected media without creating duplicate game records.">

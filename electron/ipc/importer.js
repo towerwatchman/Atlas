@@ -2231,16 +2231,18 @@ ipcMain.handle("import-games", async (event, params) => {
     games: submittedGames,
     sourceRoot,
     deleteAfter,
+    deleteSourceArchiveAfterImport,
     scanSize,
     downloadBannerImages,
     downloadPreviewImages,
     previewLimit,
     downloadVideos,
     gameExt,
-    moveToDefaultFolder = false,
     forceReimport = false,
     libraryFormat,
   } = params;
+  const shouldDeleteSourceArchive =
+    deleteSourceArchiveAfterImport === true || (deleteSourceArchiveAfterImport === undefined && deleteAfter === true);
 
   const games = submittedGames.filter(
     (game) =>
@@ -2286,11 +2288,14 @@ ipcMain.handle("import-games", async (event, params) => {
   let targetLibrary = appConfig?.Library?.gameFolder;
   if (!targetLibrary || !fs.existsSync(targetLibrary)) {
     console.warn("No default library folder configured");
-    mainWindow.webContents.send("import-warning", {
-      message:
-        "Default library folder not set — games will be imported to data/games",
+    mainWindow.webContents.send("import-progress", {
+      text: "Choose a library folder to continue",
+      progress,
+      total,
+      canCancel: false,
     });
-    targetLibrary = gamesDir; // fallback
+    ctx.activeImportSession = null;
+    return { success: false, error: "Default library folder is not set" };
   }
 
   // ────────────────────────────────────────────────────────────────
@@ -2349,7 +2354,7 @@ ipcMain.handle("import-games", async (event, params) => {
       let archiveToDeleteAfterImport = null;
 
       // ── Structured move (non-archive) ───────────────────────────────────────
-      if (moveToDefaultFolder && targetLibrary && !game.isArchive) {
+      if (targetLibrary && !game.isArchive) {
         let destinationPath = buildStructuredImportPath(
           targetLibrary,
           destinationFormat,
@@ -2362,46 +2367,37 @@ ipcMain.handle("import-games", async (event, params) => {
         const originalSourcePath = gamePath;
         await fsp.mkdir(path.dirname(destinationPath), { recursive: true });
         mainWindow.webContents.send("import-progress", {
-          text: `${deleteAfter ? "Moving" : "Copying"} ${game.title} to library...`,
+          text: `Moving ${game.title} to library...`,
           progress,
           total,
           canCancel: true,
         });
 
-        if (deleteAfter) {
-          try {
-            await fsp.rename(gamePath, destinationPath);
-          } catch (moveErr) {
-            if (moveErr.code !== "EXDEV") throw moveErr;
-            await fsp.cp(gamePath, destinationPath, { recursive: true });
-            const deleteResult = await deletePathWithElevationFallback(gamePath, {
-              recursive: true,
-              force: true,
-              description: `Delete original source folder for ${game.title}`,
-              window: mainWindow,
-              validatePath: (candidatePath) =>
-                validateSourceCleanupPath(candidatePath, sourceCleanupRoot),
-              onProgress: (text) =>
-                mainWindow.webContents.send("import-progress", {
-                  text,
-                  progress,
-                  total,
-                  canCancel: true,
-                }),
-            });
-            if (!deleteResult.success) {
+        try {
+          await fsp.rename(gamePath, destinationPath);
+        } catch (moveErr) {
+          if (moveErr.code !== "EXDEV") throw moveErr;
+          await fsp.cp(gamePath, destinationPath, { recursive: true });
+          const deleteResult = await deletePathWithElevationFallback(gamePath, {
+            recursive: true,
+            force: true,
+            description: `Delete original source folder for ${game.title}`,
+            window: mainWindow,
+            validatePath: (candidatePath) =>
+              validateSourceCleanupPath(candidatePath, sourceCleanupRoot),
+            onProgress: (text) =>
               mainWindow.webContents.send("import-progress", {
-                text: `Copied ${game.title}, but source files were not deleted: ${deleteResult.error || "permission denied"}`,
+                text,
                 progress,
                 total,
                 canCancel: true,
-              });
-            }
+              }),
+          });
+          if (!deleteResult.success) {
+            throw new Error(`Moved copy was created, but source cleanup failed: ${deleteResult.error || "permission denied"}`);
           }
-          await removeEmptyParentDirectories(originalSourcePath, sourceCleanupRoot);
-        } else {
-          await fsp.cp(gamePath, destinationPath, { recursive: true });
         }
+        await removeEmptyParentDirectories(originalSourcePath, sourceCleanupRoot);
 
         const selectedValue = game.selectedValue || "";
         gamePath = destinationPath;
@@ -2455,7 +2451,7 @@ ipcMain.handle("import-games", async (event, params) => {
           );
           extractPath = extraction.finalPath || extractPath;
           session.cleanupPaths = [extractPath];
-          archiveToDeleteAfterImport = deleteAfter ? zipPath : null;
+          archiveToDeleteAfterImport = shouldDeleteSourceArchive ? zipPath : null;
 
           mainWindow?.webContents.send("import-progress", {
             text: `Extraction complete — 100% (${game.title})`,

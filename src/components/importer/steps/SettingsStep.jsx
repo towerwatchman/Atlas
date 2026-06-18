@@ -1,12 +1,12 @@
 export default function SettingsStep({
-  folder, customFormat, useUnstructured, gameExt, archiveExt, isCompressed,
+  folder, customFormat, useUnstructured, gameExt, archiveExt,
   downloadBannerImages, downloadPreviewImages, previewLimit,
-  moveGame, deleteAfter, autoSelectLatestReplaceVersion,
+  deleteSourceArchiveAfterImport, autoSelectLatestReplaceVersion,
   defaultLibraryPath, askingForLibraryFolder,
   onSelectFolder, onStartScan,
   setCustomFormat, setUseUnstructured, setGameExt, setArchiveExt,
-  setIsCompressed, setDownloadBannerImages, setDownloadPreviewImages,
-  setMoveGame, setDeleteAfter, onAutoSelectChange,
+  setDownloadBannerImages, setDownloadPreviewImages,
+  setDeleteSourceArchiveAfterImport, onAutoSelectChange,
 }) {
   return (
     <div className="space-y-4 flex-1">
@@ -34,16 +34,12 @@ export default function SettingsStep({
       <div className="flex items-center">
         <label>Game Extensions:</label>
         <input type="text" value={gameExt} onChange={(e) => setGameExt(e.target.value)} className="ml-2 flex-1 bg-secondary border border-border p-1" />
-        <input type="checkbox" checked={isCompressed} onChange={(e) => setIsCompressed(e.target.checked)} className="ml-2" />
-        <label>Extract Games</label>
       </div>
 
-      {isCompressed && (
-        <div className="flex items-center">
-          <label>Archive formats:</label>
-          <input type="text" value={archiveExt} onChange={(e) => setArchiveExt(e.target.value)} className="ml-2 flex-1 bg-secondary border border-border p-1" />
-        </div>
-      )}
+      <div className="flex items-center">
+        <label>Archive Extensions:</label>
+        <input type="text" value={archiveExt} onChange={(e) => setArchiveExt(e.target.value)} className="ml-2 flex-1 bg-secondary border border-border p-1" />
+      </div>
 
       <p className="text-sm text-text leading-relaxed">
         Source folder structure options: <span className="font-semibold">Title</span>, <span className="font-semibold">Creator</span>,{' '}
@@ -67,26 +63,20 @@ export default function SettingsStep({
           <label>Download preview images to local storage {previewLimit === 'Unlimited' ? '(all available)' : `(limit: ${previewLimit})`}</label>
         </div>
 
-        <div className="mt-4">
-          <input type="checkbox" checked={moveGame} onChange={(e) => setMoveGame(e.target.checked)} className="mr-2" />
-          <label className="font-medium">Move imported games to default library folder</label>
-          {moveGame && (
-            <div className="mt-1 ml-6 text-sm">
-              {defaultLibraryPath ? (
-                <span className="text-success">Current library: <strong>{defaultLibraryPath}</strong></span>
-              ) : askingForLibraryFolder ? (
-                <span className="text-warning">Waiting for selection...</span>
-              ) : (
-                <span className="text-warning">No default folder set — you will be asked to choose one</span>
-              )}
-            </div>
+        <div className="mt-4 text-sm">
+          {defaultLibraryPath ? (
+            <span className="text-success">Library destination: <strong>{defaultLibraryPath}</strong></span>
+          ) : askingForLibraryFolder ? (
+            <span className="text-warning">Waiting for library folder selection...</span>
+          ) : (
+            <span className="text-warning">No default library folder set. You will be asked to choose one before import.</span>
           )}
         </div>
 
         <div className="mt-4">
-          <input type="checkbox" checked={deleteAfter} onChange={(e) => setDeleteAfter(e.target.checked)} className="mr-2" disabled={!moveGame} />
-          <label className="font-medium">Delete original folder/archive after successful import</label>
-          {!moveGame && <div className="mt-1 ml-6 text-sm text-muted">(Enable "Move imported games" first)</div>}
+          <input type="checkbox" checked={deleteSourceArchiveAfterImport} onChange={(e) => setDeleteSourceArchiveAfterImport(e.target.checked)} className="mr-2" />
+          <label className="font-medium">Delete source archive after successful extraction</label>
+          <div className="mt-1 ml-6 text-sm text-muted">Applies only to archive files. Folder imports move to the library automatically.</div>
         </div>
 
         <div className="mt-4">
