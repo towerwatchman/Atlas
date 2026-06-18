@@ -33,6 +33,11 @@ function sanitizePathSegment(value, fallback = "Unknown") {
   return sanitized && sanitized !== "." ? sanitized : fallback;
 }
 
+function normalizeVersionName(value, fallback = "Unknown") {
+  const normalized = String(value ?? "").trim();
+  return normalized || fallback;
+}
+
 function buildStructuredImportPath(targetLibrary, format, game) {
   const pathSegments = format
     .trim()
@@ -45,7 +50,7 @@ function buildStructuredImportPath(targetLibrary, format, game) {
           const key = String(token || "").trim().toLowerCase();
           if (key === "creator") return game.creator || "Unknown";
           if (key === "title") return game.title || "Untitled";
-          if (key === "version") return game.version || "v1";
+          if (key === "version") return normalizeVersionName(game.version);
           if (key === "engine") return game.engine || "Unknown";
           if (key === "f95id") return game.f95Id || "Unknown";
           if (key === "lcid" || key === "lewdcornerid") return game.lcId || game.lewdCornerId || "Unknown";
@@ -138,7 +143,7 @@ const inferCatalogImportVersion = (sourcePath, catalog = {}) => {
       if (match?.[1]) return match[0].startsWith("v") ? match[0] : match[1];
     }
   }
-  return String(catalog.latestVersion || catalog.latest_version || catalog.version || "Unknown").trim() || "Unknown";
+  return normalizeVersionName(catalog.latestVersion || catalog.latest_version || catalog.version);
 };
 
 const getConfiguredGameExtensions = (appConfig) =>
@@ -1227,7 +1232,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
       ctx.appConfig = nextConfig;
     }
 
-    const version = requestedVersion || inferCatalogImportVersion(sourcePath, catalog);
+    const version = normalizeVersionName(requestedVersion || inferCatalogImportVersion(sourcePath, catalog));
     const destinationFormat = currentConfig?.Library?.libraryFolderStructure || "{creator}/{title}/{version}";
     const importGame = {
       title: String(catalog.title || catalog.name || catalog.short_name || "Untitled").trim(),
@@ -1440,7 +1445,7 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
 
   const recordId = toPositiveInteger(payload.recordId || payload.record_id);
   const rawSourcePath = String(payload.sourcePath || "").trim();
-  const version = String(payload.version || "").trim();
+  const version = normalizeVersionName(payload.version, "");
   const replaceExisting = payload.replaceExisting === true;
   const replaceVersionId = toPositiveInteger(payload.replaceVersionId || payload.versionId);
   const deleteSourceArchiveAfterImport = payload.deleteSourceArchiveAfterImport === true;
@@ -2318,6 +2323,7 @@ ipcMain.handle("import-games", async (event, params) => {
         canCancel: true,
       });
 
+      game.version = normalizeVersionName(game.version);
       let gamePath = game.folder;
       let execPath = game.selectedValue
         ? path.join(game.folder, game.selectedValue)

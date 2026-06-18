@@ -170,19 +170,54 @@ const resolveVersionSize = async (game, gamePath) => {
   return result.missing ? null : result.sizeBytes || 0;
 };
 
+function normalizeVersionName(value, fallback = "Unknown") {
+  const normalized = String(value ?? "").trim();
+  return normalized || fallback;
+}
+
+const dbGet = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    getDb().get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
+  });
+
+async function getUniqueVersionName(recordId, value, { excludeRowId = null } = {}) {
+  const base = normalizeVersionName(value);
+  let candidate = base;
+  let counter = 2;
+
+  while (true) {
+    const params = [recordId, candidate];
+    let excludeClause = "";
+    if (excludeRowId) {
+      excludeClause = " AND rowid != ?";
+      params.push(excludeRowId);
+    }
+    const existing = await dbGet(
+      `SELECT rowid FROM versions WHERE record_id = ? AND version = ?${excludeClause} LIMIT 1`,
+      params,
+    );
+    if (!existing) return candidate;
+    candidate = `${base} (${counter})`;
+    counter += 1;
+  }
+}
+
 const addVersion = async (game, recordId) => {
-  const { version, folder, executables, folderSize = 0 } = game;
+  const { folder, executables, folderSize = 0 } = game;
+  const version = await getUniqueVersionName(recordId, game.version);
   const executable =
-    executables && executables.length > 0 ? executables[0].value : "";
+    game.execPath ||
+    game.exec_path ||
+    (executables && executables.length > 0 ? path.join(String(folder || ""), executables[0].value) : "");
   const gamePath = String(folder || "");
-  const execPath = executable ? path.join(gamePath, executable) : "";
+  const execPath = executable || "";
   const dateAdded = Math.floor(Date.now() / 1000);
   const calculatedSize = folderSize > 0 ? folderSize : await resolveVersionSize(game, gamePath);
 
   console.log("adding version");
   return new Promise((resolve, reject) => {
     getDb().run(
-      `INSERT OR REPLACE INTO versions (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)`,
+      `INSERT INTO versions (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)`,
       [
         recordId,
         version,
@@ -205,7 +240,7 @@ const addVersion = async (game, recordId) => {
 };
 
 const upsertVersion = async (game, recordId) => {
-  const version = String(game.version || "Unknown");
+  const version = normalizeVersionName(game.version);
   const folder = String(game.folder || game.game_path || "");
   const executable =
     game.execPath ||
@@ -255,20 +290,24 @@ const upsertVersion = async (game, recordId) => {
           return;
         }
 
-        getDb().run(
-          `UPDATE versions
-           SET record_id = ?, version = ?, exec_path = ?, in_place = ?, folder_size = COALESCE(?, folder_size)
-           WHERE rowid = ?`,
-          [recordId, version, executable, true, folderSize, row.rowid],
-          (err) => {
-            if (err) {
-              console.error("Error repairing version by exact path:", err);
-              reject(err);
-            } else {
-              resolve();
-            }
-          },
-        );
+        getUniqueVersionName(recordId, version, { excludeRowId: row.rowid })
+          .then((safeVersion) => {
+            getDb().run(
+              `UPDATE versions
+               SET record_id = ?, version = ?, exec_path = ?, in_place = ?, folder_size = COALESCE(?, folder_size)
+               WHERE rowid = ?`,
+              [recordId, safeVersion, executable, true, folderSize, row.rowid],
+              (err) => {
+                if (err) {
+                  console.error("Error repairing version by exact path:", err);
+                  reject(err);
+                } else {
+                  resolve();
+                }
+              },
+            );
+          })
+          .catch(reject);
       },
     );
   });
@@ -277,7 +316,7 @@ const upsertVersion = async (game, recordId) => {
 const updateVersion = (version, record_id) => {
   const previousVersion = version.previousVersion || version.version;
   const versionId = Number(version.version_id || version.versionId || 0);
-  const nextVersionName = String(version.version || "").trim();
+  const nextVersionName = normalizeVersionName(version.version, "");
 
   console.log("updating version with id:", record_id);
   return new Promise((resolve, reject) => {
@@ -1347,4 +1386,6 @@ module.exports = {
   isLaunchableFile,
   findLaunchablesInFolder,
   chooseLaunchableForRepair,
+  normalizeVersionName,
+  getUniqueVersionName,
 }

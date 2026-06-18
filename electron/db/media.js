@@ -11,12 +11,16 @@ const { toLocalAssetPath, normalizeMediaStorageMode, remoteBannerExpression,
         buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
 
+function normalizeVersionName(value, fallback = "Unknown") {
+  const normalized = String(value ?? "").trim();
+  return normalized || fallback;
+}
 
 const updateFolderSize = (recordId, version, size) => {
   return new Promise((resolve, reject) => {
     getDb().run(
       `UPDATE versions SET folder_size = ? WHERE record_id = ? AND version = ?`,
-      [size, recordId, version],
+      [size, recordId, normalizeVersionName(version)],
       (err) => {
         if (err) reject(err);
         else resolve();

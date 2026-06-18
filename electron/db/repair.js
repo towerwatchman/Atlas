@@ -7,7 +7,7 @@ const fsPromises = require('fs').promises
 const path = require('path')
 const { DEFAULT_LAUNCHABLE_EXTENSIONS, normalizeExtensions,
         isLaunchableFile, findLaunchablesInFolder,
-        chooseLaunchableForRepair } = require('./versions')
+        chooseLaunchableForRepair, getUniqueVersionName } = require('./versions')
 
 function normalizeDoubledApostrophes(value) {
   return typeof value === "string" ? value.replace(/''/g, "'") : value;
@@ -149,7 +149,56 @@ const repairStaleVersionExecutables = (
   });
 };
 
+const repairBlankVersionNames = () => {
+  if (!getDb()) return Promise.resolve(0);
+
+  const run = (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      getDb().run(sql, params, function (err) {
+        if (err) reject(err);
+        else resolve(this.changes || 0);
+      });
+    });
+  const all = (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      getDb().all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+    });
+
+  return new Promise((resolve, reject) => {
+    getDb().serialize(async () => {
+      try {
+        const rows = await all(
+          `SELECT rowid, record_id
+           FROM versions
+           WHERE version IS NULL OR TRIM(version) = ''
+           ORDER BY record_id, rowid`,
+        );
+        let repaired = 0;
+
+        for (const row of rows) {
+          const nextVersion = await getUniqueVersionName(row.record_id, "Unknown", {
+            excludeRowId: row.rowid,
+          });
+          repaired += await run(
+            `UPDATE versions SET version = ? WHERE rowid = ?`,
+            [nextVersion, row.rowid],
+          );
+        }
+
+        if (repaired > 0) {
+          console.log(`Repaired ${repaired} blank version name${repaired === 1 ? "" : "s"}`);
+        }
+        resolve(repaired);
+      } catch (err) {
+        console.error("Error repairing blank version names:", err);
+        reject(err);
+      }
+    });
+  });
+};
+
 module.exports = {
   repairDoubledApostropheRows,
   repairStaleVersionExecutables,
+  repairBlankVersionNames,
 }

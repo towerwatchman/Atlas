@@ -23,6 +23,7 @@ const {
 
 const {
   repairDoubledApostropheRows, repairStaleVersionExecutables,
+  repairBlankVersionNames,
 } = require('./db/repair')
 
 const {
@@ -938,6 +939,7 @@ app.whenReady().then(async () => {
   }
 
   await repairDoubledApostropheRows()
+  await repairBlankVersionNames()
   await repairStaleVersionExecutables()
 
   createWindow()

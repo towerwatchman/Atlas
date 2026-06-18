@@ -152,6 +152,11 @@ function cleanDisplayTitle(value) {
     .trim();
 }
 
+function normalizeVersionName(value, fallback = "Unknown") {
+  const normalized = String(value ?? "").trim();
+  return normalized || fallback;
+}
+
 function stripReleaseSuffixes(value) {
   const suffixPattern =
     /(?:[-_\s.]+(?:pc|win|win64|windows|windows64|linux|mac|patreon|public|elite|free|market|demo|fl|revamp|compressed|crunched|uncensored|steam|itch|fixed|hotfix|update))+$/i;
@@ -232,7 +237,7 @@ function createSkippedGame(folder, scanStatus, scanMessage) {
     lookupTitle: metadata.lookupTitle,
     creator: "Unknown",
     engine: "Unknown",
-    version: metadata.version,
+    version: normalizeVersionName(metadata.version),
     singleExecutable: "",
     executables: [],
     selectedValue: "",
@@ -624,7 +629,7 @@ async function findGame(
         creator = mapping.creator || "Unknown";
         title = mapping.title || "";
         lookupTitle = title;
-        version = mapping.version || "";
+        version = normalizeVersionName(mapping.version, "");
         structuredTitleFound = Boolean(title);
         if (mapping.f95id) {
           f95Id = cleanIdValue(mapping.f95id);
@@ -641,8 +646,8 @@ async function findGame(
     if (glInfos?.f95Id) {
       f95Id = glInfos.f95Id;
     }
-    if (glInfos?.version) {
-      version = glInfos.version;
+    if (normalizeVersionName(glInfos?.version, "")) {
+      version = normalizeVersionName(glInfos.version);
     }
     if (glInfos?.title && (!structuredTitleFound || !title || title.trim() === "")) {
       title = glInfos.title;
@@ -659,7 +664,7 @@ async function findGame(
       const metadata = parseNameMetadata(filename);
       title = metadata.title;
       lookupTitle = metadata.lookupTitle;
-      version = version || metadata.version;
+      version = normalizeVersionName(version, "") || normalizeVersionName(metadata.version);
       if (metadata.creator) creator = metadata.creator;
       console.log(`Parsed: title=${title}, version=${version}`);
       if (!title || title.trim() === "") {
@@ -672,8 +677,8 @@ async function findGame(
       title = glInfos.title;
       lookupTitle = glInfos.title;
     }
-    if (glInfos?.version) {
-      version = glInfos.version;
+    if (normalizeVersionName(glInfos?.version, "")) {
+      version = normalizeVersionName(glInfos.version);
     }
     if (glInfos?.f95Id) {
       f95Id = glInfos.f95Id;
@@ -755,7 +760,7 @@ async function findGame(
       lookupTitle: lookupTitle || title,
       creator,
       engine,
-      version,
+      version: normalizeVersionName(version),
       latestVersion:
         data.length === 1 ? data[0].latestVersion || data[0].version || "" : "",
       siteUrl: data.length === 1 ? data[0].siteUrl || data[0].site_url || "" : glInfos?.threadUrl || "",
