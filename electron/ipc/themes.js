@@ -27,8 +27,11 @@ const SEED_THEMES = [
       // Requested defaults for this theme: nav buttons glow (accent-colored,
       // matching the reference screenshot), nav sits at the top (topnav
       // layout) with icon+text labels, and the header's accent-bar notch
-      // strip is turned off. Selecting this theme in Appearance adopts all
-      // of these — see ThemeProvider.jsx's setTheme.
+      // strip is turned off. filterSidebar keeps the overall default
+      // (right/overlay) — listed explicitly so this seed theme stays a
+      // complete, self-documenting reference for anyone authoring their
+      // own theme file. Selecting this theme in Appearance adopts all of
+      // this nav block — see ThemeProvider.jsx's setTheme.
       nav: {
         layout: 'topnav',
         displayMode: 'iconsAndText',
@@ -39,6 +42,10 @@ const SEED_THEMES = [
           offsetX: 0,
           offsetY: 0,
           intensity: 14,
+        },
+        filterSidebar: {
+          side: 'right',
+          mode: 'overlay',
         },
       },
       colors: {

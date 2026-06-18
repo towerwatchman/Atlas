@@ -45,6 +45,12 @@ const defaultConfig = {
     // NAV_DISPLAY_MODE_OPTIONS / DEFAULT_NAV in src/theme/themes.js.
     navDisplayMode: 'icons',
     accentBarEnabled: true,
+    // Which edge the filter sidebar docks to, and whether it overlays the
+    // library grid or shares space with it inline — see
+    // FILTER_SIDEBAR_SIDE_OPTIONS / FILTER_SIDEBAR_MODE_OPTIONS in
+    // src/theme/themes.js. Same independent-of-theme pattern as above.
+    filterSidebarSide: 'right',
+    filterSidebarMode: 'overlay',
     // Reserved for a future custom theme editor: a JSON-stringified theme
     // object (same shape as the built-ins) the user has authored themselves.
     // Empty string means "no custom theme saved".

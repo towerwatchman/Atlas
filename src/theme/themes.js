@@ -161,12 +161,13 @@ export const RADIUS_OPTIONS = ['sm', 'md', 'lg', 'pill']
  * config.ini is still the durable source of truth for what's currently
  * active), but each theme JSON file may specify its own preferred nav
  * settings under a `nav` object — see DEFAULT_NAV / NAV_DISPLAY_MODE_OPTIONS
- * below. Picking a theme in the Appearance picker re-applies that theme's
- * `nav` block (layout + displayMode + accentBarEnabled + glow), overwriting
- * whatever was set before — see ThemeProvider.jsx's setTheme/persist. This
- * is intentional: a theme like XLibrary is designed around a specific nav
- * arrangement (topnav, icons+text, no accent bar), and switching to it
- * should look the way its author intended without an extra manual step.
+ * / DEFAULT_FILTER_SIDEBAR below. Picking a theme in the Appearance picker
+ * re-applies that theme's `nav` block (layout + displayMode +
+ * accentBarEnabled + glow + filterSidebar), overwriting whatever was set
+ * before — see ThemeProvider.jsx's setTheme/persist. This is intentional:
+ * a theme like XLibrary is designed around a specific nav arrangement
+ * (topnav, icons+text, no accent bar), and switching to it should look
+ * the way its author intended without an extra manual step.
  */
 export const LAYOUT_OPTIONS = ['sidebar', 'topnav']
 export const DEFAULT_LAYOUT = 'sidebar'
@@ -202,18 +203,47 @@ export const DEFAULT_GLOW = {
   intensity: 12,
 }
 
+/**
+ * Which edge the filter sidebar (SearchSidebar.jsx) docks to, and whether
+ * it floats on top of the library grid ('overlay', the original/default
+ * behavior — fixed position, grid does not reflow) or shares horizontal
+ * space with it ('inline' — a normal flex sibling, grid shrinks to make
+ * room, same general mechanism the existing library-list panel already
+ * uses). See App.jsx's main-content layout for where this is consumed.
+ */
+export const FILTER_SIDEBAR_SIDE_OPTIONS = ['left', 'right']
+export const DEFAULT_FILTER_SIDEBAR_SIDE = 'right'
+export const FILTER_SIDEBAR_MODE_OPTIONS = ['overlay', 'inline']
+export const DEFAULT_FILTER_SIDEBAR_MODE = 'overlay'
+
+export const DEFAULT_FILTER_SIDEBAR = {
+  side: DEFAULT_FILTER_SIDEBAR_SIDE,
+  mode: DEFAULT_FILTER_SIDEBAR_MODE,
+}
+
+export const normalizeFilterSidebarSide = (side) =>
+  FILTER_SIDEBAR_SIDE_OPTIONS.includes(side) ? side : DEFAULT_FILTER_SIDEBAR_SIDE
+
+export const normalizeFilterSidebarMode = (mode) =>
+  FILTER_SIDEBAR_MODE_OPTIONS.includes(mode) ? mode : DEFAULT_FILTER_SIDEBAR_MODE
+
 export const DEFAULT_NAV = {
   layout: DEFAULT_LAYOUT,
   displayMode: DEFAULT_NAV_DISPLAY_MODE,
   accentBarEnabled: true,
   glow: { ...DEFAULT_GLOW },
+  filterSidebar: { ...DEFAULT_FILTER_SIDEBAR },
 }
 
-/** Fills in any missing nav sub-fields (including nested glow fields) from
- * DEFAULT_NAV, the same way normalizeTheme() does for the rest of a theme.
- * Used wherever an external/untrusted theme's `nav` block is read. */
+/** Fills in any missing nav sub-fields (including nested glow/filterSidebar
+ * fields) from DEFAULT_NAV, the same way normalizeTheme() does for the
+ * rest of a theme. Used wherever an external/untrusted theme's `nav`
+ * block is read. */
 export const normalizeNav = (nav) => {
   const safeNav = nav && typeof nav === 'object' ? nav : {}
+  const safeFilterSidebar = safeNav.filterSidebar && typeof safeNav.filterSidebar === 'object'
+    ? safeNav.filterSidebar
+    : {}
   return {
     ...DEFAULT_NAV,
     ...safeNav,
@@ -223,6 +253,10 @@ export const normalizeNav = (nav) => {
     glow: {
       ...DEFAULT_GLOW,
       ...(safeNav.glow && typeof safeNav.glow === 'object' ? safeNav.glow : {}),
+    },
+    filterSidebar: {
+      side: normalizeFilterSidebarSide(safeFilterSidebar.side),
+      mode: normalizeFilterSidebarMode(safeFilterSidebar.mode),
     },
   }
 }

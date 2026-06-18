@@ -200,7 +200,7 @@ const App = () => {
         : 'Games'
 
   const { isMaximized, version, handleWindowStateChanged, loadVersion } = useWindowState()
-  const { layout, accentBarEnabled } = useTheme()
+  const { layout, accentBarEnabled, filterSidebarSide, filterSidebarMode } = useTheme()
   const isTopNav = layout === 'topnav'
 
   const {
@@ -938,9 +938,51 @@ const App = () => {
           />
         )}
 
+        {/* Filter sidebar placement: side ('left'/'right') and mode
+            ('overlay'/'inline') both come from the active theme's
+            nav.filterSidebar block by default, independently overridable
+            in Settings > Appearance — see useTheme()/ThemeProvider.jsx.
+            In 'inline' mode the panel is a normal flex sibling of
+            #gameGrid (sharing horizontal space), so its DOM position
+            relative to #gameGrid — rendered before vs. after — is what
+            puts it on the left or right. When inline+left in sidebar
+            layout, it needs the SAME ml-[60px]/ml-[260px] left offset
+            #gameGrid uses below, since Sidebar.jsx and the library-list
+            panel are both `fixed` (out of flex flow) — without this
+            margin the inline panel would render underneath them instead
+            of after them. */}
+        {showSearchSidebar && !selectedGame && filterSidebarMode === 'inline' && filterSidebarSide === 'left' && (
+          <div className={isTopNav ? '' : showLibrarySidebar ? 'ml-[260px]' : 'ml-[60px]'}>
+            <SearchSidebar
+              isVisible={showSearchSidebar}
+              searchText={activeFilters.text}
+              activeFilters={activeFilters}
+              isCatalogMode={libraryMode === 'catalog'}
+              userSavedFilters={userSavedFilters}
+              mode="inline"
+              side="left"
+              onSearchChange={handleSearchChange}
+              onFilterChange={handleFilterChange}
+              onSavedFilterSaved={handleSavedFilterSaved}
+              onClose={() => setShowSearchSidebar(false)}
+            />
+          </div>
+        )}
+
         <div
           id="gameGrid"
-          className={`flex-1 bg-tertiary overflow-y-auto ${isTopNav ? '' : showLibrarySidebar ? 'ml-[260px]' : 'ml-[60px]'}`}
+          className={`flex-1 bg-tertiary overflow-y-auto ${
+            isTopNav
+              ? ''
+              // When the inline-left filter sidebar is showing, IT already
+              // carries the ml-[60px]/ml-[260px] offset (see above) to
+              // clear the fixed Sidebar/library-list panel — applying the
+              // same margin here too would double it up as an extra gap
+              // between the filter panel and the grid.
+              : (showSearchSidebar && filterSidebarMode === 'inline' && filterSidebarSide === 'left' && !selectedGame)
+                ? ''
+                : showLibrarySidebar ? 'ml-[260px]' : 'ml-[60px]'
+          }`}
           ref={gameGridRef}
           style={{ overflowX: 'hidden' }}
         >
@@ -986,13 +1028,31 @@ const App = () => {
           )}
         </div>
 
-        {showSearchSidebar && !selectedGame && (
+        {showSearchSidebar && !selectedGame && filterSidebarMode === 'inline' && filterSidebarSide === 'right' && (
           <SearchSidebar
             isVisible={showSearchSidebar}
             searchText={activeFilters.text}
             activeFilters={activeFilters}
             isCatalogMode={libraryMode === 'catalog'}
             userSavedFilters={userSavedFilters}
+            mode="inline"
+            side="right"
+            onSearchChange={handleSearchChange}
+            onFilterChange={handleFilterChange}
+            onSavedFilterSaved={handleSavedFilterSaved}
+            onClose={() => setShowSearchSidebar(false)}
+          />
+        )}
+
+        {showSearchSidebar && !selectedGame && filterSidebarMode !== 'inline' && (
+          <SearchSidebar
+            isVisible={showSearchSidebar}
+            searchText={activeFilters.text}
+            activeFilters={activeFilters}
+            isCatalogMode={libraryMode === 'catalog'}
+            userSavedFilters={userSavedFilters}
+            mode="overlay"
+            side={filterSidebarSide}
             onSearchChange={handleSearchChange}
             onFilterChange={handleFilterChange}
             onSavedFilterSaved={handleSavedFilterSaved}

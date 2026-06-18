@@ -4,9 +4,13 @@ import {
   DEFAULT_THEME,
   DEFAULT_LAYOUT,
   DEFAULT_NAV_DISPLAY_MODE,
+  DEFAULT_FILTER_SIDEBAR_SIDE,
+  DEFAULT_FILTER_SIDEBAR_MODE,
   getThemeById,
   normalizeLayout,
   normalizeNavDisplayMode,
+  normalizeFilterSidebarSide,
+  normalizeFilterSidebarMode,
 } from './themes.js'
 
 const ThemeContext = createContext(null)
@@ -24,14 +28,14 @@ const fetchAvailableThemes = async () => {
   }
 }
 
-// navDisplayMode/accentBarEnabled fall back to the THEME's own nav defaults
-// (not a hardcoded constant) whenever config.ini doesn't already have an
-// explicit value of its own — i.e. the first time a theme is ever selected,
-// or on a fresh install. Once a value exists in config, it's used as-is
-// (independent of the active theme) until either the user changes it
-// directly or picks a different theme — see setTheme below, which writes
-// the new theme's nav defaults into config explicitly rather than relying
-// on this fallback.
+// navDisplayMode/accentBarEnabled/filterSidebarSide/filterSidebarMode all
+// fall back to the THEME's own nav defaults (not a hardcoded constant)
+// whenever config.ini doesn't already have an explicit value of its own —
+// i.e. the first time a theme is ever selected, or on a fresh install.
+// Once a value exists in config, it's used as-is (independent of the
+// active theme) until either the user changes it directly or picks a
+// different theme — see setTheme below, which writes the new theme's nav
+// defaults into config explicitly rather than relying on this fallback.
 const parseAppearance = (appearance = {}, themeList) => {
   const customTheme = appearance.customTheme
     ? (() => {
@@ -54,6 +58,12 @@ const parseAppearance = (appearance = {}, themeList) => {
     accentBarEnabled: appearance.accentBarEnabled !== undefined && appearance.accentBarEnabled !== ''
       ? appearance.accentBarEnabled !== false && appearance.accentBarEnabled !== 'false'
       : theme?.nav?.accentBarEnabled !== false,
+    filterSidebarSide: appearance.filterSidebarSide !== undefined && appearance.filterSidebarSide !== ''
+      ? normalizeFilterSidebarSide(appearance.filterSidebarSide)
+      : normalizeFilterSidebarSide(theme?.nav?.filterSidebar?.side),
+    filterSidebarMode: appearance.filterSidebarMode !== undefined && appearance.filterSidebarMode !== ''
+      ? normalizeFilterSidebarMode(appearance.filterSidebarMode)
+      : normalizeFilterSidebarMode(theme?.nav?.filterSidebar?.mode),
   }
 }
 
@@ -77,6 +87,8 @@ export function ThemeProvider({ children }) {
   const [layout, setLayoutState] = useState(DEFAULT_LAYOUT)
   const [navDisplayMode, setNavDisplayModeState] = useState(DEFAULT_NAV_DISPLAY_MODE)
   const [accentBarEnabled, setAccentBarEnabledState] = useState(true)
+  const [filterSidebarSide, setFilterSidebarSideState] = useState(DEFAULT_FILTER_SIDEBAR_SIDE)
+  const [filterSidebarMode, setFilterSidebarModeState] = useState(DEFAULT_FILTER_SIDEBAR_MODE)
   const [availableThemes, setAvailableThemes] = useState([DEFAULT_THEME])
   const [isLoaded, setIsLoaded] = useState(false)
 
@@ -99,6 +111,8 @@ export function ThemeProvider({ children }) {
         setLayoutState(parsed.layout)
         setNavDisplayModeState(parsed.navDisplayMode)
         setAccentBarEnabledState(parsed.accentBarEnabled)
+        setFilterSidebarSideState(parsed.filterSidebarSide)
+        setFilterSidebarModeState(parsed.filterSidebarMode)
         setIsLoaded(true)
       })
       .catch((err) => {
@@ -122,6 +136,8 @@ export function ThemeProvider({ children }) {
       setLayoutState(parsed.layout)
       setNavDisplayModeState(parsed.navDisplayMode)
       setAccentBarEnabledState(parsed.accentBarEnabled)
+      setFilterSidebarSideState(parsed.filterSidebarSide)
+      setFilterSidebarModeState(parsed.filterSidebarMode)
       applyTheme(parsed.theme, parsed.layout, {
         navDisplayMode: parsed.navDisplayMode,
         accentBarEnabled: parsed.accentBarEnabled,
@@ -134,6 +150,10 @@ export function ThemeProvider({ children }) {
 
   // Re-apply CSS variables whenever this window's own state changes (covers
   // both the initial load above and any local setTheme/setLayout/etc call).
+  // filterSidebarSide/filterSidebarMode aren't CSS-variable driven (see
+  // App.jsx/SearchSidebar.jsx, which read them straight from useTheme()
+  // instead), so they don't need to be in this dependency list — but
+  // they're still part of the same provider state for consistency.
   useEffect(() => {
     applyTheme(theme, layout, { navDisplayMode, accentBarEnabled })
   }, [theme, layout, navDisplayMode, accentBarEnabled])
@@ -157,23 +177,29 @@ export function ThemeProvider({ children }) {
   // result without a new config field).
   const setTheme = useCallback((nextTheme) => {
     // Picking a theme adopts ITS nav defaults (layout, displayMode,
-    // accentBarEnabled — glow is read directly off theme.nav.glow wherever
-    // it's painted, not duplicated into Appearance), overriding whatever
-    // was set before. This is intentional — see the note on LAYOUT_OPTIONS
-    // in themes.js.
+    // accentBarEnabled, filterSidebar side/mode — glow is read directly
+    // off theme.nav.glow wherever it's painted, not duplicated into
+    // Appearance), overriding whatever was set before. This is
+    // intentional — see the note on LAYOUT_OPTIONS in themes.js.
     const nextLayout = normalizeLayout(nextTheme?.nav?.layout)
     const nextNavDisplayMode = normalizeNavDisplayMode(nextTheme?.nav?.displayMode)
     const nextAccentBarEnabled = nextTheme?.nav?.accentBarEnabled !== false
+    const nextFilterSidebarSide = normalizeFilterSidebarSide(nextTheme?.nav?.filterSidebar?.side)
+    const nextFilterSidebarMode = normalizeFilterSidebarMode(nextTheme?.nav?.filterSidebar?.mode)
     setThemeState(nextTheme)
     setLayoutState(nextLayout)
     setNavDisplayModeState(nextNavDisplayMode)
     setAccentBarEnabledState(nextAccentBarEnabled)
+    setFilterSidebarSideState(nextFilterSidebarSide)
+    setFilterSidebarModeState(nextFilterSidebarMode)
     const isKnownTheme = availableThemes.some((t) => t.id === nextTheme.id)
     persist({
       themeId: isKnownTheme ? nextTheme.id : 'custom',
       layout: nextLayout,
       navDisplayMode: nextNavDisplayMode,
       accentBarEnabled: nextAccentBarEnabled,
+      filterSidebarSide: nextFilterSidebarSide,
+      filterSidebarMode: nextFilterSidebarMode,
       customTheme: isKnownTheme ? '' : JSON.stringify(nextTheme),
     })
   }, [availableThemes, persist])
@@ -196,9 +222,22 @@ export function ThemeProvider({ children }) {
     persist({ accentBarEnabled: safeEnabled })
   }, [persist])
 
+  const setFilterSidebarSide = useCallback((nextSide) => {
+    const safeSide = normalizeFilterSidebarSide(nextSide)
+    setFilterSidebarSideState(safeSide)
+    persist({ filterSidebarSide: safeSide })
+  }, [persist])
+
+  const setFilterSidebarMode = useCallback((nextMode) => {
+    const safeMode = normalizeFilterSidebarMode(nextMode)
+    setFilterSidebarModeState(safeMode)
+    persist({ filterSidebarMode: safeMode })
+  }, [persist])
+
   const value = {
-    theme, layout, navDisplayMode, accentBarEnabled,
+    theme, layout, navDisplayMode, accentBarEnabled, filterSidebarSide, filterSidebarMode,
     setTheme, setLayout, setNavDisplayMode, setAccentBarEnabled,
+    setFilterSidebarSide, setFilterSidebarMode,
     isLoaded, availableThemes,
   }
 
@@ -210,10 +249,12 @@ export function ThemeProvider({ children }) {
 }
 
 /**
- * Read/update the active theme, layout, nav display mode, and accent bar
- * visibility. Must be called from within a <ThemeProvider>. Returns
- * { theme, layout, navDisplayMode, accentBarEnabled, setTheme, setLayout,
- * setNavDisplayMode, setAccentBarEnabled, isLoaded, availableThemes }.
+ * Read/update the active theme, layout, nav display mode, accent bar
+ * visibility, and filter sidebar placement. Must be called from within a
+ * <ThemeProvider>. Returns { theme, layout, navDisplayMode,
+ * accentBarEnabled, filterSidebarSide, filterSidebarMode, setTheme,
+ * setLayout, setNavDisplayMode, setAccentBarEnabled, setFilterSidebarSide,
+ * setFilterSidebarMode, isLoaded, availableThemes }.
  */
 export function useTheme() {
   const ctx = useContext(ThemeContext)

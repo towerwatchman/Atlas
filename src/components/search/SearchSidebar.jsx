@@ -11,6 +11,15 @@ const SearchSidebar = ({
   onSearchChange,
   onFilterChange,
   onClose,
+  // mode: 'overlay' (default, original behavior) floats fixed on top of
+  // the library grid without affecting its layout. 'inline' instead
+  // renders as a normal block — App.jsx places it as a flex sibling of
+  // #gameGrid in that case (before it for side='left', after it for
+  // side='right'), so the grid shrinks to share space rather than being
+  // covered. side: which edge it's associated with — affects which
+  // corners are rounded and (in overlay mode) which edge it's pinned to.
+  mode = "overlay",
+  side = "right",
 }) => {
   const [tagSearch, setTagSearch] = useState("");
   const [highlightedTagIndex, setHighlightedTagIndex] = useState(-1);
@@ -126,18 +135,45 @@ const SearchSidebar = ({
 
   if (!isVisible) return null;
 
-  return (
-    <div
-      className="w-[320px] bg-secondary border border-accent overflow-hidden shadow-2xl -webkit-app-region-no-drag fixed right-0 top-[70px] bottom-[50px]"
-      style={{
-        margin: "10px 10px 50px 10px", // 10px top/right/left, 50px bottom (footer + margin)
-        borderRadius: "8px", // full rounded corners
+  const isOverlay = mode !== "inline";
+  const isLeft = side === "left";
+
+  // Overlay mode: fixed, floats above the grid, pinned to one edge — same
+  // visual treatment as before (rounded on all 4 corners, drop shadow),
+  // just mirrored horizontally when side='left'. Inline mode: a normal
+  // block-level flex sibling (see App.jsx) that takes up real horizontal
+  // space — margins/height are simplified accordingly since there's no
+  // "floating over other content" to account for, and only the inner
+  // edge (the one facing the grid) is square so it reads as attached
+  // rather than floating, matching how the existing library-list panel
+  // sits flush against the grid.
+  const containerClassName = [
+    "w-[320px] bg-secondary overflow-hidden -webkit-app-region-no-drag flex-shrink-0",
+    isOverlay ? "fixed shadow-2xl border border-accent" : "relative border-r-0",
+    isOverlay && isLeft ? "left-0" : "",
+    isOverlay && !isLeft ? "right-0" : "",
+    !isOverlay && isLeft ? "border-r border-border" : "",
+    !isOverlay && !isLeft ? "border-l border-border" : "",
+  ].filter(Boolean).join(" ");
+
+  const containerStyle = isOverlay
+    ? {
+        margin: isLeft ? "10px 0 50px 10px" : "10px 10px 50px 10px",
+        borderRadius: "8px",
         boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
         height: "calc(100% - 70px - 60px)", // header (70px) + bottom buffer (60px)
         top: "70px",
         bottom: "auto",
-      }}
-    >
+      }
+    : {
+        // Inline mode lives inside App.jsx's main-content flex row, which
+        // is already top:70px/bottom:40px-bounded — no extra positioning
+        // needed here, just fill that row's height.
+        height: "100%",
+      };
+
+  return (
+    <div className={containerClassName} style={containerStyle}>
       {/* Fixed-height sticky header */}
       <div className="h-[60px] bg-secondary border-b border-border flex items-center justify-between px-4 sticky top-0 z-10">
         <span className="text-lg font-bold">

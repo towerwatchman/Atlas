@@ -250,6 +250,12 @@ const defaultConfig = {
     // picked) — see ThemeProvider.jsx's parseAppearance.
     navDisplayMode: 'icons',
     accentBarEnabled: true,
+    // Which edge the filter sidebar (SearchSidebar.jsx) docks to, and
+    // whether it overlays the library grid or shares space with it
+    // inline — see FILTER_SIDEBAR_SIDE_OPTIONS / FILTER_SIDEBAR_MODE_OPTIONS
+    // in src/theme/themes.js. Same independent-of-theme pattern as above.
+    filterSidebarSide: 'right',
+    filterSidebarMode: 'overlay',
     customTheme: '',
   },
   WindowBounds: {},
