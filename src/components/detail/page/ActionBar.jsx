@@ -5,7 +5,8 @@ export default function ActionBar({
   canManageWishlist = false, isWishlisted = false, wishlistBusy = false,
   launchState, isRefreshingMedia, showInfo, canManageLocalTitle = true,
   onLaunch, onOpenFolder, onOpenProperties, onToggleWishlist, onRefreshMedia,
-  onOpenWebsite, onRemoveTitle, onDeleteTitle, onToggleInfo,
+  onOpenWebsite, onToggleLocalImport, showLocalImportPanel = false,
+  onRemoveTitle, onDeleteTitle, onToggleInfo,
 }) {
   const playBg =
     launchState === LAUNCH_STATE.LAUNCHING ? STEAM_YELLOW
@@ -57,13 +58,28 @@ export default function ActionBar({
         {/* UPDATE */}
         {game.isUpdateAvailable && (
           <button
-            onClick={onOpenWebsite}
+            onClick={canManageLocalTitle ? onToggleLocalImport : onOpenWebsite}
             style={{ ...ACTION_BTN, minWidth: 130, background: '#2f6fc0', color: '#c8e0ff' }}
             onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.12)' }}
             onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
+            title={canManageLocalTitle ? 'Open update/import panel' : 'Open update page'}
           >
             <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <i className="fas fa-arrow-up" style={{ fontSize: 11 }}></i>UPDATE
+            </span>
+          </button>
+        )}
+
+        {canManageLocalTitle && (
+          <button
+            onClick={onToggleLocalImport}
+            title="Import files for this game"
+            style={{ ...ACTION_BTN, minWidth: game.isUpdateAvailable ? 44 : 130, background: showLocalImportPanel ? '#3a4f69' : '#263444', color: '#d9e8f7' }}
+            className="hover:bg-secondary hover:border-border"
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7, justifyContent: 'center' }}>
+              <i className="fas fa-file-import" style={{ fontSize: 12 }}></i>
+              {!game.isUpdateAvailable && 'IMPORT'}
             </span>
           </button>
         )}

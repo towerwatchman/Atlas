@@ -1424,7 +1424,10 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
   const version = String(payload.version || "").trim();
   const replaceExisting = payload.replaceExisting === true;
   const replaceVersionId = toPositiveInteger(payload.replaceVersionId || payload.versionId);
+  const deleteSourceArchiveAfterImport = payload.deleteSourceArchiveAfterImport === true;
 
+  let gamePath = "";
+  let importCommitted = false;
   try {
     if (!recordId) return { success: false, error: "Missing local game record" };
     if (!rawSourcePath) return { success: false, error: "Dropped path was empty" };
@@ -1499,8 +1502,19 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
     const targetBase = getUniquePath(buildStructuredImportPath(targetLibrary, destinationFormat, importGame));
     const extensions = getConfiguredGameExtensions(currentConfig);
     const archiveExtensions = getConfiguredExtractionExtensions(currentConfig);
+    const sourceIsArchive = stat.isFile() && isArchiveFilePath(sourcePath, currentConfig);
+    console.log("[LocalImport] Starting import", {
+      recordId,
+      sourcePath,
+      version,
+      replaceExisting,
+      replaceVersionId,
+      sourceIsArchive,
+      deleteSourceArchiveAfterImport,
+      targetBase,
+    });
 
-    if (stat.isFile() && !isArchiveFilePath(sourcePath, currentConfig)) {
+    if (stat.isFile() && !sourceIsArchive) {
       const ext = path.extname(sourcePath).toLowerCase().replace(/^\./, "");
       if (archiveExtensions.length > 0 && ["zip", "7z", "rar"].includes(ext) && !archiveExtensions.includes(ext)) {
         return { success: false, error: `Archive type .${ext} is not enabled in extraction extensions` };
@@ -1519,7 +1533,6 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
     };
     ctx.activeImportSession = session;
 
-    let gamePath = "";
     let execPath = "";
     let relativeExec = "";
 
@@ -1528,9 +1541,10 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
       await fsp.cp(sourcePath, targetBase, { recursive: true });
       gamePath = targetBase;
       const execs = findExecutables(gamePath, extensions);
+      console.log("[LocalImport] Folder executable scan", { gamePath, execCount: execs.length, execs });
       relativeExec = execs[0] || "";
       execPath = relativeExec ? path.join(gamePath, relativeExec) : "";
-    } else if (isArchiveFilePath(sourcePath, currentConfig)) {
+    } else if (sourceIsArchive) {
       const resolvedSevenZip = await resolveSevenZipExecutablePath({
         configuredPath: currentConfig?.Library?.sevenZipPath,
         currentConfig,
@@ -1541,6 +1555,7 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
       if (!resolvedSevenZip?.path) throw new Error("7-Zip is required for archive import");
       const extraction = await extractArchive(sourcePath, targetBase, resolvedSevenZip.path, session, ownerWindow);
       gamePath = extraction.finalPath || targetBase;
+      console.log("[LocalImport] Archive extracted", { sourcePath, gamePath });
       const items = await fsp.readdir(gamePath, { withFileTypes: true }).catch(() => []);
       const dirs = items.filter((item) => item.isDirectory());
       const files = items.filter((item) => item.isFile());
@@ -1551,8 +1566,10 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
           await fsp.rename(path.join(subPath, item), path.join(gamePath, item));
         }
         await fsp.rmdir(subPath).catch(() => {});
+        console.log("[LocalImport] Flattened single archive root", { gamePath, subPath });
       }
       const execs = findExecutables(gamePath, extensions);
+      console.log("[LocalImport] Archive executable scan", { gamePath, execCount: execs.length, execs });
       relativeExec = execs[0] || "";
       execPath = relativeExec ? path.join(gamePath, relativeExec) : "";
     } else {
@@ -1565,7 +1582,25 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
     }
 
     if (!gamePath) throw new Error("Import did not produce a game folder");
-    if (!execPath) throw new Error("No launchable file was found in the imported source");
+    if (!execPath) {
+      const sourceKind = sourceIsArchive ? "archive" : stat.isDirectory() ? "folder" : "file";
+      throw new Error(
+        `No launchable file was found in the imported ${sourceKind}. Source: ${sourcePath}. Imported folder: ${gamePath}`,
+      );
+    }
+
+    const oldVersionPath = replaceRow?.game_path ? path.resolve(replaceRow.game_path) : "";
+    const oldVersionExists = oldVersionPath ? fs.existsSync(oldVersionPath) : false;
+    const oldVersionAllowed = oldVersionPath ? await isAllowedDeletionPath(recordId, oldVersionPath) : false;
+    const newVersionPath = path.resolve(gamePath);
+    console.log("[LocalImport] Replacement cleanup check", {
+      recordId,
+      replaceExisting,
+      oldVersionPath,
+      oldVersionExists,
+      oldVersionAllowed,
+      newVersionPath,
+    });
 
     if (replaceExisting) {
       await updateVersion(
@@ -1583,11 +1618,90 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
     } else {
       await upsertVersion({ version, folder: gamePath, execPath, selectedValue: relativeExec }, recordId);
     }
+    importCommitted = true;
 
     const refreshedGame = await getGame(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode()).catch(() => null);
     BrowserWindow.getAllWindows().forEach((win) => {
       if (!win.isDestroyed()) win.webContents.send("game-updated", refreshedGame || recordId);
     });
+
+    let oldVersionDeleted = false;
+    let oldVersionDeleteError = "";
+    if (replaceExisting && oldVersionPath) {
+      try {
+        if (normalizeForPathCompare(oldVersionPath) === normalizeForPathCompare(newVersionPath)) {
+          console.log("[LocalImport] Skipping old version cleanup because old and new paths match", { oldVersionPath });
+        } else if (!oldVersionExists) {
+          console.log("[LocalImport] Skipping old version cleanup because old path no longer exists", { oldVersionPath });
+        } else if (!oldVersionAllowed) {
+          oldVersionDeleteError = "Old version files were not deleted because the old path is not trusted for deletion.";
+        } else {
+          const parsedPath = path.parse(oldVersionPath);
+          const oldStat = await fsp.stat(oldVersionPath).catch(() => null);
+          if (oldVersionPath === parsedPath.root) {
+            oldVersionDeleteError = "Old version files were not deleted because Atlas refused to delete a drive root.";
+          } else if (!oldStat?.isDirectory()) {
+            oldVersionDeleteError = "Old version files were not deleted because the old path is not a folder.";
+          } else {
+            const deleteResult = await deletePathWithElevationFallback(oldVersionPath, {
+              recursive: true,
+              force: true,
+              description: `Delete old version ${replaceRow.version || ""}`.trim(),
+              window: ownerWindow,
+              validatePath: async (candidatePath) => {
+                if (candidatePath === path.parse(candidatePath).root) throw new Error("Refusing to delete a drive root");
+                if (normalizeForPathCompare(candidatePath) !== normalizeForPathCompare(oldVersionPath)) {
+                  throw new Error("Refusing to delete a path other than the replaced version folder");
+                }
+                if (!oldVersionAllowed) throw new Error("Old version path is not trusted for deletion");
+                if (normalizeForPathCompare(candidatePath) === normalizeForPathCompare(newVersionPath)) {
+                  throw new Error("Refusing to delete the newly imported version folder");
+                }
+              },
+            });
+            if (deleteResult.success) {
+              oldVersionDeleted = true;
+              await removeEmptyParentDirectories(oldVersionPath, currentConfig?.Library?.gameFolder);
+            } else {
+              oldVersionDeleteError = deleteResult.error || "Old version delete was skipped.";
+            }
+          }
+        }
+      } catch (deleteErr) {
+        oldVersionDeleteError = deleteErr.message || String(deleteErr);
+      }
+      if (oldVersionDeleteError) {
+        console.warn("[LocalImport] Old version cleanup failed:", oldVersionDeleteError);
+      }
+    }
+
+    let sourceArchiveDeleted = false;
+    let sourceArchiveDeleteError = "";
+    if (deleteSourceArchiveAfterImport && sourceIsArchive) {
+      try {
+        const sourceCleanupRoot = path.dirname(sourcePath);
+        const deleteResult = await deletePathWithElevationFallback(sourcePath, {
+          recursive: false,
+          force: true,
+          description: `Delete source archive for ${gameRow.title || "imported game"}`,
+          window: ownerWindow,
+          validatePath: (candidatePath) =>
+            validateSourceCleanupPath(candidatePath, sourceCleanupRoot),
+        });
+        if (deleteResult.success) {
+          sourceArchiveDeleted = true;
+          await removeEmptyParentDirectories(sourcePath, sourceCleanupRoot);
+        } else {
+          sourceArchiveDeleteError = deleteResult.error || "Source archive delete was skipped.";
+        }
+      } catch (deleteErr) {
+        sourceArchiveDeleteError = deleteErr.message || String(deleteErr);
+      }
+      if (sourceArchiveDeleteError) {
+        console.warn("[LocalImport] Source archive cleanup failed:", sourceArchiveDeleteError);
+      }
+    }
+
     return {
       success: true,
       recordId,
@@ -1595,10 +1709,17 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
       gamePath,
       execPath,
       replaced: replaceExisting,
+      oldVersionDeleted,
+      oldVersionDeleteError,
+      sourceArchiveDeleted,
+      sourceArchiveDeleteError,
       game: refreshedGame,
     };
   } catch (err) {
     console.error("import-local-game-version error:", err);
+    if (gamePath && !importCommitted) {
+      await removePathIfExists(gamePath);
+    }
     return { success: false, error: err.message || String(err) };
   } finally {
     ctx.activeImportSession = null;
