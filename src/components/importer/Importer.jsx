@@ -29,6 +29,16 @@ const toBoolean = (value, fallback = false) => {
   return fallback
 }
 
+const normalizeF95IdInput = (value) => {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const threadMatch = raw.match(/f95zone\.to\/threads\/(?:[^/?#]*\.)?(\d+)(?:[/?#]|$)/i)
+  if (threadMatch) return threadMatch[1]
+  const prefixedMatch = raw.match(/\bf95[\s_-]*(\d+)\b/i)
+  if (prefixedMatch) return prefixedMatch[1]
+  return /^\d+$/.test(raw) ? raw : ''
+}
+
 const Importer = () => {
   // ── View ──────────────────────────────────────────────────────────────────
   const [view, setView] = useState('settings')
@@ -271,7 +281,7 @@ const Importer = () => {
         updatedGame = {
           ...updatedGame,
           engine: atlasData.engine || 'Unknown',
-          f95Id: updatedGame.f95Id || atlasData.f95_id || '',
+          f95Id: atlasData.f95_id || updatedGame.f95Id || '',
           siteUrl: atlasData.siteUrl || atlasData.site_url || updatedGame.siteUrl || '',
           latestVersion: atlasData.latestVersion || '',
         }
@@ -625,6 +635,83 @@ const Importer = () => {
     setGamesList((prev) => prev.map((g) => getScanGameKey(g) === gameKey ? { ...g, [field]: value } : g))
   }
 
+  const hydrateManualF95Id = async (gameKey, rawValue, { refresh = false } = {}) => {
+    const normalizedF95Id = normalizeF95IdInput(rawValue)
+    setGamesList((prev) => prev.map((game) =>
+      getScanGameKey(game) === gameKey
+        ? { ...game, f95Id: normalizedF95Id }
+        : game
+    ))
+
+    if (!refresh || !normalizedF95Id) return
+
+    const sourceGame = gamesList.find((game) => getScanGameKey(game) === gameKey)
+    if (!sourceGame || !isNewScanRow(sourceGame)) return
+
+    let data = []
+    try {
+      data = await window.electronAPI.searchAtlasByF95Id(normalizedF95Id)
+    } catch (err) {
+      console.error('Failed to hydrate manual F95 ID:', err)
+    }
+
+    const applyIfCurrent = (nextGame) => {
+      setGamesList((prev) => prev.map((game) => {
+        if (getScanGameKey(game) !== gameKey) return game
+        if (normalizeF95IdInput(game.f95Id) !== normalizedF95Id) return game
+        return nextGame
+      }).filter((game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game))))
+    }
+
+    if (data.length === 1) {
+      const matchedGame = await applyImportStatus({
+        ...sourceGame,
+        atlasId: String(data[0].atlas_id),
+        f95Id: data[0].f95_id || normalizedF95Id,
+        siteUrl: data[0].siteUrl || data[0].site_url || sourceGame.siteUrl || '',
+        title: data[0].title,
+        creator: data[0].creator,
+        engine: data[0].engine || sourceGame.engine || 'Unknown',
+        latestVersion: data[0].latestVersion || '',
+        results: [{ key: 'match', value: 'Match Found' }],
+        resultSelectedValue: 'match',
+        resultVisibility: 'visible',
+      })
+      applyIfCurrent(matchedGame)
+      return
+    }
+
+    if (data.length > 1) {
+      const results = data.map((match) => ({
+        key: String(match.atlas_id),
+        value: `${match.atlas_id} | ${match.f95_id || ''} | ${match.title} | ${match.creator}`,
+      }))
+      const validSelection = results.some((result) => result.key === sourceGame.resultSelectedValue)
+        ? sourceGame.resultSelectedValue
+        : results[0]?.key || ''
+      applyIfCurrent(normalizeMatchState({
+        ...sourceGame,
+        f95Id: normalizedF95Id,
+        atlasId: '',
+        results,
+        resultSelectedValue: validSelection,
+        resultVisibility: 'visible',
+        scanMessage: 'Select matching result',
+      }))
+      return
+    }
+
+    const unmatchedGame = await applyImportStatus({
+      ...sourceGame,
+      atlasId: '',
+      f95Id: normalizedF95Id,
+      results: [],
+      resultSelectedValue: '',
+      resultVisibility: 'hidden',
+    })
+    applyIfCurrent({ ...unmatchedGame, f95Id: normalizedF95Id, scanMessage: 'No F95 match found' })
+  }
+
   const deleteGame = (gameKey) => {
     deletedScanGameKeysRef.current.add(gameKey)
     setGamesList((prev) => prev.filter((g) => getScanGameKey(g) !== gameKey))
@@ -648,6 +735,7 @@ const Importer = () => {
     setProgress((prev) => ({ ...prev, value: 0, total }))
     await new Promise((r) => setTimeout(r, 16))
     let updatedGames = gamesList.map((game) => ({ ...game }))
+    const originalF95ByKey = new Map(updatedGames.map((game) => [getScanGameKey(game), normalizeF95IdInput(game.f95Id)]))
     for (let i = 0; i < updatedGames.length; i++) {
       if (matchCancelRef.current) break
       let game = { ...updatedGames[i] }
@@ -656,7 +744,9 @@ const Importer = () => {
         await new Promise((r) => setTimeout(r, 0))
         continue
       }
-      if (game.sourceType !== 'renpySave' && game.atlasId && game.results?.length === 1 && game.results[0]?.key === 'match' && game.resultVisibility === 'visible') {
+      const f95IdStr = normalizeF95IdInput(game.f95Id)
+      game = { ...game, f95Id: f95IdStr }
+      if (game.sourceType !== 'renpySave' && !f95IdStr && game.atlasId && game.results?.length === 1 && game.results[0]?.key === 'match' && game.resultVisibility === 'visible') {
         updatedGames[i] = game
         setProgress((prev) => ({ ...prev, value: i + 1 }))
         await new Promise((r) => setTimeout(r, 0))
@@ -664,10 +754,9 @@ const Importer = () => {
       }
       let data
       try {
-        const f95IdStr = String(game.f95Id || '').trim()
         data = f95IdStr ? await window.electronAPI.searchAtlasByF95Id(f95IdStr) : []
         if (matchCancelRef.current) break
-        if (!data.length) {
+        if (!data.length && !f95IdStr) {
           data = await window.electronAPI.searchAtlas(game.lookupTitle || game.title, game.creator)
         }
         if (matchCancelRef.current) break
@@ -676,7 +765,7 @@ const Importer = () => {
         game = await applyImportStatus({
           ...game,
           atlasId: String(data[0].atlas_id),
-          f95Id: data[0].f95_id || game.f95Id || '',
+          f95Id: data[0].f95_id || f95IdStr || game.f95Id || '',
           siteUrl: data[0].siteUrl || data[0].site_url || game.siteUrl || '',
           title: data[0].title,
           creator: data[0].creator,
@@ -693,7 +782,8 @@ const Importer = () => {
         game = await chooseInstalledMatch({ ...game, resultSelectedValue: valid ? game.resultSelectedValue : results[0].key }, results)
         if (matchCancelRef.current) break
       } else {
-        game = await applyImportStatus({ ...game, atlasId: '', f95Id: game.f95Id || '', lcId: game.lcId || game.lewdCornerId || '', results: [], resultSelectedValue: '', resultVisibility: 'hidden' })
+        game = await applyImportStatus({ ...game, atlasId: '', f95Id: f95IdStr || game.f95Id || '', lcId: game.lcId || game.lewdCornerId || '', results: [], resultSelectedValue: '', resultVisibility: 'hidden' })
+        if (f95IdStr) game = { ...game, f95Id: f95IdStr, scanMessage: 'No F95 match found' }
         if (matchCancelRef.current) break
       }
       updatedGames[i] = game
@@ -702,7 +792,20 @@ const Importer = () => {
       await new Promise((r) => setTimeout(r, 50))
     }
     if (!matchCancelRef.current) {
-      setGamesList(updatedGames.filter((game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game))))
+      setGamesList((prev) => {
+        const currentByKey = new Map(prev.map((game) => [getScanGameKey(game), game]))
+        return updatedGames.reduce((rows, game) => {
+          const gameKey = getScanGameKey(game)
+          if (deletedScanGameKeysRef.current.has(gameKey)) return rows
+          const current = currentByKey.get(gameKey)
+          if (current && normalizeF95IdInput(current.f95Id) !== originalF95ByKey.get(gameKey)) {
+            rows.push(current)
+          } else {
+            rows.push(game)
+          }
+          return rows
+        }, [])
+      })
       setProgress((prev) => ({ ...prev, value: total }))
       window.electronAPI.sendUpdateProgress({ value: total, total })
     }
@@ -823,6 +926,7 @@ const Importer = () => {
             importMode={importMode} scanPath={scanPath} scanMessage={scanMessage}
             onSort={handleSort} onUpdateGame={updateGame} onDeleteGame={deleteGame}
             onResultChange={handleResultChange} onUpdateMatches={updateMatches}
+            onHydrateManualF95Id={hydrateManualF95Id}
             onCancelMatch={cancelScanOrMatch} onImport={importGamesFunc}
             onSelectRenpyFolder={selectRenpySaveFolder}
             getGameKey={getScanGameKey} getRowImportStatus={getRowImportStatus}

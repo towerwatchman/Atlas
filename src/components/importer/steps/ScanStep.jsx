@@ -6,7 +6,7 @@ export default function ScanStep({
   canImport, isResolvingMatches, isScanActive, isCancelingScan, getImportDisabledReason,
   importMode, scanPath, scanMessage,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
-  getRowImportStatus, onUpdateMatches, onCancelMatch, onImport,
+  getRowImportStatus, onUpdateMatches, onHydrateManualF95Id, onCancelMatch, onImport,
   onSelectRenpyFolder,
   setHideMatches, setIncludeUnmatched, setIncludeArchives, setForceReimport,
 }) {
@@ -59,6 +59,7 @@ export default function ScanStep({
           onUpdateGame={onUpdateGame}
           onDeleteGame={onDeleteGame}
           onResultChange={onResultChange}
+          onHydrateManualF95Id={onHydrateManualF95Id}
           getGameKey={getGameKey}
           getRowImportStatus={getRowImportStatus}
         />

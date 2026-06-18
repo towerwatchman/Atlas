@@ -38,7 +38,7 @@ const getSourceUrls = (game = {}) => {
 export default function ScanTable({
   sortedRows, isNewScanRow, sortConfig,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
-  getRowImportStatus,
+  getRowImportStatus, onHydrateManualF95Id,
 }) {
   const getSortIndicator = (key) => {
     if (sortConfig.key !== key) return ''
@@ -114,36 +114,50 @@ export default function ScanTable({
           const selectedMatchValue = matchResults.some((result) => result.key === game.resultSelectedValue)
             ? game.resultSelectedValue
             : matchResults[0]?.key || ''
+          const gameKey = getGameKey(game)
 
           return (
-            <tr key={getGameKey(game)} className="bg-primary">
+            <tr key={gameKey} className="bg-primary">
               <td className="border border-border p-1 min-w-[100px]">
                 {matchResults.length > 1 && <i className="fa-solid fa-triangle-exclamation text-yellow-400 mr-1"></i>}
                 {game.atlasId}
               </td>
               <td className="border border-border p-1 min-w-[100px]">
-                <input value={game.f95Id} disabled={!rowIsNew} onChange={(e) => onUpdateGame(getGameKey(game), 'f95Id', e.target.value)} className="w-full bg-secondary border border-border p-1" />
+                <input
+                  value={game.f95Id || ''}
+                  disabled={!rowIsNew}
+                  onChange={(e) => onUpdateGame(gameKey, 'f95Id', e.target.value)}
+                  onBlur={(e) => onHydrateManualF95Id?.(gameKey, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return
+                    e.preventDefault()
+                    onHydrateManualF95Id?.(gameKey, e.currentTarget.value, { refresh: true })
+                  }}
+                  placeholder="F95 ID or thread URL"
+                  title="Enter a numeric F95 ID or F95 thread URL. Press Enter to update this row."
+                  className="w-full bg-secondary border border-border p-1"
+                />
               </td>
               <td className="border border-border p-1 min-w-[100px]">
-                <input value={game.lcId || game.lewdCornerId || ''} disabled={!rowIsNew} onChange={(e) => onUpdateGame(getGameKey(game), 'lcId', e.target.value)} className="w-full bg-secondary border border-border p-1" />
+                <input value={game.lcId || game.lewdCornerId || ''} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'lcId', e.target.value)} className="w-full bg-secondary border border-border p-1" />
               </td>
               <td className="border border-border p-1">
-                <input value={game.title} disabled={!rowIsNew} onChange={(e) => onUpdateGame(getGameKey(game), 'title', e.target.value)} className="w-full bg-secondary border border-border p-1" />
+                <input value={game.title} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'title', e.target.value)} className="w-full bg-secondary border border-border p-1" />
               </td>
               <td className="border border-border p-1">
-                <input value={game.creator} disabled={!rowIsNew} onChange={(e) => onUpdateGame(getGameKey(game), 'creator', e.target.value)} className="w-full bg-secondary border border-border p-1" />
+                <input value={game.creator} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'creator', e.target.value)} className="w-full bg-secondary border border-border p-1" />
               </td>
               <td className="border border-border p-1">
-                <input value={game.engine} disabled={!rowIsNew} onChange={(e) => onUpdateGame(getGameKey(game), 'engine', e.target.value)} className="w-full bg-secondary border border-border p-1" />
+                <input value={game.engine} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'engine', e.target.value)} className="w-full bg-secondary border border-border p-1" />
               </td>
               <td className="border border-border p-1">
-                <input value={game.version} disabled={!rowIsNew || isRenpySave} onChange={(e) => onUpdateGame(getGameKey(game), 'version', e.target.value)} className="w-full bg-secondary border border-border p-1" />
+                <input value={game.version} disabled={!rowIsNew || isRenpySave} onChange={(e) => onUpdateGame(gameKey, 'version', e.target.value)} className="w-full bg-secondary border border-border p-1" />
               </td>
               <td className="border border-border p-1">
                 <select
                   value={game.replaceVersion || ''}
                   disabled={!rowIsNew || !game.replaceOptions?.length}
-                  onChange={(e) => onUpdateGame(getGameKey(game), 'replaceVersion', e.target.value)}
+                  onChange={(e) => onUpdateGame(gameKey, 'replaceVersion', e.target.value)}
                   className="w-full bg-secondary border border-border p-1"
                   title={game.replaceOptions?.length ? 'Optionally delete this installed version after the new import succeeds' : 'No installed versions available to replace'}
                 >
@@ -157,7 +171,7 @@ export default function ScanTable({
               </td>
               <td className="border border-border p-1">
                 {isRenpySave ? 'N/A' : game.multipleVisible === 'visible' ? (
-                  <select value={game.selectedValue} disabled={!rowIsNew} onChange={(e) => onUpdateGame(getGameKey(game), 'selectedValue', e.target.value)} className="w-full bg-secondary border border-border p-1">
+                  <select value={game.selectedValue} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'selectedValue', e.target.value)} className="w-full bg-secondary border border-border p-1">
                     {game.executables.map((opt) => <option key={opt.key} value={opt.key}>{opt.value}</option>)}
                   </select>
                 ) : game.singleExecutable}
@@ -166,7 +180,7 @@ export default function ScanTable({
                 {matchResults.length === 1 && matchResults[0]?.key === 'match' ? (
                   <span className="text-text select-none">{matchResults[0].value}</span>
                 ) : matchResults.length > 1 && (
-                  <select value={selectedMatchValue} disabled={!rowIsNew} onChange={(e) => onResultChange(getGameKey(game), e.target.value)} className="w-full bg-secondary border border-border p-1">
+                  <select value={selectedMatchValue} disabled={!rowIsNew} onChange={(e) => onResultChange(gameKey, e.target.value)} className="w-full bg-secondary border border-border p-1">
                     {matchResults.map((opt) => <option key={opt.key} value={opt.key}>{opt.value}</option>)}
                   </select>
                 )}
@@ -224,7 +238,7 @@ export default function ScanTable({
                       Atlas
                     </button>
                   )}
-                <button onClick={() => onDeleteGame(getGameKey(game))} className="bg-danger hover:bg-dangerHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Delete</button>
+                <button onClick={() => onDeleteGame(gameKey)} className="bg-danger hover:bg-dangerHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Delete</button>
                 <button onClick={() => window.electronAPI.openDirectory(game.folder || game.sourceFile)} className="bg-accent hover:bg-accentHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Open Folder</button>
                 </div>
               </td>

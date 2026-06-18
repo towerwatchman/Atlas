@@ -1052,6 +1052,16 @@ const normalizeImportMatchState = (game = {}) => {
   return { ...game, results: [], resultSelectedValue: "", resultVisibility: "hidden" };
 };
 
+const normalizeF95IdInput = (value) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const threadMatch = raw.match(/f95zone\.to\/threads\/(?:[^/?#]*\.)?(\d+)(?:[/?#]|$)/i);
+  if (threadMatch) return threadMatch[1];
+  const prefixedMatch = raw.match(/\bf95[\s_-]*(\d+)\b/i);
+  if (prefixedMatch) return prefixedMatch[1];
+  return /^\d+$/.test(raw) ? raw : "";
+};
+
 const hydrateImportMatch = async (game, selectedValue) => {
   let updatedGame = normalizeImportMatchState({ ...game, resultSelectedValue: selectedValue });
   const selected = game.results?.find((result) => result.key === selectedValue);
@@ -1069,7 +1079,7 @@ const hydrateImportMatch = async (game, selectedValue) => {
     updatedGame = {
       ...updatedGame,
       engine: atlasData.engine || updatedGame.engine || "Unknown",
-      f95Id: updatedGame.f95Id || atlasData.f95_id || "",
+      f95Id: atlasData.f95_id || updatedGame.f95Id || "",
       siteUrl: atlasData.siteUrl || atlasData.site_url || updatedGame.siteUrl || "",
       latestVersion: atlasData.latestVersion || "",
     };
@@ -2061,10 +2071,10 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
   const searchCache = new Map();
 
   const resolveSearchData = async (game = {}) => {
-    const f95Id = String(game.f95Id || "").trim();
+    const f95Id = normalizeF95IdInput(game.f95Id);
     if (f95Id) {
       const byF95 = await searchAtlasByF95Id(f95Id);
-      if (byF95.length > 0) return byF95;
+      return byF95;
     }
     return await searchAtlas(game.lookupTitle || game.title, game.creator);
   };
@@ -2076,7 +2086,7 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
 
   const uniqueSearches = new Map();
   for (const game of pending) {
-    const f95Id = String(game.f95Id || "").trim();
+    const f95Id = normalizeF95IdInput(game.f95Id);
     const cacheKey = f95Id
       ? `f95:${f95Id}`
       : `atlas:${game.lookupTitle || game.title}|${game.creator}`;
@@ -2103,7 +2113,7 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
       return game;
     }
 
-    const f95Id = String(game.f95Id || "").trim();
+    const f95Id = normalizeF95IdInput(game.f95Id);
     const cacheKey = f95Id
       ? `f95:${f95Id}`
       : `atlas:${game.lookupTitle || game.title}|${game.creator}`;
@@ -2115,7 +2125,7 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
         return await hydrateImportMatch({
           ...game,
           atlasId: String(data[0].atlas_id),
-          f95Id: data[0].f95_id || game.f95Id || "",
+          f95Id: data[0].f95_id || f95Id || game.f95Id || "",
           siteUrl: data[0].siteUrl || data[0].site_url || game.siteUrl || "",
           title: data[0].title,
           creator: data[0].creator,
@@ -2132,14 +2142,17 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
         }));
         return await chooseInstalledImportMatch({ ...game, results }, results);
       } else {
-        return await hydrateImportMatch({
+        const unmatchedGame = await hydrateImportMatch({
           ...game,
           atlasId: "",
-          f95Id: game.f95Id || "",
+          f95Id: f95Id || "",
           results: [],
           resultSelectedValue: "",
           resultVisibility: "hidden",
         }, "");
+        return f95Id
+          ? { ...unmatchedGame, f95Id, scanMessage: "No F95 match found" }
+          : unmatchedGame;
       }
     } catch (err) {
       console.error("resolve-import-matches row failed:", err);
@@ -2155,15 +2168,17 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
 });
 
 ipcMain.handle("search-atlas-by-f95-id", async (event, f95Id) => {
+  const normalizedF95Id = normalizeF95IdInput(f95Id);
   console.log(`IPC search-atlas-by-f95-id received f95Id: ${f95Id}`);
+  if (!normalizedF95Id) return [];
   try {
-    const result = await searchAtlasByF95Id(f95Id);
+    const result = await searchAtlasByF95Id(normalizedF95Id);
     console.log(
-      `IPC search-atlas-by-f95-id result for ${f95Id}: ${JSON.stringify(result)}`,
+      `IPC search-atlas-by-f95-id result for ${normalizedF95Id}: ${JSON.stringify(result)}`,
     );
     return result;
   } catch (err) {
-    console.error(`Error in search-atlas-by-f95-id for ${f95Id}:`, err);
+    console.error(`Error in search-atlas-by-f95-id for ${normalizedF95Id}:`, err);
     return [];
   }
 });
