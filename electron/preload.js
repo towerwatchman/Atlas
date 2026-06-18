@@ -124,6 +124,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("get-available-banner-templates"),
   getAvailableThemes: () => ipcRenderer.invoke("get-available-themes"),
   saveTheme: (theme, options) => ipcRenderer.invoke("save-theme", theme, options),
+  getSystemFonts: () => ipcRenderer.invoke("get-system-fonts"),
 
   // ─── FIXED: Added missing banner template getter ────────────────────────
   getSelectedBannerTemplate: () =>

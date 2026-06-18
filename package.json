@@ -79,6 +79,7 @@
     "axios": "^1.7.2",
     "electron-updater": "^6.8.3",
     "extract-zip": "^2.0.1",
+    "font-list": "^1.5.1",
     "ini": "^5.0.0",
     "lz4js": "^0.2.0",
     "node-7z": "^0.4.0",

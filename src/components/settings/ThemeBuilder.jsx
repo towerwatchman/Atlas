@@ -78,13 +78,20 @@ const TEXT_CONTEXT_DESCRIPTIONS = {
   gameTitles: 'Game names shown on grid banners and in the library list view.',
 }
 
-const FONT_PRESETS = [
-  '"Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif',
-  '"Roboto", ui-sans-serif, system-ui, sans-serif',
-  '"Georgia", "Times New Roman", serif',
-  '"JetBrains Mono", "Fira Code", monospace',
-  '"Poppins", ui-sans-serif, system-ui, sans-serif',
-]
+// Used only if the OS font query (window.electronAPI.getSystemFonts())
+// returns nothing — e.g. font-list isn't installed yet (see the require
+// in electron/ipc/themes.js) or the query fails for some reason. Every
+// one of these is a generic CSS fallback family (not a specific font
+// name), so this list is guaranteed to render SOMETHING reasonable on
+// any OS, even with zero real font data available.
+const FALLBACK_FONTS = ['sans-serif', 'serif', 'monospace', 'cursive']
+
+// The font a draft falls back to if its chosen font isn't in the
+// retrieved system list for some reason (e.g. a theme file authored on a
+// different computer references a font this one doesn't have installed).
+// 'sans-serif' is a CSS generic family — always available everywhere, on
+// every OS, with no installation required.
+const UNIVERSAL_DEFAULT_FONT = 'sans-serif'
 
 // Small reusable color input: native <input type="color"> (a real OS/
 // browser color picker) plus the raw hex text next to it for precise entry
@@ -300,6 +307,31 @@ const ThemeBuilder = ({ onClose }) => {
   const [themeName, setThemeName] = useState(`${activeTheme.name} Copy`)
   const [saveState, setSaveState] = useState({ status: 'idle', error: null })
   const [activeSection, setActiveSection] = useState('colors')
+  // Fonts actually installed on THIS computer (see get-system-fonts in
+  // electron/ipc/themes.js) — fetched once on mount. Falls back to
+  // FALLBACK_FONTS (generic CSS families, always available everywhere)
+  // if the query comes back empty, e.g. font-list isn't installed yet or
+  // the OS query failed. This list is necessarily different from one
+  // computer to another — that's the point: every option shown is
+  // guaranteed to actually render correctly on whoever is running this
+  // particular copy of Atlas.
+  const [systemFonts, setSystemFonts] = useState(FALLBACK_FONTS)
+
+  useEffect(() => {
+    let cancelled = false
+    window.electronAPI.getSystemFonts?.()
+      .then((fonts) => {
+        if (cancelled) return
+        if (Array.isArray(fonts) && fonts.length > 0) {
+          setSystemFonts(fonts)
+        }
+        // else: leave the FALLBACK_FONTS default in place.
+      })
+      .catch((err) => {
+        console.error('Failed to load system fonts:', err)
+      })
+    return () => { cancelled = true }
+  }, [])
 
   // Live preview: every draft change re-applies immediately in THIS
   // window, exactly like picking a theme in Appearance.jsx does, AND
@@ -494,24 +526,41 @@ const ThemeBuilder = ({ onClose }) => {
             />
 
             <SectionHeader>Font</SectionHeader>
-            <p className="text-[10px] opacity-50 mb-2">The font family used for all text in the app. Pick a preset or paste a custom CSS font-family value below.</p>
+            <p className="text-[10px] opacity-50 mb-2">
+              The font family used for all text in the app. This list shows fonts
+              actually installed on this computer — picking one always appends a
+              generic fallback (sans-serif) so text still renders even if this theme
+              is later opened on a different machine that doesn't have that font.
+            </p>
             <select
-              value={draft.font}
-              onChange={(e) => setDraft((prev) => ({ ...prev, font: e.target.value }))}
+              value={draft.font.split(',')[0].replace(/"/g, '').trim()}
+              onChange={(e) => {
+                const fontName = e.target.value
+                const isGeneric = FALLBACK_FONTS.includes(fontName)
+                setDraft((prev) => ({
+                  ...prev,
+                  font: isGeneric ? fontName : `"${fontName}", ${UNIVERSAL_DEFAULT_FONT}`,
+                }))
+              }}
               className="w-full bg-secondary border border-border text-text text-sm rounded p-2"
             >
-              {FONT_PRESETS.map((font) => (
-                <option key={font} value={font} style={{ fontFamily: font }}>{font.split(',')[0].replace(/"/g, '')}</option>
-              ))}
-              {!FONT_PRESETS.includes(draft.font) && (
-                <option value={draft.font}>{draft.font.split(',')[0].replace(/"/g, '')} (current)</option>
+              {!systemFonts.includes(draft.font.split(',')[0].replace(/"/g, '').trim()) && (
+                <option value={draft.font.split(',')[0].replace(/"/g, '').trim()}>
+                  {draft.font.split(',')[0].replace(/"/g, '').trim()} (current — not in this list)
+                </option>
               )}
+              {systemFonts.map((font) => (
+                <option key={font} value={font} style={{ fontFamily: font }}>{font}</option>
+              ))}
             </select>
+            <p className="text-[10px] opacity-50 mt-2 mb-1">
+              Or paste a custom CSS font-family value directly (for an exact stack, web font, etc.):
+            </p>
             <input
               type="text"
               value={draft.font}
               onChange={(e) => setDraft((prev) => ({ ...prev, font: e.target.value }))}
-              className="w-full mt-2 bg-secondary border border-border text-text text-xs rounded p-2 font-mono"
+              className="w-full bg-secondary border border-border text-text text-xs rounded p-2 font-mono"
               placeholder="Custom font-family CSS value"
             />
           </div>

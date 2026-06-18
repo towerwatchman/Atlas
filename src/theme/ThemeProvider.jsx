@@ -92,6 +92,38 @@ export function ThemeProvider({ children }) {
   const [availableThemes, setAvailableThemes] = useState([DEFAULT_THEME])
   const [isLoaded, setIsLoaded] = useState(false)
 
+  // Theme Builder live preview (see ThemeBuilder.jsx + electron/ipc/
+  // themes.js's broadcast-theme-preview handler). This holds the
+  // in-progress DRAFT theme while a Theme Builder window is open
+  // elsewhere, completely separate from the real theme/layout/etc. state
+  // above — it's never persisted, and setting it never calls persist().
+  // null whenever no preview is active (the normal case).
+  //
+  // Pure CSS variables (colors, radius, font, button/text effect colors)
+  // already update live just from applyTheme() being called — no React
+  // re-render needed for those. But anything React conditionally RENDERS
+  // based on layout/navDisplayMode/accentBarEnabled (Sidebar vs. TopNav,
+  // icon+text vs. icon-only nav buttons, the accent bar JSX block) needs
+  // an actual state value to react to, which is exactly what this is for.
+  const [previewTheme, setPreviewTheme] = useState(null)
+
+  // The values every consumer of useTheme() actually reads. When a
+  // preview is active, these resolve to the draft's own nav settings
+  // instead of the real persisted ones — exactly mirroring how
+  // applyTheme(draftTheme, draftTheme.nav.layout, {...}) already resolves
+  // CSS variables during a preview, so JS-rendered and CSS-rendered
+  // aspects of the UI stay consistent with each other while previewing.
+  const effectiveTheme = previewTheme || theme
+  const effectiveLayout = previewTheme ? normalizeLayout(previewTheme.nav?.layout) : layout
+  const effectiveNavDisplayMode = previewTheme ? normalizeNavDisplayMode(previewTheme.nav?.displayMode) : navDisplayMode
+  const effectiveAccentBarEnabled = previewTheme ? previewTheme.nav?.accentBarEnabled !== false : accentBarEnabled
+  const effectiveFilterSidebarSide = previewTheme
+    ? normalizeFilterSidebarSide(previewTheme.nav?.filterSidebar?.side)
+    : filterSidebarSide
+  const effectiveFilterSidebarMode = previewTheme
+    ? normalizeFilterSidebarMode(previewTheme.nav?.filterSidebar?.mode)
+    : filterSidebarMode
+
   // Load the available theme list AND the saved appearance once on mount.
   // Both are needed together: parseAppearance needs the theme list to
   // resolve a saved themeId to an actual theme object (an external theme
@@ -148,43 +180,43 @@ export function ThemeProvider({ children }) {
     }
   }, [availableThemes])
 
-  // Re-apply CSS variables whenever this window's own state changes (covers
-  // both the initial load above and any local setTheme/setLayout/etc call).
+  // Re-apply CSS variables whenever the EFFECTIVE state changes — covers
+  // the initial load above, any local setTheme/setLayout/etc call, AND
+  // previewTheme changing (entering or leaving a Theme Builder preview).
+  // Always uses effectiveTheme/effectiveLayout/etc., never the raw
+  // theme/layout/etc., so a preview correctly overrides what's painted.
   // filterSidebarSide/filterSidebarMode aren't CSS-variable driven (see
   // App.jsx/SearchSidebar.jsx, which read them straight from useTheme()
   // instead), so they don't need to be in this dependency list — but
   // they're still part of the same provider state for consistency.
   useEffect(() => {
-    applyTheme(theme, layout, { navDisplayMode, accentBarEnabled })
-  }, [theme, layout, navDisplayMode, accentBarEnabled])
+    applyTheme(effectiveTheme, effectiveLayout, {
+      navDisplayMode: effectiveNavDisplayMode,
+      accentBarEnabled: effectiveAccentBarEnabled,
+    })
+  }, [effectiveTheme, effectiveLayout, effectiveNavDisplayMode, effectiveAccentBarEnabled])
 
   // Theme Builder live preview (see ThemeBuilder.jsx + electron/ipc/
   // themes.js's broadcast-theme-preview / open-theme-builder handlers).
-  // This is a deliberate SIDE CHANNEL, not provider state: 'changed' calls
-  // applyTheme() directly with the incoming draft, bypassing
-  // theme/layout/etc. state entirely, so a preview can never get
-  // persisted (persist() only ever runs from setTheme/setLayout/etc.,
-  // none of which fire here) and never collides with the "re-apply on
-  // state change" effect above. 'ended' simply re-runs that same
-  // applyTheme() call using this window's own already-held (real) state,
-  // which is exactly what restores the actually-active theme once the
-  // preview session is over — no extra fetch needed, since this window
-  // never stopped tracking its real state while the preview was showing.
+  // 'changed' sets previewTheme, which both re-applies CSS variables here
+  // (via the effect below, since previewTheme is now a dependency) AND
+  // causes effectiveTheme/effectiveLayout/etc. above to recompute, so any
+  // component reading useTheme() re-renders with the draft's actual
+  // layout/nav-display/accent-bar — not just its colors. 'ended' clears
+  // previewTheme, which makes effectiveTheme/etc. fall back to the real
+  // state again and the effect below re-applies that.
   useEffect(() => {
     const removePreviewListener = window.electronAPI.onThemePreviewChanged?.((draftTheme) => {
-      applyTheme(draftTheme, draftTheme?.nav?.layout, {
-        navDisplayMode: draftTheme?.nav?.displayMode,
-        accentBarEnabled: draftTheme?.nav?.accentBarEnabled,
-      })
+      setPreviewTheme(draftTheme)
     })
     const removeEndedListener = window.electronAPI.onThemePreviewEnded?.(() => {
-      applyTheme(theme, layout, { navDisplayMode, accentBarEnabled })
+      setPreviewTheme(null)
     })
     return () => {
       if (typeof removePreviewListener === 'function') removePreviewListener()
       if (typeof removeEndedListener === 'function') removeEndedListener()
     }
-  }, [theme, layout, navDisplayMode, accentBarEnabled])
+  }, [])
 
   const persist = useCallback((nextAppearance) => {
     window.electronAPI.getConfig().then((config) => {
@@ -263,7 +295,12 @@ export function ThemeProvider({ children }) {
   }, [persist])
 
   const value = {
-    theme, layout, navDisplayMode, accentBarEnabled, filterSidebarSide, filterSidebarMode,
+    theme: effectiveTheme,
+    layout: effectiveLayout,
+    navDisplayMode: effectiveNavDisplayMode,
+    accentBarEnabled: effectiveAccentBarEnabled,
+    filterSidebarSide: effectiveFilterSidebarSide,
+    filterSidebarMode: effectiveFilterSidebarMode,
     setTheme, setLayout, setNavDisplayMode, setAccentBarEnabled,
     setFilterSidebarSide, setFilterSidebarMode,
     isLoaded, availableThemes,

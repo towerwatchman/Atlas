@@ -4,6 +4,20 @@ const { ipcMain, BrowserWindow } = require('electron')
 const fs = require('fs')
 const path = require('path')
 
+// font-list queries the OS's actually-installed fonts (Windows GDI, macOS
+// Core Text, Linux fontconfig) — see get-system-fonts below. Loaded
+// lazily/defensively: if someone hasn't run `npm install` since this was
+// added as a dependency, the rest of the app should still start up fine
+// rather than crashing on a missing module; get-system-fonts just returns
+// an empty list in that case and the renderer falls back to its own
+// built-in safe defaults (see FALLBACK_FONTS in ThemeBuilder.jsx).
+let fontList = null
+try {
+  fontList = require('font-list')
+} catch (err) {
+  console.warn('font-list not installed — run `npm install` to enable system font listing in the Theme Builder. Falling back to built-in font presets.')
+}
+
 // The one non-Default theme Atlas ships with, seeded into the user's
 // templates/theme/ folder on first run (only if that folder is empty) so
 // there's a working second theme to look at and edit immediately. This is
@@ -239,5 +253,24 @@ module.exports = function registerThemeHandlers(ctx) {
         win.webContents.send('theme-preview-changed', draftTheme)
       }
     })
+  })
+
+  // Lists fonts actually installed on THIS computer (via font-list, see
+  // the require at the top of this file), for the Theme Builder's Font
+  // picker — see ThemeBuilder.jsx. Returns an empty array (never throws)
+  // if font-list isn't installed or the OS query fails for any reason;
+  // the renderer's own FALLBACK_FONTS covers that case so the picker is
+  // never left completely empty.
+  ipcMain.handle('get-system-fonts', async () => {
+    if (!fontList) return []
+    try {
+      const fonts = await fontList.getFonts({ disableQuoting: true })
+      // getFonts() can return duplicates (different weights/styles
+      // sharing a family name) — dedupe and sort for a clean picker list.
+      return Array.from(new Set(fonts)).sort((a, b) => a.localeCompare(b))
+    } catch (err) {
+      console.error('get-system-fonts error:', err)
+      return []
+    }
   })
 }
