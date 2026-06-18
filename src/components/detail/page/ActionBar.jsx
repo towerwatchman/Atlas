@@ -4,9 +4,10 @@ export default function ActionBar({
   game, actionVersion, latestVersion, canLaunch, canOpenFolder,
   canInstallFromDetail = false,
   canManageWishlist = false, isWishlisted = false, wishlistBusy = false,
+  canManageFavorite = false, isFavorite = false, favoriteBusy = false,
   launchState, isRefreshingMedia, showInfo, canManageLocalTitle = true,
   onLaunch, onOpenFolder, onOpenProperties, onToggleWishlist, onRefreshMedia,
-  onOpenWebsite, onOpenSteam, onUninstallSteam, onToggleLocalImport,
+  onOpenWebsite, onOpenSteam, onUninstallSteam, onToggleFavorite, onToggleLocalImport,
   onRemoveTitle, onDeleteTitle, onToggleInfo,
 }) {
   const showInstallCta = !canLaunch && canInstallFromDetail
@@ -119,6 +120,24 @@ export default function ActionBar({
                 <i className={wishlistBusy ? 'fas fa-circle-notch fa-spin' : 'fas fa-heart'} style={{ fontSize: 11 }}></i>
                 {isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
               </span>
+            </button>
+          )}
+          {canManageFavorite && (
+            <button
+              onClick={onToggleFavorite}
+              disabled={favoriteBusy}
+              title={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
+              style={{
+                ...iconBtn(favoriteBusy),
+                background: isFavorite ? 'rgba(245, 158, 11, 0.14)' : 'transparent',
+                borderColor: isFavorite ? 'rgba(245, 158, 11, 0.45)' : 'transparent',
+              }}
+              className="hover:bg-secondary hover:border-border"
+            >
+              <i
+                className={favoriteBusy ? 'fas fa-circle-notch fa-spin' : isFavorite ? 'fas fa-heart' : 'far fa-heart'}
+                style={{ fontSize: 14, color: isFavorite ? '#f59e0b' : 'inherit' }}
+              ></i>
             </button>
           )}
           <button onClick={onOpenFolder} disabled={!canOpenFolder} title="Open Folder" style={iconBtn(!canOpenFolder)} className="hover:bg-secondary hover:border-border">

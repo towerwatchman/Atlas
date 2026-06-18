@@ -621,6 +621,7 @@ const getGame = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
         games.creator as creator,
         games.engine as engine,
         games.description,
+        COALESCE(games.is_favorite, 0) as is_favorite,
         games.total_playtime,
         games.last_played_r,
         games.last_played_version,
@@ -695,6 +696,7 @@ ${bannerJoinClauses}
           }
           const game = {
             ...row,
+            isFavorite: row.is_favorite === 1,
             engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
             versions: versionRows.map((v) => mapVersionRow(v, !!row.steam_id)),
             versionCount: versionRows.length,
@@ -743,6 +745,7 @@ const getGames = (
         games.creator as creator,
         games.engine as engine,
         games.description,
+        COALESCE(games.is_favorite, 0) as is_favorite,
         games.total_playtime,
         games.last_played_r,
         games.last_played_version,
@@ -849,6 +852,7 @@ ${bannerJoinClauses}
 
             return {
               ...row,
+              isFavorite: row.is_favorite === 1,
               // Unescape engine to fix 'Ren''Py' issue
               engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
               versions,

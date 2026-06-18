@@ -29,6 +29,7 @@ const {
   addGame, updateGame, removeGame, deleteGameCompletely,
   getGameRecordIds, countVersions, deleteVersion,
   getUniqueFilterOptions, recordGameLaunchStarted, recordGamePlaytime,
+  setGameFavorite,
 } = require('./db/games')
 
 const {
@@ -876,7 +877,7 @@ function buildCtx() {
     isAllowedDeletionPath, getTrustedVersion, deleteTitleRecord,
     // db functions
     addGame, updateGame, addVersion, upsertVersion, updateVersion,
-    recordGameLaunchStarted, recordGamePlaytime,
+    recordGameLaunchStarted, recordGamePlaytime, setGameFavorite,
     addAtlasMapping, getGame, getGames, getCatalogGames, getGameRecordIds,
     removeGame, checkDbUpdates, updateFolderSize,
     addWishlistEntry, removeWishlistEntry, toggleWishlistEntry,

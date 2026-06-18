@@ -41,6 +41,20 @@ function handleContextAction(data, sender, ctx) {
       console.log("Creating GameDetailsWindow for recordId:", data.recordId);
       ctx.createGameDetailsWindow(data.recordId);
       break;
+    case "setFavorite": {
+      ctx.setGameFavorite(data.recordId, data.isFavorite === true)
+        .then((result) => {
+          if (!result?.success) {
+            console.error("Context favorite update failed:", result?.error);
+            return;
+          }
+          BrowserWindow.getAllWindows().forEach((win) => {
+            if (!win.isDestroyed()) win.webContents.send("game-updated", result.recordId);
+          });
+        })
+        .catch((err) => console.error("Context favorite update failed:", err));
+      break;
+    }
     case "removeTitleFromLibrary": {
       const senderWindow = BrowserWindow.fromWebContents(sender);
       dialog

@@ -40,6 +40,7 @@ export const normalizeGameForRenderer = (game) => {
     installedVersionCount: safeNumber(game.installedVersionCount),
     totalVersionCount: safeNumber(game.totalVersionCount || versions.length),
     isUpdateAvailable: game.isUpdateAvailable === true,
+    isFavorite: game.isFavorite === true || game.is_favorite === 1,
   }
 }
 

@@ -85,6 +85,8 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [previewsLoading, setPreviewsLoading] = useState(false)
   const [isWishlisted, setIsWishlisted] = useState(game?.isWishlisted === true || game?.isWishlistEntry === true)
   const [wishlistBusy, setWishlistBusy] = useState(false)
+  const [isFavorite, setIsFavorite] = useState(game?.isFavorite === true || game?.is_favorite === 1)
+  const [favoriteBusy, setFavoriteBusy] = useState(false)
   const [selectedVersion, setSelectedVersion] = useState(null)
   const [isRefreshingMedia, setIsRefreshingMedia] = useState(false)
   const [launchState, setLaunchState] = useState(LAUNCH_STATE.IDLE)
@@ -164,6 +166,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     setShowInfo(true)
     setLightboxIndex(null)
     setIsWishlisted(game?.isWishlisted === true || game?.isWishlistEntry === true)
+    setIsFavorite(game?.isFavorite === true || game?.is_favorite === 1)
     setCatalogImportPath('')
     setCatalogImportVersion(String(game?.latestVersion || game?.latest_version || 'Unknown').trim() || 'Unknown')
     setCatalogImportStatus('')
@@ -180,7 +183,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     setLocalDeleteSourceArchive(false)
     setShowLocalImportPanel(false)
     isRunningRef.current = false
-  }, [game?.record_id, game?.isWishlisted, game?.isWishlistEntry])
+  }, [game?.record_id, game?.isWishlisted, game?.isWishlistEntry, game?.isFavorite, game?.is_favorite])
 
   useEffect(() => {
     let canceled = false
@@ -278,6 +281,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const installedVersions = getInstalledVersions(game.versions || [])
   const actionVersion = selectedVersion || getDefaultVersion(installedVersions)
   const canManageLocalTitle = game.isMetadataOnly !== true && game.isCatalogEntry !== true
+  const canManageFavorite = canManageLocalTitle && Boolean(Number.parseInt(game.record_id, 10) > 0)
   const canManageWishlist = game.isCatalogEntry === true || game.isWishlistEntry === true
   const canLaunch = Boolean(actionVersion && actionVersion.isInstalled !== false && (actionVersion.exec_path || game.record_id))
   const canInstallFromDetail = !canLaunch && (canManageWishlist || canManageLocalTitle || game.hasInstalledVersion === false)
@@ -531,6 +535,25 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     }
   }
 
+  const toggleFavorite = async () => {
+    if (!canManageFavorite || favoriteBusy) return
+    const nextFavorite = !isFavorite
+    setFavoriteBusy(true)
+    setIsFavorite(nextFavorite)
+    try {
+      const result = await window.electronAPI.setGameFavorite?.(game.record_id, nextFavorite)
+      if (!result?.success) throw new Error(result?.error || 'Favorite update failed')
+      setIsFavorite(result.isFavorite === true)
+      onRefresh?.(game.record_id)
+    } catch (err) {
+      setIsFavorite(!nextFavorite)
+      console.error('Failed to update favorite:', err)
+      alert(`Failed to update Favorite: ${err.message || err}`)
+    } finally {
+      setFavoriteBusy(false)
+    }
+  }
+
   const removeTitleFromLibrary = async () => {
     if (!canManageLocalTitle) return
     if (!window.confirm(`Remove "${game.title}" from the local library?\n\nGame files will be kept on disk.`)) return
@@ -587,6 +610,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         canManageWishlist={canManageWishlist}
         isWishlisted={isWishlisted}
         wishlistBusy={wishlistBusy}
+        canManageFavorite={canManageFavorite}
+        isFavorite={isFavorite}
+        favoriteBusy={favoriteBusy}
         launchState={launchState}
         isRefreshingMedia={isRefreshingMedia}
         showInfo={showInfo}
@@ -595,6 +621,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         onOpenFolder={openSelectedFolder}
         onOpenProperties={openProperties}
         onToggleWishlist={toggleWishlist}
+        onToggleFavorite={toggleFavorite}
         onRefreshMedia={refreshMetadataAndImages}
         onOpenWebsite={openWebsite}
         onOpenSteam={openSteam}

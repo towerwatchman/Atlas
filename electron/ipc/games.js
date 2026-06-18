@@ -102,7 +102,7 @@ function registerGamesHandlers(ctx) {
     upsertVersion, updateVersion, deleteGameCompletely, getUniqueFilterOptions,
     updateFolderSize, countVersions, deleteVersion, getVersionForRecord,
     getVersionPathsForRecord, getInstalledVersionsForRecord,
-    recordGameLaunchStarted, recordGamePlaytime, getEmulatorByExtension,
+    recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, getEmulatorByExtension,
     // helpers
     deleteTitleRecord, isAllowedDeletionPath, getTrustedVersion,
     removeEmptyParentDirectories, normalizeForPathCompare,
@@ -158,6 +158,12 @@ function registerGamesHandlers(ctx) {
 
   ipcMain.handle('delete-title', async (_, { recordId, deleteFiles = false }) => {
     return await deleteTitleRecord(recordId, { deleteFiles })
+  })
+
+  ipcMain.handle('set-game-favorite', async (_, { recordId, isFavorite } = {}) => {
+    const result = await setGameFavorite(recordId, isFavorite === true)
+    if (result?.success) emitGameUpdated(result.recordId)
+    return result
   })
 
   ipcMain.handle('get-game', async (event, recordId) => {

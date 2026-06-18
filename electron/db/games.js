@@ -160,6 +160,32 @@ const recordGamePlaytime = (recordId, version, minutes) => {
   });
 };
 
+const setGameFavorite = (recordId, isFavorite) => {
+  const id = Number.parseInt(recordId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    return Promise.resolve({ success: false, error: "Invalid recordId" });
+  }
+  const nextFavorite = isFavorite === true ? 1 : 0;
+  return new Promise((resolve) => {
+    getDb().run(
+      `UPDATE games SET is_favorite = ? WHERE record_id = ?`,
+      [nextFavorite, id],
+      function onRun(err) {
+        if (err) {
+          console.error("Error updating favorite state:", err);
+          resolve({ success: false, error: err.message });
+          return;
+        }
+        if (!this.changes) {
+          resolve({ success: false, error: "Game record not found" });
+          return;
+        }
+        resolve({ success: true, recordId: id, isFavorite: nextFavorite === 1 });
+      },
+    );
+  });
+};
+
 const getGameRecordIds = () => {
   return new Promise((resolve, reject) => {
     getDb().all(`SELECT record_id FROM games ORDER BY title COLLATE NOCASE`, [], (err, rows) => {
@@ -341,6 +367,7 @@ module.exports = {
   getGameRecordIds,
   recordGameLaunchStarted,
   recordGamePlaytime,
+  setGameFavorite,
   getUniqueFilterOptions,
   resetCachedFilterOptions,
 }

@@ -713,6 +713,25 @@ const SearchSidebar = ({
           </div>
         )}
 
+        {/* Favorites */}
+        {!isCatalogMode && (
+        <div className="mb-4">
+          <label className="flex items-center space-x-2 text-sm">
+            <input
+              type="checkbox"
+              checked={selectedFilters.favoritesOnly || false}
+              onChange={() =>
+                updateFilters({
+                  favoritesOnly: !selectedFilters.favoritesOnly,
+                })
+              }
+              className="-webkit-app-region-no-drag"
+            />
+            <span>Favorites only</span>
+          </label>
+        </div>
+        )}
+
         {/* Multiple installed versions */}
         {!isCatalogMode && (
         <div className="mb-4">

@@ -24,6 +24,7 @@ export const defaultFilters = {
   browseSort: 'nameAsc',
   tagLogic: 'AND',
   updateAvailable: false,
+  favoritesOnly: false,
   steamMapped: false,
   includeUninstalled: false,
   installState: 'installed',
@@ -100,6 +101,7 @@ export const normalizeFilterState = (filters = {}) => {
     : 'nameAsc'
   merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
   merged.updateAvailable = merged.updateAvailable === true
+  merged.favoritesOnly = merged.favoritesOnly === true
   merged.steamMapped = merged.steamMapped === true
   merged.multipleInstalledVersions = merged.multipleInstalledVersions === true
   if (!['installed', 'uninstalled', 'all'].includes(merged.installState)) {
@@ -613,6 +615,10 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
     result = result.filter((game) => game.isUpdateAvailable === true)
   }
 
+  if (activeFilters.favoritesOnly) {
+    result = result.filter((game) => game.isFavorite === true || game.is_favorite === 1)
+  }
+
   if (activeFilters.steamMapped) {
     result = result.filter(hasSteamMapping)
   }
@@ -767,6 +773,12 @@ export const builtInSavedFilters = [
     name: 'Updates available',
     builtIn: true,
     filters: normalizeFilterState({ updateAvailable: true }),
+  },
+  {
+    id: 'builtin-favorites',
+    name: 'Favorites',
+    builtIn: true,
+    filters: normalizeFilterState({ favoritesOnly: true, includeUninstalled: true, installState: 'all' }),
   },
   {
     id: 'builtin-recent',

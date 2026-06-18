@@ -141,6 +141,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("open-game-image-folder", recordId),
   openGameProperties: (recordId) =>
     ipcRenderer.invoke("open-game-properties", recordId),
+  setGameFavorite: (recordId, isFavorite) =>
+    ipcRenderer.invoke("set-game-favorite", { recordId, isFavorite }),
 
   saveEmulatorConfig: (config) =>
     ipcRenderer.invoke("save-emulator-config", config),

@@ -156,6 +156,15 @@ const GameBanner = ({ game, onSelect }) => {
     }
 
     if (!isMetadataOnly) {
+      template.push({
+        label: game.isFavorite ? "Remove from Favorites" : "Add to Favorites",
+        data: {
+          action: "setFavorite",
+          recordId: game.record_id,
+          isFavorite: !game.isFavorite,
+        },
+      });
+
       // Properties
       template.push({
         label: "Properties",
@@ -418,6 +427,27 @@ const GameBanner = ({ game, onSelect }) => {
               style: { fontSize: 10, color: "#f9a8d4", marginRight: 5 },
             }),
             "Wishlist",
+          ],
+        ),
+      );
+    }
+
+    if (game.isFavorite) {
+      children.push(
+        React.createElement(
+          "div",
+          {
+            key: `favorite-marker-${game.record_id}`,
+            className:
+              "absolute top-2 left-2 z-40 bg-primary border border-warning text-text text-[10px] px-2 py-1 pointer-events-none",
+          },
+          [
+            React.createElement("i", {
+              key: "favorite-icon",
+              className: "fas fa-heart",
+              style: { fontSize: 10, color: "#f59e0b", marginRight: 5 },
+            }),
+            "Favorite",
           ],
         ),
       );
