@@ -2,25 +2,32 @@ import { LAUNCH_STATE, ACTION_BTN, STEAM_GREEN, STEAM_BLUE, STEAM_YELLOW, STEAM_
 
 export default function ActionBar({
   game, actionVersion, latestVersion, canLaunch, canOpenFolder,
+  canInstallFromDetail = false,
   canManageWishlist = false, isWishlisted = false, wishlistBusy = false,
   launchState, isRefreshingMedia, showInfo, canManageLocalTitle = true,
   onLaunch, onOpenFolder, onOpenProperties, onToggleWishlist, onRefreshMedia,
   onOpenWebsite, onToggleLocalImport,
   onRemoveTitle, onDeleteTitle, onToggleInfo,
 }) {
+  const showInstallCta = !canLaunch && canInstallFromDetail
+
   const playBg =
-    launchState === LAUNCH_STATE.LAUNCHING ? STEAM_YELLOW
+    showInstallCta ? '#2f6fc0'
+    : launchState === LAUNCH_STATE.LAUNCHING ? STEAM_YELLOW
     : launchState === LAUNCH_STATE.RUNNING ? STEAM_BLUE
     : !canLaunch ? STEAM_GRAY
     : STEAM_GREEN
 
   const playColor =
-    launchState === LAUNCH_STATE.RUNNING ? '#8ab4f8'
+    showInstallCta ? '#c8e0ff'
+    : launchState === LAUNCH_STATE.RUNNING ? '#8ab4f8'
     : !canLaunch ? '#888'
     : '#d2e885'
 
   const playLabel =
-    launchState === LAUNCH_STATE.LAUNCHING
+    showInstallCta
+      ? <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><i className="fas fa-download" style={{ fontSize: 11 }}></i>INSTALL</span>
+    : launchState === LAUNCH_STATE.LAUNCHING
       ? <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><i className="fas fa-circle-notch fa-spin" style={{ fontSize: 11 }}></i>LAUNCHING</span>
     : launchState === LAUNCH_STATE.RUNNING
       ? <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><i className="fas fa-circle" style={{ fontSize: 9, color: '#4ade80' }}></i>RUNNING</span>
@@ -40,16 +47,17 @@ export default function ActionBar({
 
         {/* PLAY */}
         <button
-          onClick={onLaunch}
-          disabled={!canLaunch && launchState === LAUNCH_STATE.IDLE}
+          onClick={showInstallCta ? onToggleLocalImport : onLaunch}
+          disabled={!showInstallCta && !canLaunch && launchState === LAUNCH_STATE.IDLE}
           style={{
             ...ACTION_BTN, minWidth: 130, background: playBg, color: playColor,
-            cursor: launchState === LAUNCH_STATE.LAUNCHING ? 'wait'
+            cursor: showInstallCta ? 'pointer'
+              : launchState === LAUNCH_STATE.LAUNCHING ? 'wait'
               : launchState === LAUNCH_STATE.RUNNING ? 'default'
               : !canLaunch ? 'not-allowed' : 'pointer',
-            opacity: !canLaunch && launchState === LAUNCH_STATE.IDLE ? 0.5 : 1,
+            opacity: !showInstallCta && !canLaunch && launchState === LAUNCH_STATE.IDLE ? 0.5 : 1,
           }}
-          onMouseEnter={(e) => { if (canLaunch || launchState !== LAUNCH_STATE.IDLE) e.currentTarget.style.filter = 'brightness(1.12)' }}
+          onMouseEnter={(e) => { if (showInstallCta || canLaunch || launchState !== LAUNCH_STATE.IDLE) e.currentTarget.style.filter = 'brightness(1.12)' }}
           onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
         >
           {playLabel}

@@ -280,6 +280,8 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const canManageLocalTitle = game.isMetadataOnly !== true && game.isCatalogEntry !== true
   const canManageWishlist = game.isCatalogEntry === true || game.isWishlistEntry === true
   const canLaunch = Boolean(actionVersion && actionVersion.isInstalled !== false && (actionVersion.exec_path || game.record_id))
+  const canInstallFromDetail = !canLaunch && (canManageWishlist || canManageLocalTitle || game.hasInstalledVersion === false)
+  const importPanelMode = canManageWishlist ? 'catalog' : 'local'
   const canOpenFolder = Boolean(actionVersion?.game_path && actionVersion.isInstalled !== false)
   const latestVersion = game.latestVersion || game.latest_version || ''
   const versionOptions = sortVersionsDesc(game.versions || [])
@@ -467,6 +469,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       if (!result?.success) throw new Error(result?.error || 'Import failed')
       setCatalogImportPath('')
       setCatalogImportStatus(`Imported ${result.version || version} into the Library.`)
+      setShowLocalImportPanel(false)
       onRefresh?.(result.recordId)
     } catch (err) {
       setCatalogImportStatus('')
@@ -567,6 +570,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         latestVersion={latestVersion}
         canLaunch={canLaunch}
         canOpenFolder={canOpenFolder}
+        canInstallFromDetail={canInstallFromDetail}
         canManageWishlist={canManageWishlist}
         isWishlisted={isWishlisted}
         wishlistBusy={wishlistBusy}
@@ -586,20 +590,22 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         onToggleInfo={() => setShowInfo((s) => !s)}
       />
 
-      {canManageLocalTitle && showLocalImportPanel && (
+      {(canManageLocalTitle || canManageWishlist) && showLocalImportPanel && (
         <section className="mx-6 mt-3 border border-border bg-secondary p-4">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
             <div>
-              <h2 className="text-base font-semibold">Update / Import Files</h2>
+              <h2 className="text-base font-semibold">{importPanelMode === 'catalog' ? 'Install / Import Files' : 'Update / Import Files'}</h2>
               <p style={{ color: '#9ca3af', fontSize: 12 }}>
-                Drop a folder, archive, or executable here to add or replace files for this Library title.
+                {importPanelMode === 'catalog'
+                  ? 'Drop a folder, archive, or executable here to install this title into your Library.'
+                  : 'Drop a folder, archive, or executable here to add or replace files for this Library title.'}
               </p>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               {game.siteUrl && (
                 <button
                   onClick={openWebsite}
-                  disabled={localImportBusy}
+                  disabled={localImportBusy || catalogImportBusy}
                   className="bg-primary border border-border px-3 py-2 hover:bg-selected disabled:opacity-60"
                 >
                   Open update page
@@ -607,7 +613,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               )}
               <button
                 onClick={() => setShowLocalImportPanel(false)}
-                disabled={localImportBusy}
+                disabled={localImportBusy || catalogImportBusy}
                 className="bg-primary border border-border px-3 py-2 hover:bg-selected disabled:opacity-60"
                 title="Close"
               >
@@ -616,154 +622,106 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             </div>
           </div>
           <div
-            onDragOver={(event) => { event.preventDefault(); setLocalImportDragging(true) }}
-            onDragLeave={() => setLocalImportDragging(false)}
-            onDrop={handleLocalDrop}
-            className={`border border-dashed p-4 transition-colors ${localImportDragging ? 'border-accent bg-selected' : 'border-border bg-primary'}`}
+            onDragOver={(event) => {
+              event.preventDefault()
+              if (importPanelMode === 'catalog') setCatalogImportDragging(true)
+              else setLocalImportDragging(true)
+            }}
+            onDragLeave={() => {
+              setCatalogImportDragging(false)
+              setLocalImportDragging(false)
+            }}
+            onDrop={importPanelMode === 'catalog' ? handleCatalogDrop : handleLocalDrop}
+            className={`border border-dashed p-4 transition-colors ${
+              (importPanelMode === 'catalog' ? catalogImportDragging : localImportDragging)
+                ? 'border-accent bg-selected'
+                : 'border-border bg-primary'
+            }`}
             style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 160px auto', gap: 10, alignItems: 'center' }}
           >
             <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {localImportPath || 'No source selected'}
+                {(importPanelMode === 'catalog' ? catalogImportPath : localImportPath) || 'No source selected'}
               </div>
               <div style={{ color: '#9ca3af', fontSize: 12 }}>
                 Accepted: folder, .zip, .7z, .rar, or launchable file.
               </div>
             </div>
             <input
-              value={localImportVersion}
-              onChange={(event) => setLocalImportVersion(event.target.value)}
-              disabled={localImportBusy}
+              value={importPanelMode === 'catalog' ? catalogImportVersion : localImportVersion}
+              onChange={(event) => {
+                if (importPanelMode === 'catalog') setCatalogImportVersion(event.target.value)
+                else setLocalImportVersion(event.target.value)
+              }}
+              disabled={localImportBusy || catalogImportBusy}
               className="bg-secondary border border-border p-2"
               placeholder="Version"
             />
             <button
-              onClick={chooseLocalImportSource}
-              disabled={localImportBusy}
+              onClick={importPanelMode === 'catalog' ? chooseCatalogImportSource : chooseLocalImportSource}
+              disabled={localImportBusy || catalogImportBusy}
               className="bg-primary border border-border px-3 py-2 hover:bg-selected disabled:opacity-60"
             >
               Choose
             </button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
-              <input
-                type="checkbox"
-                checked={localReplaceExisting}
-                onChange={(event) => {
-                  const checked = event.target.checked
-                  setLocalReplaceExisting(checked)
-                  if (checked && !localReplaceVersionId) setLocalReplaceVersionId(chooseDefaultReplaceVersionId())
-                }}
-                disabled={localImportBusy || (game.versions || []).length === 0}
-              />
-              Replace existing version
-            </label>
-            {localReplaceExisting && (
-              <select
-                value={localReplaceVersionId}
-                onChange={(event) => setLocalReplaceVersionId(event.target.value)}
-                disabled={localImportBusy}
-                className="bg-primary border border-border p-2"
-                style={{ minWidth: 260 }}
-              >
-                {(game.versions || []).map((version) => (
-                  <option key={version.version_id || `${version.version}-${version.game_path}`} value={String(version.version_id || '')}>
-                    {version.version || 'Unknown version'} - {version.game_path || 'No path set'}
-                  </option>
-                ))}
-              </select>
-            )}
-            {localImportIsArchive && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
-                <input
-                  type="checkbox"
-                  checked={localDeleteSourceArchive}
-                  onChange={(event) => setLocalDeleteSourceArchive(event.target.checked)}
-                  disabled={localImportBusy}
-                />
-                Delete source archive after successful import
-              </label>
+            {importPanelMode === 'local' && (
+              <>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={localReplaceExisting}
+                    onChange={(event) => {
+                      const checked = event.target.checked
+                      setLocalReplaceExisting(checked)
+                      if (checked && !localReplaceVersionId) setLocalReplaceVersionId(chooseDefaultReplaceVersionId())
+                    }}
+                    disabled={localImportBusy || (game.versions || []).length === 0}
+                  />
+                  Replace existing version
+                </label>
+                {localReplaceExisting && (
+                  <select
+                    value={localReplaceVersionId}
+                    onChange={(event) => setLocalReplaceVersionId(event.target.value)}
+                    disabled={localImportBusy}
+                    className="bg-primary border border-border p-2"
+                    style={{ minWidth: 260 }}
+                  >
+                    {(game.versions || []).map((version) => (
+                      <option key={version.version_id || `${version.version}-${version.game_path}`} value={String(version.version_id || '')}>
+                        {version.version || 'Unknown version'} - {version.game_path || 'No path set'}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {localImportIsArchive && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={localDeleteSourceArchive}
+                      onChange={(event) => setLocalDeleteSourceArchive(event.target.checked)}
+                      disabled={localImportBusy}
+                    />
+                    Delete source archive after successful import
+                  </label>
+                )}
+              </>
             )}
             <button
-              onClick={runLocalImport}
-              disabled={localImportBusy || !localImportPath}
+              onClick={importPanelMode === 'catalog' ? () => runCatalogImport() : runLocalImport}
+              disabled={importPanelMode === 'catalog' ? (catalogImportBusy || !catalogImportPath) : (localImportBusy || !localImportPath)}
               className="bg-accent px-4 py-2 hover:bg-accentHover disabled:opacity-60"
             >
-              {localImportBusy ? 'Importing...' : 'Import'}
+              {localImportBusy || catalogImportBusy ? 'Importing...' : 'Import'}
             </button>
           </div>
-          {localReplaceExisting && (
+          {importPanelMode === 'local' && localReplaceExisting && (
             <div style={{ color: '#9ca3af', fontSize: 12, marginTop: 6 }}>
               Old version files will be deleted after the replacement succeeds. If deletion fails, Atlas will keep the import and show a warning.
             </div>
           )}
-          {localImportStatus && <div style={{ color: localImportStatus.includes('Warning:') ? '#facc15' : '#86efac', fontSize: 12, marginTop: 8 }}>{localImportStatus}</div>}
-          {localImportError && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 8 }}>{localImportError}</div>}
-        </section>
-      )}
-
-      {canManageLocalTitle && !showLocalImportPanel && (localImportStatus || localImportError) && (
-        <div className="mx-6 mt-3 border border-border bg-secondary px-3 py-2" style={{ color: localImportError ? '#fca5a5' : localImportStatus.includes('Warning:') ? '#facc15' : '#86efac', fontSize: 12 }}>
-          {localImportError || localImportStatus}
-        </div>
-      )}
-
-      {showInfo && (
-        <InfoPanel
-          game={game}
-          latestVersion={latestVersion}
-          isUpdateAvailable={game.isUpdateAvailable}
-        />
-      )}
-
-      {canManageWishlist && (
-        <section className="mx-6 mt-5 border border-border bg-secondary p-4">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-            <div>
-              <h2 className="text-lg font-semibold">Import Files for This Title</h2>
-              <p style={{ color: '#9ca3af', fontSize: 12 }}>
-                Drop a game folder, archive, or executable here to attach it to this Browse title.
-              </p>
-            </div>
-            <button
-              onClick={chooseCatalogImportSource}
-              disabled={catalogImportBusy}
-              className="bg-primary border border-border px-3 py-2 hover:bg-selected disabled:opacity-60"
-            >
-              Import Files
-            </button>
-          </div>
-          <div
-            onDragOver={(event) => { event.preventDefault(); setCatalogImportDragging(true) }}
-            onDragLeave={() => setCatalogImportDragging(false)}
-            onDrop={handleCatalogDrop}
-            className={`border border-dashed p-4 transition-colors ${catalogImportDragging ? 'border-accent bg-selected' : 'border-border bg-primary'}`}
-            style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 160px auto', gap: 10, alignItems: 'center' }}
-          >
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {catalogImportPath || 'No source selected'}
-              </div>
-              <div style={{ color: '#9ca3af', fontSize: 12 }}>
-                Accepted: folder, .zip, .7z, .rar, or launchable file.
-              </div>
-            </div>
-            <input
-              value={catalogImportVersion}
-              onChange={(event) => setCatalogImportVersion(event.target.value)}
-              disabled={catalogImportBusy}
-              className="bg-secondary border border-border p-2"
-              placeholder="Version"
-            />
-            <button
-              onClick={() => runCatalogImport()}
-              disabled={catalogImportBusy || !catalogImportPath}
-              className="bg-accent px-4 py-2 hover:bg-accentHover disabled:opacity-60"
-            >
-              {catalogImportBusy ? 'Importing...' : 'Import'}
-            </button>
-          </div>
           {catalogImportConflict && (
             <div className="border border-border bg-primary p-3" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 10 }}>
               <div style={{ color: '#facc15', fontSize: 12 }}>
@@ -794,9 +752,25 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               </div>
             </div>
           )}
-          {catalogImportStatus && <div style={{ color: '#86efac', fontSize: 12, marginTop: 8 }}>{catalogImportStatus}</div>}
-          {catalogImportError && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 8 }}>{catalogImportError}</div>}
+          {importPanelMode === 'catalog' && catalogImportStatus && <div style={{ color: '#86efac', fontSize: 12, marginTop: 8 }}>{catalogImportStatus}</div>}
+          {importPanelMode === 'catalog' && catalogImportError && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 8 }}>{catalogImportError}</div>}
+          {importPanelMode === 'local' && localImportStatus && <div style={{ color: localImportStatus.includes('Warning:') ? '#facc15' : '#86efac', fontSize: 12, marginTop: 8 }}>{localImportStatus}</div>}
+          {importPanelMode === 'local' && localImportError && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 8 }}>{localImportError}</div>}
         </section>
+      )}
+
+      {(canManageLocalTitle || canManageWishlist) && !showLocalImportPanel && (localImportStatus || localImportError || catalogImportStatus || catalogImportError) && (
+        <div className="mx-6 mt-3 border border-border bg-secondary px-3 py-2" style={{ color: localImportError || catalogImportError ? '#fca5a5' : localImportStatus.includes('Warning:') ? '#facc15' : '#86efac', fontSize: 12 }}>
+          {localImportError || catalogImportError || localImportStatus || catalogImportStatus}
+        </div>
+      )}
+
+      {showInfo && (
+        <InfoPanel
+          game={game}
+          latestVersion={latestVersion}
+          isUpdateAvailable={game.isUpdateAvailable}
+        />
       )}
 
       {/* Body */}
