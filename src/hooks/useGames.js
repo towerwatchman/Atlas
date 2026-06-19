@@ -59,9 +59,9 @@ export function useGames() {
   }, [])
 
   const fetchGames = useCallback(
-    (includeUninstalled = includeUninstalledRef.current) =>
+    (includeUninstalled = includeUninstalledRef.current, options = {}) =>
       window.electronAPI
-        .getGames({ includeUninstalled })
+        .getGames({ includeUninstalled, options })
         .then((allGames) => {
           const gamesArray = normalizeGamesForRenderer(allGames)
           console.log(

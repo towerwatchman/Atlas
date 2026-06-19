@@ -22,6 +22,7 @@ const defaultConfig = {
     extractionExtensions: 'zip,7z,rar',
     libraryFolderStructure: '{creator}/{title}/{version}',
     autoSelectLatestReplaceVersion: false,
+    validatePathsOnStartup: false,
     sevenZipPath: '',
   },
   Metadata: {

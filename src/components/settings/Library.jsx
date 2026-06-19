@@ -14,6 +14,8 @@ const Library = () => {
   const [sevenZipPath, setSevenZipPath] = useState(""); // ← added
   const [autoSelectLatestReplaceVersion, setAutoSelectLatestReplaceVersion] =
     useState(false);
+  const [validatePathsOnStartup, setValidatePathsOnStartup] = useState(false);
+  const [validationMessage, setValidationMessage] = useState("");
 
   useEffect(() => {
     window.electronAPI.getConfig().then((config) => {
@@ -32,7 +34,25 @@ const Library = () => {
         lib.autoSelectLatestReplaceVersion === true ||
           lib.autoSelectLatestReplaceVersion === "true",
       );
+      setValidatePathsOnStartup(
+        lib.validatePathsOnStartup === true ||
+          lib.validatePathsOnStartup === "true",
+      );
     });
+
+    window.electronAPI.onLibraryValidationProgress?.((progress) => {
+      if (progress?.error) {
+        setValidationMessage(`Library path validation failed: ${progress.error}`);
+        return;
+      }
+      if (!progress?.total) return;
+      if (progress.processed >= progress.total) {
+        setValidationMessage("Library path validation complete");
+      } else {
+        setValidationMessage(`Validating installed paths... ${progress.processed} / ${progress.total}`);
+      }
+    });
+    return () => window.electronAPI.removeAllListeners?.("library-validation-progress");
   }, []);
 
   const saveLibrarySetting = (key, value) => {
@@ -97,6 +117,28 @@ const Library = () => {
     const checked = e.target.checked;
     setAutoSelectLatestReplaceVersion(checked);
     saveLibrarySetting("autoSelectLatestReplaceVersion", checked);
+  };
+
+  const handleValidatePathsOnStartupChange = (e) => {
+    const checked = e.target.checked;
+    setValidatePathsOnStartup(checked);
+    saveLibrarySetting("validatePathsOnStartup", checked);
+  };
+
+  const handleValidateLibraryPaths = async () => {
+    setValidationMessage("Validating installed paths...");
+    try {
+      const result = await window.electronAPI.validateLibraryPaths?.();
+      if (result?.alreadyRunning) {
+        setValidationMessage("Library path validation is already running");
+      } else if (result?.success) {
+        setValidationMessage("Library path validation started");
+      } else {
+        setValidationMessage(`Library path validation failed: ${result?.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      setValidationMessage(`Library path validation failed: ${err.message || "Unknown error"}`);
+    }
   };
 
   return (
@@ -169,6 +211,31 @@ const Library = () => {
           preselect the newest installed version in the Replace Version
           dropdown. You can still change it to None before importing.
         </p>
+      </div>
+
+      <div className="border border-border bg-primary/40 p-3 rounded space-y-3">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={validatePathsOnStartup}
+            onChange={handleValidatePathsOnStartupChange}
+          />
+          <span>Validate installed paths on startup</span>
+        </label>
+        <p className="text-xs opacity-60">
+          Checks every installed game path on launch. Disable for faster startup
+          on large libraries.
+        </p>
+        <button
+          type="button"
+          onClick={handleValidateLibraryPaths}
+          className="bg-accent px-5 py-2 rounded hover:bg-accentHover"
+        >
+          Validate Library Paths
+        </button>
+        {validationMessage && (
+          <p className="text-xs opacity-70">{validationMessage}</p>
+        )}
       </div>
 
       <div>

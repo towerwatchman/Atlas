@@ -717,7 +717,21 @@ const App = () => {
       })
       .catch(() => setSidebarMode(SIDE_PANEL_MODES.GAMES))
 
-    fetchGames(false).then(() => window.electronAPI.validateLibraryPaths?.())
+    fetchGames(false, { skipPathValidation: true }).then(() => {
+      window.electronAPI.getConfig()
+        .then((config) => {
+          const shouldValidate = config?.Library?.validatePathsOnStartup === true ||
+            config?.Library?.validatePathsOnStartup === 'true'
+          if (!shouldValidate) return
+          const runValidation = () => window.electronAPI.validateLibraryPaths?.()
+          if (window.requestIdleCallback) {
+            window.requestIdleCallback(runValidation, { timeout: 5000 })
+          } else {
+            setTimeout(runValidation, 1500)
+          }
+        })
+        .catch((error) => console.error('Failed to read startup validation setting:', error))
+    })
     loadWishlistIdentities()
     loadSavedFilters()
 
