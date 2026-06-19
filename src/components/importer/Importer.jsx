@@ -16,6 +16,9 @@ const deriveImportStats = (games) => ({
 })
 
 const initialScanProgress = { value: 0, total: 0, potential: 0, pendingMatch: 0, archives: 0, alreadyImported: 0, repairPath: 0, steamVersion: 0, missingLaunchable: 0, emptyFolder: 0, totalFound: 0 }
+const defaultSourceFolderStructure = '{creator}/{title}/{version}'
+const defaultGameExtensions = 'exe,swf,flv,f4v,rag,cmd,bat,jar,html'
+const defaultArchiveExtensions = 'zip,7z,rar'
 
 const toBoolean = (value, fallback = false) => {
   if (value === true || value === false) return value
@@ -60,9 +63,9 @@ const Importer = () => {
   // ── Scan settings ─────────────────────────────────────────────────────────
   const [folder, setFolder] = useState('')
   const [useUnstructured, setUseUnstructured] = useState(true)
-  const [customFormat, setCustomFormat] = useState('{creator}/{title}/{version}')
-  const [gameExt, setGameExt] = useState('exe,swf,flv,f4v,rag,cmd,bat,jar,html')
-  const [archiveExt, setArchiveExt] = useState('zip,7z,rar')
+  const [customFormat, setCustomFormat] = useState(defaultSourceFolderStructure)
+  const [gameExt, setGameExt] = useState(defaultGameExtensions)
+  const [archiveExt, setArchiveExt] = useState(defaultArchiveExtensions)
   const [downloadBannerImages, setDownloadBannerImages] = useState(false)
   const [downloadPreviewImages, setDownloadPreviewImages] = useState(false)
   const [previewLimit, setPreviewLimit] = useState('Unlimited')
@@ -74,7 +77,7 @@ const Importer = () => {
   const [defaultLibraryPath, setDefaultLibraryPath] = useState(null)
   const [autoSelectLatestReplaceVersion, setAutoSelectLatestReplaceVersion] = useState(false)
   const autoSelectLatestReplaceVersionRef = useRef(false)
-  const [libraryFormat, setLibraryFormat] = useState('{creator}/{title}/{version}')
+  const [libraryFormat, setLibraryFormat] = useState(defaultSourceFolderStructure)
   const [askingForLibraryFolder, setAskingForLibraryFolder] = useState(false)
   const [importMode, setImportMode] = useState('games')
   const [scanPath, setScanPath] = useState('')
@@ -217,6 +220,78 @@ const Importer = () => {
     if (hasUnmatched && !includeUnmatched) return "Unmatched rows require 'Import unmatched games'"
     return 'No eligible rows are ready to import'
   }
+
+  const saveImporterDefaults = useCallback(async (updates = {}, sectionUpdates = {}) => {
+    try {
+      const config = await window.electronAPI.getConfig()
+      const nextConfig = {
+        ...config,
+        ...Object.fromEntries(Object.entries(sectionUpdates).map(([section, values]) => [
+          section,
+          {
+            ...(config[section] || {}),
+            ...(values || {}),
+          },
+        ])),
+        Importer: {
+          ...(config.Importer || {}),
+          ...updates,
+        },
+      }
+      const result = await window.electronAPI.saveSettings(nextConfig)
+      if (result?.success === false) throw new Error(result.error || 'Save failed')
+    } catch (err) {
+      console.error('Failed to save importer defaults:', err)
+    }
+  }, [])
+
+  const currentImporterDefaults = useCallback(() => ({
+    sourceGamePath: folder,
+    sourceFolderStructure: customFormat,
+    useUnstructured,
+    downloadBannerImages,
+    downloadPreviewImages,
+    previewLimit,
+    downloadVideos,
+    scanSize,
+    deleteSourceArchiveAfterImport,
+    includeUnmatched,
+    forceReimport,
+  }), [
+    folder,
+    customFormat,
+    useUnstructured,
+    downloadBannerImages,
+    downloadPreviewImages,
+    previewLimit,
+    downloadVideos,
+    scanSize,
+    deleteSourceArchiveAfterImport,
+    includeUnmatched,
+    forceReimport,
+  ])
+
+  const persistCurrentImporterDefaults = useCallback(() => saveImporterDefaults(currentImporterDefaults(), {
+    Library: {
+      gameExtensions: gameExt,
+      extractionExtensions: archiveExt,
+      libraryFolderStructure: libraryFormat,
+      autoSelectLatestReplaceVersion,
+    },
+    Metadata: {
+      mediaStorageMode: downloadBannerImages ? 'download' : 'stream',
+      downloadPreviews: downloadPreviewImages,
+    },
+  }), [
+    archiveExt,
+    autoSelectLatestReplaceVersion,
+    currentImporterDefaults,
+    downloadBannerImages,
+    downloadPreviewImages,
+    gameExt,
+    libraryFormat,
+    saveImporterDefaults,
+  ])
 
   // ── Sort ──────────────────────────────────────────────────────────────────
   const alphaNumericCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
@@ -520,15 +595,25 @@ const Importer = () => {
         window.electronAPI.log(`Config loaded: ${JSON.stringify(config)}`)
         const lib = config.Library || {}
         const meta = config.Metadata || {}
+        const importer = config.Importer || {}
         const shouldDownload = meta.mediaStorageMode === 'download'
-        setGameExt(lib.gameExtensions || 'exe,swf,flv,f4v,rag,cmd,bat,jar,html')
-        setArchiveExt(lib.extractionExtensions || 'zip,7z,rar')
-        setLibraryFormat(lib.libraryFolderStructure || '{creator}/{title}/{version}')
+        setFolder(importer.sourceGamePath || '')
+        setUseUnstructured(toBoolean(importer.useUnstructured, true))
+        setCustomFormat(importer.sourceFolderStructure || defaultSourceFolderStructure)
+        setGameExt(lib.gameExtensions || defaultGameExtensions)
+        setArchiveExt(lib.extractionExtensions || defaultArchiveExtensions)
+        setLibraryFormat(lib.libraryFolderStructure || defaultSourceFolderStructure)
         const autoSelect = lib.autoSelectLatestReplaceVersion === true || lib.autoSelectLatestReplaceVersion === 'true'
         autoSelectLatestReplaceVersionRef.current = autoSelect
         setAutoSelectLatestReplaceVersion(autoSelect)
-        setDownloadBannerImages(shouldDownload)
-        setDownloadPreviewImages(toBoolean(meta.downloadPreviews, false))
+        setDownloadBannerImages(toBoolean(importer.downloadBannerImages, shouldDownload))
+        setDownloadPreviewImages(toBoolean(importer.downloadPreviewImages, toBoolean(meta.downloadPreviews, false)))
+        setPreviewLimit(importer.previewLimit || 'Unlimited')
+        setDownloadVideos(toBoolean(importer.downloadVideos, false))
+        setScanSize(toBoolean(importer.scanSize, false))
+        setDeleteSourceArchiveAfterImport(toBoolean(importer.deleteSourceArchiveAfterImport, false))
+        setIncludeUnmatched(toBoolean(importer.includeUnmatched, false))
+        setForceReimport(toBoolean(importer.forceReimport, false))
         window.electronAPI.getDefaultGameFolder().then((path) => setDefaultLibraryPath(path))
       })
       .catch((err) => console.error('Error loading config:', err))
@@ -659,12 +744,58 @@ const Importer = () => {
 
   const selectFolder = async () => {
     const path = await window.electronAPI.selectDirectory()
-    if (path) { window.electronAPI.log(`Folder selected: ${path}`); setFolder(path) }
+    if (path) {
+      window.electronAPI.log(`Folder selected: ${path}`)
+      setFolder(path)
+      saveImporterDefaults({ sourceGamePath: path })
+    }
+  }
+
+  const handleCustomFormatChange = (value) => {
+    setCustomFormat(value)
+    saveImporterDefaults({ sourceFolderStructure: value })
+  }
+
+  const handleUseUnstructuredChange = (checked) => {
+    setUseUnstructured(checked)
+    saveImporterDefaults({ useUnstructured: checked })
+  }
+
+  const handleGameExtChange = (value) => {
+    setGameExt(value)
+    saveImporterDefaults({}, { Library: { gameExtensions: value } })
+  }
+
+  const handleArchiveExtChange = (value) => {
+    setArchiveExt(value)
+    saveImporterDefaults({}, { Library: { extractionExtensions: value } })
+  }
+
+  const handleDownloadBannerImagesChange = (checked) => {
+    setDownloadBannerImages(checked)
+    saveImporterDefaults(
+      { downloadBannerImages: checked },
+      { Metadata: { mediaStorageMode: checked ? 'download' : 'stream' } },
+    )
+  }
+
+  const handleDownloadPreviewImagesChange = (checked) => {
+    setDownloadPreviewImages(checked)
+    saveImporterDefaults(
+      { downloadPreviewImages: checked },
+      { Metadata: { downloadPreviews: checked } },
+    )
+  }
+
+  const handleDeleteSourceArchiveAfterImportChange = (checked) => {
+    setDeleteSourceArchiveAfterImport(checked)
+    saveImporterDefaults({ deleteSourceArchiveAfterImport: checked })
   }
 
   const startScan = async () => {
     if (!folder) return alert('Select a folder')
     if (isScanActive || isCancelingScan) return alert('Another scan is already running')
+    await persistCurrentImporterDefaults()
     const scanId = `local-${Date.now()}-${Math.random().toString(36).slice(2)}`
     currentScanIdRef.current = scanId
     setImportMode('games')
@@ -1180,11 +1311,11 @@ const Importer = () => {
             autoSelectLatestReplaceVersion={autoSelectLatestReplaceVersion}
             defaultLibraryPath={defaultLibraryPath} askingForLibraryFolder={askingForLibraryFolder}
             onSelectFolder={selectFolder} onStartScan={startScan}
-            setCustomFormat={setCustomFormat} setUseUnstructured={setUseUnstructured}
-            setGameExt={setGameExt} setArchiveExt={setArchiveExt}
-            setDownloadBannerImages={setDownloadBannerImages}
-            setDownloadPreviewImages={setDownloadPreviewImages}
-            setDeleteSourceArchiveAfterImport={setDeleteSourceArchiveAfterImport}
+            setCustomFormat={handleCustomFormatChange} setUseUnstructured={handleUseUnstructuredChange}
+            setGameExt={handleGameExtChange} setArchiveExt={handleArchiveExtChange}
+            setDownloadBannerImages={handleDownloadBannerImagesChange}
+            setDownloadPreviewImages={handleDownloadPreviewImagesChange}
+            setDeleteSourceArchiveAfterImport={handleDeleteSourceArchiveAfterImportChange}
             onAutoSelectChange={handleAutoSelectChange}
           />
         )}
