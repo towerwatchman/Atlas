@@ -43,6 +43,8 @@ const SIDE_PANEL_MODES = {
   CATALOG: 'catalog',
   WISHLIST: 'wishlist',
 }
+const BROWSE_SCROLL_LOAD_THRESHOLD_PX = 1200
+const BROWSE_FILTER_PREFETCH_MIN = 80
 
 const getLocalRecordIdForCatalogRow = (game = {}) => {
   for (const value of [game.localRecordId, game.installedRecordId, game.local_record_id]) {
@@ -227,6 +229,25 @@ const App = () => {
       }, { browseMode: true }),
     [catalogWithWishlist, activeFilters],
   )
+  const requestMoreCatalogGames = useCallback(() => {
+    if (
+      libraryMode !== 'catalog' ||
+      selectedGame ||
+      catalogLoading ||
+      catalogLoadingMore ||
+      !catalogHasMore
+    ) {
+      return
+    }
+    fetchMoreCatalogGames()
+  }, [
+    catalogHasMore,
+    catalogLoading,
+    catalogLoadingMore,
+    fetchMoreCatalogGames,
+    libraryMode,
+    selectedGame,
+  ])
   const wishlistFilteredGames = useMemo(
     () =>
       filterGamesWithState(wishlistWithState, {
@@ -956,6 +977,28 @@ const App = () => {
   }, [browseAvailable, catalogSearch, fetchCatalogGames, libraryMode])
 
   useEffect(() => {
+    if (
+      libraryMode !== 'catalog' ||
+      selectedGame ||
+      catalogLoading ||
+      catalogLoadingMore ||
+      !catalogHasMore ||
+      catalogFilteredGames.length >= BROWSE_FILTER_PREFETCH_MIN
+    ) {
+      return
+    }
+    fetchMoreCatalogGames()
+  }, [
+    catalogFilteredGames.length,
+    catalogHasMore,
+    catalogLoading,
+    catalogLoadingMore,
+    fetchMoreCatalogGames,
+    libraryMode,
+    selectedGame,
+  ])
+
+  useEffect(() => {
     if (!showSavedFilters || includeUninstalledRef.current) return
     includeUninstalledRef.current = true
     fetchGames(true)
@@ -1255,9 +1298,15 @@ const App = () => {
                     height={height}
                     width={adjustedWidth}
                     cellRenderer={getCellRenderer(currentColumnCount)}
-                    onScroll={({ scrollTop }) => {
+                    onScroll={({ clientHeight, scrollHeight, scrollTop }) => {
                       if (pendingLibraryScrollTopRestoreRef.current === null) {
                         libraryScrollTopRef.current = scrollTop || 0
+                      }
+                      if (
+                        libraryMode === 'catalog' &&
+                        scrollHeight - (scrollTop + clientHeight) < BROWSE_SCROLL_LOAD_THRESHOLD_PX
+                      ) {
+                        requestMoreCatalogGames()
                       }
                     }}
                     style={{ overflowX: 'hidden' }}
@@ -1271,13 +1320,7 @@ const App = () => {
               {catalogLoadError && <div className="text-danger">Browse load failed: {catalogLoadError}</div>}
               {catalogLoadingMore && <div>Loading more Browse titles...</div>}
               {!catalogLoading && !catalogLoadingMore && catalogHasMore && (
-                <button
-                  type="button"
-                  onClick={() => fetchMoreCatalogGames()}
-                  className="bg-accent hover:bg-accentHover px-4 py-2 rounded text-text"
-                >
-                  Load more Browse titles
-                </button>
+                <div>Scroll to load more Browse titles...</div>
               )}
               {catalogTotal !== null && (
                 <div className="text-xs text-muted">
