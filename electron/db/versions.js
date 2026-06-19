@@ -1056,6 +1056,33 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       SELECT
         'catalog:' || atlas_data.atlas_id as record_id,
         'atlas:' || atlas_data.atlas_id as catalogKey,
+        COALESCE(
+          (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE am.atlas_id = atlas_data.atlas_id),
+          (SELECT MIN(fm.record_id) FROM f95_zone_mappings fm WHERE f95_zone_data.f95_id IS NOT NULL AND fm.f95_id = f95_zone_data.f95_id),
+          (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lewdcorner_data.lc_id IS NOT NULL AND lm.lc_id = lewdcorner_data.lc_id),
+          (SELECT MIN(sm.record_id)
+           FROM steam_mappings sm
+           JOIN steam_data mapped_steam ON sm.steam_id = mapped_steam.steam_id
+           WHERE mapped_steam.atlas_id = atlas_data.atlas_id)
+        ) AS local_record_id,
+        COALESCE(
+          (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE am.atlas_id = atlas_data.atlas_id),
+          (SELECT MIN(fm.record_id) FROM f95_zone_mappings fm WHERE f95_zone_data.f95_id IS NOT NULL AND fm.f95_id = f95_zone_data.f95_id),
+          (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lewdcorner_data.lc_id IS NOT NULL AND lm.lc_id = lewdcorner_data.lc_id),
+          (SELECT MIN(sm.record_id)
+           FROM steam_mappings sm
+           JOIN steam_data mapped_steam ON sm.steam_id = mapped_steam.steam_id
+           WHERE mapped_steam.atlas_id = atlas_data.atlas_id)
+        ) AS localRecordId,
+        COALESCE(
+          (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE am.atlas_id = atlas_data.atlas_id),
+          (SELECT MIN(fm.record_id) FROM f95_zone_mappings fm WHERE f95_zone_data.f95_id IS NOT NULL AND fm.f95_id = f95_zone_data.f95_id),
+          (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lewdcorner_data.lc_id IS NOT NULL AND lm.lc_id = lewdcorner_data.lc_id),
+          (SELECT MIN(sm.record_id)
+           FROM steam_mappings sm
+           JOIN steam_data mapped_steam ON sm.steam_id = mapped_steam.steam_id
+           WHERE mapped_steam.atlas_id = atlas_data.atlas_id)
+        ) AS installedRecordId,
         CASE
           WHEN f95_zone_data.f95_id IS NOT NULL THEN 'f95'
           WHEN lewdcorner_data.lc_id IS NOT NULL THEN 'lewdcorner'
@@ -1145,6 +1172,18 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       SELECT
         'catalog:steam:' || steam_data.steam_id as record_id,
         'steam:' || steam_data.steam_id as catalogKey,
+        COALESCE(
+          (SELECT MIN(sm.record_id) FROM steam_mappings sm WHERE sm.steam_id = steam_data.steam_id),
+          (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE steam_data.atlas_id IS NOT NULL AND am.atlas_id = steam_data.atlas_id)
+        ) AS local_record_id,
+        COALESCE(
+          (SELECT MIN(sm.record_id) FROM steam_mappings sm WHERE sm.steam_id = steam_data.steam_id),
+          (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE steam_data.atlas_id IS NOT NULL AND am.atlas_id = steam_data.atlas_id)
+        ) AS localRecordId,
+        COALESCE(
+          (SELECT MIN(sm.record_id) FROM steam_mappings sm WHERE sm.steam_id = steam_data.steam_id),
+          (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE steam_data.atlas_id IS NOT NULL AND am.atlas_id = steam_data.atlas_id)
+        ) AS installedRecordId,
         'steam' as source,
         NULL as atlas_id,
         steam_data.steam_id as steam_id,
@@ -1218,6 +1257,9 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       SELECT
         'catalog:lewdcorner:' || lewdcorner_data.lc_id as record_id,
         'lewdcorner:' || lewdcorner_data.lc_id as catalogKey,
+        (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lm.lc_id = lewdcorner_data.lc_id) AS local_record_id,
+        (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lm.lc_id = lewdcorner_data.lc_id) AS localRecordId,
+        (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lm.lc_id = lewdcorner_data.lc_id) AS installedRecordId,
         'lewdcorner' as source,
         NULL as atlas_id,
         NULL as steam_id,

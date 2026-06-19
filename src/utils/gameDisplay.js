@@ -24,9 +24,20 @@ export const normalizeGameForRenderer = (game) => {
     const number = Number(value)
     return Number.isFinite(number) ? number : null
   }
+  const localRecordId = nullableNumber(game.localRecordId ?? game.installedRecordId ?? game.local_record_id)
+  const hasInstalledVersion =
+    game.hasInstalledVersion === true || game.isInstalled === true || game.is_installed === 1 || game.is_installed === true
+      ? true
+      : game.hasInstalledVersion === false
+        ? false
+        : versions.some((version) => version?.isInstalled !== false)
   return {
     ...game,
     record_id: game.record_id ?? safeText(game.atlas_id || game.f95_id || title),
+    localRecordId,
+    installedRecordId: nullableNumber(game.installedRecordId ?? localRecordId),
+    local_record_id: nullableNumber(game.local_record_id ?? localRecordId),
+    isInstalled: game.isInstalled === true || game.is_installed === 1 || game.is_installed === true || hasInstalledVersion,
     title,
     creator: safeText(game.creator || game.developer || 'Unknown'),
     engine: game.engine == null ? null : safeText(game.engine),
@@ -37,10 +48,7 @@ export const normalizeGameForRenderer = (game) => {
     f95_tags: safeText(game.f95_tags),
     tags: safeText(game.tags),
     versions,
-    hasInstalledVersion:
-      game.hasInstalledVersion === false
-        ? false
-        : versions.some((version) => version?.isInstalled !== false),
+    hasInstalledVersion,
     versionCount: safeNumber(game.versionCount),
     installedVersionCount: safeNumber(game.installedVersionCount),
     totalVersionCount: safeNumber(game.totalVersionCount || versions.length),

@@ -34,6 +34,14 @@ const SIDE_PANEL_MODES = {
   WISHLIST: 'wishlist',
 }
 
+const getLocalRecordIdForCatalogRow = (game = {}) => {
+  for (const value of [game.localRecordId, game.installedRecordId, game.local_record_id]) {
+    const id = Number.parseInt(value, 10)
+    if (Number.isInteger(id) && id > 0) return id
+  }
+  return null
+}
+
 const knownSidePanelModes = new Set(Object.values(SIDE_PANEL_MODES))
 
 const normalizeSidePanelMode = (value, legacyShowGameList = true) => {
@@ -267,20 +275,59 @@ const App = () => {
     setShowSearchSidebar(false)
     const selected = withWishlistStates([game], wishlistIdentityKeys)[0] || game
     setSelectedGame(selected)
-    if (!game?.record_id || game.isMetadataOnly) return
+    const localRecordId = game?.isMetadataOnly ? getLocalRecordIdForCatalogRow(selected) : null
+    const recordIdToLoad = localRecordId || game?.record_id
+    if (!recordIdToLoad || (game.isMetadataOnly && !localRecordId)) {
+      if (game?.isMetadataOnly && (game.is_installed || game.isInstalled) && !localRecordId) {
+        console.warn('Installed metadata row is missing a local record id:', game)
+      }
+      return
+    }
     window.electronAPI
-      .getGame(game.record_id)
+      .getGame(recordIdToLoad)
       .then((updatedGame) => {
         const normalizedGame = normalizeGameForRenderer(updatedGame)
         if (normalizedGame) {
           setShowSearchSidebar(false)
-          setSelectedGame(normalizedGame)
+          setSelectedGame(localRecordId
+            ? {
+                ...normalizedGame,
+                isWishlisted: selected.isWishlisted === true || selected.isWishlistEntry === true,
+                isWishlistEntry: selected.isWishlisted === true || selected.isWishlistEntry === true,
+                atlas_id: normalizedGame.atlas_id ?? selected.atlas_id,
+                f95_id: normalizedGame.f95_id ?? selected.f95_id,
+                lc_id: normalizedGame.lc_id ?? selected.lc_id,
+                steam_id: normalizedGame.steam_id ?? selected.steam_id,
+              }
+            : normalizedGame)
         }
       })
       .catch((error) =>
-        console.error(`Failed to refresh selected game ${game.record_id}:`, error)
+        console.error(`Failed to refresh selected game ${recordIdToLoad}:`, error)
       )
   }, [wishlistIdentityKeys])
+
+  const refreshDetailGame = useCallback((recordId) => {
+    refreshGame(recordId)
+    fetchCatalogGames()
+    fetchWishlistGames()
+    const id = Number.parseInt(recordId, 10)
+    if (!Number.isInteger(id) || id <= 0) return
+    window.electronAPI
+      .getGame(id)
+      .then((updatedGame) => {
+        const normalizedGame = normalizeGameForRenderer(updatedGame)
+        if (!normalizedGame) return
+        setSelectedGame((current) => ({
+          ...normalizedGame,
+          isWishlisted: current?.isWishlisted === true || current?.isWishlistEntry === true,
+          isWishlistEntry: current?.isWishlisted === true || current?.isWishlistEntry === true,
+        }))
+      })
+      .catch((error) =>
+        console.error(`Failed to refresh detail game ${id}:`, error)
+      )
+  }, [fetchCatalogGames, fetchWishlistGames, refreshGame])
 
   // ── Grid sizing ────────────────────────────────────────────────────────────
   const getScrollbarWidth = () => {
@@ -706,6 +753,8 @@ const App = () => {
 
     const handleImportComplete = () => {
       fetchGames()
+      fetchCatalogGames()
+      fetchWishlistGames()
       setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000)
     }
 
@@ -1026,7 +1075,7 @@ const App = () => {
             <GameDetailPage
               game={selectedGame}
               onBack={goBackToLibrary}
-              onRefresh={refreshGame}
+              onRefresh={refreshDetailGame}
               onWishlistChanged={handleWishlistChanged}
             />
           ) : filteredGames.length === 0 ? (
