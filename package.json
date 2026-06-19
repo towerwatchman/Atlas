@@ -9,7 +9,7 @@
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently --kill-others \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
-    "check": "node scripts/check-js.js && node scripts/check-version-utils.js && node scripts/check-blank-version-repair.js && node scripts/check-format-percent.js && node scripts/check-media-assets.js && vite build && git diff --check",
+    "check": "node scripts/check-js.js && node scripts/check-version-utils.js && node scripts/check-blank-version-repair.js && node scripts/check-gl-infos-parser.js && node scripts/check-format-percent.js && node scripts/check-media-assets.js && vite build && git diff --check",
     "build": "vite build && electron-builder --win --x64",
     "preview": "vite preview",
     "publish": "vite build && electron-builder --win --x64 -p always",

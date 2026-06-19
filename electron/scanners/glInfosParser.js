@@ -44,11 +44,10 @@ function parseGlInfosContent(content) {
 
   const threadUrl = cleanValue(gameList.thread);
   const threadF95Id = extractF95ThreadId(threadUrl);
-  const idF95Id = cleanValue(gameList.id).match(/^\d+$/) ? cleanValue(gameList.id) : "";
 
   return {
     version: cleanValue(gameList.version),
-    f95Id: threadF95Id || idF95Id,
+    f95Id: threadF95Id,
     title: cleanValue(gameList.name),
     threadUrl,
     source: GL_INFOS_FILENAME,

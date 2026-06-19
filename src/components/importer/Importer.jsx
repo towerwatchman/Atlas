@@ -75,6 +75,8 @@ const Importer = () => {
   const [sortConfig, setSortConfig] = useState({ key: '', direction: 'asc' })
   const [isResolvingMatches, setIsResolvingMatches] = useState(false)
   const [updateProgress, setUpdateProgress] = useState({ value: 0, total: 0 })
+  const [selectedScanRowKeys, setSelectedScanRowKeys] = useState(() => new Set())
+  const [lastSelectedScanRowKey, setLastSelectedScanRowKey] = useState('')
   const deletedScanGameKeysRef = useRef(new Set())
   const matchCancelRef = useRef(false)
   const steamScanActiveRef = useRef(false)
@@ -133,6 +135,31 @@ const Importer = () => {
   const importableGames = gamesList.filter((game) => isImportableGame(game, importOptions))
   const visibleStats = useMemo(() => deriveImportStats(gamesList), [gamesList])
   const canImport = importableGames.length > 0
+
+  const getCleanId = (value) => {
+    const id = String(value || '').trim()
+    return /^\d+$/.test(id) ? id : ''
+  }
+
+  const hasText = (value) => String(value || '').trim().length > 0
+
+  const isBadScanRow = (game = {}) => {
+    const isRenpySave = game.sourceType === 'renpySave'
+    const hasValidRenpySave = isRenpySave && hasText(game.savePath || game.folder) && hasText(game.title || game.inferredTitle || game.saveId)
+    const hasAnyIdentifier = Boolean(
+      getCleanId(game.atlasId || game.atlas_id) ||
+      getCleanId(game.f95Id || game.f95_id) ||
+      getCleanId(game.lcId || game.lc_id || game.lewdCornerId || game.lewdcornerId) ||
+      getCleanId(game.steamId || game.steam_id || game.appid)
+    )
+    if (!hasAnyIdentifier && !hasValidRenpySave) return true
+    if (!hasText(game.title || game.inferredTitle || game.saveId)) return true
+    if (!hasText(game.version)) return true
+    if (!hasText(game.creator)) return true
+    if (!hasText(game.engine)) return true
+    if (!game.isArchive && !isRenpySave && !hasText(game.selectedValue)) return true
+    return ['missingLaunchable', 'emptyFolder'].includes(game.scanStatus)
+  }
 
   const getRowImportStatus = (game) => {
     const scanStatus = game.scanStatus || 'new'
@@ -230,6 +257,111 @@ const Importer = () => {
     if (!sortConfig.key) return rows
     return [...rows].sort((a, b) => compareRows(a, b, sortConfig.key, sortConfig.direction))
   }, [gamesList, hideMatches, sortConfig, includeUnmatched, forceReimport])
+
+  const selectedScanRowCount = selectedScanRowKeys.size
+  const badScanRowCount = useMemo(() => gamesList.filter(isBadScanRow).length, [gamesList])
+
+  useEffect(() => {
+    const visibleKeys = new Set(gamesList.map(getScanGameKey))
+    setSelectedScanRowKeys((prev) => {
+      const next = new Set([...prev].filter((key) => visibleKeys.has(key)))
+      return next.size === prev.size ? prev : next
+    })
+    setLastSelectedScanRowKey((prev) => (prev && visibleKeys.has(prev) ? prev : ''))
+  }, [gamesList])
+
+  const clearScanRowSelection = useCallback(() => {
+    setSelectedScanRowKeys(new Set())
+    setLastSelectedScanRowKey('')
+  }, [])
+
+  const deleteScanRowsByKeys = useCallback((keys) => {
+    const keysToDelete = new Set([...keys].filter(Boolean))
+    if (keysToDelete.size === 0) return
+    keysToDelete.forEach((key) => deletedScanGameKeysRef.current.add(key))
+    setGamesList((prev) => prev.filter((game) => !keysToDelete.has(getScanGameKey(game))))
+    setSelectedScanRowKeys((prev) => new Set([...prev].filter((key) => !keysToDelete.has(key))))
+    setLastSelectedScanRowKey((prev) => (keysToDelete.has(prev) ? '' : prev))
+  }, [])
+
+  const toggleScanRowSelection = useCallback((gameKey, { replace = false } = {}) => {
+    if (!gameKey) return
+    setSelectedScanRowKeys((prev) => {
+      if (replace) return new Set([gameKey])
+      const next = new Set(prev)
+      if (next.has(gameKey)) next.delete(gameKey)
+      else next.add(gameKey)
+      return next
+    })
+    setLastSelectedScanRowKey(gameKey)
+  }, [])
+
+  const selectScanRowRange = useCallback((fromKey, toKey, visibleRowKeys = [], { replace = false } = {}) => {
+    if (!toKey) return
+    const keys = visibleRowKeys.filter(Boolean)
+    const fromIndex = keys.indexOf(fromKey)
+    const toIndex = keys.indexOf(toKey)
+    if (fromIndex === -1 || toIndex === -1) {
+      toggleScanRowSelection(toKey, { replace })
+      return
+    }
+    const [start, end] = fromIndex < toIndex ? [fromIndex, toIndex] : [toIndex, fromIndex]
+    const rangeKeys = keys.slice(start, end + 1)
+    setSelectedScanRowKeys((prev) => {
+      const next = replace ? new Set() : new Set(prev)
+      rangeKeys.forEach((key) => next.add(key))
+      return next
+    })
+    setLastSelectedScanRowKey(toKey)
+  }, [toggleScanRowSelection])
+
+  const setVisibleScanRowSelection = useCallback((visibleRowKeys = [], shouldSelect = true) => {
+    const keys = visibleRowKeys.filter(Boolean)
+    setSelectedScanRowKeys((prev) => {
+      if (!shouldSelect) return new Set([...prev].filter((key) => !keys.includes(key)))
+      const next = new Set(prev)
+      keys.forEach((key) => next.add(key))
+      return next
+    })
+    if (shouldSelect && keys.length > 0) setLastSelectedScanRowKey(keys[keys.length - 1])
+    if (!shouldSelect && keys.includes(lastSelectedScanRowKey)) setLastSelectedScanRowKey('')
+  }, [lastSelectedScanRowKey])
+
+  const deleteSelectedGames = useCallback(({ confirmMany = false } = {}) => {
+    if (selectedScanRowKeys.size === 0) return
+    if (confirmMany && selectedScanRowKeys.size > 10) {
+      const confirmed = window.confirm(`Remove ${selectedScanRowKeys.size} selected rows from this scan? This does not delete files.`)
+      if (!confirmed) return
+    }
+    deleteScanRowsByKeys(selectedScanRowKeys)
+    clearScanRowSelection()
+  }, [clearScanRowSelection, deleteScanRowsByKeys, selectedScanRowKeys])
+
+  const deleteBadRows = useCallback(() => {
+    const keysToDelete = gamesList.filter(isBadScanRow).map(getScanGameKey)
+    if (keysToDelete.length === 0) return
+    const confirmed = window.confirm(`Remove ${keysToDelete.length} incomplete rows from this scan? This does not delete files.`)
+    if (!confirmed) return
+    deleteScanRowsByKeys(keysToDelete)
+  }, [deleteScanRowsByKeys, gamesList])
+
+  useEffect(() => {
+    const isEditableTarget = (target) => {
+      if (!target) return false
+      if (target.isContentEditable) return true
+      return Boolean(target.closest?.('input, textarea, select, button, [contenteditable="true"]'))
+    }
+    const handleKeyDown = (event) => {
+      if (view !== 'scan') return
+      if (selectedScanRowKeys.size === 0) return
+      if (event.key !== 'Delete') return
+      if (isEditableTarget(event.target)) return
+      event.preventDefault()
+      deleteSelectedGames({ confirmMany: true })
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [deleteSelectedGames, selectedScanRowKeys, view])
 
   // ── Match resolution ──────────────────────────────────────────────────────
   const applyReplaceOptions = async (game) => {
@@ -462,6 +594,7 @@ const Importer = () => {
     setIsCancelingScan(false)
     setIsResolvingMatches(false)
     setGamesList([])
+    clearScanRowSelection()
     setProgress(initialScanProgress)
     setProgressLabel(null)
     setScanPath('')
@@ -494,6 +627,7 @@ const Importer = () => {
     matchCancelRef.current = false
     steamScanActiveRef.current = false
     deletedScanGameKeysRef.current.clear()
+    clearScanRowSelection()
     setGamesList([])
     const params = {
       folder, mode: 'local', scanId, deferMatching: true,
@@ -536,6 +670,7 @@ const Importer = () => {
     setIsCancelingScan(false)
     matchCancelRef.current = false
     deletedScanGameKeysRef.current.clear()
+    clearScanRowSelection()
     setGamesList([])
     steamScanActiveRef.current = true
     const result = await window.electronAPI.startSteamScan(steamPath ? { steamPath } : {})
@@ -554,6 +689,7 @@ const Importer = () => {
     setIsCancelingScan(false)
     matchCancelRef.current = false
     deletedScanGameKeysRef.current.clear()
+    clearScanRowSelection()
     setGamesList([])
     setProgress({ ...initialScanProgress, total: 1 })
     setProgressLabel("Looking for Ren'Py save folder...")
@@ -707,8 +843,7 @@ const Importer = () => {
   }
 
   const deleteGame = (gameKey) => {
-    deletedScanGameKeysRef.current.add(gameKey)
-    setGamesList((prev) => prev.filter((g) => getScanGameKey(g) !== gameKey))
+    deleteScanRowsByKeys([gameKey])
   }
 
   const handleResultChange = async (gameKey, value) => {
@@ -939,11 +1074,21 @@ const Importer = () => {
             sortedRows={sortedRows} isNewScanRow={isNewScanRow} sortConfig={sortConfig}
             hideMatches={hideMatches} includeUnmatched={includeUnmatched}
             forceReimport={forceReimport}
+            selectedRowKeys={selectedScanRowKeys}
+            selectedRowCount={selectedScanRowCount}
+            badRowCount={badScanRowCount}
+            lastSelectedRowKey={lastSelectedScanRowKey}
             canImport={canImport} isResolvingMatches={isResolvingMatches}
             isScanActive={isScanActive} isCancelingScan={isCancelingScan}
             getImportDisabledReason={getImportDisabledReason}
             importMode={importMode} scanPath={scanPath} scanMessage={scanMessage}
             onSort={handleSort} onUpdateGame={updateGame} onDeleteGame={deleteGame}
+            onToggleRowSelection={toggleScanRowSelection}
+            onSelectRowRange={selectScanRowRange}
+            onSetVisibleRowSelection={setVisibleScanRowSelection}
+            onClearRowSelection={clearScanRowSelection}
+            onDeleteSelectedRows={deleteSelectedGames}
+            onDeleteBadRows={deleteBadRows}
             onResultChange={handleResultChange} onUpdateMatches={updateMatches}
             onHydrateManualF95Id={hydrateManualF95Id}
             onCancelMatch={cancelScanOrMatch} onImport={importGamesFunc}

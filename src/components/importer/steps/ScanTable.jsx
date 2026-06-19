@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef } from 'react'
 import { formatVersionDate } from '../../../utils/formatVersionDate.js'
 
 const isValidHttpUrl = (value) => {
@@ -39,7 +40,19 @@ export default function ScanTable({
   sortedRows, isNewScanRow, sortConfig,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
   getRowImportStatus, onHydrateManualF95Id,
+  selectedRowKeys = new Set(), lastSelectedRowKey = '',
+  onToggleRowSelection, onSelectRowRange, onSetVisibleRowSelection,
 }) {
+  const selectAllRef = useRef(null)
+  const visibleRowKeys = useMemo(() => sortedRows.map(({ game }) => getGameKey(game)), [getGameKey, sortedRows])
+  const selectedVisibleCount = visibleRowKeys.filter((key) => selectedRowKeys.has(key)).length
+  const allVisibleSelected = visibleRowKeys.length > 0 && selectedVisibleCount === visibleRowKeys.length
+  const someVisibleSelected = selectedVisibleCount > 0 && selectedVisibleCount < visibleRowKeys.length
+
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someVisibleSelected
+  }, [someVisibleSelected])
+
   const getSortIndicator = (key) => {
     if (sortConfig.key !== key) return ''
     return sortConfig.direction === 'asc' ? ' ▲' : ' ▼'
@@ -73,10 +86,44 @@ export default function ScanTable({
     }
   }
 
+  const isInteractiveTarget = (target) => Boolean(
+    target?.closest?.('input, textarea, select, button, a, [contenteditable="true"]')
+  )
+
+  const handleRowSelection = (event, gameKey, { replaceOnPlainClick = false } = {}) => {
+    const shiftKey = event.shiftKey || event.nativeEvent?.shiftKey
+    const ctrlKey = event.ctrlKey || event.nativeEvent?.ctrlKey
+    const metaKey = event.metaKey || event.nativeEvent?.metaKey
+    if (shiftKey && lastSelectedRowKey) {
+      onSelectRowRange?.(lastSelectedRowKey, gameKey, visibleRowKeys, { replace: false })
+      return
+    }
+    if (ctrlKey || metaKey || !replaceOnPlainClick) {
+      onToggleRowSelection?.(gameKey)
+      return
+    }
+    onToggleRowSelection?.(gameKey, { replace: true })
+  }
+
+  const handleHeaderCheckboxChange = () => {
+    onSetVisibleRowSelection?.(visibleRowKeys, !allVisibleSelected)
+  }
+
   return (
-    <table className="border-collapse border border-border" style={{ minWidth: '1460px' }}>
+    <table className="border-collapse border border-border" style={{ minWidth: '1504px' }}>
       <thead>
         <tr className="bg-secondary sticky top-0">
+          <th className="border border-border p-1 w-10 min-w-[44px]">
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={handleHeaderCheckboxChange}
+              title="Select all visible rows"
+              aria-label="Select all visible rows"
+              className="h-4 w-4"
+            />
+          </th>
           {renderSortableHeader('atlasId', 'Atlas ID', 'min-w-[80px]')}
           {renderSortableHeader('f95Id', 'F95 ID', 'min-w-[80px]')}
           {renderSortableHeader('lcId', 'LC ID', 'min-w-[80px]')}
@@ -115,9 +162,32 @@ export default function ScanTable({
             ? game.resultSelectedValue
             : matchResults[0]?.key || ''
           const gameKey = getGameKey(game)
+          const isSelected = selectedRowKeys.has(gameKey)
+          const rowClassName = isSelected
+            ? 'bg-selected outline outline-2 outline-accent outline-offset-[-2px]'
+            : 'bg-primary'
 
           return (
-            <tr key={gameKey} className="bg-primary">
+            <tr
+              key={gameKey}
+              className={rowClassName}
+              aria-selected={isSelected}
+              onClick={(event) => {
+                if (isInteractiveTarget(event.target)) return
+                handleRowSelection(event, gameKey, { replaceOnPlainClick: true })
+              }}
+            >
+              <td className="border border-border p-1 text-center w-10 min-w-[44px]">
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={(event) => handleRowSelection(event, gameKey)}
+                  onClick={(event) => event.stopPropagation()}
+                  title={`Select row ${originalIndex + 1}`}
+                  aria-label={`Select row ${originalIndex + 1}`}
+                  className="h-4 w-4"
+                />
+              </td>
               <td className="border border-border p-1 min-w-[100px]">
                 {matchResults.length > 1 && <i className="fa-solid fa-triangle-exclamation text-yellow-400 mr-1"></i>}
                 {game.atlasId}
