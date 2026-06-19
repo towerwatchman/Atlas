@@ -9,12 +9,46 @@ const debounce = (func, delay) => {
   }
 }
 
+const CATALOG_PAGE_SIZE = 250
+
+const normalizeCatalogRows = (rows) =>
+  normalizeGamesForRenderer(rows).map((game) => ({
+    ...game,
+    isCatalogEntry: true,
+    isMetadataOnly: true,
+  }))
+
+const getCatalogIdentity = (game = {}) =>
+  String(game.catalogKey || game.record_id || '').trim()
+
+const mergeCatalogRows = (previous, nextRows, { reset = false } = {}) => {
+  const merged = reset ? [] : [...previous]
+  const seen = new Set(merged.map(getCatalogIdentity).filter(Boolean))
+  for (const game of nextRows) {
+    const key = getCatalogIdentity(game)
+    if (key && seen.has(key)) continue
+    if (key) seen.add(key)
+    merged.push(game)
+  }
+  return merged
+}
+
 export function useGames() {
   const [games, setGames] = useState([])
   const [catalogGames, setCatalogGames] = useState([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [catalogLoadingMore, setCatalogLoadingMore] = useState(false)
+  const [catalogHasMore, setCatalogHasMore] = useState(false)
+  const [catalogOffset, setCatalogOffset] = useState(0)
+  const [catalogTotal, setCatalogTotal] = useState(null)
+  const [catalogLoadError, setCatalogLoadError] = useState('')
   const [wishlistGames, setWishlistGames] = useState([])
   const [totalVersions, setTotalVersions] = useState(0)
   const includeUninstalledRef = useRef(false)
+  const catalogLoadTokenRef = useRef(0)
+  const catalogLoadingRef = useRef(false)
+  const catalogOffsetRef = useRef(0)
+  const catalogHasMoreRef = useRef(false)
 
   const updateGamesState = useCallback((gamesArray) => {
     const normalizedGames = normalizeGamesForRenderer(gamesArray)
@@ -43,26 +77,87 @@ export function useGames() {
     [updateGamesState]
   )
 
+  const loadCatalogPage = useCallback(async ({ reset = false } = {}) => {
+    if (catalogLoadingRef.current && !reset) return []
+    const token = reset ? catalogLoadTokenRef.current + 1 : catalogLoadTokenRef.current
+    if (reset) {
+      catalogLoadTokenRef.current = token
+      catalogOffsetRef.current = 0
+      catalogHasMoreRef.current = false
+      setCatalogOffset(0)
+      setCatalogHasMore(false)
+      setCatalogTotal(null)
+      setCatalogGames([])
+    } else if (!catalogHasMoreRef.current) {
+      return []
+    }
+
+    const offset = reset ? 0 : catalogOffsetRef.current
+    catalogLoadingRef.current = true
+    setCatalogLoadError('')
+    setCatalogLoading(reset)
+    setCatalogLoadingMore(!reset)
+    try {
+      const result = await window.electronAPI.getCatalogGames({
+        offset,
+        limit: CATALOG_PAGE_SIZE,
+        includeTotal: reset,
+      })
+      if (catalogLoadTokenRef.current !== token) return []
+      const rawRows = Array.isArray(result) ? result : result?.games || []
+      const gamesArray = normalizeCatalogRows(rawRows)
+      setCatalogGames((prev) => mergeCatalogRows(prev, gamesArray, { reset }))
+      const nextOffset = Number.isFinite(Number(result?.offset))
+        ? Number(result.offset) + gamesArray.length
+        : offset + gamesArray.length
+      const hasMore = Array.isArray(result)
+        ? gamesArray.length >= CATALOG_PAGE_SIZE
+        : result?.hasMore === true
+      catalogOffsetRef.current = nextOffset
+      catalogHasMoreRef.current = hasMore
+      setCatalogOffset(nextOffset)
+      setCatalogHasMore(hasMore)
+      if (!Array.isArray(result) && result?.total !== undefined && result?.total !== null) {
+        setCatalogTotal(Number(result.total) || 0)
+      }
+      console.log(`Fetched ${gamesArray.length} AtlasDB catalog games; offset=${nextOffset}; hasMore=${hasMore}`)
+      return gamesArray
+    } catch (error) {
+      console.error('Failed to fetch AtlasDB catalog:', error)
+      setCatalogLoadError(error?.message || String(error))
+      return []
+    } finally {
+      if (catalogLoadTokenRef.current === token) {
+        catalogLoadingRef.current = false
+        setCatalogLoading(false)
+        setCatalogLoadingMore(false)
+      }
+    }
+  }, [])
+
   const fetchCatalogGames = useCallback(
-    () =>
-      window.electronAPI
-        .getCatalogGames()
-        .then((allGames) => {
-          const gamesArray = normalizeGamesForRenderer(allGames).map((game) => ({
-            ...game,
-            isCatalogEntry: true,
-            isMetadataOnly: true,
-          }))
-          console.log(`Fetched ${gamesArray.length} AtlasDB catalog games`)
-          setCatalogGames(gamesArray)
-          return gamesArray
-        })
-        .catch((error) => {
-          console.error('Failed to fetch AtlasDB catalog:', error)
-          return []
-        }),
-    []
+    ({ reset = true } = {}) => loadCatalogPage({ reset }),
+    [loadCatalogPage]
   )
+
+  const fetchMoreCatalogGames = useCallback(
+    () => loadCatalogPage({ reset: false }),
+    [loadCatalogPage]
+  )
+
+  const resetCatalogGames = useCallback(() => {
+    catalogLoadTokenRef.current += 1
+    catalogLoadingRef.current = false
+    catalogOffsetRef.current = 0
+    catalogHasMoreRef.current = false
+    setCatalogGames([])
+    setCatalogLoading(false)
+    setCatalogLoadingMore(false)
+    setCatalogHasMore(false)
+    setCatalogOffset(0)
+    setCatalogTotal(null)
+    setCatalogLoadError('')
+  }, [])
 
   const fetchWishlistGames = useCallback(
     () =>
@@ -158,10 +253,18 @@ export function useGames() {
   return {
     games,
     catalogGames,
+    catalogLoading,
+    catalogLoadingMore,
+    catalogHasMore,
+    catalogOffset,
+    catalogTotal,
+    catalogLoadError,
     wishlistGames,
     totalVersions,
     fetchGames,
     fetchCatalogGames,
+    fetchMoreCatalogGames,
+    resetCatalogGames,
     fetchWishlistGames,
     updateGamesState,
     replaceGameInState,

@@ -1043,6 +1043,13 @@ ${bannerJoinClauses}
 
 const getCatalogGames = (appPath, isDev, options = {}) => {
   return new Promise((resolve, reject) => {
+    const rawOffset = Number.parseInt(options.offset, 10);
+    const rawLimit = Number.parseInt(options.limit, 10);
+    const offset = Number.isInteger(rawOffset) && rawOffset > 0 ? rawOffset : 0;
+    const limit = Number.isInteger(rawLimit)
+      ? Math.min(1000, Math.max(50, rawLimit))
+      : 250;
+    const includeTotal = options.includeTotal === true;
     getTableColumns('f95_zone_data').then((f95Columns) => {
       const hasThreadUpdated = f95Columns.has('thread_updated')
       const threadUpdatedSelect = hasThreadUpdated
@@ -1331,7 +1338,16 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       WHERE lewdcorner_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL
     `;
 
-      getDb().all(query, [], (err, rows) => {
+      const pagedQuery = `
+        SELECT *
+        FROM (${query}) catalog
+        ORDER BY title COLLATE NOCASE ASC, catalogKey ASC
+        LIMIT ? OFFSET ?
+      `;
+      const countQuery = `SELECT COUNT(*) AS total FROM (${query}) catalog`;
+
+      const finish = (total = null) => {
+        getDb().all(pagedQuery, [limit, offset], (err, rows) => {
         if (err) {
           console.error("Error fetching AtlasDB catalog games:", err);
           reject(err);
@@ -1370,7 +1386,28 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           `thread_updated populated ${threadUpdatedCount}, ` +
           `thread_publish_date populated ${threadPublishDateCount})`,
         );
-        resolve(games);
+          resolve({
+            games,
+            offset,
+            limit,
+            total,
+            hasMore: total === null ? games.length >= limit : offset + games.length < total,
+          });
+        });
+      };
+
+      if (!includeTotal) {
+        finish(null);
+        return;
+      }
+
+      getDb().get(countQuery, [], (err, row) => {
+        if (err) {
+          console.error("Error counting AtlasDB catalog games:", err);
+          reject(err);
+          return;
+        }
+        finish(Number(row?.total || 0));
       });
     }).catch(reject);
   });

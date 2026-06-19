@@ -205,15 +205,26 @@ function registerGamesHandlers(ctx) {
     return withMedia(games)
   })
 
-  ipcMain.handle('get-catalog-games', async () => {
-    const games = await getCatalogGames(
+  ipcMain.handle('get-catalog-games', async (event, args = {}) => {
+    const rawOffset = Number.parseInt(args?.offset, 10)
+    const rawLimit = Number.parseInt(args?.limit, 10)
+    const offset = Number.isInteger(rawOffset) && rawOffset > 0 ? rawOffset : 0
+    const limit = Number.isInteger(rawLimit)
+      ? Math.min(1000, Math.max(50, rawLimit))
+      : 250
+    const result = await getCatalogGames(
       getAssetBasePath(),
       process.defaultApp,
       {
+        ...(args?.options || {}),
+        offset,
+        limit,
+        includeTotal: args?.includeTotal === true,
         mediaStorageMode: getMediaStorageMode(),
       },
     )
-    return withMedia(games)
+    if (Array.isArray(result)) return withMedia(result)
+    return { ...result, games: withMedia(result.games || []) }
   })
 
   ipcMain.handle('wishlist-add', async (_, entry = {}) => {

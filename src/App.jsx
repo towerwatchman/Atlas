@@ -155,6 +155,8 @@ const App = () => {
   // ── Hooks ──────────────────────────────────────────────────────────────────
   const {
     games, catalogGames, wishlistGames, totalVersions, fetchGames, fetchCatalogGames,
+    fetchMoreCatalogGames, catalogLoading, catalogLoadingMore, catalogHasMore,
+    catalogOffset, catalogTotal, catalogLoadError,
     fetchWishlistGames, replaceGameInState,
     removeGameFromState, refreshGame, includeUninstalledRef,
   } = useGames()
@@ -386,8 +388,8 @@ const App = () => {
     setSelectedGame(null)
     setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
     setShowSearchSidebar(false)
-    fetchCatalogGames()
-  }, [fetchCatalogGames, setAndPersistSidePanelMode])
+    if (catalogGames.length === 0) fetchCatalogGames({ reset: true })
+  }, [catalogGames.length, fetchCatalogGames, setAndPersistSidePanelMode])
 
   const loadWishlistIdentities = useCallback(() => {
     return window.electronAPI
@@ -1080,8 +1082,12 @@ const App = () => {
             />
           ) : filteredGames.length === 0 ? (
             <div className="text-center text-text">
-              {libraryMode === 'catalog'
-                ? 'No browse titles match these filters.'
+              {libraryMode === 'catalog' && catalogLoading
+                ? 'Loading Browse...'
+                : libraryMode === 'catalog'
+                ? catalogHasMore
+                  ? 'No loaded Browse titles match these filters yet. Load more to keep searching.'
+                  : 'No browse titles match these filters.'
                 : libraryMode === 'wishlist'
                   ? 'No wishlist entries yet. Add titles from Browse.'
                   : 'No games available'}
@@ -1116,6 +1122,29 @@ const App = () => {
                 )
               }}
             </AutoSizer>
+          )}
+          {!selectedGame && libraryMode === 'catalog' && (
+            <div className="flex flex-col items-center justify-center gap-2 py-4 text-sm text-text">
+              {catalogLoadError && <div className="text-danger">Browse load failed: {catalogLoadError}</div>}
+              {catalogLoadingMore && <div>Loading more Browse titles...</div>}
+              {!catalogLoading && !catalogLoadingMore && catalogHasMore && (
+                <button
+                  type="button"
+                  onClick={() => fetchMoreCatalogGames()}
+                  className="bg-accent hover:bg-accentHover px-4 py-2 rounded text-text"
+                >
+                  Load more Browse titles
+                </button>
+              )}
+              {catalogTotal !== null && (
+                <div className="text-xs text-muted">
+                  Loaded {Math.min(catalogOffset, catalogTotal)} / {catalogTotal}
+                </div>
+              )}
+              {catalogTotal === null && catalogGames.length > 0 && catalogHasMore && (
+                <div className="text-xs text-muted">Loaded {catalogGames.length}; more available</div>
+              )}
+            </div>
           )}
         </div>
 
@@ -1247,7 +1276,7 @@ const App = () => {
           <i className="fas fa-gamepad mr-2 text-text"></i>
           <span>
             {libraryMode === 'catalog'
-              ? `${filteredGames.length} Browse Titles`
+              ? `${filteredGames.length} Browse Titles${catalogTotal !== null ? ` (loaded ${Math.min(catalogOffset, catalogTotal)} / ${catalogTotal})` : catalogHasMore ? ` (loaded ${catalogGames.length}+)` : ''}`
               : libraryMode === 'wishlist'
                 ? `${filteredGames.length} Wishlist ${filteredGames.length === 1 ? 'Entry' : 'Entries'}`
               : activeFilters.includeUninstalled
