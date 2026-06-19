@@ -16,6 +16,7 @@ export default defineConfig({
         importer:    resolve(__dirname, 'src/importer.html'),
         gamedetails: resolve(__dirname, 'src/gamedetails.html'),
         themebuilder: resolve(__dirname, 'src/themebuilder.html'),
+        bannereditor: resolve(__dirname, 'src/bannereditor.html'),
       },
     },
   },

@@ -822,6 +822,7 @@ const App = () => {
     window.electronAPI.onImportComplete(handleImportComplete)
     window.electronAPI.onUpdateStatus(handleUpdateStatus)
     const removeMetadataListener = window.electronAPI.onMetadataChanged?.(handleMetadataChanged)
+    const removeBannerLayoutListener = window.electronAPI.onBannerLayoutUpdated?.(loadBannerLayoutMetrics)
 
     window.electronAPI.getAppUpdateState?.()
       .then((status) => { if (status?.status && status.status !== 'idle') handleUpdateStatus(status) })
@@ -847,6 +848,7 @@ const App = () => {
     return () => {
       window.electronAPI.removeUpdateStatusListener?.()
       if (typeof removeMetadataListener === 'function') removeMetadataListener()
+      if (typeof removeBannerLayoutListener === 'function') removeBannerLayoutListener()
       window.removeEventListener('resize', debounceResize)
       window.removeEventListener('focus', loadBannerLayoutMetrics)
       document.removeEventListener('visibilitychange', handleVisibilityChange)

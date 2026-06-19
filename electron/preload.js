@@ -225,7 +225,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeAllListeners("theme-preview-ended");
   },
   openThemeBuilder: () => ipcRenderer.invoke("open-theme-builder"),
+  openBannerEditor: () => ipcRenderer.invoke("open-banner-editor"),
   broadcastThemePreview: (draftTheme) => ipcRenderer.invoke("broadcast-theme-preview", draftTheme),
+  onBannerLayoutUpdated: (callback) => {
+    ipcRenderer.on("banner-layout-updated", () => callback());
+    return () => ipcRenderer.removeAllListeners("banner-layout-updated");
+  },
   onMetadataChanged: (callback) => {
     ipcRenderer.on("metadata-changed", (event, metadata) => callback(metadata));
     return () => ipcRenderer.removeAllListeners("metadata-changed");

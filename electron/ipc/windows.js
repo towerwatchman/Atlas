@@ -179,6 +179,10 @@ module.exports = function registerWindowsHandlers(ctx) {
     return result.canceled ? null : result.filePaths[0]
   })
 
+  ipcMain.handle('open-banner-editor', () => {
+    ctx.createBannerEditorWindow()
+  })
+
   ipcMain.handle('select-directory', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],

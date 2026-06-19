@@ -12,6 +12,12 @@ const { fetchAndStoreSteamData } = require('../scanners/steamscanner')
 
 const isVideoUrl = (url) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ''))
 
+const broadcastBannerLayoutUpdated = () => {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) win.webContents.send('banner-layout-updated')
+  })
+}
+
 let sharpModule = null
 function getSharp() {
   if (sharpModule) return sharpModule
@@ -81,6 +87,7 @@ module.exports = function registerMediaHandlers(ctx) {
       }
       fs.writeFileSync(configPath, ini.stringify(newConfig))
       ctx.appConfig = newConfig
+      broadcastBannerLayoutUpdated()
       return { success: true }
     } catch (err) {
       console.error('set-selected-banner-template error:', err)
@@ -112,6 +119,7 @@ module.exports = function registerMediaHandlers(ctx) {
       }
       fs.writeFileSync(configPath, ini.stringify(newConfig))
       ctx.appConfig = newConfig
+      broadcastBannerLayoutUpdated()
       return { success: true }
     } catch (err) {
       console.error('set-custom-banner-layout error:', err)
@@ -143,6 +151,7 @@ module.exports = function registerMediaHandlers(ctx) {
       }
       fs.writeFileSync(configPath, ini.stringify(newConfig))
       ctx.appConfig = newConfig
+      broadcastBannerLayoutUpdated()
       return { success: true }
     } catch (err) {
       console.error('set-user-banner-layouts error:', err)

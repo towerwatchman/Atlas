@@ -4,7 +4,7 @@ import { importerSources } from './importerSources.js'
 const placementClasses = {
   sidebar: {
     wrapper: 'relative w-full',
-    menu: 'absolute left-[calc(100%+8px)] bottom-0 w-56',
+    menu: 'absolute left-[calc(100%+8px)] top-0 w-56',
   },
   footer: {
     wrapper: 'relative justify-self-start',

@@ -90,6 +90,7 @@ let mainWindow
 let settingsWindow
 let importerWindow
 let themeBuilderWindow
+let bannerEditorWindow
 let importSourceDialog
 let executableChooserWindow = null
 let appConfig
@@ -761,6 +762,36 @@ function normalizeImporterSource(source) {
   return ['atlas', 'steam', 'renpy'].includes(value) ? value : 'atlas'
 }
 
+function createBannerEditorWindow() {
+  if (bannerEditorWindow && !bannerEditorWindow.isDestroyed()) {
+    focusWindow(bannerEditorWindow)
+    return
+  }
+  const windowState = applySavedWindowBounds('bannerEditor', {
+    width: 1200,
+    height: 800,
+    frame: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  bannerEditorWindow = new BrowserWindow(windowState.options)
+  registerWindowBoundsPersistence('bannerEditor', bannerEditorWindow, windowState)
+  if (VITE_DEV_SERVER_URL) {
+    bannerEditorWindow.loadURL(VITE_DEV_SERVER_URL + '/bannereditor.html')
+  } else {
+    bannerEditorWindow.loadFile(path.join(__dirname, '../dist/renderer/bannereditor.html'))
+  }
+  if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
+    bannerEditorWindow.webContents.openDevTools()
+  }
+  bannerEditorWindow.on('maximize', () => bannerEditorWindow.webContents.send('window-state-changed', 'maximized'))
+  bannerEditorWindow.on('unmaximize', () => bannerEditorWindow.webContents.send('window-state-changed', 'normal'))
+  bannerEditorWindow.on('closed', () => { bannerEditorWindow = null })
+}
+
 function sendImporterSource(source) {
   if (importerWindow && !importerWindow.isDestroyed()) {
     importerWindow.webContents.send('import-source', normalizeImporterSource(source))
@@ -874,9 +905,9 @@ function showExecutableChooser(title, version, executables) {
 function buildCtx() {
   return {
     // windows
-    mainWindow, settingsWindow, importerWindow, executableChooserWindow, themeBuilderWindow,
+    mainWindow, settingsWindow, importerWindow, executableChooserWindow, themeBuilderWindow, bannerEditorWindow,
     createSettingsWindow, createImporterWindow, createGameDetailsWindow, showExecutableChooser,
-    createThemeBuilderWindow,
+    createThemeBuilderWindow, createBannerEditorWindow,
     quitFromMainWindow,
     // state
     appConfig, configPath, dataDir, launcherDir, templatesDir, themeTemplatesDir,
