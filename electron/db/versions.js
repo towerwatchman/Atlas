@@ -160,6 +160,7 @@ function chooseLaunchableForRepair(gamePath, staleExecPath, extensions) {
 }
 
 const resolveVersionSize = async (game, gamePath) => {
+  if (game.deferFolderSizeCalculation === true) return null;
   const existingSize = Number(game.folderSize ?? game.folder_size ?? 0);
   if (Number.isFinite(existingSize) && existingSize > 0) return existingSize;
   if (!gamePath) return null;
@@ -232,7 +233,7 @@ const addVersion = async (game, recordId) => {
           console.error("Error adding or updating version:", err);
           reject(err);
         } else {
-          resolve();
+          resolve({ version });
         }
       },
     );
@@ -266,7 +267,7 @@ const upsertVersion = async (game, recordId) => {
             console.error("Error upserting version:", err);
             reject(err);
           } else {
-            resolve();
+            resolve({ version });
           }
         },
       );

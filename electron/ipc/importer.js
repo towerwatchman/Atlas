@@ -2415,6 +2415,7 @@ ipcMain.handle("import-games", async (event, params) => {
   }
 
   const results = [];
+  const deferredSizeJobs = [];
 
   for (const game of games) {
     try {
@@ -2439,7 +2440,6 @@ ipcMain.handle("import-games", async (event, params) => {
         : "";
       const sourceCleanupRoot = game.sourceRoot || sourceRoot;
 
-      let size = 0;
       let archiveToDeleteAfterImport = null;
 
       // ── Structured move (non-archive) ───────────────────────────────────────
@@ -2724,16 +2724,27 @@ ipcMain.handle("import-games", async (event, params) => {
         ...game,
         folder: gamePath,
         execPath,
-        folderSize: size || game.folderSize || 0,
+        folderSize: game.folderSize || game.folder_size || null,
+        deferFolderSizeCalculation: true,
         in_place: steamImport ? 1 : game.in_place,
         inPlace: steamImport ? true : game.inPlace,
         sourceType: steamImport ? "steam" : game.sourceType,
         steamId: steamId || game.steamId,
       };
+      let savedVersionResult = null;
       if (shouldUpsertExisting) {
-        await upsertVersion(versionGame, recordId);
+        savedVersionResult = await upsertVersion(versionGame, recordId);
       } else {
-        await addVersion(versionGame, recordId);
+        savedVersionResult = await addVersion(versionGame, recordId);
+      }
+      const savedVersion = savedVersionResult?.version || game.version;
+      if (!Number(game.folderSize || game.folder_size || 0) && gamePath) {
+        deferredSizeJobs.push({
+          recordId,
+          version: savedVersion,
+          gamePath,
+          title: game.title,
+        });
       }
       console.log("added version");
       console.log("adding mapping");
@@ -2790,7 +2801,6 @@ ipcMain.handle("import-games", async (event, params) => {
         }
       }
 
-      if (size > 0) await updateFolderSize(recordId, game.version, size);
       if (game.replaceVersion) {
         const replacementResult = await replaceInstalledVersionAfterImport({
           recordId,
@@ -2860,6 +2870,7 @@ ipcMain.handle("import-games", async (event, params) => {
         recordId,
         atlasId: game.atlasId,
         steamId: steamId || game.steamId,
+        version: savedVersion,
       });
       session.cleanupPaths = [];
 
@@ -3225,6 +3236,37 @@ ipcMain.handle("import-games", async (event, params) => {
         total: imageTotal,
         canCancel: false,
       });
+    }
+  }
+
+  if (!session.cancelRequested && deferredSizeJobs.length > 0) {
+    const sizeTotal = deferredSizeJobs.length;
+    let sizeProgress = 0;
+    mainWindow.webContents.send("import-progress", {
+      text: `Calculating folder sizes for ${sizeTotal} imported version(s)...`,
+      progress: sizeProgress,
+      total: sizeTotal,
+      canCancel: false,
+    });
+
+    for (const job of deferredSizeJobs) {
+      try {
+        const folderSize = await calculatePathSizeSafe(job.gamePath);
+        if (folderSize !== null) {
+          await updateFolderSize(job.recordId, job.version, folderSize);
+          mainWindow.webContents.send("game-updated", job.recordId);
+        }
+      } catch (err) {
+        console.warn(`Deferred size calculation failed for ${job.gamePath}:`, err.message || err);
+      } finally {
+        sizeProgress++;
+        mainWindow.webContents.send("import-progress", {
+          text: `Calculated folder size for '${job.title}' ${sizeProgress}/${sizeTotal}`,
+          progress: sizeProgress,
+          total: sizeTotal,
+          canCancel: false,
+        });
+      }
     }
   }
 
