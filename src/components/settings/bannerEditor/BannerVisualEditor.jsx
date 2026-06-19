@@ -16,6 +16,11 @@ const BannerVisualEditor = ({
   fieldLabels,
   slotLabels,
   badgeFields,
+  fieldRegistry,
+  fieldCategories,
+  previewMode,
+  previewModes,
+  onPreviewModeChange,
   onFieldChange,
   onResetField,
 }) => {
@@ -36,6 +41,23 @@ const BannerVisualEditor = ({
     updateField(fieldId, { slot, visible: true })
   }
 
+  const updateConditions = (patch) => {
+    if (!selectedField) return
+    updateField(selectedField.id, {
+      conditions: { ...selectedField.conditions, ...patch },
+    })
+  }
+
+  const updateSourceCondition = (source, enabled) => {
+    const currentSources = Array.isArray(selectedField?.conditions?.source)
+      ? selectedField.conditions.source
+      : []
+    const nextSources = enabled
+      ? Array.from(new Set([...currentSources, source]))
+      : currentSources.filter((item) => item !== source)
+    updateConditions({ source: nextSources })
+  }
+
   return (
     <section className="space-y-3">
       <div>
@@ -43,6 +65,18 @@ const BannerVisualEditor = ({
         <p className="text-xs opacity-60">
           Drag field chips into zones. The precise table below remains available for keyboard editing.
         </p>
+        <label className="inline-flex items-center gap-2 text-xs mt-2">
+          Preview
+          <select
+            className="bg-secondary border border-border text-text rounded p-1"
+            value={previewMode}
+            onChange={(event) => onPreviewModeChange(event.target.value)}
+          >
+            {Object.entries(previewModes).map(([id, mode]) => (
+              <option key={id} value={id}>{mode.label}</option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[420px_minmax(360px,1fr)_280px] gap-4">
@@ -62,27 +96,34 @@ const BannerVisualEditor = ({
 
         <div>
           <h3 className="text-sm font-semibold mb-2">Fields</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 gap-2">
-            {SUPPORTED_BANNER_FIELD_IDS.map((fieldId) => {
-              const field = fields.find((candidate) => candidate.id === fieldId) || {
-                id: fieldId,
-                slot: 'bottom-left',
-                visible: false,
-                fontSize: 12,
-                badge: false,
-              }
-              return (
-                <BannerFieldChip
-                  key={fieldId}
-                  field={field}
-                  label={fieldLabels[fieldId]}
-                  slotLabel={slotLabels[field.slot] || 'Unknown slot'}
-                  isSelected={selectedFieldId === fieldId}
-                  onSelect={() => setSelectedFieldId(fieldId)}
-                  onToggleVisible={() => updateField(fieldId, { visible: field.visible === false })}
-                />
-              )
-            })}
+          <div className="space-y-3 max-h-[640px] overflow-y-auto pr-1">
+            {fieldCategories.map((category) => (
+              <div key={category}>
+                <h4 className="text-xs uppercase tracking-wide opacity-60 mb-1">{category}</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 gap-2">
+                  {fieldRegistry.filter((meta) => meta.category === category).map((meta) => {
+                    const field = fields.find((candidate) => candidate.id === meta.id) || {
+                      id: meta.id,
+                      slot: meta.defaultSlot || 'bottom-left',
+                      visible: false,
+                      fontSize: meta.defaultFontSize || 12,
+                      badge: false,
+                    }
+                    return (
+                      <BannerFieldChip
+                        key={meta.id}
+                        field={field}
+                        label={fieldLabels[meta.id]}
+                        slotLabel={slotLabels[field.slot] || 'Unknown slot'}
+                        isSelected={selectedFieldId === meta.id}
+                        onSelect={() => setSelectedFieldId(meta.id)}
+                        onToggleVisible={() => updateField(meta.id, { visible: field.visible === false })}
+                      />
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -140,6 +181,50 @@ const BannerVisualEditor = ({
               >
                 Reset this field
               </button>
+              <details className="text-sm">
+                <summary className="cursor-pointer opacity-80">Advanced conditions</summary>
+                <div className="mt-2 space-y-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedField.hideWhenEmpty === true}
+                      onChange={(event) => updateField(selectedField.id, { hideWhenEmpty: event.target.checked })}
+                    />
+                    Hide when empty
+                  </label>
+                  {[
+                    ['localOnly', 'Local only'],
+                    ['browseOnly', 'Browse only'],
+                    ['wishlistOnly', 'Wishlist only'],
+                    ['installedOnly', 'Installed only'],
+                    ['uninstalledOnly', 'Uninstalled only'],
+                    ['updateOnly', 'Update only'],
+                    ['favoriteOnly', 'Favorite only'],
+                  ].map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedField.conditions?.[key] === true}
+                        onChange={(event) => updateConditions({ [key]: event.target.checked })}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                  <div>
+                    <div className="text-xs opacity-60 mb-1">Source</div>
+                    {['atlas', 'f95', 'steam', 'lewdcorner'].map((source) => (
+                      <label key={source} className="mr-3 inline-flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={(selectedField.conditions?.source || []).includes(source)}
+                          onChange={(event) => updateSourceCondition(source, event.target.checked)}
+                        />
+                        {source}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </details>
             </>
           ) : (
             <p className="text-sm opacity-60">Select a field to edit it.</p>
@@ -151,4 +236,3 @@ const BannerVisualEditor = ({
 }
 
 export default BannerVisualEditor
-

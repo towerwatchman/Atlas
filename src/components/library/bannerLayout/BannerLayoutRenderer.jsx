@@ -2,7 +2,7 @@ import React from 'react'
 import SafeImage from '../../ui/SafeImage.jsx'
 import { getGameTitle } from '../../../utils/gameDisplay.js'
 import { normalizeBannerField, normalizeBannerLayout } from './bannerLayoutSchema.js'
-import { resolveBannerField } from './bannerFieldResolvers.js'
+import { getBannerFieldSources, resolveBannerField } from './bannerFieldResolvers.js'
 import {
   getEngineBackgroundColor,
   getStatusBackgroundColor,
@@ -95,7 +95,43 @@ const getBadgeStyle = (fieldId, value) => {
   if (fieldId === 'engine') return { backgroundColor: getEngineBackgroundColor(value) }
   if (fieldId === 'status') return { backgroundColor: getStatusBackgroundColor(value) }
   if (fieldId === 'version') return { backgroundColor: '#3F4043' }
+  if (fieldId === 'sourceBadges' || fieldId === 'primarySource') return { backgroundColor: '#2563EB' }
   return { backgroundColor: '#3F4043' }
+}
+
+const badgeVariantClasses = {
+  neutral: 'bg-primary border-border text-text',
+  source: 'bg-blue-700 border-blue-400 text-white',
+  success: 'bg-green-700 border-green-400 text-white',
+  warning: 'bg-warning/20 border-warning text-warning',
+  danger: 'bg-danger border-dangerHover text-white',
+  favorite: 'bg-primary border-warning text-text',
+  wishlist: 'bg-primary border-accent text-text',
+}
+
+const isEmptyValue = (value) =>
+  value === undefined ||
+  value === null ||
+  value === '' ||
+  (Array.isArray(value) && value.length === 0)
+
+const fieldPassesConditions = (field, game) => {
+  const conditions = field.conditions || {}
+  const isCatalog = game.isCatalogEntry === true || game.isMetadataOnly === true
+  const isWishlist = game.isWishlisted === true || game.isWishlistEntry === true
+  const isInstalled = game.hasInstalledVersion !== false || game.isInstalled === true
+  if (conditions.localOnly && isCatalog) return false
+  if (conditions.browseOnly && !isCatalog) return false
+  if (conditions.wishlistOnly && !isWishlist) return false
+  if (conditions.installedOnly && !isInstalled) return false
+  if (conditions.uninstalledOnly && isInstalled) return false
+  if (conditions.updateOnly && game.isUpdateAvailable !== true) return false
+  if (conditions.favoriteOnly && game.isFavorite !== true) return false
+  if (Array.isArray(conditions.source) && conditions.source.length > 0) {
+    const sources = getBannerFieldSources(game)
+    if (!conditions.source.some((source) => sources.includes(source))) return false
+  }
+  return true
 }
 
 const renderMarkerIcon = (fieldId) => {
@@ -114,7 +150,9 @@ const renderMarkerIcon = (fieldId) => {
 
 const BannerField = ({ field, game, index }) => {
   const resolved = resolveBannerField(field.id, game)
+  if (!fieldPassesConditions(field, game)) return null
   if (!resolved.visible) return null
+  if (field.hideWhenEmpty && isEmptyValue(resolved.value)) return null
 
   const fontSize = normalizeFontSize(field.fontSize, field.badge ? 10 : 12)
   const style = { fontSize }
@@ -153,11 +191,22 @@ const BannerField = ({ field, game, index }) => {
   }
 
   if (field.badge) {
+    if (Array.isArray(resolved.value)) {
+      return resolved.value.map((badge, badgeIndex) => (
+        <div
+          key={`${field.id}-${index}-${badgeIndex}`}
+          className={`border rounded-sm px-2 py-0.5 truncate max-w-[120px] ${badgeVariantClasses[badge.variant || resolved.variant || 'neutral']}`}
+          style={style}
+        >
+          {badge.label}
+        </div>
+      ))
+    }
     return (
       <div
         key={`${field.id}-${index}`}
-        className="text-white rounded-sm px-2 py-0.5 truncate max-w-[180px]"
-        style={{ ...style, ...getBadgeStyle(field.id, resolved.value) }}
+        className={`border rounded-sm px-2 py-0.5 truncate max-w-[180px] ${badgeVariantClasses[resolved.variant || 'neutral'] || 'text-white'}`}
+        style={{ ...style, ...(resolved.variant ? {} : getBadgeStyle(field.id, resolved.value)) }}
       >
         {resolved.value}
       </div>
@@ -168,10 +217,13 @@ const BannerField = ({ field, game, index }) => {
     field.id === 'title'
       ? 'text-shadow-fx text-glow-fx game-titles font-semibold max-w-[360px] truncate'
       : 'max-w-[300px] truncate'
+  const displayValue = Array.isArray(resolved.value)
+    ? resolved.value.map((item) => item.label || item).join(' ')
+    : resolved.value
 
   return (
     <div key={`${field.id}-${index}`} className={`text-white drop-shadow ${titleClass}`} style={style}>
-      {resolved.value}
+      {displayValue}
     </div>
   )
 }

@@ -5,6 +5,8 @@ import BannerVisualEditor from './bannerEditor/BannerVisualEditor.jsx'
 import { defaultBannerLayouts, getBuiltInBannerLayoutOptions } from '../library/bannerLayout/defaultBannerLayouts.js'
 import {
   BANNER_PRESET_EXPORT_TYPE,
+  BANNER_FIELD_CATEGORIES,
+  BANNER_FIELD_REGISTRY,
   BANNER_SIZE_LIMITS,
   BANNER_SIZE_PRESETS,
   CUSTOM_BANNER_LAYOUT_ID,
@@ -21,17 +23,7 @@ import {
 
 const SWATCH_KEYS = ['primary', 'tertiary', 'accent', 'text']
 
-const FIELD_LABELS = {
-  title: 'Title',
-  creator: 'Creator',
-  engine: 'Engine',
-  status: 'Status',
-  version: 'Version',
-  update: 'Update Available',
-  favorite: 'Favorite',
-  wishlist: 'Wishlist',
-  installedState: 'Installed State',
-}
+const FIELD_LABELS = Object.fromEntries(BANNER_FIELD_REGISTRY.map((field) => [field.id, field.label]))
 
 const SLOT_LABELS = {
   'top-left': 'Top Left',
@@ -47,7 +39,7 @@ const SLOT_LABELS = {
   'top-right-floating': 'Top Right Floating',
 }
 
-const BADGE_FIELDS = new Set(['engine', 'status', 'version', 'installedState', 'update'])
+const BADGE_FIELDS = new Set(BANNER_FIELD_REGISTRY.filter((field) => field.supportsBadge).map((field) => field.id))
 
 const previewGame = {
   record_id: 'banner-preview',
@@ -55,12 +47,32 @@ const previewGame = {
   creator: 'Studio Example',
   engine: "Ren'Py",
   status: 'Completed',
-  versions: [{ version: 'v1.2.0', isInstalled: true }],
+  latestVersion: 'v1.3.0',
+  versions: [{ version: 'v1.2.0', isInstalled: true }, { version: 'v1.0.0', isInstalled: true }],
   isUpdateAvailable: true,
   isFavorite: true,
   isWishlisted: true,
   hasInstalledVersion: true,
+  atlas_id: 123,
+  f95_id: 456,
+  steam_id: 789,
+  lc_id: 321,
+  sourceRating: 4.4,
+  personalRatingOverall: 4.8,
+  totalPlaytime: 9280,
+  lastPlayed: Date.now() - 86400000,
+  tags: 'Female Protagonist, Romance, Mystery, Choices, Animated',
+  category: 'Game',
+  censored: 'No',
+  language: 'English',
   siteUrl: 'https://example.com',
+}
+
+const previewModes = {
+  local: { label: 'Local installed sample', patch: {} },
+  browse: { label: 'Browse catalog sample', patch: { isCatalogEntry: true, isMetadataOnly: true, hasInstalledVersion: true, isFavorite: false, personalRatingOverall: null, totalPlaytime: 0, lastPlayed: 0 } },
+  wishlist: { label: 'Wishlist sample', patch: { isCatalogEntry: true, isWishlistEntry: true, isWishlisted: true, isFavorite: false } },
+  missing: { label: 'Missing/uninstalled sample', patch: { hasInstalledVersion: false, versions: [], totalPlaytime: 0, lastPlayed: 0 } },
 }
 
 const cloneLayout = (layout) => JSON.parse(JSON.stringify(layout))
@@ -121,11 +133,13 @@ const Appearance = () => {
   const [presetName, setPresetName] = useState('')
   const [statusText, setStatusText] = useState('')
   const [lockAspectRatio, setLockAspectRatio] = useState(true)
+  const [previewMode, setPreviewMode] = useState('local')
   const customSaveTimerRef = useRef(null)
 
   const selectedUserPreset = userPresets.find((preset) => preset.id === selectedPresetId)
   const selectedBuiltIn = builtInBannerLayouts.find((layout) => layout.id === selectedPresetId)
   const isUserPresetSelected = Boolean(selectedUserPreset)
+  const activePreviewGame = { ...previewGame, ...(previewModes[previewMode]?.patch || {}) }
 
   const persistUserPresets = async (nextPresets) => {
     const result = await window.electronAPI.setUserBannerLayouts(nextPresets)
@@ -604,10 +618,15 @@ const Appearance = () => {
 
         <BannerVisualEditor
           layout={draftLayout}
-          previewGame={previewGame}
+          previewGame={activePreviewGame}
           fieldLabels={FIELD_LABELS}
           slotLabels={SLOT_LABELS}
           badgeFields={BADGE_FIELDS}
+          fieldRegistry={BANNER_FIELD_REGISTRY}
+          fieldCategories={BANNER_FIELD_CATEGORIES}
+          previewMode={previewMode}
+          previewModes={previewModes}
+          onPreviewModeChange={setPreviewMode}
           onFieldChange={updateField}
           onResetField={resetField}
         />

@@ -35,18 +35,66 @@ export const SUPPORTED_BANNER_FIELD_IDS = [
   'engine',
   'status',
   'version',
+  'latestVersion',
   'update',
   'favorite',
   'wishlist',
   'installedState',
+  'sourceBadges',
+  'primarySource',
+  'atlasId',
+  'f95Id',
+  'steamId',
+  'lewdCornerId',
+  'sourceRating',
+  'personalRating',
+  'playtime',
+  'lastPlayed',
+  'installedVersionCount',
+  'category',
+  'tags',
+  'censored',
+  'language',
 ]
+
+export const BANNER_FIELD_REGISTRY = [
+  { id: 'title', label: 'Title', category: 'Basic', supportsBadge: false, defaultVisible: true, defaultSlot: 'bottom-center', defaultFontSize: 12, hideWhenEmpty: false },
+  { id: 'creator', label: 'Creator', category: 'Basic', supportsBadge: false, defaultVisible: true, defaultSlot: 'top-left', defaultFontSize: 12, hideWhenEmpty: false },
+  { id: 'engine', label: 'Engine', category: 'Basic', supportsBadge: true, defaultVisible: true, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: false },
+  { id: 'status', label: 'Status', category: 'Basic', supportsBadge: true, defaultVisible: true, defaultSlot: 'bottom-right', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'version', label: 'Installed Version', category: 'Basic', supportsBadge: true, defaultVisible: true, defaultSlot: 'bottom-right', defaultFontSize: 10, hideWhenEmpty: false },
+  { id: 'latestVersion', label: 'Latest Version', category: 'Basic', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-right', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'update', label: 'Update Available', category: 'State', supportsBadge: true, defaultVisible: true, defaultSlot: 'top-right', defaultFontSize: 10, hideWhenEmpty: true, conditions: { updateOnly: true } },
+  { id: 'favorite', label: 'Favorite', category: 'State', supportsBadge: false, defaultVisible: true, defaultSlot: 'top-left-floating', defaultFontSize: 10, hideWhenEmpty: true, conditions: { favoriteOnly: true } },
+  { id: 'wishlist', label: 'Wishlist', category: 'State', supportsBadge: false, defaultVisible: true, defaultSlot: 'top-right-floating', defaultFontSize: 10, hideWhenEmpty: true, conditions: { wishlistOnly: true } },
+  { id: 'installedState', label: 'Installed State', category: 'State', supportsBadge: true, defaultVisible: false, defaultSlot: 'top-left-floating', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'sourceBadges', label: 'Source Badges', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'top-right', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'primarySource', label: 'Primary Source', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'top-right', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'atlasId', label: 'Atlas ID', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'f95Id', label: 'F95 ID', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true, conditions: { source: ['f95'] } },
+  { id: 'steamId', label: 'Steam ID', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true, conditions: { source: ['steam'] } },
+  { id: 'lewdCornerId', label: 'LewdCorner ID', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true, conditions: { source: ['lewdcorner'] } },
+  { id: 'sourceRating', label: 'Source Rating', category: 'Ratings', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-right', defaultFontSize: 10, hideWhenEmpty: true, conditions: { browseOnly: true } },
+  { id: 'personalRating', label: 'Personal Rating', category: 'Ratings', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-right', defaultFontSize: 10, hideWhenEmpty: true, conditions: { localOnly: true } },
+  { id: 'playtime', label: 'Playtime', category: 'Activity', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true, conditions: { localOnly: true } },
+  { id: 'lastPlayed', label: 'Last Played', category: 'Activity', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true, conditions: { localOnly: true } },
+  { id: 'installedVersionCount', label: 'Installed Versions', category: 'Activity', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-right', defaultFontSize: 10, hideWhenEmpty: true, conditions: { localOnly: true } },
+  { id: 'category', label: 'Category', category: 'Metadata', supportsBadge: true, defaultVisible: false, defaultSlot: 'center-left', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'tags', label: 'Tags', category: 'Metadata', supportsBadge: true, defaultVisible: false, defaultSlot: 'center', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'censored', label: 'Censored', category: 'Metadata', supportsBadge: true, defaultVisible: false, defaultSlot: 'center-right', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'language', label: 'Language', category: 'Metadata', supportsBadge: true, defaultVisible: false, defaultSlot: 'center-right', defaultFontSize: 10, hideWhenEmpty: true },
+]
+
+export const BANNER_FIELD_CATEGORIES = ['Basic', 'Source', 'State', 'Ratings', 'Activity', 'Metadata']
 
 const slotSet = new Set(SUPPORTED_BANNER_SLOTS)
 const fieldSet = new Set(SUPPORTED_BANNER_FIELD_IDS)
+const fieldRegistryById = new Map(BANNER_FIELD_REGISTRY.map((field) => [field.id, field]))
 const fitSet = new Set(['contain', 'cover'])
 const densitySet = new Set(['compact', 'comfortable', 'large', 'poster'])
 const imagePositionSet = new Set(['center', 'top', 'bottom', 'left', 'right'])
 const fallbackBackgroundSet = new Set(['theme', 'dark'])
+const sourceConditionSet = new Set(['atlas', 'f95', 'steam', 'lewdcorner'])
 
 const clampNumber = (value, min, max, fallback) => {
   const numeric = Number(value)
@@ -88,13 +136,29 @@ export const normalizeBannerLayoutId = (layoutId) => {
 
 export const normalizeBannerField = (field) => {
   if (!field || !fieldSet.has(field.id) || field.visible === false) return null
+  const registry = fieldRegistryById.get(field.id) || {}
   return {
     ...field,
-    slot: slotSet.has(field.slot) ? field.slot : 'bottom-left',
-    fontSize: clampNumber(field.fontSize, 8, 24, field.badge ? 10 : 12),
-    badge: field.badge === true,
+    slot: slotSet.has(field.slot) ? field.slot : registry.defaultSlot || 'bottom-left',
+    fontSize: clampNumber(field.fontSize, 8, 24, registry.defaultFontSize || (field.badge ? 10 : 12)),
+    badge: registry.supportsBadge === true && field.badge === true,
+    hideWhenEmpty: field.hideWhenEmpty === true,
+    conditions: normalizeFieldConditions(field.conditions),
   }
 }
+
+export const normalizeFieldConditions = (conditions = {}) => ({
+  localOnly: conditions.localOnly === true,
+  browseOnly: conditions.browseOnly === true,
+  wishlistOnly: conditions.wishlistOnly === true,
+  installedOnly: conditions.installedOnly === true,
+  uninstalledOnly: conditions.uninstalledOnly === true,
+  updateOnly: conditions.updateOnly === true,
+  favoriteOnly: conditions.favoriteOnly === true,
+  source: Array.isArray(conditions.source)
+    ? conditions.source.map((source) => String(source).toLowerCase()).filter((source) => sourceConditionSet.has(source))
+    : [],
+})
 
 export const getBannerLayoutById = (layouts, layoutId, customLayout = null) => {
   const normalizedId = normalizeBannerLayoutId(layoutId)
@@ -132,23 +196,28 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
 
   for (const field of [...fallbackFields, ...sourceFields]) {
     if (!fieldSet.has(field?.id)) continue
+    const registry = fieldRegistryById.get(field.id) || {}
     fieldsById.set(field.id, {
       id: field.id,
-      slot: slotSet.has(field.slot) ? field.slot : 'bottom-left',
+      slot: slotSet.has(field.slot) ? field.slot : registry.defaultSlot || 'bottom-left',
       visible: field.visible !== false,
-      fontSize: clampNumber(field.fontSize, 8, 24, field.badge ? 10 : 12),
-      badge: field.badge === true,
+      fontSize: clampNumber(field.fontSize, 8, 24, registry.defaultFontSize || (field.badge ? 10 : 12)),
+      badge: registry.supportsBadge === true && field.badge === true,
+      hideWhenEmpty: field.hideWhenEmpty === true || registry.hideWhenEmpty === true,
+      conditions: normalizeFieldConditions({ ...registry.conditions, ...field.conditions }),
     })
   }
 
-  for (const fieldId of SUPPORTED_BANNER_FIELD_IDS) {
-    if (fieldsById.has(fieldId)) continue
-    fieldsById.set(fieldId, {
-      id: fieldId,
-      slot: 'bottom-left',
-      visible: false,
-      fontSize: 12,
+  for (const registry of BANNER_FIELD_REGISTRY) {
+    if (fieldsById.has(registry.id)) continue
+    fieldsById.set(registry.id, {
+      id: registry.id,
+      slot: registry.defaultSlot || 'bottom-left',
+      visible: registry.defaultVisible === true,
+      fontSize: registry.defaultFontSize || 12,
       badge: false,
+      hideWhenEmpty: registry.hideWhenEmpty === true,
+      conditions: normalizeFieldConditions(registry.conditions),
     })
   }
 
