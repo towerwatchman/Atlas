@@ -130,8 +130,8 @@ const steamHeroCandidates = (game, appid) => [
 ]
 
 // Mutates `game` in place, attaching resolved media fields. Safe to call on any
-// game row; it only overrides streamed banners and never clobbers a custom or
-// downloaded banner the user has explicitly saved.
+// game row; it only pins custom/user banners. Downloaded source banners still
+// participate in source ordering so Steam can beat a cached F95 banner.
 //
 // Produces ordered *candidate* lists so the renderer can fall back image-by-image:
 //   game.banner_candidates / hero_candidates / logo_candidates
@@ -146,12 +146,14 @@ const applyMediaSources = (game, options = {}) => {
 
   game.steam_appid = appid
 
-  // Banner: only re-pick when streamed. A 'download' / 'download-animated'
-  // banner_source means the user saved a local/custom file, which must win.
+  // Banner: custom/user banners must win, but downloaded source banners still
+  // follow metadata source order. Otherwise a cached F95 banner masks a higher
+  // priority Steam header in the gallery grid.
   const bannerSource = game.banner_source
-  const isStreamed = bannerSource !== 'download' && bannerSource !== 'download-animated'
+  const isCustomBanner = /banner_custom_/i.test(String(game.banner_url || ''))
+  const isPinnedBanner = isCustomBanner && (bannerSource === 'download' || bannerSource === 'download-animated')
   let bannerCandidates
-  if (isStreamed) {
+  if (!isPinnedBanner) {
     bannerCandidates = bannerCandidatesForOrder(game, order, appid)
     // Keep the SQL-resolved url as a final fallback (covers source banners or
     // local files not represented in the per-source candidate set).

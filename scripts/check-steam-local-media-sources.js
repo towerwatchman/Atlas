@@ -36,6 +36,30 @@ assert.ok(!legacyTemplateGame.banner_candidates.some((url) => String(url).includ
 assert.ok(!legacyTemplateGame.hero_candidates.some((url) => String(url).includes('${FILENAME}')))
 assert.ok(!legacyTemplateGame.logo_candidates.some((url) => String(url).includes('${FILENAME}')))
 
+const downloadedF95Game = applyMediaSources({
+  record_id: 44,
+  steam_id: '12345',
+  banner_source: 'download',
+  banner_url: 'C:/Atlas/src/data/images/44/banner_f95_mc.webp',
+  f95_banner: 'https://f95.example/banner.jpg',
+  steam_header: localHeader,
+}, { sourceOrder: ['steam', 'f95'] })
+
+assert.strictEqual(downloadedF95Game.banner_url, localHeader)
+assert.strictEqual(downloadedF95Game.banner_candidates[0], localHeader)
+assert.ok(downloadedF95Game.banner_candidates.includes('C:/Atlas/src/data/images/44/banner_f95_mc.webp'))
+
+const customBannerGame = applyMediaSources({
+  record_id: 45,
+  steam_id: '12345',
+  banner_source: 'download',
+  banner_url: 'C:/Atlas/src/data/images/45/banner_custom_mc.webp',
+  steam_header: localHeader,
+}, { sourceOrder: ['steam', 'f95'] })
+
+assert.strictEqual(customBannerGame.banner_url, 'C:/Atlas/src/data/images/45/banner_custom_mc.webp')
+assert.deepStrictEqual(customBannerGame.banner_candidates, ['C:/Atlas/src/data/images/45/banner_custom_mc.webp'])
+
 const bannerSelectFields = buildBannerSelectFields('C:/Atlas/src', 'download')
 assert.ok(
   bannerSelectFields.includes("media_assets.asset_type = 'steam_header'"),
