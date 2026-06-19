@@ -132,6 +132,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   setSelectedBannerTemplate: (template) =>
     ipcRenderer.invoke("set-selected-banner-template", template),
+  getCustomBannerLayout: () =>
+    ipcRenderer.invoke("get-custom-banner-layout"),
+  setCustomBannerLayout: (layout) =>
+    ipcRenderer.invoke("set-custom-banner-layout", layout),
 
   // ─── FIXED: Added missing external URL opener for Update Available button ──
   openExternalUrl: (url) => ipcRenderer.invoke("open-external-url", url),

@@ -5,7 +5,9 @@ import BannerLayoutRenderer from './bannerLayout/BannerLayoutRenderer.jsx'
 import { defaultBannerLayouts } from './bannerLayout/defaultBannerLayouts.js'
 import {
   CLASSIC_BANNER_LAYOUT_ID,
+  CUSTOM_BANNER_LAYOUT_ID,
   getBannerLayoutById,
+  normalizeBannerLayout,
   normalizeBannerLayoutId,
 } from './bannerLayout/bannerLayoutSchema.js'
 
@@ -14,7 +16,7 @@ const builtInLayoutIds = new Set(defaultBannerLayouts.map((layout) => layout.id)
 const GameBanner = ({ game, onSelect }) => {
   const [selectedTemplate, setSelectedTemplate] = useState({
     type: 'layout',
-    value: CLASSIC_BANNER_LAYOUT_ID,
+    value: getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID),
   })
 
   const bannerChain = game.banner_candidates || (game.banner_url ? [game.banner_url] : [])
@@ -30,8 +32,22 @@ const GameBanner = ({ game, onSelect }) => {
       const selected = await window.electronAPI.getSelectedBannerTemplate()
       const normalized = normalizeBannerLayoutId(selected)
 
+      if (normalized === CUSTOM_BANNER_LAYOUT_ID) {
+        const customLayout = await window.electronAPI.getCustomBannerLayout?.()
+        const classicLayout = getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID)
+        const normalizedLayout = normalizeBannerLayout(customLayout, classicLayout)
+        setSelectedTemplate({
+          type: 'layout',
+          value: normalizedLayout || classicLayout,
+        })
+        return
+      }
+
       if (builtInLayoutIds.has(normalized)) {
-        setSelectedTemplate({ type: 'layout', value: normalized })
+        setSelectedTemplate({
+          type: 'layout',
+          value: getBannerLayoutById(defaultBannerLayouts, normalized),
+        })
         return
       }
 
@@ -45,19 +61,28 @@ const GameBanner = ({ game, onSelect }) => {
           setSelectedTemplate({ type: 'legacy', value: templateModule.default })
         } else {
           console.warn(`Template not found: ${selected}`)
-          setSelectedTemplate({ type: 'layout', value: CLASSIC_BANNER_LAYOUT_ID })
+          setSelectedTemplate({
+            type: 'layout',
+            value: getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID),
+          })
         }
       } catch (importErr) {
         console.error(`Failed to import template ${selected}:`, importErr)
         window.electronAPI.log(
           `Failed to import template ${selected}: ${importErr.message}`,
         )
-        setSelectedTemplate({ type: 'layout', value: CLASSIC_BANNER_LAYOUT_ID })
+        setSelectedTemplate({
+          type: 'layout',
+          value: getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID),
+        })
       }
     } catch (err) {
       console.error('Error loading banner template:', err)
       window.electronAPI.log(`Error loading banner template: ${err.message}`)
-      setSelectedTemplate({ type: 'layout', value: CLASSIC_BANNER_LAYOUT_ID })
+      setSelectedTemplate({
+        type: 'layout',
+        value: getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID),
+      })
     }
   }, [])
 
@@ -182,7 +207,7 @@ const GameBanner = ({ game, onSelect }) => {
       : (
           <BannerLayoutRenderer
             game={resolvedGame}
-            layout={getBannerLayoutById(defaultBannerLayouts, selectedTemplate.value)}
+            layout={selectedTemplate.value}
             onSelect={onSelect}
             onContextMenu={handleContextMenu}
           />

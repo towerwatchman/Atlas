@@ -47,15 +47,15 @@ const bannerStyles = `
 `
 
 const slotClasses = {
-  'top-left': 'absolute top-0 left-0 h-[28px] ml-2.5 flex items-center justify-start gap-1',
-  'top-center': 'absolute top-0 left-1/2 -translate-x-1/2 h-[28px] flex items-center justify-center gap-1',
-  'top-right': 'absolute top-0 right-0 h-[28px] mr-2.5 flex items-center justify-end gap-1',
-  'center-left': 'absolute top-1/2 left-2.5 -translate-y-1/2 flex items-center justify-start gap-1',
-  center: 'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center gap-1 text-center',
-  'center-right': 'absolute top-1/2 right-2.5 -translate-y-1/2 flex items-center justify-end gap-1',
-  'bottom-left': 'absolute bottom-0 left-0 h-[28px] ml-2 flex items-center justify-start gap-1',
-  'bottom-center': 'absolute bottom-0 left-1/2 -translate-x-1/2 h-[28px] flex items-center justify-center gap-1 text-center',
-  'bottom-right': 'absolute bottom-0 right-0 h-[28px] mr-2.5 flex items-center justify-end gap-0',
+  'top-left': 'absolute top-0 left-0 h-[28px] ml-2.5 flex items-center justify-start gap-1 max-w-[70%]',
+  'top-center': 'absolute top-0 left-1/2 -translate-x-1/2 h-[28px] flex items-center justify-center gap-1 max-w-[70%]',
+  'top-right': 'absolute top-0 right-0 h-[28px] mr-2.5 flex items-center justify-end gap-1 max-w-[70%]',
+  'center-left': 'absolute top-1/2 left-2.5 -translate-y-1/2 flex items-center justify-start gap-1 max-w-[70%]',
+  center: 'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center gap-1 text-center max-w-[80%]',
+  'center-right': 'absolute top-1/2 right-2.5 -translate-y-1/2 flex items-center justify-end gap-1 max-w-[70%]',
+  'bottom-left': 'absolute bottom-0 left-0 h-[28px] ml-2 flex items-center justify-start gap-1 max-w-[70%]',
+  'bottom-center': 'absolute bottom-0 left-1/2 -translate-x-1/2 h-[28px] flex items-center justify-center gap-1 text-center max-w-[70%]',
+  'bottom-right': 'absolute bottom-0 right-0 h-[28px] mr-2.5 flex items-center justify-end gap-0 max-w-[70%]',
   'top-left-floating': 'absolute top-2 left-2 flex items-center justify-start gap-1',
   'top-right-floating': 'absolute top-2 right-2 flex items-center justify-end gap-1',
 }
@@ -115,7 +115,7 @@ const BannerField = ({ field, game, index }) => {
     return (
       <button
         key={`${field.id}-${index}`}
-        className="w-[90px] h-[20px] bg-transparent border border-warning text-warning rounded-sm z-30 pointer-events-auto"
+        className="w-[90px] h-[20px] bg-transparent border border-warning text-warning rounded-sm z-30 pointer-events-auto truncate px-1"
         style={style}
         onClick={(event) => {
           event.stopPropagation()
@@ -136,7 +136,7 @@ const BannerField = ({ field, game, index }) => {
     return (
       <div
         key={`${field.id}-${index}`}
-        className={`bg-primary border ${borderClass} text-text text-[10px] px-2 py-1 pointer-events-none`}
+        className={`bg-primary border ${borderClass} text-text text-[10px] px-2 py-1 pointer-events-none whitespace-nowrap`}
       >
         {renderMarkerIcon(field.id)}
         {resolved.value}
@@ -148,7 +148,7 @@ const BannerField = ({ field, game, index }) => {
     return (
       <div
         key={`${field.id}-${index}`}
-        className="text-white rounded-sm px-2 py-0.5"
+        className="text-white rounded-sm px-2 py-0.5 truncate max-w-[180px]"
         style={{ ...style, ...getBadgeStyle(field.id, resolved.value) }}
       >
         {resolved.value}
@@ -162,7 +162,7 @@ const BannerField = ({ field, game, index }) => {
       : 'max-w-[300px] truncate'
 
   return (
-    <div key={`${field.id}-${index}`} className={`text-white ${titleClass}`} style={style}>
+    <div key={`${field.id}-${index}`} className={`text-white drop-shadow ${titleClass}`} style={style}>
       {resolved.value}
     </div>
   )
@@ -172,7 +172,7 @@ const Overlay = ({ position, overlay }) => {
   if (!overlay?.visible) return null
   return (
     <div
-      className={`absolute ${position}-0 left-0 w-full h-[28px] bg-black z-10`}
+      className={`absolute ${position}-0 left-0 w-full h-[28px] bg-black z-10 pointer-events-none`}
       style={{ opacity: normalizeOverlayOpacity(overlay.opacity) }}
     />
   )

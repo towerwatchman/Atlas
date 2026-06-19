@@ -33,7 +33,7 @@ module.exports = function registerMediaHandlers(ctx) {
     getRemoteBannerUrl, getRemotePreviewUrls,
     GetAtlasIDbyRecord, firstMediaPath, getBrowsePreviewUrls,
     getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
-    appConfig, configPath,
+    configPath,
     getMetadataSourceOrder,
   } = ctx
 
@@ -53,7 +53,7 @@ module.exports = function registerMediaHandlers(ctx) {
 
   ipcMain.handle('get-selected-banner-template', async () => {
     try {
-      return appConfig?.Appearance?.bannerTemplate || 'Default'
+      return ctx.appConfig?.Appearance?.bannerTemplate || 'Default'
     } catch {
       return 'Default'
     }
@@ -63,14 +63,45 @@ module.exports = function registerMediaHandlers(ctx) {
     try {
       const ini = require('ini')
       const newConfig = {
-        ...appConfig,
-        Appearance: { ...appConfig.Appearance, bannerTemplate: template },
+        ...ctx.appConfig,
+        Appearance: { ...ctx.appConfig.Appearance, bannerTemplate: template },
       }
       fs.writeFileSync(configPath, ini.stringify(newConfig))
       ctx.appConfig = newConfig
       return { success: true }
     } catch (err) {
       console.error('set-selected-banner-template error:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('get-custom-banner-layout', async () => {
+    try {
+      const raw = ctx.appConfig?.Appearance?.customBannerLayout
+      if (!raw) return null
+      return JSON.parse(raw)
+    } catch (err) {
+      console.error('get-custom-banner-layout error:', err)
+      return null
+    }
+  })
+
+  ipcMain.handle('set-custom-banner-layout', async (event, layout) => {
+    try {
+      const ini = require('ini')
+      const newConfig = {
+        ...ctx.appConfig,
+        Appearance: {
+          ...ctx.appConfig.Appearance,
+          bannerTemplate: 'custom',
+          customBannerLayout: JSON.stringify(layout || {}),
+        },
+      }
+      fs.writeFileSync(configPath, ini.stringify(newConfig))
+      ctx.appConfig = newConfig
+      return { success: true }
+    } catch (err) {
+      console.error('set-custom-banner-layout error:', err)
       return { success: false, error: err.message }
     }
   })
