@@ -1053,6 +1053,69 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       ? Math.min(1000, Math.max(50, rawLimit))
       : 250;
     const includeTotal = options.includeTotal === true;
+    const search = options.search && typeof options.search === 'object' ? options.search : {};
+    let searchText = String(search.text || '').trim();
+    let searchType = String(search.type || 'all').trim();
+    const prefixedSearch = searchText.match(/^([a-z]+):\s*(.+)$/i);
+    if (prefixedSearch) {
+      const prefix = prefixedSearch[1].toLowerCase();
+      searchText = prefixedSearch[2].trim();
+      if (prefix === 'id') searchType = 'anyId';
+      if (prefix === 'f95') searchType = 'f95Id';
+      if (prefix === 'lc' || prefix === 'lewdcorner') searchType = 'lewdcornerId';
+      if (prefix === 'atlas') searchType = 'atlasId';
+      if (prefix === 'steam') searchType = 'steamId';
+      if (prefix === 'url') searchType = 'source';
+    }
+    const escapeLike = (value) => String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
+    const buildLikeTerm = (value) => `%${escapeLike(value).toLowerCase()}%`;
+    const searchTerms = searchText
+      .split(/\s+/)
+      .map((term) => term.trim())
+      .filter((term) => term && !term.startsWith('-'));
+    const searchParams = [];
+    const addLikeConditions = (fields, terms) => {
+      if (terms.length === 0) return '';
+      const clauses = terms.map((term) => {
+        const likeTerm = buildLikeTerm(term);
+        searchParams.push(...fields.map(() => likeTerm));
+        return `(${fields.map((field) => `LOWER(COALESCE(CAST(${field} AS TEXT), '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`;
+      });
+      return clauses.join(' AND ');
+    };
+    let searchWhere = '';
+    if (searchTerms.length > 0) {
+      if (searchType === 'title') {
+        searchWhere = addLikeConditions(['catalog.title', 'catalog.short_name'], searchTerms);
+      } else if (searchType === 'creator') {
+        searchWhere = addLikeConditions(['catalog.creator'], searchTerms);
+      } else if (searchType === 'atlasId') {
+        searchWhere = addLikeConditions(['catalog.atlas_id', 'catalog.record_id'], searchTerms);
+      } else if (searchType === 'f95Id') {
+        searchWhere = addLikeConditions(['catalog.f95_id'], searchTerms);
+      } else if (searchType === 'lewdcornerId') {
+        searchWhere = addLikeConditions(['catalog.lc_id'], searchTerms);
+      } else if (searchType === 'steamId') {
+        searchWhere = addLikeConditions(['catalog.steam_id'], searchTerms);
+      } else if (searchType === 'anyId') {
+        searchWhere = addLikeConditions(['catalog.atlas_id', 'catalog.record_id', 'catalog.f95_id', 'catalog.lc_id', 'catalog.steam_id'], searchTerms);
+      } else if (searchType === 'source') {
+        searchWhere = addLikeConditions(['catalog.source', 'catalog.siteUrl', 'catalog.lewdCornerSiteUrl'], searchTerms);
+      } else {
+        searchWhere = addLikeConditions([
+          'catalog.title',
+          'catalog.short_name',
+          'catalog.creator',
+          'catalog.f95_tags',
+          'catalog.tags',
+          'catalog.lewdcornerTags',
+          'catalog.lewdcornerPrefixes',
+          'catalog.engine',
+          'catalog.status',
+          'catalog.category',
+        ], searchTerms);
+      }
+    }
     getTableColumns('f95_zone_data').then((f95Columns) => {
       const hasThreadUpdated = f95Columns.has('thread_updated')
       const threadUpdatedSelect = hasThreadUpdated
@@ -1344,13 +1407,18 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       const pagedQuery = `
         SELECT *
         FROM (${query}) catalog
+        ${searchWhere ? `WHERE ${searchWhere}` : ''}
         ORDER BY title COLLATE NOCASE ASC, catalogKey ASC
         LIMIT ? OFFSET ?
       `;
-      const countQuery = `SELECT COUNT(*) AS total FROM (${query}) catalog`;
+      const countQuery = `
+        SELECT COUNT(*) AS total
+        FROM (${query}) catalog
+        ${searchWhere ? `WHERE ${searchWhere}` : ''}
+      `;
 
       const finish = (total = null) => {
-        getDb().all(pagedQuery, [limit, offset], (err, rows) => {
+        getDb().all(pagedQuery, [...searchParams, limit, offset], (err, rows) => {
         if (err) {
           console.error("Error fetching AtlasDB catalog games:", err);
           reject(err);
@@ -1404,7 +1472,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         return;
       }
 
-      getDb().get(countQuery, [], (err, row) => {
+      getDb().get(countQuery, searchParams, (err, row) => {
         if (err) {
           console.error("Error counting AtlasDB catalog games:", err);
           reject(err);

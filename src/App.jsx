@@ -205,6 +205,17 @@ const App = () => {
     () => withWishlistStates(wishlistGames, wishlistIdentityKeys),
     [wishlistGames, wishlistIdentityKeys],
   )
+  const catalogSearch = useMemo(
+    () => ({
+      text: activeFilters.text,
+      type: activeFilters.type,
+    }),
+    [activeFilters.text, activeFilters.type],
+  )
+  const catalogSearchRef = useRef(catalogSearch)
+  useEffect(() => {
+    catalogSearchRef.current = catalogSearch
+  }, [catalogSearch])
   const catalogFilteredGames = useMemo(
     () =>
       filterGamesWithState(catalogWithWishlist, {
@@ -343,7 +354,7 @@ const App = () => {
 
   const refreshDetailGame = useCallback((recordId) => {
     refreshGame(recordId)
-    if (browseAvailable) fetchCatalogGames()
+    if (browseAvailable) fetchCatalogGames({ search: catalogSearch })
     fetchWishlistGames()
     const id = Number.parseInt(recordId, 10)
     if (!Number.isInteger(id) || id <= 0) return
@@ -361,7 +372,7 @@ const App = () => {
       .catch((error) =>
         console.error(`Failed to refresh detail game ${id}:`, error)
       )
-  }, [browseAvailable, fetchCatalogGames, fetchWishlistGames, refreshGame])
+  }, [browseAvailable, catalogSearch, fetchCatalogGames, fetchWishlistGames, refreshGame])
 
   // ── Grid sizing ────────────────────────────────────────────────────────────
   const getScrollbarWidth = () => {
@@ -473,8 +484,8 @@ const App = () => {
     setSelectedGame(null)
     setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
     setShowSearchSidebar(false)
-    if (catalogGames.length === 0) fetchCatalogGames({ reset: true })
-  }, [browseAvailable, catalogGames.length, fetchCatalogGames, setAndPersistSidePanelMode])
+    if (catalogGames.length === 0) fetchCatalogGames({ reset: true, search: catalogSearch })
+  }, [browseAvailable, catalogGames.length, catalogSearch, fetchCatalogGames, setAndPersistSidePanelMode])
 
   const loadWishlistIdentities = useCallback(() => {
     return window.electronAPI
@@ -764,7 +775,9 @@ const App = () => {
               ? 'wishlist'
               : 'local',
         )
-        if (browseOk && nextMode === SIDE_PANEL_MODES.CATALOG) fetchCatalogGames()
+        if (browseOk && nextMode === SIDE_PANEL_MODES.CATALOG) {
+          fetchCatalogGames({ search: catalogSearchRef.current })
+        }
         if (nextMode === SIDE_PANEL_MODES.WISHLIST) fetchWishlistGames()
       })
       .catch(() => setSidebarMode(SIDE_PANEL_MODES.GAMES))
@@ -860,7 +873,7 @@ const App = () => {
 
   const handleImportComplete = () => {
     fetchGames()
-      if (browseAvailableRef.current) fetchCatalogGames()
+      if (browseAvailableRef.current) fetchCatalogGames({ search: catalogSearchRef.current })
       fetchWishlistGames()
       setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000)
     }
@@ -874,7 +887,7 @@ const App = () => {
     // whenever the user does switch to it.
     const handleMetadataChanged = () => {
       fetchGames()
-      if (browseAvailableRef.current) fetchCatalogGames()
+      if (browseAvailableRef.current) fetchCatalogGames({ search: catalogSearchRef.current })
       fetchWishlistGames()
     }
 
@@ -936,6 +949,11 @@ const App = () => {
   useEffect(() => {
     requestAnimationFrame(() => debounceResize())
   }, [showLibrarySidebar, showSearchSidebar, filterSidebarMode, filterSidebarSide, libraryMode])
+
+  useEffect(() => {
+    if (libraryMode !== 'catalog' || !browseAvailable) return
+    fetchCatalogGames({ reset: true, search: catalogSearch })
+  }, [browseAvailable, catalogSearch, fetchCatalogGames, libraryMode])
 
   useEffect(() => {
     if (!showSavedFilters || includeUninstalledRef.current) return

@@ -49,6 +49,7 @@ export function useGames() {
   const catalogLoadingRef = useRef(false)
   const catalogOffsetRef = useRef(0)
   const catalogHasMoreRef = useRef(false)
+  const catalogSearchRef = useRef({ text: '', type: 'all' })
 
   const updateGamesState = useCallback((gamesArray) => {
     const normalizedGames = normalizeGamesForRenderer(gamesArray)
@@ -77,13 +78,17 @@ export function useGames() {
     [updateGamesState]
   )
 
-  const loadCatalogPage = useCallback(async ({ reset = false } = {}) => {
+  const loadCatalogPage = useCallback(async ({ reset = false, search = null } = {}) => {
     if (catalogLoadingRef.current && !reset) return []
     const token = reset ? catalogLoadTokenRef.current + 1 : catalogLoadTokenRef.current
     if (reset) {
       catalogLoadTokenRef.current = token
       catalogOffsetRef.current = 0
       catalogHasMoreRef.current = false
+      catalogSearchRef.current = {
+        text: String(search?.text || '').trim(),
+        type: String(search?.type || 'all'),
+      }
       setCatalogOffset(0)
       setCatalogHasMore(false)
       setCatalogTotal(null)
@@ -102,6 +107,7 @@ export function useGames() {
         offset,
         limit: CATALOG_PAGE_SIZE,
         includeTotal: reset,
+        search: catalogSearchRef.current,
       })
       if (catalogLoadTokenRef.current !== token) return []
       const rawRows = Array.isArray(result) ? result : result?.games || []
@@ -136,7 +142,7 @@ export function useGames() {
   }, [])
 
   const fetchCatalogGames = useCallback(
-    ({ reset = true } = {}) => loadCatalogPage({ reset }),
+    ({ reset = true, search = null } = {}) => loadCatalogPage({ reset, search }),
     [loadCatalogPage]
   )
 
