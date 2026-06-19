@@ -1,7 +1,7 @@
 import React from 'react'
 import SafeImage from '../../ui/SafeImage.jsx'
 import { getGameTitle } from '../../../utils/gameDisplay.js'
-import { normalizeBannerField } from './bannerLayoutSchema.js'
+import { normalizeBannerField, normalizeBannerLayout } from './bannerLayoutSchema.js'
 import { resolveBannerField } from './bannerFieldResolvers.js'
 import {
   getEngineBackgroundColor,
@@ -73,6 +73,14 @@ const orderedSlots = [
   'top-left-floating',
   'top-right-floating',
 ]
+
+const objectPositionByImagePosition = {
+  center: 'center',
+  top: 'center top',
+  bottom: 'center bottom',
+  left: 'left center',
+  right: 'right center',
+}
 
 const isValidHttpUrl = (url) => {
   try {
@@ -179,12 +187,16 @@ const Overlay = ({ position, overlay }) => {
 }
 
 const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
+  const normalizedLayout = normalizeBannerLayout(layout)
   const displayTitle = getGameTitle(game)
-  const imageFit = normalizeImageFit(layout?.imageFit)
+  const imageConfig = normalizedLayout?.image || {}
+  const imageFit = normalizeImageFit(imageConfig.fit || normalizedLayout?.imageFit)
   const imageFitClass = imageFit === 'cover' ? 'object-cover' : 'object-contain'
+  const fallbackClass = imageConfig.fallbackBackground === 'theme' ? 'bg-secondary' : 'bg-[#1F2937]'
+  const imageVisible = imageConfig.visible !== false
   const fieldsBySlot = new Map()
 
-  for (const rawField of layout?.fields || []) {
+  for (const rawField of normalizedLayout?.fields || []) {
     const field = normalizeBannerField(rawField)
     if (!field) continue
     const fields = fieldsBySlot.get(field.slot) || []
@@ -194,17 +206,19 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
 
   return (
     <div
-      className="relative w-[537px] h-[251px] border border-black cursor-pointer overflow-hidden box-border bg-[#1F2937] banner-root"
+      className={`relative border border-black cursor-pointer overflow-hidden box-border ${fallbackClass} banner-root`}
+      style={{ width: normalizedLayout?.width || 537, height: normalizedLayout?.height || 251 }}
       onClick={onSelect}
       onContextMenu={onContextMenu}
     >
       <style>{bannerStyles}</style>
-      <div className="absolute inset-0 w-full h-full z-0 bg-[#1F2937]">
-        {game.banner_url ? (
+      <div className={`absolute inset-0 w-full h-full z-0 ${fallbackClass}`}>
+        {imageVisible && game.banner_url ? (
           <SafeImage
             src={game.banner_url}
             alt={displayTitle}
             className={`block w-full h-full ${imageFitClass}`}
+            style={{ objectPosition: objectPositionByImagePosition[imageConfig.position] || 'center' }}
             fallbackMode="transparent"
             fallbackContent={false}
             onError={() =>
@@ -215,8 +229,8 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
           />
         ) : null}
       </div>
-      <Overlay position="top" overlay={layout?.overlays?.top} />
-      <Overlay position="bottom" overlay={layout?.overlays?.bottom} />
+      <Overlay position="top" overlay={normalizedLayout?.overlays?.top} />
+      <Overlay position="bottom" overlay={normalizedLayout?.overlays?.bottom} />
       <div className="absolute inset-0 z-20">
         {orderedSlots.map((slot) => {
           const fields = fieldsBySlot.get(slot) || []

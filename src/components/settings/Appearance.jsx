@@ -5,6 +5,8 @@ import BannerVisualEditor from './bannerEditor/BannerVisualEditor.jsx'
 import { defaultBannerLayouts, getBuiltInBannerLayoutOptions } from '../library/bannerLayout/defaultBannerLayouts.js'
 import {
   BANNER_PRESET_EXPORT_TYPE,
+  BANNER_SIZE_LIMITS,
+  BANNER_SIZE_PRESETS,
   CUSTOM_BANNER_LAYOUT_ID,
   SUPPORTED_BANNER_FIELD_IDS,
   SUPPORTED_BANNER_SLOTS,
@@ -118,6 +120,7 @@ const Appearance = () => {
   const [userPresets, setUserPresets] = useState([])
   const [presetName, setPresetName] = useState('')
   const [statusText, setStatusText] = useState('')
+  const [lockAspectRatio, setLockAspectRatio] = useState(true)
   const customSaveTimerRef = useRef(null)
 
   const selectedUserPreset = userPresets.find((preset) => preset.id === selectedPresetId)
@@ -463,7 +466,44 @@ const Appearance = () => {
   }
 
   const updateImageFit = (imageFit) => {
-    markCustom((current) => ({ ...current, imageFit }))
+    markCustom((current) => ({
+      ...current,
+      imageFit,
+      image: { ...current.image, fit: imageFit },
+    }))
+  }
+
+  const updateSizePreset = (presetId) => {
+    const sizePreset = BANNER_SIZE_PRESETS.find((preset) => preset.id === presetId)
+    if (!sizePreset) return
+    markCustom((current) => ({
+      ...current,
+      width: sizePreset.width,
+      height: sizePreset.height,
+      density: sizePreset.density,
+    }))
+  }
+
+  const updateDimension = (key, value) => {
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric)) return
+    markCustom((current) => {
+      const next = { ...current, [key]: numeric }
+      if (lockAspectRatio) {
+        const ratio = (current.width || 537) / (current.height || 251)
+        if (key === 'width') next.height = Math.round(numeric / ratio)
+        if (key === 'height') next.width = Math.round(numeric * ratio)
+      }
+      return next
+    })
+  }
+
+  const updateImage = (patch) => {
+    markCustom((current) => ({
+      ...current,
+      image: { ...current.image, ...patch },
+      imageFit: patch.fit || current.imageFit,
+    }))
   }
 
   const resetField = (fieldId) => {
@@ -573,16 +613,103 @@ const Appearance = () => {
         />
 
         <div className="flex flex-wrap gap-5">
-          <div className="space-y-3 min-w-[240px]">
+          <div className="space-y-3 min-w-[280px]">
             <div>
+              <label className="block text-sm mb-1">Size preset</label>
+              <select
+                className="w-44 bg-secondary border border-border text-text rounded p-1"
+                value={BANNER_SIZE_PRESETS.find((preset) => preset.width === draftLayout.width && preset.height === draftLayout.height)?.id || 'custom'}
+                onChange={(event) => updateSizePreset(event.target.value)}
+              >
+                {BANNER_SIZE_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name} ({preset.width}x{preset.height})
+                  </option>
+                ))}
+                <option value="custom">Custom</option>
+              </select>
+              <p className="text-xs opacity-60 mt-1">Card size affects Library and Browse grid density.</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-sm">
+                Width
+                <input
+                  type="number"
+                  min={BANNER_SIZE_LIMITS.minWidth}
+                  max={BANNER_SIZE_LIMITS.maxWidth}
+                  className="mt-1 w-full bg-secondary border border-border text-text rounded p-1"
+                  value={draftLayout.width || 537}
+                  onChange={(event) => updateDimension('width', event.target.value)}
+                />
+              </label>
+              <label className="block text-sm">
+                Height
+                <input
+                  type="number"
+                  min={BANNER_SIZE_LIMITS.minHeight}
+                  max={BANNER_SIZE_LIMITS.maxHeight}
+                  className="mt-1 w-full bg-secondary border border-border text-text rounded p-1"
+                  value={draftLayout.height || 251}
+                  onChange={(event) => updateDimension('height', event.target.value)}
+                />
+              </label>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={lockAspectRatio}
+                onChange={(event) => setLockAspectRatio(event.target.checked)}
+              />
+              Lock aspect ratio
+            </label>
+            <p className="text-xs opacity-60">
+              Width clamps to {BANNER_SIZE_LIMITS.minWidth}-{BANNER_SIZE_LIMITS.maxWidth}px;
+              height clamps to {BANNER_SIZE_LIMITS.minHeight}-{BANNER_SIZE_LIMITS.maxHeight}px.
+            </p>
+
+            <div>
+              <label className="flex items-center gap-2 text-sm mb-2">
+                <input
+                  type="checkbox"
+                  checked={draftLayout.image?.visible !== false}
+                  onChange={(event) => updateImage({ visible: event.target.checked })}
+                />
+                Show banner image
+              </label>
               <label className="block text-sm mb-1">Image fit</label>
               <select
                 className="w-40 bg-secondary border border-border text-text rounded p-1"
-                value={draftLayout.imageFit}
+                value={draftLayout.image?.fit || draftLayout.imageFit}
                 onChange={(event) => updateImageFit(event.target.value)}
               >
                 <option value="contain">Contain</option>
                 <option value="cover">Cover</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Image position</label>
+              <select
+                className="w-40 bg-secondary border border-border text-text rounded p-1"
+                value={draftLayout.image?.position || 'center'}
+                onChange={(event) => updateImage({ position: event.target.value })}
+              >
+                <option value="center">Center</option>
+                <option value="top">Top</option>
+                <option value="bottom">Bottom</option>
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Fallback background</label>
+              <select
+                className="w-40 bg-secondary border border-border text-text rounded p-1"
+                value={draftLayout.image?.fallbackBackground || 'dark'}
+                onChange={(event) => updateImage({ fallbackBackground: event.target.value })}
+              >
+                <option value="dark">Dark</option>
+                <option value="theme">Theme secondary</option>
               </select>
             </div>
 

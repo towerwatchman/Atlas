@@ -5,6 +5,15 @@ import TopNav from './components/ui/TopNav.jsx'
 import ImporterSourceMenu from './components/importer/ImporterSourceMenu.jsx'
 import { atlasLogo } from './assets/icons/data.js'
 import GameBanner from './components/library/GameBanner.jsx'
+import { defaultBannerLayouts } from './components/library/bannerLayout/defaultBannerLayouts.js'
+import {
+  CLASSIC_BANNER_LAYOUT_ID,
+  CUSTOM_BANNER_LAYOUT_ID,
+  getBannerLayoutById,
+  normalizeBannerLayout,
+  normalizeBannerLayoutId,
+  normalizeBannerPreset,
+} from './components/library/bannerLayout/bannerLayoutSchema.js'
 import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
 import SavedFiltersPanel from './components/search/SavedFiltersPanel.jsx'
@@ -341,8 +350,44 @@ const App = () => {
 
   const getColumnCountForWidth = (width) => {
     const availableWidth = Math.max(0, Number(width) || 0)
-    return Math.max(1, Math.floor(availableWidth / (bannerSize.bannerWidth + 8)))
+    return Math.max(1, Math.floor(availableWidth / (bannerSize.bannerWidth + 16)))
   }
+
+  const loadBannerLayoutMetrics = useCallback(async () => {
+    const classicLayout = getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID)
+    let resolvedLayout = classicLayout
+    try {
+      const selected = await window.electronAPI.getSelectedBannerTemplate()
+      const selectedId = normalizeBannerLayoutId(selected)
+      if (selectedId === CUSTOM_BANNER_LAYOUT_ID) {
+        const customLayout = await window.electronAPI.getCustomBannerLayout?.()
+        resolvedLayout = normalizeBannerLayout(customLayout, classicLayout) || classicLayout
+      } else {
+        const builtInLayout = getBannerLayoutById(defaultBannerLayouts, selectedId)
+        if (builtInLayout?.id === selectedId) {
+          resolvedLayout = builtInLayout
+        } else {
+          const userPresets = await window.electronAPI.getUserBannerLayouts?.()
+          const userPreset = (Array.isArray(userPresets) ? userPresets : [])
+            .find((preset) => preset?.id === selectedId)
+          resolvedLayout = normalizeBannerPreset(userPreset, classicLayout)?.layout || classicLayout
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load banner layout metrics:', error)
+      resolvedLayout = classicLayout
+    }
+
+    const normalizedLayout = normalizeBannerLayout(resolvedLayout, classicLayout) || classicLayout
+    setBannerSize({
+      bannerWidth: normalizedLayout.width || 537,
+      bannerHeight: normalizedLayout.height || 251,
+    })
+    requestAnimationFrame(() => {
+      gridRef.current?.recomputeGridSize?.()
+      gridRef.current?.forceUpdate?.()
+    })
+  }, [])
 
   const debounceResize = debounce(() => {
     if (gridRef.current) {
@@ -676,13 +721,7 @@ const App = () => {
     loadWishlistIdentities()
     loadSavedFilters()
 
-    window.electronAPI.getTemplate?.()
-      .then((template) => {
-        if (template?.bannerWidth && template?.bannerHeight) {
-          setBannerSize({ bannerWidth: template.bannerWidth, bannerHeight: template.bannerHeight })
-        }
-      })
-      .catch(() => {})
+    loadBannerLayoutMetrics()
 
     loadVersion()
     runDbUpdateCheck()
@@ -796,13 +835,21 @@ const App = () => {
       }
     })
 
+    const handleVisibilityChange = () => {
+      if (!document.hidden) loadBannerLayoutMetrics()
+    }
+
     window.addEventListener('resize', debounceResize)
+    window.addEventListener('focus', loadBannerLayoutMetrics)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     debounceResize()
 
     return () => {
       window.electronAPI.removeUpdateStatusListener?.()
       if (typeof removeMetadataListener === 'function') removeMetadataListener()
       window.removeEventListener('resize', debounceResize)
+      window.removeEventListener('focus', loadBannerLayoutMetrics)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       ;[
         'window-state-changed', 'db-update-progress', 'import-progress',
         'game-imported', 'game-updated', 'library-validation-progress',
@@ -1099,8 +1146,8 @@ const App = () => {
                 const adjustedWidth = Math.max(0, availableWidth - getScrollbarWidth())
                 const currentColumnCount = getColumnCountForWidth(adjustedWidth)
                 const currentColumnWidth = currentColumnCount > 1
-                  ? adjustedWidth / currentColumnCount - 8
-                  : adjustedWidth / currentColumnCount - 14
+                  ? Math.max(bannerSize.bannerWidth + 16, adjustedWidth / currentColumnCount)
+                  : Math.max(adjustedWidth, bannerSize.bannerWidth + 16)
                 const currentRowCount = Math.ceil(filteredGames.length / currentColumnCount)
                 return (
                   <Grid

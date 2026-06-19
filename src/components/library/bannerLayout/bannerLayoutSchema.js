@@ -2,6 +2,18 @@ export const CLASSIC_BANNER_LAYOUT_ID = 'classic'
 export const CUSTOM_BANNER_LAYOUT_ID = 'custom'
 export const BANNER_PRESET_EXPORT_TYPE = 'atlas-banner-layout'
 export const BANNER_PRESET_SCHEMA_VERSION = 1
+export const BANNER_SIZE_LIMITS = {
+  minWidth: 240,
+  maxWidth: 720,
+  minHeight: 140,
+  maxHeight: 480,
+}
+
+export const BANNER_SIZE_PRESETS = [
+  { id: 'compact', name: 'Compact', width: 360, height: 168, density: 'compact' },
+  { id: 'classic', name: 'Classic', width: 537, height: 251, density: 'comfortable' },
+  { id: 'large', name: 'Large', width: 640, height: 300, density: 'large' },
+]
 
 export const SUPPORTED_BANNER_SLOTS = [
   'top-left',
@@ -32,6 +44,9 @@ export const SUPPORTED_BANNER_FIELD_IDS = [
 const slotSet = new Set(SUPPORTED_BANNER_SLOTS)
 const fieldSet = new Set(SUPPORTED_BANNER_FIELD_IDS)
 const fitSet = new Set(['contain', 'cover'])
+const densitySet = new Set(['compact', 'comfortable', 'large', 'poster'])
+const imagePositionSet = new Set(['center', 'top', 'bottom', 'left', 'right'])
+const fallbackBackgroundSet = new Set(['theme', 'dark'])
 
 const clampNumber = (value, min, max, fallback) => {
   const numeric = Number(value)
@@ -137,13 +152,31 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
     })
   }
 
+  const width = clampNumber(source.width, BANNER_SIZE_LIMITS.minWidth, BANNER_SIZE_LIMITS.maxWidth, fallbackLayout?.width || 537)
+  const height = clampNumber(source.height, BANNER_SIZE_LIMITS.minHeight, BANNER_SIZE_LIMITS.maxHeight, fallbackLayout?.height || 251)
+  const legacyImageFit = source.imageFit || fallbackLayout?.imageFit
+  const image = {
+    visible: source.image?.visible !== false,
+    fit: fitSet.has(source.image?.fit) ? source.image.fit : fitSet.has(legacyImageFit) ? legacyImageFit : 'contain',
+    position: imagePositionSet.has(source.image?.position) ? source.image.position : fallbackLayout?.image?.position || 'center',
+    dimWhenMissing: source.image?.dimWhenMissing === true,
+    fallbackBackground: fallbackBackgroundSet.has(source.image?.fallbackBackground)
+      ? source.image.fallbackBackground
+      : fallbackLayout?.image?.fallbackBackground || 'dark',
+  }
+
   return {
     id: source.id || fallbackLayout?.id || CLASSIC_BANNER_LAYOUT_ID,
     name: source.name || fallbackLayout?.name || 'Classic',
     basePresetId: normalizeBannerLayoutId(source.basePresetId || fallbackLayout?.basePresetId || fallbackLayout?.id),
-    width: 537,
-    height: 251,
-    imageFit: fitSet.has(source.imageFit) ? source.imageFit : fallbackLayout?.imageFit || 'contain',
+    width,
+    height,
+    minWidth: BANNER_SIZE_LIMITS.minWidth,
+    maxWidth: BANNER_SIZE_LIMITS.maxWidth,
+    aspectRatio: `${width} / ${height}`,
+    density: densitySet.has(source.density) ? source.density : fallbackLayout?.density || 'comfortable',
+    image,
+    imageFit: image.fit,
     hoverEffect: source.hoverEffect || fallbackLayout?.hoverEffect || 'classic-tilt',
     overlays: {
       top: {
@@ -165,6 +198,9 @@ export const validateBannerLayout = (layout) => {
   if (!layout.id) errors.push('Banner layout is missing an id')
   if (!Array.isArray(layout.fields)) errors.push('Banner layout fields must be an array')
   if (layout.imageFit && !fitSet.has(layout.imageFit)) errors.push(`Invalid image fit ${layout.imageFit}`)
+  if (layout.image?.fit && !fitSet.has(layout.image.fit)) errors.push(`Invalid image fit ${layout.image.fit}`)
+  if (layout.image?.position && !imagePositionSet.has(layout.image.position)) errors.push(`Invalid image position ${layout.image.position}`)
+  if (layout.density && !densitySet.has(layout.density)) errors.push(`Invalid density ${layout.density}`)
 
   for (const field of layout.fields || []) {
     if (!fieldSet.has(field.id)) errors.push(`Invalid field id ${field.id}`)
@@ -253,9 +289,19 @@ export const createBannerPresetExport = (presetOrLayout, name) => {
     name: sanitizeBannerPresetName(name || presetOrLayout?.name || layout?.name),
     layout: {
       basePresetId: layout?.basePresetId,
-      width: 537,
-      height: 251,
-      imageFit: fitSet.has(layout?.imageFit) ? layout.imageFit : 'contain',
+      width: clampNumber(layout?.width, BANNER_SIZE_LIMITS.minWidth, BANNER_SIZE_LIMITS.maxWidth, 537),
+      height: clampNumber(layout?.height, BANNER_SIZE_LIMITS.minHeight, BANNER_SIZE_LIMITS.maxHeight, 251),
+      minWidth: BANNER_SIZE_LIMITS.minWidth,
+      maxWidth: BANNER_SIZE_LIMITS.maxWidth,
+      density: densitySet.has(layout?.density) ? layout.density : 'comfortable',
+      image: {
+        visible: layout?.image?.visible !== false,
+        fit: fitSet.has(layout?.image?.fit || layout?.imageFit) ? (layout?.image?.fit || layout?.imageFit) : 'contain',
+        position: imagePositionSet.has(layout?.image?.position) ? layout.image.position : 'center',
+        dimWhenMissing: layout?.image?.dimWhenMissing === true,
+        fallbackBackground: fallbackBackgroundSet.has(layout?.image?.fallbackBackground) ? layout.image.fallbackBackground : 'dark',
+      },
+      imageFit: fitSet.has(layout?.image?.fit || layout?.imageFit) ? (layout?.image?.fit || layout?.imageFit) : 'contain',
       hoverEffect: layout?.hoverEffect || 'classic-tilt',
       overlays: layout?.overlays || {},
       fields: Array.isArray(layout?.fields) ? layout.fields : [],

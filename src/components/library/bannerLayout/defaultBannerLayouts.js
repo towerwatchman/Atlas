@@ -4,7 +4,9 @@ export const defaultBannerLayouts = [
     name: 'Classic',
     width: 537,
     height: 251,
+    density: 'comfortable',
     imageFit: 'contain',
+    image: { visible: true, fit: 'contain', position: 'center', fallbackBackground: 'dark' },
     hoverEffect: 'classic-tilt',
     overlays: {
       top: { visible: true, opacity: 0.8 },
@@ -26,7 +28,9 @@ export const defaultBannerLayouts = [
     name: 'Clean Art',
     width: 537,
     height: 251,
+    density: 'comfortable',
     imageFit: 'cover',
+    image: { visible: true, fit: 'cover', position: 'center', fallbackBackground: 'dark' },
     hoverEffect: 'classic-tilt',
     overlays: {
       top: { visible: false, opacity: 0 },
@@ -44,7 +48,9 @@ export const defaultBannerLayouts = [
     name: 'Metadata Heavy',
     width: 537,
     height: 251,
+    density: 'comfortable',
     imageFit: 'contain',
+    image: { visible: true, fit: 'contain', position: 'center', fallbackBackground: 'dark' },
     hoverEffect: 'classic-tilt',
     overlays: {
       top: { visible: true, opacity: 0.85 },
@@ -65,4 +71,3 @@ export const defaultBannerLayouts = [
 
 export const getBuiltInBannerLayoutOptions = () =>
   defaultBannerLayouts.map(({ id, name }) => ({ id, name }))
-
