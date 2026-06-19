@@ -483,6 +483,22 @@ const BannerEditor = () => {
     }))
   }
 
+  const updateBlurBackground = (patch) => {
+    markCustom((current) => ({
+      ...current,
+      image: {
+        ...current.image,
+        blurBackground: {
+          opacity: 0.6,
+          blur: 20,
+          scale: 1.1,
+          ...current.image?.blurBackground,
+          ...patch,
+        },
+      },
+    }))
+  }
+
   const resetField = (fieldId) => {
     const presetDraft = createDraftFromPreset(selectedPresetId)
     const presetField = presetDraft.fields.find((field) => field.id === fieldId)
@@ -642,6 +658,71 @@ const BannerEditor = () => {
                 <option value="cover">Cover</option>
               </select>
             </div>
+            <div>
+              <label className="block text-sm mb-1">Image background</label>
+              <select
+                className="w-48 bg-secondary border border-border text-text rounded p-1"
+                value={draftLayout.image?.backgroundMode || 'image'}
+                onChange={(event) => updateImage({ backgroundMode: event.target.value })}
+              >
+                <option value="solid">Solid fallback</option>
+                <option value="image">Single image</option>
+                <option value="blurred-fill">Blurred image fill</option>
+              </select>
+            </div>
+            {(draftLayout.image?.backgroundMode || 'image') === 'blurred-fill' && (
+              <details className="text-sm border border-border rounded p-2 bg-secondary/40" open>
+                <summary className="cursor-pointer opacity-80">Blurred fill settings</summary>
+                <div className="mt-2 space-y-2">
+                  <label className="block">
+                    Blur opacity
+                    <div className="flex items-center gap-2 mt-1">
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={draftLayout.image?.blurBackground?.opacity ?? 0.6}
+                        onChange={(event) => updateBlurBackground({ opacity: Number(event.target.value) })}
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        className="w-16 bg-secondary border border-border text-text rounded p-1"
+                        value={draftLayout.image?.blurBackground?.opacity ?? 0.6}
+                        onChange={(event) => updateBlurBackground({ opacity: Number(event.target.value) })}
+                      />
+                    </div>
+                  </label>
+                  <label className="block">
+                    Blur amount
+                    <input
+                      type="number"
+                      min="0"
+                      max="40"
+                      step="1"
+                      className="mt-1 w-24 bg-secondary border border-border text-text rounded p-1"
+                      value={draftLayout.image?.blurBackground?.blur ?? 20}
+                      onChange={(event) => updateBlurBackground({ blur: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label className="block">
+                    Blur scale
+                    <input
+                      type="number"
+                      min="1"
+                      max="1.3"
+                      step="0.01"
+                      className="mt-1 w-24 bg-secondary border border-border text-text rounded p-1"
+                      value={draftLayout.image?.blurBackground?.scale ?? 1.1}
+                      onChange={(event) => updateBlurBackground({ scale: Number(event.target.value) })}
+                    />
+                  </label>
+                </div>
+              </details>
+            )}
             <div>
               <label className="block text-sm mb-1">Image position</label>
               <select

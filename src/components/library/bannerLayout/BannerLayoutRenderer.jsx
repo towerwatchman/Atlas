@@ -242,10 +242,15 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
   const normalizedLayout = normalizeBannerLayout(layout)
   const displayTitle = getGameTitle(game)
   const imageConfig = normalizedLayout?.image || {}
+  const backgroundMode = imageConfig.backgroundMode || 'image'
+  const isBlurredFill = backgroundMode === 'blurred-fill'
   const imageFit = normalizeImageFit(imageConfig.fit || normalizedLayout?.imageFit)
+  const foregroundFit = normalizeImageFit(imageConfig.foregroundFit || (isBlurredFill ? 'contain' : imageFit))
   const imageFitClass = imageFit === 'cover' ? 'object-cover' : 'object-contain'
+  const foregroundFitClass = foregroundFit === 'cover' ? 'object-cover' : 'object-contain'
   const fallbackClass = imageConfig.fallbackBackground === 'theme' ? 'bg-secondary' : 'bg-[#1F2937]'
   const imageVisible = imageConfig.visible !== false
+  const blurBackground = imageConfig.blurBackground || {}
   const fieldsBySlot = new Map()
 
   for (const rawField of normalizedLayout?.fields || []) {
@@ -265,7 +270,41 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
     >
       <style>{bannerStyles}</style>
       <div className={`absolute inset-0 w-full h-full z-0 ${fallbackClass}`}>
-        {imageVisible && game.banner_url ? (
+        {imageVisible && game.banner_url && isBlurredFill ? (
+          <>
+            <SafeImage
+              src={game.banner_url}
+              alt=""
+              aria-hidden="true"
+              className="absolute inset-0 block w-full h-full object-cover pointer-events-none"
+              style={{
+                objectPosition: objectPositionByImagePosition[imageConfig.position] || 'center',
+                filter: `blur(${blurBackground.blur ?? 20}px)`,
+                transform: `scale(${blurBackground.scale ?? 1.1})`,
+                opacity: blurBackground.opacity ?? 0.6,
+                zIndex: 0,
+              }}
+              fallbackMode="transparent"
+              fallbackContent={false}
+            />
+            <SafeImage
+              src={game.banner_url}
+              alt={displayTitle}
+              className={`absolute inset-0 block w-full h-full pointer-events-none ${foregroundFitClass}`}
+              style={{
+                objectPosition: objectPositionByImagePosition[imageConfig.position] || 'center',
+                zIndex: 1,
+              }}
+              fallbackMode="transparent"
+              fallbackContent={false}
+              onError={() =>
+                console.error(
+                  `Failed to load banner image for recordId ${game.record_id}: ${game.banner_url}`,
+                )
+              }
+            />
+          </>
+        ) : imageVisible && game.banner_url ? (
           <SafeImage
             src={game.banner_url}
             alt={displayTitle}

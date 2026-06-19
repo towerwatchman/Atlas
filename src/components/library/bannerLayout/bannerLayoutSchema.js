@@ -94,7 +94,14 @@ const fitSet = new Set(['contain', 'cover'])
 const densitySet = new Set(['compact', 'comfortable', 'large', 'poster'])
 const imagePositionSet = new Set(['center', 'top', 'bottom', 'left', 'right'])
 const fallbackBackgroundSet = new Set(['theme', 'dark'])
+const imageBackgroundModeSet = new Set(['solid', 'image', 'blurred-fill'])
 const sourceConditionSet = new Set(['atlas', 'f95', 'steam', 'lewdcorner'])
+
+const DEFAULT_BLUR_BACKGROUND = {
+  opacity: 0.6,
+  blur: 20,
+  scale: 1.1,
+}
 
 const clampNumber = (value, min, max, fallback) => {
   const numeric = Number(value)
@@ -183,6 +190,14 @@ export const mergeBannerLayout = (baseLayout, overrides = {}) => {
       top: { ...base.overlays?.top, ...overrides.overlays?.top },
       bottom: { ...base.overlays?.bottom, ...overrides.overlays?.bottom },
     },
+    image: {
+      ...base.image,
+      ...overrides.image,
+      blurBackground: {
+        ...base.image?.blurBackground,
+        ...overrides.image?.blurBackground,
+      },
+    },
     fields: Array.isArray(overrides.fields) ? overrides.fields : base.fields,
   }
 }
@@ -224,14 +239,27 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
   const width = clampNumber(source.width, BANNER_SIZE_LIMITS.minWidth, BANNER_SIZE_LIMITS.maxWidth, fallbackLayout?.width || 537)
   const height = clampNumber(source.height, BANNER_SIZE_LIMITS.minHeight, BANNER_SIZE_LIMITS.maxHeight, fallbackLayout?.height || 251)
   const legacyImageFit = source.imageFit || fallbackLayout?.imageFit
+  const backgroundMode = imageBackgroundModeSet.has(source.image?.backgroundMode)
+    ? source.image.backgroundMode
+    : imageBackgroundModeSet.has(fallbackLayout?.image?.backgroundMode)
+      ? fallbackLayout.image.backgroundMode
+      : 'image'
+  const blurBackgroundSource = source.image?.blurBackground || fallbackLayout?.image?.blurBackground || {}
   const image = {
     visible: source.image?.visible !== false,
     fit: fitSet.has(source.image?.fit) ? source.image.fit : fitSet.has(legacyImageFit) ? legacyImageFit : 'contain',
+    foregroundFit: fitSet.has(source.image?.foregroundFit) ? source.image.foregroundFit : fitSet.has(fallbackLayout?.image?.foregroundFit) ? fallbackLayout.image.foregroundFit : 'contain',
     position: imagePositionSet.has(source.image?.position) ? source.image.position : fallbackLayout?.image?.position || 'center',
     dimWhenMissing: source.image?.dimWhenMissing === true,
     fallbackBackground: fallbackBackgroundSet.has(source.image?.fallbackBackground)
       ? source.image.fallbackBackground
       : fallbackLayout?.image?.fallbackBackground || 'dark',
+    backgroundMode,
+    blurBackground: {
+      opacity: clampNumber(blurBackgroundSource.opacity, 0, 1, DEFAULT_BLUR_BACKGROUND.opacity),
+      blur: clampNumber(blurBackgroundSource.blur, 0, 40, DEFAULT_BLUR_BACKGROUND.blur),
+      scale: clampNumber(blurBackgroundSource.scale, 1, 1.3, DEFAULT_BLUR_BACKGROUND.scale),
+    },
   }
 
   return {
@@ -268,7 +296,9 @@ export const validateBannerLayout = (layout) => {
   if (!Array.isArray(layout.fields)) errors.push('Banner layout fields must be an array')
   if (layout.imageFit && !fitSet.has(layout.imageFit)) errors.push(`Invalid image fit ${layout.imageFit}`)
   if (layout.image?.fit && !fitSet.has(layout.image.fit)) errors.push(`Invalid image fit ${layout.image.fit}`)
+  if (layout.image?.foregroundFit && !fitSet.has(layout.image.foregroundFit)) errors.push(`Invalid foreground image fit ${layout.image.foregroundFit}`)
   if (layout.image?.position && !imagePositionSet.has(layout.image.position)) errors.push(`Invalid image position ${layout.image.position}`)
+  if (layout.image?.backgroundMode && !imageBackgroundModeSet.has(layout.image.backgroundMode)) errors.push(`Invalid image background mode ${layout.image.backgroundMode}`)
   if (layout.density && !densitySet.has(layout.density)) errors.push(`Invalid density ${layout.density}`)
 
   for (const field of layout.fields || []) {
@@ -366,9 +396,16 @@ export const createBannerPresetExport = (presetOrLayout, name) => {
       image: {
         visible: layout?.image?.visible !== false,
         fit: fitSet.has(layout?.image?.fit || layout?.imageFit) ? (layout?.image?.fit || layout?.imageFit) : 'contain',
+        foregroundFit: fitSet.has(layout?.image?.foregroundFit) ? layout.image.foregroundFit : 'contain',
         position: imagePositionSet.has(layout?.image?.position) ? layout.image.position : 'center',
         dimWhenMissing: layout?.image?.dimWhenMissing === true,
         fallbackBackground: fallbackBackgroundSet.has(layout?.image?.fallbackBackground) ? layout.image.fallbackBackground : 'dark',
+        backgroundMode: imageBackgroundModeSet.has(layout?.image?.backgroundMode) ? layout.image.backgroundMode : 'image',
+        blurBackground: {
+          opacity: clampNumber(layout?.image?.blurBackground?.opacity, 0, 1, DEFAULT_BLUR_BACKGROUND.opacity),
+          blur: clampNumber(layout?.image?.blurBackground?.blur, 0, 40, DEFAULT_BLUR_BACKGROUND.blur),
+          scale: clampNumber(layout?.image?.blurBackground?.scale, 1, 1.3, DEFAULT_BLUR_BACKGROUND.scale),
+        },
       },
       imageFit: fitSet.has(layout?.image?.fit || layout?.imageFit) ? (layout?.image?.fit || layout?.imageFit) : 'contain',
       hoverEffect: layout?.hoverEffect || 'classic-tilt',
