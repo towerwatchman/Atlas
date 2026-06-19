@@ -447,7 +447,6 @@ const App = () => {
         : sidebarMode === SIDE_PANEL_MODES.SAVED_FILTERS
           ? SIDE_PANEL_MODES.HIDDEN
           : SIDE_PANEL_MODES.GAMES
-    setLibraryMode('local')
     setAndPersistSidePanelMode(nextMode)
   }
 
