@@ -1116,6 +1116,120 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         ], searchTerms);
       }
     }
+    const filters = options.filters && typeof options.filters === 'object' ? options.filters : {};
+    const filterParams = [];
+    const filterWhereParts = [];
+    const toArray = (value) => {
+      if (Array.isArray(value)) return value.filter((item) => item !== undefined && item !== null && String(item).trim() !== '').map(String);
+      if (value === undefined || value === null || value === '') return [];
+      return [String(value)];
+    };
+    const addInFilter = (field, values) => {
+      const safeValues = toArray(values);
+      if (safeValues.length === 0) return;
+      filterWhereParts.push(`${field} COLLATE NOCASE IN (${safeValues.map(() => '?').join(', ')})`);
+      filterParams.push(...safeValues);
+    };
+    const addNotInFilter = (field, values) => {
+      const safeValues = toArray(values);
+      if (safeValues.length === 0) return;
+      filterWhereParts.push(`(${field} IS NULL OR ${field} COLLATE NOCASE NOT IN (${safeValues.map(() => '?').join(', ')}))`);
+      filterParams.push(...safeValues);
+    };
+    const addTagFilter = (values, { exclude = false, logic = 'AND' } = {}) => {
+      const safeValues = toArray(values);
+      if (safeValues.length === 0) return;
+      const tagFields = ['catalog.f95_tags', 'catalog.tags', 'catalog.lewdcornerTags', 'catalog.lewdcornerPrefixes'];
+      const perTagClauses = safeValues.map((value) => {
+        const clauses = tagFields.map((field) => `LOWER(COALESCE(${field}, '')) LIKE ? ESCAPE '\\'`);
+        filterParams.push(...tagFields.map(() => `%${escapeLike(value).toLowerCase()}%`));
+        const tagClause = `(${clauses.join(' OR ')})`;
+        return exclude ? `NOT ${tagClause}` : tagClause;
+      });
+      filterWhereParts.push(`(${perTagClauses.join(exclude || logic === 'AND' ? ' AND ' : ' OR ')})`);
+    };
+    const dateMsExpression = (field) => `
+      CASE
+        WHEN ${field} IS NULL OR ${field} = '' THEN NULL
+        WHEN length(CAST(${field} AS TEXT)) = 8 AND CAST(${field} AS TEXT) NOT GLOB '*[^0-9]*'
+          THEN strftime('%s', substr(CAST(${field} AS TEXT), 1, 4) || '-' || substr(CAST(${field} AS TEXT), 5, 2) || '-' || substr(CAST(${field} AS TEXT), 7, 2)) * 1000
+        WHEN CAST(${field} AS TEXT) NOT GLOB '*[^0-9]*'
+          THEN CASE WHEN CAST(${field} AS REAL) > 100000000000 THEN CAST(${field} AS REAL) ELSE CAST(${field} AS REAL) * 1000 END
+        ELSE strftime('%s', ${field}) * 1000
+      END
+    `;
+    const addDateRangeFilter = (field, range) => {
+      const now = Date.now();
+      let min = null;
+      let max = now;
+      if (range === '7d') min = now - 7 * 86400000;
+      else if (range === '30d') min = now - 30 * 86400000;
+      else if (range === '90d') min = now - 90 * 86400000;
+      else if (range === 'year') {
+        const year = new Date(now).getFullYear();
+        min = new Date(year, 0, 1).getTime();
+        max = new Date(year + 1, 0, 1).getTime() - 1;
+      } else {
+        return;
+      }
+      const dateExpr = dateMsExpression(field);
+      filterWhereParts.push(`(${dateExpr}) BETWEEN ? AND ?`);
+      filterParams.push(min, max);
+    };
+    const browseSource = String(filters.browseSource || filters.source || 'all').toLowerCase();
+    if (['f95', 'lewdcorner', 'steam', 'atlas'].includes(browseSource)) {
+      filterWhereParts.push('catalog.source = ?');
+      filterParams.push(browseSource);
+    }
+    addInFilter('catalog.category', filters.category);
+    addNotInFilter('catalog.category', filters.excludedCategories);
+    addInFilter('catalog.engine', filters.engine);
+    addNotInFilter('catalog.engine', filters.excludedEngines);
+    addInFilter('catalog.status', filters.status);
+    addNotInFilter('catalog.status', filters.excludedStatuses);
+    addInFilter('catalog.censored', filters.censored);
+    const languageValues = toArray(filters.language);
+    if (languageValues.length > 0) {
+      filterWhereParts.push(`(${languageValues.map(() => `LOWER(COALESCE(catalog.language, '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`);
+      filterParams.push(...languageValues.map((value) => `%${escapeLike(value).toLowerCase()}%`));
+    }
+    addTagFilter(filters.tags, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' });
+    addTagFilter(filters.excludedTags, { exclude: true });
+    if (filters.steamMapped === true) {
+      filterWhereParts.push('(catalog.steam_id IS NOT NULL OR catalog.siteUrl LIKE ?)');
+      filterParams.push('%store.steampowered.com/app/%');
+    }
+    if (filters.installState === 'installed') {
+      filterWhereParts.push('catalog.is_installed = 1');
+    } else if (filters.installState === 'uninstalled') {
+      filterWhereParts.push('catalog.is_installed = 0');
+    }
+    if (filters.browseDateBasis === 'thread_updated') {
+      filterWhereParts.push('catalog.thread_updated IS NOT NULL');
+    }
+    if (filters.dateField === 'releaseDate' && filters.dateRange && filters.dateRange !== 'any') {
+      addDateRangeFilter('catalog.release_date', filters.dateRange);
+    } else if (filters.dateField === 'latestUpdate' && filters.dateRange && filters.dateRange !== 'any') {
+      addDateRangeFilter('catalog.thread_updated', filters.dateRange);
+    } else if (filters.dateField === 'threadPublished' && filters.dateRange && filters.dateRange !== 'any') {
+      addDateRangeFilter('catalog.thread_publish_date', filters.dateRange);
+    } else if (filters.dateField === 'none' && filters.browseDateRange && filters.browseDateRange !== 'any') {
+      addDateRangeFilter(filters.browseDateBasis === 'thread_publish_date' ? 'catalog.thread_publish_date' : 'catalog.thread_updated', filters.browseDateRange);
+    }
+    const whereParts = [searchWhere, ...filterWhereParts].filter(Boolean);
+    const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+    const queryParams = [...searchParams, ...filterParams];
+    const browseSort = String(filters.browseSort || 'nameAsc');
+    const browseDateField = filters.browseDateBasis === 'thread_publish_date'
+      ? 'catalog.thread_publish_date'
+      : 'catalog.thread_updated';
+    const orderByClause = browseSort === 'nameDesc'
+      ? 'ORDER BY title COLLATE NOCASE DESC, catalogKey DESC'
+      : browseSort === 'newest'
+        ? `ORDER BY CASE WHEN catalog.f95_latest_order IS NULL THEN 1 ELSE 0 END ASC, CAST(catalog.f95_latest_order AS REAL) ASC, ${browseDateField} DESC, title COLLATE NOCASE ASC, catalogKey ASC`
+        : browseSort === 'oldest'
+          ? `ORDER BY CASE WHEN catalog.f95_latest_order IS NULL THEN 1 ELSE 0 END ASC, CAST(catalog.f95_latest_order AS REAL) DESC, ${browseDateField} ASC, title COLLATE NOCASE ASC, catalogKey ASC`
+          : 'ORDER BY title COLLATE NOCASE ASC, catalogKey ASC';
     getTableColumns('f95_zone_data').then((f95Columns) => {
       const hasThreadUpdated = f95Columns.has('thread_updated')
       const threadUpdatedSelect = hasThreadUpdated
@@ -1407,18 +1521,18 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       const pagedQuery = `
         SELECT *
         FROM (${query}) catalog
-        ${searchWhere ? `WHERE ${searchWhere}` : ''}
-        ORDER BY title COLLATE NOCASE ASC, catalogKey ASC
+        ${whereClause}
+        ${orderByClause}
         LIMIT ? OFFSET ?
       `;
       const countQuery = `
         SELECT COUNT(*) AS total
         FROM (${query}) catalog
-        ${searchWhere ? `WHERE ${searchWhere}` : ''}
+        ${whereClause}
       `;
 
       const finish = (total = null) => {
-        getDb().all(pagedQuery, [...searchParams, limit, offset], (err, rows) => {
+        getDb().all(pagedQuery, [...queryParams, limit, offset], (err, rows) => {
         if (err) {
           console.error("Error fetching AtlasDB catalog games:", err);
           reject(err);
@@ -1472,7 +1586,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         return;
       }
 
-      getDb().get(countQuery, searchParams, (err, row) => {
+      getDb().get(countQuery, queryParams, (err, row) => {
         if (err) {
           console.error("Error counting AtlasDB catalog games:", err);
           reject(err);

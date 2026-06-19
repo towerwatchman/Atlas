@@ -224,6 +224,8 @@ function registerGamesHandlers(ctx) {
         offset,
         limit,
         includeTotal: args?.includeTotal === true,
+        filters: args?.filters || {},
+        search: args?.search || {},
         mediaStorageMode: getMediaStorageMode(),
       },
     )

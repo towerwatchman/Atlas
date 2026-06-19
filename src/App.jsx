@@ -214,20 +214,28 @@ const App = () => {
     }),
     [activeFilters.text, activeFilters.type],
   )
+  const catalogQueryFilters = useMemo(
+    () => ({
+      ...activeFilters,
+      includeUninstalled: true,
+      installState: 'all',
+      updateAvailable: false,
+      multipleInstalledVersions: false,
+    }),
+    [activeFilters],
+  )
   const catalogSearchRef = useRef(catalogSearch)
+  const catalogQueryFiltersRef = useRef(catalogQueryFilters)
   useEffect(() => {
     catalogSearchRef.current = catalogSearch
   }, [catalogSearch])
+  useEffect(() => {
+    catalogQueryFiltersRef.current = catalogQueryFilters
+  }, [catalogQueryFilters])
   const catalogFilteredGames = useMemo(
     () =>
-      filterGamesWithState(catalogWithWishlist, {
-        ...activeFilters,
-        includeUninstalled: true,
-        installState: 'all',
-        updateAvailable: false,
-        multipleInstalledVersions: false,
-      }, { browseMode: true }),
-    [catalogWithWishlist, activeFilters],
+      filterGamesWithState(catalogWithWishlist, catalogQueryFilters, { browseMode: true }),
+    [catalogWithWishlist, catalogQueryFilters],
   )
   const requestMoreCatalogGames = useCallback(() => {
     if (
@@ -375,7 +383,7 @@ const App = () => {
 
   const refreshDetailGame = useCallback((recordId) => {
     refreshGame(recordId)
-    if (browseAvailable) fetchCatalogGames({ search: catalogSearch })
+    if (browseAvailable) fetchCatalogGames({ search: catalogSearch, filters: catalogQueryFilters })
     fetchWishlistGames()
     const id = Number.parseInt(recordId, 10)
     if (!Number.isInteger(id) || id <= 0) return
@@ -393,7 +401,7 @@ const App = () => {
       .catch((error) =>
         console.error(`Failed to refresh detail game ${id}:`, error)
       )
-  }, [browseAvailable, catalogSearch, fetchCatalogGames, fetchWishlistGames, refreshGame])
+  }, [browseAvailable, catalogQueryFilters, catalogSearch, fetchCatalogGames, fetchWishlistGames, refreshGame])
 
   // ── Grid sizing ────────────────────────────────────────────────────────────
   const getScrollbarWidth = () => {
@@ -505,8 +513,8 @@ const App = () => {
     setSelectedGame(null)
     setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
     setShowSearchSidebar(false)
-    if (catalogGames.length === 0) fetchCatalogGames({ reset: true, search: catalogSearch })
-  }, [browseAvailable, catalogGames.length, catalogSearch, fetchCatalogGames, setAndPersistSidePanelMode])
+    if (catalogGames.length === 0) fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
+  }, [browseAvailable, catalogGames.length, catalogQueryFilters, catalogSearch, fetchCatalogGames, setAndPersistSidePanelMode])
 
   const loadWishlistIdentities = useCallback(() => {
     return window.electronAPI
@@ -797,7 +805,7 @@ const App = () => {
               : 'local',
         )
         if (browseOk && nextMode === SIDE_PANEL_MODES.CATALOG) {
-          fetchCatalogGames({ search: catalogSearchRef.current })
+          fetchCatalogGames({ search: catalogSearchRef.current, filters: catalogQueryFiltersRef.current })
         }
         if (nextMode === SIDE_PANEL_MODES.WISHLIST) fetchWishlistGames()
       })
@@ -894,7 +902,9 @@ const App = () => {
 
   const handleImportComplete = () => {
     fetchGames()
-      if (browseAvailableRef.current) fetchCatalogGames({ search: catalogSearchRef.current })
+      if (browseAvailableRef.current) {
+        fetchCatalogGames({ search: catalogSearchRef.current, filters: catalogQueryFiltersRef.current })
+      }
       fetchWishlistGames()
       setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000)
     }
@@ -908,7 +918,9 @@ const App = () => {
     // whenever the user does switch to it.
     const handleMetadataChanged = () => {
       fetchGames()
-      if (browseAvailableRef.current) fetchCatalogGames({ search: catalogSearchRef.current })
+      if (browseAvailableRef.current) {
+        fetchCatalogGames({ search: catalogSearchRef.current, filters: catalogQueryFiltersRef.current })
+      }
       fetchWishlistGames()
     }
 
@@ -973,8 +985,8 @@ const App = () => {
 
   useEffect(() => {
     if (libraryMode !== 'catalog' || !browseAvailable) return
-    fetchCatalogGames({ reset: true, search: catalogSearch })
-  }, [browseAvailable, catalogSearch, fetchCatalogGames, libraryMode])
+    fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
+  }, [browseAvailable, catalogQueryFilters, catalogSearch, fetchCatalogGames, libraryMode])
 
   useEffect(() => {
     if (
