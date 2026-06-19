@@ -577,6 +577,7 @@ async function startSteamScan(db, params, event) {
         // to vary — see getImportRecordStatus.)
         version: steamGame.buildId ? `Steam build ${steamGame.buildId}` : "Steam",
         steamType: (meta && meta.type) || "game",
+        sourceType: "steam",
         folder: steamGame.installDir,
         executables: [{ key: "steam", value: "Launch via Steam" }],
         selectedValue: "steam",

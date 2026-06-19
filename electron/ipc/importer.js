@@ -122,6 +122,17 @@ const isArchiveFilePath = (filePath, appConfig) => {
   return ext ? getConfiguredExtractionExtensions(appConfig).includes(ext) : false;
 };
 
+function isSteamImportRow(game = {}) {
+  return (
+    game.sourceType === "steam" ||
+    game.scanStatus === "steamVersion" ||
+    Boolean(game.steamId || game.steam_id || game.steam_appid)
+  );
+}
+
+const getSteamIdFromGame = (game = {}) =>
+  toPositiveInteger(game.steamId || game.steam_id || game.steam_appid);
+
 const inferCatalogImportVersion = (sourcePath, catalog = {}) => {
   const candidates = [
     path.basename(String(sourcePath || ""), path.extname(String(sourcePath || ""))),
@@ -2285,8 +2296,9 @@ ipcMain.handle("import-games", async (event, params) => {
     canCancel: true,
   });
 
+  const importNeedsLibrary = games.some((game) => game.isArchive || !isSteamImportRow(game));
   let targetLibrary = appConfig?.Library?.gameFolder;
-  if (!targetLibrary || !fs.existsSync(targetLibrary)) {
+  if ((!targetLibrary || !fs.existsSync(targetLibrary)) && importNeedsLibrary) {
     console.warn("No default library folder configured");
     mainWindow.webContents.send("import-progress", {
       text: "Choose a library folder to continue",
@@ -2297,6 +2309,7 @@ ipcMain.handle("import-games", async (event, params) => {
     ctx.activeImportSession = null;
     return { success: false, error: "Default library folder is not set" };
   }
+  if (!targetLibrary || !fs.existsSync(targetLibrary)) targetLibrary = null;
 
   // ────────────────────────────────────────────────────────────────
   //  Resolve 7-Zip once before archive extraction
@@ -2344,8 +2357,12 @@ ipcMain.handle("import-games", async (event, params) => {
       });
 
       game.version = normalizeVersionName(game.version);
+      const steamImport = isSteamImportRow(game);
+      const steamId = getSteamIdFromGame(game);
       let gamePath = game.folder;
-      let execPath = game.selectedValue
+      let execPath = steamImport
+        ? game.execPath || game.exec_path || ""
+        : game.selectedValue
         ? path.join(game.folder, game.selectedValue)
         : "";
       const sourceCleanupRoot = game.sourceRoot || sourceRoot;
@@ -2354,7 +2371,7 @@ ipcMain.handle("import-games", async (event, params) => {
       let archiveToDeleteAfterImport = null;
 
       // ── Structured move (non-archive) ───────────────────────────────────────
-      if (targetLibrary && !game.isArchive) {
+      if (targetLibrary && !game.isArchive && !steamImport) {
         let destinationPath = buildStructuredImportPath(
           targetLibrary,
           destinationFormat,
@@ -2598,12 +2615,12 @@ ipcMain.handle("import-games", async (event, params) => {
       // prior steam import, or an Atlas/f95 title listing this appid in its
       // external_ids), attach to that record so it shows as an extra version
       // instead of a duplicate title — even when the names differ.
-      if (!recordId && game.steamId) {
+      if (!recordId && steamId) {
         const steamMergeRecordId =
           (game.existingRecordId &&
           ["steamVersion", "repairPath"].includes(String(game.scanStatus || ""))
             ? game.existingRecordId
-            : null) || (await findRecordBySteamId(game.steamId));
+            : null) || (await findRecordBySteamId(steamId));
         if (steamMergeRecordId) recordId = steamMergeRecordId;
       }
 
@@ -2631,16 +2648,20 @@ ipcMain.handle("import-games", async (event, params) => {
       }
       console.log("game added");
       console.log("adding version");
+      const versionGame = {
+        ...game,
+        folder: gamePath,
+        execPath,
+        folderSize: size || game.folderSize || 0,
+        in_place: steamImport ? 1 : game.in_place,
+        inPlace: steamImport ? true : game.inPlace,
+        sourceType: steamImport ? "steam" : game.sourceType,
+        steamId: steamId || game.steamId,
+      };
       if (shouldUpsertExisting) {
-        await upsertVersion(
-          { ...game, folder: gamePath, execPath, folderSize: size },
-          recordId,
-        );
+        await upsertVersion(versionGame, recordId);
       } else {
-        await addVersion(
-          { ...game, folder: gamePath, execPath, folderSize: size },
-          recordId,
-        );
+        await addVersion(versionGame, recordId);
       }
       console.log("added version");
       console.log("adding mapping");
@@ -2687,9 +2708,9 @@ ipcMain.handle("import-games", async (event, params) => {
       // banner/hero art resolved in mediaSources. Metadata enrichment of
       // steam_data happens in a later phase; the mapping alone is enough for the
       // game to appear, render art, and launch.
-      if (game.steamId) {
+      if (steamId) {
         try {
-          await addSteamMapping(recordId, parseInt(game.steamId, 10));
+          await addSteamMapping(recordId, steamId);
           console.log("steam mapping added");
         } catch (err) {
           console.error("Failed to add steam mapping:", err);
@@ -2698,7 +2719,15 @@ ipcMain.handle("import-games", async (event, params) => {
       }
 
       if (size > 0) await updateFolderSize(recordId, game.version, size);
-      if (game.replaceVersion) {
+      if (game.replaceVersion && steamImport) {
+        console.warn(`Skipped replacement cleanup for Steam import ${game.title}`);
+        mainWindow.webContents.send("import-progress", {
+          text: `Imported ${game.title} in-place; skipped replacement cleanup for Steam files`,
+          progress,
+          total,
+          canCancel: true,
+        });
+      } else if (game.replaceVersion) {
         const replacementResult = await replaceInstalledVersionAfterImport({
           recordId,
           newVersion: game.version,
@@ -2766,7 +2795,7 @@ ipcMain.handle("import-games", async (event, params) => {
         title: game.title,
         recordId,
         atlasId: game.atlasId,
-        steamId: game.steamId,
+        steamId: steamId || game.steamId,
       });
       session.cleanupPaths = [];
 

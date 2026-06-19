@@ -97,6 +97,11 @@ const Importer = () => {
   const hasDatabaseMatch = (game) => game.results?.length === 1 && game.results[0]?.key === 'match'
   const hasSelectedDatabaseMatch = (game) => game.results?.length > 1 && !!game.resultSelectedValue
   const isUnmatchedGame = (game) => (game.results || []).length === 0
+  const isSteamImportRow = (game = {}) => (
+    game.sourceType === 'steam' ||
+    game.scanStatus === 'steamVersion' ||
+    /^\d+$/.test(String(game.steamId || game.steam_id || game.steam_appid || game.appid || '').trim())
+  )
 
   const normalizeMatchState = (game = {}) => {
     const results = Array.isArray(game.results) ? game.results : []
@@ -154,7 +159,11 @@ const Importer = () => {
     if (!game.isArchive && !game.selectedValue) {
       return { text: 'Missing launchable', type: 'missingLaunchable' }
     }
-    if (isImportableGame(game, importOptions)) return { text: game.isArchive ? 'Ready to extract' : 'Ready to import', type: 'ready' }
+    if (isImportableGame(game, importOptions)) {
+      if (isSteamImportRow(game)) return { text: 'Steam mapped in-place', type: 'steamVersion' }
+      if (game.isArchive) return { text: 'Archive detected - will extract on import', type: 'ready' }
+      return { text: 'Folder detected - will move to library', type: 'ready' }
+    }
 
     return { text: game.scanMessage || 'Not importable', type: 'blocked' }
   }
@@ -826,7 +835,8 @@ const Importer = () => {
       return
     }
     let finalLibraryPath = defaultLibraryPath
-    if (!finalLibraryPath) {
+    const importNeedsLibrary = gamesToImport.some((game) => game.isArchive || !isSteamImportRow(game))
+    if (importNeedsLibrary && !finalLibraryPath) {
       setAskingForLibraryFolder(true)
       const selected = await window.electronAPI.selectDirectory()
       setAskingForLibraryFolder(false)
@@ -845,8 +855,13 @@ const Importer = () => {
         }
       }
     }
+    const gamesForImport = gamesToImport.map((game) => {
+      if (!isSteamImportRow(game)) return game
+      const steamId = String(game.steamId || game.steam_id || game.steam_appid || game.appid || '').trim()
+      return { ...game, sourceType: 'steam', steamId: /^\d+$/.test(steamId) ? steamId : game.steamId }
+    })
     const importParams = {
-      games: gamesToImport,
+      games: gamesForImport,
       sourceRoot: folder,
       deleteSourceArchiveAfterImport,
       scanSize,
