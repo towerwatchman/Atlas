@@ -23,6 +23,19 @@ assert.strictEqual(game.hero_url, localHero)
 assert.strictEqual(game.hero_candidates[0], localHero)
 assert.strictEqual(game.steam_library_capsule, localCover)
 
+const legacyTemplateGame = applyMediaSources({
+  record_id: 43,
+  steam_id: '4688100',
+  banner_source: 'stream',
+  steam_header: 'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/4688100/${FILENAME}?t=1778573150',
+  steam_library_hero: 'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/4688100/${FILENAME}?t=1778573150',
+  steam_logo: 'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/4688100/${FILENAME}?t=1778573150',
+}, { sourceOrder: ['steam'] })
+
+assert.ok(!legacyTemplateGame.banner_candidates.some((url) => String(url).includes('${FILENAME}')))
+assert.ok(!legacyTemplateGame.hero_candidates.some((url) => String(url).includes('${FILENAME}')))
+assert.ok(!legacyTemplateGame.logo_candidates.some((url) => String(url).includes('${FILENAME}')))
+
 const bannerSelectFields = buildBannerSelectFields('C:/Atlas/src', 'download')
 assert.ok(
   bannerSelectFields.includes("media_assets.asset_type = 'steam_header'"),

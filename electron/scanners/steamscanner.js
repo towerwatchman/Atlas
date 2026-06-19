@@ -95,12 +95,12 @@ async function fetchStoreItemAssets(appid) {
     const assets = item && item.assets;
     if (!assets || !assets.asset_url_format) return {};
 
-    // asset_url_format looks like "steam/apps/440/${filename}". Each asset field
+    // asset_url_format looks like "steam/apps/440/${FILENAME}". Each asset field
     // (library_hero, logo, …) is just the filename (with its ?t= cache-buster).
     const build = (filename) =>
       filename
         ? STORE_ASSET_BASE +
-          assets.asset_url_format.replace(/\$\{filename\}|\{filename\}/, filename)
+          assets.asset_url_format.replace(/\$\{FILENAME\}|\$\{filename\}|\{filename\}/, filename)
         : "";
 
     const pick = (...keys) => {

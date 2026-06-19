@@ -29,19 +29,26 @@ const STEAM_LIBRARY_CDN = 'https://shared.fastly.steamstatic.com/store_item_asse
 const steamAsset = (appid, file) =>
   appid ? `${STEAM_LIBRARY_CDN}/${appid}/${file}` : null
 
+const isResolvedSteamAssetUrl = (url) => {
+  const value = String(url || '')
+  return value && !/\$\{?FILENAME\}?|\$\{?filename\}?/i.test(value)
+}
+
+const resolvedSteamAsset = (url) => isResolvedSteamAssetUrl(url) ? url : null
+
 // Resolve the three details-page images for an app, preferring any URLs already
 // captured from the Steam store API on the game row.
 const steamImages = (appid, game = {}) => ({
   // Wide store capsule — used as the library/grid banner. Prefer the API header
   // (steam_data.header) which is the exact image Steam serves, then fall back to
   // the unhashed library-CDN header.
-  banner: (game && game.steam_header) || steamAsset(appid, 'header.jpg'),
+  banner: resolvedSteamAsset(game && game.steam_header) || steamAsset(appid, 'header.jpg'),
   // Tall key-art behind the details-page header. Prefer the exact API URL.
-  hero: (game && game.steam_library_hero) || steamAsset(appid, 'library_hero.jpg'),
+  hero: resolvedSteamAsset(game && game.steam_library_hero) || steamAsset(appid, 'library_hero.jpg'),
   // Transparent title treatment shown bottom-left. steam_data.logo now holds the
   // genuine transparent logo (resolved via the keyless GetItems endpoint); fall
   // back to the buildable convention URL only if it's missing.
-  logo: (game && game.steam_logo) || steamAsset(appid, 'logo.png'),
+  logo: resolvedSteamAsset(game && game.steam_logo) || steamAsset(appid, 'logo.png'),
 })
 
 // external_ids is stored as a JSON object string, e.g.
@@ -94,7 +101,7 @@ const dedupe = (list) => {
 const bannerCandidatesForSource = (source, game, appid) => {
   if (source === 'steam') {
     // Exact API header (hashed, guaranteed) first; buildable convention second.
-    return [game.steam_header, steamAsset(appid, 'header.jpg')]
+    return [resolvedSteamAsset(game.steam_header), steamAsset(appid, 'header.jpg')]
   }
   if (source === 'f95') {
     return [game.f95_banner]
@@ -118,7 +125,7 @@ const bannerCandidatesForOrder = (game, order, appid) => {
 
 // Steam-only hero candidates: exact API library_hero first, convention second.
 const steamHeroCandidates = (game, appid) => [
-  game.steam_library_hero,
+  resolvedSteamAsset(game.steam_library_hero),
   steamAsset(appid, 'library_hero.jpg'),
 ]
 
@@ -177,7 +184,7 @@ const applyMediaSources = (game, options = {}) => {
   const isCapsuleLike = (u) => /library_600x900|library_capsule/i.test(String(u || ''))
   const logoCandidates = steamEnabled && appid
     ? dedupe(
-        [game.steam_logo, steamAsset(appid, 'logo.png')]
+        [resolvedSteamAsset(game.steam_logo), steamAsset(appid, 'logo.png')]
           .filter(Boolean)
           .filter((u) => !isCapsuleLike(u)),
       )

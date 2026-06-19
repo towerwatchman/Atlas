@@ -238,6 +238,10 @@ const fetchSteamStoreAssetUrls = async (steamId) => {
 };
 
 const isSteamCapsuleLike = (url) => /library_600x900|library_capsule/i.test(String(url || ""));
+const isResolvedSteamAssetUrl = (url) => {
+  const value = String(url || "");
+  return value && !/\$\{?FILENAME\}?|\$\{?filename\}?/i.test(value);
+};
 
 const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
   return new Promise((resolve, reject) => {
@@ -299,10 +303,14 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
 
         const steamId = row.steam_id;
         const steamAssets = await fetchSteamStoreAssetUrls(steamId);
-        const steamCoverUrl = row.steam_cover || steamAssets.cover || (isSteamCapsuleLike(row.steam_logo) ? row.steam_logo : "");
-        const steamLogoUrl = isSteamCapsuleLike(row.steam_logo) ? "" : row.steam_logo;
-        add("steam", "steam_header", row.steam_header || steamAssets.header || steamCdnAsset(steamId, "header.jpg"), "steam_header", "banner");
-        add("steam", "steam_hero", row.steam_hero || steamAssets.hero || steamCdnAsset(steamId, "library_hero.jpg"), "steam_hero");
+        const rowSteamHeader = isResolvedSteamAssetUrl(row.steam_header) ? row.steam_header : "";
+        const rowSteamHero = isResolvedSteamAssetUrl(row.steam_hero) ? row.steam_hero : "";
+        const rowSteamCover = isResolvedSteamAssetUrl(row.steam_cover) ? row.steam_cover : "";
+        const rowSteamLogo = isResolvedSteamAssetUrl(row.steam_logo) ? row.steam_logo : "";
+        const steamCoverUrl = rowSteamCover || steamAssets.cover || (isSteamCapsuleLike(rowSteamLogo) ? rowSteamLogo : "");
+        const steamLogoUrl = isSteamCapsuleLike(rowSteamLogo) ? "" : rowSteamLogo;
+        add("steam", "steam_header", rowSteamHeader || steamAssets.header || steamCdnAsset(steamId, "header.jpg"), "steam_header", "banner");
+        add("steam", "steam_hero", rowSteamHero || steamAssets.hero || steamCdnAsset(steamId, "library_hero.jpg"), "steam_hero");
         add("steam", "steam_cover", steamCoverUrl || steamCdnAsset(steamId, "library_600x900.jpg"), "steam_cover");
         add("steam", "steam_logo", steamLogoUrl || steamAssets.logo || steamCdnAsset(steamId, "logo.png"), "steam_logo");
 
