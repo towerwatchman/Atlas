@@ -56,20 +56,30 @@ const buildBannerJoinClauses = () => `
       ) source_large_banners ON games.record_id = source_large_banners.record_id`;
 
 const buildBannerSelectFields = (baseImagePath, mediaStorageMode) => {
-  const customAnimatedBannerExpression = `REPLACE('${baseImagePath}/' || custom_animated_banners.path, '\\', '/')`;
-  const customSmallBannerExpression = `REPLACE('${baseImagePath}/' || custom_small_banners.path, '\\', '/')`;
-  const customLargeBannerExpression = `REPLACE('${baseImagePath}/' || custom_large_banners.path, '\\', '/')`;
-  const sourceAnimatedBannerExpression = `REPLACE('${baseImagePath}/' || source_animated_banners.path, '\\', '/')`;
-  const sourceSmallBannerExpression = `REPLACE('${baseImagePath}/' || source_small_banners.path, '\\', '/')`;
-  const sourceLargeBannerExpression = `REPLACE('${baseImagePath}/' || source_large_banners.path, '\\', '/')`;
-  const localBannerExpression = `COALESCE(${customAnimatedBannerExpression}, ${customSmallBannerExpression}, ${customLargeBannerExpression}, ${sourceAnimatedBannerExpression}, ${sourceSmallBannerExpression}, ${sourceLargeBannerExpression})`;
+  const safeBaseImagePath = String(baseImagePath || '').replace(/'/g, "''");
+  const customAnimatedBannerExpression = `REPLACE('${safeBaseImagePath}/' || custom_animated_banners.path, '\\', '/')`;
+  const customSmallBannerExpression = `REPLACE('${safeBaseImagePath}/' || custom_small_banners.path, '\\', '/')`;
+  const customLargeBannerExpression = `REPLACE('${safeBaseImagePath}/' || custom_large_banners.path, '\\', '/')`;
+  const sourceAnimatedBannerExpression = `REPLACE('${safeBaseImagePath}/' || source_animated_banners.path, '\\', '/')`;
+  const sourceSmallBannerExpression = `REPLACE('${safeBaseImagePath}/' || source_small_banners.path, '\\', '/')`;
+  const sourceLargeBannerExpression = `REPLACE('${safeBaseImagePath}/' || source_large_banners.path, '\\', '/')`;
+  const localSteamHeaderExpression = `(
+            SELECT REPLACE('${safeBaseImagePath}/' || media_assets.path, '\\', '/')
+            FROM media_assets
+            WHERE media_assets.record_id = games.record_id
+              AND media_assets.asset_type = 'steam_header'
+            ORDER BY media_assets.created_at DESC
+            LIMIT 1
+          )`;
+  const localBannerExpression = `COALESCE(${customAnimatedBannerExpression}, ${customSmallBannerExpression}, ${customLargeBannerExpression}, ${sourceAnimatedBannerExpression}, ${sourceSmallBannerExpression}, ${sourceLargeBannerExpression}, ${localSteamHeaderExpression})`;
   const bannerUrlExpression =
     `COALESCE(${localBannerExpression}, ${remoteBannerExpression})`;
   const bannerSourceExpression =
     `CASE
           WHEN custom_animated_banners.path IS NOT NULL OR source_animated_banners.path IS NOT NULL THEN 'download-animated'
           WHEN custom_small_banners.path IS NOT NULL OR custom_large_banners.path IS NOT NULL
-            OR source_small_banners.path IS NOT NULL OR source_large_banners.path IS NOT NULL THEN 'download'
+            OR source_small_banners.path IS NOT NULL OR source_large_banners.path IS NOT NULL
+            OR ${localSteamHeaderExpression} IS NOT NULL THEN 'download'
           WHEN ${remoteBannerExpression} IS NOT NULL THEN 'stream'
           ELSE ''
         END`;
@@ -81,6 +91,7 @@ const buildBannerSelectFields = (baseImagePath, mediaStorageMode) => {
           WHEN custom_animated_banners.path IS NOT NULL OR custom_small_banners.path IS NOT NULL
             OR custom_large_banners.path IS NOT NULL OR source_animated_banners.path IS NOT NULL
             OR source_small_banners.path IS NOT NULL OR source_large_banners.path IS NOT NULL
+            OR ${localSteamHeaderExpression} IS NOT NULL
           THEN 1 ELSE 0
         END AS has_downloaded_banner`;
 };

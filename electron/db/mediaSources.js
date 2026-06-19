@@ -17,14 +17,14 @@ const DEFAULT_SOURCE_ORDER = ['f95', 'lewdcorner', 'steam']
 //   1. store_item_assets/steam/apps/{appid}/{HASH}/header_2x.jpg?t=...
 //      Higher-res, but the {HASH} + ?t cache-buster only come from Steam's
 //      store API — they CANNOT be built from the app id alone.
-//   2. /steam/apps/{appid}/{file}  (the "library" CDN path)
+//   2. store_item_assets/steam/apps/{appid}/{file}
 //      Stable, unhashed, buildable from just the app id. Slightly lower res.
 //
 // We build URLs from system (2) since the app id is all we're guaranteed to
 // have. When a real Steam scan exists, the API-sourced header/library_hero URLs
 // stored on steam_data are preferred because they may include the hashed,
 // higher-res variants.
-const STEAM_LIBRARY_CDN = 'https://cdn.cloudflare.steamstatic.com/steam/apps'
+const STEAM_LIBRARY_CDN = 'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps'
 
 const steamAsset = (appid, file) =>
   appid ? `${STEAM_LIBRARY_CDN}/${appid}/${file}` : null
