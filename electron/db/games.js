@@ -21,6 +21,61 @@ const dbRun = (sql, params = []) =>
     })
   })
 
+const normalizeText = (value) => value === undefined || value === null ? "" : String(value)
+
+const parseTagList = (value) => {
+  if (Array.isArray(value)) return value.map(normalizeText).map((tag) => tag.trim()).filter(Boolean)
+  return normalizeText(value)
+    .split(/[,;\n]/)
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+}
+
+const replaceGameTags = (recordId, tags) => {
+  const db = getDb()
+  const uniqueTags = Array.from(new Set(parseTagList(tags)))
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run("BEGIN TRANSACTION")
+      db.run("DELETE FROM tag_mappings WHERE record_id = ?", [recordId], (deleteErr) => {
+        if (deleteErr) {
+          db.run("ROLLBACK", () => reject(deleteErr))
+          return
+        }
+        const insertNext = (index) => {
+          if (index >= uniqueTags.length) {
+            db.run("COMMIT", (commitErr) => {
+              if (commitErr) reject(commitErr)
+              else resolve()
+            })
+            return
+          }
+          const tag = uniqueTags[index]
+          db.run("INSERT OR IGNORE INTO tags (tag) VALUES (?)", [tag], (tagErr) => {
+            if (tagErr) {
+              db.run("ROLLBACK", () => reject(tagErr))
+              return
+            }
+            db.run(
+              `INSERT OR IGNORE INTO tag_mappings (record_id, tag_id)
+               SELECT ?, tag_id FROM tags WHERE tag = ?`,
+              [recordId, tag],
+              (mappingErr) => {
+                if (mappingErr) {
+                  db.run("ROLLBACK", () => reject(mappingErr))
+                  return
+                }
+                insertNext(index + 1)
+              },
+            )
+          })
+        }
+        insertNext(0)
+      })
+    })
+  })
+}
+
 const addGame = (game) => {
   return new Promise((resolve, reject) => {
     const { title, creator, engine } = game;
@@ -66,31 +121,63 @@ const addGame = (game) => {
   });
 };
 
-const updateGame = (game) => {
-  return new Promise((resolve, reject) => {
-    const { title, creator, engine } = game;
-    const description = game.description ?? game.overview ?? null;
-    getDb().run(
+const updateGame = async (game) => {
+  const { title, creator, engine } = game;
+  const recordId = game.record_id;
+  const description = game.description ?? game.overview ?? "";
+
+  try {
+    await dbRun(
       `UPDATE games SET title = ?, creator = ?, engine = ?, description = ?
        WHERE record_id = ?`,
-      [
-        title,
-        creator,
-        engine,
-        description,
-        game.record_id,
-      ],
-      function (err) {
-        if (err) {
-          console.error("Error updating game:", err);
-          reject(err);
-          return;
-        }
-        console.log(`Updated game ${title} with record_id: ${game.record_id}`);
-        resolve(game.record_id);
-      },
+      [title, creator, engine, description, recordId],
     );
-  });
+    await dbRun(
+      `INSERT INTO game_metadata_overrides
+       (record_id, os, publisher, release_date, status, category, latest_version, censored,
+        language, translations, genre, voice, rating, overview, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(record_id) DO UPDATE SET
+         os = excluded.os,
+         publisher = excluded.publisher,
+         release_date = excluded.release_date,
+         status = excluded.status,
+         category = excluded.category,
+         latest_version = excluded.latest_version,
+         censored = excluded.censored,
+         language = excluded.language,
+         translations = excluded.translations,
+         genre = excluded.genre,
+         voice = excluded.voice,
+         rating = excluded.rating,
+         overview = excluded.overview,
+         updated_at = excluded.updated_at`,
+      [
+        recordId,
+        normalizeText(game.os),
+        normalizeText(game.publisher),
+        normalizeText(game.release_date),
+        normalizeText(game.status),
+        normalizeText(game.category),
+        normalizeText(game.latest_version ?? game.latestVersion),
+        normalizeText(game.censored),
+        normalizeText(game.language),
+        normalizeText(game.translations),
+        normalizeText(game.genre),
+        normalizeText(game.voice),
+        normalizeText(game.rating),
+        normalizeText(game.overview ?? game.description),
+        Math.floor(Date.now() / 1000),
+      ],
+    );
+    await replaceGameTags(recordId, game.tags ?? game.f95_tags ?? "");
+    resetCachedFilterOptions();
+    console.log(`Updated game ${title} with record_id: ${recordId}`);
+    return recordId;
+  } catch (err) {
+    console.error("Error updating game:", err);
+    throw err;
+  }
 };
 
 const recordGameLaunchStarted = (recordId, version, timestamp) => {

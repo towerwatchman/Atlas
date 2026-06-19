@@ -252,6 +252,26 @@ const initializeDatabase = (dataDir) => {
       );
     `);
     db.run(`
+      CREATE TABLE IF NOT EXISTS game_metadata_overrides
+      (
+        record_id INTEGER PRIMARY KEY REFERENCES games (record_id) ON DELETE CASCADE,
+        os TEXT,
+        publisher TEXT,
+        release_date TEXT,
+        status TEXT,
+        category TEXT,
+        latest_version TEXT,
+        censored TEXT,
+        language TEXT,
+        translations TEXT,
+        genre TEXT,
+        voice TEXT,
+        rating TEXT,
+        overview TEXT,
+        updated_at INTEGER
+      );
+    `);
+    db.run(`
       CREATE TABLE IF NOT EXISTS atlas_tags
       (
         tag_id INTEGER REFERENCES tags (tag_id),

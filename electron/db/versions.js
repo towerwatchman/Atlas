@@ -784,21 +784,21 @@ ${bannerSelectFields},
         f95_zone_data.views as views,
         f95_zone_data.likes as likes,
         f95_zone_data.tags as f95_tags,
-        f95_zone_data.rating as rating,
+        COALESCE(game_metadata_overrides.rating, f95_zone_data.rating) as rating,
 ${lewdCornerSelectFields}
-        atlas_data.status,
-        atlas_data.version as latestVersion,
-        COALESCE(NULLIF(atlas_data.category, ''), steam_data.category) AS category,
-        COALESCE(NULLIF(atlas_data.censored, ''), steam_data.censored) AS censored,
-        COALESCE(NULLIF(atlas_data.genre, ''), steam_data.genre) AS genre,
-        COALESCE(NULLIF(atlas_data.language, ''), steam_data.language) AS language,
-        COALESCE(NULLIF(atlas_data.os, ''), steam_data.os) AS os,
-        COALESCE(NULLIF(atlas_data.overview, ''), steam_data.overview) AS overview,
-        COALESCE(NULLIF(atlas_data.translations, ''), steam_data.translations) AS translations,
-        atlas_data.release_date,
+        COALESCE(game_metadata_overrides.status, atlas_data.status) AS status,
+        COALESCE(game_metadata_overrides.latest_version, atlas_data.version) as latestVersion,
+        COALESCE(game_metadata_overrides.category, NULLIF(atlas_data.category, ''), steam_data.category) AS category,
+        COALESCE(game_metadata_overrides.censored, NULLIF(atlas_data.censored, ''), steam_data.censored) AS censored,
+        COALESCE(game_metadata_overrides.genre, NULLIF(atlas_data.genre, ''), steam_data.genre) AS genre,
+        COALESCE(game_metadata_overrides.language, NULLIF(atlas_data.language, ''), steam_data.language) AS language,
+        COALESCE(game_metadata_overrides.os, NULLIF(atlas_data.os, ''), steam_data.os) AS os,
+        COALESCE(game_metadata_overrides.overview, NULLIF(games.description, ''), NULLIF(atlas_data.overview, ''), steam_data.overview) AS overview,
+        COALESCE(game_metadata_overrides.translations, NULLIF(atlas_data.translations, ''), steam_data.translations) AS translations,
+        COALESCE(game_metadata_overrides.release_date, atlas_data.release_date) AS release_date,
         steam_data.release_date AS steam_release_date,
-        COALESCE(NULLIF(atlas_data.voice, ''), steam_data.voice) AS voice,
-        steam_data.publisher AS publisher,
+        COALESCE(game_metadata_overrides.voice, NULLIF(atlas_data.voice, ''), steam_data.voice) AS voice,
+        COALESCE(game_metadata_overrides.publisher, steam_data.publisher) AS publisher,
         steam_data.developer AS steam_developer,
         atlas_data.short_name,
         atlas_data.external_ids as external_ids,
@@ -819,6 +819,7 @@ ${lewdCornerSelectFields}
       LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
 ${lewdCornerJoinClauses}
       LEFT JOIN game_personal_ratings ON games.record_id = game_personal_ratings.record_id
+      LEFT JOIN game_metadata_overrides ON games.record_id = game_metadata_overrides.record_id
 ${bannerJoinClauses}
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
@@ -916,21 +917,21 @@ ${bannerSelectFields},
         f95_zone_data.views as views,
         f95_zone_data.likes as likes,
         f95_zone_data.tags as f95_tags,
-        f95_zone_data.rating as rating,
+        COALESCE(game_metadata_overrides.rating, f95_zone_data.rating) as rating,
 ${lewdCornerSelectFields}
-        atlas_data.status,
-        atlas_data.version as latestVersion,
-        COALESCE(NULLIF(atlas_data.category, ''), steam_data.category) AS category,
-        COALESCE(NULLIF(atlas_data.censored, ''), steam_data.censored) AS censored,
-        COALESCE(NULLIF(atlas_data.genre, ''), steam_data.genre) AS genre,
-        COALESCE(NULLIF(atlas_data.language, ''), steam_data.language) AS language,
-        COALESCE(NULLIF(atlas_data.os, ''), steam_data.os) AS os,
-        COALESCE(NULLIF(atlas_data.overview, ''), steam_data.overview) AS overview,
-        COALESCE(NULLIF(atlas_data.translations, ''), steam_data.translations) AS translations,
-        atlas_data.release_date,
+        COALESCE(game_metadata_overrides.status, atlas_data.status) AS status,
+        COALESCE(game_metadata_overrides.latest_version, atlas_data.version) as latestVersion,
+        COALESCE(game_metadata_overrides.category, NULLIF(atlas_data.category, ''), steam_data.category) AS category,
+        COALESCE(game_metadata_overrides.censored, NULLIF(atlas_data.censored, ''), steam_data.censored) AS censored,
+        COALESCE(game_metadata_overrides.genre, NULLIF(atlas_data.genre, ''), steam_data.genre) AS genre,
+        COALESCE(game_metadata_overrides.language, NULLIF(atlas_data.language, ''), steam_data.language) AS language,
+        COALESCE(game_metadata_overrides.os, NULLIF(atlas_data.os, ''), steam_data.os) AS os,
+        COALESCE(game_metadata_overrides.overview, NULLIF(games.description, ''), NULLIF(atlas_data.overview, ''), steam_data.overview) AS overview,
+        COALESCE(game_metadata_overrides.translations, NULLIF(atlas_data.translations, ''), steam_data.translations) AS translations,
+        COALESCE(game_metadata_overrides.release_date, atlas_data.release_date) AS release_date,
         steam_data.release_date AS steam_release_date,
-        COALESCE(NULLIF(atlas_data.voice, ''), steam_data.voice) AS voice,
-        steam_data.publisher AS publisher,
+        COALESCE(game_metadata_overrides.voice, NULLIF(atlas_data.voice, ''), steam_data.voice) AS voice,
+        COALESCE(game_metadata_overrides.publisher, steam_data.publisher) AS publisher,
         steam_data.developer AS steam_developer,
         atlas_data.short_name,
         atlas_data.external_ids as external_ids,
@@ -951,6 +952,7 @@ ${lewdCornerSelectFields}
       LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
 ${lewdCornerJoinClauses}
       LEFT JOIN game_personal_ratings ON games.record_id = game_personal_ratings.record_id
+      LEFT JOIN game_metadata_overrides ON games.record_id = game_metadata_overrides.record_id
 ${bannerJoinClauses}
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id

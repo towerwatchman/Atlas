@@ -35,10 +35,24 @@ const sanitizeProgressState = (progress = {}) => ({
   text: sanitizePercentText(progress.text),
 })
 
+const formatRecordDateInput = (value) => {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+  if (/^\d+$/.test(raw)) {
+    const date = new Date(parseInt(raw, 10) * 1000)
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString().split('T')[0]
+  }
+  const parsed = new Date(raw)
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().split('T')[0]
+}
+
 function gameToFormData(g) {
   const mapperNames = []
   if (g.f95_id) mapperNames.push('F95Zone')
   if (g.atlas_id) mapperNames.push('Atlas')
+  if (g.steam_id) mapperNames.push('Steam')
+  if (g.lc_id || g.lcId || g.lewdCornerId) mapperNames.push('LewdCorner')
   return {
     title: g.title || '',
     mappings: mapperNames.join(', '),
@@ -46,11 +60,9 @@ function gameToFormData(g) {
     engine: g.engine || '',
     developer: g.creator || '',
     publisher: g.publisher || '',
-    release_date: g.release_date
-      ? new Date(parseInt(g.release_date) * 1000).toISOString().split('T')[0]
-      : '',
+    release_date: formatRecordDateInput(g.release_date),
     status: g.status || '',
-    tags: g.f95_tags ? g.f95_tags.replace(/,/g, ' , ') : '',
+    tags: (g.tags || g.f95_tags || '').replace(/,/g, ' , '),
     description: g.overview || '',
     category: g.category || '',
     latest_version: g.latestVersion || '',
@@ -427,8 +439,9 @@ const GameDetailWindow = () => {
       ...game,
       title: formData.title, os: formData.platform, engine: formData.engine,
       creator: formData.developer, publisher: formData.publisher,
-      release_date: formData.release_date ? new Date(formData.release_date).getTime() / 1000 : '',
+      release_date: formData.release_date,
       status: formData.status, f95_tags: formData.tags ? formData.tags.replace(/ , /g, ',') : '',
+      tags: formData.tags ? formData.tags.replace(/ , /g, ',') : '',
       overview: formData.description, category: formData.category,
       latest_version: formData.latest_version, censored: formData.censored,
       language: formData.language, translations: formData.translations,
