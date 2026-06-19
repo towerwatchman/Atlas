@@ -56,7 +56,7 @@ A summary of planned features is listed below. We do not have a timeline for all
 ## Download
 Grab the latest version from the [releases](https://github.com/towerwatchman/Atlas/releases) page. Once installed, Atlas will automatically notify you once there is a new version available. 
 
-##Questions & Issues
+## Questions & Issues
 Please report any bugs by filing an issue. Please attach the log in the root of the Atlas directory.
 
 
