@@ -85,9 +85,32 @@ jobs:
         run: npx electron-builder --win --x64 -p always --config.publish.releaseType=prerelease
         shell: cmd
 
-      - name: Build nightly (Linux)
+      - name: Build and publish nightly (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: npx electron-builder --linux --x64 -p never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --linux --x64 -p always --config.publish.releaseType=prerelease
+        shell: bash
+
+      - name: Verify Linux prerelease assets
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          linux_files=(release/*.deb release/*.AppImage release/*.pacman)
+          if [ ${#linux_files[@]} -eq 0 ]; then
+            echo "No Linux packages were produced in release/."
+            exit 1
+          fi
+
+          tag="v$(node -p "require('./package.json').version")"
+          linux_assets=$(gh release view "$tag" --json assets --jq '[.assets[].name | select(test("\\.(deb|AppImage|pacman)$"))] | length')
+          if [ "$linux_assets" -eq 0 ]; then
+            echo "Prerelease $tag does not contain Linux assets."
+            exit 1
+          fi
         shell: bash
 
       - name: Upload Windows artifact
@@ -107,4 +130,4 @@ jobs:
             release/*.deb
             release/*.AppImage
             release/*.pacman
-          if-no-files-found: warn
+          if-no-files-found: error

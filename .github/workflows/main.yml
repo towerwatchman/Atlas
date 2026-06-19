@@ -68,8 +68,29 @@ jobs:
       - name: Build and publish (Linux)
         if: matrix.os == 'ubuntu-latest'
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --linux --x64 -p always
+        shell: bash
+
+      - name: Verify Linux release assets
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          linux_files=(release/*.deb release/*.AppImage release/*.pacman)
+          if [ ${#linux_files[@]} -eq 0 ]; then
+            echo "No Linux packages were produced in release/."
+            exit 1
+          fi
+
+          tag="v$(node -p "require('./package.json').version")"
+          linux_assets=$(gh release view "$tag" --json assets --jq '[.assets[].name | select(test("\\.(deb|AppImage|pacman)$"))] | length')
+          if [ "$linux_assets" -eq 0 ]; then
+            echo "Release $tag does not contain Linux assets."
+            exit 1
+          fi
         shell: bash
 
       - name: Upload Windows artifact
@@ -89,4 +110,4 @@ jobs:
             release/*.deb
             release/*.AppImage
             release/*.pacman
-          if-no-files-found: warn
+          if-no-files-found: error
