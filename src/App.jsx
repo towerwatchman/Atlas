@@ -26,6 +26,7 @@ import { useTheme } from './theme/ThemeProvider.jsx'
 import { getGameTitle, normalizeGameForRenderer } from './utils/gameDisplay.js'
 import { getWishlistIdentityKey, withWishlistStates } from './utils/wishlistIdentity.js'
 import { formatPercent, formatProgressNumber, sanitizePercentText } from './utils/formatPercent.js'
+import { BROWSE_MODE_ENABLED } from './features.js'
 
 const debounce = (func, delay) => {
   let timeout
@@ -54,6 +55,9 @@ const getLocalRecordIdForCatalogRow = (game = {}) => {
 const knownSidePanelModes = new Set(Object.values(SIDE_PANEL_MODES))
 
 const normalizeSidePanelMode = (value, legacyShowGameList = true) => {
+  if (!BROWSE_MODE_ENABLED && value === SIDE_PANEL_MODES.CATALOG) {
+    return SIDE_PANEL_MODES.GAMES
+  }
   if (knownSidePanelModes.has(value)) return value
   return legacyShowGameList === false ? SIDE_PANEL_MODES.HIDDEN : SIDE_PANEL_MODES.GAMES
 }
@@ -320,7 +324,7 @@ const App = () => {
 
   const refreshDetailGame = useCallback((recordId) => {
     refreshGame(recordId)
-    fetchCatalogGames()
+    if (BROWSE_MODE_ENABLED) fetchCatalogGames()
     fetchWishlistGames()
     const id = Number.parseInt(recordId, 10)
     if (!Number.isInteger(id) || id <= 0) return
@@ -429,6 +433,12 @@ const App = () => {
   }
 
   const browseCatalog = useCallback(() => {
+    if (!BROWSE_MODE_ENABLED) {
+      setLibraryMode('local')
+      setSelectedGame(null)
+      setAndPersistSidePanelMode(SIDE_PANEL_MODES.GAMES)
+      return
+    }
     setLibraryMode('catalog')
     setSelectedGame(null)
     setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
@@ -706,13 +716,13 @@ const App = () => {
         )
         setSidebarMode(nextMode)
         setLibraryMode(
-          nextMode === SIDE_PANEL_MODES.CATALOG
+          BROWSE_MODE_ENABLED && nextMode === SIDE_PANEL_MODES.CATALOG
             ? 'catalog'
             : nextMode === SIDE_PANEL_MODES.WISHLIST
               ? 'wishlist'
               : 'local',
         )
-        if (nextMode === SIDE_PANEL_MODES.CATALOG) fetchCatalogGames()
+        if (BROWSE_MODE_ENABLED && nextMode === SIDE_PANEL_MODES.CATALOG) fetchCatalogGames()
         if (nextMode === SIDE_PANEL_MODES.WISHLIST) fetchWishlistGames()
       })
       .catch(() => setSidebarMode(SIDE_PANEL_MODES.GAMES))
@@ -806,9 +816,9 @@ const App = () => {
       }
     }
 
-    const handleImportComplete = () => {
-      fetchGames()
-      fetchCatalogGames()
+  const handleImportComplete = () => {
+    fetchGames()
+      if (BROWSE_MODE_ENABLED) fetchCatalogGames()
       fetchWishlistGames()
       setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000)
     }
@@ -822,7 +832,7 @@ const App = () => {
     // whenever the user does switch to it.
     const handleMetadataChanged = () => {
       fetchGames()
-      fetchCatalogGames()
+      if (BROWSE_MODE_ENABLED) fetchCatalogGames()
       fetchWishlistGames()
     }
 
@@ -1055,7 +1065,7 @@ const App = () => {
                 {libraryMode === 'catalog'
                   ? 'No browse titles match these filters.'
                   : libraryMode === 'wishlist'
-                    ? 'No wishlist entries yet. Add titles from Browse.'
+                    ? 'No wishlist entries yet.'
                     : 'No games found'}
               </div>
             ) : (
@@ -1152,7 +1162,7 @@ const App = () => {
                   ? 'No loaded Browse titles match these filters yet. Load more to keep searching.'
                   : 'No browse titles match these filters.'
                 : libraryMode === 'wishlist'
-                  ? 'No wishlist entries yet. Add titles from Browse.'
+                  ? 'No wishlist entries yet.'
                   : 'No games available'}
             </div>
           ) : (

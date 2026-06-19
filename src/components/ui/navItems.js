@@ -9,6 +9,8 @@
 // onToggleSearchSidebar / onOpenHelp are passed in by the caller (App.jsx,
 // same as before) rather than baked in here, since they close over
 // App.jsx's own state.
+import { BROWSE_MODE_ENABLED } from '../../features.js'
+
 export function getNavItems({
   onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
   onToggleSearchSidebar, onOpenHelp,
@@ -52,7 +54,7 @@ export function getNavItems({
         if (onToggleGameList) onToggleGameList()
       },
     },
-    {
+    BROWSE_MODE_ENABLED ? {
       name: 'Browse',
       path: [
         '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 2c4.42 0 8 3.58 8 8s-3.58 8-8 8-8-3.58-8-8 3.58-8 8-8zm3.94 4.06-2.12 5.66a1 1 0 0 1-.59.59l-5.66 2.12 2.12-5.66a1 1 0 0 1 .59-.59l5.66-2.12zM12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/>',
@@ -61,7 +63,7 @@ export function getNavItems({
       onClick: () => {
         if (onBrowseCatalog) onBrowseCatalog()
       },
-    },
+    } : null,
     {
       name: 'Wishlist',
       path: [
@@ -126,7 +128,7 @@ export function getNavItems({
       ],
       viewBox: '0 0 24 22',
     },
-  ]
+  ].filter(Boolean)
 }
 
 // Parses the raw path/rect strings above into actual SVG element specs.

@@ -334,7 +334,7 @@ const SearchSidebar = ({
         <div className="mb-6 border-b border-border pb-4">
           <h4 className="font-bold mb-2">Saved Filters</h4>
           <p className="text-xs text-muted mb-3">
-            Browse and apply saved filters from the left sidebar.
+            View and apply saved filters from the left sidebar.
           </p>
           {!isSaveFormOpen ? (
             <button

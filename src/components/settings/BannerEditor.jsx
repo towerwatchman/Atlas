@@ -18,6 +18,7 @@ import {
   normalizeBannerPreset,
   sanitizeBannerPresetName,
 } from '../library/bannerLayout/bannerLayoutSchema.js'
+import { BROWSE_MODE_ENABLED } from '../../features.js'
 
 const FIELD_LABELS = Object.fromEntries(BANNER_FIELD_REGISTRY.map((field) => [field.id, field.label]))
 
@@ -66,7 +67,9 @@ const previewGame = {
 
 const previewModes = {
   local: { label: 'Local installed sample', patch: {} },
-  browse: { label: 'Browse catalog sample', patch: { isCatalogEntry: true, isMetadataOnly: true, hasInstalledVersion: true, isFavorite: false, personalRatingOverall: null, totalPlaytime: 0, lastPlayed: 0 } },
+  ...(BROWSE_MODE_ENABLED
+    ? { browse: { label: 'Browse catalog sample', patch: { isCatalogEntry: true, isMetadataOnly: true, hasInstalledVersion: true, isFavorite: false, personalRatingOverall: null, totalPlaytime: 0, lastPlayed: 0 } } }
+    : {}),
   wishlist: { label: 'Wishlist sample', patch: { isCatalogEntry: true, isWishlistEntry: true, isWishlisted: true, isFavorite: false } },
   missing: { label: 'Missing/uninstalled sample', patch: { hasInstalledVersion: false, versions: [], totalPlaytime: 0, lastPlayed: 0 } },
 }
@@ -599,7 +602,7 @@ const BannerEditor = () => {
                 ))}
                 <option value="custom">Custom</option>
               </select>
-              <p className="text-xs opacity-60 mt-1">Card size affects Library and Browse grid density.</p>
+              <p className="text-xs opacity-60 mt-1">Card size affects library grid density.</p>
             </div>
 
             <div className="grid grid-cols-2 gap-2">

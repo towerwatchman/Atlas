@@ -105,7 +105,7 @@ export const defaultBannerLayouts = [
   },
   {
     id: 'browse-discovery',
-    name: 'Browse Discovery',
+    name: 'Discovery',
     width: 537,
     height: 251,
     density: 'comfortable',

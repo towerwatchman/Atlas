@@ -1,6 +1,7 @@
 'use strict'
 
 const { ipcMain, BrowserWindow, shell } = require('electron')
+const { BROWSE_MODE_ENABLED } = require('../features')
 const path = require('path')
 const fs = require('fs')
 const cp = require('child_process')
@@ -206,6 +207,9 @@ function registerGamesHandlers(ctx) {
   })
 
   ipcMain.handle('get-catalog-games', async (event, args = {}) => {
+    if (!BROWSE_MODE_ENABLED) {
+      return { games: [], offset: 0, hasMore: false, total: 0 }
+    }
     const rawOffset = Number.parseInt(args?.offset, 10)
     const rawLimit = Number.parseInt(args?.limit, 10)
     const offset = Number.isInteger(rawOffset) && rawOffset > 0 ? rawOffset : 0

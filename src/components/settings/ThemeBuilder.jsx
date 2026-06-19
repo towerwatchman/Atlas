@@ -74,7 +74,7 @@ const FILTER_MODE_DESCRIPTIONS = {
 const TEXT_CONTEXT_LABELS = { navLabels: 'Nav Labels', pageTitles: 'Page Titles', gameTitles: 'Game Titles' }
 const TEXT_CONTEXT_DESCRIPTIONS = {
   navLabels: 'Text labels on Sidebar/Top Bar nav buttons (Icons + Text or Text Only display modes).',
-  pageTitles: 'The section heading shown next to the logo in Sidebar layout (e.g. "Library", "Browse").',
+  pageTitles: 'The section heading shown next to the logo in Sidebar layout (e.g. "Games", "Wishlist").',
   gameTitles: 'Game names shown on grid banners and in the library list view.',
 }
 
@@ -569,7 +569,7 @@ const ThemeBuilder = ({ onClose }) => {
         {activeSection === 'nav' && (
           <div>
             <SectionHeader>Navigation Position</SectionHeader>
-            <p className="text-[10px] opacity-50 mb-2">Where the app's main navigation buttons (Library, Browse, Settings, etc.) are positioned.</p>
+            <p className="text-[10px] opacity-50 mb-2">Where the app's main navigation buttons (Library, Import, Settings, etc.) are positioned.</p>
             <OptionPicker options={LAYOUT_OPTIONS} labels={LAYOUT_LABELS} descriptions={LAYOUT_DESCRIPTIONS} value={draft.nav.layout} onChange={(layout) => updateNav({ layout })} />
 
             <SectionHeader>Navigation Display</SectionHeader>

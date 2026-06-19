@@ -4,6 +4,7 @@ const { ipcMain, BrowserWindow } = require('electron')
 const fs = require('fs')
 const path = require('path')
 const ini = require('ini')
+const { BROWSE_MODE_ENABLED } = require('../features')
 
 const defaultConfig = {
   Interface: {
@@ -57,6 +58,21 @@ const defaultConfig = {
     // Empty string means "no custom theme saved".
     customTheme: '',
   },
+}
+
+const sanitizeFeatureSettings = (settings = {}) => {
+  if (BROWSE_MODE_ENABLED) return settings
+  const next = {
+    ...settings,
+    Interface: {
+      ...(settings.Interface || {}),
+    },
+  }
+  if (next.Interface.sidePanelMode === 'catalog') {
+    next.Interface.sidePanelMode = 'games'
+    next.Interface.showGameList = true
+  }
+  return next
 }
 
 const defaultSavedFilterState = {
@@ -238,7 +254,7 @@ module.exports = function registerSettingsHandlers(ctx) {
   })
 
   ipcMain.handle('get-settings', async () => {
-    return mergeWithDefaults(ctx.appConfig, defaultConfig)
+    return sanitizeFeatureSettings(mergeWithDefaults(ctx.appConfig, defaultConfig))
   })
 
   ipcMain.handle('save-settings', async (event, settings) => {
@@ -246,8 +262,9 @@ module.exports = function registerSettingsHandlers(ctx) {
       const previousAppearance = ctx.appConfig?.Appearance
       const previousInterface = ctx.appConfig?.Interface
       const previousMetadata = ctx.appConfig?.Metadata
-      ctx.appConfig = settings
-      fs.writeFileSync(ctx.configPath, ini.stringify(settings))
+      const nextSettings = sanitizeFeatureSettings(settings)
+      ctx.appConfig = nextSettings
+      fs.writeFileSync(ctx.configPath, ini.stringify(nextSettings))
 
       // Theme changes need to apply live across every open window (main
       // library, settings, importer, game details) since each is its own
@@ -256,7 +273,7 @@ module.exports = function registerSettingsHandlers(ctx) {
       // Appearance actually changed so unrelated settings saves (e.g.
       // toggling "check for updates") don't trigger a needless re-theme in
       // every window.
-      const nextAppearance = settings?.Appearance
+      const nextAppearance = nextSettings?.Appearance
       const appearanceChanged =
         JSON.stringify(previousAppearance) !== JSON.stringify(nextAppearance)
       if (appearanceChanged && nextAppearance) {
@@ -270,7 +287,7 @@ module.exports = function registerSettingsHandlers(ctx) {
       // effect for windows created after the toggle (which previously made
       // it look like it needed a restart).
       const previousShowDebugConsole = previousInterface?.showDebugConsole === true
-      const nextShowDebugConsole = settings?.Interface?.showDebugConsole === true
+      const nextShowDebugConsole = nextSettings?.Interface?.showDebugConsole === true
       if (previousShowDebugConsole !== nextShowDebugConsole) {
         BrowserWindow.getAllWindows().forEach((win) => {
           if (win.isDestroyed()) return
@@ -286,7 +303,7 @@ module.exports = function registerSettingsHandlers(ctx) {
       // games are returned from get-games/get-game, but the renderer caches
       // its game list in React state — it won't see the new order until it
       // re-fetches. Broadcast so open windows know to refresh their data.
-      const nextMetadata = settings?.Metadata
+      const nextMetadata = nextSettings?.Metadata
       const metadataChanged =
         JSON.stringify(previousMetadata) !== JSON.stringify(nextMetadata)
       if (metadataChanged && nextMetadata) {

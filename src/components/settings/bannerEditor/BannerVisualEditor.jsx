@@ -6,6 +6,7 @@ import {
   SUPPORTED_BANNER_FIELD_IDS,
   SUPPORTED_BANNER_SLOTS,
 } from '../../library/bannerLayout/bannerLayoutSchema.js'
+import { BROWSE_MODE_ENABLED } from '../../../features.js'
 
 const fieldIdSet = new Set(SUPPORTED_BANNER_FIELD_IDS)
 const slotSet = new Set(SUPPORTED_BANNER_SLOTS)
@@ -194,7 +195,7 @@ const BannerVisualEditor = ({
                   </label>
                   {[
                     ['localOnly', 'Local only'],
-                    ['browseOnly', 'Browse only'],
+                    ...(BROWSE_MODE_ENABLED ? [['browseOnly', 'Browse only']] : []),
                     ['wishlistOnly', 'Wishlist only'],
                     ['installedOnly', 'Installed only'],
                     ['uninstalledOnly', 'Uninstalled only'],
