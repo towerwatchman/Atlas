@@ -17,6 +17,7 @@ const Interface = () => {
   const [updateVersion, setUpdateVersion] = useState("");
   const [updatePercent, setUpdatePercent] = useState(0);
   const [updateError, setUpdateError] = useState("");
+  const [appUpdateBranch, setAppUpdateBranch] = useState("stable");
   // NSFW / adult-content ("Browse mode") opt-in — mirrors the same setting
   // surfaced by the first-run prompt in App.jsx. See
   // electron/ipc/settings.js's get-nsfw-status / set-nsfw-enabled.
@@ -32,6 +33,9 @@ const Interface = () => {
     if (status.version) setUpdateVersion(status.version);
     if (typeof status.percent === "number") {
       setUpdatePercent(status.percent);
+    }
+    if (status.branch === "stable" || status.branch === "nightly") {
+      setAppUpdateBranch(status.branch);
     }
     if (status.error) setUpdateError(sanitizePercentText(status.error));
     else if (status.status !== "error") setUpdateError("");
@@ -53,6 +57,9 @@ const Interface = () => {
       setCheckForAppUpdatesOnStartup(
         interfaceSettings.checkForAppUpdatesOnStartup ?? true,
       );
+      if (interfaceSettings.appUpdateBranch === "stable" || interfaceSettings.appUpdateBranch === "nightly") {
+        setAppUpdateBranch(interfaceSettings.appUpdateBranch);
+      }
     });
 
     const removeUpdateListener = window.electronAPI.onUpdateStatus?.(
@@ -124,6 +131,16 @@ const Interface = () => {
     const newVal = !checkForAppUpdatesOnStartup;
     setCheckForAppUpdatesOnStartup(newVal);
     saveSettings({ checkForAppUpdatesOnStartup: newVal });
+  };
+
+  const handleAppUpdateBranchChange = (e) => {
+    const nextBranch = e.target.value === "nightly" ? "nightly" : "stable";
+    setAppUpdateBranch(nextBranch);
+    setUpdateStatus("idle");
+    setUpdateError("");
+    setUpdateVersion("");
+    setUpdatePercent(0);
+    saveSettings({ appUpdateBranch: nextBranch });
   };
 
   // NSFW lives in its own [NSFW] config section (not [Interface]), so this
@@ -300,7 +317,18 @@ const Interface = () => {
       <div className="mb-2">
         <div className="font-semibold mb-2">App Updates</div>
         <p className="text-xs opacity-70 mb-3">{updateStatusText}</p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-sm" htmlFor="app-update-branch">Branch</label>
+          <select
+            id="app-update-branch"
+            className="w-32 bg-secondary border border-border text-text rounded p-2"
+            value={appUpdateBranch}
+            onChange={handleAppUpdateBranchChange}
+            disabled={["checking", "downloading", "installing"].includes(updateStatus)}
+          >
+            <option value="stable">Stable</option>
+            <option value="nightly">Nightly</option>
+          </select>
           <button
             onClick={handleCheckAppUpdate}
             disabled={["checking", "downloading", "installing"].includes(updateStatus)}
@@ -322,6 +350,10 @@ const Interface = () => {
                   : "Download and install"}
           </button>
         </div>
+        <p className="text-xs opacity-50 mt-2">
+          Stable checks normal releases from main. Nightly includes prereleases.
+          Switching to Stable will not install an older version.
+        </p>
       </div>
       <div className="border-t border-text opacity-25 my-2"></div>
     </div>

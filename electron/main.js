@@ -110,6 +110,7 @@ let updateInfo = null
 let updateDownloaded = false
 let lastUpdateStatus = { status: 'idle' }
 let installAfterDownload = false
+let activeAppUpdateBranch = null
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
@@ -229,6 +230,7 @@ const defaultConfig = {
     showDebugConsole: false,
     minimizeToTray: false,
     checkForAppUpdatesOnStartup: true,
+    appUpdateBranch: null,
     showGameList: true,
     sidePanelMode: 'games',
   },
@@ -295,19 +297,50 @@ function getUpdateFooterAction(status) {
 function sendUpdateStatus(status, source = 'unknown') {
   const previousStatus = lastUpdateStatus?.status || 'idle'
   const nextStatus = status.status || 'idle'
-  lastUpdateStatus = status
+  lastUpdateStatus = { ...status, branch: activeAppUpdateBranch || getConfiguredAppUpdateBranch() }
   console.log(
     `update-state: ${previousStatus} -> ${nextStatus} via ${source}; ` +
     `footerAction=${getUpdateFooterAction(status)}; canInstallUpdate=${['downloaded', 'installing'].includes(nextStatus)}`,
   )
   BrowserWindow.getAllWindows().forEach((window) => {
-    if (!window.isDestroyed()) window.webContents.send('update-status', status)
+    if (!window.isDestroyed()) window.webContents.send('update-status', lastUpdateStatus)
   })
 }
 
-autoUpdater.setFeedURL({ provider: 'github', owner: 'towerwatchman', repo: 'Atlas' })
+function normalizeAppUpdateBranch(value) {
+  if (value === 'stable' || value === 'nightly') return value
+  return null
+}
+
+function getDefaultAppUpdateBranch() {
+  return app.getVersion().includes('-nightly') ? 'nightly' : 'stable'
+}
+
+function getConfiguredAppUpdateBranch(config = appConfig) {
+  return normalizeAppUpdateBranch(config?.Interface?.appUpdateBranch) || getDefaultAppUpdateBranch()
+}
+
+function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
+  const normalizedBranch = normalizeAppUpdateBranch(branch) || getDefaultAppUpdateBranch()
+  const previousBranch = activeAppUpdateBranch
+  activeAppUpdateBranch = normalizedBranch
+  autoUpdater.setFeedURL({ provider: 'github', owner: 'towerwatchman', repo: 'Atlas', channel: 'latest' })
+  autoUpdater.allowPrerelease = normalizedBranch === 'nightly'
+  autoUpdater.allowDowngrade = false
+
+  if (resetStatus && previousBranch && previousBranch !== normalizedBranch) {
+    updateInfo = null
+    updateDownloaded = false
+    installAfterDownload = false
+    sendUpdateStatus({ status: 'idle' }, 'update-branch-changed')
+  }
+
+  console.log(`Configured app update branch: ${normalizedBranch}`)
+  return normalizedBranch
+}
+
+configureAppUpdateBranch(getDefaultAppUpdateBranch())
 autoUpdater.autoDownload = false
-autoUpdater.allowDowngrade = false
 
 // Pass the CURRENT install directory to the new installer so it updates
 // in-place. electron-updater appends this as the NSIS /D= switch (the last
@@ -932,6 +965,7 @@ function buildCtx() {
     activeImportSession, activeScanSession, activeLibraryValidation, isQuitting,
     // updater state
     autoUpdater, lastUpdateStatus, updateInfo, updateDownloaded, installAfterDownload,
+    getConfiguredAppUpdateBranch, configureAppUpdateBranch,
     // path helpers
     getAssetBasePath, getMediaStorageMode, firstMediaPath,
     getMetadataSourceOrder,
@@ -1006,6 +1040,8 @@ app.whenReady().then(async () => {
     fs.writeFileSync(configPath, ini.stringify(defaultConfig))
     nsfwConfigured = false
   }
+
+  configureAppUpdateBranch(getConfiguredAppUpdateBranch(appConfig))
 
   await repairDoubledApostropheRows()
   await repairBlankVersionNames()

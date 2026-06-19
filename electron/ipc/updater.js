@@ -42,7 +42,10 @@ module.exports = function registerUpdaterHandlers(ctx) {
   })
 
   ipcMain.handle('get-app-update-state', async () => {
-    return ctx.lastUpdateStatus
+    return {
+      ...ctx.lastUpdateStatus,
+      branch: ctx.getConfiguredAppUpdateBranch?.(),
+    }
   })
 
   ipcMain.handle('download-app-update', async () => {

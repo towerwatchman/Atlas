@@ -14,6 +14,7 @@ const defaultConfig = {
     showDebugConsole: false,
     minimizeToTray: false,
     checkForAppUpdatesOnStartup: true,
+    appUpdateBranch: null,
     showGameList: true,
     sidePanelMode: 'games',
   },
@@ -313,6 +314,12 @@ module.exports = function registerSettingsHandlers(ctx) {
             win.webContents.closeDevTools()
           }
         })
+      }
+
+      const previousUpdateBranch = ctx.getConfiguredAppUpdateBranch?.({ Interface: previousInterface })
+      const nextUpdateBranch = ctx.getConfiguredAppUpdateBranch?.(nextSettings)
+      if (previousUpdateBranch !== nextUpdateBranch) {
+        ctx.configureAppUpdateBranch?.(nextUpdateBranch, { resetStatus: true })
       }
 
       // Metadata source order (and other Metadata settings) affect how
