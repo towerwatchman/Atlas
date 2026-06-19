@@ -59,6 +59,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libarchive-tools rpm
+          # appimagetool (bundled by electron-builder to build the AppImage
+          # target) is itself an AppImage and needs FUSE2 to run. Ubuntu
+          # 24.04 ("noble", what ubuntu-latest currently points to) renamed
+          # libfuse2 -> libfuse2t64; fall back to the old name in case the
+          # runner image changes again.
+          sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2
         shell: bash
 
       - name: Build renderer (Windows)
@@ -93,7 +99,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload Linux artifact
-        if: matrix.os == 'ubuntu-latest'
+        if: always() && matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
           name: linux-nightly-installer
