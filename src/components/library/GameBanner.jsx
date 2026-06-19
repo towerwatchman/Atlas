@@ -1,500 +1,203 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import useImageFallback from '../../hooks/useImageFallback.js'
-import SafeImage from '../ui/SafeImage.jsx'
 import { getGameTitle } from '../../utils/gameDisplay.js'
+import BannerLayoutRenderer from './bannerLayout/BannerLayoutRenderer.jsx'
+import { defaultBannerLayouts } from './bannerLayout/defaultBannerLayouts.js'
+import {
+  CLASSIC_BANNER_LAYOUT_ID,
+  getBannerLayoutById,
+  normalizeBannerLayoutId,
+} from './bannerLayout/bannerLayoutSchema.js'
 
-// Inline CSS for hover effects
-const bannerStyles = `
-  .banner-root {
-    box-sizing: border-box;
-    perspective: 1000px;
-    transform-style: preserve-3d;
-    transform-origin: center center;
-    transform: skewX(0.001deg);
-    backface-visibility: hidden;
-    will-change: transform;
-    transition: transform 0.35s ease-in-out;
-  }
-  .banner-root:hover {
-    transform: rotateX(7deg) translateY(-6px) scale(1.02);
-    transition: transform 0.35s ease-in-out 0.1s;
-  }
-  .banner-root::before {
-    content: '';
-    position: absolute;
-    z-index: -1;
-    top: 5%;
-    left: 5%;
-    width: 90%;
-    height: 90%;
-    background: rgba(0,0,0,0.5);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-    transform-origin: top center;
-    transform: skewX(0.001deg);
-    transition: transform 0.35s ease-in-out 0.1s, opacity 0.5s ease-in-out 0.1s;
-  }
-  .banner-root:hover::before {
-    opacity: 0.6;
-    transform: rotateX(7deg) translateY(-6px) scale(1.02);
-  }
-`;
+const builtInLayoutIds = new Set(defaultBannerLayouts.map((layout) => layout.id))
 
 const GameBanner = ({ game, onSelect }) => {
-  const [template, setTemplate] = useState(null);
+  const [selectedTemplate, setSelectedTemplate] = useState({
+    type: 'layout',
+    value: CLASSIC_BANNER_LAYOUT_ID,
+  })
 
-  // Resolve the banner through the source-ordered fallback chain so a 404 from
-  // one source (e.g. Steam CDN) advances to the next (steam fastly, then f95).
-  // Templates only read game.banner_url, so we hand them a resolved url.
-  const bannerChain = game.banner_candidates || (game.banner_url ? [game.banner_url] : []);
-  const { src: resolvedBannerUrl } = useImageFallback(bannerChain);
-  const resolvedGame = resolvedBannerUrl === game.banner_url
-    ? game
-    : { ...game, banner_url: resolvedBannerUrl };
-  const displayTitle = getGameTitle(resolvedGame);
+  const bannerChain = game.banner_candidates || (game.banner_url ? [game.banner_url] : [])
+  const { src: resolvedBannerUrl } = useImageFallback(bannerChain)
+  const resolvedGame =
+    resolvedBannerUrl === game.banner_url
+      ? game
+      : { ...game, banner_url: resolvedBannerUrl }
+  const displayTitle = getGameTitle(resolvedGame)
+
+  const loadSelectedTemplate = useCallback(async () => {
+    try {
+      const selected = await window.electronAPI.getSelectedBannerTemplate()
+      const normalized = normalizeBannerLayoutId(selected)
+
+      if (builtInLayoutIds.has(normalized)) {
+        setSelectedTemplate({ type: 'layout', value: normalized })
+        return
+      }
+
+      try {
+        const templates = import.meta.glob('../../assets/templates/banner/*.js', {
+          eager: false,
+        })
+        const key = `../../assets/templates/banner/${selected}.js`
+        if (templates[key]) {
+          const templateModule = await templates[key]()
+          setSelectedTemplate({ type: 'legacy', value: templateModule.default })
+        } else {
+          console.warn(`Template not found: ${selected}`)
+          setSelectedTemplate({ type: 'layout', value: CLASSIC_BANNER_LAYOUT_ID })
+        }
+      } catch (importErr) {
+        console.error(`Failed to import template ${selected}:`, importErr)
+        window.electronAPI.log(
+          `Failed to import template ${selected}: ${importErr.message}`,
+        )
+        setSelectedTemplate({ type: 'layout', value: CLASSIC_BANNER_LAYOUT_ID })
+      }
+    } catch (err) {
+      console.error('Error loading banner template:', err)
+      window.electronAPI.log(`Error loading banner template: ${err.message}`)
+      setSelectedTemplate({ type: 'layout', value: CLASSIC_BANNER_LAYOUT_ID })
+    }
+  }, [])
 
   useEffect(() => {
-    // Log banner_url on mount or update
     console.log(
       `GameBanner rendering for recordId: ${game.record_id}, banner_url: ${game.banner_url}`,
-    );
-    // Load the selected template from Appearance settings
-    const loadTemplate = async () => {
-      try {
-        const selectedTemplate =
-          await window.electronAPI.getSelectedBannerTemplate();
-        if (selectedTemplate && selectedTemplate !== "Default") {
-          try {
-            // import.meta.glob pre-bundles all templates at build time;
-            // keys are relative to this file's location.
-            const templates = import.meta.glob(
-              '../../assets/templates/banner/*.js',
-              { eager: false }
-            );
-            const key = `../../assets/templates/banner/${selectedTemplate}.js`;
-            if (templates[key]) {
-              const templateModule = await templates[key]();
-              setTemplate(() => templateModule.default);
-            } else {
-              console.warn(`Template not found: ${selectedTemplate}`);
-              setTemplate(() => DefaultBannerTemplate);
-            }
-          } catch (importErr) {
-            console.error(
-              `Failed to import template ${selectedTemplate}:`,
-              importErr,
-            );
-            window.electronAPI.log(
-              `Failed to import template ${selectedTemplate}: ${importErr.message}`,
-            );
-            setTemplate(() => DefaultBannerTemplate); // Fallback to default
-          }
-        } else {
-          setTemplate(() => DefaultBannerTemplate);
-        }
-      } catch (err) {
-        console.error("Error loading banner template:", err);
-        window.electronAPI.log(`Error loading banner template: ${err.message}`);
-        setTemplate(() => DefaultBannerTemplate); // Fallback to default
-      }
-    };
-    loadTemplate();
-  }, [game.banner_url]); // Re-run when banner_url changes
+    )
 
-  const handleContextMenu = (e) => {
-    e.preventDefault();
-    if (!game) {
-      console.log("No game available for context menu");
-      return;
+    loadSelectedTemplate()
+  }, [game.banner_url, game.record_id, loadSelectedTemplate])
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) loadSelectedTemplate()
     }
+
+    window.addEventListener('focus', loadSelectedTemplate)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.removeEventListener('focus', loadSelectedTemplate)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [loadSelectedTemplate])
+
+  const handleContextMenu = (event) => {
+    event.preventDefault()
+    if (!game) {
+      console.log('No game available for context menu')
+      return
+    }
+
     const installedVersions = (game.versions || []).filter(
       (version) => version.isInstalled !== false,
-    );
-    const isMetadataOnly = game.isMetadataOnly === true;
+    )
+    const isMetadataOnly = game.isMetadataOnly === true
+    const template = []
 
-    const template = [];
-
-    // Play
     if (installedVersions.length === 1) {
-      const v = installedVersions[0];
+      const version = installedVersions[0]
       template.push({
-        label: "Play",
-        data: { action: "launch", recordId: game.record_id, version: v.version },
-      });
+        label: 'Play',
+        data: { action: 'launch', recordId: game.record_id, version: version.version },
+      })
     } else if (installedVersions.length > 1) {
       template.push({
-        label: "Play",
-        submenu: installedVersions.map((v) => ({
-          label: v.version,
-          data: { action: "launch", recordId: game.record_id, version: v.version },
+        label: 'Play',
+        submenu: installedVersions.map((version) => ({
+          label: version.version,
+          data: { action: 'launch', recordId: game.record_id, version: version.version },
         })),
-      });
+      })
     }
 
-    // Open Game Folder
     if (installedVersions.length === 1) {
-      const v = installedVersions[0];
+      const version = installedVersions[0]
       template.push({
-        label: "Open Game Folder",
-        data: { action: "openFolder", recordId: game.record_id, version: v.version },
-      });
+        label: 'Open Game Folder',
+        data: { action: 'openFolder', recordId: game.record_id, version: version.version },
+      })
     } else if (installedVersions.length > 1) {
       template.push({
-        label: "Open Game Folder",
-        submenu: installedVersions.map((v) => ({
-          label: v.version,
-          data: { action: "openFolder", recordId: game.record_id, version: v.version },
+        label: 'Open Game Folder',
+        submenu: installedVersions.map((version) => ({
+          label: version.version,
+          data: { action: 'openFolder', recordId: game.record_id, version: version.version },
         })),
-      });
+      })
     }
 
-    // Open Web Link
     if (game.siteUrl) {
       template.push({
-        label: "Open Web Link",
-        data: { action: "openUrl", url: game.siteUrl },
-      });
+        label: 'Open Web Link',
+        data: { action: 'openUrl', url: game.siteUrl },
+      })
     }
 
     if (!isMetadataOnly) {
       template.push({
-        label: game.isFavorite ? "Remove from Favorites" : "Add to Favorites",
+        label: game.isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
         data: {
-          action: "setFavorite",
+          action: 'setFavorite',
           recordId: game.record_id,
           isFavorite: !game.isFavorite,
         },
-      });
-
-      // Properties
-      template.push({
-        label: "Properties",
-        data: { action: "properties", recordId: game.record_id },
-      });
-
-      template.push({ type: "separator" });
+      })
 
       template.push({
-        label: "Remove Title from Library",
+        label: 'Properties',
+        data: { action: 'properties', recordId: game.record_id },
+      })
+
+      template.push({ type: 'separator' })
+
+      template.push({
+        label: 'Remove Title from Library',
         data: {
-          action: "removeTitleFromLibrary",
+          action: 'removeTitleFromLibrary',
           recordId: game.record_id,
           title: displayTitle,
         },
-      });
+      })
 
       template.push({
-        label: "Delete Title and Files",
+        label: 'Delete Title and Files',
         data: {
-          action: "deleteTitleAndFiles",
+          action: 'deleteTitleAndFiles',
           recordId: game.record_id,
           title: displayTitle,
         },
-      });
+      })
     }
 
-    console.log("Context menu template:", JSON.stringify(template, null, 2));
-    window.electronAPI.showContextMenu(template);
-  };
-
-  // Engine background color mapping based on C# DataTriggers
-  const getEngineBackgroundColor = (engine) => {
-    const engineColors = {
-      ADRIFT: "#4F68D9",
-      Flash: "#D04220",
-      HTML: "#5B8600",
-      Java: "#6EA4B1",
-      Others: "#72A200",
-      QSP: "#BD3631",
-      RAGS: "#B67E00",
-      RPGM: "#4F68D9",
-      "Ren'Py": "#9B00EF",
-      Tads: "#4F68D9",
-      Unity: "#D35B00",
-      "Unreal Engine": "#3730A9",
-      WebGL: "#E56200",
-      "Wolf RPG": "#4B8926",
-    };
-    return engineColors[engine] || "#4B8926"; // Default to Wolf RPG color
-  };
-
-  // Status background color mapping based on C# Style.Triggers
-  const getStatusBackgroundColor = (status) => {
-    const statusColors = {
-      Completed: "#4F68D9",
-      Onhold: "#649DFC",
-      Abandoned: "#B67E00",
-      "": "transparent",
-      null: "transparent",
-    };
-    return statusColors[status] || "transparent"; // Default to transparent
-  };
-
-  // Find the newest version for the game
-  const getNewestVersion = (versions) => {
-    const installedVersions = (versions || []).filter(
-      (version) => version.isInstalled !== false,
-    );
-    if (installedVersions.length === 0) return "Missing";
-    let maxVersion = installedVersions[0].version;
-    let maxValue = 0;
-    for (const version of installedVersions) {
-      let current;
-      try {
-        current = parseInt(version.version.replace(/[^0-9]/g, ""), 10);
-      } catch {
-        current = 0;
-      }
-      if (current > maxValue) {
-        maxValue = current;
-        maxVersion = version.version;
-      }
-    }
-    return maxVersion || "V 1.0";
-  };
-
-  // Default template
-  const DefaultBannerTemplate = ({ game, onSelect }) => {
-    const children = [
-      // Inline styles for hover effects
-      React.createElement(
-        "style",
-        { key: `banner-styles-${game.record_id}` },
-        bannerStyles,
-      ),
-      // Top overlay
-      React.createElement("div", {
-        key: `top-overlay-${game.record_id}`,
-        className:
-          "absolute top-0 left-0 w-full h-[28px] bg-black opacity-80 z-10",
-      }),
-      // Bottom overlay
-      React.createElement("div", {
-        key: `bottom-overlay-${game.record_id}`,
-        className:
-          "absolute bottom-0 left-0 w-full h-[28px] bg-black opacity-80 z-10",
-      }),
-      // Text and button elements
-      React.createElement(
-        "div",
-        {
-          key: `content-layer-${game.record_id}`,
-          className: "absolute inset-0 z-20",
-        },
-        [
-          // Creator in top-left of top overlay, vertically centered
-          React.createElement("div", {
-            key: `creator-${game.record_id}`,
-            className:
-              "absolute top-0 left-0 text-white text-xs ml-2.5 flex items-center h-[28px]",
-            children: game.creator || "Unknown",
-          }),
-          // Update Available button at top-right, vertically centered
-          game.isUpdateAvailable &&
-            React.createElement(
-              "button",
-              {
-                key: `update-button-${game.record_id}`,
-                className:
-                  "absolute top-[4px] right-2.5 w-[90px] h-[20px] bg-transparent border border-warning text-warning text-[10px] rounded-sm z-30 pointer-events-auto",
-                onClick: (e) => {
-                  e.stopPropagation();
-                  if (
-                    game.siteUrl &&
-                    typeof game.siteUrl === "string" &&
-                    game.siteUrl.startsWith("http")
-                  ) {
-                    window.electronAPI.openExternalUrl(game.siteUrl);
-                  } else {
-                    console.error(`Invalid siteUrl: ${game.siteUrl}`);
-                  }
-                },
-              },
-              "Update Available!",
-            ),
-          // Bottom overlay content
-          React.createElement(
-            "div",
-            {
-              key: `bottom-content-${game.record_id}`,
-              className:
-                "absolute bottom-0 left-0 w-full h-[28px] flex items-center",
-            },
-            [
-              // Engine at bottom-left with rounded background
-              React.createElement("div", {
-                key: `engine-${game.record_id}`,
-                className: "text-white text-[10px] rounded-sm px-2 py-0.5 ml-2",
-                style: {
-                  backgroundColor: getEngineBackgroundColor(game.engine),
-                },
-                children: game.engine || "Unknown",
-              }),
-              // Title centered in bottom overlay
-              React.createElement("div", {
-                key: `title-${game.record_id}`,
-                className:
-                  "text-shadow-fx text-glow-fx game-titles text-white text-xs font-semibold flex-1 text-center",
-                children: displayTitle,
-              }),
-              // Status and Newest Version at bottom-right
-              React.createElement(
-                "div",
-                {
-                  key: `status-version-${game.record_id}`,
-                  className: "flex items-center mr-2.5",
-                },
-                [
-                  // Status (if present) to the left of version
-                  game.status &&
-                    React.createElement("div", {
-                      key: `status-${game.record_id}`,
-                      className:
-                        "text-white text-[10px] rounded-l-sm px-2 py-0.5",
-                      style: {
-                        backgroundColor: getStatusBackgroundColor(game.status),
-                      },
-                      children: game.status,
-                    }),
-                  // Newest Version with fixed background color
-                  React.createElement("div", {
-                    key: `version-${game.record_id}`,
-                    className: `text-white text-[10px] ${game.status ? "rounded-r-sm -ml-0.5" : "rounded-sm"} px-2 py-0.5`,
-                    style: { backgroundColor: "#3F4043" },
-                    children: getNewestVersion(game.versions),
-                  }),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    ];
-
-    // Conditionally add banner image
-    if (game.banner_url) {
-      children.splice(
-        1,
-        0,
-        React.createElement(
-          "div",
-          {
-            key: `banner-image-container-${game.record_id}`,
-            className:
-              "absolute inset-0 w-full h-full z-0 bg-[#1F2937]",
-          },
-          [
-            React.createElement(SafeImage, {
-              key: `banner-image-${game.record_id}`,
-              src: game.banner_url,
-              alt: displayTitle,
-              className: "block w-full h-full object-contain",
-              fallbackMode: "transparent",
-              fallbackContent: false,
-              onError: () =>
-                console.error(
-                  `Failed to load banner image for recordId ${game.record_id}: ${game.banner_url}`,
-                ),
-            }),
-          ],
-        ),
-      );
-    } else {
-      // Fallback background when no image
-      children.splice(
-        1,
-        0,
-        React.createElement("div", {
-          key: `banner-fallback-${game.record_id}`,
-          className:
-            "absolute inset-0 w-full h-full bg-[#1F2937] z-0",
-        }),
-      );
-    }
-
-    if (game.isWishlisted || game.isWishlistEntry) {
-      children.push(
-        React.createElement(
-          "div",
-          {
-            key: `wishlist-marker-${game.record_id}`,
-            className:
-              "absolute top-2 right-2 z-40 bg-primary border border-accent text-text text-[10px] px-2 py-1 pointer-events-none",
-          },
-          [
-            React.createElement("i", {
-              key: "wishlist-icon",
-              className: "fas fa-heart",
-              style: { fontSize: 10, color: "#f9a8d4", marginRight: 5 },
-            }),
-            "Wishlist",
-          ],
-        ),
-      );
-    }
-
-    if (game.isFavorite) {
-      children.push(
-        React.createElement(
-          "div",
-          {
-            key: `favorite-marker-${game.record_id}`,
-            className:
-              "absolute top-2 left-2 z-40 bg-primary border border-warning text-text text-[10px] px-2 py-1 pointer-events-none",
-          },
-          [
-            React.createElement("i", {
-              key: "favorite-icon",
-              className: "fas fa-heart",
-              style: { fontSize: 10, color: "#f59e0b", marginRight: 5 },
-            }),
-            "Favorite",
-          ],
-        ),
-      );
-    }
-
-    return React.createElement(
-      "div",
-      {
-        key: `banner-root-${game.record_id}`,
-        className:
-          "relative w-[537px] h-[251px] border border-black cursor-pointer overflow-hidden box-border bg-[#1F2937] banner-root",
-        onClick: onSelect,
-        onContextMenu: handleContextMenu,
-      },
-      children,
-    );
-  };
-
-  if (!template) {
-    return React.createElement("div", null, "Loading template...");
+    console.log('Context menu template:', JSON.stringify(template, null, 2))
+    window.electronAPI.showContextMenu(template)
   }
 
-  const isCatalogEntry = game.isCatalogEntry === true;
-  const hasInstalledVersion = isCatalogEntry || game.hasInstalledVersion !== false;
-  const renderedBanner = React.createElement(template, { game: resolvedGame, onSelect });
+  const isCatalogEntry = game.isCatalogEntry === true
+  const hasInstalledVersion = isCatalogEntry || game.hasInstalledVersion !== false
+  const renderedBanner =
+    selectedTemplate.type === 'legacy'
+      ? React.createElement(selectedTemplate.value, { game: resolvedGame, onSelect })
+      : (
+          <BannerLayoutRenderer
+            game={resolvedGame}
+            layout={getBannerLayoutById(defaultBannerLayouts, selectedTemplate.value)}
+            onSelect={onSelect}
+            onContextMenu={handleContextMenu}
+          />
+        )
 
-  if (hasInstalledVersion) return renderedBanner;
+  if (hasInstalledVersion) return renderedBanner
 
-  return React.createElement(
-    "div",
-    {
-      className: "relative grayscale opacity-60",
-      title: "Uninstalled",
-    },
-    [
-      renderedBanner,
-      React.createElement(
-        "div",
-        {
-          key: `uninstalled-marker-${game.record_id}`,
-          className:
-            "absolute top-2 left-2 z-40 bg-primary border border-border text-text text-[10px] px-2 py-1 pointer-events-none",
-        },
-          "Uninstalled",
-      ),
-    ],
-  );
-};
+  return (
+    <div className="relative grayscale opacity-60" title="Uninstalled">
+      {renderedBanner}
+      <div className="absolute top-2 left-2 z-40 bg-primary border border-border text-text text-[10px] px-2 py-1 pointer-events-none">
+        Uninstalled
+      </div>
+    </div>
+  )
+}
 
 export default GameBanner

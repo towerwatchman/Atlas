@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
 import { GRADIENT_ELIGIBLE_KEYS, resolveColorValue } from '../../theme/themes.js'
+import { getBuiltInBannerLayoutOptions } from '../library/bannerLayout/defaultBannerLayouts.js'
+import { normalizeBannerLayoutId } from '../library/bannerLayout/bannerLayoutSchema.js'
 
 // A handful of each theme's colors, shown as small swatches on its picker
 // card so people can tell themes apart at a glance rather than reading
@@ -68,14 +70,30 @@ const Appearance = () => {
   // layout, not app chrome) with its own future editor planned, so this
   // section is left exactly as it was, just relocated below the new
   // theme/layout controls. ──────────────────────────────────────────────
-  const [banner, setBanner] = useState('Default')
-  const [availableTemplates, setAvailableTemplates] = useState(['Default'])
+  const builtInBannerLayouts = getBuiltInBannerLayoutOptions()
+  const [banner, setBanner] = useState('classic')
+  const [availableTemplates, setAvailableTemplates] = useState(builtInBannerLayouts)
 
   useEffect(() => {
     const loadTemplates = async () => {
       try {
-        const templates = await window.electronAPI.getAvailableBannerTemplates()
-        setAvailableTemplates(['Default', ...templates])
+        const [templates, selectedTemplate] = await Promise.all([
+          window.electronAPI.getAvailableBannerTemplates(),
+          window.electronAPI.getSelectedBannerTemplate(),
+        ])
+        const legacyTemplateIds = Array.from(new Set(['f95', ...(templates || [])]))
+        const legacyTemplates = legacyTemplateIds
+          .filter((template) => template !== 'Default' && template !== 'default')
+          .filter((template) => !builtInBannerLayouts.some((layout) => layout.id === template))
+          .map((template) => ({ id: template, name: `${template} (legacy template)` }))
+        const templateOptions = [...builtInBannerLayouts, ...legacyTemplates]
+        const selectedId = normalizeBannerLayoutId(selectedTemplate)
+        setAvailableTemplates(templateOptions)
+        setBanner(
+          templateOptions.some((template) => template.id === selectedId)
+            ? selectedId
+            : 'classic',
+        )
       } catch (err) {
         console.error('Error fetching banner templates:', err)
         window.electronAPI.log(`Error fetching banner templates: ${err.message}`)
@@ -131,7 +149,7 @@ const Appearance = () => {
 
       {/* ── Banner template (existing feature, unchanged) ──────────────── */}
       <div className="flex items-center mb-2">
-        <label className="flex-1">Select a Banner UI Resource:</label>
+        <label className="flex-1">Banner layout preset:</label>
         <div className="flex items-center">
           <select
             className="w-80 bg-secondary border border-border text-text rounded p-1"
@@ -139,8 +157,8 @@ const Appearance = () => {
             onChange={(e) => setBanner(e.target.value)}
           >
             {availableTemplates.map((template) => (
-              <option key={template} value={template}>
-                {template}
+              <option key={template.id} value={template.id}>
+                {template.name}
               </option>
             ))}
           </select>
@@ -153,21 +171,22 @@ const Appearance = () => {
         </div>
       </div>
       <p className="text-xs opacity-50 mb-2">
-        This will override the default banner layout. Please check for errors
-        prior to loading
+        Built-in presets are schema-driven. Legacy JS templates are still
+        available when present.
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
       <div className="flex items-center mb-2">
-        <label className="flex-1">Open Xaml Editor</label>
+        <label className="flex-1">Banner editor</label>
         <button
-          className="ml-5 bg-accent text-text px-4 py-1 rounded hover:bg-accentHover"
+          className="ml-5 bg-secondary border border-border text-text px-4 py-1 rounded opacity-75 cursor-not-allowed"
           onClick={handleOpenXamlEditor}
+          disabled
         >
-          Launch
+          Coming later
         </button>
       </div>
       <p className="text-xs opacity-50 mb-2">
-        Create and modify existing banner themes
+        Drag/drop editing and preset sharing are planned for a later phase.
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
     </div>
