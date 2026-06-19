@@ -445,7 +445,6 @@ async function getInstalledSteamGames(overridePath = null) {
               name: appState.name,
               installDir: path.join(lib, "common", appState.installdir),
               size: appState.SizeOnDisk ? parseInt(appState.SizeOnDisk) : 0,
-              buildId: appState.buildid ? String(appState.buildid) : "",
             };
             console.log(`Adding game: ${JSON.stringify(gameData)}`);
             games.push(gameData);
@@ -463,6 +462,42 @@ async function getInstalledSteamGames(overridePath = null) {
   }
   console.log(`Found ${games.length} Steam games`);
   return games;
+}
+
+const SEASON_WORDS = {
+  one: "1",
+  two: "2",
+  three: "3",
+  four: "4",
+  five: "5",
+  six: "6",
+  seven: "7",
+  eight: "8",
+  nine: "9",
+  ten: "10",
+};
+
+function getSteamVersionLabel(steamGame = {}, meta = null) {
+  const candidates = [
+    meta?.title,
+    steamGame.name,
+    steamGame.installDir,
+    path.basename(steamGame.installDir || ""),
+  ];
+
+  for (const candidate of candidates) {
+    const text = String(candidate || "");
+    const match =
+      text.match(/\bseasons?\s*[-_:]?\s*(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\b/i) ||
+      text.match(/\bs\s*[-_:]?\s*(\d{1,2})\b/i);
+    if (!match) continue;
+
+    const rawSeason = String(match[1] || "").toLowerCase();
+    const season = SEASON_WORDS[rawSeason] || rawSeason.replace(/^0+/, "") || rawSeason;
+    return `Steam: Season ${season}`;
+  }
+
+  return "Steam";
 }
 
 // Steam metadata is fetched lazily (at import time, in the background) rather
@@ -571,11 +606,7 @@ async function startSteamScan(db, params, event) {
         creator:
           (meta && meta.developer) || (meta && meta.publisher) || "Unknown",
         engine: (meta && meta.engine) || "Unknown",
-        // Label the version with the .acf buildid when present so successive
-        // Steam builds are distinguishable; fall back to a plain "Steam" label.
-        // (Dedup/merge resolves by appid, not this label, so the format is safe
-        // to vary — see getImportRecordStatus.)
-        version: steamGame.buildId ? `Steam build ${steamGame.buildId}` : "Steam",
+        version: getSteamVersionLabel(steamGame, meta),
         steamType: (meta && meta.type) || "game",
         sourceType: "steam",
         folder: steamGame.installDir,
