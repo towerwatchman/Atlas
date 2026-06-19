@@ -21,13 +21,23 @@
 </div>
 
 #
-Atlas is an open source game manager and launcher for Windows, and Linux with a modern interface for viewing, finding, and easily installing 3rd party games and visual novels.
-We currently support adding games from [F95Zone](https://f95zone.to/) and plan on adding more sources as the project progresses (See features below).
+Atlas is an open source game manager and launcher for Windows and Linux with a modern interface for viewing, finding, and easily installing and organizing your game library. Whether you're managing a small personal collection or hundreds of titles from multiple sources, Atlas keeps everything organized, searchable, and easy to launch.
 It's meant to replace [Game-List](https://www.game-list.org) ([Github](https://github.com/game-list/game-list)) but also expand on it's feature set.
 
 Atlas is for the user that wants ease of use, quality of life and have the software do the heavy lifting for you.
 
 For discussion about future releases and new features please visit our [Discord Server](https://discord.gg/XpTHvYbYyz).
+
+## Adult / Lewd Game Support
+Atlas includes optional support for browsing and managing adult-oriented games and visual novels, with metadata sourced from:
+- [F95Zone](https://f95zone.to/)
+- [LewdCorner](https://www.lewdcorner.com/)
+- [Steam](https://store.steampowered.com/)
+
+This mode is opt-in. Atlas does not host, produce, or distribute any of the underlying game files or adult imagery — all content is sourced and loaded directly from the third-party sites listed above. Atlas does not store, cache, or host any images or videos; all such media remains hosted on, and is loaded directly from, the originating third-party site. Atlas only stores text-based metadata (titles, tags, descriptions, links, etc.) locally; it is the user's responsibility to comply with the laws and platform policies applicable to them.
+
+## Data Storage & Updates
+All game metadata is stored locally in a SQLite database on your machine. Atlas periodically syncs with supported sources (including F95Zone and LewdCorner) multiple times a day to keep metadata, tags, and listings up to date.
 
 ## Features:
 A summary of planned features is listed below. We do not have a timeline for all features yet
@@ -41,6 +51,7 @@ A summary of planned features is listed below. We do not have a timeline for all
 - Filter titles based on titles, creators, tags, ID's, description contents and urls.
 - Bulk install/import multiple titles and versions with a single click.
 - Compresses all banner and preview images to smaller webp files for storage optimization.
+- Steam support for games you already have installed via Steam.
 
 ## Download
 Grab the latest version from the [releases](https://github.com/towerwatchman/Atlas/releases) page. Once installed, Atlas will automatically notify you once there is a new version available. 
