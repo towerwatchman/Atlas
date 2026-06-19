@@ -93,7 +93,23 @@ export const getSteamAppId = (game = {}) => {
   return ''
 }
 
-// True when the record is backed by a Steam appid (mapping or external id).
+export const getMappedSteamAppId = (game = {}) => {
+  if (game.isCatalogEntry === true || game.isWishlistEntry === true || game.isMetadataOnly === true) return ''
+  const candidates = [
+    game.steam_appid,
+    game.steam_id,
+    game.steamAppId,
+    game.steamId,
+  ]
+  for (const candidate of candidates) {
+    const appId = cleanSteamAppId(candidate)
+    if (appId) return appId
+  }
+  return ''
+}
+
+// True when the record has Steam metadata available, either from a real mapping
+// or an external id.
 export const isSteamGame = (game = {}) => !!getSteamAppId(game)
 
 // Developer should prefer the real developer. games.creator is sometimes a

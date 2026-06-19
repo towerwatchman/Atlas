@@ -1,6 +1,7 @@
 import f95Logo from '../../../assets/images/f95_full.png'
 import atlasLogo from '../../../assets/images/atlas_logo.svg'
 import { parseExternalIds, buildExternalLinks } from '../externalLinks.js'
+import { getMappedSteamAppId } from '../page/gameDetailUtils.js'
 
 const normalizeF95DisplayId = (value) => {
   const normalized = String(value ?? '').trim()
@@ -13,7 +14,7 @@ const normalizeF95DisplayId = (value) => {
 
 export default function MappingsTab({ game, showModal, searchResults, onFindGame, onSelectGame, onCloseModal }) {
   const externalIds = parseExternalIds(game.external_ids)
-  const steamAppId = game.steam_id || game.steam_appid || externalIds.steam_appid || externalIds.steam_id || null
+  const steamAppId = getMappedSteamAppId(game)
   const f95DisplayId = normalizeF95DisplayId(game.f95_id)
   const lewdCornerId = game.lc_id || game.lcId || game.lewdCornerId || externalIds.lc_id || externalIds.lewdcorner_id || null
   const iconCellClass = 'p-2 w-24 align-middle'

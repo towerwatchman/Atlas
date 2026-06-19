@@ -7,7 +7,7 @@ import SafeImage from '../ui/SafeImage.jsx'
 import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
   sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl, formatReleaseDate,
-  isSteamGame, getSteamAppId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
+  isSteamGame, getMappedSteamAppId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
 } from './page/gameDetailUtils.js'
 import { buildExternalLinks } from './externalLinks.js'
 
@@ -48,7 +48,7 @@ const getPersonalRatingsOverall = (draft = {}) => {
   return Math.round(average * 10) / 10
 }
 
-const buildDetailExternalLinks = (game = {}) => {
+const buildDetailExternalLinks = (game = {}, { hasSteamMapping = false } = {}) => {
   const links = []
   const siteUrl = String(game.siteUrl || game.site_url || '').trim()
   if (isValidHttpUrl(siteUrl)) {
@@ -71,6 +71,7 @@ const buildDetailExternalLinks = (game = {}) => {
     })
   }
   for (const link of buildExternalLinks(game.external_ids)) {
+    if (!hasSteamMapping && ['steam_appid', 'steam_id'].includes(String(link.key || '').toLowerCase())) continue
     if (link.url && !isValidHttpUrl(link.url)) continue
     if (link.url && links.some((existing) => existing.url === link.url)) continue
     links.push(link)
@@ -356,7 +357,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const latestVersion = game.latestVersion || game.latest_version || ''
   const versionOptions = sortVersionsDesc(game.versions || [])
 
-  const steamAppId = getSteamAppId(game)
+  const steamAppId = getMappedSteamAppId(game)
   const steam = isSteamGame(game)
   const developer = resolveDeveloper(game)
   const categories = splitCsv(game.category)
@@ -390,7 +391,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const localVersion = actionVersion?.version || selectedVersion?.version || game.versions?.[0]?.version || game.version || ''
   const localImportIsArchive = isArchiveSourcePath(localImportPath, localArchiveExtensions)
 
-  const externalLinks = buildDetailExternalLinks(game)
+  const externalLinks = buildDetailExternalLinks(game, { hasSteamMapping: Boolean(steamAppId) })
   const personalRatingsDirty = JSON.stringify(personalRatingsDraft) !== JSON.stringify(personalRatingsSaved)
   const personalRatingsOverall = getPersonalRatingsOverall(personalRatingsDraft)
 
