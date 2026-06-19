@@ -58,6 +58,9 @@ const defaultConfig = {
     // Empty string means "no custom theme saved".
     customTheme: '',
   },
+  NSFW: {
+    enabled: false,
+  },
 }
 
 const sanitizeFeatureSettings = (settings = {}) => {
@@ -315,6 +318,33 @@ module.exports = function registerSettingsHandlers(ctx) {
       return { success: true }
     } catch (err) {
       console.error('save-settings error:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('get-nsfw-status', async () => {
+    return {
+      configured: ctx.nsfwConfigured === true,
+      enabled: ctx.appConfig?.NSFW?.enabled === true,
+    }
+  })
+
+  ipcMain.handle('set-nsfw-enabled', async (event, enabled) => {
+    try {
+      const nextEnabled = enabled === true
+      const nextSettings = {
+        ...ctx.appConfig,
+        NSFW: { ...(ctx.appConfig?.NSFW || {}), enabled: nextEnabled },
+      }
+      ctx.appConfig = nextSettings
+      ctx.nsfwConfigured = true
+      fs.writeFileSync(ctx.configPath, ini.stringify(nextSettings))
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send('nsfw-changed', { enabled: nextEnabled })
+      })
+      return { success: true, enabled: nextEnabled }
+    } catch (err) {
+      console.error('set-nsfw-enabled error:', err)
       return { success: false, error: err.message }
     }
   })

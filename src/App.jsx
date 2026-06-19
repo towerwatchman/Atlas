@@ -54,8 +54,8 @@ const getLocalRecordIdForCatalogRow = (game = {}) => {
 
 const knownSidePanelModes = new Set(Object.values(SIDE_PANEL_MODES))
 
-const normalizeSidePanelMode = (value, legacyShowGameList = true) => {
-  if (!BROWSE_MODE_ENABLED && value === SIDE_PANEL_MODES.CATALOG) {
+const normalizeSidePanelMode = (value, legacyShowGameList = true, browseAvailable = BROWSE_MODE_ENABLED) => {
+  if (!browseAvailable && value === SIDE_PANEL_MODES.CATALOG) {
     return SIDE_PANEL_MODES.GAMES
   }
   if (knownSidePanelModes.has(value)) return value
@@ -134,6 +134,13 @@ const App = () => {
   const [importStatus, setImportStatus] = useState({ text: '', progress: 0, total: 0 })
   const [importProgress, setImportProgress] = useState({ text: '', progress: 0, total: 0 })
   const [dbUpdateStatus, setDbUpdateStatus] = useState({ text: '', progress: 0, total: 0 })
+  // NSFW / adult-content ("Browse mode") opt-in — see electron/ipc/settings.js
+  // get-nsfw-status / set-nsfw-enabled. nsfwPromptOpen drives the first-run
+  // confirmation modal below; it only opens once getNsfwStatus() reports the
+  // user has never been asked (i.e. the config.ini has no [NSFW] enabled
+  // line yet), not just whenever it's currently false.
+  const [nsfwEnabled, setNsfwEnabled] = useState(false)
+  const [nsfwPromptOpen, setNsfwPromptOpen] = useState(false)
 
   const gridRef = useRef(null)
   const gameGridRef = useRef(null)
@@ -143,9 +150,21 @@ const App = () => {
   const showGameList = sidebarMode === SIDE_PANEL_MODES.GAMES
   const showSavedFilters = sidebarMode === SIDE_PANEL_MODES.SAVED_FILTERS
   const showLibrarySidebar = showGameList || showSavedFilters
+  // Browse mode (the adult-content catalog) requires BOTH the build-time
+  // BROWSE_MODE_ENABLED flag (electron/features.js — currently off pending
+  // legal review) AND the user's own per-install NSFW opt-in. Either one
+  // being off hides/disables Browse mode entirely.
+  const browseAvailable = BROWSE_MODE_ENABLED && nsfwEnabled
+  // Mirrors browseAvailable into a ref so the mount-only IPC-listener effect
+  // below (deps: []) can read the latest value without becoming stale —
+  // that effect's handlers are created once and never recreated, but
+  // nsfwEnabled (and therefore browseAvailable) can change at runtime via
+  // the Settings toggle.
+  const browseAvailableRef = useRef(browseAvailable)
+  useEffect(() => { browseAvailableRef.current = browseAvailable }, [browseAvailable])
 
   const setAndPersistSidePanelMode = useCallback((requestedMode) => {
-    const nextMode = normalizeSidePanelMode(requestedMode)
+    const nextMode = normalizeSidePanelMode(requestedMode, undefined, browseAvailable)
     setSidebarMode(nextMode)
     window.electronAPI
       .getConfig()
@@ -163,7 +182,7 @@ const App = () => {
         })
       })
       .catch((err) => console.error('Failed to save side panel mode:', err))
-  }, [])
+  }, [browseAvailable])
 
   // ── Hooks ──────────────────────────────────────────────────────────────────
   const {
@@ -324,7 +343,7 @@ const App = () => {
 
   const refreshDetailGame = useCallback((recordId) => {
     refreshGame(recordId)
-    if (BROWSE_MODE_ENABLED) fetchCatalogGames()
+    if (browseAvailable) fetchCatalogGames()
     fetchWishlistGames()
     const id = Number.parseInt(recordId, 10)
     if (!Number.isInteger(id) || id <= 0) return
@@ -342,7 +361,7 @@ const App = () => {
       .catch((error) =>
         console.error(`Failed to refresh detail game ${id}:`, error)
       )
-  }, [fetchCatalogGames, fetchWishlistGames, refreshGame])
+  }, [browseAvailable, fetchCatalogGames, fetchWishlistGames, refreshGame])
 
   // ── Grid sizing ────────────────────────────────────────────────────────────
   const getScrollbarWidth = () => {
@@ -432,8 +451,20 @@ const App = () => {
     setAndPersistSidePanelMode(nextMode)
   }
 
+  // Records the user's answer to the first-run NSFW/adult-content prompt.
+  // Persists immediately via set-nsfw-enabled (which also marks the config
+  // as "configured" so the prompt never reappears), and updates this
+  // window's own state right away rather than waiting on the nsfw-changed
+  // broadcast round-trip.
+  const handleNsfwChoice = useCallback((enabled) => {
+    setNsfwPromptOpen(false)
+    setNsfwEnabled(enabled)
+    window.electronAPI.setNsfwEnabled?.(enabled)
+      .catch((err) => console.error('Failed to save NSFW setting:', err))
+  }, [])
+
   const browseCatalog = useCallback(() => {
-    if (!BROWSE_MODE_ENABLED) {
+    if (!browseAvailable) {
       setLibraryMode('local')
       setSelectedGame(null)
       setAndPersistSidePanelMode(SIDE_PANEL_MODES.GAMES)
@@ -444,7 +475,7 @@ const App = () => {
     setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
     setShowSearchSidebar(false)
     if (catalogGames.length === 0) fetchCatalogGames({ reset: true })
-  }, [catalogGames.length, fetchCatalogGames, setAndPersistSidePanelMode])
+  }, [browseAvailable, catalogGames.length, fetchCatalogGames, setAndPersistSidePanelMode])
 
   const loadWishlistIdentities = useCallback(() => {
     return window.electronAPI
@@ -708,21 +739,33 @@ const App = () => {
 
   // ── IPC listeners + init ───────────────────────────────────────────────────
   useEffect(() => {
-    window.electronAPI.getConfig()
-      .then((config) => {
+    Promise.all([
+      window.electronAPI.getNsfwStatus?.().catch(() => null),
+      window.electronAPI.getConfig(),
+    ])
+      .then(([nsfwStatus, config]) => {
+        const enabled = nsfwStatus?.enabled === true
+        setNsfwEnabled(enabled)
+        // Only ever show the prompt when the config has never recorded an
+        // answer at all (configured === false) — not just whenever the
+        // current answer happens to be "no".
+        if (nsfwStatus && nsfwStatus.configured === false) setNsfwPromptOpen(true)
+
+        const browseOk = BROWSE_MODE_ENABLED && enabled
         const nextMode = normalizeSidePanelMode(
           config.Interface?.sidePanelMode,
           config.Interface?.showGameList ?? true,
+          browseOk,
         )
         setSidebarMode(nextMode)
         setLibraryMode(
-          BROWSE_MODE_ENABLED && nextMode === SIDE_PANEL_MODES.CATALOG
+          browseOk && nextMode === SIDE_PANEL_MODES.CATALOG
             ? 'catalog'
             : nextMode === SIDE_PANEL_MODES.WISHLIST
               ? 'wishlist'
               : 'local',
         )
-        if (BROWSE_MODE_ENABLED && nextMode === SIDE_PANEL_MODES.CATALOG) fetchCatalogGames()
+        if (browseOk && nextMode === SIDE_PANEL_MODES.CATALOG) fetchCatalogGames()
         if (nextMode === SIDE_PANEL_MODES.WISHLIST) fetchWishlistGames()
       })
       .catch(() => setSidebarMode(SIDE_PANEL_MODES.GAMES))
@@ -818,7 +861,7 @@ const App = () => {
 
   const handleImportComplete = () => {
     fetchGames()
-      if (BROWSE_MODE_ENABLED) fetchCatalogGames()
+      if (browseAvailableRef.current) fetchCatalogGames()
       fetchWishlistGames()
       setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2000)
     }
@@ -832,7 +875,7 @@ const App = () => {
     // whenever the user does switch to it.
     const handleMetadataChanged = () => {
       fetchGames()
-      if (BROWSE_MODE_ENABLED) fetchCatalogGames()
+      if (browseAvailableRef.current) fetchCatalogGames()
       fetchWishlistGames()
     }
 
@@ -846,6 +889,12 @@ const App = () => {
     window.electronAPI.onImportComplete(handleImportComplete)
     window.electronAPI.onUpdateStatus(handleUpdateStatus)
     const removeMetadataListener = window.electronAPI.onMetadataChanged?.(handleMetadataChanged)
+    const removeNsfwListener = window.electronAPI.onNsfwChanged?.((data) => {
+      // Keeps this window's Browse availability in sync when the NSFW
+      // setting is changed from elsewhere — e.g. the Settings window's
+      // toggle, or this same prompt answered in another open window.
+      setNsfwEnabled(data?.enabled === true)
+    })
     const removeBannerLayoutListener = window.electronAPI.onBannerLayoutUpdated?.(loadBannerLayoutMetrics)
 
     window.electronAPI.getAppUpdateState?.()
@@ -872,6 +921,7 @@ const App = () => {
     return () => {
       window.electronAPI.removeUpdateStatusListener?.()
       if (typeof removeMetadataListener === 'function') removeMetadataListener()
+      if (typeof removeNsfwListener === 'function') removeNsfwListener()
       if (typeof removeBannerLayoutListener === 'function') removeBannerLayoutListener()
       window.removeEventListener('resize', debounceResize)
       window.removeEventListener('focus', loadBannerLayoutMetrics)
@@ -984,6 +1034,7 @@ const App = () => {
                     onOpenHelp={openHelp}
                     showGameList={showLibrarySidebar}
                     libraryMode={libraryMode}
+                    browseAvailable={browseAvailable}
                   />
                 </div>
                 <div className="flex-1" />
@@ -1010,6 +1061,7 @@ const App = () => {
                     onOpenHelp={openHelp}
                     showGameList={showLibrarySidebar}
                     libraryMode={libraryMode}
+                    browseAvailable={browseAvailable}
                   />
                   <span className="text-text text-xs whitespace-nowrap">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
                 </div>
@@ -1055,6 +1107,7 @@ const App = () => {
             onOpenHelp={openHelp}
             showGameList={showLibrarySidebar}
             libraryMode={libraryMode}
+            browseAvailable={browseAvailable}
           />
         )}
 
@@ -1359,6 +1412,39 @@ const App = () => {
         </div>
         <div aria-hidden="true"></div>
       </div>
+
+      {/* First-run NSFW / adult-content opt-in prompt. Shown once, only
+          when config.ini has never recorded an answer (see
+          electron/ipc/settings.js's get-nsfw-status `configured` flag) —
+          not whenever the answer happens to be "no". Answering either way
+          persists immediately via setNsfwEnabled and never shows again;
+          the choice can still be changed later from Settings > Interface. */}
+      {nsfwPromptOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-secondary p-6 rounded-md max-w-md w-full text-text">
+            <h2 className="text-lg font-semibold mb-3">Enable Adult (18+) Content?</h2>
+            <p className="text-sm opacity-80 mb-5">
+              Atlas can optionally include adult-oriented games and visual novels in
+              Browse mode, with metadata sourced from third-party sites. This content
+              is intended for adults only. Would you like to enable it?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => handleNsfwChoice(false)}
+                className="px-4 py-2 rounded bg-tertiary hover:bg-buttonHover transition-colors duration-200"
+              >
+                No
+              </button>
+              <button
+                onClick={() => handleNsfwChoice(true)}
+                className="px-4 py-2 rounded bg-accent hover:bg-accentHover transition-colors duration-200"
+              >
+                Yes, I am 18 or older
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

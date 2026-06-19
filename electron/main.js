@@ -94,6 +94,13 @@ let bannerEditorWindow
 let importSourceDialog
 let executableChooserWindow = null
 let appConfig
+// True once the user has been asked (and answered) the NSFW/adult-content
+// opt-in prompt at least once — distinct from appConfig.NSFW.enabled, which
+// only tells us their current answer (true/false), not whether they've
+// ever actually been asked. Detected by checking for the literal presence
+// of the [NSFW] enabled key in the saved config.ini, not by reading the
+// merged-with-defaults appConfig (which would always report a value).
+let nsfwConfigured = false
 let activeImportSession = null
 let activeLibraryValidation = null
 let activeScanSession = null
@@ -262,6 +269,14 @@ const defaultConfig = {
     filterSidebarSide: 'right',
     filterSidebarMode: 'overlay',
     customTheme: '',
+  },
+  // Whether the user has opted in to NSFW/adult ("Browse mode") content.
+  // Deliberately NOT merged into Interface/Library/etc — see the
+  // nsfwConfigured detection below, which checks for the literal absence
+  // of this key in the saved ini (not just a falsy value) to decide
+  // whether the first-run NSFW confirmation prompt should be shown.
+  NSFW: {
+    enabled: false,
   },
   WindowBounds: {},
 }
@@ -912,6 +927,7 @@ function buildCtx() {
     quitFromMainWindow,
     // state
     appConfig, configPath, dataDir, launcherDir, templatesDir, themeTemplatesDir,
+    nsfwConfigured,
     contextMenuData, contextMenuId, recentlyDeletedGamePaths, gameDetailsRecordMap,
     activeImportSession, activeScanSession, activeLibraryValidation, isQuitting,
     // updater state
@@ -977,11 +993,18 @@ app.whenReady().then(async () => {
   }
 
   if (fs.existsSync(configPath)) {
-    try { appConfig = mergeConfigWithDefaults(ini.parse(fs.readFileSync(configPath, 'utf-8'))) }
-    catch { appConfig = { ...defaultConfig } }
+    try {
+      const rawParsed = ini.parse(fs.readFileSync(configPath, 'utf-8'))
+      nsfwConfigured = rawParsed?.NSFW?.enabled !== undefined
+      appConfig = mergeConfigWithDefaults(rawParsed)
+    } catch {
+      appConfig = { ...defaultConfig }
+      nsfwConfigured = false
+    }
   } else {
     appConfig = { ...defaultConfig }
     fs.writeFileSync(configPath, ini.stringify(defaultConfig))
+    nsfwConfigured = false
   }
 
   await repairDoubledApostropheRows()
@@ -1000,6 +1023,10 @@ app.whenReady().then(async () => {
   Object.defineProperty(ctx, 'appConfig', {
     get: () => appConfig,
     set: (v) => { appConfig = v },
+  })
+  Object.defineProperty(ctx, 'nsfwConfigured', {
+    get: () => nsfwConfigured,
+    set: (v) => { nsfwConfigured = v },
   })
   Object.defineProperty(ctx, 'contextMenuId', {
     get: () => contextMenuId,

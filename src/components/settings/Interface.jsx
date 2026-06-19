@@ -17,6 +17,10 @@ const Interface = () => {
   const [updateVersion, setUpdateVersion] = useState("");
   const [updatePercent, setUpdatePercent] = useState(0);
   const [updateError, setUpdateError] = useState("");
+  // NSFW / adult-content ("Browse mode") opt-in — mirrors the same setting
+  // surfaced by the first-run prompt in App.jsx. See
+  // electron/ipc/settings.js's get-nsfw-status / set-nsfw-enabled.
+  const [nsfwEnabled, setNsfwEnabledState] = useState(false);
 
   const applyUpdateStatus = (status) => {
     if (!status?.status) return;
@@ -56,12 +60,20 @@ const Interface = () => {
     );
     window.electronAPI.getAppUpdateState?.().then(applyUpdateStatus);
 
+    window.electronAPI.getNsfwStatus?.().then((status) => {
+      setNsfwEnabledState(status?.enabled === true);
+    });
+    const removeNsfwListener = window.electronAPI.onNsfwChanged?.((data) => {
+      setNsfwEnabledState(data?.enabled === true);
+    });
+
     return () => {
       if (typeof removeUpdateListener === "function") {
         removeUpdateListener();
       } else {
         window.electronAPI.removeUpdateStatusListener?.();
       }
+      if (typeof removeNsfwListener === "function") removeNsfwListener();
     };
   }, []);
 
@@ -112,6 +124,17 @@ const Interface = () => {
     const newVal = !checkForAppUpdatesOnStartup;
     setCheckForAppUpdatesOnStartup(newVal);
     saveSettings({ checkForAppUpdatesOnStartup: newVal });
+  };
+
+  // NSFW lives in its own [NSFW] config section (not [Interface]), so this
+  // goes through set-nsfw-enabled rather than the saveSettings() helper
+  // above — that also keeps the "configured" bookkeeping in main.js
+  // consistent regardless of whether the user answers via this toggle or
+  // the first-run prompt in App.jsx.
+  const handleNsfwToggle = () => {
+    const newVal = !nsfwEnabled;
+    setNsfwEnabledState(newVal);
+    window.electronAPI.setNsfwEnabled?.(newVal);
   };
 
   const handleCheckAppUpdate = async () => {
@@ -239,6 +262,23 @@ const Interface = () => {
       </div>
       <p className="text-xs opacity-50 mb-2">
         Hide/show the left sidebar. Requires restart.
+      </p>
+      <div className="border-t border-text opacity-25 my-2"></div>
+
+      <div className="flex items-center mb-2">
+        <label className="flex-1">Enable adult (18+) content in Browse mode</label>
+        <input
+          type="checkbox"
+          className="mr-5"
+          checked={nsfwEnabled}
+          onChange={handleNsfwToggle}
+        />
+      </div>
+      <p className="text-xs opacity-50 mb-2">
+        Allows Browse mode to include adult-oriented games and visual novels.
+        Atlas does not host or store any of this content — metadata is sourced
+        from third-party sites, and you must be of legal age in your location
+        to enable this.
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
 

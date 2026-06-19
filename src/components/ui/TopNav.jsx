@@ -53,13 +53,13 @@ const orderItems = (items, order) =>
 const TopNav = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
   onToggleSearchSidebar, onOpenHelp, showGameList, libraryMode = 'local', group = 'left',
-  forceIconsOnly = false,
+  forceIconsOnly = false, browseAvailable,
 }) => {
   const { navDisplayMode } = useTheme()
   const [selected, setSelected] = useState(null)
   const items = getNavItems({
     onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
-    onToggleSearchSidebar, onOpenHelp,
+    onToggleSearchSidebar, onOpenHelp, browseModeAvailable: browseAvailable,
   })
   const groupItems = orderItems(items, group === 'right' ? RIGHT_ORDER : LEFT_ORDER)
   const effectiveDisplayMode = forceIconsOnly ? 'icons' : navDisplayMode

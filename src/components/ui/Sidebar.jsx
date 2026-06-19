@@ -6,6 +6,7 @@ import ImporterSourceMenu from '../importer/ImporterSourceMenu.jsx'
 const Sidebar = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
   onToggleSearchSidebar, onOpenHelp, showGameList, libraryMode = 'local',
+  browseAvailable,
 }) => {
   const { navDisplayMode } = useTheme()
   const [selected, setSelected] = useState('Library')
@@ -16,7 +17,7 @@ const Sidebar = ({
   // unrequested icons to the existing vertical icon list.
   const items = getNavItems({
     onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
-    onToggleSearchSidebar, onOpenHelp,
+    onToggleSearchSidebar, onOpenHelp, browseModeAvailable: browseAvailable,
   }).filter((item) => item.name !== 'Filters' && item.name !== 'Help')
   const showIcon = navDisplayMode !== 'text'
   const showText = navDisplayMode !== 'icons'

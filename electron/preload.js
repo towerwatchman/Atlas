@@ -70,6 +70,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   getConfig: () => ipcRenderer.invoke("get-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("save-settings", settings),
+  // NSFW / adult-content ("Browse mode") opt-in. getNsfwStatus's
+  // `configured` flag tells the renderer whether the user has ever been
+  // asked the opt-in prompt before — distinct from `enabled`, their actual
+  // current answer. See electron/ipc/settings.js + main.js's
+  // nsfwConfigured for how `configured` is derived from the raw config.ini.
+  getNsfwStatus: () => ipcRenderer.invoke("get-nsfw-status"),
+  setNsfwEnabled: (enabled) => ipcRenderer.invoke("set-nsfw-enabled", enabled),
+  onNsfwChanged: (callback) => {
+    ipcRenderer.on("nsfw-changed", (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners("nsfw-changed");
+  },
   getSavedFilters: () => ipcRenderer.invoke("get-saved-filters"),
   saveSavedFilter: (filter) => ipcRenderer.invoke("save-saved-filter", filter),
   deleteSavedFilter: (id) => ipcRenderer.invoke("delete-saved-filter", id),
