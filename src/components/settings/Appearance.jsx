@@ -1,15 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
 import { GRADIENT_ELIGIBLE_KEYS, resolveColorValue } from '../../theme/themes.js'
 import BannerLayoutRenderer from '../library/bannerLayout/BannerLayoutRenderer.jsx'
 import { defaultBannerLayouts, getBuiltInBannerLayoutOptions } from '../library/bannerLayout/defaultBannerLayouts.js'
 import {
+  BANNER_PRESET_EXPORT_TYPE,
   CUSTOM_BANNER_LAYOUT_ID,
   SUPPORTED_BANNER_FIELD_IDS,
   SUPPORTED_BANNER_SLOTS,
+  createBannerPresetExport,
+  createUserPresetFromLayout,
   getBannerLayoutById,
   normalizeBannerLayout,
   normalizeBannerLayoutId,
+  normalizeBannerPreset,
+  sanitizeBannerPresetName,
 } from '../library/bannerLayout/bannerLayoutSchema.js'
 
 const SWATCH_KEYS = ['primary', 'tertiary', 'accent', 'text']
@@ -58,6 +63,19 @@ const previewGame = {
 
 const cloneLayout = (layout) => JSON.parse(JSON.stringify(layout))
 
+const uniqueName = (name, presets, ignoreId = null) => {
+  const base = sanitizeBannerPresetName(name)
+  const used = new Set(presets.filter((preset) => preset.id !== ignoreId).map((preset) => preset.name))
+  if (!used.has(base)) return base
+  let index = 2
+  let candidate = `${base} (${index})`
+  while (used.has(candidate)) {
+    index += 1
+    candidate = `${base} (${index})`
+  }
+  return candidate
+}
+
 const backgroundStyleFor = (key, value) => {
   const { solid, gradient } = resolveColorValue(key, value)
   return GRADIENT_ELIGIBLE_KEYS.includes(key) && gradient !== 'none' ? gradient : solid
@@ -85,9 +103,7 @@ const ThemeSwatchCard = ({ theme, isActive, onSelect }) => (
       <span className="text-sm font-semibold" style={{ color: resolveColorValue('text', theme.colors.text).solid }}>
         {theme.name}
       </span>
-      {isActive && (
-        <span className="text-xs text-accent font-medium">Active</span>
-      )}
+      {isActive && <span className="text-xs text-accent font-medium">Active</span>}
     </div>
   </button>
 )
@@ -99,9 +115,24 @@ const Appearance = () => {
   const [selectedPresetId, setSelectedPresetId] = useState('classic')
   const [selectedLayoutId, setSelectedLayoutId] = useState('classic')
   const [draftLayout, setDraftLayout] = useState(() => cloneLayout(classicLayout))
+  const [userPresets, setUserPresets] = useState([])
+  const [presetName, setPresetName] = useState('')
   const [statusText, setStatusText] = useState('')
+  const customSaveTimerRef = useRef(null)
+
+  const selectedUserPreset = userPresets.find((preset) => preset.id === selectedPresetId)
+  const selectedBuiltIn = builtInBannerLayouts.find((layout) => layout.id === selectedPresetId)
+  const isUserPresetSelected = Boolean(selectedUserPreset)
+
+  const persistUserPresets = async (nextPresets) => {
+    const result = await window.electronAPI.setUserBannerLayouts(nextPresets)
+    if (result?.success === false) throw new Error(result.error || 'Failed to save presets')
+    setUserPresets(nextPresets)
+  }
 
   const createDraftFromPreset = (presetId) => {
+    const userPreset = userPresets.find((preset) => preset.id === presetId)
+    if (userPreset) return cloneLayout(normalizeBannerPreset(userPreset, classicLayout)?.layout || classicLayout)
     const preset = getBannerLayoutById(defaultBannerLayouts, presetId)
     return cloneLayout(normalizeBannerLayout(preset, classicLayout))
   }
@@ -120,37 +151,60 @@ const Appearance = () => {
       )
     })
     setSelectedLayoutId(CUSTOM_BANNER_LAYOUT_ID)
-    setStatusText('Unsaved custom layout')
+    setStatusText('Unsaved custom changes')
   }
 
   useEffect(() => {
     const loadBannerSettings = async () => {
       try {
-        const [selectedTemplate, customLayout] = await Promise.all([
+        const [selectedTemplate, customLayout, storedUserPresets] = await Promise.all([
           window.electronAPI.getSelectedBannerTemplate(),
           window.electronAPI.getCustomBannerLayout?.(),
+          window.electronAPI.getUserBannerLayouts?.(),
         ])
+        const existingIds = builtInBannerLayouts.map((layout) => layout.id)
+        const normalizedUserPresets = (Array.isArray(storedUserPresets) ? storedUserPresets : [])
+          .map((preset) => {
+            const normalized = normalizeBannerPreset(preset, classicLayout, existingIds)
+            if (normalized) existingIds.push(normalized.id)
+            return normalized
+          })
+          .filter(Boolean)
+        setUserPresets(normalizedUserPresets)
+
         const selectedId = normalizeBannerLayoutId(selectedTemplate)
+        const selectedUser = normalizedUserPresets.find((preset) => preset.id === selectedId)
+
+        if (selectedUser) {
+          setSelectedPresetId(selectedUser.id)
+          setSelectedLayoutId(selectedUser.id)
+          setDraftLayout(cloneLayout(selectedUser.layout))
+          setPresetName(selectedUser.name)
+          return
+        }
 
         if (selectedId === CUSTOM_BANNER_LAYOUT_ID && customLayout) {
           const normalized = normalizeBannerLayout(customLayout, classicLayout)
           const basePresetId = normalizeBannerLayoutId(normalized?.basePresetId)
           setSelectedPresetId(
-            builtInBannerLayouts.some((layout) => layout.id === basePresetId)
+            [...builtInBannerLayouts, ...normalizedUserPresets].some((layout) => layout.id === basePresetId)
               ? basePresetId
               : 'classic',
           )
           setSelectedLayoutId(CUSTOM_BANNER_LAYOUT_ID)
           setDraftLayout(normalized || cloneLayout(classicLayout))
+          setPresetName(normalized?.name === 'Custom' ? '' : normalized?.name || '')
           return
         }
 
         const safePresetId = builtInBannerLayouts.some((layout) => layout.id === selectedId)
           ? selectedId
           : 'classic'
+        const draft = cloneLayout(normalizeBannerLayout(getBannerLayoutById(defaultBannerLayouts, safePresetId), classicLayout))
         setSelectedPresetId(safePresetId)
         setSelectedLayoutId(safePresetId)
-        setDraftLayout(createDraftFromPreset(safePresetId))
+        setDraftLayout(draft)
+        setPresetName(draft.name || '')
       } catch (err) {
         console.error('Error loading banner layout settings:', err)
         window.electronAPI.log(`Error loading banner layout settings: ${err.message}`)
@@ -163,56 +217,227 @@ const Appearance = () => {
     loadBannerSettings()
   }, [])
 
-  const handlePresetChange = (presetId) => {
-    setSelectedPresetId(presetId)
-    setDraftLayout(createDraftFromPreset(presetId))
-    setSelectedLayoutId(presetId)
-    setStatusText('')
-  }
+  useEffect(() => {
+    if (selectedLayoutId !== CUSTOM_BANNER_LAYOUT_ID) return undefined
+    if (customSaveTimerRef.current) clearTimeout(customSaveTimerRef.current)
+    customSaveTimerRef.current = setTimeout(async () => {
+      try {
+        const result = await window.electronAPI.setCustomBannerLayout(draftLayout)
+        if (result?.success === false) throw new Error(result.error || 'Save failed')
+      } catch (err) {
+        console.error('Error auto-saving custom banner layout:', err)
+        setStatusText('Failed to save custom draft')
+      }
+    }, 300)
+    return () => {
+      if (customSaveTimerRef.current) clearTimeout(customSaveTimerRef.current)
+    }
+  }, [draftLayout, selectedLayoutId])
 
-  const handleUsePreset = async () => {
+  const handlePresetChange = async (presetId) => {
+    const draft = createDraftFromPreset(presetId)
+    setSelectedPresetId(presetId)
+    setSelectedLayoutId(presetId)
+    setDraftLayout(draft)
+    setPresetName(draft.name || '')
+    setStatusText('')
     try {
-      await window.electronAPI.setSelectedBannerTemplate(selectedPresetId)
-      setDraftLayout(createDraftFromPreset(selectedPresetId))
-      setSelectedLayoutId(selectedPresetId)
-      setStatusText('Preset applied')
+      await window.electronAPI.setSelectedBannerTemplate(presetId)
     } catch (err) {
       console.error('Error applying banner preset:', err)
       setStatusText('Failed to apply banner preset')
     }
   }
 
-  const handleSaveCustom = async (layout = draftLayout) => {
+  const saveCustomDraft = async (layout = draftLayout) => {
+    const normalized = normalizeBannerLayout(
+      {
+        ...layout,
+        id: CUSTOM_BANNER_LAYOUT_ID,
+        name: 'Custom',
+        basePresetId: selectedPresetId,
+      },
+      classicLayout,
+    )
+    const result = await window.electronAPI.setCustomBannerLayout(normalized)
+    if (result?.success === false) throw new Error(result.error || 'Save failed')
+    setDraftLayout(normalized)
+    setSelectedLayoutId(CUSTOM_BANNER_LAYOUT_ID)
+    return normalized
+  }
+
+  const handleSavePreset = async () => {
     try {
-      const normalized = normalizeBannerLayout(
-        {
-          ...layout,
-          id: CUSTOM_BANNER_LAYOUT_ID,
-          name: 'Custom',
-          basePresetId: selectedPresetId,
-        },
+      const safeName = uniqueName(presetName || draftLayout.name || 'My Layout', userPresets, isUserPresetSelected ? selectedPresetId : null)
+      if (isUserPresetSelected) {
+        const updatedPreset = {
+          ...selectedUserPreset,
+          name: safeName,
+          updatedAt: Date.now(),
+          layout: {
+            ...normalizeBannerLayout(draftLayout, classicLayout),
+            id: selectedUserPreset.id,
+            name: safeName,
+          },
+        }
+        const nextPresets = userPresets.map((preset) =>
+          preset.id === selectedUserPreset.id ? updatedPreset : preset,
+        )
+        await persistUserPresets(nextPresets)
+        await window.electronAPI.setSelectedBannerTemplate(updatedPreset.id)
+        setSelectedPresetId(updatedPreset.id)
+        setSelectedLayoutId(updatedPreset.id)
+        setDraftLayout(cloneLayout(updatedPreset.layout))
+        setPresetName(safeName)
+        setStatusText('Preset saved')
+        return
+      }
+
+      const newPreset = createUserPresetFromLayout(
+        draftLayout,
+        safeName,
         classicLayout,
+        [...builtInBannerLayouts.map((layout) => layout.id), ...userPresets.map((preset) => preset.id)],
       )
-      const result = await window.electronAPI.setCustomBannerLayout(normalized)
-      if (result?.success === false) throw new Error(result.error || 'Save failed')
-      setDraftLayout(normalized)
-      setSelectedLayoutId(CUSTOM_BANNER_LAYOUT_ID)
-      setStatusText('Saved')
+      await persistUserPresets([...userPresets, newPreset])
+      await window.electronAPI.setSelectedBannerTemplate(newPreset.id)
+      setSelectedPresetId(newPreset.id)
+      setSelectedLayoutId(newPreset.id)
+      setDraftLayout(cloneLayout(newPreset.layout))
+      setPresetName(newPreset.name)
+      setStatusText('Preset saved')
     } catch (err) {
-      console.error('Error saving custom banner layout:', err)
-      setStatusText('Failed to save banner layout')
+      console.error('Error saving banner preset:', err)
+      setStatusText('Failed to save preset')
     }
   }
 
-  const handleResetCustom = () => {
-    const presetDraft = {
-      ...createDraftFromPreset(selectedPresetId),
-      id: CUSTOM_BANNER_LAYOUT_ID,
-      name: 'Custom',
-      basePresetId: selectedPresetId,
+  const handleDuplicatePreset = async () => {
+    try {
+      const sourceName = presetName || selectedUserPreset?.name || selectedBuiltIn?.name || 'Layout'
+      const duplicateName = uniqueName(`${sourceName} Copy`, userPresets)
+      const duplicate = createUserPresetFromLayout(
+        draftLayout,
+        duplicateName,
+        classicLayout,
+        [...builtInBannerLayouts.map((layout) => layout.id), ...userPresets.map((preset) => preset.id)],
+      )
+      await persistUserPresets([...userPresets, duplicate])
+      await window.electronAPI.setSelectedBannerTemplate(duplicate.id)
+      setSelectedPresetId(duplicate.id)
+      setSelectedLayoutId(duplicate.id)
+      setDraftLayout(cloneLayout(duplicate.layout))
+      setPresetName(duplicate.name)
+      setStatusText('Preset duplicated')
+    } catch (err) {
+      console.error('Error duplicating banner preset:', err)
+      setStatusText('Failed to duplicate preset')
     }
-    setDraftLayout(presetDraft)
-    handleSaveCustom(presetDraft)
+  }
+
+  const handleRenamePreset = async () => {
+    if (!isUserPresetSelected) {
+      setStatusText('Cannot rename built-in preset')
+      return
+    }
+    try {
+      const safeName = uniqueName(presetName, userPresets, selectedUserPreset.id)
+      const renamed = {
+        ...selectedUserPreset,
+        name: safeName,
+        updatedAt: Date.now(),
+        layout: { ...selectedUserPreset.layout, name: safeName },
+      }
+      await persistUserPresets(userPresets.map((preset) => preset.id === renamed.id ? renamed : preset))
+      setPresetName(safeName)
+      setDraftLayout(cloneLayout(renamed.layout))
+      setStatusText('Preset renamed')
+    } catch (err) {
+      console.error('Error renaming banner preset:', err)
+      setStatusText('Failed to rename preset')
+    }
+  }
+
+  const handleDeletePreset = async () => {
+    if (!isUserPresetSelected) {
+      setStatusText('Cannot delete built-in preset')
+      return
+    }
+    try {
+      const nextPresets = userPresets.filter((preset) => preset.id !== selectedUserPreset.id)
+      await persistUserPresets(nextPresets)
+      await window.electronAPI.setSelectedBannerTemplate('classic')
+      setSelectedPresetId('classic')
+      setSelectedLayoutId('classic')
+      setDraftLayout(createDraftFromPreset('classic'))
+      setPresetName('Classic')
+      setStatusText('Preset deleted; Classic selected')
+    } catch (err) {
+      console.error('Error deleting banner preset:', err)
+      setStatusText('Failed to delete preset')
+    }
+  }
+
+  const handleExportPreset = async () => {
+    try {
+      const exportData = createBannerPresetExport(
+        isUserPresetSelected ? selectedUserPreset : draftLayout,
+        presetName || draftLayout.name,
+      )
+      const result = await window.electronAPI.exportBannerLayoutPreset(exportData.name, exportData)
+      if (result?.canceled) return
+      if (result?.success === false) throw new Error(result.error || 'Export failed')
+      setStatusText('Preset exported')
+    } catch (err) {
+      console.error('Error exporting banner preset:', err)
+      setStatusText('Failed to export preset')
+    }
+  }
+
+  const handleImportPreset = async () => {
+    try {
+      const result = await window.electronAPI.importBannerLayoutPreset()
+      if (result?.canceled) return
+      if (result?.success === false) {
+        setStatusText('Invalid preset file')
+        return
+      }
+      const data = result.data
+      if (data?.type && data.type !== BANNER_PRESET_EXPORT_TYPE) {
+        setStatusText('Invalid preset file')
+        return
+      }
+      const importedLayout = data?.layout || data
+      const importedName = uniqueName(data?.name || importedLayout?.name || 'Imported Layout', userPresets)
+      const importedPreset = createUserPresetFromLayout(
+        importedLayout,
+        importedName,
+        classicLayout,
+        [...builtInBannerLayouts.map((layout) => layout.id), ...userPresets.map((preset) => preset.id)],
+      )
+      await persistUserPresets([...userPresets, importedPreset])
+      await window.electronAPI.setSelectedBannerTemplate(importedPreset.id)
+      setSelectedPresetId(importedPreset.id)
+      setSelectedLayoutId(importedPreset.id)
+      setDraftLayout(cloneLayout(importedPreset.layout))
+      setPresetName(importedPreset.name)
+      setStatusText('Preset imported')
+    } catch (err) {
+      console.error('Error importing banner preset:', err)
+      setStatusText('Invalid preset file')
+    }
+  }
+
+  const handleResetCustom = async () => {
+    try {
+      const presetDraft = createDraftFromPreset(selectedPresetId)
+      setDraftLayout(presetDraft)
+      await saveCustomDraft(presetDraft)
+      setStatusText('Reset current layout to preset')
+    } catch (err) {
+      console.error('Error resetting banner layout:', err)
+      setStatusText('Failed to reset layout')
+    }
   }
 
   const updateOverlay = (position, patch) => {
@@ -278,35 +503,54 @@ const Appearance = () => {
             value={selectedPresetId}
             onChange={(event) => handlePresetChange(event.target.value)}
           >
-            {builtInBannerLayouts.map((layout) => (
-              <option key={layout.id} value={layout.id}>
-                {layout.name}
-              </option>
-            ))}
+            <optgroup label="Built-in">
+              {builtInBannerLayouts.map((layout) => (
+                <option key={layout.id} value={layout.id}>
+                  {layout.name}
+                </option>
+              ))}
+            </optgroup>
+            {userPresets.length > 0 && (
+              <optgroup label="User">
+                {userPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
-          <button
-            type="button"
-            className="bg-accent text-text px-3 py-1 rounded hover:bg-accentHover"
-            onClick={handleUsePreset}
-          >
-            Use preset
+          <input
+            className="w-56 bg-secondary border border-border text-text rounded p-1"
+            value={presetName}
+            placeholder="Preset name"
+            onChange={(event) => setPresetName(event.target.value)}
+          />
+          <button type="button" className="bg-accent text-text px-3 py-1 rounded hover:bg-accentHover" onClick={handleSavePreset}>
+            Save as preset
           </button>
-          <button
-            type="button"
-            className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary"
-            onClick={handleResetCustom}
-          >
-            Reset custom layout to this preset
+          <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleDuplicatePreset}>
+            Duplicate preset
           </button>
-          <button
-            type="button"
-            className="bg-accent text-text px-3 py-1 rounded hover:bg-accentHover"
-            onClick={() => handleSaveCustom()}
-          >
-            Save custom layout
+          <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleRenamePreset}>
+            Rename preset
+          </button>
+          <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleDeletePreset}>
+            Delete preset
+          </button>
+          <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleExportPreset}>
+            Export preset
+          </button>
+          <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleImportPreset}>
+            Import preset
+          </button>
+          <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleResetCustom}>
+            Reset current layout to preset
           </button>
           <span className="text-xs opacity-70">
-            Current: {selectedLayoutId === CUSTOM_BANNER_LAYOUT_ID ? 'Custom' : 'Built-in preset'}
+            {selectedLayoutId === CUSTOM_BANNER_LAYOUT_ID
+              ? `Editing a custom copy of ${selectedBuiltIn?.name || selectedUserPreset?.name || 'preset'}`
+              : isUserPresetSelected ? `Saved as ${selectedUserPreset.name}` : 'Built-in preset'}
             {statusText ? ` - ${statusText}` : ''}
           </span>
         </div>

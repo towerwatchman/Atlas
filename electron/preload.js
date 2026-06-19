@@ -136,6 +136,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("get-custom-banner-layout"),
   setCustomBannerLayout: (layout) =>
     ipcRenderer.invoke("set-custom-banner-layout", layout),
+  getUserBannerLayouts: () =>
+    ipcRenderer.invoke("get-user-banner-layouts"),
+  setUserBannerLayouts: (presets) =>
+    ipcRenderer.invoke("set-user-banner-layouts", presets),
+  exportBannerLayoutPreset: (defaultName, preset) =>
+    ipcRenderer.invoke("export-banner-layout-preset", defaultName, preset),
+  importBannerLayoutPreset: () =>
+    ipcRenderer.invoke("import-banner-layout-preset"),
 
   // ─── FIXED: Added missing external URL opener for Update Available button ──
   openExternalUrl: (url) => ipcRenderer.invoke("open-external-url", url),

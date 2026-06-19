@@ -8,6 +8,7 @@ import {
   CUSTOM_BANNER_LAYOUT_ID,
   getBannerLayoutById,
   normalizeBannerLayout,
+  normalizeBannerPreset,
   normalizeBannerLayoutId,
 } from './bannerLayout/bannerLayoutSchema.js'
 
@@ -47,6 +48,19 @@ const GameBanner = ({ game, onSelect }) => {
         setSelectedTemplate({
           type: 'layout',
           value: getBannerLayoutById(defaultBannerLayouts, normalized),
+        })
+        return
+      }
+
+      const userPresets = await window.electronAPI.getUserBannerLayouts?.()
+      const selectedUserPreset = (Array.isArray(userPresets) ? userPresets : [])
+        .find((preset) => preset?.id === normalized)
+      if (selectedUserPreset) {
+        const classicLayout = getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID)
+        const normalizedPreset = normalizeBannerPreset(selectedUserPreset, classicLayout)
+        setSelectedTemplate({
+          type: 'layout',
+          value: normalizedPreset?.layout || classicLayout,
         })
         return
       }

@@ -1,6 +1,6 @@
 'use strict'
 
-const { ipcMain, BrowserWindow } = require('electron')
+const { ipcMain, BrowserWindow, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const {
@@ -102,6 +102,77 @@ module.exports = function registerMediaHandlers(ctx) {
       return { success: true }
     } catch (err) {
       console.error('set-custom-banner-layout error:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('get-user-banner-layouts', async () => {
+    try {
+      const raw = ctx.appConfig?.Appearance?.userBannerLayouts
+      if (!raw) return []
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : []
+    } catch (err) {
+      console.error('get-user-banner-layouts error:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle('set-user-banner-layouts', async (event, presets) => {
+    try {
+      const ini = require('ini')
+      const newConfig = {
+        ...ctx.appConfig,
+        Appearance: {
+          ...ctx.appConfig.Appearance,
+          userBannerLayouts: JSON.stringify(Array.isArray(presets) ? presets : []),
+        },
+      }
+      fs.writeFileSync(configPath, ini.stringify(newConfig))
+      ctx.appConfig = newConfig
+      return { success: true }
+    } catch (err) {
+      console.error('set-user-banner-layouts error:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('export-banner-layout-preset', async (event, defaultName, preset) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const safeName = String(defaultName || 'banner-layout')
+        .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
+        .replace(/\s+/g, ' ')
+        .trim() || 'banner-layout'
+      const result = await dialog.showSaveDialog(win, {
+        defaultPath: `${safeName}.json`,
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      })
+      if (result.canceled || !result.filePath) return { success: false, canceled: true }
+      await fs.promises.writeFile(
+        result.filePath,
+        `${JSON.stringify(preset, null, 2)}\n`,
+        'utf8',
+      )
+      return { success: true, filePath: result.filePath }
+    } catch (err) {
+      console.error('export-banner-layout-preset error:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('import-banner-layout-preset', async (event) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const result = await dialog.showOpenDialog(win, {
+        properties: ['openFile'],
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      })
+      if (result.canceled || !result.filePaths?.[0]) return { success: false, canceled: true }
+      const raw = await fs.promises.readFile(result.filePaths[0], 'utf8')
+      return { success: true, data: JSON.parse(raw), filePath: result.filePaths[0] }
+    } catch (err) {
+      console.error('import-banner-layout-preset error:', err)
       return { success: false, error: err.message }
     }
   })

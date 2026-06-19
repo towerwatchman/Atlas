@@ -1,5 +1,7 @@
 export const CLASSIC_BANNER_LAYOUT_ID = 'classic'
 export const CUSTOM_BANNER_LAYOUT_ID = 'custom'
+export const BANNER_PRESET_EXPORT_TYPE = 'atlas-banner-layout'
+export const BANNER_PRESET_SCHEMA_VERSION = 1
 
 export const SUPPORTED_BANNER_SLOTS = [
   'top-left',
@@ -38,6 +40,29 @@ const clampNumber = (value, min, max, fallback) => {
 }
 
 const cloneLayout = (layout) => JSON.parse(JSON.stringify(layout))
+
+export const sanitizeBannerPresetName = (name) => {
+  const value = String(name || '').trim().replace(/\s+/g, ' ')
+  return value || 'Untitled Layout'
+}
+
+const slugifyPresetName = (name) => sanitizeBannerPresetName(name)
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-+|-+$/g, '')
+  .slice(0, 48) || 'layout'
+
+export const generateBannerPresetId = (name, existingIds = []) => {
+  const used = new Set(existingIds)
+  const base = `user-${slugifyPresetName(name)}`
+  let candidate = base
+  let index = 2
+  while (used.has(candidate)) {
+    candidate = `${base}-${index}`
+    index += 1
+  }
+  return candidate
+}
 
 export const normalizeBannerLayoutId = (layoutId) => {
   if (layoutId === 'Default' || layoutId === 'default' || !layoutId) {
@@ -151,6 +176,91 @@ export const validateBannerLayout = (layout) => {
   }
 
   return errors
+}
+
+export const normalizeBannerPreset = (preset, fallbackLayout, existingIds = []) => {
+  if (!preset || typeof preset !== 'object') return null
+  const name = sanitizeBannerPresetName(preset.name || preset.layout?.name)
+  const now = Date.now()
+  const layoutId = preset.id && String(preset.id).startsWith('user-')
+    ? String(preset.id)
+    : generateBannerPresetId(name, existingIds)
+  const layout = normalizeBannerLayout(
+    {
+      ...(preset.layout || {}),
+      id: layoutId,
+      name,
+      basePresetId: preset.layout?.basePresetId || preset.basePresetId,
+    },
+    fallbackLayout,
+  )
+  if (!layout) return null
+  return {
+    id: layoutId,
+    name,
+    source: 'user',
+    createdAt: Number(preset.createdAt) || now,
+    updatedAt: Number(preset.updatedAt) || now,
+    layout: {
+      ...layout,
+      id: layoutId,
+      name,
+    },
+  }
+}
+
+export const validateBannerPreset = (preset) => {
+  const errors = []
+  if (!preset || typeof preset !== 'object') return ['Banner preset must be an object']
+  if (!sanitizeBannerPresetName(preset.name)) errors.push('Banner preset needs a name')
+  if (preset.source && preset.source !== 'user' && preset.source !== 'builtin') {
+    errors.push(`Invalid preset source ${preset.source}`)
+  }
+  return [...errors, ...validateBannerLayout(preset.layout)]
+}
+
+export const createUserPresetFromLayout = (layout, name, fallbackLayout, existingIds = []) => {
+  const safeName = sanitizeBannerPresetName(name)
+  const id = generateBannerPresetId(safeName, existingIds)
+  const now = Date.now()
+  const normalizedLayout = normalizeBannerLayout(
+    {
+      ...layout,
+      id,
+      name: safeName,
+    },
+    fallbackLayout,
+  )
+  return {
+    id,
+    name: safeName,
+    source: 'user',
+    createdAt: now,
+    updatedAt: now,
+    layout: {
+      ...normalizedLayout,
+      id,
+      name: safeName,
+    },
+  }
+}
+
+export const createBannerPresetExport = (presetOrLayout, name) => {
+  const layout = presetOrLayout?.layout || presetOrLayout
+  return {
+    schemaVersion: BANNER_PRESET_SCHEMA_VERSION,
+    type: BANNER_PRESET_EXPORT_TYPE,
+    name: sanitizeBannerPresetName(name || presetOrLayout?.name || layout?.name),
+    layout: {
+      basePresetId: layout?.basePresetId,
+      width: 537,
+      height: 251,
+      imageFit: fitSet.has(layout?.imageFit) ? layout.imageFit : 'contain',
+      hoverEffect: layout?.hoverEffect || 'classic-tilt',
+      overlays: layout?.overlays || {},
+      fields: Array.isArray(layout?.fields) ? layout.fields : [],
+    },
+  }
 }
 
 export const validateBannerLayouts = (layouts) => {
