@@ -2791,15 +2791,7 @@ ipcMain.handle("import-games", async (event, params) => {
       }
 
       if (size > 0) await updateFolderSize(recordId, game.version, size);
-      if (game.replaceVersion && steamImport) {
-        console.warn(`Skipped replacement cleanup for Steam import ${game.title}`);
-        mainWindow.webContents.send("import-progress", {
-          text: `Imported ${game.title} in-place; skipped replacement cleanup for Steam files`,
-          progress,
-          total,
-          canCancel: true,
-        });
-      } else if (game.replaceVersion) {
+      if (game.replaceVersion) {
         const replacementResult = await replaceInstalledVersionAfterImport({
           recordId,
           newVersion: game.version,
