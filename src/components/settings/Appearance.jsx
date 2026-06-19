@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
 import { GRADIENT_ELIGIBLE_KEYS, resolveColorValue } from '../../theme/themes.js'
-import BannerLayoutRenderer from '../library/bannerLayout/BannerLayoutRenderer.jsx'
+import BannerVisualEditor from './bannerEditor/BannerVisualEditor.jsx'
 import { defaultBannerLayouts, getBuiltInBannerLayoutOptions } from '../library/bannerLayout/defaultBannerLayouts.js'
 import {
   BANNER_PRESET_EXPORT_TYPE,
@@ -466,6 +466,13 @@ const Appearance = () => {
     markCustom((current) => ({ ...current, imageFit }))
   }
 
+  const resetField = (fieldId) => {
+    const presetDraft = createDraftFromPreset(selectedPresetId)
+    const presetField = presetDraft.fields.find((field) => field.id === fieldId)
+    if (!presetField) return
+    updateField(fieldId, presetField)
+  }
+
   return (
     <div className="p-5 text-text -webkit-app-region-no-drag">
       <div className="mb-2 flex items-center justify-between">
@@ -555,6 +562,16 @@ const Appearance = () => {
           </span>
         </div>
 
+        <BannerVisualEditor
+          layout={draftLayout}
+          previewGame={previewGame}
+          fieldLabels={FIELD_LABELS}
+          slotLabels={SLOT_LABELS}
+          badgeFields={BADGE_FIELDS}
+          onFieldChange={updateField}
+          onResetField={resetField}
+        />
+
         <div className="flex flex-wrap gap-5">
           <div className="space-y-3 min-w-[240px]">
             <div>
@@ -600,15 +617,6 @@ const Appearance = () => {
                 </div>
               </div>
             ))}
-          </div>
-
-          <div className="origin-top-left scale-[0.72] -mb-16">
-            <BannerLayoutRenderer
-              game={previewGame}
-              layout={draftLayout}
-              onSelect={() => {}}
-              onContextMenu={(event) => event.preventDefault()}
-            />
           </div>
         </div>
 
