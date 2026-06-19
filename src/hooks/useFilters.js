@@ -117,7 +117,7 @@ export const normalizeFilterState = (filters = {}) => {
   merged.excludedCategories = merged.excludedCategories.filter((value) => !includesExact(merged.category, value))
   merged.excludedEngines = merged.excludedEngines.filter((value) => !includesExact(merged.engine, value))
   merged.excludedStatuses = merged.excludedStatuses.filter((value) => !includesExact(merged.status, value))
-  merged.excludedTags = merged.excludedTags.filter((value) => !includesExact(merged.tags, value))
+  merged.excludedTags = merged.excludedTags.filter((value) => !includesTag(merged.tags, value))
   merged.text = String(merged.text || '').trim()
   merged.type = normalizeSearchType(merged.type)
   merged.source = normalizeSourceType(merged.source)
@@ -403,11 +403,19 @@ const cleanSearchText = (value) =>
 const splitListText = (value) =>
   safeText(value).split(',').map((item) => item.trim()).filter(Boolean)
 
+const normalizeTagText = (value) =>
+  safeText(value).trim().toLowerCase().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ')
+
 const includesExact = (values, value) =>
   values.some((item) => safeText(item).toLowerCase() === safeText(value).toLowerCase())
 
-const hasAnyExact = (values, excludedValues) =>
-  excludedValues.some((value) => includesExact(values, value))
+const includesTag = (values, value) => {
+  const normalizedValue = normalizeTagText(value)
+  return values.some((item) => normalizeTagText(item) === normalizedValue)
+}
+
+const hasAnyTag = (values, excludedValues) =>
+  excludedValues.some((value) => includesTag(values, value))
 
 const parseTextTerms = (query) => {
   const positive = []
@@ -429,10 +437,31 @@ const getSearchableText = (game = {}) =>
     game.creator,
     game.f95_tags,
     game.tags,
+    game.lewdcornerTags,
+    game.lewdcorner_tags,
+    game.lewdcornerPrefixes,
     game.engine,
     game.status,
     game.category,
   ].join(' '))
+
+const getGameTagValues = (game = {}) => {
+  const values = [
+    ...splitListText(game.f95_tags),
+    ...splitListText(game.tags),
+    ...splitListText(game.lewdcornerTags),
+    ...splitListText(game.lewdcorner_tags),
+    ...splitListText(game.lewdcornerPrefixes),
+    ...splitListText(game.lewdcorner_prefixes),
+  ]
+  const seen = new Set()
+  return values.filter((value) => {
+    const key = normalizeTagText(value)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
 
 const cleanIdText = (value) =>
   safeText(value).trim().toLowerCase().replace(/\s+/g, '')
@@ -859,15 +888,15 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
 
   if (activeFilters.tags.length > 0) {
     result = result.filter((game) => {
-      const gameTags = splitListText(game.f95_tags)
+      const gameTags = getGameTagValues(game)
       if (activeFilters.tagLogic === 'AND') {
-        return activeFilters.tags.every((tag) => gameTags.includes(tag))
+        return activeFilters.tags.every((tag) => includesTag(gameTags, tag))
       }
-      return activeFilters.tags.some((tag) => gameTags.includes(tag))
+      return activeFilters.tags.some((tag) => includesTag(gameTags, tag))
     })
   }
   if (activeFilters.excludedTags.length > 0) {
-    result = result.filter((game) => !hasAnyExact(splitListText(game.f95_tags), activeFilters.excludedTags))
+    result = result.filter((game) => !hasAnyTag(getGameTagValues(game), activeFilters.excludedTags))
   }
 
   result = applyDateFilter(result, activeFilters)
