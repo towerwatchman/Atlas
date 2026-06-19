@@ -12,6 +12,19 @@ const { fetchAndStoreSteamData } = require('../scanners/steamscanner')
 
 const isVideoUrl = (url) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ''))
 
+let sharpModule = null
+function getSharp() {
+  if (sharpModule) return sharpModule
+  try {
+    sharpModule = require('sharp')
+    return sharpModule
+  } catch (err) {
+    const message = `Sharp image processor failed to load: ${err.message}`
+    console.error(message, err)
+    throw new Error(message)
+  }
+}
+
 const inferMediaSource = (url) => {
   const value = String(url || '').toLowerCase()
   if (value.includes('steamstatic.com') || value.includes('/steam/apps/')) return 'steam'
@@ -371,6 +384,7 @@ module.exports = function registerMediaHandlers(ctx) {
         throw new Error('Selected banner is already the saved Atlas banner. Choose a different source file.')
       }
 
+      const sharp = getSharp()
       const imageBytes = await fs.promises.readFile(sourcePath)
       await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(mediumPath)
       await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(smallPath)
