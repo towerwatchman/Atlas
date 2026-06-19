@@ -187,7 +187,55 @@ const dedupeAssetEntries = (entries) => {
 };
 
 const steamCdnAsset = (steamId, file) =>
-  steamId ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${steamId}/${file}` : "";
+  steamId ? `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/${file}` : "";
+
+const STEAM_STORE_ASSET_BASE = "https://shared.fastly.steamstatic.com/store_item_assets/";
+
+const fetchSteamStoreAssetUrls = async (steamId) => {
+  const appid = parseInt(steamId, 10);
+  if (!appid) return {};
+  try {
+    const input = {
+      ids: [{ appid }],
+      context: { language: "english", country_code: "US" },
+      data_request: { include_assets: true },
+    };
+    const response = await axios.get(
+      `https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=${encodeURIComponent(
+        JSON.stringify(input),
+      )}`,
+      {
+        timeout: 15000,
+        headers: {
+          "User-Agent": "Atlas/1.0 (+https://github.com/towerwatchman/Atlas)",
+          Accept: "application/json,*/*;q=0.8",
+        },
+      },
+    );
+    const assets = response.data?.response?.store_items?.[0]?.assets;
+    if (!assets?.asset_url_format) return {};
+
+    const build = (filename) =>
+      filename
+        ? STEAM_STORE_ASSET_BASE +
+          assets.asset_url_format.replace(/\$\{FILENAME\}|\$\{filename\}|\{filename\}/, filename)
+        : "";
+    const pick = (...keys) => {
+      for (const key of keys) if (assets[key]) return build(assets[key]);
+      return "";
+    };
+
+    return {
+      header: pick("header", "library_header"),
+      hero: pick("library_hero_2x", "library_hero"),
+      cover: pick("library_capsule_2x", "library_capsule"),
+      logo: pick("logo_2x", "logo"),
+    };
+  } catch (err) {
+    console.warn(`Unable to resolve Steam store assets for ${appid}:`, err?.message || err);
+    return {};
+  }
+};
 
 const isSteamCapsuleLike = (url) => /library_600x900|library_capsule/i.test(String(url || ""));
 
@@ -223,7 +271,7 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
        LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
        WHERE games.record_id = ?`,
       [recordId],
-      (err, row) => {
+      async (err, row) => {
         if (err) {
           reject(err);
           return;
@@ -250,12 +298,13 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
         add("atlas", "atlas_wallpaper", row.atlas_wallpaper, "atlas_wallpaper");
 
         const steamId = row.steam_id;
-        const steamCoverUrl = row.steam_cover || (isSteamCapsuleLike(row.steam_logo) ? row.steam_logo : "");
+        const steamAssets = await fetchSteamStoreAssetUrls(steamId);
+        const steamCoverUrl = row.steam_cover || steamAssets.cover || (isSteamCapsuleLike(row.steam_logo) ? row.steam_logo : "");
         const steamLogoUrl = isSteamCapsuleLike(row.steam_logo) ? "" : row.steam_logo;
-        add("steam", "steam_header", row.steam_header || steamCdnAsset(steamId, "header.jpg"), "steam_header", "banner");
-        add("steam", "steam_hero", row.steam_hero || steamCdnAsset(steamId, "library_hero.jpg"), "steam_hero");
+        add("steam", "steam_header", row.steam_header || steamAssets.header || steamCdnAsset(steamId, "header.jpg"), "steam_header", "banner");
+        add("steam", "steam_hero", row.steam_hero || steamAssets.hero || steamCdnAsset(steamId, "library_hero.jpg"), "steam_hero");
         add("steam", "steam_cover", steamCoverUrl || steamCdnAsset(steamId, "library_600x900.jpg"), "steam_cover");
-        add("steam", "steam_logo", steamLogoUrl || steamCdnAsset(steamId, "logo.png"), "steam_logo");
+        add("steam", "steam_logo", steamLogoUrl || steamAssets.logo || steamCdnAsset(steamId, "logo.png"), "steam_logo");
 
         parseAssetList(row.atlas_legacy_previews).forEach((url, index) =>
           add("atlas", "atlas_preview", url, `atlas_preview_${String(index + 1).padStart(3, "0")}`, "preview"));
