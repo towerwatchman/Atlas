@@ -77,6 +77,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   cancelScan: () => ipcRenderer.invoke("cancel-scan"),
   searchAtlasByF95Id: (f95Id) =>
     ipcRenderer.invoke("search-atlas-by-f95-id", f95Id),
+  searchAtlasByLewdCornerId: (lcId) =>
+    ipcRenderer.invoke("search-atlas-by-lewdcorner-id", lcId),
   searchAtlas: (title, creator) =>
     ipcRenderer.invoke("search-atlas", { title, creator }),
   addAtlasMapping: (recordId, atlasId) =>

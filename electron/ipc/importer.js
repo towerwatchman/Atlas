@@ -16,7 +16,12 @@ const { fetchAndStoreSteamData, findSteamId } = require('../scanners/steamscanne
 const { findExecutables } = require("../scanners/executableScanner");
 const { getDefaultRenpySaveRoot, scanRenpySaveFolders } = require("../scanners/renpySaveScanner");
 const { findRecordBySteamId } = require('../db/steam')
-const { addLewdCornerMapping, findRecordByLewdCornerId, parseLewdCornerIdFromUrl } = require('../db/lewdcorner')
+const {
+  addLewdCornerMapping,
+  findRecordByLewdCornerId,
+  parseLewdCornerIdFromUrl,
+  searchAtlasByLewdCornerId,
+} = require('../db/lewdcorner')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
 
 let ownerMainWindow = null
@@ -1073,18 +1078,33 @@ const normalizeF95IdInput = (value) => {
   return /^\d+$/.test(raw) ? raw : "";
 };
 
+const normalizeLewdCornerIdInput = (value) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const prefixedMatch = raw.match(/\b(?:lc|lewdcorner|lewd\s*corner)[\s_-]*(\d+)\b/i);
+  if (prefixedMatch) return prefixedMatch[1];
+  const parsedUrlId = parseLewdCornerIdFromUrl(raw);
+  if (parsedUrlId) return String(parsedUrlId);
+  return /^\d+$/.test(raw) && Number(raw) > 0 ? raw : "";
+};
+
 const hydrateImportMatch = async (game, selectedValue) => {
   let updatedGame = normalizeImportMatchState({ ...game, resultSelectedValue: selectedValue });
   const selected = game.results?.find((result) => result.key === selectedValue);
 
   if (selected && selectedValue !== "match") {
-    const parts = selected.value.split(" | ");
+    const parts = String(selected.value || "").split(" | ");
     updatedGame = {
       ...updatedGame,
-      atlasId: parts[0],
-      f95Id: parts[1] || updatedGame.f95Id || "",
-      title: parts[2],
-      creator: parts[3],
+      atlasId: selected.atlasId || parts[0],
+      f95Id: selected.f95Id || parts[1] || updatedGame.f95Id || "",
+      lcId: selected.lcId || updatedGame.lcId || updatedGame.lewdCornerId || "",
+      lewdCornerId: selected.lcId || updatedGame.lewdCornerId || updatedGame.lcId || "",
+      lewdCornerSiteUrl: selected.lewdCornerSiteUrl || updatedGame.lewdCornerSiteUrl || "",
+      title: selected.title || parts[2],
+      creator: selected.creator || parts[3],
+      engine: selected.engine || updatedGame.engine,
+      latestVersion: selected.latestVersion || updatedGame.latestVersion || "",
     };
     const atlasData = await getAtlasData(updatedGame.atlasId);
     updatedGame = {
@@ -1099,6 +1119,7 @@ const hydrateImportMatch = async (game, selectedValue) => {
   const status = await getImportRecordStatus(updatedGame);
   const recordExist = status?.status === "alreadyImported";
   const isSteamVersion = status?.status === "steamVersion";
+  const isLewdCornerVersion = status?.status === "lewdCornerVersion";
   return normalizeImportMatchState({
     ...updatedGame,
     recordExist,
@@ -1107,18 +1128,22 @@ const hydrateImportMatch = async (game, selectedValue) => {
       ? "alreadyImported"
       : isSteamVersion
         ? "steamVersion"
-        : status?.status === "repairPath"
-          ? "repairPath"
-          : "new",
+        : isLewdCornerVersion
+          ? "lewdCornerVersion"
+          : status?.status === "repairPath"
+            ? "repairPath"
+            : "new",
     scanMessage: recordExist
       ? "Already imported"
       : isSteamVersion
         ? "Add as Steam version"
-        : status?.status === "repairPath"
-          ? "Repair path"
-          : updatedGame.isArchive
-            ? "Archive"
-            : "Ready to import",
+        : isLewdCornerVersion
+          ? "Add as LewdCorner version"
+          : status?.status === "repairPath"
+            ? "Repair path"
+            : updatedGame.isArchive
+              ? "Archive"
+              : "Ready to import",
   });
 };
 
@@ -1126,12 +1151,39 @@ const chooseInstalledImportMatch = async (game, results) => {
   const baseGame = normalizeImportMatchState({ ...game, results });
   for (const result of results) {
     const candidate = await hydrateImportMatch(baseGame, result.key);
-    if (["alreadyImported", "repairPath", "steamVersion"].includes(candidate.scanStatus)) {
+    if (["alreadyImported", "repairPath", "steamVersion", "lewdCornerVersion"].includes(candidate.scanStatus)) {
       return candidate;
     }
   }
   return hydrateImportMatch(baseGame, baseGame.resultSelectedValue || results[0]?.key || "");
 };
+
+const buildImportMatchResult = (match) => ({
+  key: String(match.atlas_id || match.atlasId || ""),
+  value: `${match.atlas_id || match.atlasId || ""} | ${match.f95_id || match.f95Id || ""} | ${match.title || ""} | ${match.creator || ""}`,
+  atlasId: String(match.atlas_id || match.atlasId || ""),
+  f95Id: match.f95_id || match.f95Id || "",
+  lcId: match.lc_id || match.lcId || match.lewdCornerId || "",
+  lewdCornerSiteUrl: match.lewdCornerSiteUrl || match.lewdcornerSiteUrl || "",
+  title: match.title || "",
+  creator: match.creator || "",
+  engine: match.engine || "",
+  latestVersion: match.latestVersion || "",
+});
+
+const applyImportMatchData = (game, match, { f95Id = "", lcId = "" } = {}) => ({
+  ...game,
+  atlasId: String(match.atlas_id || match.atlasId || ""),
+  f95Id: match.f95_id || match.f95Id || f95Id || game.f95Id || "",
+  lcId: match.lc_id || match.lcId || match.lewdCornerId || lcId || game.lcId || game.lewdCornerId || "",
+  lewdCornerId: match.lc_id || match.lcId || match.lewdCornerId || lcId || game.lewdCornerId || game.lcId || "",
+  lewdCornerSiteUrl: match.lewdCornerSiteUrl || match.lewdcornerSiteUrl || game.lewdCornerSiteUrl || "",
+  siteUrl: match.siteUrl || match.site_url || game.siteUrl || "",
+  title: match.title || game.title,
+  creator: match.creator || game.creator,
+  engine: match.engine || game.engine || "Unknown",
+  latestVersion: match.latestVersion || game.latestVersion || "",
+});
 
 // ── IPC Handlers ───────────────────────────────────────────────────
 
@@ -2087,6 +2139,10 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
       const byF95 = await searchAtlasByF95Id(f95Id);
       return byF95;
     }
+    const lcId = normalizeLewdCornerIdInput(game.lcId || game.lewdCornerId);
+    if (lcId) {
+      return await searchAtlasByLewdCornerId(lcId);
+    }
     return await searchAtlas(game.lookupTitle || game.title, game.creator);
   };
 
@@ -2098,16 +2154,19 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
   const uniqueSearches = new Map();
   for (const game of pending) {
     const f95Id = normalizeF95IdInput(game.f95Id);
+    const lcId = normalizeLewdCornerIdInput(game.lcId || game.lewdCornerId);
     const cacheKey = f95Id
       ? `f95:${f95Id}`
-      : `atlas:${game.lookupTitle || game.title}|${game.creator}`;
+      : lcId
+        ? `lc:${lcId}`
+        : `atlas:${game.lookupTitle || game.title}|${game.creator}`;
     if (!uniqueSearches.has(cacheKey)) {
-      uniqueSearches.set(cacheKey, { f95Id, game });
+      uniqueSearches.set(cacheKey, { f95Id, lcId, game });
     }
   }
 
   await Promise.all(
-    Array.from(uniqueSearches.entries()).map(async ([cacheKey, { f95Id, game }]) => {
+    Array.from(uniqueSearches.entries()).map(async ([cacheKey, { game }]) => {
       try {
         const data = await resolveSearchData(game);
         searchCache.set(cacheKey, data);
@@ -2125,44 +2184,41 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
     }
 
     const f95Id = normalizeF95IdInput(game.f95Id);
+    const lcId = normalizeLewdCornerIdInput(game.lcId || game.lewdCornerId);
     const cacheKey = f95Id
       ? `f95:${f95Id}`
-      : `atlas:${game.lookupTitle || game.title}|${game.creator}`;
+      : lcId
+        ? `lc:${lcId}`
+        : `atlas:${game.lookupTitle || game.title}|${game.creator}`;
 
     try {
       const data = searchCache.get(cacheKey) || [];
 
       if (data.length === 1) {
         return await hydrateImportMatch({
-          ...game,
-          atlasId: String(data[0].atlas_id),
-          f95Id: data[0].f95_id || f95Id || game.f95Id || "",
-          siteUrl: data[0].siteUrl || data[0].site_url || game.siteUrl || "",
-          title: data[0].title,
-          creator: data[0].creator,
-          engine: data[0].engine || game.engine || "Unknown",
-          latestVersion: data[0].latestVersion || "",
+          ...applyImportMatchData(game, data[0], { f95Id, lcId }),
           results: [{ key: "match", value: "Match Found" }],
           resultSelectedValue: "match",
           resultVisibility: "visible",
         }, "match");
       } else if (data.length > 1) {
-        const results = data.map((match) => ({
-          key: String(match.atlas_id),
-          value: `${match.atlas_id} | ${match.f95_id || ""} | ${match.title} | ${match.creator}`,
-        }));
+        const results = data.map(buildImportMatchResult).filter((result) => result.key);
         return await chooseInstalledImportMatch({ ...game, results }, results);
       } else {
         const unmatchedGame = await hydrateImportMatch({
           ...game,
           atlasId: "",
           f95Id: f95Id || "",
+          lcId: lcId || game.lcId || game.lewdCornerId || "",
+          lewdCornerId: lcId || game.lewdCornerId || game.lcId || "",
           results: [],
           resultSelectedValue: "",
           resultVisibility: "hidden",
         }, "");
         return f95Id
           ? { ...unmatchedGame, f95Id, scanMessage: "No F95 match found" }
+          : lcId
+            ? { ...unmatchedGame, lcId, lewdCornerId: lcId, scanMessage: "No LewdCorner match found" }
           : unmatchedGame;
       }
     } catch (err) {
@@ -2190,6 +2246,22 @@ ipcMain.handle("search-atlas-by-f95-id", async (event, f95Id) => {
     return result;
   } catch (err) {
     console.error(`Error in search-atlas-by-f95-id for ${normalizedF95Id}:`, err);
+    return [];
+  }
+});
+
+ipcMain.handle("search-atlas-by-lewdcorner-id", async (event, lcId) => {
+  const normalizedLcId = normalizeLewdCornerIdInput(lcId);
+  console.log(`IPC search-atlas-by-lewdcorner-id received lcId: ${lcId}`);
+  if (!normalizedLcId) return [];
+  try {
+    const result = await searchAtlasByLewdCornerId(normalizedLcId);
+    console.log(
+      `IPC search-atlas-by-lewdcorner-id result for ${normalizedLcId}: ${JSON.stringify(result)}`,
+    );
+    return result;
+  } catch (err) {
+    console.error(`Error in search-atlas-by-lewdcorner-id for ${normalizedLcId}:`, err);
     return [];
   }
 });

@@ -39,7 +39,7 @@ const getSourceUrls = (game = {}) => {
 export default function ScanTable({
   sortedRows, isNewScanRow, sortConfig,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
-  getRowImportStatus, onHydrateManualF95Id,
+  getRowImportStatus, onHydrateManualF95Id, onHydrateManualLcId,
   selectedRowKeys = new Set(), lastSelectedRowKey = '',
   onToggleRowSelection, onSelectRowRange, onSetVisibleRowSelection,
 }) {
@@ -209,7 +209,20 @@ export default function ScanTable({
                 />
               </td>
               <td className="border border-border p-1 min-w-[100px]">
-                <input value={game.lcId || game.lewdCornerId || ''} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'lcId', e.target.value)} className="w-full bg-secondary border border-border p-1" />
+                <input
+                  value={game.lcId || game.lewdCornerId || ''}
+                  disabled={!rowIsNew}
+                  onChange={(e) => onUpdateGame(gameKey, 'lcId', e.target.value)}
+                  onBlur={(e) => onHydrateManualLcId?.(gameKey, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return
+                    e.preventDefault()
+                    onHydrateManualLcId?.(gameKey, e.currentTarget.value, { refresh: true })
+                  }}
+                  placeholder="LC ID or LewdCorner URL"
+                  title="Enter a numeric LC ID or LewdCorner URL. Press Enter to update this row."
+                  className="w-full bg-secondary border border-border p-1"
+                />
               </td>
               <td className="border border-border p-1">
                 <input value={game.title} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'title', e.target.value)} className="w-full bg-secondary border border-border p-1" />

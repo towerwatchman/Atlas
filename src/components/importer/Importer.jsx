@@ -39,6 +39,19 @@ const normalizeF95IdInput = (value) => {
   return /^\d+$/.test(raw) ? raw : ''
 }
 
+const normalizeLcIdInput = (value) => {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const prefixedMatch = raw.match(/\b(?:lc|lewdcorner|lewd\s*corner)[\s_-]*(\d+)\b/i)
+  if (prefixedMatch) return prefixedMatch[1]
+  if (/lewdcorner\.com/i.test(raw)) {
+    const withoutHash = raw.split('#')[0].split('?')[0].replace(/\/+$/, '')
+    const tailMatch = withoutHash.match(/(?:^|[/.])(\d+)$/)
+    if (tailMatch) return tailMatch[1]
+  }
+  return /^\d+$/.test(raw) ? raw : ''
+}
+
 const Importer = () => {
   // ── View ──────────────────────────────────────────────────────────────────
   const [view, setView] = useState('settings')
@@ -396,12 +409,50 @@ const Importer = () => {
     } catch { return applyReplaceOptions(game) }
   }
 
+  const buildMatchResult = (match) => ({
+    key: String(match.atlas_id || match.atlasId || ''),
+    value: `${match.atlas_id || match.atlasId || ''} | ${match.f95_id || match.f95Id || ''} | ${match.title || ''} | ${match.creator || ''}`,
+    atlasId: String(match.atlas_id || match.atlasId || ''),
+    f95Id: match.f95_id || match.f95Id || '',
+    lcId: match.lc_id || match.lcId || match.lewdCornerId || '',
+    lewdCornerSiteUrl: match.lewdCornerSiteUrl || match.lewdcornerSiteUrl || '',
+    title: match.title || '',
+    creator: match.creator || '',
+    engine: match.engine || '',
+    latestVersion: match.latestVersion || '',
+  })
+
+  const applyAtlasMatchData = (game, match, { f95Id = '', lcId = '' } = {}) => ({
+    ...game,
+    atlasId: String(match.atlas_id || match.atlasId || ''),
+    f95Id: match.f95_id || match.f95Id || f95Id || game.f95Id || '',
+    lcId: match.lc_id || match.lcId || match.lewdCornerId || lcId || game.lcId || game.lewdCornerId || '',
+    lewdCornerId: match.lc_id || match.lcId || match.lewdCornerId || lcId || game.lewdCornerId || game.lcId || '',
+    lewdCornerSiteUrl: match.lewdCornerSiteUrl || match.lewdcornerSiteUrl || game.lewdCornerSiteUrl || '',
+    siteUrl: match.siteUrl || match.site_url || game.siteUrl || '',
+    title: match.title || game.title,
+    creator: match.creator || game.creator,
+    engine: match.engine || game.engine || 'Unknown',
+    latestVersion: match.latestVersion || game.latestVersion || '',
+  })
+
   const applySelectedMatch = async (game, value) => {
     let updatedGame = normalizeMatchState({ ...game, resultSelectedValue: value })
     const selected = game.results?.find((r) => r.key === value)
     if (selected && value !== 'match') {
-      const parts = selected.value.split(' | ')
-      updatedGame = { ...updatedGame, atlasId: parts[0], f95Id: parts[1] || updatedGame.f95Id || '', title: parts[2], creator: parts[3] }
+      const parts = String(selected.value || '').split(' | ')
+      updatedGame = {
+        ...updatedGame,
+        atlasId: selected.atlasId || parts[0],
+        f95Id: selected.f95Id || parts[1] || updatedGame.f95Id || '',
+        lcId: selected.lcId || updatedGame.lcId || updatedGame.lewdCornerId || '',
+        lewdCornerId: selected.lcId || updatedGame.lewdCornerId || updatedGame.lcId || '',
+        lewdCornerSiteUrl: selected.lewdCornerSiteUrl || updatedGame.lewdCornerSiteUrl || '',
+        title: selected.title || parts[2],
+        creator: selected.creator || parts[3],
+        engine: selected.engine || updatedGame.engine,
+        latestVersion: selected.latestVersion || updatedGame.latestVersion || '',
+      }
       try {
         const atlasData = await window.electronAPI.getAtlasData(updatedGame.atlasId)
         updatedGame = {
@@ -842,6 +893,75 @@ const Importer = () => {
     applyIfCurrent({ ...unmatchedGame, f95Id: normalizedF95Id, scanMessage: 'No F95 match found' })
   }
 
+  const hydrateManualLcId = async (gameKey, rawValue, { refresh = false } = {}) => {
+    const normalizedLcId = normalizeLcIdInput(rawValue)
+    setGamesList((prev) => prev.map((game) =>
+      getScanGameKey(game) === gameKey
+        ? { ...game, lcId: normalizedLcId || rawValue, lewdCornerId: normalizedLcId || game.lewdCornerId || '' }
+        : game
+    ))
+
+    if (!refresh || !normalizedLcId) return
+
+    const sourceGame = gamesList.find((game) => getScanGameKey(game) === gameKey)
+    if (!sourceGame || !isNewScanRow(sourceGame)) return
+
+    let data = []
+    try {
+      data = await window.electronAPI.searchAtlasByLewdCornerId(normalizedLcId)
+    } catch (err) {
+      console.error('Failed to hydrate manual LewdCorner ID:', err)
+    }
+
+    const applyIfCurrent = (nextGame) => {
+      setGamesList((prev) => prev.map((game) => {
+        if (getScanGameKey(game) !== gameKey) return game
+        if (normalizeLcIdInput(game.lcId || game.lewdCornerId) !== normalizedLcId) return game
+        return nextGame
+      }).filter((game) => !deletedScanGameKeysRef.current.has(getScanGameKey(game))))
+    }
+
+    if (data.length === 1) {
+      const matchedGame = await applyImportStatus({
+        ...applyAtlasMatchData(sourceGame, data[0], { lcId: normalizedLcId }),
+        results: [{ key: 'match', value: 'Match Found' }],
+        resultSelectedValue: 'match',
+        resultVisibility: 'visible',
+      })
+      applyIfCurrent(matchedGame)
+      return
+    }
+
+    if (data.length > 1) {
+      const results = data.map(buildMatchResult).filter((result) => result.key)
+      const validSelection = results.some((result) => result.key === sourceGame.resultSelectedValue)
+        ? sourceGame.resultSelectedValue
+        : results[0]?.key || ''
+      applyIfCurrent(normalizeMatchState({
+        ...sourceGame,
+        lcId: normalizedLcId,
+        lewdCornerId: normalizedLcId,
+        atlasId: '',
+        results,
+        resultSelectedValue: validSelection,
+        resultVisibility: 'visible',
+        scanMessage: 'Select matching result',
+      }))
+      return
+    }
+
+    const unmatchedGame = await applyImportStatus({
+      ...sourceGame,
+      atlasId: '',
+      lcId: normalizedLcId,
+      lewdCornerId: normalizedLcId,
+      results: [],
+      resultSelectedValue: '',
+      resultVisibility: 'hidden',
+    })
+    applyIfCurrent({ ...unmatchedGame, lcId: normalizedLcId, lewdCornerId: normalizedLcId, scanMessage: 'No LewdCorner match found' })
+  }
+
   const deleteGame = (gameKey) => {
     deleteScanRowsByKeys([gameKey])
   }
@@ -865,6 +985,7 @@ const Importer = () => {
     await new Promise((r) => setTimeout(r, 16))
     let updatedGames = gamesList.map((game) => ({ ...game }))
     const originalF95ByKey = new Map(updatedGames.map((game) => [getScanGameKey(game), normalizeF95IdInput(game.f95Id)]))
+    const originalLcByKey = new Map(updatedGames.map((game) => [getScanGameKey(game), normalizeLcIdInput(game.lcId || game.lewdCornerId)]))
     for (let i = 0; i < updatedGames.length; i++) {
       if (matchCancelRef.current) break
       let game = { ...updatedGames[i] }
@@ -874,8 +995,9 @@ const Importer = () => {
         continue
       }
       const f95IdStr = normalizeF95IdInput(game.f95Id)
-      game = { ...game, f95Id: f95IdStr }
-      if (game.sourceType !== 'renpySave' && !f95IdStr && game.atlasId && game.results?.length === 1 && game.results[0]?.key === 'match' && game.resultVisibility === 'visible') {
+      const lcIdStr = normalizeLcIdInput(game.lcId || game.lewdCornerId)
+      game = { ...game, f95Id: f95IdStr, lcId: lcIdStr || game.lcId || '', lewdCornerId: lcIdStr || game.lewdCornerId || '' }
+      if (game.sourceType !== 'renpySave' && !f95IdStr && !lcIdStr && game.atlasId && game.results?.length === 1 && game.results[0]?.key === 'match' && game.resultVisibility === 'visible') {
         updatedGames[i] = game
         setProgress((prev) => ({ ...prev, value: i + 1 }))
         await new Promise((r) => setTimeout(r, 0))
@@ -885,34 +1007,32 @@ const Importer = () => {
       try {
         data = f95IdStr ? await window.electronAPI.searchAtlasByF95Id(f95IdStr) : []
         if (matchCancelRef.current) break
-        if (!data.length && !f95IdStr) {
+        if (!data.length && !f95IdStr && lcIdStr) {
+          data = await window.electronAPI.searchAtlasByLewdCornerId(lcIdStr)
+        }
+        if (matchCancelRef.current) break
+        if (!data.length && !f95IdStr && !lcIdStr) {
           data = await window.electronAPI.searchAtlas(game.lookupTitle || game.title, game.creator)
         }
         if (matchCancelRef.current) break
       } catch { data = [] }
       if (data.length === 1) {
         game = await applyImportStatus({
-          ...game,
-          atlasId: String(data[0].atlas_id),
-          f95Id: data[0].f95_id || f95IdStr || game.f95Id || '',
-          siteUrl: data[0].siteUrl || data[0].site_url || game.siteUrl || '',
-          title: data[0].title,
-          creator: data[0].creator,
-          engine: data[0].engine || game.engine || 'Unknown',
-          latestVersion: data[0].latestVersion || '',
+          ...applyAtlasMatchData(game, data[0], { f95Id: f95IdStr, lcId: lcIdStr }),
           results: [{ key: 'match', value: 'Match Found' }],
           resultSelectedValue: 'match',
           resultVisibility: 'visible',
         })
         if (matchCancelRef.current) break
       } else if (data.length > 1) {
-        const results = data.map((d) => ({ key: String(d.atlas_id), value: `${d.atlas_id} | ${d.f95_id || ''} | ${d.title} | ${d.creator}` }))
+        const results = data.map(buildMatchResult).filter((result) => result.key)
         const valid = results.find((r) => r.key === game.resultSelectedValue)
         game = await chooseInstalledMatch({ ...game, resultSelectedValue: valid ? game.resultSelectedValue : results[0].key }, results)
         if (matchCancelRef.current) break
       } else {
-        game = await applyImportStatus({ ...game, atlasId: '', f95Id: f95IdStr || game.f95Id || '', lcId: game.lcId || game.lewdCornerId || '', results: [], resultSelectedValue: '', resultVisibility: 'hidden' })
+        game = await applyImportStatus({ ...game, atlasId: '', f95Id: f95IdStr || game.f95Id || '', lcId: lcIdStr || game.lcId || game.lewdCornerId || '', lewdCornerId: lcIdStr || game.lewdCornerId || '', results: [], resultSelectedValue: '', resultVisibility: 'hidden' })
         if (f95IdStr) game = { ...game, f95Id: f95IdStr, scanMessage: 'No F95 match found' }
+        else if (lcIdStr) game = { ...game, lcId: lcIdStr, lewdCornerId: lcIdStr, scanMessage: 'No LewdCorner match found' }
         if (matchCancelRef.current) break
       }
       updatedGames[i] = game
@@ -928,6 +1048,8 @@ const Importer = () => {
           if (deletedScanGameKeysRef.current.has(gameKey)) return rows
           const current = currentByKey.get(gameKey)
           if (current && normalizeF95IdInput(current.f95Id) !== originalF95ByKey.get(gameKey)) {
+            rows.push(current)
+          } else if (current && normalizeLcIdInput(current.lcId || current.lewdCornerId) !== originalLcByKey.get(gameKey)) {
             rows.push(current)
           } else {
             rows.push(game)
@@ -1091,6 +1213,7 @@ const Importer = () => {
             onDeleteBadRows={deleteBadRows}
             onResultChange={handleResultChange} onUpdateMatches={updateMatches}
             onHydrateManualF95Id={hydrateManualF95Id}
+            onHydrateManualLcId={hydrateManualLcId}
             onCancelMatch={cancelScanOrMatch} onImport={importGamesFunc}
             onSelectRenpyFolder={selectRenpySaveFolder}
             getGameKey={getScanGameKey} getRowImportStatus={getRowImportStatus}

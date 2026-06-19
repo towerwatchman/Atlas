@@ -9,7 +9,7 @@ export default function ScanStep({
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
   onToggleRowSelection, onSelectRowRange, onSetVisibleRowSelection,
   onClearRowSelection, onDeleteSelectedRows, onDeleteBadRows,
-  getRowImportStatus, onUpdateMatches, onHydrateManualF95Id, onCancelMatch, onImport,
+  getRowImportStatus, onUpdateMatches, onHydrateManualF95Id, onHydrateManualLcId, onCancelMatch, onImport,
   onSelectRenpyFolder,
   setHideMatches, setIncludeUnmatched, setForceReimport,
 }) {
@@ -69,6 +69,7 @@ export default function ScanStep({
           onClearRowSelection={onClearRowSelection}
           onResultChange={onResultChange}
           onHydrateManualF95Id={onHydrateManualF95Id}
+          onHydrateManualLcId={onHydrateManualLcId}
           getGameKey={getGameKey}
           getRowImportStatus={getRowImportStatus}
         />
