@@ -1,13 +1,18 @@
 export default function SearchBox({ value = "", onSearchChange, onToggleSidebar }) {
+  const handleInputKeyDown = (event) => {
+    event.stopPropagation()
+  }
+
   return (
-    <div className="flex justify-center w-full">
-      <div className="flex bg-secondary h-10 w-[400px] items-center rounded mt-[20px] border border-border hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent relative">
+    <div className="flex justify-center w-full -webkit-app-region-no-drag">
+      <div className="flex bg-secondary h-10 w-[400px] items-center rounded mt-[20px] border border-border hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent relative -webkit-app-region-no-drag">
         <i className="fas fa-search w-6 h-6 text-text pl-2 flex items-center justify-center"></i>
         <input
           type="text"
           placeholder="Search Atlas"
           value={value}
           onChange={(e) => onSearchChange?.(e.target.value)}
+          onKeyDown={handleInputKeyDown}
           className="bg-transparent outline-none text-text flex-1 px-2 focus:outline-none -webkit-app-region-no-drag"
         />
         <button

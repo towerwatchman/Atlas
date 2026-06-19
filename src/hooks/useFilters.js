@@ -1012,6 +1012,9 @@ export function useFilters(games, includeUninstalledRef, fetchGames, setSelected
           ? filters.text
           : activeFilters.text,
       })
+      if (Object.prototype.hasOwnProperty.call(filters, 'text')) {
+        nextFilters.text = String(filters.text ?? '')
+      }
       const nextIncludeUninstalled =
         nextFilters.includeUninstalled === true ||
         ['all', 'uninstalled'].includes(nextFilters.installState)

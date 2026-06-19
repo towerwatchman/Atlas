@@ -50,6 +50,10 @@ const SearchSidebar = ({
     onFilterChange?.({ ...selectedFilters, ...changes });
   };
 
+  const handleInputKeyDown = (event) => {
+    event.stopPropagation();
+  };
+
   const closeSaveForm = () => {
     setIsSaveFormOpen(false);
     setSaveName("");
@@ -296,7 +300,7 @@ const SearchSidebar = ({
       <div className="h-[calc(100%-60px)] overflow-y-auto p-4">
         {/* Search Input */}
         <div className="mb-6">
-          <div className="flex items-center border border-border rounded bg-tertiary overflow-hidden">
+          <div className="flex items-center border border-border rounded bg-tertiary overflow-hidden -webkit-app-region-no-drag">
             <i className="fas fa-search w-6 h-6 text-text pl-3 flex items-center justify-center"></i>
             <input
               type="text"
@@ -305,6 +309,7 @@ const SearchSidebar = ({
               onChange={(e) => {
                 onSearchChange?.(e.target.value);
               }}
+              onKeyDown={handleInputKeyDown}
               className="bg-transparent outline-none text-text flex-1 px-3 py-2 focus:outline-none -webkit-app-region-no-drag"
             />
             <select
