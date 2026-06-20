@@ -10,6 +10,7 @@ const getDb = () => dbModule.db
 const { toLocalAssetPath, normalizeMediaStorageMode, remoteBannerExpression,
         buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
+const { normalizeSourceOrder } = require('./mediaSources')
 
 function normalizeVersionName(value, fallback = "Unknown") {
   const normalized = String(value ?? "").trim();
@@ -174,6 +175,14 @@ const parsePreviewList = (value) => {
 
 const parseAssetList = (value) => parsePreviewList(value).filter(isRemoteHttpUrl);
 
+const sourceRanker = (rawOrder) => {
+  const order = normalizeSourceOrder(rawOrder);
+  return (source) => {
+    const idx = order.indexOf(String(source || "").toLowerCase());
+    return idx === -1 ? order.length : idx;
+  };
+};
+
 const dedupeAssetEntries = (entries) => {
   const seen = new Set();
   const out = [];
@@ -235,6 +244,11 @@ const fetchSteamStoreAssetUrls = async (steamId) => {
     console.warn(`Unable to resolve Steam store assets for ${appid}:`, err?.message || err);
     return {};
   }
+};
+
+const orderAssetEntriesBySource = (entries, rawOrder) => {
+  const rank = sourceRanker(rawOrder);
+  return [...entries].sort((a, b) => rank(a.source) - rank(b.source));
 };
 
 const isSteamCapsuleLike = (url) => /library_600x900|library_capsule/i.test(String(url || ""));
@@ -348,7 +362,7 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
               const source = type.startsWith("steam") ? "steam" : type.startsWith("f95") ? "f95" : type.startsWith("lewdcorner") ? "lewdcorner" : "atlas";
               add(source, type, assetRow.url, `${type}_${String(index + 1).padStart(3, "0")}`, "preview");
             });
-            resolve(dedupeAssetEntries(entries));
+            resolve(orderAssetEntriesBySource(dedupeAssetEntries(entries), options.sourceOrder));
           },
         );
       },
@@ -475,31 +489,33 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId } = {}) => {
       },
     );
   });
-};const getRemotePreviewUrls = (recordId) => {
+};
+
+const getRemotePreviewUrls = (recordId, options = {}) => {
   return new Promise((resolve, reject) => {
     const query = `
-      SELECT url FROM (
-        SELECT steam_movies.movie_url AS url, 0 AS sort_order
+      SELECT source, url FROM (
+        SELECT 'steam' AS source, steam_movies.movie_url AS url, 0 AS sort_order
         FROM steam_movies
         JOIN steam_mappings ON steam_movies.steam_id = steam_mappings.steam_id
         WHERE steam_mappings.record_id = ?
         UNION
-        SELECT f95_zone_screens.screen_url AS url, 1 AS sort_order
+        SELECT 'f95' AS source, f95_zone_screens.screen_url AS url, 1 AS sort_order
         FROM f95_zone_screens
         JOIN f95_zone_data ON f95_zone_screens.f95_id = f95_zone_data.f95_id
         JOIN atlas_mappings ON f95_zone_data.atlas_id = atlas_mappings.atlas_id
         WHERE atlas_mappings.record_id = ?
         UNION
-        SELECT NULL AS url, 1 AS sort_order
+        SELECT 'lewdcorner' AS source, NULL AS url, 1 AS sort_order
         FROM lewdcorner_mappings
         WHERE lewdcorner_mappings.record_id = ?
         UNION
-        SELECT atlas_previews.preview_url AS url, 1 AS sort_order
+        SELECT 'atlas' AS source, atlas_previews.preview_url AS url, 1 AS sort_order
         FROM atlas_previews
         JOIN atlas_mappings ON atlas_previews.atlas_id = atlas_mappings.atlas_id
         WHERE atlas_mappings.record_id = ?
         UNION
-        SELECT steam_screens.screen_url AS url, 1 AS sort_order
+        SELECT 'steam' AS source, steam_screens.screen_url AS url, 1 AS sort_order
         FROM steam_screens
         JOIN steam_mappings ON steam_screens.steam_id = steam_mappings.steam_id
         WHERE steam_mappings.record_id = ?
@@ -513,7 +529,17 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId } = {}) => {
         reject(err);
         return;
       }
-      const urls = rows.map((row) => row.url).filter(Boolean);
+      const rank = sourceRanker(options.sourceOrder);
+      const urls = rows
+        .map((row, index) => ({
+          url: row.url,
+          source: row.source,
+          rank: rank(row.source),
+          index,
+        }))
+        .filter((row) => row.url)
+        .sort((a, b) => a.rank - b.rank || a.index - b.index)
+        .map((row) => row.url);
       if (urls.length > 0) {
         resolve(urls);
         return;
@@ -536,9 +562,18 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId } = {}) => {
           }
           resolve(
             [
-              ...String(row?.f95_screens || "").split(","),
-              ...String(row?.lewdcorner_screens || "").split(","),
-            ].map((screen) => screen.trim()).filter(Boolean),
+              ...String(row?.f95_screens || "").split(",").map((url) => ({ url, source: "f95" })),
+              ...String(row?.lewdcorner_screens || "").split(",").map((url) => ({ url, source: "lewdcorner" })),
+            ]
+              .map((entry, index) => ({
+                url: String(entry.url || "").trim(),
+                source: entry.source,
+                rank: rank(entry.source),
+                index,
+              }))
+              .filter((entry) => entry.url)
+              .sort((a, b) => a.rank - b.rank || a.index - b.index)
+              .map((entry) => entry.url),
           );
         },
       );
@@ -560,7 +595,7 @@ const getPreviews = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
             const localPreviews = rows.map((row) =>
               toLocalAssetPath(appPath, isDev, row.path),
             );
-            const remotePreviews = await getRemotePreviewUrls(recordId);
+            const remotePreviews = await getRemotePreviewUrls(recordId, { sourceOrder: mediaStorageMode?.sourceOrder });
 
             let previews;
             if (localPreviews.length > 0) {
@@ -614,10 +649,16 @@ const getBanners = (recordId, appPath, isDev) => {
   });
 };
 
-const getRemoteBannerUrl = (recordId) => {
+const getRemoteBannerUrl = (recordId, options = {}) => {
   return new Promise((resolve, reject) => {
     getDb().get(
-      `SELECT COALESCE(f95_zone_data.banner_url, lewdcorner_data.banner_url, steam_data.header, steam_data.library_hero, atlas_data.banner_wide, atlas_data.banner) AS banner_url
+      `SELECT
+        f95_zone_data.banner_url AS f95_banner,
+        lewdcorner_data.banner_url AS lewdcorner_banner,
+        steam_data.header AS steam_header,
+        steam_data.library_hero AS steam_hero,
+        atlas_data.banner_wide AS atlas_banner_wide,
+        atlas_data.banner AS atlas_banner
        FROM games
        LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
        LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
@@ -630,8 +671,24 @@ const getRemoteBannerUrl = (recordId) => {
        WHERE games.record_id = ?`,
       [recordId],
       (err, row) => {
-        if (err) reject(err);
-        else resolve(row?.banner_url || "");
+        if (err) {
+          reject(err);
+          return;
+        }
+        const bySource = {
+          f95: [row?.f95_banner],
+          lewdcorner: [row?.lewdcorner_banner],
+          steam: [row?.steam_header, row?.steam_hero],
+          atlas: [row?.atlas_banner_wide, row?.atlas_banner],
+        };
+        for (const source of normalizeSourceOrder(options.sourceOrder)) {
+          const url = (bySource[source] || []).find(isRemoteHttpUrl);
+          if (url) {
+            resolve(url);
+            return;
+          }
+        }
+        resolve("");
       },
     );
   });
@@ -660,7 +717,8 @@ const getBanner = (recordId, appPath, isDev, type, mediaStorageMode = "stream") 
             const localBanners = rows.map((row) =>
               toLocalAssetPath(appPath, isDev, row.path),
             );
-            const remoteBannerUrl = await getRemoteBannerUrl(recordId);
+            const sourceOrder = typeof mediaStorageMode === "object" ? mediaStorageMode.sourceOrder : null;
+            const remoteBannerUrl = await getRemoteBannerUrl(recordId, { sourceOrder });
             const remoteBanners = remoteBannerUrl ? [remoteBannerUrl] : [];
             const banners = localBanners.length > 0
               ? localBanners

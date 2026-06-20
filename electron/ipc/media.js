@@ -200,7 +200,7 @@ module.exports = function registerMediaHandlers(ctx) {
   })
 
   ipcMain.handle('get-previews', async (event, recordId) => {
-    const previews = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode())
+    const previews = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, { mode: getMediaStorageMode(), sourceOrder: getMetadataSourceOrder() })
     return orderPreviewsBySource(previews, getMetadataSourceOrder())
   })
 
@@ -212,7 +212,7 @@ module.exports = function registerMediaHandlers(ctx) {
         lcId: record.lcId ?? record.lc_id ?? record.lewdCornerId ?? record.lewdcornerId,
         steamId: record.steamId ?? record.steam_id ?? record.steam_appid,
       })
-      return Array.isArray(urls) ? urls : []
+      return orderPreviewsBySource(Array.isArray(urls) ? urls : [], getMetadataSourceOrder())
     } catch (err) {
       console.error('get-browse-preview-urls error:', err)
       return []
@@ -225,6 +225,8 @@ module.exports = function registerMediaHandlers(ctx) {
       const atlas_id = await GetAtlasIDbyRecord(recordId)
       let progress = 0
       const imageTotal = 1
+      const sourceOrder = getMetadataSourceOrder()
+      const bannerUrl = await getRemoteBannerUrl(recordId, { sourceOrder })
       const downloadResult = await downloadImages(
         recordId, atlas_id,
         (current, totalImages) => {
@@ -236,10 +238,10 @@ module.exports = function registerMediaHandlers(ctx) {
             })
           }
         },
-        true, false, 1, false, dataDir, getBannerUrl, getScreensUrlList, updateBanners, updatePreviews,
-        { source: 'f95' },
+        true, false, 1, false, dataDir, async () => bannerUrl, getScreensUrlList, updateBanners, updatePreviews,
+        { source: inferMediaSource(bannerUrl), bannerSource: inferMediaSource(bannerUrl) },
       )
-      const bannerPath = await getBanner(recordId, getAssetBasePath(), process.defaultApp, 'large', 'download')
+      const bannerPath = await getBanner(recordId, getAssetBasePath(), process.defaultApp, 'large', { mode: 'download', sourceOrder })
       BrowserWindow.getAllWindows().forEach(win => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })
       progress++
       if (!event.sender.isDestroyed()) {
@@ -265,6 +267,9 @@ module.exports = function registerMediaHandlers(ctx) {
     try {
       const atlasId = await GetAtlasIDbyRecord(recordId)
       let imageTotal = 1
+      const sourceOrder = getMetadataSourceOrder()
+      const rawPreviewUrls = await getRemotePreviewUrls(recordId, { sourceOrder })
+      const screenUrls = rawPreviewUrls.map((url) => ({ url, source: inferMediaSource(url) }))
       const downloadResult = await downloadImages(
         recordId, atlasId,
         (current, totalImages) => {
@@ -277,10 +282,10 @@ module.exports = function registerMediaHandlers(ctx) {
             })
           }
         },
-        false, true, 'Unlimited', false, dataDir, getBannerUrl, getScreensUrlList, updateBanners, updatePreviews,
-        { source: 'f95' },
+        false, true, 'Unlimited', false, dataDir, getBannerUrl, async () => screenUrls, updateBanners, updatePreviews,
+        { source: screenUrls[0]?.source || 'remote', previewSource: screenUrls[0]?.source || 'remote' },
       )
-      const previewUrls = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, 'download')
+      const previewUrls = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, { mode: 'download', sourceOrder })
       BrowserWindow.getAllWindows().forEach(win => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })
       if (!event.sender.isDestroyed()) {
         const cleanSuccess = downloadResult.success &&
@@ -310,14 +315,15 @@ module.exports = function registerMediaHandlers(ctx) {
         await fetchAndStoreSteamData(null, steamId)
       }
       const atlasId = await GetAtlasIDbyRecord(recordId)
-      const bannerUrl = await getRemoteBannerUrl(recordId)
-      const rawPreviewUrls = await getRemotePreviewUrls(recordId)
+      const sourceOrder = getMetadataSourceOrder()
+      const bannerUrl = await getRemoteBannerUrl(recordId, { sourceOrder })
+      const rawPreviewUrls = await getRemotePreviewUrls(recordId, { sourceOrder })
       const screenUrls = rawPreviewUrls
         .map((url) => String(url || '').trim())
         .filter(Boolean)
         .filter((url) => !isVideoUrl(url))
         .map((url) => ({ url, source: inferMediaSource(url) }))
-      const additionalAssets = (await getAllDownloadableAssetUrlsForRecord(recordId, { downloadVideos: false }))
+      const additionalAssets = (await getAllDownloadableAssetUrlsForRecord(recordId, { downloadVideos: false, sourceOrder }))
         .filter((asset) => asset.targetKind !== 'preview' && asset.url !== bannerUrl)
 
       const downloadResult = await downloadImages(
@@ -348,8 +354,8 @@ module.exports = function registerMediaHandlers(ctx) {
         },
       )
       const previewUrls = orderPreviewsBySource(
-        await getPreviews(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode()),
-        getMetadataSourceOrder(),
+        await getPreviews(recordId, getAssetBasePath(), process.defaultApp, { mode: getMediaStorageMode(), sourceOrder }),
+        sourceOrder,
       )
       BrowserWindow.getAllWindows().forEach((win) => {
         if (!win.isDestroyed()) win.webContents.send('game-updated', recordId)

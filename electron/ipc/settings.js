@@ -30,7 +30,7 @@ const defaultConfig = {
   Metadata: {
     downloadPreviews: false,
     mediaStorageMode: 'stream',
-    sourceOrder: 'f95,steam',
+    sourceOrder: 'f95,lewdcorner,steam',
   },
   Importer: {
     sourceGamePath: '',

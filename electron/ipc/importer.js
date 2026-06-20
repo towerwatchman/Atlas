@@ -1204,6 +1204,7 @@ module.exports = function registerImporterHandlers(ctx) {
     normalizeForPathCompare, removeEmptyParentDirectories,
     showExecutableChooser, executableChooserWindow,
     startSteamScan, startScan, getAssetBasePath, getMediaStorageMode,
+    getMetadataSourceOrder,
     recentlyDeletedGamePaths, db,
   } = ctx
   ownerMainWindow = mainWindow
@@ -3085,8 +3086,9 @@ ipcMain.handle("import-games", async (event, params) => {
           continue;
         }
 
-        const bannerUrl = downloadBannerImages ? await getRemoteBannerUrl(recordId) : "";
-        const rawPreviewUrls = downloadPreviewImages ? await getRemotePreviewUrls(recordId) : [];
+        const sourceOrder = getMetadataSourceOrder();
+        const bannerUrl = downloadBannerImages ? await getRemoteBannerUrl(recordId, { sourceOrder }) : "";
+        const rawPreviewUrls = downloadPreviewImages ? await getRemotePreviewUrls(recordId, { sourceOrder }) : [];
         const screenUrls = rawPreviewUrls
           .map((url) => String(url || "").trim())
           .filter(Boolean)
@@ -3098,7 +3100,7 @@ ipcMain.handle("import-games", async (event, params) => {
             : Math.min(parseInt(previewLimit), screenUrls.length)
           : 0;
         const additionalAssets = (downloadBannerImages || downloadPreviewImages)
-          ? (await getAllDownloadableAssetUrlsForRecord(recordId, { downloadVideos }))
+          ? (await getAllDownloadableAssetUrlsForRecord(recordId, { downloadVideos, sourceOrder }))
               .filter((asset) => asset.targetKind !== "preview" && asset.url !== bannerUrl)
           : [];
         const totalImages =
