@@ -22,6 +22,12 @@ const personalRatingFields = [
 
 const DEFAULT_DETAIL_MODULE_ORDER = ['previews', 'versions', 'personalRating', 'details', 'externalLinks', 'tags']
 const DETAIL_GRID_GAP = 18
+const DETAIL_MODULE_SIZES = {
+  small: { label: 'Small', span: 4 },
+  medium: { label: 'Medium', span: 6 },
+  wide: { label: 'Wide', span: 8 },
+  stack: { label: 'Stack', span: 12 },
+}
 
 const normalizeDetailModuleOrder = (rawOrder, modules) => {
   const availableIds = modules.map((module) => module.id)
@@ -38,10 +44,41 @@ const normalizeDetailModuleOrder = (rawOrder, modules) => {
   return ordered
 }
 
+const parseDetailsLayoutSetting = (raw) => {
+  if (!raw) return { order: [], sizes: {} }
+  if (typeof raw === 'object') {
+    return {
+      order: Array.isArray(raw.order) ? raw.order : [],
+      sizes: raw.sizes && typeof raw.sizes === 'object' ? raw.sizes : {},
+    }
+  }
+  const text = String(raw || '').trim()
+  if (!text) return { order: [], sizes: {} }
+  if (text.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text)
+      return parseDetailsLayoutSetting(parsed)
+    } catch {
+      return { order: [], sizes: {} }
+    }
+  }
+  return { order: text.split(',').map((id) => id.trim()).filter(Boolean), sizes: {} }
+}
+
+const normalizeDetailModuleSizes = (rawSizes, modules) => {
+  const sizes = {}
+  for (const module of modules) {
+    const rawSize = rawSizes?.[module.id] || module.defaultSize || 'medium'
+    sizes[module.id] = DETAIL_MODULE_SIZES[rawSize] ? rawSize : 'medium'
+  }
+  return sizes
+}
+
 const DetailsModuleGrid = ({ modules }) => {
   const [isEditing, setIsEditing] = useState(false)
   const [draggingId, setDraggingId] = useState('')
   const [order, setOrder] = useState(() => normalizeDetailModuleOrder([], modules))
+  const [sizes, setSizes] = useState(() => normalizeDetailModuleSizes({}, modules))
   const [status, setStatus] = useState('')
 
   useEffect(() => {
@@ -49,17 +86,21 @@ const DetailsModuleGrid = ({ modules }) => {
     window.electronAPI.getConfig()
       .then((config) => {
         if (canceled) return
-        setOrder(normalizeDetailModuleOrder(config?.Interface?.detailsPageModuleOrder, modules))
+        const layout = parseDetailsLayoutSetting(config?.Interface?.detailsPageLayout || config?.Interface?.detailsPageModuleOrder)
+        setOrder(normalizeDetailModuleOrder(layout.order, modules))
+        setSizes(normalizeDetailModuleSizes(layout.sizes, modules))
       })
       .catch((err) => {
         console.error('Failed to load details page layout:', err)
         setOrder(normalizeDetailModuleOrder([], modules))
+        setSizes(normalizeDetailModuleSizes({}, modules))
       })
     return () => { canceled = true }
   }, [])
 
   useEffect(() => {
     setOrder((current) => normalizeDetailModuleOrder(current, modules))
+    setSizes((current) => normalizeDetailModuleSizes(current, modules))
   }, [modules.map((module) => module.id).join(',')])
 
   const moduleById = new Map(modules.map((module) => [module.id, module]))
@@ -82,6 +123,7 @@ const DetailsModuleGrid = ({ modules }) => {
         ...config,
         Interface: {
           ...(config?.Interface || {}),
+          detailsPageLayout: JSON.stringify({ order, sizes }),
           detailsPageModuleOrder: order.join(','),
         },
       }
@@ -97,15 +139,22 @@ const DetailsModuleGrid = ({ modules }) => {
 
   const resetLayout = () => {
     setOrder(normalizeDetailModuleOrder(DEFAULT_DETAIL_MODULE_ORDER, modules))
+    setSizes(normalizeDetailModuleSizes({}, modules))
     setStatus('')
   }
 
+  const resizeModule = (id, size) => {
+    setSizes((current) => ({
+      ...current,
+      [id]: DETAIL_MODULE_SIZES[size] ? size : 'medium',
+    }))
+  }
 
   return (
     <div className="p-6">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
         <div style={{ color: '#9ca3af', fontSize: 12 }}>
-          {isEditing ? 'Drag module handles to reorder the details grid.' : status}
+          {isEditing ? 'Drag modules to reorder. Use size buttons to make widgets small, wide, or stacked full-row.' : status}
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {isEditing && (
@@ -132,10 +181,19 @@ const DetailsModuleGrid = ({ modules }) => {
           </button>
         </div>
       </div>
+      <style>
+        {`
+          .details-module-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+          .details-module-grid-item { grid-column: span var(--detail-module-span, 6); }
+          @media (max-width: 900px) {
+            .details-module-grid-item { grid-column: 1 / -1; }
+          }
+        `}
+      </style>
       <div
+        className="details-module-grid"
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))',
           gap: DETAIL_GRID_GAP,
           alignItems: 'start',
         }}
@@ -143,6 +201,7 @@ const DetailsModuleGrid = ({ modules }) => {
         {visibleModules.map((module) => (
           <div
             key={module.id}
+            className="details-module-grid-item"
             draggable={isEditing}
             onDragStart={() => setDraggingId(module.id)}
             onDragOver={(event) => {
@@ -152,8 +211,8 @@ const DetailsModuleGrid = ({ modules }) => {
             }}
             onDragEnd={() => setDraggingId('')}
             style={{
+              '--detail-module-span': DETAIL_MODULE_SIZES[sizes[module.id]]?.span || 6,
               minWidth: 0,
-              gridColumn: module.wide ? '1 / -1' : undefined,
               opacity: draggingId === module.id ? 0.55 : 1,
               outline: isEditing ? '1px dashed rgba(134,168,231,0.55)' : 'none',
               outlineOffset: isEditing ? 3 : 0,
@@ -162,10 +221,25 @@ const DetailsModuleGrid = ({ modules }) => {
             {isEditing && (
               <div
                 className="bg-primary border border-border text-xs"
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', marginBottom: 8, cursor: 'grab', color: '#cbd5e1' }}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '7px 9px', marginBottom: 8, color: '#cbd5e1' }}
               >
-                <i className="fas fa-grip-vertical"></i>
-                Move {module.title}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'grab' }}>
+                  <i className="fas fa-grip-vertical"></i>
+                  Move {module.title}
+                </div>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  {Object.entries(DETAIL_MODULE_SIZES).map(([size, meta]) => (
+                    <button
+                      key={size}
+                      type="button"
+                      onClick={() => resizeModule(module.id, size)}
+                      className={`border px-2 py-1 ${sizes[module.id] === size ? 'bg-selected border-accent' : 'bg-secondary border-border hover:bg-selected'}`}
+                      style={{ fontSize: 11 }}
+                    >
+                      {meta.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             {module.content}
@@ -867,7 +941,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     {
       id: 'previews',
       title: 'Previews',
-      wide: true,
+      defaultSize: 'stack',
       content: (
         <section className="border border-border bg-secondary" style={{ padding: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -902,6 +976,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     {
       id: 'versions',
       title: 'Versions',
+      defaultSize: 'medium',
       content: (
         <section className="bg-secondary border border-border p-4">
           <h2 className="text-lg font-semibold mb-3">Versions</h2>
@@ -934,6 +1009,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     canManagePersonalRatings && {
       id: 'personalRating',
       title: 'Personal Rating',
+      defaultSize: 'small',
       content: (
         <section className="bg-secondary border border-border p-4">
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
@@ -958,6 +1034,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     {
       id: 'details',
       title: 'Details',
+      defaultSize: 'medium',
       content: (
         <section className="bg-secondary border border-border p-4">
           <h2 className="text-lg font-semibold mb-3">Details</h2>
@@ -989,6 +1066,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     externalLinks.length > 0 && {
       id: 'externalLinks',
       title: 'External Links',
+      defaultSize: 'medium',
       content: (
         <section className="bg-secondary border border-border p-4">
           <h2 className="text-lg font-semibold mb-3">External Links</h2>
@@ -1011,6 +1089,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     detailTags.length > 0 && {
       id: 'tags',
       title: 'Tags',
+      defaultSize: 'medium',
       content: (
         <section className="bg-secondary border border-border p-4">
           <h2 className="text-lg font-semibold mb-3">Tags</h2>
