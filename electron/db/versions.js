@@ -1204,9 +1204,6 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
     } else if (filters.installState === 'uninstalled') {
       filterWhereParts.push('catalog.is_installed = 0');
     }
-    if (filters.browseDateBasis === 'thread_updated') {
-      filterWhereParts.push('catalog.thread_updated IS NOT NULL');
-    }
     if (filters.dateField === 'releaseDate' && filters.dateRange && filters.dateRange !== 'any') {
       addDateRangeFilter('catalog.release_date', filters.dateRange);
     } else if (filters.dateField === 'latestUpdate' && filters.dateRange && filters.dateRange !== 'any') {
