@@ -81,10 +81,16 @@ const normalizeSourceOrder = (raw) => {
   if (Array.isArray(raw)) order = raw
   else if (typeof raw === 'string') order = raw.split(',')
   order = order.map((s) => String(s || '').trim().toLowerCase()).filter(Boolean)
-  return order.length ? order : [...DEFAULT_SOURCE_ORDER]
-}
 
-// De-duplicates a list of urls while preserving order.
+  const seen = new Set()
+  const normalized = []
+  for (const source of [...order, ...DEFAULT_SOURCE_ORDER]) {
+    if (!source || seen.has(source)) continue
+    seen.add(source)
+    normalized.push(source)
+  }
+  return normalized.length ? normalized : [...DEFAULT_SOURCE_ORDER]
+}// De-duplicates a list of urls while preserving order.
 const dedupe = (list) => {
   const seen = new Set()
   const out = []
@@ -258,14 +264,12 @@ const detectPreviewSource = (url) => {
   if (!/^https?:\/\//.test(u)) return null // local file path — leave in place
   if (u.includes('steamstatic') || u.includes('steamcdn') || u.includes('akamaihd') || u.includes('/steam/'))
     return 'steam'
-  if (u.includes('f95zone') || u.includes('attachments'))
-    return 'f95'
   if (u.includes('lewdcorner.com'))
     return 'lewdcorner'
+  if (u.includes('f95zone'))
+    return 'f95'
   return 'atlas'
-}
-
-// Stable-reorders only the remote (http) entries of a preview list by source
+}// Stable-reorders only the remote (http) entries of a preview list by source
 // priority, preserving the position of any local file paths.
 const orderPreviewsBySource = (urls, rawOrder) => {
   if (!Array.isArray(urls) || urls.length < 2) return urls || []

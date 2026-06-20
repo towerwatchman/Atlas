@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen, session } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const fsp = require('fs').promises
@@ -131,6 +131,34 @@ if (!hasSingleInstanceLock) {
 // In dev, VITE_DEV_SERVER_URL is set by the dev script
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
 
+
+let lewdCornerMediaHeadersRegistered = false
+
+function setRequestHeader(headers, name, value) {
+  const existingKey = Object.keys(headers).find((key) => key.toLowerCase() === name.toLowerCase())
+  headers[existingKey || name] = value
+}
+
+function registerLewdCornerMediaHeaders() {
+  if (lewdCornerMediaHeadersRegistered) return
+  lewdCornerMediaHeadersRegistered = true
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ['https://lewdcorner.com/*', 'https://*.lewdcorner.com/*'] },
+    (details, callback) => {
+      const headers = { ...details.requestHeaders }
+      const resourceType = String(details.resourceType || '').toLowerCase()
+      if (['image', 'media', 'xhr', 'fetch'].includes(resourceType)) {
+        setRequestHeader(headers, 'Referer', 'https://lewdcorner.com/')
+        setRequestHeader(headers, 'Accept', 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8')
+        if (!Object.keys(headers).some((key) => key.toLowerCase() === 'user-agent')) {
+          setRequestHeader(headers, 'User-Agent', 'Mozilla/5.0 Atlas/1.0')
+        }
+      }
+      callback({ requestHeaders: headers })
+    },
+  )
+}
+
 // ── App data paths ──────────────────────────────────────────────────────────
 
 app.commandLine.appendSwitch('force-color-profile', 'srgb')
@@ -247,7 +275,7 @@ const defaultConfig = {
   Metadata: {
     downloadPreviews: false,
     mediaStorageMode: 'stream',
-    sourceOrder: 'f95,steam',
+    sourceOrder: 'f95,lewdcorner,steam',
   },
   Performance: {
     maxHeapSize: 4096,
@@ -701,6 +729,7 @@ function createWindow() {
     },
   })
   mainWindow = new BrowserWindow(windowState.options)
+  registerLewdCornerMediaHeaders()
   registerWindowBoundsPersistence('main', mainWindow, windowState)
   if (VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(VITE_DEV_SERVER_URL)

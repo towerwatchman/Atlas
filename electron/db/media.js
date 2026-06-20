@@ -382,29 +382,29 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId } = {}) => {
     const steamParam = steamId || null;
     const lcParam = lcId || null;
     const query = `
-      SELECT url, source, sort_order FROM (
-        SELECT f95_zone_screens.screen_url AS url, 'f95_screens' AS source, 0 AS sort_order
+      SELECT source, url_blob, sort_order FROM (
+        SELECT 'f95_screens' AS source, f95_zone_screens.screen_url AS url_blob, 0 AS sort_order
         FROM f95_zone_screens
         JOIN f95_zone_data ON f95_zone_screens.f95_id = f95_zone_data.f95_id
         WHERE (? IS NOT NULL AND f95_zone_data.f95_id = ?)
            OR (? IS NOT NULL AND f95_zone_data.atlas_id = ?)
         UNION ALL
-        SELECT NULL AS url, 'lewdcorner_screens' AS source, 1 AS sort_order
+        SELECT 'lewdcorner_screens' AS source, lewdcorner_data.screens AS url_blob, 1 AS sort_order
         FROM lewdcorner_data
         WHERE (? IS NOT NULL AND lewdcorner_data.lc_id = ?)
            OR (? IS NOT NULL AND lewdcorner_data.atlas_id = ?)
         UNION ALL
-        SELECT atlas_previews.preview_url AS url, 'atlas_previews' AS source, 2 AS sort_order
+        SELECT 'atlas_previews' AS source, atlas_previews.preview_url AS url_blob, 2 AS sort_order
         FROM atlas_previews
         WHERE ? IS NOT NULL AND atlas_previews.atlas_id = ?
         UNION ALL
-        SELECT steam_screens.screen_url AS url, 'steam_screens' AS source, 3 AS sort_order
+        SELECT 'steam_screens' AS source, steam_screens.screen_url AS url_blob, 3 AS sort_order
         FROM steam_screens
         JOIN steam_data ON steam_screens.steam_id = steam_data.steam_id
         WHERE (? IS NOT NULL AND steam_screens.steam_id = ?)
            OR (? IS NOT NULL AND steam_data.atlas_id = ?)
       )
-      WHERE url IS NOT NULL AND TRIM(url) != ''
+      WHERE url_blob IS NOT NULL AND TRIM(url_blob) != ''
       ORDER BY sort_order
     `;
 
@@ -438,7 +438,11 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId } = {}) => {
         const lewdCornerRows = (rows || []).filter((row) => row.source === "lewdcorner_screens");
         const atlasRows = (rows || []).filter((row) => row.source === "atlas_previews");
         const steamRows = (rows || []).filter((row) => row.source === "steam_screens");
-        f95Rows.forEach((row) => addUrl(row.url));
+
+        f95Rows.forEach((row) => addUrl(row.url_blob));
+        lewdCornerRows.forEach((row) => parsePreviewList(row.url_blob).forEach(addUrl));
+        atlasRows.forEach((row) => addUrl(row.url_blob));
+        steamRows.forEach((row) => addUrl(row.url_blob));
 
         getDb().get(
           `SELECT f95_zone_data.screens, lewdcorner_data.screens AS lewdcorner_screens, atlas_data.previews
@@ -455,12 +459,10 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId } = {}) => {
               reject(legacyErr);
               return;
             }
+
             parsePreviewList(row?.screens).forEach(addUrl);
-            lewdCornerRows.forEach((previewRow) => addUrl(previewRow.url));
             parsePreviewList(row?.lewdcorner_screens).forEach(addUrl);
-            atlasRows.forEach((previewRow) => addUrl(previewRow.url));
             parsePreviewList(row?.previews).forEach(addUrl);
-            steamRows.forEach((previewRow) => addUrl(previewRow.url));
 
             console.log(
               `Browse preview URLs resolved: atlasId=${atlasId || "none"} ` +
@@ -473,9 +475,7 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId } = {}) => {
       },
     );
   });
-};
-
-const getRemotePreviewUrls = (recordId) => {
+};const getRemotePreviewUrls = (recordId) => {
   return new Promise((resolve, reject) => {
     const query = `
       SELECT url FROM (
