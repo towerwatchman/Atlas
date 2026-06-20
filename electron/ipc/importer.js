@@ -2322,6 +2322,7 @@ ipcMain.handle("import-games", async (event, params) => {
     downloadVideos,
     gameExt,
     forceReimport = false,
+    moveFoldersToLibrary = false,
     libraryFormat,
   } = params;
   const shouldDeleteSourceArchive =
@@ -2368,7 +2369,7 @@ ipcMain.handle("import-games", async (event, params) => {
     canCancel: true,
   });
 
-  const importNeedsLibrary = games.some((game) => game.isArchive || !isSteamImportRow(game));
+  const importNeedsLibrary = games.some((game) => game.isArchive || (moveFoldersToLibrary && !isSteamImportRow(game)));
   let targetLibrary = appConfig?.Library?.gameFolder;
   if ((!targetLibrary || !fs.existsSync(targetLibrary)) && importNeedsLibrary) {
     console.warn("No default library folder configured");
@@ -2443,7 +2444,7 @@ ipcMain.handle("import-games", async (event, params) => {
       let archiveToDeleteAfterImport = null;
 
       // ── Structured move (non-archive) ───────────────────────────────────────
-      if (targetLibrary && !game.isArchive && !steamImport) {
+      if (moveFoldersToLibrary && targetLibrary && !game.isArchive && !steamImport) {
         let destinationPath = buildStructuredImportPath(
           targetLibrary,
           destinationFormat,
@@ -2727,7 +2728,7 @@ ipcMain.handle("import-games", async (event, params) => {
         folderSize: game.folderSize || game.folder_size || null,
         deferFolderSizeCalculation: true,
         in_place: steamImport ? 1 : game.in_place,
-        inPlace: steamImport ? true : game.inPlace,
+        inPlace: steamImport ? true : game.inPlace || (!game.isArchive && !moveFoldersToLibrary),
         sourceType: steamImport ? "steam" : game.sourceType,
         steamId: steamId || game.steamId,
       };

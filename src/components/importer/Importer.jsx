@@ -71,6 +71,7 @@ const Importer = () => {
   const [previewLimit, setPreviewLimit] = useState('Unlimited')
   const [downloadVideos, setDownloadVideos] = useState(false)
   const [scanSize, setScanSize] = useState(false)
+  const [moveFoldersToLibrary, setMoveFoldersToLibrary] = useState(false)
   const [deleteSourceArchiveAfterImport, setDeleteSourceArchiveAfterImport] = useState(false)
   const [includeUnmatched, setIncludeUnmatched] = useState(false)
   const [forceReimport, setForceReimport] = useState(false)
@@ -205,7 +206,12 @@ const Importer = () => {
     if (isImportableGame(game, importOptions)) {
       if (isSteamImportRow(game)) return { text: 'Steam mapped in-place', type: 'steamVersion' }
       if (game.isArchive) return { text: 'Archive detected - will extract on import', type: 'ready' }
-      return { text: 'Folder detected - will move to library', type: 'ready' }
+      return {
+        text: moveFoldersToLibrary
+          ? 'Folder detected - will move to library'
+          : 'Folder detected - will import in place',
+        type: 'ready',
+      }
     }
 
     return { text: game.scanMessage || 'Not importable', type: 'blocked' }
@@ -254,6 +260,7 @@ const Importer = () => {
     previewLimit,
     downloadVideos,
     scanSize,
+    moveFoldersToLibrary,
     deleteSourceArchiveAfterImport,
     includeUnmatched,
     forceReimport,
@@ -266,6 +273,7 @@ const Importer = () => {
     previewLimit,
     downloadVideos,
     scanSize,
+    moveFoldersToLibrary,
     deleteSourceArchiveAfterImport,
     includeUnmatched,
     forceReimport,
@@ -344,7 +352,7 @@ const Importer = () => {
       .filter(({ game }) => !(hideMatches && game.results?.length === 1 && game.results[0]?.value === 'Match Found'))
     if (!sortConfig.key) return rows
     return [...rows].sort((a, b) => compareRows(a, b, sortConfig.key, sortConfig.direction))
-  }, [gamesList, hideMatches, sortConfig, includeUnmatched, forceReimport])
+  }, [gamesList, hideMatches, sortConfig, includeUnmatched, forceReimport, moveFoldersToLibrary])
 
   const selectedScanRowCount = selectedScanRowKeys.size
   const badScanRowCount = useMemo(() => gamesList.filter(isBadScanRow).length, [gamesList])
@@ -611,6 +619,7 @@ const Importer = () => {
         setPreviewLimit(importer.previewLimit || 'Unlimited')
         setDownloadVideos(toBoolean(importer.downloadVideos, false))
         setScanSize(toBoolean(importer.scanSize, false))
+        setMoveFoldersToLibrary(toBoolean(importer.moveFoldersToLibrary, false))
         setDeleteSourceArchiveAfterImport(toBoolean(importer.deleteSourceArchiveAfterImport, false))
         setIncludeUnmatched(toBoolean(importer.includeUnmatched, false))
         setForceReimport(toBoolean(importer.forceReimport, false))
@@ -790,6 +799,11 @@ const Importer = () => {
   const handleDeleteSourceArchiveAfterImportChange = (checked) => {
     setDeleteSourceArchiveAfterImport(checked)
     saveImporterDefaults({ deleteSourceArchiveAfterImport: checked })
+  }
+
+  const handleMoveFoldersToLibraryChange = (checked) => {
+    setMoveFoldersToLibrary(checked)
+    saveImporterDefaults({ moveFoldersToLibrary: checked })
   }
 
   const startScan = async () => {
@@ -1223,7 +1237,7 @@ const Importer = () => {
       return
     }
     let finalLibraryPath = defaultLibraryPath
-    const importNeedsLibrary = gamesToImport.some((game) => game.isArchive || !isSteamImportRow(game))
+    const importNeedsLibrary = gamesToImport.some((game) => game.isArchive || (moveFoldersToLibrary && !isSteamImportRow(game)))
     if (importNeedsLibrary && !finalLibraryPath) {
       setAskingForLibraryFolder(true)
       const selected = await window.electronAPI.selectDirectory()
@@ -1252,6 +1266,7 @@ const Importer = () => {
       games: gamesForImport,
       sourceRoot: folder,
       deleteSourceArchiveAfterImport,
+      moveFoldersToLibrary,
       scanSize,
       downloadBannerImages,
       downloadPreviewImages,
@@ -1308,6 +1323,7 @@ const Importer = () => {
             gameExt={gameExt} archiveExt={archiveExt}
             downloadBannerImages={downloadBannerImages} downloadPreviewImages={downloadPreviewImages}
             previewLimit={previewLimit} deleteSourceArchiveAfterImport={deleteSourceArchiveAfterImport}
+            moveFoldersToLibrary={moveFoldersToLibrary}
             autoSelectLatestReplaceVersion={autoSelectLatestReplaceVersion}
             defaultLibraryPath={defaultLibraryPath} askingForLibraryFolder={askingForLibraryFolder}
             onSelectFolder={selectFolder} onStartScan={startScan}
@@ -1315,6 +1331,7 @@ const Importer = () => {
             setGameExt={handleGameExtChange} setArchiveExt={handleArchiveExtChange}
             setDownloadBannerImages={handleDownloadBannerImagesChange}
             setDownloadPreviewImages={handleDownloadPreviewImagesChange}
+            setMoveFoldersToLibrary={handleMoveFoldersToLibraryChange}
             setDeleteSourceArchiveAfterImport={handleDeleteSourceArchiveAfterImportChange}
             onAutoSelectChange={handleAutoSelectChange}
           />

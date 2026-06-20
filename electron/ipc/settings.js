@@ -41,6 +41,7 @@ const defaultConfig = {
     previewLimit: 'Unlimited',
     downloadVideos: false,
     scanSize: false,
+    moveFoldersToLibrary: false,
     deleteSourceArchiveAfterImport: false,
     includeUnmatched: false,
     forceReimport: false,

@@ -1,11 +1,11 @@
 export default function SettingsStep({
   folder, customFormat, useUnstructured, gameExt, archiveExt,
   downloadBannerImages, downloadPreviewImages, previewLimit,
-  deleteSourceArchiveAfterImport, autoSelectLatestReplaceVersion,
+  moveFoldersToLibrary, deleteSourceArchiveAfterImport, autoSelectLatestReplaceVersion,
   defaultLibraryPath, askingForLibraryFolder,
   onSelectFolder, onStartScan,
   setCustomFormat, setUseUnstructured, setGameExt, setArchiveExt,
-  setDownloadBannerImages, setDownloadPreviewImages,
+  setDownloadBannerImages, setDownloadPreviewImages, setMoveFoldersToLibrary,
   setDeleteSourceArchiveAfterImport, onAutoSelectChange,
 }) {
   return (
@@ -74,9 +74,15 @@ export default function SettingsStep({
         </div>
 
         <div className="mt-4">
+          <input type="checkbox" checked={moveFoldersToLibrary} onChange={(e) => setMoveFoldersToLibrary(e.target.checked)} className="mr-2" />
+          <label className="font-medium">Move folder imports to the library</label>
+          <div className="mt-1 ml-6 text-sm text-muted">When disabled, folder imports are added in place. Archive imports still extract to the library.</div>
+        </div>
+
+        <div className="mt-4">
           <input type="checkbox" checked={deleteSourceArchiveAfterImport} onChange={(e) => setDeleteSourceArchiveAfterImport(e.target.checked)} className="mr-2" />
           <label className="font-medium">Delete source archive after successful extraction</label>
-          <div className="mt-1 ml-6 text-sm text-muted">Applies only to archive files. Folder imports move to the library automatically.</div>
+          <div className="mt-1 ml-6 text-sm text-muted">Applies only to archive files.</div>
         </div>
 
         <div className="mt-4">
