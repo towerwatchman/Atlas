@@ -183,6 +183,11 @@ const sourceRanker = (rawOrder) => {
   };
 };
 
+const sourceEnabled = (source, rawOrder) => {
+  const order = normalizeSourceOrder(rawOrder);
+  return order.includes(String(source || "").toLowerCase());
+};
+
 const dedupeAssetEntries = (entries) => {
   const seen = new Set();
   const out = [];
@@ -248,23 +253,27 @@ const fetchSteamStoreAssetUrls = async (steamId) => {
 
 const orderAssetEntriesBySource = (entries, rawOrder) => {
   const rank = sourceRanker(rawOrder);
-  return [...entries].sort((a, b) => rank(a.source) - rank(b.source));
+  return [...entries]
+    .filter((entry) => sourceEnabled(entry.source, rawOrder))
+    .sort((a, b) => rank(a.source) - rank(b.source));
 };
 
 const selectPreviewUrlsBySource = (entries, rawOrder) => {
   const cleaned = dedupeAssetEntries(entries);
   if (cleaned.length === 0) return [];
+  const order = normalizeSourceOrder(rawOrder);
+  if (order.length === 0) return [];
   const bySource = new Map();
   cleaned.forEach((entry) => {
     const source = String(entry.source || "").toLowerCase();
     if (!bySource.has(source)) bySource.set(source, []);
     bySource.get(source).push(entry.url);
   });
-  for (const source of normalizeSourceOrder(rawOrder)) {
+  for (const source of order) {
     const urls = bySource.get(source);
     if (urls?.length) return urls;
   }
-  return orderAssetEntriesBySource(cleaned, rawOrder).map((entry) => entry.url);
+  return [];
 };
 
 const isSteamCapsuleLike = (url) => /library_600x900|library_capsule/i.test(String(url || ""));
@@ -757,6 +766,7 @@ const getBanner = (recordId, appPath, isDev, type, mediaStorageMode = "stream") 
             const customBanners = localEntries.filter((entry) => entry.source === "custom");
             const sourceBanners = localEntries
               .filter((entry) => entry.source !== "custom")
+              .filter((entry) => sourceEnabled(entry.source, sourceOrder))
               .sort((a, b) => rank(a.source) - rank(b.source) || a.index - b.index);
             const banners = customBanners.length > 0
               ? customBanners.map((entry) => entry.url)

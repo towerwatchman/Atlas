@@ -43,7 +43,9 @@ const Metadata = () => {
       setMediaStorageMode(metadataSettings.mediaStorageMode || 'stream')
       setDownloadPreviews(toBoolean(metadataSettings.downloadPreviews, false))
       const parsed = parseOrder(metadataSettings.sourceOrder)
-      setSourceOrder(parsed.length ? parsed : ['f95', 'lewdcorner', 'steam'])
+      setSourceOrder(metadataSettings.sourceOrder === undefined || metadataSettings.sourceOrder === null
+        ? ['f95', 'lewdcorner', 'steam']
+        : parsed)
     })
   }, [])
 

@@ -98,7 +98,7 @@ async function downloadImages(
 ) {
   const imgDir = path.join(dataDir, "images", recordId.toString());
   if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
-  const defaultPreviewSource = options.previewSource || options.source || "f95";
+  const defaultPreviewSource = options.previewSource || options.source || "remote";
   const additionalAssets = Array.isArray(options.additionalAssets)
     ? options.additionalAssets
         .map((asset) => ({

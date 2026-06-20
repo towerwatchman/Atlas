@@ -9,7 +9,7 @@
 // This module is intentionally dependency-free so it can be required from both
 // the db layer and the ipc layer without circular-require headaches.
 
-// Default order used whenever the config is empty or malformed.
+// Initial order used before a user has saved Metadata source settings.
 const DEFAULT_SOURCE_ORDER = ['f95', 'lewdcorner', 'steam']
 
 // Steam serves the same per-app art from two different systems:
@@ -74,9 +74,11 @@ const resolveSteamAppId = (game = {}, externalIds = null) => {
   return String(candidate)
 }
 
-// Accepts either a comma string ("f95,steam") or an array and returns a clean
-// lowercase array, falling back to the default order.
+// Accepts either a comma string ("f95,steam") or an array and returns exactly
+// the enabled source order. Only a missing value falls back to the initial
+// default; an explicitly empty saved value means "no sources enabled".
 const normalizeSourceOrder = (raw) => {
+  if (raw === undefined || raw === null) return [...DEFAULT_SOURCE_ORDER]
   let order = []
   if (Array.isArray(raw)) order = raw
   else if (typeof raw === 'string') order = raw.split(',')
@@ -84,13 +86,15 @@ const normalizeSourceOrder = (raw) => {
 
   const seen = new Set()
   const normalized = []
-  for (const source of [...order, ...DEFAULT_SOURCE_ORDER]) {
+  for (const source of order) {
     if (!source || seen.has(source)) continue
     seen.add(source)
     normalized.push(source)
   }
-  return normalized.length ? normalized : [...DEFAULT_SOURCE_ORDER]
-}// De-duplicates a list of urls while preserving order.
+  return normalized
+}
+
+// De-duplicates a list of urls while preserving order.
 const dedupe = (list) => {
   const seen = new Set()
   const out = []
