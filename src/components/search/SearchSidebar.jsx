@@ -213,10 +213,7 @@ const SearchSidebar = ({
       ];
 
   const handleDateFieldChange = (value) => {
-    const changes = { dateField: value };
-    if (value === "latestUpdate") changes.browseDateBasis = "thread_updated";
-    if (value === "threadPublished") changes.browseDateBasis = "thread_publish_date";
-    updateFilters(changes);
+    updateFilters({ dateField: value });
   };
 
   const handleDateRangeChange = (value) => {
@@ -422,11 +419,20 @@ const SearchSidebar = ({
                   value={selectedFilters.browseSort}
                   onChange={(e) => updateFilters({ browseSort: e.target.value })}
                 >
-                  <option value="nameAsc">Title A/Z</option>
-                  <option value="nameDesc">Title Z/A</option>
-                  <option value="newest">Newest first</option>
-                  <option value="oldest">Oldest first</option>
+                  <option value="titleAsc">Title A/Z</option>
+                  <option value="titleDesc">Title Z/A</option>
+                  <option value="threadUpdatedDesc">Latest update</option>
+                  <option value="threadUpdatedAsc">Oldest update</option>
+                  <option value="threadPublishedDesc">Thread published newest</option>
+                  <option value="threadPublishedAsc">Thread published oldest</option>
+                  <option value="releaseDateDesc">Release date newest</option>
+                  <option value="releaseDateAsc">Release date oldest</option>
+                  <option value="f95LatestOrderDesc">F95 latest page order</option>
+                  <option value="f95LatestOrderAsc">F95 oldest page order</option>
                 </select>
+                <p className="text-xs text-muted mt-1">
+                  Latest update uses AtlasDB thread_updated. Entries without a known thread update date sort last and are excluded from date-range filters.
+                </p>
               </label>
             </div>
           </div>

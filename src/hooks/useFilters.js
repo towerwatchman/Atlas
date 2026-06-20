@@ -25,7 +25,7 @@ export const defaultFilters = {
   browseSource: 'all',
   browseDateBasis: 'thread_updated',
   browseDateRange: 'any',
-  browseSort: 'nameAsc',
+  browseSort: 'threadUpdatedDesc',
   tagLogic: 'AND',
   updateAvailable: false,
   favoritesOnly: false,
@@ -138,10 +138,28 @@ export const normalizeFilterState = (filters = {}) => {
   merged.browseDateRange = ['any', '7d', '30d', '90d', 'year'].includes(merged.browseDateRange)
     ? merged.browseDateRange
     : 'any'
-  if (merged.browseSort === 'name') merged.browseSort = 'nameAsc'
-  merged.browseSort = ['nameAsc', 'nameDesc', 'newest', 'oldest'].includes(merged.browseSort)
+  const browseSortAliases = {
+    name: 'titleAsc',
+    nameAsc: 'titleAsc',
+    nameDesc: 'titleDesc',
+    newest: 'threadUpdatedDesc',
+    oldest: 'threadUpdatedAsc',
+  }
+  merged.browseSort = browseSortAliases[merged.browseSort] || merged.browseSort
+  merged.browseSort = [
+    'titleAsc',
+    'titleDesc',
+    'threadUpdatedDesc',
+    'threadUpdatedAsc',
+    'threadPublishedDesc',
+    'threadPublishedAsc',
+    'releaseDateDesc',
+    'releaseDateAsc',
+    'f95LatestOrderDesc',
+    'f95LatestOrderAsc',
+  ].includes(merged.browseSort)
     ? merged.browseSort
-    : 'nameAsc'
+    : 'threadUpdatedDesc'
   merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
   merged.updateAvailable = merged.updateAvailable === true
   merged.favoritesOnly = merged.favoritesOnly === true
@@ -676,6 +694,25 @@ const compareBrowseTitle = (a, b, direction = 'asc') => {
   return direction === 'desc' ? -result : result
 }
 
+const compareBrowseDate = (a, b, dateBasis, direction = 'desc') => {
+  const result = compareMaybeNumber(
+    getBrowseDate(a, dateBasis),
+    getBrowseDate(b, dateBasis),
+    direction
+  )
+  return result || compareBrowseTitle(a, b, 'asc')
+}
+
+const compareBrowseReleaseDate = (a, b, direction = 'desc') => {
+  const result = compareMaybeNumber(getReleaseDateValue(a), getReleaseDateValue(b), direction)
+  return result || compareBrowseTitle(a, b, 'asc')
+}
+
+const compareBrowseF95LatestOrder = (a, b, direction = 'desc') => {
+  const result = compareMaybeNumber(getF95LatestOrder(a), getF95LatestOrder(b), direction)
+  return result || compareBrowseTitle(a, b, 'asc')
+}
+
 export const filterGamesWithState = (games, filters = {}, options = {}) => {
   const activeFilters = normalizeFilterState(filters)
   const browseMode = options.browseMode === true
@@ -826,35 +863,34 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
 
   result.sort((a, b) => {
     if (browseMode) {
-      if (['newest', 'oldest'].includes(activeFilters.browseSort)) {
-        if (
-          activeFilters.browseDateBasis === 'thread_updated' &&
-          getBrowseSources(a).includes('f95') &&
-          getBrowseSources(b).includes('f95')
-        ) {
-          const aOrder = getF95LatestOrder(a)
-          const bOrder = getF95LatestOrder(b)
-          if (aOrder !== null && bOrder !== null && aOrder !== bOrder) {
-            // f95_latest_order: LARGER number = newer (see withF95LatestOrder in
-            // electron/db/updates.js: updateDate * 100000 + (100000 - index)).
-            // "newest" wants larger first, "oldest" wants smaller first.
-            return activeFilters.browseSort === 'oldest' ? aOrder - bOrder : bOrder - aOrder
-          }
-        }
-        const aDate = getBrowseDate(a, activeFilters.browseDateBasis)
-        const bDate = getBrowseDate(b, activeFilters.browseDateBasis)
-        const aMissing = aDate === null
-        const bMissing = bDate === null
-        if (aMissing !== bMissing) return aMissing ? 1 : -1
-        if (!aMissing && aDate !== bDate) {
-          return activeFilters.browseSort === 'oldest' ? aDate - bDate : bDate - aDate
-        }
+      if (activeFilters.browseSort === 'titleDesc') {
+        return compareBrowseTitle(a, b, 'desc')
       }
-      return compareBrowseTitle(
-        a,
-        b,
-        activeFilters.browseSort === 'nameDesc' ? 'desc' : 'asc'
-      )
+      if (activeFilters.browseSort === 'threadUpdatedDesc') {
+        return compareBrowseDate(a, b, 'thread_updated', 'desc')
+      }
+      if (activeFilters.browseSort === 'threadUpdatedAsc') {
+        return compareBrowseDate(a, b, 'thread_updated', 'asc')
+      }
+      if (activeFilters.browseSort === 'threadPublishedDesc') {
+        return compareBrowseDate(a, b, 'thread_publish_date', 'desc')
+      }
+      if (activeFilters.browseSort === 'threadPublishedAsc') {
+        return compareBrowseDate(a, b, 'thread_publish_date', 'asc')
+      }
+      if (activeFilters.browseSort === 'releaseDateDesc') {
+        return compareBrowseReleaseDate(a, b, 'desc')
+      }
+      if (activeFilters.browseSort === 'releaseDateAsc') {
+        return compareBrowseReleaseDate(a, b, 'asc')
+      }
+      if (activeFilters.browseSort === 'f95LatestOrderDesc') {
+        return compareBrowseF95LatestOrder(a, b, 'desc')
+      }
+      if (activeFilters.browseSort === 'f95LatestOrderAsc') {
+        return compareBrowseF95LatestOrder(a, b, 'asc')
+      }
+      return compareBrowseTitle(a, b, 'asc')
     }
     return compareLocalGames(a, b, activeFilters)
   })
