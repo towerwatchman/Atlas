@@ -1,7 +1,9 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { formatPercent, sanitizePercentText } from '../utils/formatPercent.js'
 
 const PACKAGE_NOT_READY_CODE = 'UPDATE_PACKAGE_NOT_READY'
+const AUTO_DISMISS_NOTICE_MS = 15000
+const AUTO_DISMISS_STATUSES = new Set(['available', 'not-available', 'error', 'package_not_ready'])
 
 export function useAppUpdate(setDbUpdateStatus) {
   const [appUpdateNotice, setAppUpdateNotice] = useState({
@@ -12,6 +14,17 @@ export function useAppUpdate(setDbUpdateStatus) {
     percent: null,
   })
   const [appUpdateActionBusy, setAppUpdateActionBusy] = useState(false)
+
+  useEffect(() => {
+    if (!appUpdateNotice.visible || !AUTO_DISMISS_STATUSES.has(appUpdateNotice.status)) return undefined
+    const timer = window.setTimeout(() => {
+      setAppUpdateNotice((notice) => {
+        if (!notice.visible || notice.status !== appUpdateNotice.status) return notice
+        return { ...notice, visible: false }
+      })
+    }, AUTO_DISMISS_NOTICE_MS)
+    return () => window.clearTimeout(timer)
+  }, [appUpdateNotice.visible, appUpdateNotice.status])
 
   const getFooterActionState = useCallback((status) => {
     if (status === 'installing') return { label: 'Installing update...', canInstallUpdate: true }
