@@ -24,7 +24,9 @@ const personalRatingFields = [
 
 const DEFAULT_DETAIL_MODULE_ORDER = ['previews', 'versions', 'personalRating', 'details', 'externalLinks', 'tags']
 const DETAIL_GRID_GAP = 18
+const DETAIL_GRID_ROW_HEIGHT = 12
 const DETAIL_MODULE_SIZES = {
+  tiny: { label: 'Tiny', span: 2 },
   small: { label: 'Small', span: 4 },
   medium: { label: 'Medium', span: 6 },
   wide: { label: 'Wide', span: 8 },
@@ -81,7 +83,10 @@ const DetailsModuleGrid = ({ modules }) => {
   const [draggingId, setDraggingId] = useState('')
   const [order, setOrder] = useState(() => normalizeDetailModuleOrder([], modules))
   const [sizes, setSizes] = useState(() => normalizeDetailModuleSizes({}, modules))
+  const [rowSpans, setRowSpans] = useState({})
   const [status, setStatus] = useState('')
+  const observerRef = useRef(null)
+  const moduleNodesRef = useRef(new Map())
 
   useEffect(() => {
     let canceled = false
@@ -104,6 +109,42 @@ const DetailsModuleGrid = ({ modules }) => {
     setOrder((current) => normalizeDetailModuleOrder(current, modules))
     setSizes((current) => normalizeDetailModuleSizes(current, modules))
   }, [modules.map((module) => module.id).join(',')])
+
+  useEffect(() => {
+    observerRef.current = new ResizeObserver((entries) => {
+      setRowSpans((current) => {
+        let changed = false
+        const next = { ...current }
+        for (const entry of entries) {
+          const id = entry.target.dataset.moduleId
+          if (!id) continue
+          const height = entry.contentRect.height
+          const span = Math.max(1, Math.ceil((height + DETAIL_GRID_GAP) / (DETAIL_GRID_ROW_HEIGHT + DETAIL_GRID_GAP)))
+          if (next[id] !== span) {
+            next[id] = span
+            changed = true
+          }
+        }
+        return changed ? next : current
+      })
+    })
+    for (const node of moduleNodesRef.current.values()) observerRef.current.observe(node)
+    return () => {
+      observerRef.current?.disconnect()
+      observerRef.current = null
+    }
+  }, [])
+
+  const setModuleNode = (id, node) => {
+    const previous = moduleNodesRef.current.get(id)
+    if (previous && previous !== node) observerRef.current?.unobserve(previous)
+    if (node) {
+      moduleNodesRef.current.set(id, node)
+      observerRef.current?.observe(node)
+    } else {
+      moduleNodesRef.current.delete(id)
+    }
+  }
 
   const moduleById = new Map(modules.map((module) => [module.id, module]))
   const visibleModules = order.map((id) => moduleById.get(id)).filter(Boolean)
@@ -196,6 +237,8 @@ const DetailsModuleGrid = ({ modules }) => {
         className="details-module-grid"
         style={{
           display: 'grid',
+          gridAutoFlow: 'dense',
+          gridAutoRows: DETAIL_GRID_ROW_HEIGHT,
           gap: DETAIL_GRID_GAP,
           alignItems: 'start',
         }}
@@ -215,36 +258,39 @@ const DetailsModuleGrid = ({ modules }) => {
             style={{
               '--detail-module-span': DETAIL_MODULE_SIZES[sizes[module.id]]?.span || 6,
               minWidth: 0,
+              gridRowEnd: `span ${rowSpans[module.id] || 1}`,
               opacity: draggingId === module.id ? 0.55 : 1,
               outline: isEditing ? '1px dashed rgba(134,168,231,0.55)' : 'none',
               outlineOffset: isEditing ? 3 : 0,
             }}
           >
-            {isEditing && (
-              <div
-                className="bg-primary border border-border text-xs"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '7px 9px', marginBottom: 8, color: '#cbd5e1' }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'grab' }}>
-                  <i className="fas fa-grip-vertical"></i>
-                  Move {module.title}
+            <div ref={(node) => setModuleNode(module.id, node)} data-module-id={module.id}>
+              {isEditing && (
+                <div
+                  className="bg-primary border border-border text-xs"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '7px 9px', marginBottom: 8, color: '#cbd5e1' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'grab' }}>
+                    <i className="fas fa-grip-vertical"></i>
+                    Move {module.title}
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    {Object.entries(DETAIL_MODULE_SIZES).map(([size, meta]) => (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => resizeModule(module.id, size)}
+                        className={`border px-2 py-1 ${sizes[module.id] === size ? 'bg-selected border-accent' : 'bg-secondary border-border hover:bg-selected'}`}
+                        style={{ fontSize: 11 }}
+                      >
+                        {meta.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  {Object.entries(DETAIL_MODULE_SIZES).map(([size, meta]) => (
-                    <button
-                      key={size}
-                      type="button"
-                      onClick={() => resizeModule(module.id, size)}
-                      className={`border px-2 py-1 ${sizes[module.id] === size ? 'bg-selected border-accent' : 'bg-secondary border-border hover:bg-selected'}`}
-                      style={{ fontSize: 11 }}
-                    >
-                      {meta.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {module.content}
+              )}
+              {module.content}
+            </div>
           </div>
         ))}
       </div>
