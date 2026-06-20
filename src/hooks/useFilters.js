@@ -320,11 +320,15 @@ const compareLocalGames = (a, b, activeFilters) => {
 }
 
 const parseDateParts = (year, month, day) => {
-  const date = new Date(Number(year), Number(month) - 1, Number(day))
+  const y = Number(year)
+  const m = Number(month)
+  const d = Number(day)
+  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return null
+  const date = new Date(Date.UTC(y, m - 1, d))
   if (
-    date.getFullYear() !== Number(year) ||
-    date.getMonth() !== Number(month) - 1 ||
-    date.getDate() !== Number(day)
+    date.getUTCFullYear() !== y ||
+    date.getUTCMonth() !== m - 1 ||
+    date.getUTCDate() !== d
   ) {
     return null
   }
@@ -340,11 +344,55 @@ const normalizeBrowseDateMs = (value) => {
   return value
 }
 
-export const parseAtlasDbThreadDate = (value) => {
+const getThreadDateCeilingMs = (game = {}) => {
+  const latestOrder = Number(game.f95LatestOrder ?? game.f95_latest_order)
+  if (Number.isFinite(latestOrder) && latestOrder > 0) {
+    // f95_latest_order is scrapeTimestamp * 100000 + pageRank.
+    // Subtract 1 before division so the top item, with pageRank 100000,
+    // decodes back to the scrape timestamp instead of scrape timestamp + 1s.
+    return (Math.floor((latestOrder - 1) / 100000) * 1000) + 86400000
+  }
+  return Date.now() + 86400000
+}
+
+const swapMonthDayFromMs = (value) => {
+  const normalized = normalizeBrowseDateMs(value)
+  if (normalized === null) return null
+  const date = new Date(normalized)
+  return parseDateParts(
+    date.getUTCFullYear(),
+    date.getUTCDate(),
+    date.getUTCMonth() + 1,
+  )
+}
+
+const chooseThreadDateCandidate = (primary, swapped, ceilingMs) => {
+  const normalizedPrimary = normalizeBrowseDateMs(primary)
+  const normalizedSwapped = normalizeBrowseDateMs(swapped)
+  if (normalizedPrimary !== null && normalizedPrimary <= ceilingMs) return normalizedPrimary
+  if (normalizedSwapped !== null && normalizedSwapped <= ceilingMs) return normalizedSwapped
+  return null
+}
+
+const parseDelimitedThreadDate = (normalized, ceilingMs) => {
+  const match = normalized.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:\D.*)?$/)
+  if (!match) return null
+  const [, year, first, second] = match
+  return chooseThreadDateCandidate(
+    parseDateParts(year, first, second),
+    parseDateParts(year, second, first),
+    ceilingMs,
+  )
+}
+
+export const parseAtlasDbThreadDate = (value, game = {}) => {
   if (value === undefined || value === null || value === '') return null
+  const ceilingMs = getThreadDateCeilingMs(game)
+
   if (typeof value === 'number' && Number.isFinite(value)) {
     if (value <= 0) return null
-    return normalizeBrowseDateMs(value > 100000000000 ? value : value * 1000)
+    const primary = value > 100000000000 ? value : value * 1000
+    return chooseThreadDateCandidate(primary, swapMonthDayFromMs(primary), ceilingMs)
   }
 
   const normalized = String(value).trim()
@@ -352,19 +400,27 @@ export const parseAtlasDbThreadDate = (value) => {
 
   const compactDate = normalized.match(/^(\d{4})(\d{2})(\d{2})$/)
   if (compactDate) {
-    return normalizeBrowseDateMs(parseDateParts(compactDate[1], compactDate[2], compactDate[3]))
+    return chooseThreadDateCandidate(
+      parseDateParts(compactDate[1], compactDate[2], compactDate[3]),
+      parseDateParts(compactDate[1], compactDate[3], compactDate[2]),
+      ceilingMs,
+    )
   }
 
   if (/^\d+$/.test(normalized)) {
     const numericValue = Number(normalized)
     if (Number.isFinite(numericValue)) {
       if (numericValue <= 0) return null
-      return normalizeBrowseDateMs(numericValue > 100000000000 ? numericValue : numericValue * 1000)
+      const primary = numericValue > 100000000000 ? numericValue : numericValue * 1000
+      return chooseThreadDateCandidate(primary, swapMonthDayFromMs(primary), ceilingMs)
     }
   }
 
+  const delimited = parseDelimitedThreadDate(normalized, ceilingMs)
+  if (delimited !== null) return delimited
+
   const parsed = Date.parse(normalized)
-  return normalizeBrowseDateMs(parsed)
+  return chooseThreadDateCandidate(parsed, swapMonthDayFromMs(parsed), ceilingMs)
 }
 
 export const getBrowseDateInfo = (game = {}, dateBasis = 'thread_updated') => {
@@ -380,7 +436,9 @@ export const getBrowseDateInfo = (game = {}, dateBasis = 'thread_updated') => {
     ? (isLewdCornerOnly ? 'lewdcorner.register_date' : isSteamOnly && rawValue === (game.steam_release_date ?? game.release_date) ? 'steam.release_date' : 'f95_zone.thread_publish_date')
     : (game.lewdcornerThreadUpdated && rawValue === game.lewdcornerThreadUpdated ? 'lewdcorner.thread_updated' : isSteamOnly && rawValue === (game.steam_release_date ?? game.release_date) ? 'steam.release_date' : 'f95_zone.thread_updated')
   return {
-    timestamp: parseAtlasDbThreadDate(rawValue),
+    timestamp: basis === 'thread_updated'
+      ? parseAtlasDbThreadDate(rawValue, game)
+      : parseAtlasDbThreadDate(rawValue),
     rawValue,
     field,
     basis,
