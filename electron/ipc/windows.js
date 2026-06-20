@@ -22,6 +22,7 @@ function handleContextAction(data, sender, ctx) {
             : "";
           return launchGame({
             execPath,
+            gamePath: selectedVersion.game_path || "",
             extension,
             recordId: data.recordId,
             version: selectedVersion.version,

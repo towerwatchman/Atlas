@@ -583,6 +583,10 @@ function isExistingPath(value) {
   }
 }
 
+function isSteamInstallPath(value) {
+  return /(?:^|[\\/])steamapps[\\/]common(?:[\\/]|$)/i.test(String(value || ""));
+}
+
 function mapVersionRow(row, forceInstalled = false, options = {}) {
   const skipPathValidation = options.skipPathValidation === true;
   const hasPathValue = !!row.game_path;
@@ -687,7 +691,7 @@ const getVersionForRecord = (recordId, version) => {
           resolve(null);
           return;
         }
-        resolve(mapVersionRow(row, !!row.steam_id));
+        resolve(mapVersionRow(row, !!row.steam_id && isSteamInstallPath(row.game_path)));
       },
     );
   });
@@ -853,7 +857,7 @@ ${bannerJoinClauses}
             reject(err);
             return;
           }
-          const allVersions = versionRows.map((v) => mapVersionRow(v, !!row.steam_id));
+          const allVersions = versionRows.map((v) => mapVersionRow(v, !!row.steam_id && isSteamInstallPath(v.game_path)));
           const installedVersions = allVersions.filter((v) => v.isInstalled);
           const game = applyLocalSortAggregates(applyPersonalRatings({
             ...row,
@@ -1010,7 +1014,7 @@ ${bannerJoinClauses}
           .map((row) => {
             const allVersions = (versionsByRecordId[row.record_id] || []).map(
               (version) =>
-                mapVersionRow(version, !!row.steam_id, { skipPathValidation }),
+                mapVersionRow(version, !!row.steam_id && isSteamInstallPath(version.game_path), { skipPathValidation }),
             );
             const installedVersions = allVersions.filter(
               (version) => version.isInstalled,

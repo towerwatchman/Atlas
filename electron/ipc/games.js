@@ -54,8 +54,11 @@ function trackChildPlaySession(child, session, recordId) {
   })
 }
 
-async function launchGame({ execPath, extension, recordId, version }) {
-  if (recordId) {
+const isSteamInstallPath = (value) =>
+  /(?:^|[\\/])steamapps[\\/]common(?:[\\/]|$)/i.test(String(value || ''))
+
+async function launchGame({ execPath, gamePath, extension, recordId, version }) {
+  if (recordId && isSteamInstallPath(gamePath)) {
     const steamId = await getSteamIDbyRecord(recordId)
     if (steamId) {
       await startPlaySession(recordId, version, false)
@@ -346,10 +349,11 @@ function registerGamesHandlers(ctx) {
     try {
       const selectedVersion = await getTrustedVersion(data?.recordId, data?.version)
       const execPath = selectedVersion.exec_path || ''
+      const gamePath = selectedVersion.game_path || ''
       const extension = execPath.includes('.')
         ? execPath.split('.').pop().toLowerCase()
         : ''
-      await launchGame({ execPath, extension, recordId: data.recordId, version: selectedVersion.version })
+      await launchGame({ execPath, gamePath, extension, recordId: data.recordId, version: selectedVersion.version })
       return { success: true }
     } catch (err) {
       console.error('Error launching game:', err)
