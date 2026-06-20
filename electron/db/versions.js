@@ -1226,9 +1226,9 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
     const orderByClause = browseSort === 'nameDesc'
       ? 'ORDER BY title COLLATE NOCASE DESC, catalogKey DESC'
       : browseSort === 'newest'
-        ? `ORDER BY CASE WHEN catalog.f95_latest_order IS NULL THEN 1 ELSE 0 END ASC, CAST(catalog.f95_latest_order AS REAL) ASC, ${browseDateField} DESC, title COLLATE NOCASE ASC, catalogKey ASC`
+        ? `ORDER BY CASE WHEN catalog.f95_latest_order IS NULL THEN 1 ELSE 0 END ASC, CAST(catalog.f95_latest_order AS REAL) DESC, ${browseDateField} DESC, title COLLATE NOCASE ASC, catalogKey ASC`
         : browseSort === 'oldest'
-          ? `ORDER BY CASE WHEN catalog.f95_latest_order IS NULL THEN 1 ELSE 0 END ASC, CAST(catalog.f95_latest_order AS REAL) DESC, ${browseDateField} ASC, title COLLATE NOCASE ASC, catalogKey ASC`
+          ? `ORDER BY CASE WHEN catalog.f95_latest_order IS NULL THEN 1 ELSE 0 END ASC, CAST(catalog.f95_latest_order AS REAL) ASC, ${browseDateField} ASC, title COLLATE NOCASE ASC, catalogKey ASC`
           : 'ORDER BY title COLLATE NOCASE ASC, catalogKey ASC';
     getTableColumns('f95_zone_data').then((f95Columns) => {
       const hasThreadUpdated = f95Columns.has('thread_updated')

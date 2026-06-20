@@ -945,9 +945,10 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
           const aOrder = getF95LatestOrder(a)
           const bOrder = getF95LatestOrder(b)
           if (aOrder !== null && bOrder !== null && aOrder !== bOrder) {
-            // f95_latest_order: smaller number = newer. "newest" wants smaller first (ASC),
-            // "oldest" wants larger first (DESC) — matching the backend SQL ordering.
-            return activeFilters.browseSort === 'oldest' ? bOrder - aOrder : aOrder - bOrder
+            // f95_latest_order: LARGER number = newer (see withF95LatestOrder in
+            // electron/db/updates.js: updateDate * 100000 + (100000 - index)).
+            // "newest" wants larger first, "oldest" wants smaller first.
+            return activeFilters.browseSort === 'oldest' ? aOrder - bOrder : bOrder - aOrder
           }
         }
         const aDate = getBrowseDate(a, activeFilters.browseDateBasis)
