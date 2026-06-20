@@ -193,12 +193,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       setPreviewsLoading(true)
       try {
         if (game.isCatalogEntry === true) {
-          const snapshotPreviews = splitPreviewUrls(game.preview_urls || game.previewUrls)
-          if (snapshotPreviews.length > 0) {
-            setPreviews(filterOutBanner(snapshotPreviews, game.banner_url))
-            return
-          }
-          const cacheKey = `${game.atlas_id || ''}:${game.f95_id || ''}:${game.lc_id || game.lcId || ''}:${game.steam_id || ''}`
+          const cacheKey = `${game.atlas_id || ''}:${game.f95_id || ''}:${game.lc_id || game.lcId || ''}:${game.steam_id || game.steam_appid || ''}`
           if (browsePreviewCacheRef.current.has(cacheKey)) {
             setPreviews(filterOutBanner(browsePreviewCacheRef.current.get(cacheKey), game.banner_url))
             return
@@ -207,11 +202,13 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             atlas_id: game.atlas_id,
             f95_id: game.f95_id,
             lc_id: game.lc_id || game.lcId,
-            steam_id: game.steam_id,
+            steam_id: game.steam_id || game.steam_appid,
           })
           const safeUrls = Array.isArray(urls) ? urls : []
-          browsePreviewCacheRef.current.set(cacheKey, safeUrls)
-          setPreviews(filterOutBanner(safeUrls, game.banner_url))
+          const snapshotPreviews = splitPreviewUrls(game.preview_urls || game.previewUrls)
+          const resolvedUrls = safeUrls.length > 0 ? safeUrls : snapshotPreviews
+          browsePreviewCacheRef.current.set(cacheKey, resolvedUrls)
+          setPreviews(filterOutBanner(resolvedUrls, game.banner_url))
           return
         }
         const urls = await window.electronAPI.getPreviews(game.record_id)

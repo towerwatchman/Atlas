@@ -765,7 +765,7 @@ const getGame = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
       SELECT
         games.record_id as record_id,
         atlas_mappings.atlas_id as atlas_id,
-        steam_mappings.steam_id as steam_id,
+        COALESCE(steam_mappings.steam_id, steam_data.steam_id) as steam_id,
         games.title as title,
         games.creator as creator,
         games.engine as engine,
@@ -825,6 +825,7 @@ ${bannerJoinClauses}
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
       LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
+        OR (steam_mappings.steam_id IS NULL AND atlas_mappings.atlas_id IS NOT NULL AND steam_data.atlas_id = atlas_mappings.atlas_id)
       LEFT JOIN tag_mappings ON games.record_id = tag_mappings.record_id
       LEFT JOIN tags ON tag_mappings.tag_id = tags.tag_id
       WHERE games.record_id = ?
@@ -898,7 +899,7 @@ const getGames = (
       SELECT
         games.record_id as record_id,
         atlas_mappings.atlas_id as atlas_id,
-        steam_mappings.steam_id as steam_id,
+        COALESCE(steam_mappings.steam_id, steam_data.steam_id) as steam_id,
         games.title as title,
         games.creator as creator,
         games.engine as engine,
@@ -958,6 +959,7 @@ ${bannerJoinClauses}
       LEFT JOIN f95_zone_data ON atlas_mappings.atlas_id = f95_zone_data.atlas_id
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
       LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
+        OR (steam_mappings.steam_id IS NULL AND atlas_mappings.atlas_id IS NOT NULL AND steam_data.atlas_id = atlas_mappings.atlas_id)
       LEFT JOIN tag_mappings ON games.record_id = tag_mappings.record_id
       LEFT JOIN tags ON tag_mappings.tag_id = tags.tag_id
       GROUP BY games.record_id

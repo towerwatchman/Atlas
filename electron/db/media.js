@@ -365,8 +365,17 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
         getDb().all(
           `SELECT 'steam_screenshot' AS asset_type, screen_url AS url
            FROM steam_screens
-           JOIN steam_mappings ON steam_screens.steam_id = steam_mappings.steam_id
-           WHERE steam_mappings.record_id = ?
+           JOIN steam_data screen_steam_data ON steam_screens.steam_id = screen_steam_data.steam_id
+           JOIN games ON games.record_id = ?
+           LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
+           LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+           LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+           WHERE steam_screens.steam_id = steam_mappings.steam_id
+              OR screen_steam_data.atlas_id = atlas_mappings.atlas_id
+              OR atlas_data.external_ids LIKE '%"steam_appid":"' || steam_screens.steam_id || '"%'
+              OR atlas_data.external_ids LIKE '%"steam_appid": "' || steam_screens.steam_id || '"%'
+              OR atlas_data.external_ids LIKE '%"steam_id":"' || steam_screens.steam_id || '"%'
+              OR atlas_data.external_ids LIKE '%"steam_id": "' || steam_screens.steam_id || '"%'
            UNION ALL
            SELECT 'atlas_preview' AS asset_type, preview_url AS url
            FROM atlas_previews
