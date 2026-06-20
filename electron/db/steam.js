@@ -3,15 +3,35 @@
 const dbModule = require('./index')
 const getDb = () => dbModule.db
 
+const parseSteamIdFromExternalIds = (raw) => {
+  if (!raw) return null;
+  try {
+    const parsed = typeof raw === "object" ? raw : JSON.parse(raw);
+    return parsed?.steam_appid || parsed?.steam_id || parsed?.steamAppId || parsed?.steamId || null;
+  } catch {
+    const match = String(raw).match(/"steam_(?:appid|id)"\s*:\s*"?(\d+)/i);
+    return match?.[1] || null;
+  }
+};
 
 const getSteamIDbyRecord = (recordId) => {
   return new Promise((resolve, reject) => {
     getDb().get(
-      `SELECT steam_id FROM steam_mappings WHERE record_id = ?`,
+      `SELECT
+         steam_mappings.steam_id AS mapped_steam_id,
+         steam_data.steam_id AS atlas_steam_id,
+         atlas_data.external_ids
+       FROM games
+       LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
+       LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+       LEFT JOIN steam_data ON atlas_data.atlas_id = steam_data.atlas_id
+       WHERE games.record_id = ?
+       LIMIT 1`,
       [recordId],
       (err, row) => {
         if (err) reject(err);
-        else resolve(row ? row.steam_id : null);
+        else resolve(row?.mapped_steam_id || row?.atlas_steam_id || parseSteamIdFromExternalIds(row?.external_ids));
       },
     );
   });

@@ -10,7 +10,7 @@ const getDb = () => dbModule.db
 const { toLocalAssetPath, normalizeMediaStorageMode, remoteBannerExpression,
         buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
-const { normalizeSourceOrder } = require('./mediaSources')
+const { normalizeSourceOrder, parseExternalIds, resolveSteamAppId } = require('./mediaSources')
 
 function normalizeVersionName(value, fallback = "Unknown") {
   const normalized = String(value ?? "").trim();
@@ -291,6 +291,7 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
         games.record_id,
         atlas_mappings.atlas_id,
         steam_mappings.steam_id,
+        atlas_data.external_ids,
         f95_zone_data.banner_url AS f95_banner,
         f95_zone_data.screens AS f95_legacy_screens,
         lewdcorner_data.banner_url AS lewdcorner_banner,
@@ -312,6 +313,7 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
        LEFT JOIN lewdcorner_data ON atlas_mappings.atlas_id = lewdcorner_data.atlas_id
        LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
        LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
+         OR (steam_mappings.steam_id IS NULL AND atlas_mappings.atlas_id IS NOT NULL AND steam_data.atlas_id = atlas_mappings.atlas_id)
        WHERE games.record_id = ?`,
       [recordId],
       async (err, row) => {
@@ -340,7 +342,7 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
         add("atlas", "atlas_logo", row.atlas_logo, "atlas_logo");
         add("atlas", "atlas_wallpaper", row.atlas_wallpaper, "atlas_wallpaper");
 
-        const steamId = row.steam_id;
+        const steamId = row.steam_id || resolveSteamAppId(row, parseExternalIds(row.external_ids));
         const steamAssets = await fetchSteamStoreAssetUrls(steamId);
         const rowSteamHeader = isResolvedSteamAssetUrl(row.steam_header) ? row.steam_header : "";
         const rowSteamHero = isResolvedSteamAssetUrl(row.steam_hero) ? row.steam_hero : "";
@@ -528,8 +530,17 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
       SELECT source, url FROM (
         SELECT 'steam' AS source, steam_movies.movie_url AS url, 0 AS sort_order
         FROM steam_movies
-        JOIN steam_mappings ON steam_movies.steam_id = steam_mappings.steam_id
-        WHERE steam_mappings.record_id = ?
+        JOIN steam_data movie_steam_data ON steam_movies.steam_id = movie_steam_data.steam_id
+        JOIN games ON games.record_id = ?
+        LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
+        LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+        LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+        WHERE steam_movies.steam_id = steam_mappings.steam_id
+           OR movie_steam_data.atlas_id = atlas_mappings.atlas_id
+           OR atlas_data.external_ids LIKE '%"steam_appid":"' || steam_movies.steam_id || '"%'
+           OR atlas_data.external_ids LIKE '%"steam_appid": "' || steam_movies.steam_id || '"%'
+           OR atlas_data.external_ids LIKE '%"steam_id":"' || steam_movies.steam_id || '"%'
+           OR atlas_data.external_ids LIKE '%"steam_id": "' || steam_movies.steam_id || '"%'
         UNION
         SELECT 'f95' AS source, f95_zone_screens.screen_url AS url, 1 AS sort_order
         FROM f95_zone_screens
@@ -548,8 +559,17 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
         UNION
         SELECT 'steam' AS source, steam_screens.screen_url AS url, 1 AS sort_order
         FROM steam_screens
-        JOIN steam_mappings ON steam_screens.steam_id = steam_mappings.steam_id
-        WHERE steam_mappings.record_id = ?
+        JOIN steam_data screen_steam_data ON steam_screens.steam_id = screen_steam_data.steam_id
+        JOIN games ON games.record_id = ?
+        LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
+        LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+        LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+        WHERE steam_screens.steam_id = steam_mappings.steam_id
+           OR screen_steam_data.atlas_id = atlas_mappings.atlas_id
+           OR atlas_data.external_ids LIKE '%"steam_appid":"' || steam_screens.steam_id || '"%'
+           OR atlas_data.external_ids LIKE '%"steam_appid": "' || steam_screens.steam_id || '"%'
+           OR atlas_data.external_ids LIKE '%"steam_id":"' || steam_screens.steam_id || '"%'
+           OR atlas_data.external_ids LIKE '%"steam_id": "' || steam_screens.steam_id || '"%'
       )
       WHERE url IS NOT NULL AND TRIM(url) != ''
       ORDER BY sort_order
@@ -681,6 +701,8 @@ const getRemoteBannerUrl = (recordId, options = {}) => {
       `SELECT
         f95_zone_data.banner_url AS f95_banner,
         lewdcorner_data.banner_url AS lewdcorner_banner,
+        steam_mappings.steam_id AS mapped_steam_id,
+        atlas_data.external_ids,
         steam_data.header AS steam_header,
         steam_data.library_hero AS steam_hero,
         atlas_data.banner_wide AS atlas_banner_wide,
@@ -694,6 +716,7 @@ const getRemoteBannerUrl = (recordId, options = {}) => {
          OR (lewdcorner_mappings.lc_id IS NULL AND lewdcorner_data.atlas_id = atlas_mappings.atlas_id)
        LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
        LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
+         OR (steam_mappings.steam_id IS NULL AND atlas_mappings.atlas_id IS NOT NULL AND steam_data.atlas_id = atlas_mappings.atlas_id)
        WHERE games.record_id = ?`,
       [recordId],
       (err, row) => {
@@ -701,10 +724,11 @@ const getRemoteBannerUrl = (recordId, options = {}) => {
           reject(err);
           return;
         }
+        const steamId = row?.mapped_steam_id || resolveSteamAppId(row, parseExternalIds(row?.external_ids));
         const bySource = {
           f95: [row?.f95_banner],
           lewdcorner: [row?.lewdcorner_banner],
-          steam: [row?.steam_header, row?.steam_hero],
+          steam: [row?.steam_header, steamCdnAsset(steamId, "header.jpg"), row?.steam_hero],
           atlas: [row?.atlas_banner_wide, row?.atlas_banner],
         };
         for (const source of normalizeSourceOrder(options.sourceOrder)) {

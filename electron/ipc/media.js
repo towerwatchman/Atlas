@@ -227,6 +227,10 @@ module.exports = function registerMediaHandlers(ctx) {
       let progress = 0
       const imageTotal = 1
       const sourceOrder = getMetadataSourceOrder()
+      const steamId = await getSteamIDbyRecord(recordId)
+      if (steamId) {
+        await fetchAndStoreSteamData(null, steamId)
+      }
       const bannerUrl = await getRemoteBannerUrl(recordId, { sourceOrder })
       const downloadResult = await downloadImages(
         recordId, atlas_id,
@@ -269,6 +273,10 @@ module.exports = function registerMediaHandlers(ctx) {
       const atlasId = await GetAtlasIDbyRecord(recordId)
       let imageTotal = 1
       const sourceOrder = getMetadataSourceOrder()
+      const steamId = await getSteamIDbyRecord(recordId)
+      if (steamId) {
+        await fetchAndStoreSteamData(null, steamId)
+      }
       const rawPreviewUrls = await getRemotePreviewUrls(recordId, { sourceOrder })
       const screenUrls = rawPreviewUrls.map((url) => ({ url, source: inferMediaSource(url) }))
       const downloadResult = await downloadImages(
