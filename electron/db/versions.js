@@ -1150,7 +1150,27 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
     };
     const dateMsExpression = (field) => `
       CASE
-        WHEN ${field} IS NULL OR ${field} = '' THEN NULL
+        WHEN ${field}
+
+const correctedThreadUpdatedMsExpression = (field, f95LatestOrderField = 'catalog.f95_latest_order') => {
+  const parsed = dateMsExpression(field);
+  const scrapeCeilingMs = `CASE WHEN ${f95LatestOrderField} IS NOT NULL AND ${f95LatestOrderField} != '' THEN ((CAST(((CAST(${f95LatestOrderField} AS INTEGER) - 1) / 100000) AS INTEGER) + 86400) * 1000) ELSE NULL END`;
+  const todayCeilingMs = "((strftime('%s', 'now') + 86400) * 1000)";
+  const ceiling = `COALESCE((${scrapeCeilingMs}), ${todayCeilingMs})`;
+  const seconds = `((${parsed}) / 1000)`;
+  const year = `CAST(strftime('%Y', ${seconds}, 'unixepoch') AS INTEGER)`;
+  const month = `CAST(strftime('%m', ${seconds}, 'unixepoch') AS INTEGER)`;
+  const day = `CAST(strftime('%d', ${seconds}, 'unixepoch') AS INTEGER)`;
+  const swapped = `(strftime('%s', printf('%04d-%02d-%02d', ${year}, ${day}, ${month})) * 1000)`;
+
+  return `CASE
+    WHEN (${parsed}) IS NULL THEN NULL
+    WHEN (${parsed}) <= (${ceiling}) THEN (${parsed})
+    WHEN (${day}) BETWEEN 1 AND 12 AND (${swapped}) <= (${ceiling}) THEN (${swapped})
+    ELSE NULL
+  END`;
+};
+ IS NULL OR ${field} = '' THEN NULL
         WHEN length(CAST(${field} AS TEXT)) = 8 AND CAST(${field} AS TEXT) NOT GLOB '*[^0-9]*'
           THEN strftime('%s', substr(CAST(${field} AS TEXT), 1, 4) || '-' || substr(CAST(${field} AS TEXT), 5, 2) || '-' || substr(CAST(${field} AS TEXT), 7, 2)) * 1000
         WHEN CAST(${field} AS TEXT) NOT GLOB '*[^0-9]*'
@@ -1226,7 +1246,9 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
     const browseSortValue = String(filters.browseSort || 'threadUpdatedDesc');
     const browseSort = browseSortAliases[browseSortValue] || browseSortValue;
     const orderByParsedDate = (field, direction) => {
-      const dateExpr = dateMsExpression(field);
+      const dateExpr = field === 'catalog.thread_updated'
+        ? correctedThreadUpdatedMsExpression('catalog.thread_updated', 'catalog.f95_latest_order')
+        : dateMsExpression(field);
       return `ORDER BY CASE WHEN (${dateExpr}) IS NULL THEN 1 ELSE 0 END ASC, (${dateExpr}) ${direction}, title COLLATE NOCASE ASC, catalogKey ASC`;
     };
     const orderByNullableNumber = (field, direction) =>

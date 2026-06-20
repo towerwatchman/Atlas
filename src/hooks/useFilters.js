@@ -694,10 +694,77 @@ const compareBrowseTitle = (a, b, direction = 'asc') => {
   return direction === 'desc' ? -result : result
 }
 
+const getF95LatestScrapeDateMsForThreadUpdated = (game) => {
+  const rawOrder = game?.f95_latest_order ?? game?.f95LatestOrder
+  const order = Number(rawOrder)
+  if (!Number.isFinite(order) || order <= 0) return null
+
+  // f95_latest_order = updateDate * 100000 + (100000 - pageIndex).
+  // Subtract one before dividing so pageIndex 0 does not decode one second ahead.
+  return Math.floor((order - 1) / 100000) * 1000
+}
+
+const getUtcDayCeilingMs = (baseMs) => {
+  const date = new Date(baseMs)
+  if (Number.isNaN(date.getTime())) return null
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1)
+}
+
+const getSwappedMonthDayDateMs = (dateMs) => {
+  const date = new Date(dateMs)
+  if (Number.isNaN(date.getTime())) return null
+
+  const year = date.getUTCFullYear()
+  const month = date.getUTCMonth() + 1
+  const day = date.getUTCDate()
+
+  if (day < 1 || day > 12 || month < 1 || month > 12 || day === month) return null
+
+  const swapped = Date.UTC(year, day - 1, month)
+  const swappedDate = new Date(swapped)
+  if (
+    swappedDate.getUTCFullYear() !== year ||
+    swappedDate.getUTCMonth() + 1 !== day ||
+    swappedDate.getUTCDate() !== month
+  ) {
+    return null
+  }
+
+  return swapped
+}
+
+const normalizeThreadUpdatedDateMs = (game, dateMs) => {
+  if (dateMs === null || dateMs === undefined || dateMs === '') return null
+
+  const parsedMs = Number(dateMs)
+  if (!Number.isFinite(parsedMs)) return null
+
+  const scrapeMs = getF95LatestScrapeDateMsForThreadUpdated(game)
+  const scrapeCeilingMs = scrapeMs === null ? null : getUtcDayCeilingMs(scrapeMs)
+  const todayCeilingMs = getUtcDayCeilingMs(Date.now())
+  const ceilingMs = scrapeCeilingMs !== null ? scrapeCeilingMs : todayCeilingMs
+
+  if (ceilingMs === null || parsedMs <= ceilingMs) return parsedMs
+
+  const swapped = getSwappedMonthDayDateMs(parsedMs)
+  if (swapped !== null && swapped <= ceilingMs) return swapped
+
+  // Future thread update dates are invalid for sorting/filtering. Treat them as
+  // missing instead of letting bad month/day parses jump above real updates.
+  return null
+}
+
+const getNormalizedBrowseDate = (game, dateBasis) => {
+  const value = getBrowseDate(game, dateBasis)
+  return dateBasis === 'thread_updated'
+    ? normalizeThreadUpdatedDateMs(game, value)
+    : value
+}
+
 const compareBrowseDate = (a, b, dateBasis, direction = 'desc') => {
   const result = compareMaybeNumber(
-    getBrowseDate(a, dateBasis),
-    getBrowseDate(b, dateBasis),
+    getNormalizedBrowseDate(a, dateBasis),
+    getNormalizedBrowseDate(b, dateBasis),
     direction
   )
   return result || compareBrowseTitle(a, b, 'asc')
