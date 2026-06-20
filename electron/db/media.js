@@ -251,6 +251,22 @@ const orderAssetEntriesBySource = (entries, rawOrder) => {
   return [...entries].sort((a, b) => rank(a.source) - rank(b.source));
 };
 
+const selectPreviewUrlsBySource = (entries, rawOrder) => {
+  const cleaned = dedupeAssetEntries(entries);
+  if (cleaned.length === 0) return [];
+  const bySource = new Map();
+  cleaned.forEach((entry) => {
+    const source = String(entry.source || "").toLowerCase();
+    if (!bySource.has(source)) bySource.set(source, []);
+    bySource.get(source).push(entry.url);
+  });
+  for (const source of normalizeSourceOrder(rawOrder)) {
+    const urls = bySource.get(source);
+    if (urls?.length) return urls;
+  }
+  return orderAssetEntriesBySource(cleaned, rawOrder).map((entry) => entry.url);
+};
+
 const isSteamCapsuleLike = (url) => /library_600x900|library_capsule/i.test(String(url || ""));
 const isResolvedSteamAssetUrl = (url) => {
   const value = String(url || "");
@@ -389,7 +405,7 @@ const upsertMediaAsset = ({ recordId, source, assetType, path: assetPath, origin
   });
 };
 
-const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId } = {}) => {
+const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId, sourceOrder } = {}) => {
   return new Promise((resolve, reject) => {
     const atlasParam = atlasId || null;
     const f95Param = f95Id || null;
@@ -439,13 +455,19 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId } = {}) => {
           return;
         }
 
-        const urls = [];
+        const entries = [];
         const seen = new Set();
         let invalidCount = 0;
-        const addUrl = (value) => {
-          const before = urls.length;
-          addRemotePreviewUrl(urls, seen, value);
-          if (urls.length === before && value && !isRemoteHttpUrl(value)) invalidCount++;
+        const addUrl = (source, value) => {
+          const url = String(value || "").trim();
+          if (!url) return;
+          if (!isRemoteHttpUrl(url)) {
+            invalidCount++;
+            return;
+          }
+          if (seen.has(url)) return;
+          seen.add(url);
+          entries.push({ source, url });
         };
 
         const f95Rows = (rows || []).filter((row) => row.source === "f95_screens");
@@ -453,10 +475,10 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId } = {}) => {
         const atlasRows = (rows || []).filter((row) => row.source === "atlas_previews");
         const steamRows = (rows || []).filter((row) => row.source === "steam_screens");
 
-        f95Rows.forEach((row) => addUrl(row.url_blob));
-        lewdCornerRows.forEach((row) => parsePreviewList(row.url_blob).forEach(addUrl));
-        atlasRows.forEach((row) => addUrl(row.url_blob));
-        steamRows.forEach((row) => addUrl(row.url_blob));
+        f95Rows.forEach((row) => addUrl("f95", row.url_blob));
+        lewdCornerRows.forEach((row) => parsePreviewList(row.url_blob).forEach((url) => addUrl("lewdcorner", url)));
+        atlasRows.forEach((row) => addUrl("atlas", row.url_blob));
+        steamRows.forEach((row) => addUrl("steam", row.url_blob));
 
         getDb().get(
           `SELECT f95_zone_data.screens, lewdcorner_data.screens AS lewdcorner_screens, atlas_data.previews
@@ -474,16 +496,16 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId } = {}) => {
               return;
             }
 
-            parsePreviewList(row?.screens).forEach(addUrl);
-            parsePreviewList(row?.lewdcorner_screens).forEach(addUrl);
-            parsePreviewList(row?.previews).forEach(addUrl);
+            parsePreviewList(row?.screens).forEach((url) => addUrl("f95", url));
+            parsePreviewList(row?.lewdcorner_screens).forEach((url) => addUrl("lewdcorner", url));
+            parsePreviewList(row?.previews).forEach((url) => addUrl("atlas", url));
 
             console.log(
               `Browse preview URLs resolved: atlasId=${atlasId || "none"} ` +
               `f95Id=${f95Id || "none"} lcId=${lcId || "none"} steamId=${steamId || "none"} ` +
-              `count=${urls.length} invalid=${invalidCount}`,
+              `count=${entries.length} invalid=${invalidCount}`,
             );
-            resolve(urls);
+            resolve(selectPreviewUrlsBySource(entries, sourceOrder));
           },
         );
       },
@@ -529,17 +551,13 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
         reject(err);
         return;
       }
-      const rank = sourceRanker(options.sourceOrder);
-      const urls = rows
-        .map((row, index) => ({
+      const previewEntries = rows
+        .map((row) => ({
           url: row.url,
           source: row.source,
-          rank: rank(row.source),
-          index,
         }))
-        .filter((row) => row.url)
-        .sort((a, b) => a.rank - b.rank || a.index - b.index)
-        .map((row) => row.url);
+        .filter((row) => row.url);
+      const urls = selectPreviewUrlsBySource(previewEntries, options.sourceOrder);
       if (urls.length > 0) {
         resolve(urls);
         return;
@@ -561,19 +579,18 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
             return;
           }
           resolve(
-            [
-              ...String(row?.f95_screens || "").split(",").map((url) => ({ url, source: "f95" })),
-              ...String(row?.lewdcorner_screens || "").split(",").map((url) => ({ url, source: "lewdcorner" })),
-            ]
-              .map((entry, index) => ({
+            selectPreviewUrlsBySource(
+              [
+                ...String(row?.f95_screens || "").split(",").map((url) => ({ url, source: "f95" })),
+                ...String(row?.lewdcorner_screens || "").split(",").map((url) => ({ url, source: "lewdcorner" })),
+              ]
+                .map((entry) => ({
                 url: String(entry.url || "").trim(),
                 source: entry.source,
-                rank: rank(entry.source),
-                index,
-              }))
-              .filter((entry) => entry.url)
-              .sort((a, b) => a.rank - b.rank || a.index - b.index)
-              .map((entry) => entry.url),
+                }))
+                .filter((entry) => entry.url),
+              options.sourceOrder,
+            ),
           );
         },
       );
