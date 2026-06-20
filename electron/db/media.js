@@ -696,33 +696,56 @@ const getRemoteBannerUrl = (recordId, options = {}) => {
 
 const getBanner = (recordId, appPath, isDev, type, mediaStorageMode = "stream") => {
   return new Promise((resolve, reject) => {
+    const sourceOrder = typeof mediaStorageMode === "object" ? mediaStorageMode.sourceOrder : null;
+    const rank = sourceRanker(sourceOrder);
     getDb().all(
-      `SELECT path
-       FROM banners
-       WHERE record_id = ? AND type = ?
+      `SELECT path, source, created_at FROM (
+         SELECT path,
+           CASE
+             WHEN path LIKE '%banner_custom_%' THEN 'custom'
+             WHEN path LIKE '%banner_f95_%' THEN 'f95'
+             WHEN path LIKE '%banner_lewdcorner_%' THEN 'lewdcorner'
+             WHEN path LIKE '%banner_atlas_%' THEN 'atlas'
+             ELSE 'source'
+           END AS source,
+           0 AS created_at
+         FROM banners
+         WHERE record_id = ? AND type = ?
+         UNION ALL
+         SELECT path, 'steam' AS source, COALESCE(created_at, 0) AS created_at
+         FROM media_assets
+         WHERE record_id = ? AND asset_type = 'steam_header'
+       )
        ORDER BY
          CASE
-           WHEN path LIKE '%banner_custom_%' THEN 0
-           WHEN path LIKE '%banner_f95_%' THEN 1
+           WHEN source = 'custom' THEN 0
            ELSE 2
          END,
+         created_at DESC,
          path`,
-      [recordId, type],
+      [recordId, type, recordId],
       async (err, rows) => {
         if (err) {
           console.error("Error fetching banners:", err);
           reject(err);
         } else {
           try {
-            const localBanners = rows.map((row) =>
-              toLocalAssetPath(appPath, isDev, row.path),
-            );
-            const sourceOrder = typeof mediaStorageMode === "object" ? mediaStorageMode.sourceOrder : null;
+            const localEntries = rows.map((row, index) => ({
+              url: toLocalAssetPath(appPath, isDev, row.path),
+              source: row.source,
+              index,
+            }));
             const remoteBannerUrl = await getRemoteBannerUrl(recordId, { sourceOrder });
             const remoteBanners = remoteBannerUrl ? [remoteBannerUrl] : [];
-            const banners = localBanners.length > 0
-              ? localBanners
-              : remoteBanners;
+            const customBanners = localEntries.filter((entry) => entry.source === "custom");
+            const sourceBanners = localEntries
+              .filter((entry) => entry.source !== "custom")
+              .sort((a, b) => rank(a.source) - rank(b.source) || a.index - b.index);
+            const banners = customBanners.length > 0
+              ? customBanners.map((entry) => entry.url)
+              : sourceBanners.length > 0
+                ? sourceBanners.map((entry) => entry.url)
+                : remoteBanners;
 
             console.log("Banners fetched for recordId:", recordId, banners);
             resolve(banners);
