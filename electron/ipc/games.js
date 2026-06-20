@@ -58,7 +58,8 @@ const isSteamInstallPath = (value) =>
   /(?:^|[\\/])steamapps[\\/]common(?:[\\/]|$)/i.test(String(value || ''))
 
 async function launchGame({ execPath, gamePath, extension, recordId, version }) {
-  if (recordId && isSteamInstallPath(gamePath)) {
+  const hasExecutable = !!execPath && fs.existsSync(execPath)
+  if (!hasExecutable && recordId && isSteamInstallPath(gamePath)) {
     const steamId = await getSteamIDbyRecord(recordId)
     if (steamId) {
       await startPlaySession(recordId, version, false)
@@ -66,7 +67,7 @@ async function launchGame({ execPath, gamePath, extension, recordId, version }) 
       return
     }
   }
-  if (!fs.existsSync(execPath)) {
+  if (!hasExecutable) {
     throw new Error(`Executable not found: ${execPath}`)
   }
   const emulator = await getEmulatorByExtension(extension)

@@ -12,6 +12,8 @@ import {
 import { buildExternalLinks } from './externalLinks.js'
 
 const isValidHttpUrl = (url) => /^https?:\/\//i.test(String(url || '').trim())
+const isSteamInstallPath = (value) =>
+  /(?:^|[\\/])steamapps[\\/]common(?:[\\/]|$)/i.test(String(value || ''))
 
 const personalRatingFields = [
   ['story', 'Story', 'personalRatingStory'],
@@ -591,7 +593,11 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const canManageFavorite = canManageLocalTitle && Boolean(Number.parseInt(game.record_id, 10) > 0)
   const canManagePersonalRatings = canManageFavorite
   const canManageWishlist = game.isCatalogEntry === true || game.isWishlistEntry === true
-  const canLaunch = Boolean(actionVersion && actionVersion.isInstalled !== false && (actionVersion.exec_path || game.record_id))
+  const canLaunch = Boolean(
+    actionVersion &&
+    actionVersion.isInstalled !== false &&
+    (actionVersion.exec_path || isSteamInstallPath(actionVersion.game_path)),
+  )
   const canInstallFromDetail = !canLaunch && (canManageWishlist || canManageLocalTitle || game.hasInstalledVersion === false)
   const importPanelMode = canManageWishlist ? 'catalog' : 'local'
   const canOpenFolder = Boolean(actionVersion?.game_path && actionVersion.isInstalled !== false)
