@@ -149,14 +149,31 @@ const DetailsModuleGrid = ({ modules }) => {
   const moduleById = new Map(modules.map((module) => [module.id, module]))
   const visibleModules = order.map((id) => moduleById.get(id)).filter(Boolean)
 
-  const moveModule = (targetId) => {
+  const moveModule = (targetId, placement = 'before') => {
     if (!isEditing || !draggingId || draggingId === targetId) return
     setOrder((current) => {
       const next = current.filter((id) => id !== draggingId)
       const targetIndex = next.indexOf(targetId)
-      next.splice(targetIndex < 0 ? next.length : targetIndex, 0, draggingId)
+      const insertIndex = targetIndex < 0
+        ? next.length
+        : placement === 'after'
+          ? targetIndex + 1
+          : targetIndex
+      next.splice(insertIndex, 0, draggingId)
       return next
     })
+  }
+
+  const moveModuleToEnd = () => {
+    if (!isEditing || !draggingId) return
+    setOrder((current) => [...current.filter((id) => id !== draggingId), draggingId])
+  }
+
+  const getDropPlacement = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    const xRatio = rect.width ? (event.clientX - rect.left) / rect.width : 0
+    const yRatio = rect.height ? (event.clientY - rect.top) / rect.height : 0
+    return yRatio > 0.55 || (yRatio > 0.35 && xRatio > 0.5) ? 'after' : 'before'
   }
 
   const saveLayout = async () => {
@@ -197,7 +214,7 @@ const DetailsModuleGrid = ({ modules }) => {
     <div className="p-6">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
         <div style={{ color: '#9ca3af', fontSize: 12 }}>
-          {isEditing ? 'Drag modules to reorder. Use size buttons to make widgets small, wide, or stacked full-row.' : status}
+          {isEditing ? 'Drag across the upper/lower half of widgets to place before/after them. Size buttons control grid width.' : status}
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {isEditing && (
@@ -252,7 +269,7 @@ const DetailsModuleGrid = ({ modules }) => {
             onDragOver={(event) => {
               if (!isEditing) return
               event.preventDefault()
-              moveModule(module.id)
+              moveModule(module.id, getDropPlacement(event))
             }}
             onDragEnd={() => setDraggingId('')}
             style={{
@@ -293,6 +310,26 @@ const DetailsModuleGrid = ({ modules }) => {
             </div>
           </div>
         ))}
+        {isEditing && (
+          <div
+            onDragOver={(event) => {
+              event.preventDefault()
+              moveModuleToEnd()
+            }}
+            style={{
+              gridColumn: '1 / -1',
+              minHeight: 42,
+              border: '1px dashed rgba(134,168,231,0.45)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#9ca3af',
+              fontSize: 12,
+            }}
+          >
+            Drop here to place at the end
+          </div>
+        )}
       </div>
     </div>
   )
