@@ -84,6 +84,20 @@ const splitPreviewUrls = (value) => {
   return String(value || '').split(',').map((url) => url.trim()).filter(Boolean)
 }
 
+const getDetailTags = (game = {}) => {
+  const seen = new Set()
+  return [
+    ...splitCsv(game.f95_tags),
+    ...splitCsv(game.tags),
+    ...splitCsv(game.lewdcornerTags || game.lewdcorner_tags),
+  ].filter((tag) => {
+    const key = tag.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 const inferImportVersion = (game = {}, sourcePath = '') => {
   const name = String(sourcePath || '').split(/[\\/]/).pop() || ''
   const parent = String(sourcePath || '').split(/[\\/]/).slice(-2, -1)[0] || ''
@@ -361,6 +375,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const steam = isSteamGame(game)
   const developer = resolveDeveloper(game)
   const categories = splitCsv(game.category)
+  const detailTags = getDetailTags(game)
   const totalTitlePlaytime = game.totalPlaytime ?? game.total_playtime
 
   // Comprehensive Details card. Only known fields render (empties filtered).
@@ -1095,11 +1110,11 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             </section>
           )}
 
-          {game.f95_tags && (
+          {detailTags.length > 0 && (
             <section className="bg-secondary border border-border p-4">
               <h2 className="text-lg font-semibold mb-3">Tags</h2>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {game.f95_tags.split(',').map((t) => t.trim()).filter(Boolean).slice(0, 32).map((tag) => (
+                {detailTags.slice(0, 32).map((tag) => (
                   <span key={tag} className="bg-primary border border-border px-2 py-1 text-xs">{tag}</span>
                 ))}
               </div>
