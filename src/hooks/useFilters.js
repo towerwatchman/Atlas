@@ -945,7 +945,9 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
           const aOrder = getF95LatestOrder(a)
           const bOrder = getF95LatestOrder(b)
           if (aOrder !== null && bOrder !== null && aOrder !== bOrder) {
-            return activeFilters.browseSort === 'oldest' ? aOrder - bOrder : bOrder - aOrder
+            // f95_latest_order: smaller number = newer. "newest" wants smaller first (ASC),
+            // "oldest" wants larger first (DESC) — matching the backend SQL ordering.
+            return activeFilters.browseSort === 'oldest' ? bOrder - aOrder : aOrder - bOrder
           }
         }
         const aDate = getBrowseDate(a, activeFilters.browseDateBasis)
