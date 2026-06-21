@@ -1,5 +1,25 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatVersionDate } from '../../../utils/formatVersionDate.js'
+
+const SCAN_TABLE_COLUMNS = [
+  { key: 'select', width: 44, minWidth: 44 },
+  { key: 'atlasId', width: 90, minWidth: 80 },
+  { key: 'f95Id', width: 100, minWidth: 80 },
+  { key: 'lcId', width: 100, minWidth: 80 },
+  { key: 'title', width: 220, minWidth: 140 },
+  { key: 'creator', width: 160, minWidth: 120 },
+  { key: 'engine', width: 110, minWidth: 90 },
+  { key: 'version', width: 200, minWidth: 120 },
+  { key: 'replaceVersion', width: 180, minWidth: 140 },
+  { key: 'executable', width: 180, minWidth: 130 },
+  { key: 'databaseMatch', width: 220, minWidth: 160 },
+  { key: 'source', width: 280, minWidth: 160 },
+  { key: 'status', width: 150, minWidth: 110 },
+  { key: 'actions', width: 220, minWidth: 180 },
+]
+
+const DEFAULT_COLUMN_WIDTHS = Object.fromEntries(SCAN_TABLE_COLUMNS.map((column) => [column.key, column.width]))
+const MIN_COLUMN_WIDTHS = Object.fromEntries(SCAN_TABLE_COLUMNS.map((column) => [column.key, column.minWidth]))
 
 const isValidHttpUrl = (value) => {
   try {
@@ -36,18 +56,38 @@ const getSourceUrls = (game = {}) => {
   }
 }
 
+const normalizePathForCompare = (value) =>
+  String(value || '').replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, '')
+
+const getRelativeScanPath = (targetPath, scanPath) => {
+  const target = normalizePathForCompare(targetPath)
+  const root = normalizePathForCompare(scanPath)
+  if (!target || !root) return targetPath || ''
+  const targetLower = target.toLowerCase()
+  const rootLower = root.toLowerCase()
+  if (targetLower === rootLower) return target.split('/').pop() || targetPath || ''
+  if (!targetLower.startsWith(`${rootLower}/`)) return targetPath || ''
+  return target.slice(root.length + 1) || targetPath || ''
+}
+
 export default function ScanTable({
   sortedRows, isNewScanRow, sortConfig,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
   getRowImportStatus, onHydrateManualF95Id, onHydrateManualLcId,
   selectedRowKeys = new Set(), lastSelectedRowKey = '',
   onToggleRowSelection, onSelectRowRange, onSetVisibleRowSelection,
+  scanPath = '',
 }) {
   const selectAllRef = useRef(null)
+  const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS)
   const visibleRowKeys = useMemo(() => sortedRows.map(({ game }) => getGameKey(game)), [getGameKey, sortedRows])
   const selectedVisibleCount = visibleRowKeys.filter((key) => selectedRowKeys.has(key)).length
   const allVisibleSelected = visibleRowKeys.length > 0 && selectedVisibleCount === visibleRowKeys.length
   const someVisibleSelected = selectedVisibleCount > 0 && selectedVisibleCount < visibleRowKeys.length
+  const tableMinWidth = useMemo(
+    () => SCAN_TABLE_COLUMNS.reduce((sum, column) => sum + (columnWidths[column.key] || column.width), 0),
+    [columnWidths],
+  )
 
   useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = someVisibleSelected
@@ -63,13 +103,49 @@ export default function ScanTable({
     return `${version.version}${dateAdded.isValid ? ` - ${dateAdded.absolute}` : ''}`
   }
 
+  const beginColumnResize = (event, columnKey) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const startX = event.clientX
+    const startWidth = columnWidths[columnKey] || DEFAULT_COLUMN_WIDTHS[columnKey]
+    const minWidth = MIN_COLUMN_WIDTHS[columnKey] || 80
+
+    const handleMouseMove = (moveEvent) => {
+      const nextWidth = Math.max(minWidth, startWidth + moveEvent.clientX - startX)
+      setColumnWidths((current) => ({ ...current, [columnKey]: nextWidth }))
+    }
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }
+
+  const renderResizeHandle = (columnKey) => (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      title="Drag to resize column"
+      onMouseDown={(event) => beginColumnResize(event, columnKey)}
+      className="absolute top-0 right-0 h-full w-2 cursor-col-resize select-none hover:bg-accent/40"
+      style={{ pointerEvents: 'auto' }}
+    />
+  )
+
   const renderSortableHeader = (sortKey, label, className = '') => (
     <th
-      className={`border border-border p-1 cursor-pointer select-none hover:bg-tertiary ${className}`}
+      className={`relative border border-border p-1 pr-3 cursor-pointer select-none hover:bg-tertiary ${className}`}
       onClick={() => onSort(sortKey)}
       title="Click to sort"
     >
       {label}{getSortIndicator(sortKey)}
+      {renderResizeHandle(sortKey)}
     </th>
   )
 
@@ -110,10 +186,15 @@ export default function ScanTable({
   }
 
   return (
-    <table className="border-collapse border border-border" style={{ minWidth: '1504px' }}>
+    <table className="border-collapse border border-border table-fixed" style={{ minWidth: `${tableMinWidth}px` }}>
+      <colgroup>
+        {SCAN_TABLE_COLUMNS.map((column) => (
+          <col key={column.key} style={{ width: `${columnWidths[column.key] || column.width}px` }} />
+        ))}
+      </colgroup>
       <thead>
         <tr className="bg-secondary sticky top-0">
-          <th className="border border-border p-1 w-10 min-w-[44px]">
+          <th className="relative border border-border p-1">
             <input
               ref={selectAllRef}
               type="checkbox"
@@ -123,20 +204,24 @@ export default function ScanTable({
               aria-label="Select all visible rows"
               className="h-4 w-4"
             />
+            {renderResizeHandle('select')}
           </th>
-          {renderSortableHeader('atlasId', 'Atlas ID', 'min-w-[80px]')}
-          {renderSortableHeader('f95Id', 'F95 ID', 'min-w-[80px]')}
-          {renderSortableHeader('lcId', 'LC ID', 'min-w-[80px]')}
-          {renderSortableHeader('title', 'Title', 'min-w-[200px]')}
-          {renderSortableHeader('creator', 'Creator', 'min-w-[150px]')}
-          {renderSortableHeader('engine', 'Engine', 'min-w-[100px]')}
-          {renderSortableHeader('version', 'Version', 'min-w-[200px]')}
-          {renderSortableHeader('replaceVersion', 'Replace Version', 'min-w-[180px]')}
-          {renderSortableHeader('executable', 'Executable', 'min-w-[180px]')}
-          {renderSortableHeader('databaseMatch', 'Possible Database Matches', 'min-w-[220px] !max-w-[220px]')}
-          {renderSortableHeader('source', 'Source', 'min-w-[250px]')}
-          {renderSortableHeader('status', 'Status', 'min-w-[150px]')}
-          <th className="border border-border p-1 min-w-[220px]">Actions</th>
+          {renderSortableHeader('atlasId', 'Atlas ID')}
+          {renderSortableHeader('f95Id', 'F95 ID')}
+          {renderSortableHeader('lcId', 'LC ID')}
+          {renderSortableHeader('title', 'Title')}
+          {renderSortableHeader('creator', 'Creator')}
+          {renderSortableHeader('engine', 'Engine')}
+          {renderSortableHeader('version', 'Version')}
+          {renderSortableHeader('replaceVersion', 'Replace Version')}
+          {renderSortableHeader('executable', 'Executable')}
+          {renderSortableHeader('databaseMatch', 'Possible Database Matches')}
+          {renderSortableHeader('source', 'Source')}
+          {renderSortableHeader('status', 'Status')}
+          <th className="relative border border-border p-1 pr-3">
+            Actions
+            {renderResizeHandle('actions')}
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -166,6 +251,12 @@ export default function ScanTable({
           const rowClassName = isSelected
             ? 'bg-selected outline outline-2 outline-accent outline-offset-[-2px]'
             : 'bg-primary'
+          const sourcePath = isRenpySave
+            ? game.savePath || game.folder
+            : game.isArchive
+              ? game.sourceFile || game.folder || 'Archive'
+              : game.folder || 'Metadata only'
+          const sourceDisplay = getRelativeScanPath(sourcePath, scanPath)
 
           return (
             <tr
@@ -177,7 +268,7 @@ export default function ScanTable({
                 handleRowSelection(event, gameKey, { replaceOnPlainClick: true })
               }}
             >
-              <td className="border border-border p-1 text-center w-10 min-w-[44px]">
+              <td className="border border-border p-1 text-center">
                 <input
                   type="checkbox"
                   checked={isSelected}
@@ -188,11 +279,11 @@ export default function ScanTable({
                   className="h-4 w-4"
                 />
               </td>
-              <td className="border border-border p-1 min-w-[100px]">
+              <td className="border border-border p-1 truncate">
                 {matchResults.length > 1 && <i className="fa-solid fa-triangle-exclamation text-yellow-400 mr-1"></i>}
                 {game.atlasId}
               </td>
-              <td className="border border-border p-1 min-w-[100px]">
+              <td className="border border-border p-1">
                 <input
                   value={game.f95Id || ''}
                   disabled={!rowIsNew}
@@ -208,7 +299,7 @@ export default function ScanTable({
                   className="w-full bg-secondary border border-border p-1"
                 />
               </td>
-              <td className="border border-border p-1 min-w-[100px]">
+              <td className="border border-border p-1">
                 <input
                   value={game.lcId || game.lewdCornerId || ''}
                   disabled={!rowIsNew}
@@ -253,11 +344,13 @@ export default function ScanTable({
                 </select>
               </td>
               <td className="border border-border p-1">
+                <div className="truncate">
                 {isRenpySave ? 'N/A' : game.multipleVisible === 'visible' ? (
                   <select value={game.selectedValue} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'selectedValue', e.target.value)} className="w-full bg-secondary border border-border p-1">
                     {game.executables.map((opt) => <option key={opt.key} value={opt.key}>{opt.value}</option>)}
                   </select>
                 ) : game.singleExecutable}
+                </div>
               </td>
               <td className="border border-border p-1" style={{ visibility: showMatchCell ? 'visible' : 'hidden' }}>
                 {matchResults.length === 1 && matchResults[0]?.key === 'match' ? (
@@ -269,13 +362,13 @@ export default function ScanTable({
                 )}
               </td>
               <td className="border border-border p-1">
-                <div title={game.glInfosPath || undefined}>
+                <div className="truncate" title={sourcePath || game.glInfosPath || undefined}>
                   {game.hasGlInfos && (
                     <span className="inline-block mr-1 px-1 rounded bg-tertiary text-[10px] text-green-300">
                       GL
                     </span>
                   )}
-                  {isRenpySave ? game.savePath || game.folder : game.isArchive ? game.sourceFile || game.folder || 'Archive' : game.folder || 'Metadata only'}
+                  {sourceDisplay}
                 </div>
               </td>
               <td className={`border border-border p-1 ${statusClass}`}>{statusText}</td>

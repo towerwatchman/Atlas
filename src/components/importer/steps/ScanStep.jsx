@@ -72,6 +72,7 @@ export default function ScanStep({
           onHydrateManualLcId={onHydrateManualLcId}
           getGameKey={getGameKey}
           getRowImportStatus={getRowImportStatus}
+          scanPath={scanPath}
         />
       </div>
 
