@@ -27,6 +27,69 @@ const { deletePathWithElevationFallback } = require('../deleteUtils')
 let ownerMainWindow = null
 let nextScanId = 1
 
+const clampInteger = (value, fallback, min, max) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+};
+
+const getMediaPerformanceSettings = (config) => {
+  const performance = config?.Performance || {};
+  return {
+    mediaDownloadConcurrency: clampInteger(performance.mediaDownloadConcurrency, 3, 1, 8),
+    mediaPerHostConcurrency: clampInteger(performance.mediaPerHostConcurrency, 2, 1, 5),
+    mediaRequestDelayMs: clampInteger(performance.mediaRequestDelayMs, 100, 0, 5000),
+  };
+};
+
+const createHostLimiter = () => {
+  const runningByHost = new Map();
+  const waitersByHost = new Map();
+
+  const waitForHostSlot = async (host, limit) => {
+    const key = host || "unknown";
+    while ((runningByHost.get(key) || 0) >= limit) {
+      await new Promise((resolve) => {
+        const waiters = waitersByHost.get(key) || [];
+        waiters.push(resolve);
+        waitersByHost.set(key, waiters);
+      });
+    }
+    runningByHost.set(key, (runningByHost.get(key) || 0) + 1);
+    return () => {
+      const nextCount = Math.max(0, (runningByHost.get(key) || 1) - 1);
+      if (nextCount === 0) runningByHost.delete(key);
+      else runningByHost.set(key, nextCount);
+      const waiters = waitersByHost.get(key) || [];
+      const nextWaiter = waiters.shift();
+      if (waiters.length === 0) waitersByHost.delete(key);
+      else waitersByHost.set(key, waiters);
+      if (nextWaiter) nextWaiter();
+    };
+  };
+
+  return { waitForHostSlot };
+};
+
+const runConcurrentQueue = async (items, concurrency, worker) => {
+  let index = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, async () => {
+    while (index < items.length) {
+      const item = items[index++];
+      await worker(item);
+    }
+  });
+  await Promise.all(workers);
+};
+
+const getUrlHost = (value) => {
+  try {
+    return new URL(String(value || "")).host.toLowerCase();
+  } catch {
+    return "";
+  }
+};
+
 // ── Importer helper functions ──────────────────────────────────────
 
 function sanitizePathSegment(value, fallback = "Unknown") {
@@ -3047,7 +3110,8 @@ ipcMain.handle("import-games", async (event, params) => {
       });
     }
 
-    for (const importedGame of successfulImports) {
+    const hostLimiter = createHostLimiter();
+    const processImportedGameImages = async (importedGame) => {
       const title =
         importedGame.title ||
         games.find((g) => g.atlasId === importedGame.atlasId || g.steamId === importedGame.steamId)?.title ||
@@ -3083,9 +3147,10 @@ ipcMain.handle("import-games", async (event, params) => {
             imageDir: path.join(dataDir, "images", recordId.toString()),
             reason: "skipped: no Atlas/F95/Steam mapping",
           });
-          continue;
+          return;
         }
 
+        const currentMediaSettings = getMediaPerformanceSettings(ctx.appConfig || appConfig);
         const sourceOrder = getMetadataSourceOrder();
         const bannerUrl = downloadBannerImages ? await getRemoteBannerUrl(recordId, { sourceOrder }) : "";
         const rawPreviewUrls = downloadPreviewImages ? await getRemotePreviewUrls(recordId, { sourceOrder }) : [];
@@ -3123,42 +3188,57 @@ ipcMain.handle("import-games", async (event, params) => {
             imageDir: path.join(dataDir, "images", recordId.toString()),
             reason: "skipped: no banner/preview/media asset URLs found",
           });
-          continue;
+          return;
         }
 
+        const primaryHost =
+          getUrlHost(bannerUrl) ||
+          getUrlHost(screenUrls[0]?.url) ||
+          getUrlHost(additionalAssets[0]?.url);
+        const releaseHostSlot = await hostLimiter.waitForHostSlot(
+          primaryHost,
+          currentMediaSettings.mediaPerHostConcurrency,
+        );
+
         mainWindow.webContents.send("import-progress", {
-          text: `Downloading images for '${title}' ${progress + 1}/${imageTotal}, 0/${totalImages}`,
+          text: `Downloading images for '${title}', 0/${totalImages}`,
           progress,
           total: imageTotal,
           canCancel: true,
         });
 
-        const downloadResult = await downloadImages(
-          recordId,
-          dbAtlasId || steamId || recordId,
-          (current, totalImages) => {
-            mainWindow.webContents.send("import-progress", {
-              text: `Downloading images for '${title}' ${progress + 1}/${imageTotal}, ${current}/${totalImages}`,
-              progress,
-              total: imageTotal,
-              canCancel: true,
-            });
-          },
-          downloadBannerImages,
-          downloadPreviewImages,
-          previewLimit,
-          downloadVideos,
-          dataDir,
-          async () => bannerUrl,
-          async () => screenUrls,
-          updateBanners,
-          updatePreviews,
-          {
-            source: inferMediaSource(bannerUrl),
-            additionalAssets,
-            upsertMediaAsset,
-          },
-        );
+        let downloadResult;
+        try {
+          downloadResult = await downloadImages(
+            recordId,
+            dbAtlasId || steamId || recordId,
+            (current, totalImages) => {
+              mainWindow.webContents.send("import-progress", {
+                text: `Downloading images for '${title}', ${current}/${totalImages}`,
+                progress,
+                total: imageTotal,
+                canCancel: true,
+              });
+            },
+            downloadBannerImages,
+            downloadPreviewImages,
+            previewLimit,
+            downloadVideos,
+            dataDir,
+            async () => bannerUrl,
+            async () => screenUrls,
+            updateBanners,
+            updatePreviews,
+            {
+              source: inferMediaSource(bannerUrl),
+              additionalAssets,
+              upsertMediaAsset,
+              requestDelayMs: currentMediaSettings.mediaRequestDelayMs,
+            },
+          );
+        } finally {
+          releaseHostSlot();
+        }
         throwIfImportCanceled(session);
 
         mainWindow.webContents.send("game-updated", recordId);
@@ -3210,7 +3290,8 @@ ipcMain.handle("import-games", async (event, params) => {
             canceled: true,
             canCancel: false,
           });
-          break;
+          session.cancelRequested = true;
+          return;
         }
         console.error("Error downloading images for game:", err);
         progress++;
@@ -3270,7 +3351,17 @@ ipcMain.handle("import-games", async (event, params) => {
           canCancel: false,
         });
       }
-    }
+    };
+
+    const initialMediaSettings = getMediaPerformanceSettings(ctx.appConfig || appConfig);
+    await runConcurrentQueue(
+      successfulImports,
+      initialMediaSettings.mediaDownloadConcurrency,
+      async (importedGame) => {
+        if (session.cancelRequested) return;
+        await processImportedGameImages(importedGame);
+      },
+    );
   }
 
   mainWindow.webContents.send("import-complete");

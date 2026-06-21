@@ -279,6 +279,9 @@ const defaultConfig = {
   },
   Performance: {
     maxHeapSize: 4096,
+    mediaDownloadConcurrency: 3,
+    mediaPerHostConcurrency: 2,
+    mediaRequestDelayMs: 100,
   },
   Appearance: {
     themeId: 'default',
@@ -1044,7 +1047,10 @@ app.whenReady().then(async () => {
           if (raw === undefined) continue
           const def = defaultConfig[section][key]
           if (typeof def === 'boolean') result[section][key] = raw === true || raw === 'true'
-          else if (typeof def === 'number') result[section][key] = Number(raw) || def
+          else if (typeof def === 'number') {
+            const parsedNumber = Number(raw)
+            result[section][key] = Number.isFinite(parsedNumber) ? parsedNumber : def
+          }
           else result[section][key] = raw
         }
         for (const key of Object.keys(parsed[section])) {

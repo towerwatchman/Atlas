@@ -110,6 +110,7 @@ async function downloadImages(
   const upsertMediaAsset = typeof options.upsertMediaAsset === "function"
     ? options.upsertMediaAsset
     : null;
+  const requestDelayMs = Math.max(0, Number.parseInt(options.requestDelayMs, 10) || 0);
   const result = {
     success: true,
     recordId,
@@ -318,7 +319,7 @@ async function downloadImages(
           progress: imageProgress,
           total: totalImages,
         });
-        await delay(500);
+        if (requestDelayMs > 0) await delay(requestDelayMs);
       }
     } catch (err) {
       console.error("Error downloading or converting banner:", err);
@@ -446,7 +447,7 @@ async function downloadImages(
           progress: imageProgress,
           total: totalImages,
         });
-        await delay(500);
+        if (requestDelayMs > 0) await delay(requestDelayMs);
       }
     } catch (err) {
       console.error(`Error downloading or converting screen ${i + 1}:`, err);
@@ -543,7 +544,7 @@ async function downloadImages(
         progress: imageProgress,
         total: totalImages,
       });
-      await delay(100);
+      if (requestDelayMs > 0) await delay(requestDelayMs);
     } catch (err) {
       const host = (() => {
         try { return new URL(url).host; } catch { return "unknown host"; }

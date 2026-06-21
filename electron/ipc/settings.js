@@ -48,6 +48,9 @@ const defaultConfig = {
   },
   Performance: {
     maxHeapSize: 4096,
+    mediaDownloadConcurrency: 3,
+    mediaPerHostConcurrency: 2,
+    mediaRequestDelayMs: 100,
   },
   Appearance: {
     // themeId selects one of the built-in themes defined in src/theme/themes.js
@@ -218,13 +221,14 @@ function mergeWithDefaults(parsed, defaults) {
         const raw = parsed[section][key]
         if (raw === undefined) continue
         const def = defaults[section][key]
-        if (typeof def === 'boolean') {
-          result[section][key] = raw === true || raw === 'true'
-        } else if (typeof def === 'number') {
-          result[section][key] = Number(raw) || def
-        } else {
-          result[section][key] = raw
-        }
+      if (typeof def === 'boolean') {
+        result[section][key] = raw === true || raw === 'true'
+      } else if (typeof def === 'number') {
+          const parsedNumber = Number(raw)
+          result[section][key] = Number.isFinite(parsedNumber) ? parsedNumber : def
+      } else {
+        result[section][key] = raw
+      }
       }
       // Also keep any extra keys the user may have added
       for (const key of Object.keys(parsed[section])) {

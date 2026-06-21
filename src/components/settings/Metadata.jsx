@@ -24,6 +24,12 @@ const toBoolean = (value, fallback = false) => {
   return fallback
 }
 
+const clampInteger = (value, fallback, min, max) => {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.max(min, Math.min(max, parsed))
+}
+
 // sourceOrder is stored as a comma string ("f95,steam") for clean INI round-trips.
 const parseOrder = (raw) => {
   const list = Array.isArray(raw)
@@ -36,6 +42,9 @@ const Metadata = () => {
   const [mediaStorageMode, setMediaStorageMode] = useState('stream')
   const [downloadPreviews, setDownloadPreviews] = useState(false)
   const [sourceOrder, setSourceOrder] = useState(['f95', 'lewdcorner', 'steam'])
+  const [mediaDownloadConcurrency, setMediaDownloadConcurrency] = useState(3)
+  const [mediaPerHostConcurrency, setMediaPerHostConcurrency] = useState(2)
+  const [mediaRequestDelayMs, setMediaRequestDelayMs] = useState(100)
 
   useEffect(() => {
     window.electronAPI.getConfig().then((config) => {
@@ -46,6 +55,10 @@ const Metadata = () => {
       setSourceOrder(metadataSettings.sourceOrder === undefined || metadataSettings.sourceOrder === null
         ? ['f95', 'lewdcorner', 'steam']
         : parsed)
+      const performanceSettings = config.Performance || {}
+      setMediaDownloadConcurrency(clampInteger(performanceSettings.mediaDownloadConcurrency, 3, 1, 8))
+      setMediaPerHostConcurrency(clampInteger(performanceSettings.mediaPerHostConcurrency, 2, 1, 5))
+      setMediaRequestDelayMs(clampInteger(performanceSettings.mediaRequestDelayMs, 100, 0, 5000))
     })
   }, [])
 
@@ -63,6 +76,20 @@ const Metadata = () => {
     }
   }
 
+  const savePerformanceSettings = async (updatedSettings) => {
+    try {
+      const config = await window.electronAPI.getConfig()
+      const newConfig = {
+        ...config,
+        Performance: { ...config.Performance, ...updatedSettings },
+      }
+      const result = await window.electronAPI.saveSettings(newConfig)
+      if (result?.success === false) throw new Error(result.error || 'Save failed')
+    } catch (err) {
+      console.error('Failed to save performance settings:', err)
+    }
+  }
+
   const handleMediaStorageModeChange = (e) => {
     setMediaStorageMode(e.target.value)
     saveSettings({ mediaStorageMode: e.target.value })
@@ -72,6 +99,12 @@ const Metadata = () => {
     const nextValue = e.target.checked
     setDownloadPreviews(nextValue)
     saveSettings({ downloadPreviews: nextValue })
+  }
+
+  const handlePerformanceNumberChange = (setter, key, fallback, min, max) => (event) => {
+    const nextValue = clampInteger(event.target.value, fallback, min, max)
+    setter(nextValue)
+    savePerformanceSettings({ [key]: nextValue })
   }
 
   const persistOrder = (next) => {
@@ -127,6 +160,47 @@ const Metadata = () => {
       </div>
       <p className="text-xs opacity-50 mb-2">
         Uses this as the default for downloading preview images during imports.
+      </p>
+
+      <div className="border-t border-text opacity-25 my-3"></div>
+
+      <label className="block mb-2">Import Media Download Speed</label>
+      <div className="flex items-center mb-2">
+        <label className="flex-1">Simultaneous media jobs</label>
+        <input
+          type="number"
+          min="1"
+          max="8"
+          className="w-24 bg-secondary border border-border text-text rounded p-1"
+          value={mediaDownloadConcurrency}
+          onChange={handlePerformanceNumberChange(setMediaDownloadConcurrency, 'mediaDownloadConcurrency', 3, 1, 8)}
+        />
+      </div>
+      <div className="flex items-center mb-2">
+        <label className="flex-1">Simultaneous jobs per host</label>
+        <input
+          type="number"
+          min="1"
+          max="5"
+          className="w-24 bg-secondary border border-border text-text rounded p-1"
+          value={mediaPerHostConcurrency}
+          onChange={handlePerformanceNumberChange(setMediaPerHostConcurrency, 'mediaPerHostConcurrency', 2, 1, 5)}
+        />
+      </div>
+      <div className="flex items-center mb-2">
+        <label className="flex-1">Delay after each media request (ms)</label>
+        <input
+          type="number"
+          min="0"
+          max="5000"
+          step="50"
+          className="w-24 bg-secondary border border-border text-text rounded p-1"
+          value={mediaRequestDelayMs}
+          onChange={handlePerformanceNumberChange(setMediaRequestDelayMs, 'mediaRequestDelayMs', 100, 0, 5000)}
+        />
+      </div>
+      <p className="text-xs opacity-50 mb-2">
+        These apply to bulk import image downloads. Delay and per-host limits are checked between titles during a running image phase.
       </p>
 
       <div className="border-t border-text opacity-25 my-3"></div>
