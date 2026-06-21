@@ -392,11 +392,14 @@ const App = () => {
       .then((updatedGame) => {
         const normalizedGame = normalizeGameForRenderer(updatedGame)
         if (!normalizedGame) return
-        setSelectedGame((current) => ({
-          ...normalizedGame,
-          isWishlisted: current?.isWishlisted === true || current?.isWishlistEntry === true,
-          isWishlistEntry: current?.isWishlisted === true || current?.isWishlistEntry === true,
-        }))
+        setSelectedGame((current) => {
+          if (Number.parseInt(current?.record_id, 10) !== id) return current
+          return {
+            ...normalizedGame,
+            isWishlisted: current?.isWishlisted === true || current?.isWishlistEntry === true,
+            isWishlistEntry: current?.isWishlisted === true || current?.isWishlistEntry === true,
+          }
+        })
       })
       .catch((error) =>
         console.error(`Failed to refresh detail game ${id}:`, error)
