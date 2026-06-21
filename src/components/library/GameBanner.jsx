@@ -115,9 +115,11 @@ const GameBanner = ({ game, onSelect }) => {
 
     window.addEventListener('focus', loadSelectedTemplate)
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    const removeBannerLayoutListener = window.electronAPI.onBannerLayoutUpdated?.(loadSelectedTemplate)
     return () => {
       window.removeEventListener('focus', loadSelectedTemplate)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      if (typeof removeBannerLayoutListener === 'function') removeBannerLayoutListener()
     }
   }, [loadSelectedTemplate])
 
