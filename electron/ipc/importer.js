@@ -3306,6 +3306,16 @@ ipcMain.handle("import-games", async (event, params) => {
       }
     }
 
+    const initialMediaSettings = getMediaPerformanceSettings(ctx.appConfig || appConfig);
+    await runConcurrentQueue(
+      successfulImports,
+      initialMediaSettings.mediaDownloadConcurrency,
+      async (importedGame) => {
+        if (session.cancelRequested) return;
+        await processImportedGameImages(importedGame);
+      },
+    );
+
     if (!session.cancelRequested && imageTotal > 0) {
       const zeroFilesMessage = imageSummary.filesWritten === 0
         ? " Image download phase completed with zero local files written. Check per-row image traces above."
@@ -3352,16 +3362,6 @@ ipcMain.handle("import-games", async (event, params) => {
         });
       }
     };
-
-    const initialMediaSettings = getMediaPerformanceSettings(ctx.appConfig || appConfig);
-    await runConcurrentQueue(
-      successfulImports,
-      initialMediaSettings.mediaDownloadConcurrency,
-      async (importedGame) => {
-        if (session.cancelRequested) return;
-        await processImportedGameImages(importedGame);
-      },
-    );
   }
 
   mainWindow.webContents.send("import-complete");
