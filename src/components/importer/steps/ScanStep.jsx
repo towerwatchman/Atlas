@@ -85,7 +85,7 @@ export default function ScanStep({
             title="Remove selected rows from this scan only"
             style={{ pointerEvents: 'auto' }}
           >
-            Delete selected{selectedRowCount > 0 ? ` (${selectedRowCount})` : ''}
+            Remove selected{selectedRowCount > 0 ? ` (${selectedRowCount})` : ''}
           </button>
           <button
             onClick={onDeleteBadRows}
@@ -94,7 +94,7 @@ export default function ScanStep({
             title="Remove incomplete rows from this scan only"
             style={{ pointerEvents: 'auto' }}
           >
-            Delete incomplete{badRowCount > 0 ? ` (${badRowCount})` : ''}
+            Remove incomplete{badRowCount > 0 ? ` (${badRowCount})` : ''}
           </button>
           <button
             onClick={onClearRowSelection}

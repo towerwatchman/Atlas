@@ -321,7 +321,7 @@ export default function ScanTable({
                       Atlas
                     </button>
                   )}
-                <button onClick={() => onDeleteGame(gameKey)} className="bg-danger hover:bg-dangerHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Delete</button>
+                <button onClick={() => onDeleteGame(gameKey)} className="bg-danger hover:bg-dangerHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Remove</button>
                 <button onClick={() => window.electronAPI.openDirectory(game.folder || game.sourceFile)} className="bg-accent hover:bg-accentHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Open Folder</button>
                 </div>
               </td>

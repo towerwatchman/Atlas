@@ -423,12 +423,8 @@ const Importer = () => {
     if (!shouldSelect && keys.includes(lastSelectedScanRowKey)) setLastSelectedScanRowKey('')
   }, [lastSelectedScanRowKey])
 
-  const deleteSelectedGames = useCallback(({ confirmMany = false } = {}) => {
+  const deleteSelectedGames = useCallback(() => {
     if (selectedScanRowKeys.size === 0) return
-    if (confirmMany && selectedScanRowKeys.size > 10) {
-      const confirmed = window.confirm(`Remove ${selectedScanRowKeys.size} selected rows from this scan? This does not delete files.`)
-      if (!confirmed) return
-    }
     deleteScanRowsByKeys(selectedScanRowKeys)
     clearScanRowSelection()
   }, [clearScanRowSelection, deleteScanRowsByKeys, selectedScanRowKeys])
@@ -436,8 +432,6 @@ const Importer = () => {
   const deleteBadRows = useCallback(() => {
     const keysToDelete = gamesList.filter(isBadScanRow).map(getScanGameKey)
     if (keysToDelete.length === 0) return
-    const confirmed = window.confirm(`Remove ${keysToDelete.length} incomplete rows from this scan? This does not delete files.`)
-    if (!confirmed) return
     deleteScanRowsByKeys(keysToDelete)
   }, [deleteScanRowsByKeys, gamesList])
 
@@ -453,7 +447,7 @@ const Importer = () => {
       if (event.key !== 'Delete') return
       if (isEditableTarget(event.target)) return
       event.preventDefault()
-      deleteSelectedGames({ confirmMany: true })
+      deleteSelectedGames()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
