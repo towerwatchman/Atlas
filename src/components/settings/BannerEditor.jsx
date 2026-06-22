@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import BannerVisualEditor from './bannerEditor/BannerVisualEditor.jsx'
+import BannerEditorPreview from './bannerEditor/BannerEditorPreview.jsx'
 import { defaultBannerLayouts, getBuiltInBannerLayoutOptions } from '../library/bannerLayout/defaultBannerLayouts.js'
 import {
   BANNER_PRESET_EXPORT_TYPE,
@@ -76,6 +77,10 @@ const previewModes = {
 
 const cloneLayout = (layout) => JSON.parse(JSON.stringify(layout))
 
+const SectionHeader = ({ children }) => (
+  <h3 className="text-sm font-bold uppercase tracking-wide opacity-70 mt-4 mb-2 first:mt-0">{children}</h3>
+)
+
 const uniqueName = (name, presets, ignoreId = null) => {
   const base = sanitizeBannerPresetName(name)
   const used = new Set(presets.filter((preset) => preset.id !== ignoreId).map((preset) => preset.name))
@@ -100,12 +105,20 @@ const BannerEditor = () => {
   const [statusText, setStatusText] = useState('')
   const [lockAspectRatio, setLockAspectRatio] = useState(true)
   const [previewMode, setPreviewMode] = useState('local')
+  const [activeTab, setActiveTab] = useState('presets')
   const customSaveTimerRef = useRef(null)
 
   const selectedUserPreset = userPresets.find((preset) => preset.id === selectedPresetId)
   const selectedBuiltIn = builtInBannerLayouts.find((layout) => layout.id === selectedPresetId)
   const isUserPresetSelected = Boolean(selectedUserPreset)
   const activePreviewGame = { ...previewGame, ...(previewModes[previewMode]?.patch || {}) }
+  const tabs = [
+    { id: 'presets', label: 'Presets' },
+    { id: 'visual', label: 'Visual' },
+    { id: 'sizeImage', label: 'Size & Image' },
+    { id: 'fields', label: 'Fields' },
+    { id: 'export', label: 'Import / Export' },
+  ]
 
   const persistUserPresets = async (nextPresets) => {
     const result = await window.electronAPI.setUserBannerLayouts(nextPresets)
@@ -510,67 +523,95 @@ const BannerEditor = () => {
   }
 
   return (
-    <div className="text-text -webkit-app-region-no-drag">
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="font-semibold">Banner preset</label>
+    <div className="text-text -webkit-app-region-no-drag space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-sm font-semibold">Preview sample</label>
           <select
-            className="w-64 bg-secondary border border-border text-text rounded p-1"
-            value={selectedPresetId}
-            onChange={(event) => handlePresetChange(event.target.value)}
+            className="bg-secondary border border-border text-text rounded p-1"
+            value={previewMode}
+            onChange={(event) => setPreviewMode(event.target.value)}
           >
-            <optgroup label="Built-in">
-              {builtInBannerLayouts.map((layout) => (
-                <option key={layout.id} value={layout.id}>
-                  {layout.name}
-                </option>
-              ))}
-            </optgroup>
-            {userPresets.length > 0 && (
-              <optgroup label="User">
-                {userPresets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.name}
-                  </option>
-                ))}
-              </optgroup>
-            )}
+            {Object.entries(previewModes).map(([id, mode]) => (
+              <option key={id} value={id}>{mode.label}</option>
+            ))}
           </select>
-          <input
-            className="w-56 bg-secondary border border-border text-text rounded p-1"
-            value={presetName}
-            placeholder="Preset name"
-            onChange={(event) => setPresetName(event.target.value)}
-          />
-          <button type="button" className="bg-accent text-text px-3 py-1 rounded hover:bg-accentHover" onClick={handleSavePreset}>
-            Save as preset
-          </button>
-          <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleDuplicatePreset}>
-            Duplicate preset
-          </button>
-          <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleRenamePreset}>
-            Rename preset
-          </button>
-          <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleDeletePreset}>
-            Delete preset
-          </button>
-          <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleExportPreset}>
-            Export preset
-          </button>
-          <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleImportPreset}>
-            Import preset
-          </button>
-          <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleResetCustom}>
-            Reset current layout to preset
-          </button>
-          <span className="text-xs opacity-70">
-            {selectedLayoutId === CUSTOM_BANNER_LAYOUT_ID
-              ? `Editing a custom copy of ${selectedBuiltIn?.name || selectedUserPreset?.name || 'preset'}`
-              : isUserPresetSelected ? `Saved as ${selectedUserPreset.name}` : 'Built-in preset'}
-            {statusText ? ` - ${statusText}` : ''}
-          </span>
         </div>
+        <span className="text-xs opacity-70">
+          {selectedLayoutId === CUSTOM_BANNER_LAYOUT_ID
+            ? `Editing a custom copy of ${selectedBuiltIn?.name || selectedUserPreset?.name || 'preset'}`
+            : isUserPresetSelected ? `Saved as ${selectedUserPreset.name}` : 'Built-in preset'}
+          {statusText ? ` - ${statusText}` : ''}
+        </span>
+      </div>
 
+      <div className="flex justify-center overflow-x-auto py-2">
+        <BannerEditorPreview game={activePreviewGame} layout={draftLayout} />
+      </div>
+
+      <div className="flex gap-2 border-b border-border sticky top-0 bg-secondary z-10 pt-1">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+            className={`text-xs px-3 py-2 border-b-2 transition-colors -mb-px ${
+              activeTab === tab.id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'presets' && (
+        <section className="space-y-4">
+          <SectionHeader>Preset Selection</SectionHeader>
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(220px,320px)_minmax(220px,320px)] gap-3">
+            <label className="block text-sm">
+              Banner preset
+              <select
+                className="mt-1 w-full bg-secondary border border-border text-text rounded p-1"
+                value={selectedPresetId}
+                onChange={(event) => handlePresetChange(event.target.value)}
+              >
+                <optgroup label="Built-in">
+                  {builtInBannerLayouts.map((layout) => (
+                    <option key={layout.id} value={layout.id}>{layout.name}</option>
+                  ))}
+                </optgroup>
+                {userPresets.length > 0 && (
+                  <optgroup label="User">
+                    {userPresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>{preset.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </label>
+            <label className="block text-sm">
+              Preset name
+              <input
+                className="mt-1 w-full bg-secondary border border-border text-text rounded p-1"
+                value={presetName}
+                placeholder="Preset name"
+                onChange={(event) => setPresetName(event.target.value)}
+              />
+            </label>
+          </div>
+
+          <SectionHeader>Preset Actions</SectionHeader>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="bg-accent text-text px-3 py-1 rounded hover:bg-accentHover" onClick={handleSavePreset}>Save as preset</button>
+            <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleDuplicatePreset}>Duplicate preset</button>
+            <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleRenamePreset}>Rename preset</button>
+            <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleDeletePreset}>Delete preset</button>
+            <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleResetCustom}>Reset current layout to preset</button>
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'visual' && (
         <BannerVisualEditor
           layout={draftLayout}
           previewGame={activePreviewGame}
@@ -579,214 +620,124 @@ const BannerEditor = () => {
           badgeFields={BADGE_FIELDS}
           fieldRegistry={BANNER_FIELD_REGISTRY}
           fieldCategories={BANNER_FIELD_CATEGORIES}
-          previewMode={previewMode}
-          previewModes={previewModes}
-          onPreviewModeChange={setPreviewMode}
           onFieldChange={updateField}
           onResetField={resetField}
+          showPreview={false}
         />
+      )}
 
-        <div className="flex flex-wrap gap-5">
-          <div className="space-y-3 min-w-[280px]">
-            <div>
-              <label className="block text-sm mb-1">Size preset</label>
+      {activeTab === 'sizeImage' && (
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div className="space-y-3">
+            <SectionHeader>Size</SectionHeader>
+            <label className="block text-sm">
+              Size preset
               <select
-                className="w-44 bg-secondary border border-border text-text rounded p-1"
+                className="mt-1 w-48 bg-secondary border border-border text-text rounded p-1"
                 value={BANNER_SIZE_PRESETS.find((preset) => preset.width === draftLayout.width && preset.height === draftLayout.height)?.id || 'custom'}
                 onChange={(event) => updateSizePreset(event.target.value)}
               >
                 {BANNER_SIZE_PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.name} ({preset.width}x{preset.height})
-                  </option>
+                  <option key={preset.id} value={preset.id}>{preset.name} ({preset.width}x{preset.height})</option>
                 ))}
                 <option value="custom">Custom</option>
               </select>
-              <p className="text-xs opacity-60 mt-1">Card size affects library grid density.</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
+            </label>
+            <div className="grid grid-cols-2 gap-2 max-w-sm">
               <label className="block text-sm">
                 Width
-                <input
-                  type="number"
-                  min={BANNER_SIZE_LIMITS.minWidth}
-                  max={BANNER_SIZE_LIMITS.maxWidth}
-                  className="mt-1 w-full bg-secondary border border-border text-text rounded p-1"
-                  value={draftLayout.width || 537}
-                  onChange={(event) => updateDimension('width', event.target.value)}
-                />
+                <input type="number" min={BANNER_SIZE_LIMITS.minWidth} max={BANNER_SIZE_LIMITS.maxWidth} className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.width || 537} onChange={(event) => updateDimension('width', event.target.value)} />
               </label>
               <label className="block text-sm">
                 Height
-                <input
-                  type="number"
-                  min={BANNER_SIZE_LIMITS.minHeight}
-                  max={BANNER_SIZE_LIMITS.maxHeight}
-                  className="mt-1 w-full bg-secondary border border-border text-text rounded p-1"
-                  value={draftLayout.height || 251}
-                  onChange={(event) => updateDimension('height', event.target.value)}
-                />
+                <input type="number" min={BANNER_SIZE_LIMITS.minHeight} max={BANNER_SIZE_LIMITS.maxHeight} className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.height || 251} onChange={(event) => updateDimension('height', event.target.value)} />
               </label>
             </div>
             <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={lockAspectRatio}
-                onChange={(event) => setLockAspectRatio(event.target.checked)}
-              />
+              <input type="checkbox" checked={lockAspectRatio} onChange={(event) => setLockAspectRatio(event.target.checked)} />
               Lock aspect ratio
             </label>
             <p className="text-xs opacity-60">
-              Width clamps to {BANNER_SIZE_LIMITS.minWidth}-{BANNER_SIZE_LIMITS.maxWidth}px;
-              height clamps to {BANNER_SIZE_LIMITS.minHeight}-{BANNER_SIZE_LIMITS.maxHeight}px.
+              Width clamps to {BANNER_SIZE_LIMITS.minWidth}-{BANNER_SIZE_LIMITS.maxWidth}px; height clamps to {BANNER_SIZE_LIMITS.minHeight}-{BANNER_SIZE_LIMITS.maxHeight}px.
             </p>
+          </div>
 
-            <div>
-              <label className="flex items-center gap-2 text-sm mb-2">
-                <input
-                  type="checkbox"
-                  checked={draftLayout.image?.visible !== false}
-                  onChange={(event) => updateImage({ visible: event.target.checked })}
-                />
-                Show banner image
+          <div className="space-y-3">
+            <SectionHeader>Image</SectionHeader>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={draftLayout.image?.visible !== false} onChange={(event) => updateImage({ visible: event.target.checked })} />
+              Show banner image
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block text-sm">
+                Image fit
+                <select className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.image?.fit || draftLayout.imageFit} onChange={(event) => updateImageFit(event.target.value)}>
+                  <option value="contain">Contain</option>
+                  <option value="cover">Cover</option>
+                </select>
               </label>
-              <label className="block text-sm mb-1">Image fit</label>
-              <select
-                className="w-40 bg-secondary border border-border text-text rounded p-1"
-                value={draftLayout.image?.fit || draftLayout.imageFit}
-                onChange={(event) => updateImageFit(event.target.value)}
-              >
-                <option value="contain">Contain</option>
-                <option value="cover">Cover</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm mb-1">Image background</label>
-              <select
-                className="w-48 bg-secondary border border-border text-text rounded p-1"
-                value={draftLayout.image?.backgroundMode || 'image'}
-                onChange={(event) => updateImage({ backgroundMode: event.target.value })}
-              >
-                <option value="solid">Solid fallback</option>
-                <option value="image">Single image</option>
-                <option value="blurred-fill">Blurred image fill</option>
-              </select>
+              <label className="block text-sm">
+                Image background
+                <select className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.image?.backgroundMode || 'image'} onChange={(event) => updateImage({ backgroundMode: event.target.value })}>
+                  <option value="solid">Solid fallback</option>
+                  <option value="image">Single image</option>
+                  <option value="blurred-fill">Blurred image fill</option>
+                </select>
+              </label>
+              <label className="block text-sm">
+                Image position
+                <select className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.image?.position || 'center'} onChange={(event) => updateImage({ position: event.target.value })}>
+                  <option value="center">Center</option>
+                  <option value="top">Top</option>
+                  <option value="bottom">Bottom</option>
+                  <option value="left">Left</option>
+                  <option value="right">Right</option>
+                </select>
+              </label>
+              <label className="block text-sm">
+                Fallback background
+                <select className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.image?.fallbackBackground || 'dark'} onChange={(event) => updateImage({ fallbackBackground: event.target.value })}>
+                  <option value="dark">Dark</option>
+                  <option value="theme">Theme secondary</option>
+                </select>
+              </label>
             </div>
             {(draftLayout.image?.backgroundMode || 'image') === 'blurred-fill' && (
-              <details className="text-sm border border-border rounded p-2 bg-secondary/40" open>
-                <summary className="cursor-pointer opacity-80">Blurred fill settings</summary>
-                <div className="mt-2 space-y-2">
-                  <label className="block">
-                    Blur opacity
-                    <div className="flex items-center gap-2 mt-1">
-                      <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.05"
-                        value={draftLayout.image?.blurBackground?.opacity ?? 0.6}
-                        onChange={(event) => updateBlurBackground({ opacity: Number(event.target.value) })}
-                      />
-                      <input
-                        type="number"
-                        min="0"
-                        max="1"
-                        step="0.05"
-                        className="w-16 bg-secondary border border-border text-text rounded p-1"
-                        value={draftLayout.image?.blurBackground?.opacity ?? 0.6}
-                        onChange={(event) => updateBlurBackground({ opacity: Number(event.target.value) })}
-                      />
-                    </div>
-                  </label>
-                  <label className="block">
-                    Blur amount
-                    <input
-                      type="number"
-                      min="0"
-                      max="40"
-                      step="1"
-                      className="mt-1 w-24 bg-secondary border border-border text-text rounded p-1"
-                      value={draftLayout.image?.blurBackground?.blur ?? 20}
-                      onChange={(event) => updateBlurBackground({ blur: Number(event.target.value) })}
-                    />
-                  </label>
-                  <label className="block">
-                    Blur scale
-                    <input
-                      type="number"
-                      min="1"
-                      max="1.3"
-                      step="0.01"
-                      className="mt-1 w-24 bg-secondary border border-border text-text rounded p-1"
-                      value={draftLayout.image?.blurBackground?.scale ?? 1.1}
-                      onChange={(event) => updateBlurBackground({ scale: Number(event.target.value) })}
-                    />
-                  </label>
-                </div>
-              </details>
-            )}
-            <div>
-              <label className="block text-sm mb-1">Image position</label>
-              <select
-                className="w-40 bg-secondary border border-border text-text rounded p-1"
-                value={draftLayout.image?.position || 'center'}
-                onChange={(event) => updateImage({ position: event.target.value })}
-              >
-                <option value="center">Center</option>
-                <option value="top">Top</option>
-                <option value="bottom">Bottom</option>
-                <option value="left">Left</option>
-                <option value="right">Right</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm mb-1">Fallback background</label>
-              <select
-                className="w-40 bg-secondary border border-border text-text rounded p-1"
-                value={draftLayout.image?.fallbackBackground || 'dark'}
-                onChange={(event) => updateImage({ fallbackBackground: event.target.value })}
-              >
-                <option value="dark">Dark</option>
-                <option value="theme">Theme secondary</option>
-              </select>
-            </div>
-
-            {['top', 'bottom'].map((position) => (
-              <div key={position} className="space-y-1">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={draftLayout.overlays?.[position]?.visible !== false}
-                    onChange={(event) => updateOverlay(position, { visible: event.target.checked })}
-                  />
-                  Show {position} dark overlay
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm border border-border rounded p-3 bg-secondary/40">
+                <label>
+                  Blur opacity
+                  <input type="number" min="0" max="1" step="0.05" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.image?.blurBackground?.opacity ?? 0.6} onChange={(event) => updateBlurBackground({ opacity: Number(event.target.value) })} />
                 </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={draftLayout.overlays?.[position]?.opacity ?? 0.8}
-                    onChange={(event) => updateOverlay(position, { opacity: Number(event.target.value) })}
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    className="w-16 bg-secondary border border-border text-text rounded p-1"
-                    value={draftLayout.overlays?.[position]?.opacity ?? 0.8}
-                    onChange={(event) => updateOverlay(position, { opacity: Number(event.target.value) })}
-                  />
-                </div>
+                <label>
+                  Blur amount
+                  <input type="number" min="0" max="40" step="1" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.image?.blurBackground?.blur ?? 20} onChange={(event) => updateBlurBackground({ blur: Number(event.target.value) })} />
+                </label>
+                <label>
+                  Blur scale
+                  <input type="number" min="1" max="1.3" step="0.01" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.image?.blurBackground?.scale ?? 1.1} onChange={(event) => updateBlurBackground({ scale: Number(event.target.value) })} />
+                </label>
               </div>
-            ))}
-          </div>
-        </div>
+            )}
 
-        <div className="overflow-x-auto">
+            <SectionHeader>Overlays</SectionHeader>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {['top', 'bottom'].map((position) => (
+                <div key={position} className="space-y-2 border border-border rounded p-3 bg-secondary/40">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={draftLayout.overlays?.[position]?.visible !== false} onChange={(event) => updateOverlay(position, { visible: event.target.checked })} />
+                    Show {position} dark overlay
+                  </label>
+                  <input type="range" min="0" max="1" step="0.05" value={draftLayout.overlays?.[position]?.opacity ?? 0.8} onChange={(event) => updateOverlay(position, { opacity: Number(event.target.value) })} />
+                  <input type="number" min="0" max="1" step="0.05" className="w-20 bg-secondary border border-border text-text rounded p-1" value={draftLayout.overlays?.[position]?.opacity ?? 0.8} onChange={(event) => updateOverlay(position, { opacity: Number(event.target.value) })} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'fields' && (
+        <section className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-sm border-collapse">
             <thead>
               <tr className="border-b border-border">
@@ -811,51 +762,38 @@ const BannerEditor = () => {
                   <tr key={fieldId} className="border-b border-border/60">
                     <td className="py-2 pr-3">{FIELD_LABELS[fieldId]}</td>
                     <td className="py-2 pr-3">
-                      <input
-                        type="checkbox"
-                        checked={field.visible !== false}
-                        onChange={(event) => updateField(fieldId, { visible: event.target.checked })}
-                      />
+                      <input type="checkbox" checked={field.visible !== false} onChange={(event) => updateField(fieldId, { visible: event.target.checked })} />
                     </td>
                     <td className="py-2 pr-3">
-                      <select
-                        className="w-48 bg-secondary border border-border text-text rounded p-1"
-                        value={field.slot}
-                        onChange={(event) => updateField(fieldId, { slot: event.target.value })}
-                      >
+                      <select className="w-48 bg-secondary border border-border text-text rounded p-1" value={field.slot} onChange={(event) => updateField(fieldId, { slot: event.target.value })}>
                         {SUPPORTED_BANNER_SLOTS.map((slot) => (
-                          <option key={slot} value={slot}>
-                            {SLOT_LABELS[slot]}
-                          </option>
+                          <option key={slot} value={slot}>{SLOT_LABELS[slot]}</option>
                         ))}
                       </select>
                     </td>
                     <td className="py-2 pr-3">
-                      <input
-                        type="number"
-                        min="8"
-                        max="24"
-                        className="w-20 bg-secondary border border-border text-text rounded p-1"
-                        value={field.fontSize ?? 12}
-                        onChange={(event) => updateField(fieldId, { fontSize: Number(event.target.value) })}
-                      />
+                      <input type="number" min="8" max="24" className="w-20 bg-secondary border border-border text-text rounded p-1" value={field.fontSize ?? 12} onChange={(event) => updateField(fieldId, { fontSize: Number(event.target.value) })} />
                     </td>
                     <td className="py-2 pr-3">
-                      <input
-                        type="checkbox"
-                        disabled={!canBadge}
-                        checked={canBadge && field.badge === true}
-                        onChange={(event) => updateField(fieldId, { badge: event.target.checked })}
-                      />
+                      <input type="checkbox" disabled={!canBadge} checked={canBadge && field.badge === true} onChange={(event) => updateField(fieldId, { badge: event.target.checked })} />
                     </td>
                   </tr>
                 )
               })}
             </tbody>
           </table>
-        </div>
-      </section>
-      <div className="border-t border-text opacity-25 my-3"></div>
+        </section>
+      )}
+
+      {activeTab === 'export' && (
+        <section className="space-y-4">
+          <SectionHeader>Import / Export</SectionHeader>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleExportPreset}>Export preset</button>
+            <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleImportPreset}>Import preset</button>
+          </div>
+        </section>
+      )}
     </div>
   )
 }

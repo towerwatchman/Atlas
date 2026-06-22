@@ -19,11 +19,9 @@ const BannerVisualEditor = ({
   badgeFields,
   fieldRegistry,
   fieldCategories,
-  previewMode,
-  previewModes,
-  onPreviewModeChange,
   onFieldChange,
   onResetField,
+  showPreview = true,
 }) => {
   const [selectedFieldId, setSelectedFieldId] = useState('title')
   const [selectedSlot, setSelectedSlot] = useState('bottom-center')
@@ -61,28 +59,13 @@ const BannerVisualEditor = ({
 
   return (
     <section className="space-y-3">
-      <div>
-        <h2 className="font-semibold">Visual Editor</h2>
-        <p className="text-xs opacity-60">
-          Drag field chips into zones. The precise table below remains available for keyboard editing.
-        </p>
-        <label className="inline-flex items-center gap-2 text-xs mt-2">
-          Preview
-          <select
-            className="bg-secondary border border-border text-text rounded p-1"
-            value={previewMode}
-            onChange={(event) => onPreviewModeChange(event.target.value)}
-          >
-            {Object.entries(previewModes).map(([id, mode]) => (
-              <option key={id} value={id}>{mode.label}</option>
-            ))}
-          </select>
-        </label>
-      </div>
+      <p className="text-xs opacity-60">
+        Drag field chips into zones. The field tab remains available for keyboard editing.
+      </p>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[420px_minmax(360px,1fr)_280px] gap-4">
+      <div className={`grid grid-cols-1 gap-4 ${showPreview ? 'xl:grid-cols-[420px_minmax(360px,1fr)_280px]' : 'xl:grid-cols-[360px_minmax(360px,1fr)_280px]'}`}>
         <div className="space-y-3">
-          <BannerEditorPreview game={previewGame} layout={layout} />
+          {showPreview && <BannerEditorPreview game={previewGame} layout={layout} />}
           <BannerSlotGrid
             layout={layout}
             fieldLabels={fieldLabels}
