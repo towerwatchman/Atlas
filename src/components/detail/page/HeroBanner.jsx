@@ -33,8 +33,7 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
       {/* Foreground */}
       {heroUrl && (
         <SafeImage src={heroUrl} alt={`${game.title || 'Game'} hero image`}
-          fallbackLabel="Hero image unavailable"
-          fallbackDetail={game.title || undefined}
+          fallbackMode="hidden"
           onLoad={(e) => {
             bannerDimsRef.current = { w: e.target.naturalWidth, h: e.target.naturalHeight }
             onLoad()
