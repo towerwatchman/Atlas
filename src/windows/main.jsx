@@ -2,6 +2,7 @@ import '../assets/css/main.css'
 import { createRoot } from 'react-dom/client'
 import App, { AppErrorBoundary } from '../App.jsx'
 import { ThemeProvider } from '../theme/ThemeProvider.jsx'
+import { BannerTemplateProvider } from '../theme/BannerTemplateProvider.jsx'
 import { applyThemeOnLoad } from '../theme/applyTheme.js'
 
 // Apply the saved theme/layout before React mounts so there is no flash of
@@ -12,8 +13,10 @@ applyThemeOnLoad()
 const root = createRoot(document.getElementById('root'))
 root.render(
   <ThemeProvider>
-    <AppErrorBoundary>
-      <App />
-    </AppErrorBoundary>
+    <BannerTemplateProvider>
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
+    </BannerTemplateProvider>
   </ThemeProvider>,
 )

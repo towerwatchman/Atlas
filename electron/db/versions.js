@@ -1266,282 +1266,269 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         ? 'f95_zone_data.f95_latest_order AS f95_latest_order'
         : 'NULL AS f95_latest_order'
       const query = `
-      SELECT
-        'catalog:' || atlas_data.atlas_id as record_id,
-        'atlas:' || atlas_data.atlas_id as catalogKey,
-        COALESCE(
-          (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE am.atlas_id = atlas_data.atlas_id),
-          (SELECT MIN(fm.record_id) FROM f95_zone_mappings fm WHERE f95_zone_data.f95_id IS NOT NULL AND fm.f95_id = f95_zone_data.f95_id),
-          (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lewdcorner_data.lc_id IS NOT NULL AND lm.lc_id = lewdcorner_data.lc_id),
-          (SELECT MIN(sm.record_id)
-           FROM steam_mappings sm
-           JOIN steam_data mapped_steam ON sm.steam_id = mapped_steam.steam_id
-           WHERE mapped_steam.atlas_id = atlas_data.atlas_id)
-        ) AS local_record_id,
-        COALESCE(
-          (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE am.atlas_id = atlas_data.atlas_id),
-          (SELECT MIN(fm.record_id) FROM f95_zone_mappings fm WHERE f95_zone_data.f95_id IS NOT NULL AND fm.f95_id = f95_zone_data.f95_id),
-          (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lewdcorner_data.lc_id IS NOT NULL AND lm.lc_id = lewdcorner_data.lc_id),
-          (SELECT MIN(sm.record_id)
-           FROM steam_mappings sm
-           JOIN steam_data mapped_steam ON sm.steam_id = mapped_steam.steam_id
-           WHERE mapped_steam.atlas_id = atlas_data.atlas_id)
-        ) AS localRecordId,
-        COALESCE(
-          (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE am.atlas_id = atlas_data.atlas_id),
-          (SELECT MIN(fm.record_id) FROM f95_zone_mappings fm WHERE f95_zone_data.f95_id IS NOT NULL AND fm.f95_id = f95_zone_data.f95_id),
-          (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lewdcorner_data.lc_id IS NOT NULL AND lm.lc_id = lewdcorner_data.lc_id),
-          (SELECT MIN(sm.record_id)
-           FROM steam_mappings sm
-           JOIN steam_data mapped_steam ON sm.steam_id = mapped_steam.steam_id
-           WHERE mapped_steam.atlas_id = atlas_data.atlas_id)
-        ) AS installedRecordId,
-        CASE
-          WHEN f95_zone_data.f95_id IS NOT NULL THEN 'f95'
-          WHEN lewdcorner_data.lc_id IS NOT NULL THEN 'lewdcorner'
-          WHEN MIN(steam_data.steam_id) IS NOT NULL THEN 'steam'
-          ELSE 'atlas'
-        END as source,
-        atlas_data.atlas_id as atlas_id,
-        MIN(steam_data.steam_id) as steam_id,
-        lewdcorner_data.lc_id as lc_id,
-        lewdcorner_data.lc_id as lcId,
-        lewdcorner_data.lc_id as lewdCornerId,
-        atlas_data.title as title,
-        COALESCE(NULLIF(atlas_data.creator, ''), atlas_data.developer) as creator,
-        atlas_data.engine as engine,
-        atlas_data.overview as description,
-        0 as total_playtime,
-        0 as last_played_r,
-        '' as last_played_version,
-        ${remoteBannerExpression} AS banner_url,
-        CASE WHEN ${remoteBannerExpression} IS NOT NULL THEN 'stream' ELSE '' END AS banner_source,
-        0 AS has_downloaded_banner,
-        f95_zone_data.f95_id as f95_id,
-        COALESCE(f95_zone_data.site_url, lewdcorner_data.site_url) as siteUrl,
-        f95_zone_data.views as views,
-        f95_zone_data.likes as likes,
-        f95_zone_data.tags as f95_tags,
-        f95_zone_data.rating as rating,
-        lewdcorner_data.site_url as lewdCornerSiteUrl,
-        lewdcorner_data.banner_url as lewdCornerBannerUrl,
-        lewdcorner_data.tags as lewdcornerTags,
-        lewdcorner_data.rating as lewdcornerRating,
-        lewdcorner_data.views as lewdcornerViews,
-        lewdcorner_data.likes as lewdcornerLikes,
-        lewdcorner_data.tier as lewdcornerTier,
-        lewdcorner_data.prefixes as lewdcornerPrefixes,
-        lewdcorner_data.thread_updated as lewdcornerThreadUpdated,
-        lewdcorner_data.register_date as lewdcornerRegisterDate,
-        atlas_data.status,
-        atlas_data.version as latestVersion,
-        COALESCE(NULLIF(atlas_data.category, ''), MIN(steam_data.category)) AS category,
-        COALESCE(NULLIF(atlas_data.censored, ''), MIN(steam_data.censored)) AS censored,
-        COALESCE(NULLIF(atlas_data.genre, ''), MIN(steam_data.genre)) AS genre,
-        COALESCE(NULLIF(atlas_data.language, ''), MIN(steam_data.language)) AS language,
-        COALESCE(NULLIF(atlas_data.os, ''), MIN(steam_data.os)) AS os,
-        COALESCE(NULLIF(atlas_data.overview, ''), MIN(steam_data.overview)) AS overview,
-        COALESCE(NULLIF(atlas_data.translations, ''), MIN(steam_data.translations)) AS translations,
-        atlas_data.release_date,
-        atlas_data.last_record_update AS atlas_last_record_update,
-        MIN(steam_data.release_date) AS steam_release_date,
-        ${threadUpdatedSelect},
-        f95_zone_data.thread_publish_date AS thread_publish_date,
-        ${f95LatestOrderSelect},
-        f95_zone_data.last_record_update AS f95_last_record_update,
-        COALESCE(NULLIF(atlas_data.voice, ''), MIN(steam_data.voice)) AS voice,
-        MIN(steam_data.publisher) AS publisher,
-        MIN(steam_data.developer) AS steam_developer,
-        atlas_data.short_name,
-        atlas_data.external_ids as external_ids,
-        atlas_data.banner_wide as atlas_banner_wide,
-        atlas_data.banner as atlas_banner,
-        atlas_data.logo as atlas_logo,
-        f95_zone_data.banner_url as f95_banner,
-        lewdcorner_data.banner_url as lewdcorner_banner,
-        MIN(steam_data.header) as steam_header,
-        MIN(steam_data.library_hero) as steam_library_hero,
-        MIN(steam_data.library_capsule) as steam_library_capsule,
-        MIN(steam_data.logo) as steam_logo,
-        '' AS tags,
-        CASE
-          WHEN EXISTS (SELECT 1 FROM atlas_mappings WHERE atlas_mappings.atlas_id = atlas_data.atlas_id)
-            OR (f95_zone_data.f95_id IS NOT NULL AND EXISTS (SELECT 1 FROM f95_zone_mappings WHERE f95_zone_mappings.f95_id = f95_zone_data.f95_id))
-            OR (lewdcorner_data.lc_id IS NOT NULL AND EXISTS (SELECT 1 FROM lewdcorner_mappings WHERE lewdcorner_mappings.lc_id = lewdcorner_data.lc_id))
-            OR EXISTS (
-              SELECT 1
-              FROM steam_mappings
-              JOIN steam_data mapped_steam ON steam_mappings.steam_id = mapped_steam.steam_id
-              WHERE mapped_steam.atlas_id = atlas_data.atlas_id
-            )
-          THEN 1 ELSE 0
-        END AS is_installed
-      FROM atlas_data
-      LEFT JOIN f95_zone_data ON atlas_data.atlas_id = f95_zone_data.atlas_id
-      LEFT JOIN lewdcorner_data ON atlas_data.atlas_id = lewdcorner_data.atlas_id
-      LEFT JOIN steam_data ON atlas_data.atlas_id = steam_data.atlas_id
-      GROUP BY atlas_data.atlas_id
+      WITH atlas_branch_base AS (
+        SELECT
+          'catalog:' || atlas_data.atlas_id as record_id,
+          'atlas:' || atlas_data.atlas_id as catalogKey,
+          COALESCE(
+            (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE am.atlas_id = atlas_data.atlas_id),
+            (SELECT MIN(fm.record_id) FROM f95_zone_mappings fm WHERE f95_zone_data.f95_id IS NOT NULL AND fm.f95_id = f95_zone_data.f95_id),
+            (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lewdcorner_data.lc_id IS NOT NULL AND lm.lc_id = lewdcorner_data.lc_id),
+            (SELECT MIN(sm.record_id)
+             FROM steam_mappings sm
+             JOIN steam_data mapped_steam ON sm.steam_id = mapped_steam.steam_id
+             WHERE mapped_steam.atlas_id = atlas_data.atlas_id)
+          ) AS local_record_id,
+          CASE
+            WHEN f95_zone_data.f95_id IS NOT NULL THEN 'f95'
+            WHEN lewdcorner_data.lc_id IS NOT NULL THEN 'lewdcorner'
+            WHEN MIN(steam_data.steam_id) IS NOT NULL THEN 'steam'
+            ELSE 'atlas'
+          END as source,
+          atlas_data.atlas_id as atlas_id,
+          MIN(steam_data.steam_id) as steam_id,
+          lewdcorner_data.lc_id as lc_id,
+          lewdcorner_data.lc_id as lcId,
+          lewdcorner_data.lc_id as lewdCornerId,
+          atlas_data.title as title,
+          COALESCE(NULLIF(atlas_data.creator, ''), atlas_data.developer) as creator,
+          atlas_data.engine as engine,
+          atlas_data.overview as description,
+          0 as total_playtime,
+          0 as last_played_r,
+          '' as last_played_version,
+          ${remoteBannerExpression} AS banner_url,
+          CASE WHEN ${remoteBannerExpression} IS NOT NULL THEN 'stream' ELSE '' END AS banner_source,
+          0 AS has_downloaded_banner,
+          f95_zone_data.f95_id as f95_id,
+          COALESCE(f95_zone_data.site_url, lewdcorner_data.site_url) as siteUrl,
+          f95_zone_data.views as views,
+          f95_zone_data.likes as likes,
+          f95_zone_data.tags as f95_tags,
+          f95_zone_data.rating as rating,
+          lewdcorner_data.site_url as lewdCornerSiteUrl,
+          lewdcorner_data.banner_url as lewdCornerBannerUrl,
+          lewdcorner_data.tags as lewdcornerTags,
+          lewdcorner_data.rating as lewdcornerRating,
+          lewdcorner_data.views as lewdcornerViews,
+          lewdcorner_data.likes as lewdcornerLikes,
+          lewdcorner_data.tier as lewdcornerTier,
+          lewdcorner_data.prefixes as lewdcornerPrefixes,
+          lewdcorner_data.thread_updated as lewdcornerThreadUpdated,
+          lewdcorner_data.register_date as lewdcornerRegisterDate,
+          atlas_data.status,
+          atlas_data.version as latestVersion,
+          COALESCE(NULLIF(atlas_data.category, ''), MIN(steam_data.category)) AS category,
+          COALESCE(NULLIF(atlas_data.censored, ''), MIN(steam_data.censored)) AS censored,
+          COALESCE(NULLIF(atlas_data.genre, ''), MIN(steam_data.genre)) AS genre,
+          COALESCE(NULLIF(atlas_data.language, ''), MIN(steam_data.language)) AS language,
+          COALESCE(NULLIF(atlas_data.os, ''), MIN(steam_data.os)) AS os,
+          COALESCE(NULLIF(atlas_data.overview, ''), MIN(steam_data.overview)) AS overview,
+          COALESCE(NULLIF(atlas_data.translations, ''), MIN(steam_data.translations)) AS translations,
+          atlas_data.release_date,
+          atlas_data.last_record_update AS atlas_last_record_update,
+          MIN(steam_data.release_date) AS steam_release_date,
+          ${threadUpdatedSelect},
+          f95_zone_data.thread_publish_date AS thread_publish_date,
+          ${f95LatestOrderSelect},
+          f95_zone_data.last_record_update AS f95_last_record_update,
+          COALESCE(NULLIF(atlas_data.voice, ''), MIN(steam_data.voice)) AS voice,
+          MIN(steam_data.publisher) AS publisher,
+          MIN(steam_data.developer) AS steam_developer,
+          atlas_data.short_name,
+          atlas_data.external_ids as external_ids,
+          atlas_data.banner_wide as atlas_banner_wide,
+          atlas_data.banner as atlas_banner,
+          atlas_data.logo as atlas_logo,
+          f95_zone_data.banner_url as f95_banner,
+          lewdcorner_data.banner_url as lewdcorner_banner,
+          MIN(steam_data.header) as steam_header,
+          MIN(steam_data.library_hero) as steam_library_hero,
+          MIN(steam_data.library_capsule) as steam_library_capsule,
+          MIN(steam_data.logo) as steam_logo,
+          '' AS tags
+        FROM atlas_data
+        LEFT JOIN f95_zone_data ON atlas_data.atlas_id = f95_zone_data.atlas_id
+        LEFT JOIN lewdcorner_data ON atlas_data.atlas_id = lewdcorner_data.atlas_id
+        LEFT JOIN steam_data ON atlas_data.atlas_id = steam_data.atlas_id
+        GROUP BY atlas_data.atlas_id
+      ),
+      atlas_branch AS (
+        SELECT
+          *,
+          local_record_id AS localRecordId,
+          local_record_id AS installedRecordId,
+          CASE WHEN local_record_id IS NOT NULL THEN 1 ELSE 0 END AS is_installed
+        FROM atlas_branch_base
+      ),
+      steam_branch_base AS (
+        SELECT
+          'catalog:steam:' || steam_data.steam_id as record_id,
+          'steam:' || steam_data.steam_id as catalogKey,
+          COALESCE(
+            (SELECT MIN(sm.record_id) FROM steam_mappings sm WHERE sm.steam_id = steam_data.steam_id),
+            (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE steam_data.atlas_id IS NOT NULL AND am.atlas_id = steam_data.atlas_id)
+          ) AS local_record_id,
+          'steam' as source,
+          NULL as atlas_id,
+          steam_data.steam_id as steam_id,
+          NULL as lc_id,
+          NULL as lcId,
+          NULL as lewdCornerId,
+          steam_data.title as title,
+          COALESCE(NULLIF(steam_data.developer, ''), steam_data.publisher) as creator,
+          steam_data.engine as engine,
+          steam_data.overview as description,
+          0 as total_playtime,
+          0 as last_played_r,
+          '' as last_played_version,
+          COALESCE(steam_data.header, steam_data.library_hero) AS banner_url,
+          CASE WHEN COALESCE(steam_data.header, steam_data.library_hero) IS NOT NULL THEN 'stream' ELSE '' END AS banner_source,
+          0 AS has_downloaded_banner,
+          NULL as f95_id,
+          CASE WHEN steam_data.steam_id IS NOT NULL THEN 'https://store.steampowered.com/app/' || steam_data.steam_id || '/' ELSE NULL END as siteUrl,
+          NULL as views,
+          NULL as likes,
+          steam_data.tags as f95_tags,
+          NULL as rating,
+          NULL as lewdCornerSiteUrl,
+          NULL as lewdCornerBannerUrl,
+          NULL as lewdcornerTags,
+          NULL as lewdcornerRating,
+          NULL as lewdcornerViews,
+          NULL as lewdcornerLikes,
+          NULL as lewdcornerTier,
+          NULL as lewdcornerPrefixes,
+          NULL as lewdcornerThreadUpdated,
+          NULL as lewdcornerRegisterDate,
+          steam_data.release_state as status,
+          NULL as latestVersion,
+          steam_data.category AS category,
+          steam_data.censored AS censored,
+          steam_data.genre AS genre,
+          steam_data.language AS language,
+          steam_data.os AS os,
+          steam_data.overview AS overview,
+          steam_data.translations AS translations,
+          steam_data.release_date AS release_date,
+          NULL AS atlas_last_record_update,
+          steam_data.release_date AS steam_release_date,
+          NULL AS thread_updated,
+          steam_data.release_date AS thread_publish_date,
+          NULL AS f95_latest_order,
+          NULL AS f95_last_record_update,
+          steam_data.voice AS voice,
+          steam_data.publisher AS publisher,
+          steam_data.developer AS steam_developer,
+          steam_data.title AS short_name,
+          '{"steam_appid":"' || steam_data.steam_id || '"}' as external_ids,
+          NULL as atlas_banner_wide,
+          NULL as atlas_banner,
+          NULL as atlas_logo,
+          NULL as f95_banner,
+          NULL as lewdcorner_banner,
+          steam_data.header as steam_header,
+          steam_data.library_hero as steam_library_hero,
+          steam_data.library_capsule as steam_library_capsule,
+          steam_data.logo as steam_logo,
+          steam_data.tags AS tags
+        FROM steam_data
+        LEFT JOIN atlas_data ON steam_data.atlas_id = atlas_data.atlas_id
+        WHERE steam_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL
+      ),
+      steam_branch AS (
+        SELECT
+          *,
+          local_record_id AS localRecordId,
+          local_record_id AS installedRecordId,
+          CASE WHEN local_record_id IS NOT NULL THEN 1 ELSE 0 END AS is_installed
+        FROM steam_branch_base
+      ),
+      lewdcorner_branch_base AS (
+        SELECT
+          'catalog:lewdcorner:' || lewdcorner_data.lc_id as record_id,
+          'lewdcorner:' || lewdcorner_data.lc_id as catalogKey,
+          (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lm.lc_id = lewdcorner_data.lc_id) AS local_record_id,
+          'lewdcorner' as source,
+          NULL as atlas_id,
+          NULL as steam_id,
+          lewdcorner_data.lc_id as lc_id,
+          lewdcorner_data.lc_id as lcId,
+          lewdcorner_data.lc_id as lewdCornerId,
+          'LewdCorner #' || lewdcorner_data.lc_id as title,
+          'Unknown' as creator,
+          NULL as engine,
+          NULL as description,
+          0 as total_playtime,
+          0 as last_played_r,
+          '' as last_played_version,
+          lewdcorner_data.banner_url AS banner_url,
+          CASE WHEN lewdcorner_data.banner_url IS NOT NULL THEN 'stream' ELSE '' END AS banner_source,
+          0 AS has_downloaded_banner,
+          NULL as f95_id,
+          lewdcorner_data.site_url as siteUrl,
+          lewdcorner_data.views as views,
+          lewdcorner_data.likes as likes,
+          lewdcorner_data.tags as f95_tags,
+          lewdcorner_data.rating as rating,
+          lewdcorner_data.site_url as lewdCornerSiteUrl,
+          lewdcorner_data.banner_url as lewdCornerBannerUrl,
+          lewdcorner_data.tags as lewdcornerTags,
+          lewdcorner_data.rating as lewdcornerRating,
+          lewdcorner_data.views as lewdcornerViews,
+          lewdcorner_data.likes as lewdcornerLikes,
+          lewdcorner_data.tier as lewdcornerTier,
+          lewdcorner_data.prefixes as lewdcornerPrefixes,
+          lewdcorner_data.thread_updated as lewdcornerThreadUpdated,
+          lewdcorner_data.register_date as lewdcornerRegisterDate,
+          NULL as status,
+          NULL as latestVersion,
+          NULL AS category,
+          NULL AS censored,
+          NULL AS genre,
+          NULL AS language,
+          NULL AS os,
+          NULL AS overview,
+          NULL AS translations,
+          NULL AS release_date,
+          NULL AS atlas_last_record_update,
+          NULL AS steam_release_date,
+          lewdcorner_data.thread_updated AS thread_updated,
+          lewdcorner_data.register_date AS thread_publish_date,
+          NULL AS f95_latest_order,
+          lewdcorner_data.last_record_update AS f95_last_record_update,
+          NULL AS voice,
+          NULL AS publisher,
+          NULL AS steam_developer,
+          'LewdCorner #' || lewdcorner_data.lc_id AS short_name,
+          NULL as external_ids,
+          NULL as atlas_banner_wide,
+          NULL as atlas_banner,
+          NULL as atlas_logo,
+          NULL as f95_banner,
+          lewdcorner_data.banner_url as lewdcorner_banner,
+          NULL as steam_header,
+          NULL as steam_library_hero,
+          NULL as steam_library_capsule,
+          NULL as steam_logo,
+          lewdcorner_data.tags AS tags
+        FROM lewdcorner_data
+        LEFT JOIN atlas_data ON lewdcorner_data.atlas_id = atlas_data.atlas_id
+        WHERE lewdcorner_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL
+      ),
+      lewdcorner_branch AS (
+        SELECT
+          *,
+          local_record_id AS localRecordId,
+          local_record_id AS installedRecordId,
+          CASE WHEN local_record_id IS NOT NULL THEN 1 ELSE 0 END AS is_installed
+        FROM lewdcorner_branch_base
+      )
+      SELECT * FROM atlas_branch
       UNION ALL
-      SELECT
-        'catalog:steam:' || steam_data.steam_id as record_id,
-        'steam:' || steam_data.steam_id as catalogKey,
-        COALESCE(
-          (SELECT MIN(sm.record_id) FROM steam_mappings sm WHERE sm.steam_id = steam_data.steam_id),
-          (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE steam_data.atlas_id IS NOT NULL AND am.atlas_id = steam_data.atlas_id)
-        ) AS local_record_id,
-        COALESCE(
-          (SELECT MIN(sm.record_id) FROM steam_mappings sm WHERE sm.steam_id = steam_data.steam_id),
-          (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE steam_data.atlas_id IS NOT NULL AND am.atlas_id = steam_data.atlas_id)
-        ) AS localRecordId,
-        COALESCE(
-          (SELECT MIN(sm.record_id) FROM steam_mappings sm WHERE sm.steam_id = steam_data.steam_id),
-          (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE steam_data.atlas_id IS NOT NULL AND am.atlas_id = steam_data.atlas_id)
-        ) AS installedRecordId,
-        'steam' as source,
-        NULL as atlas_id,
-        steam_data.steam_id as steam_id,
-        NULL as lc_id,
-        NULL as lcId,
-        NULL as lewdCornerId,
-        steam_data.title as title,
-        COALESCE(NULLIF(steam_data.developer, ''), steam_data.publisher) as creator,
-        steam_data.engine as engine,
-        steam_data.overview as description,
-        0 as total_playtime,
-        0 as last_played_r,
-        '' as last_played_version,
-        COALESCE(steam_data.header, steam_data.library_hero) AS banner_url,
-        CASE WHEN COALESCE(steam_data.header, steam_data.library_hero) IS NOT NULL THEN 'stream' ELSE '' END AS banner_source,
-        0 AS has_downloaded_banner,
-        NULL as f95_id,
-        CASE WHEN steam_data.steam_id IS NOT NULL THEN 'https://store.steampowered.com/app/' || steam_data.steam_id || '/' ELSE NULL END as siteUrl,
-        NULL as views,
-        NULL as likes,
-        steam_data.tags as f95_tags,
-        NULL as rating,
-        NULL as lewdCornerSiteUrl,
-        NULL as lewdCornerBannerUrl,
-        NULL as lewdcornerTags,
-        NULL as lewdcornerRating,
-        NULL as lewdcornerViews,
-        NULL as lewdcornerLikes,
-        NULL as lewdcornerTier,
-        NULL as lewdcornerPrefixes,
-        NULL as lewdcornerThreadUpdated,
-        NULL as lewdcornerRegisterDate,
-        steam_data.release_state as status,
-        NULL as latestVersion,
-        steam_data.category AS category,
-        steam_data.censored AS censored,
-        steam_data.genre AS genre,
-        steam_data.language AS language,
-        steam_data.os AS os,
-        steam_data.overview AS overview,
-        steam_data.translations AS translations,
-        steam_data.release_date AS release_date,
-        NULL AS atlas_last_record_update,
-        steam_data.release_date AS steam_release_date,
-        NULL AS thread_updated,
-        steam_data.release_date AS thread_publish_date,
-        NULL AS f95_latest_order,
-        NULL AS f95_last_record_update,
-        steam_data.voice AS voice,
-        steam_data.publisher AS publisher,
-        steam_data.developer AS steam_developer,
-        steam_data.title AS short_name,
-        '{"steam_appid":"' || steam_data.steam_id || '"}' as external_ids,
-        NULL as atlas_banner_wide,
-        NULL as atlas_banner,
-        NULL as atlas_logo,
-        NULL as f95_banner,
-        NULL as lewdcorner_banner,
-        steam_data.header as steam_header,
-        steam_data.library_hero as steam_library_hero,
-        steam_data.library_capsule as steam_library_capsule,
-        steam_data.logo as steam_logo,
-        steam_data.tags AS tags,
-        CASE WHEN EXISTS (SELECT 1 FROM steam_mappings WHERE steam_mappings.steam_id = steam_data.steam_id)
-          THEN 1 ELSE 0
-        END AS is_installed
-      FROM steam_data
-      LEFT JOIN atlas_data ON steam_data.atlas_id = atlas_data.atlas_id
-      WHERE steam_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL
+      SELECT * FROM steam_branch
       UNION ALL
-      SELECT
-        'catalog:lewdcorner:' || lewdcorner_data.lc_id as record_id,
-        'lewdcorner:' || lewdcorner_data.lc_id as catalogKey,
-        (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lm.lc_id = lewdcorner_data.lc_id) AS local_record_id,
-        (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lm.lc_id = lewdcorner_data.lc_id) AS localRecordId,
-        (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lm.lc_id = lewdcorner_data.lc_id) AS installedRecordId,
-        'lewdcorner' as source,
-        NULL as atlas_id,
-        NULL as steam_id,
-        lewdcorner_data.lc_id as lc_id,
-        lewdcorner_data.lc_id as lcId,
-        lewdcorner_data.lc_id as lewdCornerId,
-        'LewdCorner #' || lewdcorner_data.lc_id as title,
-        'Unknown' as creator,
-        NULL as engine,
-        NULL as description,
-        0 as total_playtime,
-        0 as last_played_r,
-        '' as last_played_version,
-        lewdcorner_data.banner_url AS banner_url,
-        CASE WHEN lewdcorner_data.banner_url IS NOT NULL THEN 'stream' ELSE '' END AS banner_source,
-        0 AS has_downloaded_banner,
-        NULL as f95_id,
-        lewdcorner_data.site_url as siteUrl,
-        lewdcorner_data.views as views,
-        lewdcorner_data.likes as likes,
-        lewdcorner_data.tags as f95_tags,
-        lewdcorner_data.rating as rating,
-        lewdcorner_data.site_url as lewdCornerSiteUrl,
-        lewdcorner_data.banner_url as lewdCornerBannerUrl,
-        lewdcorner_data.tags as lewdcornerTags,
-        lewdcorner_data.rating as lewdcornerRating,
-        lewdcorner_data.views as lewdcornerViews,
-        lewdcorner_data.likes as lewdcornerLikes,
-        lewdcorner_data.tier as lewdcornerTier,
-        lewdcorner_data.prefixes as lewdcornerPrefixes,
-        lewdcorner_data.thread_updated as lewdcornerThreadUpdated,
-        lewdcorner_data.register_date as lewdcornerRegisterDate,
-        NULL as status,
-        NULL as latestVersion,
-        NULL AS category,
-        NULL AS censored,
-        NULL AS genre,
-        NULL AS language,
-        NULL AS os,
-        NULL AS overview,
-        NULL AS translations,
-        NULL AS release_date,
-        NULL AS atlas_last_record_update,
-        NULL AS steam_release_date,
-        lewdcorner_data.thread_updated AS thread_updated,
-        lewdcorner_data.register_date AS thread_publish_date,
-        NULL AS f95_latest_order,
-        lewdcorner_data.last_record_update AS f95_last_record_update,
-        NULL AS voice,
-        NULL AS publisher,
-        NULL AS steam_developer,
-        'LewdCorner #' || lewdcorner_data.lc_id AS short_name,
-        NULL as external_ids,
-        NULL as atlas_banner_wide,
-        NULL as atlas_banner,
-        NULL as atlas_logo,
-        NULL as f95_banner,
-        lewdcorner_data.banner_url as lewdcorner_banner,
-        NULL as steam_header,
-        NULL as steam_library_hero,
-        NULL as steam_library_capsule,
-        NULL as steam_logo,
-        lewdcorner_data.tags AS tags,
-        CASE WHEN EXISTS (SELECT 1 FROM lewdcorner_mappings WHERE lewdcorner_mappings.lc_id = lewdcorner_data.lc_id)
-          THEN 1 ELSE 0
-        END AS is_installed
-      FROM lewdcorner_data
-      LEFT JOIN atlas_data ON lewdcorner_data.atlas_id = atlas_data.atlas_id
-      WHERE lewdcorner_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL
+      SELECT * FROM lewdcorner_branch
     `;
 
       const pagedQuery = `

@@ -1,24 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React from 'react'
 import useImageFallback from '../../hooks/useImageFallback.js'
 import { getGameTitle } from '../../utils/gameDisplay.js'
 import BannerLayoutRenderer from './bannerLayout/BannerLayoutRenderer.jsx'
-import { defaultBannerLayouts } from './bannerLayout/defaultBannerLayouts.js'
-import {
-  CLASSIC_BANNER_LAYOUT_ID,
-  CUSTOM_BANNER_LAYOUT_ID,
-  getBannerLayoutById,
-  normalizeBannerLayout,
-  normalizeBannerPreset,
-  normalizeBannerLayoutId,
-} from './bannerLayout/bannerLayoutSchema.js'
-
-const builtInLayoutIds = new Set(defaultBannerLayouts.map((layout) => layout.id))
+import { useBannerTemplate } from '../../theme/BannerTemplateProvider.jsx'
 
 const GameBanner = ({ game, onSelect }) => {
-  const [selectedTemplate, setSelectedTemplate] = useState({
-    type: 'layout',
-    value: getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID),
-  })
+  // Resolved once per window by BannerTemplateProvider (see src/theme/
+  // BannerTemplateProvider.jsx) instead of once per card — previously every
+  // <GameBanner> instance fetched this itself via getSelectedBannerTemplate()
+  // (and sometimes getCustomBannerLayout()/getUserBannerLayouts() too) on
+  // mount, which meant hundreds of redundant IPC round trips firing at once
+  // on a 250-item Browse page.
+  const selectedTemplate = useBannerTemplate()
 
   const bannerChain = game.banner_candidates || (game.banner_url ? [game.banner_url] : [])
   const { src: resolvedBannerUrl } = useImageFallback(bannerChain)
@@ -27,101 +20,6 @@ const GameBanner = ({ game, onSelect }) => {
       ? game
       : { ...game, banner_url: resolvedBannerUrl }
   const displayTitle = getGameTitle(resolvedGame)
-
-  const loadSelectedTemplate = useCallback(async () => {
-    try {
-      const selected = await window.electronAPI.getSelectedBannerTemplate()
-      const normalized = normalizeBannerLayoutId(selected)
-
-      if (normalized === CUSTOM_BANNER_LAYOUT_ID) {
-        const customLayout = await window.electronAPI.getCustomBannerLayout?.()
-        const classicLayout = getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID)
-        const normalizedLayout = normalizeBannerLayout(customLayout, classicLayout)
-        setSelectedTemplate({
-          type: 'layout',
-          value: normalizedLayout || classicLayout,
-        })
-        return
-      }
-
-      if (builtInLayoutIds.has(normalized)) {
-        setSelectedTemplate({
-          type: 'layout',
-          value: getBannerLayoutById(defaultBannerLayouts, normalized),
-        })
-        return
-      }
-
-      const userPresets = await window.electronAPI.getUserBannerLayouts?.()
-      const selectedUserPreset = (Array.isArray(userPresets) ? userPresets : [])
-        .find((preset) => preset?.id === normalized)
-      if (selectedUserPreset) {
-        const classicLayout = getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID)
-        const normalizedPreset = normalizeBannerPreset(selectedUserPreset, classicLayout)
-        setSelectedTemplate({
-          type: 'layout',
-          value: normalizedPreset?.layout || classicLayout,
-        })
-        return
-      }
-
-      try {
-        const templates = import.meta.glob('../../assets/templates/banner/*.js', {
-          eager: false,
-        })
-        const key = `../../assets/templates/banner/${selected}.js`
-        if (templates[key]) {
-          const templateModule = await templates[key]()
-          setSelectedTemplate({ type: 'legacy', value: templateModule.default })
-        } else {
-          console.warn(`Template not found: ${selected}`)
-          setSelectedTemplate({
-            type: 'layout',
-            value: getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID),
-          })
-        }
-      } catch (importErr) {
-        console.error(`Failed to import template ${selected}:`, importErr)
-        window.electronAPI.log(
-          `Failed to import template ${selected}: ${importErr.message}`,
-        )
-        setSelectedTemplate({
-          type: 'layout',
-          value: getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID),
-        })
-      }
-    } catch (err) {
-      console.error('Error loading banner template:', err)
-      window.electronAPI.log(`Error loading banner template: ${err.message}`)
-      setSelectedTemplate({
-        type: 'layout',
-        value: getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID),
-      })
-    }
-  }, [])
-
-  useEffect(() => {
-    console.log(
-      `GameBanner rendering for recordId: ${game.record_id}, banner_url: ${game.banner_url}`,
-    )
-
-    loadSelectedTemplate()
-  }, [game.banner_url, game.record_id, loadSelectedTemplate])
-
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden) loadSelectedTemplate()
-    }
-
-    window.addEventListener('focus', loadSelectedTemplate)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    const removeBannerLayoutListener = window.electronAPI.onBannerLayoutUpdated?.(loadSelectedTemplate)
-    return () => {
-      window.removeEventListener('focus', loadSelectedTemplate)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      if (typeof removeBannerLayoutListener === 'function') removeBannerLayoutListener()
-    }
-  }, [loadSelectedTemplate])
 
   const handleContextMenu = (event) => {
     event.preventDefault()

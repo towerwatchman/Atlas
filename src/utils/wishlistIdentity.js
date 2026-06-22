@@ -30,4 +30,6 @@ export const withWishlistState = (game, identityKeys = new Set()) => ({
 })
 
 export const withWishlistStates = (games, identityKeys = new Set()) =>
-  (Array.isArray(games) ? games : []).map((game) => withWishlistState(game, identityKeys))
+  (Array.isArray(games) ? games : []).map((game) =>
+    game == null ? game : withWishlistState(game, identityKeys)
+  )

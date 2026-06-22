@@ -18,39 +18,43 @@ const normalizeCatalogRows = (rows) =>
     isMetadataOnly: true,
   }))
 
-const getCatalogIdentity = (game = {}) =>
-  String(game.catalogKey || game.record_id || '').trim()
-
-const mergeCatalogRows = (previous, nextRows, { reset = false } = {}) => {
-  const merged = reset ? [] : [...previous]
-  const seen = new Set(merged.map(getCatalogIdentity).filter(Boolean))
-  for (const game of nextRows) {
-    const key = getCatalogIdentity(game)
-    if (key && seen.has(key)) continue
-    if (key) seen.add(key)
-    merged.push(game)
-  }
-  return merged
-}
-
 export function useGames() {
   const [games, setGames] = useState([])
+  // Sparse, index-aligned catalog array: once the initial reset fetch
+  // resolves, this array's length is set to the server's reported total
+  // immediately (so the Grid can size its scrollbar to the real catalog
+  // size right away), with `null` placeholders at every index whose page
+  // hasn't been fetched yet. Indices fill in as requestCatalogRange() is
+  // called for whatever range the Grid actually scrolls to — there is no
+  // requirement to load page 1, then 2, then 3 in order before reaching
+  // page 40.
   const [catalogGames, setCatalogGames] = useState([])
+  // True only while the initial (reset) fetch — which also resolves the
+  // total count — is in flight. Drives the centered loading spinner.
   const [catalogLoading, setCatalogLoading] = useState(false)
+  // True while any background page fetch is in flight (i.e. the user
+  // scrolled to a range that isn't loaded yet). Not currently surfaced as
+  // its own UI text — individual not-yet-loaded cells render their own
+  // placeholder — but kept available for callers that want it.
   const [catalogLoadingMore, setCatalogLoadingMore] = useState(false)
-  const [catalogHasMore, setCatalogHasMore] = useState(false)
-  const [catalogOffset, setCatalogOffset] = useState(0)
   const [catalogTotal, setCatalogTotal] = useState(null)
   const [catalogLoadError, setCatalogLoadError] = useState('')
   const [wishlistGames, setWishlistGames] = useState([])
   const [totalVersions, setTotalVersions] = useState(0)
   const includeUninstalledRef = useRef(false)
+  // Bumped on every reset; any page fetch already in flight from a
+  // previous "generation" checks this and discards its result instead of
+  // writing stale data into the current catalogGames array.
   const catalogLoadTokenRef = useRef(0)
-  const catalogLoadingRef = useRef(false)
-  const catalogOffsetRef = useRef(0)
-  const catalogHasMoreRef = useRef(false)
+  const catalogTotalRef = useRef(null)
   const catalogSearchRef = useRef({ text: '', type: 'all' })
   const catalogFiltersRef = useRef({})
+  // Page-aligned (multiples of CATALOG_PAGE_SIZE) offsets that are fully
+  // loaded / currently being fetched — lets requestCatalogRange() skip
+  // re-requesting a page that's already loaded or already in flight.
+  const catalogLoadedOffsetsRef = useRef(new Set())
+  const catalogPendingOffsetsRef = useRef(new Set())
+  const catalogRangeDebounceRef = useRef(null)
 
   const updateGamesState = useCallback((gamesArray) => {
     const normalizedGames = normalizeGamesForRenderer(gamesArray)
@@ -79,91 +83,165 @@ export function useGames() {
     [updateGamesState]
   )
 
-  const loadCatalogPage = useCallback(async ({ reset = false, search = null, filters = null } = {}) => {
-    if (catalogLoadingRef.current && !reset) return []
-    const token = reset ? catalogLoadTokenRef.current + 1 : catalogLoadTokenRef.current
-    if (reset) {
-      catalogLoadTokenRef.current = token
-      catalogOffsetRef.current = 0
-      catalogHasMoreRef.current = false
-      catalogSearchRef.current = {
-        text: String(search?.text || '').trim(),
-        type: String(search?.type || 'all'),
-      }
-      catalogFiltersRef.current = filters && typeof filters === 'object' ? filters : {}
-      setCatalogOffset(0)
-      setCatalogHasMore(false)
-      setCatalogTotal(null)
-      setCatalogGames([])
-    } else if (!catalogHasMoreRef.current) {
-      return []
+  // Fetches a single page-aligned offset and writes it into catalogGames
+  // at its absolute index position. No-ops if that offset is already
+  // loaded or already being fetched. `token` ties the result back to the
+  // reset "generation" it was requested under (see fetchCatalogGames) —
+  // if a reset happens while this is in flight, the stale result is
+  // dropped instead of corrupting the new catalogGames array.
+  const fetchCatalogPage = useCallback((offset, token) => {
+    if (
+      catalogLoadedOffsetsRef.current.has(offset) ||
+      catalogPendingOffsetsRef.current.has(offset)
+    ) {
+      return
     }
-
-    const offset = reset ? 0 : catalogOffsetRef.current
-    catalogLoadingRef.current = true
-    setCatalogLoadError('')
-    setCatalogLoading(reset)
-    setCatalogLoadingMore(!reset)
-    try {
-      const result = await window.electronAPI.getCatalogGames({
+    catalogPendingOffsetsRef.current.add(offset)
+    setCatalogLoadingMore(true)
+    window.electronAPI
+      .getCatalogGames({
         offset,
         limit: CATALOG_PAGE_SIZE,
-        includeTotal: reset,
+        includeTotal: false,
         search: catalogSearchRef.current,
         filters: catalogFiltersRef.current,
       })
-      if (catalogLoadTokenRef.current !== token) return []
-      const rawRows = Array.isArray(result) ? result : result?.games || []
-      const gamesArray = normalizeCatalogRows(rawRows)
-      setCatalogGames((prev) => mergeCatalogRows(prev, gamesArray, { reset }))
-      const nextOffset = Number.isFinite(Number(result?.offset))
-        ? Number(result.offset) + gamesArray.length
-        : offset + gamesArray.length
-      const hasMore = Array.isArray(result)
-        ? gamesArray.length >= CATALOG_PAGE_SIZE
-        : result?.hasMore === true
-      catalogOffsetRef.current = nextOffset
-      catalogHasMoreRef.current = hasMore
-      setCatalogOffset(nextOffset)
-      setCatalogHasMore(hasMore)
-      if (!Array.isArray(result) && result?.total !== undefined && result?.total !== null) {
-        setCatalogTotal(Number(result.total) || 0)
-      }
-      console.log(`Fetched ${gamesArray.length} AtlasDB catalog games; offset=${nextOffset}; hasMore=${hasMore}`)
-      return gamesArray
-    } catch (error) {
-      console.error('Failed to fetch AtlasDB catalog:', error)
-      setCatalogLoadError(error?.message || String(error))
-      return []
-    } finally {
-      if (catalogLoadTokenRef.current === token) {
-        catalogLoadingRef.current = false
-        setCatalogLoading(false)
-        setCatalogLoadingMore(false)
-      }
-    }
+      .then((result) => {
+        if (catalogLoadTokenRef.current !== token) return
+        const rawRows = Array.isArray(result) ? result : result?.games || []
+        const gamesArray = normalizeCatalogRows(rawRows)
+        catalogLoadedOffsetsRef.current.add(offset)
+        setCatalogGames((prev) => {
+          const minLength = Math.max(prev.length, offset + gamesArray.length, catalogTotalRef.current || 0)
+          const next = prev.length < minLength
+            ? prev.concat(new Array(minLength - prev.length).fill(null))
+            : prev.slice()
+          gamesArray.forEach((game, i) => { next[offset + i] = game })
+          return next
+        })
+        console.log(`Fetched AtlasDB catalog page at offset ${offset} (${gamesArray.length} rows)`)
+      })
+      .catch((error) => {
+        console.error(`Failed to fetch AtlasDB catalog page at offset ${offset}:`, error)
+        setCatalogLoadError(error?.message || String(error))
+      })
+      .finally(() => {
+        catalogPendingOffsetsRef.current.delete(offset)
+        if (catalogLoadTokenRef.current === token) {
+          setCatalogLoadingMore(catalogPendingOffsetsRef.current.size > 0)
+        }
+      })
   }, [])
 
-  const fetchCatalogGames = useCallback(
-    ({ reset = true, search = null, filters = null } = {}) => loadCatalogPage({ reset, search, filters }),
-    [loadCatalogPage]
-  )
+  // Resets the catalog (new search/filters, or any other "start over"
+  // trigger) and loads page 0 WITH the total count, so the Grid can size
+  // its scrollbar to the real catalog size before any other page loads.
+  const fetchCatalogGames = useCallback(({ reset = true, search = null, filters = null } = {}) => {
+    if (!reset) return Promise.resolve([])
+    const token = catalogLoadTokenRef.current + 1
+    catalogLoadTokenRef.current = token
+    catalogSearchRef.current = {
+      text: String(search?.text || '').trim(),
+      type: String(search?.type || 'all'),
+    }
+    catalogFiltersRef.current = filters && typeof filters === 'object' ? filters : {}
+    catalogLoadedOffsetsRef.current = new Set()
+    catalogPendingOffsetsRef.current = new Set()
+    catalogTotalRef.current = null
+    if (catalogRangeDebounceRef.current) {
+      clearTimeout(catalogRangeDebounceRef.current)
+      catalogRangeDebounceRef.current = null
+    }
+    setCatalogTotal(null)
+    setCatalogGames([])
+    setCatalogLoadError('')
+    setCatalogLoading(true)
+    setCatalogLoadingMore(false)
+    return window.electronAPI
+      .getCatalogGames({
+        offset: 0,
+        limit: CATALOG_PAGE_SIZE,
+        includeTotal: true,
+        search: catalogSearchRef.current,
+        filters: catalogFiltersRef.current,
+      })
+      .then((result) => {
+        if (catalogLoadTokenRef.current !== token) return []
+        const rawRows = Array.isArray(result) ? result : result?.games || []
+        const gamesArray = normalizeCatalogRows(rawRows)
+        const total = Array.isArray(result) ? gamesArray.length : Number(result?.total) || 0
+        catalogTotalRef.current = total
+        catalogLoadedOffsetsRef.current.add(0)
+        setCatalogTotal(total)
+        setCatalogGames(() => {
+          const next = new Array(Math.max(total, gamesArray.length)).fill(null)
+          gamesArray.forEach((game, i) => { next[i] = game })
+          return next
+        })
+        console.log(`Fetched ${gamesArray.length} AtlasDB catalog games; total=${total}`)
+        return gamesArray
+      })
+      .catch((error) => {
+        console.error('Failed to fetch AtlasDB catalog:', error)
+        setCatalogLoadError(error?.message || String(error))
+        return []
+      })
+      .finally(() => {
+        if (catalogLoadTokenRef.current === token) setCatalogLoading(false)
+      })
+  }, [])
 
-  const fetchMoreCatalogGames = useCallback(
-    () => loadCatalogPage({ reset: false }),
-    [loadCatalogPage]
-  )
+  // Called from the Grid's onSectionRendered — startIndex/stopIndex are
+  // absolute item indices (row*columns based), exactly the range the Grid
+  // is currently trying to render (react-virtualized already pads this
+  // with its own overscan). Fetches whichever page(s) cover that range and
+  // aren't already loaded/loading; everything already loaded or already
+  // in flight is skipped, so rapid scrolling doesn't pile up duplicate
+  // requests.
+  //
+  // The actual dispatch is debounced: onSectionRendered fires once for
+  // EVERY intermediate position the Grid passes through during a fast
+  // scroll/fling, not just where it settles. Without debouncing, flinging
+  // from the top to the bottom of a large catalog queues a fetch for every
+  // page scrolled past on the way down — and since the underlying SQLite
+  // connection processes one query at a time, the page you actually
+  // stopped on ends up stuck behind dozens of irrelevant ones. Debouncing
+  // means only the range still current ~120ms after motion stops actually
+  // triggers a request; placeholders still render instantly regardless,
+  // only the network/IPC dispatch is delayed.
+  const requestCatalogRangeImmediate = useCallback((startIndex, stopIndex) => {
+    const total = catalogTotalRef.current
+    if (total === null || total <= 0) return
+    const safeStart = Math.max(0, Math.min(startIndex, stopIndex))
+    const safeStop = Math.min(total - 1, Math.max(startIndex, stopIndex))
+    if (safeStop < safeStart) return
+    const token = catalogLoadTokenRef.current
+    const firstPage = Math.floor(safeStart / CATALOG_PAGE_SIZE)
+    const lastPage = Math.floor(safeStop / CATALOG_PAGE_SIZE)
+    for (let page = firstPage; page <= lastPage; page += 1) {
+      fetchCatalogPage(page * CATALOG_PAGE_SIZE, token)
+    }
+  }, [fetchCatalogPage])
+  const requestCatalogRange = useCallback((startIndex, stopIndex) => {
+    if (catalogRangeDebounceRef.current) clearTimeout(catalogRangeDebounceRef.current)
+    catalogRangeDebounceRef.current = setTimeout(() => {
+      catalogRangeDebounceRef.current = null
+      requestCatalogRangeImmediate(startIndex, stopIndex)
+    }, 120)
+  }, [requestCatalogRangeImmediate])
 
   const resetCatalogGames = useCallback(() => {
     catalogLoadTokenRef.current += 1
-    catalogLoadingRef.current = false
-    catalogOffsetRef.current = 0
-    catalogHasMoreRef.current = false
+    catalogLoadedOffsetsRef.current = new Set()
+    catalogPendingOffsetsRef.current = new Set()
+    catalogTotalRef.current = null
+    if (catalogRangeDebounceRef.current) {
+      clearTimeout(catalogRangeDebounceRef.current)
+      catalogRangeDebounceRef.current = null
+    }
     setCatalogGames([])
     setCatalogLoading(false)
     setCatalogLoadingMore(false)
-    setCatalogHasMore(false)
-    setCatalogOffset(0)
     setCatalogTotal(null)
     setCatalogLoadError('')
   }, [])
@@ -264,15 +342,13 @@ export function useGames() {
     catalogGames,
     catalogLoading,
     catalogLoadingMore,
-    catalogHasMore,
-    catalogOffset,
     catalogTotal,
     catalogLoadError,
     wishlistGames,
     totalVersions,
     fetchGames,
     fetchCatalogGames,
-    fetchMoreCatalogGames,
+    requestCatalogRange,
     resetCatalogGames,
     fetchWishlistGames,
     updateGamesState,

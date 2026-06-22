@@ -5,15 +5,6 @@ import TopNav from './components/ui/TopNav.jsx'
 import ImporterSourceMenu from './components/importer/ImporterSourceMenu.jsx'
 import { atlasLogo } from './assets/icons/data.js'
 import GameBanner from './components/library/GameBanner.jsx'
-import { defaultBannerLayouts } from './components/library/bannerLayout/defaultBannerLayouts.js'
-import {
-  CLASSIC_BANNER_LAYOUT_ID,
-  CUSTOM_BANNER_LAYOUT_ID,
-  getBannerLayoutById,
-  normalizeBannerLayout,
-  normalizeBannerLayoutId,
-  normalizeBannerPreset,
-} from './components/library/bannerLayout/bannerLayoutSchema.js'
 import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
 import SavedFiltersPanel from './components/search/SavedFiltersPanel.jsx'
@@ -23,6 +14,7 @@ import { builtInSavedFilters, filterGamesWithState, normalizeFilterState, useFil
 import { useAppUpdate } from './hooks/useAppUpdate.js'
 import { useWindowState } from './hooks/useWindowState.js'
 import { useTheme } from './theme/ThemeProvider.jsx'
+import { useBannerTemplate } from './theme/BannerTemplateProvider.jsx'
 import { getGameTitle, normalizeGameForRenderer } from './utils/gameDisplay.js'
 import { getWishlistIdentityKey, withWishlistStates } from './utils/wishlistIdentity.js'
 import { formatPercent, formatProgressNumber, sanitizePercentText } from './utils/formatPercent.js'
@@ -43,8 +35,6 @@ const SIDE_PANEL_MODES = {
   CATALOG: 'catalog',
   WISHLIST: 'wishlist',
 }
-const BROWSE_SCROLL_LOAD_THRESHOLD_PX = 1200
-const BROWSE_FILTER_PREFETCH_MIN = 80
 
 const getLocalRecordIdForCatalogRow = (game = {}) => {
   for (const value of [game.localRecordId, game.installedRecordId, game.local_record_id]) {
@@ -132,7 +122,21 @@ const App = () => {
   const [wishlistIdentityKeys, setWishlistIdentityKeys] = useState(new Set())
   const [activeSavedFilterId, setActiveSavedFilterId] = useState('')
   const [savedFilterDeleteStateById, setSavedFilterDeleteStateById] = useState({})
-  const [bannerSize, setBannerSize] = useState({ bannerWidth: 537, bannerHeight: 251 })
+  // Banner card dimensions for Grid sizing — derived from the same
+  // resolved template BannerTemplateProvider already computed once for
+  // <GameBanner> (see src/theme/BannerTemplateProvider.jsx), rather than
+  // App.jsx independently re-fetching/resolving its own copy via IPC.
+  // Legacy (pre-layout-schema) templates don't carry width/height, so they
+  // fall back to the classic default — same behavior as before this was
+  // centralized.
+  const selectedBannerTemplate = useBannerTemplate()
+  const bannerSize = useMemo(() => {
+    const layout = selectedBannerTemplate?.type === 'layout' ? selectedBannerTemplate.value : null
+    return {
+      bannerWidth: layout?.width || 537,
+      bannerHeight: layout?.height || 251,
+    }
+  }, [selectedBannerTemplate])
   const [importStatus, setImportStatus] = useState({ text: '', progress: 0, total: 0 })
   const [importProgress, setImportProgress] = useState({ text: '', progress: 0, total: 0 })
   const [dbUpdateStatus, setDbUpdateStatus] = useState({ text: '', progress: 0, total: 0 })
@@ -189,8 +193,8 @@ const App = () => {
   // ── Hooks ──────────────────────────────────────────────────────────────────
   const {
     games, catalogGames, wishlistGames, totalVersions, fetchGames, fetchCatalogGames,
-    fetchMoreCatalogGames, catalogLoading, catalogLoadingMore, catalogHasMore,
-    catalogOffset, catalogTotal, catalogLoadError,
+    requestCatalogRange, catalogLoading, catalogLoadingMore,
+    catalogTotal, catalogLoadError,
     fetchWishlistGames, replaceGameInState,
     removeGameFromState, refreshGame, includeUninstalledRef,
   } = useGames()
@@ -202,6 +206,10 @@ const App = () => {
   const catalogWithWishlist = useMemo(
     () => withWishlistStates(catalogGames, wishlistIdentityKeys),
     [catalogGames, wishlistIdentityKeys],
+  )
+  const catalogLoadedCount = useMemo(
+    () => catalogGames.reduce((count, game) => count + (game ? 1 : 0), 0),
+    [catalogGames],
   )
   const wishlistWithState = useMemo(
     () => withWishlistStates(wishlistGames, wishlistIdentityKeys),
@@ -232,30 +240,13 @@ const App = () => {
   useEffect(() => {
     catalogQueryFiltersRef.current = catalogQueryFilters
   }, [catalogQueryFilters])
-  const catalogFilteredGames = useMemo(
-    () =>
-      filterGamesWithState(catalogWithWishlist, catalogQueryFilters, { browseMode: true }),
-    [catalogWithWishlist, catalogQueryFilters],
-  )
-  const requestMoreCatalogGames = useCallback(() => {
-    if (
-      libraryMode !== 'catalog' ||
-      selectedGame ||
-      catalogLoading ||
-      catalogLoadingMore ||
-      !catalogHasMore
-    ) {
-      return
-    }
-    fetchMoreCatalogGames()
-  }, [
-    catalogHasMore,
-    catalogLoading,
-    catalogLoadingMore,
-    fetchMoreCatalogGames,
-    libraryMode,
-    selectedGame,
-  ])
+  // Catalog/Browse rows come back from the server already filtered and
+  // sorted (see electron/db/versions.js getCatalogGames) — catalogGames is
+  // re-filtered here for nothing else, just annotated with wishlist state,
+  // so its array indices stay aligned 1:1 with the server's absolute
+  // result positions (which is what requestCatalogRange's windowed
+  // loading relies on; re-filtering client-side would shift indices and
+  // break that alignment, in addition to being redundant work).
   const wishlistFilteredGames = useMemo(
     () =>
       filterGamesWithState(wishlistWithState, {
@@ -270,7 +261,7 @@ const App = () => {
   )
   const filteredGames =
     libraryMode === 'catalog'
-      ? catalogFilteredGames
+      ? catalogWithWishlist
       : libraryMode === 'wishlist'
         ? wishlistFilteredGames
         : localFilteredGames
@@ -419,42 +410,6 @@ const App = () => {
     return Math.max(1, Math.floor(availableWidth / (bannerSize.bannerWidth + 16)))
   }
 
-  const loadBannerLayoutMetrics = useCallback(async () => {
-    const classicLayout = getBannerLayoutById(defaultBannerLayouts, CLASSIC_BANNER_LAYOUT_ID)
-    let resolvedLayout = classicLayout
-    try {
-      const selected = await window.electronAPI.getSelectedBannerTemplate()
-      const selectedId = normalizeBannerLayoutId(selected)
-      if (selectedId === CUSTOM_BANNER_LAYOUT_ID) {
-        const customLayout = await window.electronAPI.getCustomBannerLayout?.()
-        resolvedLayout = normalizeBannerLayout(customLayout, classicLayout) || classicLayout
-      } else {
-        const builtInLayout = getBannerLayoutById(defaultBannerLayouts, selectedId)
-        if (builtInLayout?.id === selectedId) {
-          resolvedLayout = builtInLayout
-        } else {
-          const userPresets = await window.electronAPI.getUserBannerLayouts?.()
-          const userPreset = (Array.isArray(userPresets) ? userPresets : [])
-            .find((preset) => preset?.id === selectedId)
-          resolvedLayout = normalizeBannerPreset(userPreset, classicLayout)?.layout || classicLayout
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load banner layout metrics:', error)
-      resolvedLayout = classicLayout
-    }
-
-    const normalizedLayout = normalizeBannerLayout(resolvedLayout, classicLayout) || classicLayout
-    setBannerSize({
-      bannerWidth: normalizedLayout.width || 537,
-      bannerHeight: normalizedLayout.height || 251,
-    })
-    requestAnimationFrame(() => {
-      gridRef.current?.recomputeGridSize?.()
-      gridRef.current?.forceUpdate?.()
-    })
-  }, [])
-
   const debounceResize = debounce(() => {
     if (gridRef.current) {
       gridRef.current.recomputeGridSize()
@@ -462,10 +417,47 @@ const App = () => {
     }
   }, 16)
 
+  // Re-measure the Grid whenever the resolved banner card size changes —
+  // covers the initial resolution, picking a different template/layout in
+  // Settings, and live theme-builder edits broadcast from another window
+  // (all of which now flow through BannerTemplateProvider, see
+  // src/theme/BannerTemplateProvider.jsx). Previously this recompute was
+  // triggered manually at the end of loadBannerLayoutMetrics(); it's now
+  // just a reaction to bannerSize itself.
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      gridRef.current?.recomputeGridSize?.()
+      gridRef.current?.forceUpdate?.()
+    })
+  }, [bannerSize.bannerWidth, bannerSize.bannerHeight])
+
   const getCellRenderer = (currentColumnCount) => ({ columnIndex, rowIndex, style }) => {
     const index = rowIndex * currentColumnCount + columnIndex
     if (index >= filteredGames.length) return null
     const game = filteredGames[index]
+    if (!game) {
+      // Not-loaded-yet catalog slot — requestCatalogRange() (driven by the
+      // Grid's onSectionRendered) will fetch the page covering this index
+      // once it's actually scrolled into view; this is just a same-sized
+      // placeholder so the grid doesn't jump around while that happens.
+      return (
+        <div
+          key={`placeholder-${index}`}
+          style={{
+            ...style,
+            display: 'flex',
+            justifyContent: 'center',
+            padding: '8px 4px',
+            maxWidth: '100%',
+          }}
+        >
+          <div
+            className="animate-pulse rounded bg-secondary"
+            style={{ width: bannerSize.bannerWidth, height: bannerSize.bannerHeight }}
+          />
+        </div>
+      )
+    }
     return (
       <div
         key={game.record_id}
@@ -516,8 +508,8 @@ const App = () => {
     setSelectedGame(null)
     setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
     setShowSearchSidebar(false)
-    if (catalogGames.length === 0) fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
-  }, [browseAvailable, catalogGames.length, catalogQueryFilters, catalogSearch, fetchCatalogGames, setAndPersistSidePanelMode])
+    if (catalogTotal === null) fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
+  }, [browseAvailable, catalogTotal, catalogQueryFilters, catalogSearch, fetchCatalogGames, setAndPersistSidePanelMode])
 
   const loadWishlistIdentities = useCallback(() => {
     return window.electronAPI
@@ -832,8 +824,6 @@ const App = () => {
     loadWishlistIdentities()
     loadSavedFilters()
 
-    loadBannerLayoutMetrics()
-
     loadVersion()
     runDbUpdateCheck()
 
@@ -943,8 +933,6 @@ const App = () => {
       // toggle, or this same prompt answered in another open window.
       setNsfwEnabled(data?.enabled === true)
     })
-    const removeBannerLayoutListener = window.electronAPI.onBannerLayoutUpdated?.(loadBannerLayoutMetrics)
-
     window.electronAPI.getAppUpdateState?.()
       .then((status) => { if (status?.status && status.status !== 'idle') handleUpdateStatus(status) })
       .catch((error) => console.error('Failed to load app update state:', error))
@@ -957,23 +945,14 @@ const App = () => {
       }
     })
 
-    const handleVisibilityChange = () => {
-      if (!document.hidden) loadBannerLayoutMetrics()
-    }
-
     window.addEventListener('resize', debounceResize)
-    window.addEventListener('focus', loadBannerLayoutMetrics)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
     debounceResize()
 
     return () => {
       window.electronAPI.removeUpdateStatusListener?.()
       if (typeof removeMetadataListener === 'function') removeMetadataListener()
       if (typeof removeNsfwListener === 'function') removeNsfwListener()
-      if (typeof removeBannerLayoutListener === 'function') removeBannerLayoutListener()
       window.removeEventListener('resize', debounceResize)
-      window.removeEventListener('focus', loadBannerLayoutMetrics)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
       ;[
         'window-state-changed', 'db-update-progress', 'import-progress',
         'game-imported', 'game-updated', 'library-validation-progress',
@@ -990,28 +969,6 @@ const App = () => {
     if (libraryMode !== 'catalog' || !browseAvailable) return
     fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
   }, [browseAvailable, catalogQueryFilters, catalogSearch, fetchCatalogGames, libraryMode])
-
-  useEffect(() => {
-    if (
-      libraryMode !== 'catalog' ||
-      selectedGame ||
-      catalogLoading ||
-      catalogLoadingMore ||
-      !catalogHasMore ||
-      catalogFilteredGames.length >= BROWSE_FILTER_PREFETCH_MIN
-    ) {
-      return
-    }
-    fetchMoreCatalogGames()
-  }, [
-    catalogFilteredGames.length,
-    catalogHasMore,
-    catalogLoading,
-    catalogLoadingMore,
-    fetchMoreCatalogGames,
-    libraryMode,
-    selectedGame,
-  ])
 
   useEffect(() => {
     if (!showSavedFilters || includeUninstalledRef.current) return
@@ -1197,7 +1154,7 @@ const App = () => {
                     : 'No games found'}
               </div>
             ) : (
-              filteredGames.map((game) => {
+              filteredGames.filter(Boolean).map((game) => {
                 const isSelected = selectedGame?.record_id === game.record_id
                 return (
                   <div
@@ -1282,17 +1239,23 @@ const App = () => {
               onWishlistChanged={handleWishlistChanged}
             />
           ) : filteredGames.length === 0 ? (
-            <div className="text-center text-text">
-              {libraryMode === 'catalog' && catalogLoading
-                ? 'Loading Browse...'
-                : libraryMode === 'catalog'
-                ? catalogHasMore
-                  ? 'No loaded Browse titles match these filters yet. Load more to keep searching.'
-                  : 'No browse titles match these filters.'
-                : libraryMode === 'wishlist'
-                  ? 'No wishlist entries yet.'
-                  : 'No games available'}
-            </div>
+            libraryMode === 'catalog' && catalogLoading ? (
+              <div className="flex h-full items-center justify-center">
+                <div
+                  className="h-10 w-10 animate-spin rounded-full border-4 border-border border-t-accent"
+                  role="status"
+                  aria-label="Loading Browse titles"
+                />
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center text-center text-text">
+                {libraryMode === 'catalog'
+                  ? 'No browse titles match these filters.'
+                  : libraryMode === 'wishlist'
+                    ? 'No wishlist entries yet.'
+                    : 'No games available'}
+              </div>
+            )
           ) : (
             <AutoSizer>
               {({ height, width }) => {
@@ -1313,16 +1276,17 @@ const App = () => {
                     height={height}
                     width={adjustedWidth}
                     cellRenderer={getCellRenderer(currentColumnCount)}
-                    onScroll={({ clientHeight, scrollHeight, scrollTop }) => {
+                    onScroll={({ scrollTop }) => {
                       if (pendingLibraryScrollTopRestoreRef.current === null) {
                         libraryScrollTopRef.current = scrollTop || 0
                       }
-                      if (
-                        libraryMode === 'catalog' &&
-                        scrollHeight - (scrollTop + clientHeight) < BROWSE_SCROLL_LOAD_THRESHOLD_PX
-                      ) {
-                        requestMoreCatalogGames()
-                      }
+                    }}
+                    onSectionRendered={({ rowStartIndex, rowStopIndex }) => {
+                      if (libraryMode !== 'catalog') return
+                      requestCatalogRange(
+                        rowStartIndex * currentColumnCount,
+                        (rowStopIndex + 1) * currentColumnCount - 1,
+                      )
                     }}
                     style={{ overflowX: 'hidden' }}
                   />
@@ -1330,21 +1294,9 @@ const App = () => {
               }}
             </AutoSizer>
           )}
-          {!selectedGame && libraryMode === 'catalog' && (
-            <div className="flex flex-col items-center justify-center gap-2 py-4 text-sm text-text">
-              {catalogLoadError && <div className="text-danger">Browse load failed: {catalogLoadError}</div>}
-              {catalogLoadingMore && <div>Loading more Browse titles...</div>}
-              {!catalogLoading && !catalogLoadingMore && catalogHasMore && (
-                <div>Scroll to load more Browse titles...</div>
-              )}
-              {catalogTotal !== null && (
-                <div className="text-xs text-muted">
-                  Loaded {Math.min(catalogOffset, catalogTotal)} / {catalogTotal}
-                </div>
-              )}
-              {catalogTotal === null && catalogGames.length > 0 && catalogHasMore && (
-                <div className="text-xs text-muted">Loaded {catalogGames.length}; more available</div>
-              )}
+          {!selectedGame && libraryMode === 'catalog' && catalogLoadError && (
+            <div className="py-4 text-center text-sm text-danger">
+              Browse load failed: {catalogLoadError}
             </div>
           )}
         </div>
@@ -1477,7 +1429,7 @@ const App = () => {
           <i className="fas fa-gamepad mr-2 text-text"></i>
           <span>
             {libraryMode === 'catalog'
-              ? `${filteredGames.length} Browse Titles${catalogTotal !== null ? ` (loaded ${Math.min(catalogOffset, catalogTotal)} / ${catalogTotal})` : catalogHasMore ? ` (loaded ${catalogGames.length}+)` : ''}`
+              ? `${catalogTotal !== null ? catalogTotal : filteredGames.length} Browse Titles${catalogTotal !== null ? ` (${catalogLoadedCount} loaded)` : ''}`
               : libraryMode === 'wishlist'
                 ? `${filteredGames.length} Wishlist ${filteredGames.length === 1 ? 'Entry' : 'Entries'}`
               : activeFilters.includeUninstalled
