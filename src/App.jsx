@@ -965,9 +965,20 @@ const App = () => {
     requestAnimationFrame(() => debounceResize())
   }, [showLibrarySidebar, showSearchSidebar, filterSidebarMode, filterSidebarSide, libraryMode])
 
+  const catalogResetDebounceRef = useRef(null)
   useEffect(() => {
     if (libraryMode !== 'catalog' || !browseAvailable) return
-    fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
+    if (catalogResetDebounceRef.current) clearTimeout(catalogResetDebounceRef.current)
+    catalogResetDebounceRef.current = setTimeout(() => {
+      catalogResetDebounceRef.current = null
+      fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
+    }, 300)
+    return () => {
+      if (catalogResetDebounceRef.current) {
+        clearTimeout(catalogResetDebounceRef.current)
+        catalogResetDebounceRef.current = null
+      }
+    }
   }, [browseAvailable, catalogQueryFilters, catalogSearch, fetchCatalogGames, libraryMode])
 
   useEffect(() => {

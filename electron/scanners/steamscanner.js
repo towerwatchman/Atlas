@@ -63,15 +63,26 @@ function parseVDF(text) {
 
 // Steam serves canonical, hashed store art from this CDN. The IStoreBrowseService
 // GetItems endpoint hands back exact filenames (incl. cache-buster ?t=hash) which
-// we join onto this base — no guessing, no 404s, no mislabeled logo.
+// we join onto this base — no guessing, no mislabeled logo.
 const STORE_ASSET_BASE = "https://shared.fastly.steamstatic.com/store_item_assets/";
 
-// Resolve guaranteed-existing library art for an appid via the public (keyless)
-// IStoreBrowseService/GetItems endpoint — the same call the Steam store front-end
-// makes. Returns { header, hero, capsule, logo } of full https URLs; any field
-// may be absent. Returns {} on any failure so callers fall back to convention
-// URLs. NOTE: response shape assumed from the live store API — verify against a
-// real response if fields come back empty.
+async function urlExists(url) {
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Resolve library art for an appid via the public (keyless) IStoreBrowseService/
+// GetItems endpoint — the same call the Steam store front-end makes. Returns
+// { header, hero, capsule, logo } of full https URLs; any field may be absent.
+// Returns {} on any failure. NOTE: response shape assumed from the live store
+// API — verify against a real response if fields come back empty.
+//
+// This is now a per-field FALLBACK, not the primary source — see
+// resolveLibraryAssets below for why.
 async function fetchStoreItemAssets(appid) {
   const id = parseInt(appid, 10);
   if (!id) return {};
@@ -123,10 +134,111 @@ async function fetchStoreItemAssets(appid) {
   }
 }
 
-async function getSteamGameData(steamId) {
+// Three sources Atlas can pull header/hero/capsule/logo art from, tried in
+// whatever order Settings > Metadata > Steam Image Sources specifies (see
+// normalizeAssetSourceOrder below). "fastly" and "akamaihd" are both flat,
+// non-hashed CDN convention paths — same images, different CDN provider —
+// existence-checked via HEAD since unlike GetItems, a convention URL can
+// genuinely 404. "getitems" is the IStoreBrowseService API call.
+const STEAM_CDN_HOSTS = {
+  fastly: (appid, file) => `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appid}/${file}`,
+  akamaihd: (appid, file) => `https://steamcdn-a.akamaihd.net/steam/apps/${appid}/${file}`,
+};
+const CONVENTION_FILES = {
+  header: "header.jpg",
+  hero: "library_hero.jpg",
+  capsule: "library_600x900.jpg",
+  logo: "logo.png",
+};
+const DEFAULT_STEAM_ASSET_SOURCE_ORDER = ["fastly", "akamaihd", "getitems"];
+const STEAM_ASSET_SOURCE_IDS = new Set([...Object.keys(STEAM_CDN_HOSTS), "getitems"]);
+
+// Accepts the raw Metadata.steamAssetSourceOrder setting (a comma string,
+// e.g. "fastly,akamaihd,getitems" — same INI-round-trip convention as the
+// existing Metadata.sourceOrder setting) or an array. Unknown entries are
+// dropped and duplicates removed while preserving order; an empty/invalid
+// result falls back to the default order rather than resolving nothing.
+function normalizeAssetSourceOrder(raw) {
+  const list = Array.isArray(raw) ? raw : String(raw || "").split(",");
+  const seen = new Set();
+  const cleaned = [];
+  for (const entry of list) {
+    const id = String(entry || "").trim().toLowerCase();
+    if (!STEAM_ASSET_SOURCE_IDS.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    cleaned.push(id);
+  }
+  return cleaned.length > 0 ? cleaned : DEFAULT_STEAM_ASSET_SOURCE_ORDER;
+}
+
+// Resolves { header, hero, capsule, logo } for an appid by walking
+// sourceOrder (see normalizeAssetSourceOrder) and, for each field still
+// unresolved, trying the next source in the queue. A field is taken from
+// whichever source finds it FIRST in queue order — once any source has
+// resolved a field, later sources are never consulted for that field, so
+// a stale GetItems response can't override an asset a higher-priority CDN
+// already serves (or vice versa, if GetItems is reordered above the CDNs).
+async function resolveLibraryAssets(steamId, sourceOrderSetting) {
+  const sourceOrder = normalizeAssetSourceOrder(sourceOrderSetting);
+  const resolved = {};
+  const fields = Object.keys(CONVENTION_FILES);
+
+  // fetchStoreItemAssets is a single API call covering all four fields —
+  // memoize it so "getitems" appearing anywhere in the queue only ever
+  // hits the network once per resolve, regardless of how many fields it
+  // ends up being asked to fill.
+  let apiAssetsPromise = null;
+  const getApiAssets = () => {
+    if (!apiAssetsPromise) apiAssetsPromise = fetchStoreItemAssets(steamId);
+    return apiAssetsPromise;
+  };
+
+  for (const source of sourceOrder) {
+    const stillNeeded = fields.filter((field) => !resolved[field]);
+    if (stillNeeded.length === 0) break;
+
+    if (source === "getitems") {
+      const apiAssets = await getApiAssets();
+      for (const field of stillNeeded) {
+        if (apiAssets[field]) resolved[field] = apiAssets[field];
+      }
+      continue;
+    }
+
+    const buildUrl = STEAM_CDN_HOSTS[source];
+    if (!buildUrl) continue;
+    const checks = await Promise.all(
+      stillNeeded.map(async (field) => {
+        const url = buildUrl(steamId, CONVENTION_FILES[field]);
+        return [field, url, await urlExists(url)];
+      }),
+    );
+    for (const [field, url, exists] of checks) {
+      if (exists) resolved[field] = url;
+    }
+  }
+
+  const stillMissing = fields.filter((field) => !resolved[field]);
+  if (stillMissing.length > 0) {
+    console.log(
+      `Steam ${steamId}: could not resolve [${stillMissing.join(", ")}] from any source in order [${sourceOrder.join(", ")}]`,
+    );
+  }
+
+  return resolved;
+}
+
+async function getSteamGameData(steamId, steamAssetSourceOrder) {
   try {
+    // l/cc are required here, not optional: without them Steam geolocates
+    // the response language (and currency/region-gated fields) from the
+    // request's apparent origin, which is how descriptions and other text
+    // come back in Spanish (or whatever locale the request looks like it's
+    // from) for some games. The other two Steam endpoints this file calls
+    // (fetchStoreItemAssets below, findSteamId further down) already pin
+    // this explicitly — this was the one inconsistent call.
     const steamResponse = await fetch(
-      `https://store.steampowered.com/api/appdetails?appids=${steamId}`,
+      `https://store.steampowered.com/api/appdetails?appids=${steamId}&l=english&cc=us`,
     );
     const steamJson = await steamResponse.json();
     if (!steamJson[steamId] || !steamJson[steamId].success) {
@@ -198,9 +310,10 @@ async function getSteamGameData(steamId) {
       `Steam ${steamId}: ${movies.length} trailer(s), ${screenshots.length} screenshot(s)`,
     );
 
-    // Canonical, hashed library art (keyless GetItems). Falls back to buildable
-    // convention URLs on the live fastly CDN (NOT the dead akamaihd host).
-    const assets = await fetchStoreItemAssets(steamId);
+    // CDN-first (what the store front-end itself serves, kept current),
+    // gap-filled per field from GetItems if the CDN convention URL 404s —
+    // see resolveLibraryAssets for why the priority is this way round.
+    const assets = await resolveLibraryAssets(steamId, steamAssetSourceOrder);
     const conventionAsset = (file) =>
       `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${steamId}/${file}`;
 
@@ -233,6 +346,7 @@ async function getSteamGameData(steamId) {
       logo: assets.logo || conventionAsset("logo.png"),
       last_record_update: new Date().toISOString(),
     };
+
 
     return { game, screenshots, movies };
   } catch (error) {
@@ -522,9 +636,9 @@ function getCachedSteamData(db, steamId) {
 
 // Fetch fresh metadata from the Steam store API and persist it (steam_data +
 // screenshots). Returns the normalized game object, or null on failure.
-async function fetchAndStoreSteamData(db, steamId) {
+async function fetchAndStoreSteamData(db, steamId, steamAssetSourceOrder) {
   const database = db || liveDb();
-  const result = await getSteamGameData(steamId);
+  const result = await getSteamGameData(steamId, steamAssetSourceOrder);
   if (!result) return null;
   try {
     if (database) {
@@ -643,6 +757,9 @@ module.exports = {
   getSteamGameData,
   fetchAndStoreSteamData,
   fetchStoreItemAssets,
+  resolveLibraryAssets,
+  normalizeAssetSourceOrder,
+  DEFAULT_STEAM_ASSET_SOURCE_ORDER,
   findSteamId,
   insertSteamData,
   insertSteamScreens,

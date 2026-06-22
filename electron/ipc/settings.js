@@ -31,6 +31,11 @@ const defaultConfig = {
     downloadPreviews: false,
     mediaStorageMode: 'stream',
     sourceOrder: 'f95,lewdcorner,steam',
+    // Order Atlas tries Steam's three art sources in when resolving the
+    // header/hero/library-capsule/logo images — see
+    // electron/scanners/steamscanner.js resolveLibraryAssets(). Same
+    // comma-string-for-clean-INI-round-trips convention as sourceOrder above.
+    steamAssetSourceOrder: 'fastly,akamaihd,getitems',
   },
   Importer: {
     sourceGamePath: '',

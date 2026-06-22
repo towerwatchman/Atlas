@@ -12,6 +12,20 @@ const AVAILABLE_SOURCES = [
 const SOURCE_LABELS = Object.fromEntries(AVAILABLE_SOURCES.map((s) => [s.id, s.label]))
 const labelFor = (id) => SOURCE_LABELS[id] || id
 
+// The three places Atlas can pull a Steam game's header/hero/library-capsule/
+// logo art from — see electron/scanners/steamscanner.js resolveLibraryAssets().
+// "fastly" and "akamaihd" are the same flat CDN convention images served by
+// two different CDN providers Valve uses; "getitems" is the Steam store's
+// IStoreBrowseService API, which can occasionally lag behind what the CDNs
+// are currently serving (e.g. right after a major content update).
+const AVAILABLE_STEAM_ASSET_SOURCES = [
+  { id: 'fastly', label: 'Fastly CDN' },
+  { id: 'akamaihd', label: 'Akamai CDN' },
+  { id: 'getitems', label: 'Steam GetItems API' },
+]
+const STEAM_ASSET_SOURCE_LABELS = Object.fromEntries(AVAILABLE_STEAM_ASSET_SOURCES.map((s) => [s.id, s.label]))
+const labelForSteamAssetSource = (id) => STEAM_ASSET_SOURCE_LABELS[id] || id
+
 const toBoolean = (value, fallback = false) => {
   if (value === true || value === false) return value
   if (value === 1 || value === '1') return true
@@ -38,10 +52,74 @@ const parseOrder = (raw) => {
   return list.map((s) => String(s || '').trim().toLowerCase()).filter(Boolean)
 }
 
+// Reorderable list of enabled sources, with a dropdown to re-add any removed
+// ones — shared by the metadata-source list and the Steam asset-source list
+// below, which are otherwise identical in behavior.
+const SourceOrderList = ({ order, availableSources, labelFor, onMove, onRemove, onAdd, emptyMessage }) => {
+  const unused = availableSources.filter((s) => !order.includes(s.id))
+  return (
+    <>
+      <ul className="flex flex-col gap-2 mb-3">
+        {order.length === 0 && (
+          <li className="text-xs opacity-50">{emptyMessage}</li>
+        )}
+        {order.map((id, index) => (
+          <li
+            key={id}
+            className="flex items-center gap-2 bg-secondary border border-border rounded px-3 py-2"
+          >
+            <span className="w-5 text-center opacity-60">{index + 1}</span>
+            <span className="flex-1">{labelFor(id)}</span>
+            <button
+              onClick={() => onMove(index, -1)}
+              disabled={index === 0}
+              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-buttonHover disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Move up"
+            >
+              <i className="fas fa-chevron-up"></i>
+            </button>
+            <button
+              onClick={() => onMove(index, 1)}
+              disabled={index === order.length - 1}
+              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-buttonHover disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Move down"
+            >
+              <i className="fas fa-chevron-down"></i>
+            </button>
+            <button
+              onClick={() => onRemove(id)}
+              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-danger"
+              title="Disable source"
+            >
+              <i className="fas fa-times"></i>
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {unused.length > 0 && (
+        <div className="flex items-center gap-2">
+          <select
+            className="w-48 bg-secondary border border-border text-text rounded p-1"
+            value=""
+            onChange={(e) => onAdd(e.target.value)}
+          >
+            <option value="" disabled>Add a source…</option>
+            {unused.map((s) => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+    </>
+  )
+}
+
 const Metadata = () => {
   const [mediaStorageMode, setMediaStorageMode] = useState('stream')
   const [downloadPreviews, setDownloadPreviews] = useState(false)
   const [sourceOrder, setSourceOrder] = useState(['f95', 'lewdcorner', 'steam'])
+  const [steamAssetSourceOrder, setSteamAssetSourceOrder] = useState(['fastly', 'akamaihd', 'getitems'])
   const [mediaDownloadConcurrency, setMediaDownloadConcurrency] = useState(3)
   const [mediaPerHostConcurrency, setMediaPerHostConcurrency] = useState(2)
   const [mediaRequestDelayMs, setMediaRequestDelayMs] = useState(100)
@@ -55,6 +133,12 @@ const Metadata = () => {
       setSourceOrder(metadataSettings.sourceOrder === undefined || metadataSettings.sourceOrder === null
         ? ['f95', 'lewdcorner', 'steam']
         : parsed)
+      const parsedSteamAssetOrder = parseOrder(metadataSettings.steamAssetSourceOrder)
+      setSteamAssetSourceOrder(
+        metadataSettings.steamAssetSourceOrder === undefined || metadataSettings.steamAssetSourceOrder === null
+          ? ['fastly', 'akamaihd', 'getitems']
+          : parsedSteamAssetOrder
+      )
       const performanceSettings = config.Performance || {}
       setMediaDownloadConcurrency(clampInteger(performanceSettings.mediaDownloadConcurrency, 3, 1, 8))
       setMediaPerHostConcurrency(clampInteger(performanceSettings.mediaPerHostConcurrency, 2, 1, 5))
@@ -124,12 +208,32 @@ const Metadata = () => {
     persistOrder(sourceOrder.filter((s) => s !== id))
   }
 
+  const persistSteamAssetOrder = (next) => {
+    setSteamAssetSourceOrder(next)
+    saveSettings({ steamAssetSourceOrder: next.join(',') })
+  }
+
+  const moveSteamAssetSource = (index, delta) => {
+    const next = [...steamAssetSourceOrder]
+    const target = index + delta
+    if (target < 0 || target >= next.length) return
+    ;[next[index], next[target]] = [next[target], next[index]]
+    persistSteamAssetOrder(next)
+  }
+
+  const removeSteamAssetSource = (id) => {
+    persistSteamAssetOrder(steamAssetSourceOrder.filter((s) => s !== id))
+  }
+
+  const addSteamAssetSource = (id) => {
+    if (!id || steamAssetSourceOrder.includes(id)) return
+    persistSteamAssetOrder([...steamAssetSourceOrder, id])
+  }
+
   const addSource = (id) => {
     if (!id || sourceOrder.includes(id)) return
     persistOrder([...sourceOrder, id])
   }
-
-  const unusedSources = AVAILABLE_SOURCES.filter((s) => !sourceOrder.includes(s.id))
 
   return (
     <div className="p-5 text-text">
@@ -212,58 +316,37 @@ const Metadata = () => {
         hero image and logo on the game details page.
       </p>
 
-      <ul className="flex flex-col gap-2 mb-3">
-        {sourceOrder.length === 0 && (
-          <li className="text-xs opacity-50">No sources enabled — add one below.</li>
-        )}
-        {sourceOrder.map((id, index) => (
-          <li
-            key={id}
-            className="flex items-center gap-2 bg-secondary border border-border rounded px-3 py-2"
-          >
-            <span className="w-5 text-center opacity-60">{index + 1}</span>
-            <span className="flex-1">{labelFor(id)}</span>
-            <button
-              onClick={() => moveSource(index, -1)}
-              disabled={index === 0}
-              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-buttonHover disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Move up"
-            >
-              <i className="fas fa-chevron-up"></i>
-            </button>
-            <button
-              onClick={() => moveSource(index, 1)}
-              disabled={index === sourceOrder.length - 1}
-              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-buttonHover disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Move down"
-            >
-              <i className="fas fa-chevron-down"></i>
-            </button>
-            <button
-              onClick={() => removeSource(id)}
-              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-danger"
-              title="Disable source"
-            >
-              <i className="fas fa-times"></i>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <SourceOrderList
+        order={sourceOrder}
+        availableSources={AVAILABLE_SOURCES}
+        labelFor={labelFor}
+        onMove={moveSource}
+        onRemove={removeSource}
+        onAdd={addSource}
+        emptyMessage="No sources enabled — add one below."
+      />
 
-      {unusedSources.length > 0 && (
-        <div className="flex items-center gap-2">
-          <select
-            className="w-48 bg-secondary border border-border text-text rounded p-1"
-            value=""
-            onChange={(e) => addSource(e.target.value)}
-          >
-            <option value="" disabled>Add a source…</option>
-            {unusedSources.map((s) => (
-              <option key={s.id} value={s.id}>{s.label}</option>
-            ))}
-          </select>
-        </div>
-      )}
+      <div className="border-t border-text opacity-25 my-3"></div>
+
+      <label className="block mb-1">Steam Image Sources</label>
+      <p className="text-xs opacity-50 mb-3">
+        The order below sets which source Atlas tries first for a Steam
+        game's header, hero, library capsule, and logo art — the topmost
+        available source wins per image, falling through to the next if
+        that source doesn't have it. The Fastly and Akamai CDNs serve the
+        same images from two different providers; the Steam API can
+        occasionally lag behind both right after a game ships new art.
+      </p>
+
+      <SourceOrderList
+        order={steamAssetSourceOrder}
+        availableSources={AVAILABLE_STEAM_ASSET_SOURCES}
+        labelFor={labelForSteamAssetSource}
+        onMove={moveSteamAssetSource}
+        onRemove={removeSteamAssetSource}
+        onAdd={addSteamAssetSource}
+        emptyMessage="No image sources enabled — Steam art won't load. Add one below."
+      />
 
       <div className="border-t border-text opacity-25 my-2"></div>
     </div>

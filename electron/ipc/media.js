@@ -229,7 +229,7 @@ module.exports = function registerMediaHandlers(ctx) {
       const sourceOrder = getMetadataSourceOrder()
       const steamId = await getSteamIDbyRecord(recordId)
       if (steamId) {
-        await fetchAndStoreSteamData(null, steamId)
+        await fetchAndStoreSteamData(null, steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder)
       }
       const bannerUrl = await getRemoteBannerUrl(recordId, { sourceOrder })
       const downloadResult = await downloadImages(
@@ -275,7 +275,7 @@ module.exports = function registerMediaHandlers(ctx) {
       const sourceOrder = getMetadataSourceOrder()
       const steamId = await getSteamIDbyRecord(recordId)
       if (steamId) {
-        await fetchAndStoreSteamData(null, steamId)
+        await fetchAndStoreSteamData(null, steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder)
       }
       const rawPreviewUrls = await getRemotePreviewUrls(recordId, { sourceOrder })
       const screenUrls = rawPreviewUrls.map((url) => ({ url, source: inferMediaSource(url) }))
@@ -321,7 +321,7 @@ module.exports = function registerMediaHandlers(ctx) {
       // only way games imported before a given enrichment get refreshed.
       const steamId = await getSteamIDbyRecord(recordId)
       if (steamId) {
-        await fetchAndStoreSteamData(null, steamId)
+        await fetchAndStoreSteamData(null, steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder)
       }
       const atlasId = await GetAtlasIDbyRecord(recordId)
       const sourceOrder = getMetadataSourceOrder()

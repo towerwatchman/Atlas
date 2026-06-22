@@ -2187,7 +2187,7 @@ ipcMain.handle("cancel-scan", async () => {
 });
 
 ipcMain.handle("get-steam-game-data", async (event, steamId) => {
-  return await fetchAndStoreSteamData(db, steamId);
+  return await fetchAndStoreSteamData(db, steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder);
 });
 
 ipcMain.handle("search-atlas", async (event, params) => {
@@ -3002,7 +3002,7 @@ ipcMain.handle("import-games", async (event, params) => {
     ;(async () => {
       for (const r of steamToEnrich) {
         try {
-          await fetchAndStoreSteamData(null, r.steamId);
+          await fetchAndStoreSteamData(null, r.steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder);
           mainWindow?.webContents?.send("game-updated", r.recordId);
         } catch (err) {
           console.error(`Background steam enrichment failed for ${r.steamId}:`, err);
@@ -3125,7 +3125,7 @@ ipcMain.handle("import-games", async (event, params) => {
 
         if (steamId) {
           try {
-            await fetchAndStoreSteamData(null, steamId);
+            await fetchAndStoreSteamData(null, steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder);
           } catch (steamErr) {
             console.warn(`Import media trace: Steam metadata refresh failed for ${steamId}:`, steamErr);
           }
@@ -3372,7 +3372,7 @@ ipcMain.handle("import-games", async (event, params) => {
 ipcMain.handle("get-steam-data", async (event, steam_id) => {
   console.log("Handling get-steam-data:", steam_id);
   try {
-    const game = await fetchAndStoreSteamData(db, steam_id);
+    const game = await fetchAndStoreSteamData(db, steam_id, ctx.appConfig?.Metadata?.steamAssetSourceOrder);
     console.log("Steam Game data updated in database");
     return game;
   } catch (err) {
