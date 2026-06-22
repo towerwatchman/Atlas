@@ -32,6 +32,10 @@ export const defaultFilters = {
   steamMapped: false,
   personalRatingMin: 0,
   personalRatingRatedOnly: false,
+  // F95Zone/LewdCorner community rating (0-5, distinct from the personal
+  // 0-10 rating above) — works across the whole catalog regardless of
+  // install status, since it comes from the source site itself.
+  communityRatingMin: 0,
   includeUninstalled: false,
   installState: 'installed',
   multipleInstalledVersions: false,
@@ -169,6 +173,10 @@ export const normalizeFilterState = (filters = {}) => {
     ? Math.max(0, Math.min(10, Math.round(personalRatingMin)))
     : 0
   merged.personalRatingRatedOnly = merged.personalRatingRatedOnly === true
+  const communityRatingMin = Number(merged.communityRatingMin)
+  merged.communityRatingMin = Number.isFinite(communityRatingMin)
+    ? Math.max(0, Math.min(5, Math.round(communityRatingMin * 10) / 10))
+    : 0
   merged.multipleInstalledVersions = merged.multipleInstalledVersions === true
   if (!['installed', 'uninstalled', 'all'].includes(merged.installState)) {
     merged.installState = merged.includeUninstalled ? 'all' : 'installed'
@@ -835,6 +843,13 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
     })
   }
 
+  if (activeFilters.communityRatingMin > 0) {
+    result = result.filter((game) => {
+      const rating = getNullableNumber(game.rating ?? game.lewdcornerRating)
+      return rating !== null && rating >= activeFilters.communityRatingMin
+    })
+  }
+
   if (activeFilters.steamMapped) {
     result = result.filter(hasSteamMapping)
   }
@@ -995,6 +1010,20 @@ export const builtInSavedFilters = [
       personalRatingMin: 8,
       sort: 'personalRating',
       sortDirection: 'desc',
+      includeUninstalled: true,
+      installState: 'all',
+    }),
+  },
+  {
+    id: 'builtin-f95-rating',
+    name: 'F95 Rating',
+    builtIn: true,
+    // Community rating (F95Zone/LewdCorner, 0-5) — unlike "Highly rated"
+    // above (your own personal rating, which only exists for entries
+    // you've played), this works across the whole catalog regardless of
+    // install status.
+    filters: normalizeFilterState({
+      communityRatingMin: 4,
       includeUninstalled: true,
       installState: 'all',
     }),

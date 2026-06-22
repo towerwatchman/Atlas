@@ -434,6 +434,22 @@ const SearchSidebar = ({
                   Latest update uses AtlasDB thread_updated. Entries without a known thread update date sort last and are excluded from date-range filters.
                 </p>
               </label>
+              <label className="block text-sm">
+                <span className="block mb-1">Minimum F95/LewdCorner rating</span>
+                <select
+                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                  value={selectedFilters.communityRatingMin}
+                  onChange={(e) => updateFilters({ communityRatingMin: Number(e.target.value) })}
+                >
+                  <option value={0}>Any</option>
+                  {[1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].map((rating) => (
+                    <option key={rating} value={rating}>{rating}+</option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted mt-1">
+                  Uses the community rating from the source site — works across the whole catalog, not just installed titles.
+                </p>
+              </label>
             </div>
           </div>
         )}

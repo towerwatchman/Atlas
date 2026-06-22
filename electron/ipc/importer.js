@@ -2481,7 +2481,6 @@ ipcMain.handle("import-games", async (event, params) => {
 
   const results = [];
   const deferredSizeJobs = [];
-  const deferredSourceCleanupJobs = [];
 
   for (const game of games) {
     try {
@@ -2553,10 +2552,6 @@ ipcMain.handle("import-games", async (event, params) => {
           }
         }
         await removeEmptyParentDirectories(originalSourcePath, sourceCleanupRoot);
-        deferredSourceCleanupJobs.push({
-          startPath: originalSourcePath,
-          stopAtPath: sourceCleanupRoot,
-        });
 
         const selectedValue = game.selectedValue || "";
         gamePath = destinationPath;
@@ -2913,10 +2908,6 @@ ipcMain.handle("import-games", async (event, params) => {
             throw new Error(deleteResult.error || "Archive delete skipped");
           }
           await removeEmptyParentDirectories(archiveToDeleteAfterImport, sourceCleanupRoot);
-          deferredSourceCleanupJobs.push({
-            startPath: archiveToDeleteAfterImport,
-            stopAtPath: sourceCleanupRoot,
-          });
           console.log(`Deleted archive after successful import: ${archiveToDeleteAfterImport}`);
           mainWindow.webContents.send("import-progress", {
             text: deleteResult.elevated
@@ -2992,23 +2983,6 @@ ipcMain.handle("import-games", async (event, params) => {
     mainWindow.webContents.send("import-complete");
     ctx.activeImportSession = null;
     return results;
-  }
-
-  if (deferredSourceCleanupJobs.length > 0) {
-    const seenCleanupJobs = new Set();
-    const cleanupJobs = deferredSourceCleanupJobs
-      .filter((job) => job.startPath && job.stopAtPath)
-      .filter((job) => {
-        const key = `${normalizeForPathCompare(job.startPath)}|${normalizeForPathCompare(job.stopAtPath)}`;
-        if (seenCleanupJobs.has(key)) return false;
-        seenCleanupJobs.add(key);
-        return true;
-      })
-      .sort((a, b) => path.resolve(b.startPath).length - path.resolve(a.startPath).length);
-
-    for (const job of cleanupJobs) {
-      await removeEmptyParentDirectories(job.startPath, job.stopAtPath);
-    }
   }
 
   mainWindow.webContents.send("import-progress", {

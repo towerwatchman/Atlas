@@ -151,6 +151,12 @@ const App = () => {
   const gridRef = useRef(null)
   const gameGridRef = useRef(null)
   const libraryScrollTopRef = useRef(0)
+  // Tracks the {search, filters} combination of the last catalog fetch
+  // actually dispatched (by either browseCatalog's immediate first-load
+  // path or the debounced reset effect below) so re-entering Browse mode
+  // without anything having changed doesn't wipe and reload data that's
+  // already correct.
+  const lastFetchedCatalogParamsKeyRef = useRef(null)
   const pendingLibraryScrollTopRestoreRef = useRef(null)
   const dbUpdateRunningRef = useRef(false)
   const showGameList = sidebarMode === SIDE_PANEL_MODES.GAMES
@@ -223,13 +229,7 @@ const App = () => {
     [activeFilters.text, activeFilters.type],
   )
   const catalogQueryFilters = useMemo(
-    () => ({
-      ...activeFilters,
-      includeUninstalled: true,
-      installState: 'all',
-      updateAvailable: false,
-      multipleInstalledVersions: false,
-    }),
+    () => activeFilters,
     [activeFilters],
   )
   const catalogSearchRef = useRef(catalogSearch)
@@ -508,8 +508,40 @@ const App = () => {
     setSelectedGame(null)
     setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
     setShowSearchSidebar(false)
-    if (catalogTotal === null) fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
-  }, [browseAvailable, catalogTotal, catalogQueryFilters, catalogSearch, fetchCatalogGames, setAndPersistSidePanelMode])
+    if (catalogTotal === null) {
+      // Browse mode should default to showing the whole catalog, not just
+      // installed titles — the local library's bare-default installState
+      // is 'installed' (see defaultFilters in useFilters.js), which would
+      // otherwise carry over and make Browse mode look nearly empty the
+      // first time it's opened. Only nudge this when nothing's been
+      // deliberately chosen yet (no saved filter active); once the user
+      // picks ANY saved filter — including "Installed titles" itself —
+      // that choice is respected as-is, since catalogQueryFilters no
+      // longer overrides installState/updateAvailable.
+      const needsDefaultNudge = activeSavedFilterId === '' && activeFilters.installState === 'installed'
+      const effectiveFilters = needsDefaultNudge
+        ? { ...catalogQueryFilters, includeUninstalled: true, installState: 'all' }
+        : catalogQueryFilters
+      // Actually update activeFilters (not just this one fetch call) so
+      // catalogQueryFilters recomputes to match — otherwise the debounced
+      // reset effect's signature tracking would see a mismatch on its next
+      // run and immediately re-fetch with the un-nudged filters, undoing
+      // this and re-triggering the flash/reload sequence fixed earlier.
+      if (needsDefaultNudge) handleFilterChange({ includeUninstalled: true, installState: 'all' })
+      lastFetchedCatalogParamsKeyRef.current = JSON.stringify({ search: catalogSearch, filters: effectiveFilters })
+      fetchCatalogGames({ reset: true, search: catalogSearch, filters: effectiveFilters })
+    }
+  }, [
+    activeFilters.installState,
+    activeSavedFilterId,
+    browseAvailable,
+    catalogTotal,
+    catalogQueryFilters,
+    catalogSearch,
+    fetchCatalogGames,
+    handleFilterChange,
+    setAndPersistSidePanelMode,
+  ])
 
   const loadWishlistIdentities = useCallback(() => {
     return window.electronAPI
@@ -614,7 +646,6 @@ const App = () => {
     pendingLibraryScrollTopRestoreRef.current = 0
     libraryScrollTopRef.current = 0
     setSelectedGame(null)
-    setLibraryMode('local')
     setShowSearchSidebar(false)
     setActiveSavedFilterId(filter.id || '')
     handleFilterChange(nextFilters)
@@ -681,13 +712,52 @@ const App = () => {
     [userSavedFilters],
   )
 
-  const savedFilterCounts = useMemo(() => {
+  const localSavedFilterCounts = useMemo(() => {
     const nextCounts = {}
     for (const filter of allSavedFilters) {
       nextCounts[filter.id] = filterGamesWithState(games, filter.filters).length
     }
     return nextCounts
   }, [allSavedFilters, games])
+
+  // Browse/catalog entries live entirely server-side (and are only ever
+  // partially loaded client-side — see requestCatalogRange in
+  // useGames.js), so a saved filter's match count for Browse mode can't be
+  // computed against the local `games` array the way localSavedFilterCounts
+  // does above; that's why every saved filter showed "0 matches" while
+  // browsing. Ask the backend for the real count instead, via the
+  // count-only catalog query (get-catalog-count — see
+  // electron/db/versions.js getCatalogGames' countOnly option), one per
+  // saved filter, using that filter's OWN search/filters — same "what
+  // would applying this filter as-is return" semantics as the local-mode
+  // counts, not combined with whatever's currently typed in the search box.
+  const [catalogSavedFilterCounts, setCatalogSavedFilterCounts] = useState({})
+  useEffect(() => {
+    if (libraryMode !== 'catalog' || !showSavedFilters || !browseAvailable) return
+    let cancelled = false
+    setCatalogSavedFilterCounts((prev) => {
+      const next = {}
+      for (const filter of allSavedFilters) next[filter.id] = prev[filter.id] ?? null
+      return next
+    })
+    allSavedFilters.forEach((filter) => {
+      const filters = normalizeFilterState(filter.filters)
+      window.electronAPI.getCatalogCount({
+        search: { text: filters.text, type: filters.type },
+        filters,
+      }).then((result) => {
+        if (cancelled) return
+        setCatalogSavedFilterCounts((prev) => ({ ...prev, [filter.id]: Number(result?.total || 0) }))
+      }).catch((error) => {
+        console.error(`Failed to get catalog count for saved filter "${filter.name}":`, error)
+        if (cancelled) return
+        setCatalogSavedFilterCounts((prev) => ({ ...prev, [filter.id]: 0 }))
+      })
+    })
+    return () => { cancelled = true }
+  }, [allSavedFilters, browseAvailable, libraryMode, showSavedFilters])
+
+  const savedFilterCounts = libraryMode === 'catalog' ? catalogSavedFilterCounts : localSavedFilterCounts
 
   // ── DB update check ────────────────────────────────────────────────────────
   const clearDbUpdateStatusSoon = useCallback(() => {
@@ -968,9 +1038,20 @@ const App = () => {
   const catalogResetDebounceRef = useRef(null)
   useEffect(() => {
     if (libraryMode !== 'catalog' || !browseAvailable) return
+    const paramsKey = JSON.stringify({ search: catalogSearch, filters: catalogQueryFilters })
+    if (lastFetchedCatalogParamsKeyRef.current === paramsKey) {
+      // Nothing about the search/filters actually changed since the last
+      // fetch we dispatched — this effect only re-ran because some other
+      // dependency changed (most commonly: entering Browse mode itself, or
+      // catalogTotal updating once that fetch resolved). Re-fetching here
+      // would wipe and reload data that's already correct, which is exactly
+      // the "banners flash, spinner, banners reload" sequence this fixes.
+      return
+    }
     if (catalogResetDebounceRef.current) clearTimeout(catalogResetDebounceRef.current)
     catalogResetDebounceRef.current = setTimeout(() => {
       catalogResetDebounceRef.current = null
+      lastFetchedCatalogParamsKeyRef.current = paramsKey
       fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
     }, 300)
     return () => {
@@ -979,7 +1060,7 @@ const App = () => {
         catalogResetDebounceRef.current = null
       }
     }
-  }, [browseAvailable, catalogQueryFilters, catalogSearch, fetchCatalogGames, libraryMode])
+  }, [browseAvailable, catalogQueryFilters, catalogSearch, catalogTotal, fetchCatalogGames, libraryMode])
 
   useEffect(() => {
     if (!showSavedFilters || includeUninstalledRef.current) return

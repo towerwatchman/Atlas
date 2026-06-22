@@ -131,6 +131,9 @@ const defaultSavedFilterState = {
   steamMapped: false,
   personalRatingMin: 0,
   personalRatingRatedOnly: false,
+  // F95Zone/LewdCorner community rating (0-5) — see useFilters.js
+  // defaultFilters for the matching frontend definition.
+  communityRatingMin: 0,
   includeUninstalled: false,
   installState: 'installed',
   multipleInstalledVersions: false,
@@ -193,6 +196,10 @@ const normalizeSavedFilterState = (filters = {}) => {
     ? Math.max(0, Math.min(10, Math.round(personalRatingMin)))
     : 0
   merged.personalRatingRatedOnly = merged.personalRatingRatedOnly === true
+  const communityRatingMin = Number(merged.communityRatingMin)
+  merged.communityRatingMin = Number.isFinite(communityRatingMin)
+    ? Math.max(0, Math.min(5, Math.round(communityRatingMin * 10) / 10))
+    : 0
   merged.multipleInstalledVersions = merged.multipleInstalledVersions === true
   if (!['installed', 'uninstalled', 'all'].includes(merged.installState)) {
     merged.installState = merged.includeUninstalled ? 'all' : 'installed'

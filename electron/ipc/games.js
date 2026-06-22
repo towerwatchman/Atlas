@@ -237,6 +237,28 @@ function registerGamesHandlers(ctx) {
     return { ...result, games: withMedia(result.games || []) }
   })
 
+  // Count-only variant of get-catalog-games — runs just the COUNT query,
+  // skipping the (minimum 50-row) page fetch entirely. Used by the saved
+  // filters panel to show how many catalog entries a filter would actually
+  // match while in Browse mode, without paying for full rows it won't use.
+  ipcMain.handle('get-catalog-count', async (event, args = {}) => {
+    if (!BROWSE_MODE_ENABLED) return { total: 0 }
+    const result = await getCatalogGames(
+      getAssetBasePath(),
+      process.defaultApp,
+      {
+        ...(args?.options || {}),
+        offset: 0,
+        limit: 50,
+        countOnly: true,
+        filters: args?.filters || {},
+        search: args?.search || {},
+        mediaStorageMode: getMediaStorageMode(),
+      },
+    )
+    return { total: Number(result?.total || 0) }
+  })
+
   ipcMain.handle('wishlist-add', async (_, entry = {}) => {
     return await addWishlistEntry(entry)
   })

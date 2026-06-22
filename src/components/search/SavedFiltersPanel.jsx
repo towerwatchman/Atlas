@@ -20,7 +20,7 @@ const SavedFilterRow = ({
     <div className="min-w-0 flex-1">
       <div className="truncate text-text">{filter.name}</div>
       <div className="text-[11px] text-muted">
-        {filter.builtIn ? 'Built-in' : 'Saved'} - {count ?? 0} matches
+        {filter.builtIn ? 'Built-in' : 'Saved'} - {count === null || count === undefined ? '…' : count} matches
       </div>
       {deleteState?.confirming && (
         <div className="mt-2 flex items-center gap-2 text-[11px]">

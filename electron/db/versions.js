@@ -1059,6 +1059,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       ? Math.min(1000, Math.max(50, rawLimit))
       : 250;
     const includeTotal = options.includeTotal === true;
+    const countOnly = options.countOnly === true;
     const search = options.search && typeof options.search === 'object' ? options.search : {};
     let searchText = String(search.text || '').trim();
     let searchType = String(search.type || 'all').trim();
@@ -1209,6 +1210,50 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       filterWhereParts.push('catalog.is_installed = 1');
     } else if (filters.installState === 'uninstalled') {
       filterWhereParts.push('catalog.is_installed = 0');
+    }
+    // Updates-available is only meaningful for installed entries, and is
+    // evaluated separately in JS below (see the updateAvailable branch) —
+    // version-string comparison isn't something to approximate in SQL. It
+    // still implies is_installed = 1 here so the count/page query this
+    // function falls through to for non-updateAvailable callers is at
+    // least scoped sensibly if both happen to be set.
+    if (filters.updateAvailable === true) {
+      filterWhereParts.push('catalog.is_installed = 1');
+    }
+    // Favorites and personal rating are local-record concepts (favorite
+    // flag lives on `games`, personal rating on `game_personal_ratings`) —
+    // joined in via local_record_id, see catalogJoins below. They can only
+    // ever match the subset of the catalog that's actually installed,
+    // same as in the local library.
+    if (filters.favoritesOnly === true) {
+      filterWhereParts.push('COALESCE(local_games.is_favorite, 0) = 1');
+    }
+    const personalRatingOverallExpr = `(
+      (COALESCE(local_ratings.story, 0) + COALESCE(local_ratings.graphics, 0) + COALESCE(local_ratings.gameplay, 0) + COALESCE(local_ratings.fappability, 0)) * 1.0
+      / NULLIF(
+          (CASE WHEN local_ratings.story IS NOT NULL THEN 1 ELSE 0 END) +
+          (CASE WHEN local_ratings.graphics IS NOT NULL THEN 1 ELSE 0 END) +
+          (CASE WHEN local_ratings.gameplay IS NOT NULL THEN 1 ELSE 0 END) +
+          (CASE WHEN local_ratings.fappability IS NOT NULL THEN 1 ELSE 0 END),
+          0
+        )
+    )`;
+    const personalRatingMinValue = Number(filters.personalRatingMin);
+    if (filters.personalRatingRatedOnly === true || (Number.isFinite(personalRatingMinValue) && personalRatingMinValue > 0)) {
+      filterWhereParts.push(`${personalRatingOverallExpr} IS NOT NULL`);
+      if (Number.isFinite(personalRatingMinValue) && personalRatingMinValue > 0) {
+        filterWhereParts.push(`${personalRatingOverallExpr} >= ?`);
+        filterParams.push(personalRatingMinValue);
+      }
+    }
+    // Community (F95Zone/LewdCorner) rating — unlike favorites/personal
+    // rating above, this is on every catalog row regardless of install
+    // status, since it comes from the source site itself rather than
+    // anything local.
+    const communityRatingMinValue = Number(filters.communityRatingMin);
+    if (Number.isFinite(communityRatingMinValue) && communityRatingMinValue > 0) {
+      filterWhereParts.push('CAST(catalog.rating AS REAL) >= ?');
+      filterParams.push(communityRatingMinValue);
     }
     if (filters.dateField === 'releaseDate' && filters.dateRange && filters.dateRange !== 'any') {
       addDateRangeFilter('catalog.release_date', filters.dateRange);
@@ -1531,9 +1576,20 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       SELECT * FROM lewdcorner_branch
     `;
 
+      // Joins favorite/personal-rating data in from the local `games` /
+      // game_personal_ratings tables via local_record_id — only ever
+      // populated for catalog rows that are actually installed, same as
+      // is_installed itself. See the favoritesOnly/personalRating filter
+      // handling above.
+      const catalogJoins = `
+        LEFT JOIN games AS local_games ON local_games.record_id = catalog.local_record_id
+        LEFT JOIN game_personal_ratings AS local_ratings ON local_ratings.record_id = catalog.local_record_id
+      `;
+
       const pagedQuery = `
-        SELECT *
+        SELECT catalog.*
         FROM (${query}) catalog
+        ${catalogJoins}
         ${whereClause}
         ${orderByClause}
         LIMIT ? OFFSET ?
@@ -1541,8 +1597,127 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       const countQuery = `
         SELECT COUNT(*) AS total
         FROM (${query}) catalog
+        ${catalogJoins}
         ${whereClause}
       `;
+
+      const mapCatalogRow = (row) => ({
+        ...row,
+        title: String(row.title || row.short_name || "Unknown Title"),
+        creator: String(row.creator || "Unknown"),
+        engine: row.engine ? String(row.engine).replace(/''/g, "'") : row.engine,
+        status: row.status == null ? null : String(row.status),
+        category: row.category == null ? null : String(row.category),
+        censored: row.censored == null ? null : String(row.censored),
+        language: row.language == null ? null : String(row.language),
+        f95_tags: String(row.f95_tags || ""),
+        threadUpdated: row.thread_updated || null,
+        threadPublishDate: row.thread_publish_date || null,
+        f95LatestOrder: row.f95_latest_order || null,
+        versions: [],
+        versionCount: 0,
+        installedVersionCount: row.is_installed ? 1 : 0,
+        totalVersionCount: row.is_installed ? 1 : 0,
+        hasInstalledVersion: row.is_installed === 1,
+        // Plain catalog rows never carry the local version history needed
+        // to know this (see the updateAvailable branch below, which
+        // computes it for real for that specific case) — left false here
+        // rather than paying for an extra versions lookup on every single
+        // Browse page just to populate a badge most rows don't need.
+        isUpdateAvailable: false,
+        isCatalogEntry: true,
+        isMetadataOnly: true,
+      });
+
+      // Updates-available can't be expressed as a SQL predicate — it needs
+      // the exact same version-string comparison logic local mode uses
+      // (getIsUpdateAvailable: numeric-aware version comparison, "Final"
+      // handling, etc.), which depends on each row's actual local version
+      // history. Fetch the (bounded — only the is_installed subset, see
+      // the WHERE clause this implies above) candidate rows, pull their
+      // version history in one follow-up query, and filter/paginate/count
+      // in JS instead of in SQL. Checked BEFORE the generic countOnly
+      // branch below since a countOnly + updateAvailable request (exactly
+      // what previewing the "Updates available" saved filter's count
+      // does) needs this same JS comparison too, not the plain SQL count.
+      if (filters.updateAvailable === true) {
+        const candidateQuery = `
+          SELECT catalog.*
+          FROM (${query}) catalog
+          ${catalogJoins}
+          ${whereClause}
+          ${orderByClause}
+        `;
+        getDb().all(candidateQuery, queryParams, (err, candidateRows) => {
+          if (err) {
+            console.error("Error fetching AtlasDB catalog candidates for updateAvailable:", err);
+            reject(err);
+            return;
+          }
+          const rows = candidateRows || [];
+          const recordIds = [...new Set(
+            rows.map((row) => row.local_record_id).filter((id) => id !== null && id !== undefined),
+          )];
+          if (recordIds.length === 0) {
+            const total = 0;
+            if (countOnly) {
+              resolve({ games: [], offset: 0, limit, total, hasMore: false, countOnly: true });
+            } else {
+              resolve({ games: [], offset, limit, total: includeTotal ? total : null, hasMore: false });
+            }
+            return;
+          }
+          getDb().all(
+            `SELECT record_id, version FROM versions WHERE record_id IN (${recordIds.map(() => '?').join(', ')})`,
+            recordIds,
+            (versionsErr, versionRows) => {
+              if (versionsErr) {
+                console.error("Error fetching local versions for updateAvailable:", versionsErr);
+                reject(versionsErr);
+                return;
+              }
+              const versionsByRecord = new Map();
+              for (const versionRow of versionRows || []) {
+                if (!versionsByRecord.has(versionRow.record_id)) versionsByRecord.set(versionRow.record_id, []);
+                versionsByRecord.get(versionRow.record_id).push({ version: versionRow.version });
+              }
+              const matchingRows = rows.filter((row) =>
+                getIsUpdateAvailable(row.latestVersion, versionsByRecord.get(row.local_record_id) || []),
+              );
+              const total = matchingRows.length;
+              if (countOnly) {
+                resolve({ games: [], offset: 0, limit, total, hasMore: total > 0, countOnly: true });
+                return;
+              }
+              const games = matchingRows.slice(offset, offset + limit).map((row) => ({
+                ...mapCatalogRow(row),
+                isUpdateAvailable: true,
+              }));
+              resolve({
+                games,
+                offset,
+                limit,
+                total: includeTotal ? total : null,
+                hasMore: offset + games.length < total,
+              });
+            },
+          );
+        });
+        return;
+      }
+
+      if (countOnly) {
+        getDb().get(countQuery, queryParams, (err, row) => {
+          if (err) {
+            console.error("Error counting AtlasDB catalog games:", err);
+            reject(err);
+            return;
+          }
+          const total = Number(row?.total || 0);
+          resolve({ games: [], offset: 0, limit, total, hasMore: total > 0, countOnly: true });
+        });
+        return;
+      }
 
       const finish = (total = null) => {
         getDb().all(pagedQuery, [...queryParams, limit, offset], (err, rows) => {
@@ -1552,28 +1727,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           return;
         }
 
-        const games = (rows || []).map((row) => ({
-          ...row,
-          title: String(row.title || row.short_name || "Unknown Title"),
-          creator: String(row.creator || "Unknown"),
-          engine: row.engine ? String(row.engine).replace(/''/g, "'") : row.engine,
-          status: row.status == null ? null : String(row.status),
-          category: row.category == null ? null : String(row.category),
-          censored: row.censored == null ? null : String(row.censored),
-          language: row.language == null ? null : String(row.language),
-          f95_tags: String(row.f95_tags || ""),
-          threadUpdated: row.thread_updated || null,
-          threadPublishDate: row.thread_publish_date || null,
-          f95LatestOrder: row.f95_latest_order || null,
-          versions: [],
-          versionCount: 0,
-          installedVersionCount: row.is_installed ? 1 : 0,
-          totalVersionCount: row.is_installed ? 1 : 0,
-          hasInstalledVersion: row.is_installed === 1,
-          isUpdateAvailable: false,
-          isCatalogEntry: true,
-          isMetadataOnly: true,
-        }));
+        const games = (rows || []).map(mapCatalogRow);
 
         const threadUpdatedCount = games.filter((game) => game.threadUpdated).length;
         const threadPublishDateCount = games.filter((game) => game.threadPublishDate).length;
