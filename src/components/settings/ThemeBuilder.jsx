@@ -36,6 +36,9 @@ const COLOR_LABELS = {
   info: 'Info',
   buttonHover: 'Button (Hover)',
   accentHover: 'Accent (Hover)',
+  button: 'Button',
+  progressBackground: 'Progress Bar (Background)',
+  progressForeground: 'Progress Bar (Foreground)',
   windowBorder: 'Window Border',
 }
 
@@ -145,7 +148,7 @@ const ColorKeyEditor = ({ themeKey, value, onChange }) => {
   }
 
   return (
-    <div className="border border-border rounded-theme p-2 mb-1">
+    <div className="border border-border rounded-cardTheme p-2 mb-1">
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs font-semibold">{COLOR_LABELS[themeKey] || themeKey}</span>
         {isEligible && (
@@ -194,7 +197,7 @@ const ColorKeyEditor = ({ themeKey, value, onChange }) => {
 // and text glow alike, so this one component covers all 5 effect configs
 // in the builder.
 const EffectSpecEditor = ({ label, spec, onChange, alwaysOnNote }) => (
-  <div className="border border-border rounded-theme p-3 mb-2">
+  <div className="border border-border rounded-cardTheme p-3 mb-2">
     <div className="flex items-center justify-between mb-2">
       <span className="text-sm font-semibold">{label}</span>
       <label className="flex items-center gap-1 text-xs cursor-pointer">
@@ -259,7 +262,7 @@ const OptionPicker = ({ options, labels, descriptions, value, onChange }) => (
         type="button"
         onClick={() => onChange(option)}
         title={descriptions?.[option]}
-        className={`text-left rounded-theme border-2 transition-colors ${descriptions ? 'p-2.5 min-w-[140px]' : 'text-xs px-3 py-1.5'} ${
+        className={`text-left rounded-cardTheme border-2 transition-colors ${descriptions ? 'p-2.5 min-w-[140px]' : 'text-xs px-3 py-1.5'} ${
           value === option ? 'border-accent bg-selected' : 'border-border bg-secondary hover:border-muted'
         }`}
       >
@@ -464,7 +467,7 @@ const ThemeBuilder = ({ onClose }) => {
 
   const sections = useMemo(() => ([
     { id: 'colors', label: 'Colors', description: 'Every color used throughout the app, including gradients for the main surfaces.' },
-    { id: 'general', label: 'Radius & Font', description: 'Corner roundedness and the font family used everywhere.' },
+    { id: 'general', label: 'Radius & Font', description: 'Button and card/panel corner roundedness (set independently), and the font family used everywhere.' },
     { id: 'nav', label: 'Navigation', description: 'Navigation position/display, the accent bar, filter sidebar placement, and nav button glow.' },
     { id: 'buttonEffects', label: 'Button Effects', description: 'Shadow and glow effects applied to every button in the app.' },
     { id: 'textEffects', label: 'Text Effects', description: 'Shadow and glow effects for nav labels, page titles, and game titles.' },
@@ -492,7 +495,7 @@ const ThemeBuilder = ({ onClose }) => {
               type="button"
               onClick={handleSaveToCurrentTheme}
               disabled={saveState.status === 'saving'}
-              className="btn-shadow btn-glow text-sm bg-accent text-white px-3 py-1.5 rounded-theme hover:bg-accentHover disabled:opacity-50"
+              className="btn-shadow btn-glow text-sm bg-accent text-white px-3 py-1.5 rounded-buttonTheme hover:bg-accentHover disabled:opacity-50"
               title={`Overwrites "${activeTheme.name}" with these changes`}
             >
               {saveState.status === 'saving' ? 'Saving…' : `Save Changes to "${activeTheme.name}"`}
@@ -508,7 +511,7 @@ const ThemeBuilder = ({ onClose }) => {
           {saveState.status === 'confirm-overwrite' ? (
             <>
               <span className="text-xs text-warning">Already exists —</span>
-              <button type="button" onClick={() => handleSave(true)} className="btn-shadow btn-glow text-sm bg-danger text-white px-3 py-1.5 rounded-theme">
+              <button type="button" onClick={() => handleSave(true)} className="btn-shadow btn-glow text-sm bg-danger text-white px-3 py-1.5 rounded-buttonTheme">
                 Overwrite
               </button>
               <button type="button" onClick={() => setSaveState({ status: 'idle', error: null })} className="text-xs text-muted hover:text-text">
@@ -520,7 +523,7 @@ const ThemeBuilder = ({ onClose }) => {
               type="button"
               onClick={() => handleSave(false)}
               disabled={saveState.status === 'saving'}
-              className="btn-shadow btn-glow text-sm bg-tertiary text-text px-3 py-1.5 rounded-theme hover:bg-buttonHover disabled:opacity-50"
+              className="btn-shadow btn-glow text-sm bg-button text-text px-3 py-1.5 rounded-buttonTheme hover:bg-buttonHover disabled:opacity-50"
             >
               {saveState.status === 'saving' ? 'Saving…' : 'Save as New Theme'}
             </button>
@@ -565,7 +568,7 @@ const ThemeBuilder = ({ onClose }) => {
               surfaces (Canvas, Primary, Secondary, Tertiary Surface) can also be set
               as a gradient using the "Gradient" checkbox on each.
             </p>
-            <div className="border border-border rounded-theme p-2 mb-2 flex items-center justify-between">
+            <div className="border border-border rounded-cardTheme p-2 mb-2 flex items-center justify-between">
               <div>
                 <span className="text-xs font-semibold block">Window Border</span>
                 <span className="text-[10px] opacity-60">The accent-colored border drawn around every Atlas window. Uses the "Window Border" color below.</span>
@@ -594,14 +597,24 @@ const ThemeBuilder = ({ onClose }) => {
 
         {activeSection === 'general' && (
           <div>
-            <SectionHeader>Corner Radius</SectionHeader>
-            <p className="text-[10px] opacity-50 mb-2">How rounded buttons, cards, and panels are throughout the app.</p>
+            <SectionHeader>Button Radius</SectionHeader>
+            <p className="text-[10px] opacity-50 mb-2">How rounded buttons are throughout the app.</p>
             <OptionPicker
               options={RADIUS_OPTIONS}
               labels={RADIUS_LABELS}
               descriptions={RADIUS_DESCRIPTIONS}
-              value={draft.radius}
-              onChange={(radius) => setDraft((prev) => ({ ...prev, radius }))}
+              value={draft.buttonRadius}
+              onChange={(buttonRadius) => setDraft((prev) => ({ ...prev, buttonRadius }))}
+            />
+
+            <SectionHeader>Card & Panel Radius</SectionHeader>
+            <p className="text-[10px] opacity-50 mb-2">How rounded cards and panels are — independent from button radius above.</p>
+            <OptionPicker
+              options={RADIUS_OPTIONS}
+              labels={RADIUS_LABELS}
+              descriptions={RADIUS_DESCRIPTIONS}
+              value={draft.cardRadius}
+              onChange={(cardRadius) => setDraft((prev) => ({ ...prev, cardRadius }))}
             />
 
             <SectionHeader>Font</SectionHeader>
@@ -728,7 +741,7 @@ const ThemeBuilder = ({ onClose }) => {
             <p className="text-[10px] opacity-50 mb-2">Check Shadow and/or Glow independently for each text context below.</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {TEXT_EFFECT_CONTEXTS.map((context) => (
-                <div key={context} className="border border-border rounded-theme p-2">
+                <div key={context} className="border border-border rounded-cardTheme p-2">
                   <p className="text-xs font-semibold mb-0.5">{TEXT_CONTEXT_LABELS[context] || context}</p>
                   <p className="text-[10px] opacity-60 mb-1.5 leading-tight">{TEXT_CONTEXT_DESCRIPTIONS[context]}</p>
                   <label className="flex items-center gap-1 text-[11px] cursor-pointer">

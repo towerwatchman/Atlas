@@ -16,10 +16,14 @@
  *           derived from the filename (xlibrary.json -> "xlibrary") so two
  *           files can't collide; never shown to the user.
  *   name:   string   — display name shown in the Appearance picker
- *   radius: 'sm' | 'md' | 'lg' | 'pill' — how rounded buttons/cards are.
- *           This maps to one of the --radius-* variables already defined in
- *           main.css; it does not introduce a new arbitrary radius value, so
- *           every theme's "roundedness" is one of the same 4 visual options.
+ *   buttonRadius: 'sm' | 'md' | 'lg' | 'pill' — how rounded buttons are.
+ *   cardRadius:   'sm' | 'md' | 'lg' | 'pill' — how rounded cards/panels
+ *           are. Both independently map to one of the --radius-* variables
+ *           already defined in main.css; neither introduces a new
+ *           arbitrary radius value, so "roundedness" is always one of the
+ *           same 4 visual options. (Older themes only have a single
+ *           `radius` field — normalizeTheme migrates that to both of
+ *           these automatically.)
  *   font:   string   — CSS font-family stack assigned to --font-sans
  *   colors: { ...every --color-* variable from main.css, without the prefix }
  *           Each color value is normally a hex string ('#19191c'). For
@@ -78,6 +82,15 @@ export const THEME_COLOR_KEYS = [
   'info',
   'buttonHover',
   'accentHover',
+  // Base/rest button background — separate from buttonHover (which already
+  // existed) so a button's resting color isn't tied to one of the 4 main
+  // surface colors (canvas/primary/secondary/tertiary). Previously several
+  // buttons used `tertiary` for this, which meant restyling your page
+  // background surfaces could unexpectedly restyle your buttons too.
+  'button',
+  // Progress bar track/fill — previously hardcoded to tertiary/accent.
+  'progressBackground',
+  'progressForeground',
   // The accent-colored border drawn around every window (see
   // windowBorderEnabled below for the on/off toggle — the border itself
   // is drawn by src/components/ui/WindowBorderFrame.jsx, a fixed overlay
@@ -368,7 +381,8 @@ export const NAV_SIZES = {
 export const DEFAULT_THEME = {
   id: 'default',
   name: 'Default',
-  radius: 'sm',
+  buttonRadius: 'sm',
+  cardRadius: 'sm',
   font: '"Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif',
   nav: { ...DEFAULT_NAV },
   buttonEffects: { ...DEFAULT_BUTTON_EFFECTS },
@@ -377,8 +391,11 @@ export const DEFAULT_THEME = {
   // src/components/ui/WindowBorderFrame.jsx) is shown at all. The
   // border's color is colors.windowBorder below, like any other theme
   // color — this is just the on/off switch, same pattern as
-  // nav.accentBarEnabled.
-  windowBorderEnabled: true,
+  // nav.accentBarEnabled. Off by default — it rendered as a thick,
+  // visually broken band rather than a clean line once windows went
+  // transparent + square-cornered; still available to turn on from
+  // Theme Builder for anyone who wants it.
+  windowBorderEnabled: false,
   colors: {
     canvas:         '#000000',
     shadow:         '#000000',
@@ -404,6 +421,9 @@ export const DEFAULT_THEME = {
     info:           '#38BDF8',
     buttonHover:    '#404249', // matches `selected`, the existing working hover pattern
     accentHover:    '#24748A', // ~18% darker than accent
+    button:             '#313338', // matches `tertiary`, the previous hardcoded look
+    progressBackground: '#313338', // matches `tertiary`, the previous hardcoded look
+    progressForeground: '#2C8EA9', // matches `accent`, the previous hardcoded look
     windowBorder:   '#2C8EA9', // matches `accent` by default; independently editable
   },
 }
@@ -432,9 +452,21 @@ export const getThemeById = (id, themeList = BUILT_IN_THEMES) =>
  */
 export const normalizeTheme = (theme) => {
   if (!theme || typeof theme !== 'object') return DEFAULT_THEME
+  // Migrate older themes that only have a single `radius` field — both
+  // buttonRadius and cardRadius default to it, preserving how the theme
+  // used to look (everything the same roundedness) until edited.
+  const legacyRadius = RADIUS_OPTIONS.includes(theme.radius) ? theme.radius : null
+  const buttonRadius = RADIUS_OPTIONS.includes(theme.buttonRadius)
+    ? theme.buttonRadius
+    : (legacyRadius || DEFAULT_THEME.buttonRadius)
+  const cardRadius = RADIUS_OPTIONS.includes(theme.cardRadius)
+    ? theme.cardRadius
+    : (legacyRadius || DEFAULT_THEME.cardRadius)
   return {
     ...DEFAULT_THEME,
     ...theme,
+    buttonRadius,
+    cardRadius,
     nav: normalizeNav(theme.nav),
     buttonEffects: normalizeButtonEffects(theme.buttonEffects),
     textEffects: normalizeTextEffects(theme.textEffects),

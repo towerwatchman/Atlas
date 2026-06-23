@@ -725,6 +725,20 @@ function createWindow() {
     minWidth: 1366,
     height: 800,
     frame: false,
+    // Windows draws a native DWM resize border (often tinted with the
+    // system accent color) around frame:false windows that aren't also
+    // transparent -- that's the stray colored line on the left/right/
+    // bottom edges that no amount of CSS could ever reach, since it's
+    // painted by the OS outside the web content entirely. The renderer
+    // already paints a fully opaque background on every window's root
+    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
+    // safe to go fully transparent at the native level instead.
+    transparent: true,
+    // Windows needs an explicit zero-alpha background color for true
+    // per-pixel transparency to render cleanly -- without it, the
+    // "transparent" region (e.g. outside a rounded-corner content clip)
+    // can render with artifacts instead of properly showing through.
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -762,6 +776,20 @@ function createSettingsWindow() {
     width: 900,
     height: 650,
     frame: false,
+    // Windows draws a native DWM resize border (often tinted with the
+    // system accent color) around frame:false windows that aren't also
+    // transparent -- that's the stray colored line on the left/right/
+    // bottom edges that no amount of CSS could ever reach, since it's
+    // painted by the OS outside the web content entirely. The renderer
+    // already paints a fully opaque background on every window's root
+    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
+    // safe to go fully transparent at the native level instead.
+    transparent: true,
+    // Windows needs an explicit zero-alpha background color for true
+    // per-pixel transparency to render cleanly -- without it, the
+    // "transparent" region (e.g. outside a rounded-corner content clip)
+    // can render with artifacts instead of properly showing through.
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -803,6 +831,20 @@ function createThemeBuilderWindow() {
     width: 1000,
     height: 720,
     frame: false,
+    // Windows draws a native DWM resize border (often tinted with the
+    // system accent color) around frame:false windows that aren't also
+    // transparent -- that's the stray colored line on the left/right/
+    // bottom edges that no amount of CSS could ever reach, since it's
+    // painted by the OS outside the web content entirely. The renderer
+    // already paints a fully opaque background on every window's root
+    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
+    // safe to go fully transparent at the native level instead.
+    transparent: true,
+    // Windows needs an explicit zero-alpha background color for true
+    // per-pixel transparency to render cleanly -- without it, the
+    // "transparent" region (e.g. outside a rounded-corner content clip)
+    // can render with artifacts instead of properly showing through.
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -852,6 +894,20 @@ function createBannerEditorWindow() {
     width: 1200,
     height: 800,
     frame: false,
+    // Windows draws a native DWM resize border (often tinted with the
+    // system accent color) around frame:false windows that aren't also
+    // transparent -- that's the stray colored line on the left/right/
+    // bottom edges that no amount of CSS could ever reach, since it's
+    // painted by the OS outside the web content entirely. The renderer
+    // already paints a fully opaque background on every window's root
+    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
+    // safe to go fully transparent at the native level instead.
+    transparent: true,
+    // Windows needs an explicit zero-alpha background color for true
+    // per-pixel transparency to render cleanly -- without it, the
+    // "transparent" region (e.g. outside a rounded-corner content clip)
+    // can render with artifacts instead of properly showing through.
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -890,6 +946,20 @@ function createImporterWindow(source = 'atlas') {
     width: 1100,
     height: 750,
     frame: false,
+    // Windows draws a native DWM resize border (often tinted with the
+    // system accent color) around frame:false windows that aren't also
+    // transparent -- that's the stray colored line on the left/right/
+    // bottom edges that no amount of CSS could ever reach, since it's
+    // painted by the OS outside the web content entirely. The renderer
+    // already paints a fully opaque background on every window's root
+    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
+    // safe to go fully transparent at the native level instead.
+    transparent: true,
+    // Windows needs an explicit zero-alpha background color for true
+    // per-pixel transparency to render cleanly -- without it, the
+    // "transparent" region (e.g. outside a rounded-corner content clip)
+    // can render with artifacts instead of properly showing through.
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -931,6 +1001,20 @@ function createGameDetailsWindow(recordId) {
     width: 1100,
     height: 750,
     frame: false,
+    // Windows draws a native DWM resize border (often tinted with the
+    // system accent color) around frame:false windows that aren't also
+    // transparent -- that's the stray colored line on the left/right/
+    // bottom edges that no amount of CSS could ever reach, since it's
+    // painted by the OS outside the web content entirely. The renderer
+    // already paints a fully opaque background on every window's root
+    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
+    // safe to go fully transparent at the native level instead.
+    transparent: true,
+    // Windows needs an explicit zero-alpha background color for true
+    // per-pixel transparency to render cleanly -- without it, the
+    // "transparent" region (e.g. outside a rounded-corner content clip)
+    // can render with artifacts instead of properly showing through.
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -964,6 +1048,20 @@ function showExecutableChooser(title, version, executables) {
     width: 600,
     height: 400,
     frame: false,
+    // Windows draws a native DWM resize border (often tinted with the
+    // system accent color) around frame:false windows that aren't also
+    // transparent -- that's the stray colored line on the left/right/
+    // bottom edges that no amount of CSS could ever reach, since it's
+    // painted by the OS outside the web content entirely. The renderer
+    // already paints a fully opaque background on every window's root
+    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
+    // safe to go fully transparent at the native level instead.
+    transparent: true,
+    // Windows needs an explicit zero-alpha background color for true
+    // per-pixel transparency to render cleanly -- without it, the
+    // "transparent" region (e.g. outside a rounded-corner content clip)
+    // can render with artifacts instead of properly showing through.
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

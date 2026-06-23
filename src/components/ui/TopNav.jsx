@@ -104,7 +104,7 @@ const TopNav = ({
             )}
           </>
         )
-        const buttonClassName = `btn-shadow btn-glow flex items-center justify-center gap-1.5 rounded-theme transition-colors ${
+        const buttonClassName = `btn-shadow btn-glow flex items-center justify-center gap-1.5 rounded-buttonTheme transition-colors ${
           showText ? 'h-8 px-2.5' : 'w-8 h-8'
         } ${isActive ? 'nav-glow bg-accent text-white active' : 'text-text hover:bg-tertiary'}`
         if (item.name === 'Add') {

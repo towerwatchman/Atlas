@@ -1437,8 +1437,8 @@ const App = () => {
           <div className="flex items-center w-[540px]">
             <span className="w-[300px] text-[10px] text-text">{dbUpdateStatus.text}</span>
             <div className="relative w-[300px]">
-              <div className="h-[15px] bg-tertiary rounded overflow-hidden">
-                <div className="h-full bg-accent" style={{ width: `${(dbUpdateStatus.progress / (dbUpdateStatus.total || 1)) * 100}%` }}></div>
+              <div className="h-[15px] bg-progressBackground rounded overflow-hidden">
+                <div className="h-full bg-progressForeground" style={{ width: `${(dbUpdateStatus.progress / (dbUpdateStatus.total || 1)) * 100}%` }}></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
                 Update {formatProgressNumber(dbUpdateStatus.progress)}/{formatProgressNumber(dbUpdateStatus.total)}
@@ -1453,8 +1453,8 @@ const App = () => {
           <div className="flex items-center w-[540px]">
             <span className="w-[300px] text-[10px] text-text">{importStatus.text}</span>
             <div className="relative w-[300px]">
-              <div className="h-[15px] bg-tertiary rounded overflow-hidden">
-                <div className="h-full bg-accent" style={{ width: `${(importStatus.progress / importStatus.total) * 100}%` }}></div>
+              <div className="h-[15px] bg-progressBackground rounded overflow-hidden">
+                <div className="h-full bg-progressForeground" style={{ width: `${(importStatus.progress / importStatus.total) * 100}%` }}></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
                 File {formatProgressNumber(importStatus.progress, { clamp: false })}/{formatProgressNumber(importStatus.total, { clamp: false })}
@@ -1469,8 +1469,8 @@ const App = () => {
           <div className="flex items-center w-[880px] gap-2">
             <span className="w-[450px] text-[10px] text-text">{importProgress.text}</span>
             <div className="relative w-[300px]">
-              <div className="h-[15px] bg-tertiary rounded overflow-hidden">
-                <div className="h-full bg-accent" style={{ width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%` }}></div>
+              <div className="h-[15px] bg-progressBackground rounded overflow-hidden">
+                <div className="h-full bg-progressForeground" style={{ width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%` }}></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
                 Game {formatProgressNumber(importProgress.progress, { clamp: false })}/{formatProgressNumber(importProgress.total, { clamp: false })}
@@ -1543,7 +1543,7 @@ const App = () => {
           the choice can still be changed later from Settings > Interface. */}
       {nsfwPromptOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-secondary p-6 rounded-md max-w-md w-full text-text">
+          <div className="bg-secondary p-6 rounded-cardTheme max-w-md w-full text-text">
             <h2 className="text-lg font-semibold mb-3">Enable Adult (18+) Content?</h2>
             <p className="text-sm opacity-80 mb-5">
               Atlas can optionally include adult-oriented games and visual novels in

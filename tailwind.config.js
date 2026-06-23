@@ -33,17 +33,25 @@ module.exports = {
         info:               'var(--color-info)',
 
         // ── Button hover states (fix previously-undefined hover classes) ──
+        button:             'var(--color-button)',
         buttonHover:        'var(--color-button-hover)',
         accentHover:        'var(--color-accent-hover)',
+
+        // ── Progress bars ──
+        progressBackground: 'var(--color-progress-background)',
+        progressForeground: 'var(--color-progress-foreground)',
 
         // ── Window chrome ──
         windowBorder:       'var(--color-window-border)',
       },
       borderRadius: {
-        // Follows whichever radius the active theme has chosen (sm/md/lg/pill)
-        // — see --radius-active in applyTheme.js. Use this on buttons and
-        // cards: the surfaces that should reflect a theme's "personality".
-        theme: 'var(--radius-active)',
+        // Follows whichever radius the active theme has chosen for buttons
+        // vs cards/panels respectively (sm/md/lg/pill, independently) — see
+        // --radius-button-active / --radius-card-active in applyTheme.js.
+        // `theme` is kept as a backward-compat alias for buttonTheme.
+        theme:       'var(--radius-button-active)',
+        buttonTheme: 'var(--radius-button-active)',
+        cardTheme:   'var(--radius-card-active)',
         // Fixed literal steps, NOT theme-dependent. Use these for small
         // structural elements (status badges, checkboxes, pills) that should
         // stay visually consistent regardless of theme, so a 'pill' radius

@@ -15,7 +15,7 @@ const ThemeSwatchCard = ({ theme, isActive, onSelect }) => (
   <button
     type="button"
     onClick={() => onSelect(theme)}
-    className={`text-left rounded-theme border-2 p-3 transition-colors ${
+    className={`text-left rounded-cardTheme border-2 p-3 transition-colors ${
       isActive ? 'border-accent' : 'border-border hover:border-muted'
     }`}
     style={{ background: backgroundStyleFor('secondary', theme.colors.secondary) }}
@@ -96,7 +96,7 @@ const Appearance = () => {
         <button
           type="button"
           onClick={() => window.electronAPI.openThemeBuilder()}
-          className="btn-shadow btn-glow text-sm bg-accent text-white px-3 py-1.5 rounded-theme hover:bg-accentHover"
+          className="btn-shadow btn-glow text-sm bg-accent text-white px-3 py-1.5 rounded-buttonTheme hover:bg-accentHover"
         >
           <i className="fas fa-palette mr-1.5"></i>Open Theme Builder
         </button>

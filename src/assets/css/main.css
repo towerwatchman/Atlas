@@ -64,6 +64,17 @@
      that and give every button a single consistent hover behavior. */
   --color-button-hover:       var(--color-selected); /* hover shade for bg-tertiary buttons; matches the existing working hover:bg-selected pattern used elsewhere */
   --color-accent-hover:       #24748A; /* hover shade for bg-accent buttons; ~18% darker than --color-accent */
+  /* Base/rest button background — independent from the 4 main surface
+     colors (canvas/primary/secondary/tertiary) so restyling your page
+     background doesn't also restyle your buttons. Defaults to the same
+     value as --color-tertiary, which is what buttons used directly
+     before this existed. */
+  --color-button:             #313338;
+
+  /* Progress bar track/fill — previously hardcoded to bg-tertiary/bg-accent
+     directly in JSX. Defaults match that previous look. */
+  --color-progress-background: #313338;
+  --color-progress-foreground: #2C8EA9;
 
   /* Window chrome — the accent-colored border drawn around every window,
      as a fixed top-of-stack overlay rather than a regular border (see
@@ -80,10 +91,13 @@
   --radius-md:   6px;
   --radius-lg:   10px;
   --radius-pill: 999px;
-  /* Which of the above the active theme has chosen — see applyTheme.js.
-     rounded-theme (buttons/cards) follows this; rounded-themeSm/Md/Lg/Pill
-     stay fixed regardless of theme. Defaults to the Default theme's choice. */
-  --radius-active: var(--radius-sm);
+  /* Which of the above the active theme has chosen, independently for
+     buttons vs cards/panels — see applyTheme.js. rounded-buttonTheme
+     follows --radius-button-active, rounded-cardTheme follows
+     --radius-card-active; rounded-themeSm/Md/Lg/Pill stay fixed
+     regardless of theme. Both default to the Default theme's choice. */
+  --radius-button-active: var(--radius-sm);
+  --radius-card-active: var(--radius-sm);
 
   /* Typography */
   --font-sans: "Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
@@ -123,6 +137,33 @@
 }
 
 @layer base {
+  /* Nothing in this app previously reset the browser's default focus
+     outline except scattered per-element `focus:outline-none` overrides
+     on specific inputs/buttons — html/body itself was never covered. When
+     a frameless Electron window regains OS-level focus, Chromium defaults
+     to drawing its native focus ring around whatever ends up implicitly
+     focused (often <body> itself, since nothing else claimed focus) —
+     which shows up as a stray blue outline around the entire window.
+     Suppress the plain mouse/programmatic focus ring everywhere; keep a
+     clear, theme-colored ring for actual keyboard navigation. */
+  html, body {
+    outline: none;
+    /* Windows are now OS-level transparent (see electron/main.js — needed
+       to get rid of the native DWM resize border on frame:false windows).
+       applyThemeOnLoad() paints the real theme's background almost
+       immediately, but it's an async IPC round-trip; this is just the
+       fallback for that brief gap, instead of showing through to the
+       desktop. Matches DEFAULT_THEME's primary color. */
+    background-color: #19191c;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+
   * {
     scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
     scrollbar-width: thin;

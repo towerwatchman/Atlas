@@ -65,7 +65,8 @@ export function applyTheme(theme, layout, navOverrides = {}) {
     root.setProperty('--color-window-border', 'transparent')
   }
 
-  root.setProperty('--radius-active', `var(--radius-${safeTheme.radius})`)
+  root.setProperty('--radius-button-active', `var(--radius-${safeTheme.buttonRadius})`)
+  root.setProperty('--radius-card-active', `var(--radius-${safeTheme.cardRadius})`)
   root.setProperty('--font-sans', safeTheme.font)
   root.setProperty('--nav-size', NAV_SIZES[safeLayout])
 

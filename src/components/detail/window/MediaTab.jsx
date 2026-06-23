@@ -52,8 +52,8 @@ export default function MediaTab({
           <div className="flex items-center w-[800px]">
             <span className="w-[450px] text-[10px] text-text">{importProgress.text}</span>
             <div className="relative w-[300px]">
-              <div className="h-[15px] bg-tertiary rounded overflow-hidden">
-                <div className="h-full bg-accent" style={{ width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%` }}></div>
+              <div className="h-[15px] bg-progressBackground rounded overflow-hidden">
+                <div className="h-full bg-progressForeground" style={{ width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%` }}></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
                 Image {importProgress.progress}/{importProgress.total}
