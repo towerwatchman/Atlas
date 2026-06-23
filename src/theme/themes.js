@@ -78,6 +78,12 @@ export const THEME_COLOR_KEYS = [
   'info',
   'buttonHover',
   'accentHover',
+  // The accent-colored border drawn around every window (see
+  // windowBorderEnabled below for the on/off toggle — the border itself
+  // is drawn by src/components/ui/WindowBorderFrame.jsx, a fixed overlay
+  // rather than a regular CSS border, so it can't be visually covered by
+  // a scrollbar or a full-width fixed header/footer bar).
+  'windowBorder',
 ]
 
 /**
@@ -367,6 +373,12 @@ export const DEFAULT_THEME = {
   nav: { ...DEFAULT_NAV },
   buttonEffects: { ...DEFAULT_BUTTON_EFFECTS },
   textEffects: { ...DEFAULT_TEXT_EFFECTS },
+  // Whether the accent-colored border drawn around every window (see
+  // src/components/ui/WindowBorderFrame.jsx) is shown at all. The
+  // border's color is colors.windowBorder below, like any other theme
+  // color — this is just the on/off switch, same pattern as
+  // nav.accentBarEnabled.
+  windowBorderEnabled: true,
   colors: {
     canvas:         '#000000',
     shadow:         '#000000',
@@ -392,6 +404,7 @@ export const DEFAULT_THEME = {
     info:           '#38BDF8',
     buttonHover:    '#404249', // matches `selected`, the existing working hover pattern
     accentHover:    '#24748A', // ~18% darker than accent
+    windowBorder:   '#2C8EA9', // matches `accent` by default; independently editable
   },
 }
 
@@ -425,6 +438,7 @@ export const normalizeTheme = (theme) => {
     nav: normalizeNav(theme.nav),
     buttonEffects: normalizeButtonEffects(theme.buttonEffects),
     textEffects: normalizeTextEffects(theme.textEffects),
+    windowBorderEnabled: theme.windowBorderEnabled !== false,
     colors: {
       ...DEFAULT_THEME.colors,
       ...(theme.colors || {}),

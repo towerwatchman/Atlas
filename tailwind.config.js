@@ -35,6 +35,9 @@ module.exports = {
         // ── Button hover states (fix previously-undefined hover classes) ──
         buttonHover:        'var(--color-button-hover)',
         accentHover:        'var(--color-accent-hover)',
+
+        // ── Window chrome ──
+        windowBorder:       'var(--color-window-border)',
       },
       borderRadius: {
         // Follows whichever radius the active theme has chosen (sm/md/lg/pill)

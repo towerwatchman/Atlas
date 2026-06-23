@@ -36,6 +36,7 @@ const COLOR_LABELS = {
   info: 'Info',
   buttonHover: 'Button (Hover)',
   accentHover: 'Accent (Hover)',
+  windowBorder: 'Window Border',
 }
 
 const RADIUS_LABELS = { sm: 'Small', md: 'Medium', lg: 'Large', pill: 'Pill' }
@@ -298,13 +299,9 @@ const OptionPicker = ({ options, labels, descriptions, value, onChange }) => (
  * person explicitly clicks Save.
  */
 const ThemeBuilder = ({ onClose }) => {
-  const { theme: activeTheme, layout: activeLayout } = useTheme()
-  const [draft, setDraft] = useState(() => normalizeTheme({
-    ...activeTheme,
-    id: undefined,
-    name: `${activeTheme.name} Copy`,
-  }))
-  const [themeName, setThemeName] = useState(`${activeTheme.name} Copy`)
+  const { theme: activeTheme, layout: activeLayout, isLoaded } = useTheme()
+  const [draft, setDraft] = useState(null)
+  const [themeName, setThemeName] = useState('')
   const [saveState, setSaveState] = useState({ status: 'idle', error: null })
   const [activeSection, setActiveSection] = useState('colors')
   // Fonts actually installed on THIS computer (see get-system-fonts in
@@ -316,6 +313,28 @@ const ThemeBuilder = ({ onClose }) => {
   // guaranteed to actually render correctly on whoever is running this
   // particular copy of Atlas.
   const [systemFonts, setSystemFonts] = useState(FALLBACK_FONTS)
+
+  // ThemeProvider resolves the real persisted theme asynchronously — it
+  // starts at DEFAULT_THEME until its own config fetch resolves (see
+  // isLoaded in ThemeProvider.jsx). Seeding the draft synchronously on
+  // mount (useState(() => normalizeTheme({...activeTheme,...}))) could
+  // therefore capture that placeholder DEFAULT_THEME instead of whatever
+  // theme was actually active, and since the live-preview effect below
+  // broadcasts the draft to every other open window right away, that
+  // meant opening the Theme Builder could visibly switch the WHOLE APP
+  // to the Default theme. Wait for isLoaded, then seed the draft exactly
+  // once — never again after that, so the person's own in-progress edits
+  // are never clobbered by an unrelated theme change elsewhere.
+  useEffect(() => {
+    if (!isLoaded || draft !== null) return
+    setDraft(normalizeTheme({
+      ...activeTheme,
+      id: undefined,
+      name: `${activeTheme.name} Copy`,
+    }))
+    setThemeName(`${activeTheme.name} Copy`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded])
 
   useEffect(() => {
     let cancelled = false
@@ -344,8 +363,10 @@ const ThemeBuilder = ({ onClose }) => {
   // settings currently are), so the preview always reflects what's
   // actually in the draft — toggling "Top Bar" in here should immediately
   // show a topnav preview regardless of the user's normal saved layout
-  // preference.
+  // preference. Guarded against draft still being null (see above) — no
+  // preview to broadcast until the real theme has actually loaded.
   useEffect(() => {
+    if (!draft) return
     applyTheme(draft, draft.nav.layout, {
       navDisplayMode: draft.nav.displayMode,
       accentBarEnabled: draft.nav.accentBarEnabled,
@@ -421,6 +442,26 @@ const ThemeBuilder = ({ onClose }) => {
     }
   }
 
+  // Overwrites whichever theme was active when this window opened, by its
+  // exact name (so it targets the same file — see save-theme's id-from-
+  // filename scheme in electron/ipc/themes.js — no name-typing/collision
+  // dance needed). Not offered for the built-in Default theme, which is a
+  // code constant with no file to overwrite — see the activeTheme.id !==
+  // 'default' check where this is rendered below.
+  const handleSaveToCurrentTheme = async () => {
+    setSaveState({ status: 'saving', error: null })
+    try {
+      const result = await window.electronAPI.saveTheme({ ...draft, name: activeTheme.name }, { overwrite: true })
+      if (!result?.success) {
+        setSaveState({ status: 'error', error: result?.error || 'Failed to save theme.' })
+        return
+      }
+      setSaveState({ status: 'saved-current', error: null })
+    } catch (err) {
+      setSaveState({ status: 'error', error: err.message })
+    }
+  }
+
   const sections = useMemo(() => ([
     { id: 'colors', label: 'Colors', description: 'Every color used throughout the app, including gradients for the main surfaces.' },
     { id: 'general', label: 'Radius & Font', description: 'Corner roundedness and the font family used everywhere.' },
@@ -428,6 +469,14 @@ const ThemeBuilder = ({ onClose }) => {
     { id: 'buttonEffects', label: 'Button Effects', description: 'Shadow and glow effects applied to every button in the app.' },
     { id: 'textEffects', label: 'Text Effects', description: 'Shadow and glow effects for nav labels, page titles, and game titles.' },
   ]), [])
+
+  if (!draft) {
+    return (
+      <div className="-webkit-app-region-no-drag text-sm text-muted p-4">
+        Loading current theme…
+      </div>
+    )
+  }
 
   return (
     <div className="-webkit-app-region-no-drag">
@@ -438,6 +487,17 @@ const ThemeBuilder = ({ onClose }) => {
           </button>
         </div>
         <div className="flex items-center gap-2">
+          {activeTheme.id !== 'default' && saveState.status !== 'confirm-overwrite' && (
+            <button
+              type="button"
+              onClick={handleSaveToCurrentTheme}
+              disabled={saveState.status === 'saving'}
+              className="btn-shadow btn-glow text-sm bg-accent text-white px-3 py-1.5 rounded-theme hover:bg-accentHover disabled:opacity-50"
+              title={`Overwrites "${activeTheme.name}" with these changes`}
+            >
+              {saveState.status === 'saving' ? 'Saving…' : `Save Changes to "${activeTheme.name}"`}
+            </button>
+          )}
           <input
             type="text"
             value={themeName}
@@ -460,13 +520,18 @@ const ThemeBuilder = ({ onClose }) => {
               type="button"
               onClick={() => handleSave(false)}
               disabled={saveState.status === 'saving'}
-              className="btn-shadow btn-glow text-sm bg-accent text-white px-3 py-1.5 rounded-theme hover:bg-accentHover disabled:opacity-50"
+              className="btn-shadow btn-glow text-sm bg-tertiary text-text px-3 py-1.5 rounded-theme hover:bg-buttonHover disabled:opacity-50"
             >
               {saveState.status === 'saving' ? 'Saving…' : 'Save as New Theme'}
             </button>
           )}
         </div>
       </div>
+      {saveState.status === 'saved-current' && (
+        <p className="text-xs text-success mb-2">
+          Saved! "{activeTheme.name}" has been updated with these changes.
+        </p>
+      )}
       {saveState.status === 'saved' && (
         <p className="text-xs text-success mb-2">
           Saved! "{themeName.trim()}" is now available in the Appearance theme picker.
@@ -500,6 +565,20 @@ const ThemeBuilder = ({ onClose }) => {
               surfaces (Canvas, Primary, Secondary, Tertiary Surface) can also be set
               as a gradient using the "Gradient" checkbox on each.
             </p>
+            <div className="border border-border rounded-theme p-2 mb-2 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-semibold block">Window Border</span>
+                <span className="text-[10px] opacity-60">The accent-colored border drawn around every Atlas window. Uses the "Window Border" color below.</span>
+              </div>
+              <label className="flex items-center gap-1 text-xs cursor-pointer flex-shrink-0 ml-2">
+                <input
+                  type="checkbox"
+                  checked={draft.windowBorderEnabled}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, windowBorderEnabled: e.target.checked }))}
+                />
+                Enabled
+              </label>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {THEME_COLOR_KEYS.map((key) => (
                 <ColorKeyEditor

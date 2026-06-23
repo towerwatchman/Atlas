@@ -5,6 +5,7 @@ import Appearance from './Appearance.jsx'
 import Metadata from './Metadata.jsx'
 import EmulatorLauncher from './EmulatorLauncher.jsx'
 import { settingsIcons } from './settingsIcons.js'
+import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
 
 const visibleSettingsTabs = settingsIcons.filter((item) => !item.hidden)
 const defaultSettingsTab = visibleSettingsTabs[0]?.name || "Interface"
@@ -45,6 +46,7 @@ const Settings = () => {
 
   return (
     <div className="flex h-screen font-sans text-[13px] bg-transparent -webkit-app-region-no-drag">
+      <WindowBorderFrame />
       {/* Drag Header*/}
       <div className="absolute left-0 top-0 w-full h-[50px] ml-[-90px] z-40 -webkit-app-region-drag" />
       {/* Window Controls */}
@@ -75,7 +77,7 @@ const Settings = () => {
         </button>
       </div>
       {/* Main Content */}
-      <div className="flex flex-1 border border-accent rounded-md overflow-hidden">
+      <div className="flex flex-1 rounded-md overflow-hidden">
         {/* Settings Sidebar */}
         <div className="w-[180px] bg-primary h-full border-r border-border -webkit-app-region-no-drag">
           <div className="text-center text-accent font-bold text-md mt-4 mb-4 antialiased -webkit-app-region-drag">

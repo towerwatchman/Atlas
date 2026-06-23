@@ -2,6 +2,7 @@ import { Component, useState, useEffect, useRef, useCallback, useMemo } from 're
 import { AutoSizer, Grid } from 'react-virtualized'
 import Sidebar from './components/ui/Sidebar.jsx'
 import TopNav from './components/ui/TopNav.jsx'
+import WindowBorderFrame from './components/ui/WindowBorderFrame.jsx'
 import ImporterSourceMenu from './components/importer/ImporterSourceMenu.jsx'
 import { atlasLogo } from './assets/icons/data.js'
 import GameBanner from './components/library/GameBanner.jsx'
@@ -95,7 +96,8 @@ export class AppErrorBoundary extends Component {
   render() {
     if (this.state.error) {
       return (
-        <div className="h-screen bg-tertiary text-text flex items-center justify-center p-6">
+        <div className="h-screen bg-tertiary text-text flex items-center justify-center p-6 rounded-md overflow-hidden">
+          <WindowBorderFrame />
           <div className="bg-secondary border border-border rounded p-4 max-w-xl">
             <h1 className="text-lg font-bold mb-2">Atlas hit a display error</h1>
             <p className="text-sm opacity-80 mb-3">
@@ -1095,7 +1097,8 @@ const App = () => {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen font-sans text-[13px]">
+    <div className="flex flex-col h-screen font-sans text-[13px] rounded-md overflow-hidden">
+      <WindowBorderFrame />
       {/* Header */}
       <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
         <div

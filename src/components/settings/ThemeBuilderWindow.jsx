@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import ThemeBuilder from './ThemeBuilder.jsx'
+import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
 
 /**
  * Window chrome (drag region, minimize/maximize/close) for the Theme
@@ -20,7 +21,8 @@ const ThemeBuilderWindow = () => {
   }, [])
 
   return (
-    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text -webkit-app-region-no-drag">
+    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text -webkit-app-region-no-drag rounded-md overflow-hidden">
+      <WindowBorderFrame />
       {/* Header row: a real flex row (not absolutely positioned), so the
           scrollable content below can never slide up underneath it — the
           previous absolute-header-over-absolute-content approach let the
@@ -52,7 +54,7 @@ const ThemeBuilderWindow = () => {
           own overflow-y-auto scrolling can never visually pass behind the
           header (there's nothing to pass behind; the header isn't
           overlaid on top of this element's stacking context at all). */}
-      <div className="flex-1 min-h-0 p-4 overflow-y-auto border border-accent rounded-md mx-1 mb-1">
+      <div className="flex-1 min-h-0 p-4 overflow-y-auto">
         <ThemeBuilder onClose={() => window.electronAPI.closeWindow()} />
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import BannerEditor from './BannerEditor.jsx'
+import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
 
 const BannerEditorWindow = () => {
   const [isMaximized, setIsMaximized] = useState(false)
@@ -11,7 +12,8 @@ const BannerEditorWindow = () => {
   }, [])
 
   return (
-    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text -webkit-app-region-no-drag">
+    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text -webkit-app-region-no-drag rounded-md overflow-hidden">
+      <WindowBorderFrame />
       <div className="flex items-center justify-between h-[50px] flex-shrink-0 px-4 -webkit-app-region-drag">
         <h2 className="text-lg font-bold text-text">Banner Editor</h2>
         <div className="flex h-[28px] -webkit-app-region-no-drag">
@@ -35,7 +37,7 @@ const BannerEditorWindow = () => {
           </button>
         </div>
       </div>
-      <div className="flex-1 min-h-0 p-4 overflow-y-auto border border-accent rounded-md mx-1 mb-1">
+      <div className="flex-1 min-h-0 p-4 overflow-y-auto">
         <BannerEditor />
       </div>
     </div>

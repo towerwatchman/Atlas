@@ -6,6 +6,7 @@ import MediaTab from './window/MediaTab.jsx'
 import MappingsTab from './window/MappingsTab.jsx'
 import { sanitizePercentText } from '../../utils/formatPercent.js'
 import { formatVersionDate } from '../../utils/formatVersionDate.js'
+import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
 
 const isRemoteMediaUrl = (url) => /^https?:\/\//i.test(String(url || ''))
 const firstMediaUrl = (value) => Array.isArray(value) ? value[0] || '' : value || ''
@@ -518,7 +519,8 @@ const GameDetailWindow = () => {
   // ── Loading state ─────────────────────────────────────────────────────────
   if (!game) {
     return (
-      <div className="flex flex-col h-screen bg-canvas text-text border border-accent rounded-md overflow-hidden">
+      <div className="flex flex-col h-screen bg-canvas text-text rounded-md overflow-hidden">
+        <WindowBorderFrame />
         <TitleBar isMaximized={isMaximized} />
         <div className="flex-grow flex flex-col items-center justify-center bg-secondary gap-4">
           {loadError ? (
@@ -536,7 +538,8 @@ const GameDetailWindow = () => {
 
   // ── Main render ───────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen bg-canvas text-text border border-accent rounded-md overflow-hidden">
+    <div className="flex flex-col h-screen bg-canvas text-text rounded-md overflow-hidden">
+      <WindowBorderFrame />
       <TitleBar isMaximized={isMaximized} />
 
       <div className="flex flex-col flex-1 min-h-0 bg-primary">

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import SettingsStep from './steps/SettingsStep.jsx'
 import ScanStep from './steps/ScanStep.jsx'
 import { normalizeImporterSource } from './importerSources.js'
+import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
 
 const deriveImportStats = (games) => ({
   potential: games.filter((game) => (game.scanStatus || 'new') === 'new').length,
@@ -1294,7 +1295,8 @@ const Importer = () => {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="h-screen flex flex-col fixed w-full">
+    <div className="h-screen flex flex-col fixed w-full rounded-md overflow-hidden">
+      <WindowBorderFrame />
       <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
         <p className="text-sm absolute left-2 top-1">Import Games Wizard</p>
         <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">

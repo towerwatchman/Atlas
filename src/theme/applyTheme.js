@@ -56,6 +56,15 @@ export function applyTheme(theme, layout, navOverrides = {}) {
     }
   }
 
+  // windowBorder is set like any other color above, but can also be
+  // switched off entirely (windowBorderEnabled) — when off, make it
+  // transparent rather than introducing a second on/off mechanism (a CSS
+  // class or data attribute) that every window's border usage would also
+  // need to account for.
+  if (!safeTheme.windowBorderEnabled) {
+    root.setProperty('--color-window-border', 'transparent')
+  }
+
   root.setProperty('--radius-active', `var(--radius-${safeTheme.radius})`)
   root.setProperty('--font-sans', safeTheme.font)
   root.setProperty('--nav-size', NAV_SIZES[safeLayout])
