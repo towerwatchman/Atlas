@@ -201,6 +201,22 @@ const GameDetailWindow = () => {
   }, [])
 
   useEffect(() => {
+    if (!game?.record_id) return
+    const handleGameUpdated = async (event, payload) => {
+      const updatedId = typeof payload === 'object' ? payload?.record_id : payload
+      if (updatedId !== game.record_id) return
+      const updatedGame = typeof payload === 'object'
+        ? payload
+        : await window.electronAPI.getGame(game.record_id)
+      if (updatedGame) refreshFromGame(updatedGame, selectedVersion)
+    }
+    const removeListener = window.electronAPI.onGameUpdated?.(handleGameUpdated)
+    return () => {
+      if (typeof removeListener === 'function') removeListener()
+    }
+  }, [game?.record_id, selectedVersion])
+
+  useEffect(() => {
     Promise.all(
       previewUrls.map(async (url) => {
         try {

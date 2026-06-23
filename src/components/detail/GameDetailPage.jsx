@@ -662,12 +662,15 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       if (isRunningRef.current) {
         isRunningRef.current = false
         setLaunchState(LAUNCH_STATE.IDLE)
-        onRefresh?.(game.record_id)
       }
+      onRefresh?.(game.record_id)
     }
-    window.electronAPI.onGameUpdated(handleGameUpdated)
-    return () => { window.electronAPI.removeAllListeners?.('game-updated') }
-  }, [game?.record_id, launchState])
+    const removeListener = window.electronAPI.onGameUpdated(handleGameUpdated)
+    return () => {
+      if (typeof removeListener === 'function') removeListener()
+      else window.electronAPI.removeAllListeners?.('game-updated')
+    }
+  }, [game?.record_id, onRefresh])
 
   // ── Derived state ─────────────────────────────────────────────────────────
   const installedVersions = getInstalledVersions(game.versions || [])

@@ -273,7 +273,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onImportProgress: (callback) =>
     ipcRenderer.on("import-progress", (event, progress) => callback(progress)),
   onGameImported: (callback) => ipcRenderer.on("game-imported", callback),
-  onGameUpdated: (callback) => ipcRenderer.on("game-updated", callback),
+  onGameUpdated: (callback) => {
+    ipcRenderer.on("game-updated", callback);
+    return () => ipcRenderer.removeListener("game-updated", callback);
+  },
   onImportComplete: (callback) => ipcRenderer.on("import-complete", callback),
   onLibraryValidationProgress: (callback) =>
     ipcRenderer.on("library-validation-progress", (event, progress) =>
