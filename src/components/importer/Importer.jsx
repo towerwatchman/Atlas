@@ -457,7 +457,7 @@ const Importer = () => {
   // ── Match resolution ──────────────────────────────────────────────────────
   const applyReplaceOptions = async (game) => {
     const recordId = game?.existingRecordId || game?.recordId
-    if (!recordId) return { ...game, replaceVersion: game.replaceVersion || '', replaceOptions: [] }
+    if (!recordId) return { ...game, replaceVersion: '', replaceOptions: [], replaceOptionsRecordId: '' }
     try {
       const versions = await window.electronAPI.getReplaceVersionOptions({ recordId })
       const normalizedNew = String(game.version || '').trim().toLowerCase()
@@ -465,9 +465,19 @@ const Importer = () => {
         .filter((v) => { const cv = String(v.version || '').trim().toLowerCase(); return cv && cv !== normalizedNew })
         .sort((a, b) => Number(b.date_added || 0) - Number(a.date_added || 0))
       const defaultReplaceVersion = autoSelectLatestReplaceVersionRef.current && replaceOptions.length > 0 ? replaceOptions[0].version || '' : ''
-      return { ...game, replaceVersion: game.replaceVersion || defaultReplaceVersion, replaceOptions }
+      const previousRecordId = String(game.replaceOptionsRecordId || '')
+      const nextRecordId = String(recordId)
+      const canKeepReplacement =
+        previousRecordId === nextRecordId &&
+        replaceOptions.some((option) => option.version === game.replaceVersion)
+      return {
+        ...game,
+        replaceVersion: canKeepReplacement ? game.replaceVersion : defaultReplaceVersion,
+        replaceOptions,
+        replaceOptionsRecordId: nextRecordId,
+      }
     } catch (err) {
-      return { ...game, replaceVersion: game.replaceVersion || '', replaceOptions: [] }
+      return { ...game, replaceVersion: '', replaceOptions: [], replaceOptionsRecordId: '' }
     }
   }
 
