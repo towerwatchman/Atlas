@@ -130,6 +130,7 @@ const defaultSavedFilterState = {
   favoritesOnly: false,
   steamMapped: false,
   personalRatingMin: 0,
+  personalRatingStatus: 'any',
   personalRatingRatedOnly: false,
   // F95Zone/LewdCorner community rating (0-5) — see useFilters.js
   // defaultFilters for the matching frontend definition.
@@ -195,7 +196,18 @@ const normalizeSavedFilterState = (filters = {}) => {
   merged.personalRatingMin = Number.isFinite(personalRatingMin)
     ? Math.max(0, Math.min(10, Math.round(personalRatingMin)))
     : 0
-  merged.personalRatingRatedOnly = merged.personalRatingRatedOnly === true
+  merged.personalRatingStatus = ['any', 'rated', 'unrated'].includes(merged.personalRatingStatus)
+    ? merged.personalRatingStatus
+    : merged.personalRatingRatedOnly === true
+      ? 'rated'
+      : 'any'
+  if (merged.personalRatingMin > 0 && merged.personalRatingStatus === 'any') {
+    merged.personalRatingStatus = 'rated'
+  }
+  if (merged.personalRatingStatus === 'unrated') {
+    merged.personalRatingMin = 0
+  }
+  merged.personalRatingRatedOnly = merged.personalRatingStatus === 'rated'
   const communityRatingMin = Number(merged.communityRatingMin)
   merged.communityRatingMin = Number.isFinite(communityRatingMin)
     ? Math.max(0, Math.min(5, Math.round(communityRatingMin * 10) / 10))

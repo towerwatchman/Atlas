@@ -31,6 +31,7 @@ export const defaultFilters = {
   favoritesOnly: false,
   steamMapped: false,
   personalRatingMin: 0,
+  personalRatingStatus: 'any',
   personalRatingRatedOnly: false,
   // F95Zone/LewdCorner community rating (0-5, distinct from the personal
   // 0-10 rating above) — works across the whole catalog regardless of
@@ -172,7 +173,18 @@ export const normalizeFilterState = (filters = {}) => {
   merged.personalRatingMin = Number.isFinite(personalRatingMin)
     ? Math.max(0, Math.min(10, Math.round(personalRatingMin)))
     : 0
-  merged.personalRatingRatedOnly = merged.personalRatingRatedOnly === true
+  merged.personalRatingStatus = ['any', 'rated', 'unrated'].includes(merged.personalRatingStatus)
+    ? merged.personalRatingStatus
+    : merged.personalRatingRatedOnly === true
+      ? 'rated'
+      : 'any'
+  if (merged.personalRatingMin > 0 && merged.personalRatingStatus === 'any') {
+    merged.personalRatingStatus = 'rated'
+  }
+  if (merged.personalRatingStatus === 'unrated') {
+    merged.personalRatingMin = 0
+  }
+  merged.personalRatingRatedOnly = merged.personalRatingStatus === 'rated'
   const communityRatingMin = Number(merged.communityRatingMin)
   merged.communityRatingMin = Number.isFinite(communityRatingMin)
     ? Math.max(0, Math.min(5, Math.round(communityRatingMin * 10) / 10))
@@ -279,6 +291,21 @@ const getNullableNumber = (value) => {
   return Number.isFinite(number) ? number : null
 }
 
+const getPersonalRatingOverall = (game) => {
+  const overall = getNullableNumber(game?.personalRatingOverall ?? game?.personal_rating_overall)
+  if (overall !== null) return overall
+  const values = [
+    game?.personalRatingStory ?? game?.personal_rating_story,
+    game?.personalRatingGraphics ?? game?.personal_rating_graphics,
+    game?.personalRatingGameplay ?? game?.personal_rating_gameplay,
+    game?.personalRatingFappability ?? game?.personal_rating_fappability,
+  ]
+    .map(getNullableNumber)
+    .filter((value) => value !== null)
+  if (values.length === 0) return null
+  return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10
+}
+
 const directionMultiplier = (direction) => direction === 'desc' ? -1 : 1
 
 const compareText = (aValue, bValue, direction = 'asc') => {
@@ -319,7 +346,7 @@ const compareLocalGames = (a, b, activeFilters) => {
   } else if (activeFilters.sort === 'fileSize') {
     result = compareMaybeNumber(getFiniteNumber(a.totalFolderSize), getFiniteNumber(b.totalFolderSize), direction)
   } else if (activeFilters.sort === 'personalRating') {
-    result = compareMaybeNumber(getNullableNumber(a.personalRatingOverall), getNullableNumber(b.personalRatingOverall), direction)
+    result = compareMaybeNumber(getPersonalRatingOverall(a), getPersonalRatingOverall(b), direction)
   } else {
     result = compareTitle(a, b, direction)
   }
@@ -835,9 +862,10 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
     result = result.filter((game) => game.isFavorite === true || game.is_favorite === 1)
   }
 
-  if (activeFilters.personalRatingRatedOnly || activeFilters.personalRatingMin > 0) {
+  if (activeFilters.personalRatingStatus !== 'any' || activeFilters.personalRatingMin > 0) {
     result = result.filter((game) => {
-      const rating = getNullableNumber(game.personalRatingOverall)
+      const rating = getPersonalRatingOverall(game)
+      if (activeFilters.personalRatingStatus === 'unrated') return rating === null
       if (rating === null) return false
       return activeFilters.personalRatingMin <= 0 || rating >= activeFilters.personalRatingMin
     })

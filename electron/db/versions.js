@@ -1239,7 +1239,14 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         )
     )`;
     const personalRatingMinValue = Number(filters.personalRatingMin);
-    if (filters.personalRatingRatedOnly === true || (Number.isFinite(personalRatingMinValue) && personalRatingMinValue > 0)) {
+    const personalRatingStatus = ['rated', 'unrated'].includes(filters.personalRatingStatus)
+      ? filters.personalRatingStatus
+      : filters.personalRatingRatedOnly === true
+        ? 'rated'
+        : 'any';
+    if (personalRatingStatus === 'unrated') {
+      filterWhereParts.push(`${personalRatingOverallExpr} IS NULL`);
+    } else if (personalRatingStatus === 'rated' || (Number.isFinite(personalRatingMinValue) && personalRatingMinValue > 0)) {
       filterWhereParts.push(`${personalRatingOverallExpr} IS NOT NULL`);
       if (Number.isFinite(personalRatingMinValue) && personalRatingMinValue > 0) {
         filterWhereParts.push(`${personalRatingOverallExpr} >= ?`);

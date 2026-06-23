@@ -593,7 +593,15 @@ const SearchSidebar = ({
               <select
                 className="w-full p-2 bg-tertiary border border-border rounded text-sm"
                 value={selectedFilters.personalRatingMin}
-                onChange={(e) => updateFilters({ personalRatingMin: Number(e.target.value) })}
+                disabled={selectedFilters.personalRatingStatus === 'unrated'}
+                onChange={(e) => {
+                  const personalRatingMin = Number(e.target.value)
+                  updateFilters({
+                    personalRatingMin,
+                    personalRatingStatus: personalRatingMin > 0 ? 'rated' : selectedFilters.personalRatingStatus,
+                    personalRatingRatedOnly: personalRatingMin > 0,
+                  })
+                }}
               >
                 <option value={0}>Any</option>
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((rating) => (
@@ -602,18 +610,24 @@ const SearchSidebar = ({
                 <option value={10}>10</option>
               </select>
             </label>
-            <label className="flex items-center space-x-2 text-sm">
-              <input
-                type="checkbox"
-                checked={selectedFilters.personalRatingRatedOnly || false}
-                onChange={() =>
+            <label className="block text-sm">
+              <span className="block mb-1">Rating status</span>
+              <select
+                className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                value={selectedFilters.personalRatingStatus || (selectedFilters.personalRatingRatedOnly ? 'rated' : 'any')}
+                onChange={(e) => {
+                  const personalRatingStatus = e.target.value
                   updateFilters({
-                    personalRatingRatedOnly: !selectedFilters.personalRatingRatedOnly,
+                    personalRatingStatus,
+                    personalRatingRatedOnly: personalRatingStatus === 'rated',
+                    personalRatingMin: personalRatingStatus === 'unrated' ? 0 : selectedFilters.personalRatingMin,
                   })
-                }
-                className="-webkit-app-region-no-drag"
-              />
-              <span>Rated only</span>
+                }}
+              >
+                <option value="any">Any</option>
+                <option value="rated">Rated only</option>
+                <option value="unrated">Unrated only</option>
+              </select>
             </label>
           </div>
         </div>

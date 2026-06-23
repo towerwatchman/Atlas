@@ -24,6 +24,20 @@ export const normalizeGameForRenderer = (game) => {
     const number = Number(value)
     return Number.isFinite(number) ? number : null
   }
+  const personalRatingStory = nullableNumber(game.personalRatingStory ?? game.personal_rating_story)
+  const personalRatingGraphics = nullableNumber(game.personalRatingGraphics ?? game.personal_rating_graphics)
+  const personalRatingGameplay = nullableNumber(game.personalRatingGameplay ?? game.personal_rating_gameplay)
+  const personalRatingFappability = nullableNumber(game.personalRatingFappability ?? game.personal_rating_fappability)
+  const personalRatingValues = [
+    personalRatingStory,
+    personalRatingGraphics,
+    personalRatingGameplay,
+    personalRatingFappability,
+  ].filter((value) => value !== null)
+  const personalRatingOverall = nullableNumber(game.personalRatingOverall ?? game.personal_rating_overall)
+    ?? (personalRatingValues.length > 0
+      ? Math.round((personalRatingValues.reduce((sum, value) => sum + value, 0) / personalRatingValues.length) * 10) / 10
+      : null)
   const localRecordId = nullableNumber(game.localRecordId ?? game.installedRecordId ?? game.local_record_id)
   const hasInstalledVersion =
     game.hasInstalledVersion === true || game.isInstalled === true || game.is_installed === 1 || game.is_installed === true
@@ -58,11 +72,11 @@ export const normalizeGameForRenderer = (game) => {
     totalFolderSize: safeNumber(game.totalFolderSize),
     isUpdateAvailable: game.isUpdateAvailable === true,
     isFavorite: game.isFavorite === true || game.is_favorite === 1,
-    personalRatingStory: nullableNumber(game.personalRatingStory ?? game.personal_rating_story),
-    personalRatingGraphics: nullableNumber(game.personalRatingGraphics ?? game.personal_rating_graphics),
-    personalRatingGameplay: nullableNumber(game.personalRatingGameplay ?? game.personal_rating_gameplay),
-    personalRatingFappability: nullableNumber(game.personalRatingFappability ?? game.personal_rating_fappability),
-    personalRatingOverall: nullableNumber(game.personalRatingOverall ?? game.personal_rating_overall),
+    personalRatingStory,
+    personalRatingGraphics,
+    personalRatingGameplay,
+    personalRatingFappability,
+    personalRatingOverall,
     personalRatingUpdatedAt: nullableNumber(game.personalRatingUpdatedAt ?? game.personal_rating_updated_at),
   }
 }
