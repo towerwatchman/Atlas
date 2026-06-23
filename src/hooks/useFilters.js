@@ -72,7 +72,10 @@ const sortTypes = [
   'fileSize',
   'personalRating',
 ]
-const defaultDescSortTypes = ['date', 'likes', 'views', 'rating', 'newlyInstalled', 'newlyPlayed', 'playtime', 'fileSize', 'personalRating']
+const defaultDescSortTypes = ['date', 'likes', 'views', 'rating', 'installedVersionCount', 'newlyInstalled', 'newlyPlayed', 'playtime', 'fileSize', 'personalRating']
+
+export const getDefaultSortDirectionForSort = (sort) =>
+  defaultDescSortTypes.includes(sort) ? 'desc' : 'asc'
 
 const toArray = (value) => {
   if (Array.isArray(value)) return value.filter((item) => item !== undefined && item !== null).map(String)
@@ -127,8 +130,8 @@ export const normalizeFilterState = (filters = {}) => {
   merged.type = normalizeSearchType(merged.type)
   merged.source = normalizeSourceType(merged.source)
   merged.sort = normalizeSortType(merged.sort)
-  if (!hasSortDirection && defaultDescSortTypes.includes(merged.sort)) {
-    merged.sortDirection = 'desc'
+  if (!hasSortDirection) {
+    merged.sortDirection = getDefaultSortDirectionForSort(merged.sort)
   } else {
     merged.sortDirection = merged.sortDirection === 'desc' ? 'desc' : 'asc'
   }

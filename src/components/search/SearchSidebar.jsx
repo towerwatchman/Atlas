@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { builtInSavedFilters, normalizeFilterState } from '../../hooks/useFilters.js'
+import { builtInSavedFilters, getDefaultSortDirectionForSort, normalizeFilterState } from '../../hooks/useFilters.js'
 
 const SearchSidebar = ({
   isVisible,
@@ -554,7 +554,10 @@ const SearchSidebar = ({
             <select
               className="min-w-0 flex-1 p-2 bg-tertiary border border-border rounded text-sm"
               value={selectedFilters.sort}
-              onChange={(e) => updateFilters({ sort: e.target.value })}
+              onChange={(e) => {
+                const sort = e.target.value
+                updateFilters({ sort, sortDirection: getDefaultSortDirectionForSort(sort) })
+              }}
             >
               <option value="name">Title</option>
               <option value="creator">Creator</option>
@@ -562,9 +565,9 @@ const SearchSidebar = ({
               <option value="likes">Likes</option>
               <option value="views">Views</option>
               <option value="rating">Rating</option>
-              <option value="installedVersionCount">Installed Versions</option>
-              <option value="newlyInstalled">Newly Installed</option>
-              <option value="newlyPlayed">Newly Played</option>
+              <option value="installedVersionCount">Number of Versions</option>
+              <option value="newlyInstalled">Install Date</option>
+              <option value="newlyPlayed">Last Played</option>
               <option value="playtime">Playtime</option>
               <option value="fileSize">File Size</option>
               <option value="personalRating">Personal Rating</option>
