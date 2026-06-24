@@ -632,15 +632,99 @@ function isBoundsVisibleOnAnyDisplay(bounds) {
   })
 }
 
-function applySavedWindowBounds(name, defaultOptions) {
-  const saved = getSavedWindowBounds(name)
-  if (!saved) return { options: { ...defaultOptions }, maximized: false }
+// Centers a width x height window on the main window's CURRENT bounds —
+// not the screen, and not wherever this child window happened to be left
+// last time. Used by every secondary window (Settings, Theme Builder,
+// Banner Editor, Importer, Game Details, Executable Chooser) so they
+// always reopen next to the window the person is actually looking at,
+// rather than on whichever monitor a saved position happens to still be
+// "visible" on (see isBoundsVisibleOnAnyDisplay above — a saved position
+// can be perfectly valid and still be on a completely different screen
+// than the main window is on right now).
+// Keeps a computed x/y, width x height window fully within whichever
+// display its center point falls on — without this, centering on a main
+// window that's snapped to a screen edge (or sized very differently from
+// the child window) can push the child window partly or entirely off that
+// screen, which is exactly as unusable as opening on the wrong monitor.
+function clampBoundsToDisplay({ x, y, width, height }) {
+  const display = screen.getDisplayNearestPoint({
+    x: Math.round(x + width / 2),
+    y: Math.round(y + height / 2),
+  })
+  const area = display.workArea
+  const maxX = area.x + Math.max(0, area.width - width)
+  const maxY = area.y + Math.max(0, area.height - height)
+  return {
+    x: Math.min(Math.max(x, area.x), maxX),
+    y: Math.min(Math.max(y, area.y), maxY),
+  }
+}
 
+function getCenteredBoundsOnMain(width, height) {
+  const w = Math.max(1, Math.round(width))
+  const h = Math.max(1, Math.round(height))
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const mainBounds = mainWindow.getBounds()
+      const x = Math.round(mainBounds.x + (mainBounds.width - w) / 2)
+      const y = Math.round(mainBounds.y + (mainBounds.height - h) / 2)
+      return clampBoundsToDisplay({ x, y, width: w, height: h })
+    }
+    // No main window to center on (shouldn't normally happen — every one
+    // of these is only ever opened from within the running app) — fall
+    // back to centering on whichever display currently has the cursor,
+    // same as Electron's own default placement for a window with no x/y
+    // at all.
+    const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+    const area = display.workArea
+    return clampBoundsToDisplay({
+      x: Math.round(area.x + (area.width - w) / 2),
+      y: Math.round(area.y + (area.height - h) / 2),
+      width: w,
+      height: h,
+    })
+  } catch (err) {
+    // Centering is a nice-to-have, not something that should ever be able
+    // to take down window creation — if anything here throws (an
+    // unexpected display/bounds API failure), fall back to no explicit
+    // position at all, which lets Electron place the window using its own
+    // built-in default instead.
+    console.error('getCenteredBoundsOnMain: failed to compute a centered position:', err)
+    return { x: undefined, y: undefined }
+  }
+}
+
+function applySavedWindowBounds(name, defaultOptions, { centerOnMain = false } = {}) {
+  const saved = getSavedWindowBounds(name)
   const minWidth = defaultOptions.minWidth || 0
   const minHeight = defaultOptions.minHeight || 0
+
+  if (!saved) {
+    if (!centerOnMain) return { options: { ...defaultOptions }, maximized: false }
+    const { x, y } = getCenteredBoundsOnMain(defaultOptions.width, defaultOptions.height)
+    const options = { ...defaultOptions }
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      options.x = x
+      options.y = y
+    }
+    return { options, maximized: false }
+  }
+
   const width = Math.max(saved.width, minWidth, 320)
   const height = Math.max(saved.height, minHeight, 240)
   const options = { ...defaultOptions, width, height }
+
+  if (centerOnMain) {
+    // Still honor the saved SIZE (someone may have deliberately resized
+    // this window before), just never the saved position — every reopen
+    // re-centers on the main window's current location instead.
+    const { x, y } = getCenteredBoundsOnMain(width, height)
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      options.x = x
+      options.y = y
+    }
+    return { options, maximized: saved.maximized }
+  }
 
   if (isBoundsVisibleOnAnyDisplay({ ...saved, width, height })) {
     options.x = saved.x
@@ -795,7 +879,7 @@ function createSettingsWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-  })
+  }, { centerOnMain: true })
   settingsWindow = new BrowserWindow(windowState.options)
   registerWindowBoundsPersistence('settings', settingsWindow, windowState)
   if (VITE_DEV_SERVER_URL) {
@@ -850,7 +934,7 @@ function createThemeBuilderWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-  })
+  }, { centerOnMain: true })
   themeBuilderWindow = new BrowserWindow(windowState.options)
   registerWindowBoundsPersistence('themeBuilder', themeBuilderWindow, windowState)
   if (VITE_DEV_SERVER_URL) {
@@ -913,7 +997,7 @@ function createBannerEditorWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-  })
+  }, { centerOnMain: true })
   bannerEditorWindow = new BrowserWindow(windowState.options)
   registerWindowBoundsPersistence('bannerEditor', bannerEditorWindow, windowState)
   if (VITE_DEV_SERVER_URL) {
@@ -965,7 +1049,7 @@ function createImporterWindow(source = 'atlas') {
       contextIsolation: true,
       nodeIntegration: false,
     },
-  })
+  }, { centerOnMain: true })
   importerWindow = new BrowserWindow(windowState.options)
   registerWindowBoundsPersistence('importer', importerWindow, windowState)
   const importerUrl = VITE_DEV_SERVER_URL
@@ -1020,7 +1104,7 @@ function createGameDetailsWindow(recordId) {
       contextIsolation: true,
       nodeIntegration: false,
     },
-  })
+  }, { centerOnMain: true })
   const win = new BrowserWindow(windowState.options)
   registerWindowBoundsPersistence('gameDetails', win, windowState)
   gameDetailsRecordMap.set(win.webContents.id, recordId)
@@ -1067,7 +1151,7 @@ function showExecutableChooser(title, version, executables) {
       contextIsolation: true,
       nodeIntegration: false,
     },
-  })
+  }, { centerOnMain: true })
   executableChooserWindow = new BrowserWindow(windowState.options)
   registerWindowBoundsPersistence('executableChooser', executableChooserWindow, windowState)
   executableChooserWindow.loadFile(

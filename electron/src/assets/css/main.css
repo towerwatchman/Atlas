@@ -161,14 +161,36 @@
        fallback for that brief gap, instead of showing through to the
        desktop. Matches DEFAULT_THEME's primary color.
 
-       overflow:hidden and clip-path were both tried here to round off
-       this fallback's corners to match the content div's own rounding —
-       but on this app's transparent, frameless windows, either one is
-       enough on its own to break the real content from ever painting
-       at all (not just a corner-pixel seam — the whole page can stay
-       blank, confirmed on the Importer window). Dropped both: the only
-       cost is this fallback's brief pre-paint flash shows square
-       corners instead of rounded ones, which is irrelevant next to the
+       border-radius + overflow:hidden here matters: without it, this
+       fallback paints a full SQUARE rectangle exactly the size of the
+       window, sitting behind the actual rounded content div — and since
+       both are the same size, the content div's "cut" corners just
+       reveal this same-colored square underneath, making the whole
+       window look square regardless of the content div's own rounding.
+       Reads --radius-window-active (set by applyTheme.js from the
+       active theme's windowBorderRadius) rather than a hardcoded value,
+       so this fallback always matches whatever radius the content divs
+       and WindowBorderFrame are using — a mismatch here is exactly what
+       leaves a square sliver of this fallback background visible past
+       the border's curve at the corners. translateZ(0) forces this onto
+       its own compositing layer; without it, Chromium can leave a
+       stray, barely-opaque pixel of this square corner peeking out past
+       the rounded clip against the window's transparent backdrop.
+       (clip-path was tried here too as a second clip on top of
+       overflow:hidden, for the same anti-aliasing reason — but on this
+       app's transparent, frameless windows it does the opposite of
+       helping: it can make the entire layer fail to composite, painting
+       as a flat, empty surface instead of its actual content. Confirmed
+       by reproducing it on the Importer window. Not worth the risk for
+       a sub-pixel seam — removed everywhere, not just here.
+
+       overflow:hidden here turned out to be the same kind of problem,
+       not just clip-path — on the Importer window specifically, this
+       rule's overflow:hidden was enough on its own to break the actual
+       app content from ever painting at all (not just a corner-pixel
+       seam — the whole page stayed blank). Dropped here too: the only
+       cost is that this fallback's brief pre-paint flash shows square
+       corners instead of rounded ones, which is a non-issue next to the
        window actually working. */
     background-color: #19191c;
     border-radius: var(--radius-window-active, 0px);

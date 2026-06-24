@@ -1305,24 +1305,46 @@ const Importer = () => {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="h-screen flex flex-col fixed w-full rounded-windowTheme overflow-hidden">
+    <div className="flex h-screen font-sans text-[13px] bg-transparent -webkit-app-region-no-drag">
       <WindowBorderFrame />
-      <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
-        <p className="text-sm absolute left-2 top-1">Import Games Wizard</p>
-        <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
-          <button onClick={() => window.electronAPI.minimizeWindow()} className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
-            <i className="fas fa-minus fa-xs text-text"></i>
-          </button>
-          <button onClick={() => window.electronAPI.maximizeWindow()} className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
-            <i className={isMaximized ? 'fas fa-window-restore fa-xs text-text' : 'fas fa-window-maximize fa-xs text-text'}></i>
-          </button>
-          <button onClick={() => window.electronAPI.closeWindow()} className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-danger transition-colors duration-200" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
-            <i className="fas fa-times fa-xs text-text"></i>
-          </button>
-        </div>
+      {/* Drag Header — same approach as Settings.jsx, which is known to
+          render correctly; the importer previously used its own
+          differently-structured header (an in-flow bar with absolutely
+          positioned title/controls baked into the rounded/clipped content
+          box itself), which is what broke. */}
+      <div className="absolute left-0 top-0 w-full h-[50px] ml-[-90px] z-40 -webkit-app-region-drag" />
+      {/* Window Controls — z-50 (matching Settings.jsx) so these always
+          paint above Main Content's own stacking context. */}
+      <div className="flex absolute top-1 right-2 h-[70px] z-50">
+        <button
+          onClick={() => window.electronAPI.minimizeWindow()}
+          className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200 -webkit-app-region-no-drag"
+        >
+          <i className="fas fa-minus text-text"></i>
+        </button>
+        <button
+          onClick={() => window.electronAPI.maximizeWindow()}
+          className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+        >
+          <i className={isMaximized ? 'fas fa-window-restore text-text' : 'fas fa-window-maximize text-text'}></i>
+        </button>
+        <button
+          onClick={() => window.electronAPI.closeWindow()}
+          className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-danger transition-colors duration-200"
+        >
+          <i className="fas fa-times text-text"></i>
+        </button>
       </div>
-
-      <div className="flex-1 p-4 bg-secondary overflow-y-auto">
+      {/* Main Content — the rounded/clipped box (same classes Settings.jsx
+          uses on its own Main Content) now lives here instead of on the
+          window's root, with the wizard's own title + content inside it.
+          No background color directly on THIS div — same as Settings.jsx,
+          where the rounded/clipped/transformed wrapper never also paints
+          its own background; only the child below does. */}
+      <div className="flex flex-1 rounded-windowTheme overflow-hidden transform-gpu">
+        <div className="flex-1 bg-secondary flex flex-col min-h-0">
+          <h2 className="flex-shrink-0 text-lg font-bold px-4 pt-4 mb-2 text-text">Import Games Wizard</h2>
+          <div className="flex-1 min-h-0 p-4 pt-2 overflow-y-auto">
         {view === 'settings' && (
           <SettingsStep
             folder={folder} customFormat={customFormat} useUnstructured={useUnstructured}
@@ -1375,6 +1397,8 @@ const Importer = () => {
             setForceReimport={setForceReimport}
           />
         )}
+          </div>
+        </div>
       </div>
     </div>
   )
