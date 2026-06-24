@@ -20,10 +20,10 @@
  *
  * rounded-windowTheme (not a hardcoded rounded-md) so this always matches
  * --radius-window-active — the same variable every window's own root
- * content div is clipped to (see App.jsx, Settings.jsx, etc.). The two
- * must never drift apart: a content corner clipped to a smaller radius
- * than this border draws would leave a square sliver of that content
- * visible just outside the border's curve.
+ * content div is clipped to (see App.jsx, Settings.jsx, etc.), and the
+ * same one html/body's own clip now uses too (see main.css). The three
+ * must never drift apart: a mismatch is exactly what leaves a sliver of
+ * whatever's behind visible just outside the border's curve.
  */
 const WindowBorderFrame = () => (
   <div

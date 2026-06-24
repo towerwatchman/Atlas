@@ -523,47 +523,55 @@ const BannerEditor = () => {
   }
 
   return (
-    <div className="text-text -webkit-app-region-no-drag space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-sm font-semibold">Preview sample</label>
-          <select
-            className="bg-secondary border border-border text-text rounded p-1"
-            value={previewMode}
-            onChange={(event) => setPreviewMode(event.target.value)}
-          >
-            {Object.entries(previewModes).map(([id, mode]) => (
-              <option key={id} value={id}>{mode.label}</option>
-            ))}
-          </select>
+    <div className="text-text -webkit-app-region-no-drag flex flex-col flex-1 min-h-0">
+      {/* Fixed header: the preview-sample selector/status row, the live
+          banner preview, and the tabs all stay pinned here and never
+          scroll — only the active tab's own settings content below
+          scrolls. Previously this whole block lived inside the same
+          scrollable container as that content. */}
+      <div className="flex-shrink-0 space-y-4 pb-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-sm font-semibold">Preview sample</label>
+            <select
+              className="bg-secondary border border-border text-text rounded p-1"
+              value={previewMode}
+              onChange={(event) => setPreviewMode(event.target.value)}
+            >
+              {Object.entries(previewModes).map(([id, mode]) => (
+                <option key={id} value={id}>{mode.label}</option>
+              ))}
+            </select>
+          </div>
+          <span className="text-xs opacity-70">
+            {selectedLayoutId === CUSTOM_BANNER_LAYOUT_ID
+              ? `Editing a custom copy of ${selectedBuiltIn?.name || selectedUserPreset?.name || 'preset'}`
+              : isUserPresetSelected ? `Saved as ${selectedUserPreset.name}` : 'Built-in preset'}
+            {statusText ? ` - ${statusText}` : ''}
+          </span>
         </div>
-        <span className="text-xs opacity-70">
-          {selectedLayoutId === CUSTOM_BANNER_LAYOUT_ID
-            ? `Editing a custom copy of ${selectedBuiltIn?.name || selectedUserPreset?.name || 'preset'}`
-            : isUserPresetSelected ? `Saved as ${selectedUserPreset.name}` : 'Built-in preset'}
-          {statusText ? ` - ${statusText}` : ''}
-        </span>
+
+        <div className="flex justify-center overflow-x-auto py-2">
+          <BannerEditorPreview game={activePreviewGame} layout={draftLayout} />
+        </div>
+
+        <div className="flex gap-2 border-b border-border">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`text-xs px-3 py-2 border-b-2 transition-colors -mb-px ${
+                activeTab === tab.id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="flex justify-center overflow-x-auto py-2">
-        <BannerEditorPreview game={activePreviewGame} layout={draftLayout} />
-      </div>
-
-      <div className="flex gap-2 border-b border-border sticky top-0 bg-secondary z-10 pt-1">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setActiveTab(tab.id)}
-            className={`text-xs px-3 py-2 border-b-2 transition-colors -mb-px ${
-              activeTab === tab.id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pt-3">
       {activeTab === 'presets' && (
         <section className="space-y-4">
           <SectionHeader>Preset Selection</SectionHeader>
@@ -794,6 +802,7 @@ const BannerEditor = () => {
           </div>
         </section>
       )}
+      </div>
     </div>
   )
 }

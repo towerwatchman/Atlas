@@ -154,25 +154,34 @@
      clear, theme-colored ring for actual keyboard navigation. */
   html, body {
     outline: none;
-      border-radius: var(--radius-window-active, 0px);
+    /* Windows are now OS-level transparent (see electron/main.js — needed
+       to get rid of the native DWM resize border on frame:false windows).
+       This used to ALSO paint an opaque fallback color here (matching
+       DEFAULT_THEME's primary color), for the brief async gap before
+       applyThemeOnLoad() finishes. That combination — an opaque
+       background-color together with clip-path/transform on a
+       transparent, frameless Electron window — is what broke compositing
+       entirely on the Importer window (the gray-screen bug). The
+       clipping itself (border-radius + overflow:hidden + clip-path +
+       transform) was never the problem and needs to stay: WITHOUT a
+       background-color, it's what correctly rounds off this layer's
+       corner instead of leaving a dark wedge visible past the border's
+       curve. Confirmed by screenshot both ways: present with a
+       background-color, gone without one. Cost: a few-millisecond flash
+       of the OS-transparent backdrop on load instead of an instant
+       fallback color — far less noticeable than either of the previous
+       failure modes.
+
+       transform: translateZ(0) specifically is also required — removing
+       it brings the corner-bleed bug straight back (confirmed by
+       testing). It is NOT the cause of Theme Builder/Banner Editor's
+       missing scrollbar (confirmed by testing too — removing it here
+       didn't fix that). That's a separate, unrelated issue local to
+       those two windows' own JSX. */
+    border-radius: var(--radius-window-active, 0px);
     overflow: hidden;
     clip-path: inset(0 round var(--radius-window-active, 0px));
     transform: translateZ(0);
-    /* Windows are now OS-level transparent (see electron/main.js — needed
-       to get rid of the native DWM resize border on frame:false windows).
-       This used to paint an opaque fallback color here (matching
-       DEFAULT_THEME's primary color) for the brief async gap before
-       applyThemeOnLoad() finishes — but its own rounding never lined up
-       closely enough with the real content div's curve, leaving a
-       visible dark wedge of this color peeking out right at the corner
-       whenever a window radius was enabled (confirmed by screenshot).
-       Tried clipping it to match (border-radius, overflow:hidden,
-       clip-path, in various combinations) — every version either still
-       left a visible seam or broke rendering outright (see the Importer
-       window's gray-screen saga). The only fix that's actually certain:
-       no opaque fallback at all. Worst case is a few-millisecond flash
-       of the OS-transparent backdrop on load, which is far less
-       noticeable than a permanent dark sliver at every rounded corner. */
   }
   :focus:not(:focus-visible) {
     outline: none;

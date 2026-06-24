@@ -1305,7 +1305,7 @@ const Importer = () => {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text rounded-windowTheme overflow-hidden transform-gpu [clip-path:inset(0_round_var(--radius-window-active))]">
+    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text rounded-windowTheme overflow-hidden transform-gpu">
       <WindowBorderFrame />
       {/* Header row: a real flex row (not absolutely positioned) — same
           pattern as ThemeBuilderWindow.jsx/BannerEditorWindow.jsx/

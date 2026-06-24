@@ -12,7 +12,7 @@ const BannerEditorWindow = () => {
   }, [])
 
   return (
-    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text -webkit-app-region-no-drag rounded-windowTheme overflow-hidden transform-gpu [clip-path:inset(0_round_var(--radius-window-active))]">
+    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text -webkit-app-region-no-drag rounded-windowTheme overflow-hidden transform-gpu">
       <WindowBorderFrame />
       <div className="flex items-center justify-between h-[50px] flex-shrink-0 px-4 -webkit-app-region-drag">
         <h2 className="text-lg font-bold text-text">Banner Editor</h2>

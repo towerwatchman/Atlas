@@ -21,7 +21,7 @@ const ThemeBuilderWindow = () => {
   }, [])
 
   return (
-    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text -webkit-app-region-no-drag rounded-windowTheme overflow-hidden transform-gpu [clip-path:inset(0_round_var(--radius-window-active))]">
+    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text -webkit-app-region-no-drag rounded-windowTheme overflow-hidden transform-gpu">
       <WindowBorderFrame />
       {/* Header row: a real flex row (not absolutely positioned), so the
           scrollable content below can never slide up underneath it — the

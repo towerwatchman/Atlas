@@ -96,7 +96,7 @@ export class AppErrorBoundary extends Component {
   render() {
     if (this.state.error) {
       return (
-        <div className="h-screen bg-tertiary text-text flex items-center justify-center p-6 rounded-windowTheme overflow-hidden transform-gpu [clip-path:inset(0_round_var(--radius-window-active))]">
+        <div className="h-screen bg-tertiary text-text flex items-center justify-center p-6 rounded-windowTheme overflow-hidden transform-gpu">
           <WindowBorderFrame />
           <div className="bg-secondary border border-border rounded p-4 max-w-xl">
             <h1 className="text-lg font-bold mb-2">Atlas hit a display error</h1>
@@ -1110,7 +1110,7 @@ const App = () => {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen font-sans text-[13px] rounded-windowTheme overflow-hidden transform-gpu [clip-path:inset(0_round_var(--radius-window-active))]">
+    <div className="flex flex-col h-screen font-sans text-[13px] rounded-windowTheme overflow-hidden transform-gpu">
       {/* windowBorderHideOnMain lets the border show on every other window
           (Settings, Theme Builder, etc. — see their own unconditional
           <WindowBorderFrame /> usage) while staying off on just this, the

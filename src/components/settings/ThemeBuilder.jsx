@@ -494,85 +494,93 @@ const ThemeBuilder = ({ onClose }) => {
   }
 
   return (
-    <div className="-webkit-app-region-no-drag">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={onClose} className="btn-shadow btn-glow text-text hover:text-accent text-sm px-2 py-1">
-            <i className="fas fa-arrow-left mr-1"></i>Back to Appearance
-          </button>
+    <div className="-webkit-app-region-no-drag flex flex-col flex-1 min-h-0">
+      {/* Fixed header: back button, save controls, status messages, and
+          the section tabs all stay pinned here and never scroll — only
+          the actual settings content below (per-section colors, radius
+          pickers, etc.) scrolls. Previously this entire block lived
+          inside the same scrollable container as the content, so it
+          scrolled out of view along with everything else. */}
+      <div className="flex-shrink-0 px-4 pt-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={onClose} className="btn-shadow btn-glow text-text hover:text-accent text-sm px-2 py-1">
+              <i className="fas fa-arrow-left mr-1"></i>Back to Appearance
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            {activeTheme.id !== 'default' && saveState.status !== 'confirm-overwrite' && (
+              <button
+                type="button"
+                onClick={handleSaveToCurrentTheme}
+                disabled={saveState.status === 'saving'}
+                className="btn-shadow btn-glow text-sm bg-accent text-white px-3 py-1.5 rounded-buttonTheme hover:bg-accentHover disabled:opacity-50"
+                title={`Overwrites "${activeTheme.name}" with these changes`}
+              >
+                {saveState.status === 'saving' ? 'Saving…' : `Save Changes to "${activeTheme.name}"`}
+              </button>
+            )}
+            <input
+              type="text"
+              value={themeName}
+              onChange={(e) => { setThemeName(e.target.value); setSaveState({ status: 'idle', error: null }) }}
+              placeholder="Theme name"
+              className="bg-secondary border border-border text-text text-sm rounded p-1.5 w-48"
+            />
+            {saveState.status === 'confirm-overwrite' ? (
+              <>
+                <span className="text-xs text-warning">Already exists —</span>
+                <button type="button" onClick={() => handleSave(true)} className="btn-shadow btn-glow text-sm bg-danger text-white px-3 py-1.5 rounded-buttonTheme">
+                  Overwrite
+                </button>
+                <button type="button" onClick={() => setSaveState({ status: 'idle', error: null })} className="text-xs text-muted hover:text-text">
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleSave(false)}
+                disabled={saveState.status === 'saving'}
+                className="btn-shadow btn-glow text-sm bg-button text-text px-3 py-1.5 rounded-buttonTheme hover:bg-buttonHover disabled:opacity-50"
+              >
+                {saveState.status === 'saving' ? 'Saving…' : 'Save as New Theme'}
+              </button>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {activeTheme.id !== 'default' && saveState.status !== 'confirm-overwrite' && (
+        {saveState.status === 'saved-current' && (
+          <p className="text-xs text-success mb-2">
+            Saved! "{activeTheme.name}" has been updated with these changes.
+          </p>
+        )}
+        {saveState.status === 'saved' && (
+          <p className="text-xs text-success mb-2">
+            Saved! "{themeName.trim()}" is now available in the Appearance theme picker.
+          </p>
+        )}
+        {saveState.status === 'error' && (
+          <p className="text-xs text-danger mb-2">{saveState.error}</p>
+        )}
+
+        <div className="flex gap-2 border-b border-border">
+          {sections.map((section) => (
             <button
+              key={section.id}
               type="button"
-              onClick={handleSaveToCurrentTheme}
-              disabled={saveState.status === 'saving'}
-              className="btn-shadow btn-glow text-sm bg-accent text-white px-3 py-1.5 rounded-buttonTheme hover:bg-accentHover disabled:opacity-50"
-              title={`Overwrites "${activeTheme.name}" with these changes`}
+              onClick={() => setActiveSection(section.id)}
+              title={section.description}
+              className={`text-xs px-3 py-2 border-b-2 transition-colors -mb-px ${
+                activeSection === section.id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'
+              }`}
             >
-              {saveState.status === 'saving' ? 'Saving…' : `Save Changes to "${activeTheme.name}"`}
+              {section.label}
             </button>
-          )}
-          <input
-            type="text"
-            value={themeName}
-            onChange={(e) => { setThemeName(e.target.value); setSaveState({ status: 'idle', error: null }) }}
-            placeholder="Theme name"
-            className="bg-secondary border border-border text-text text-sm rounded p-1.5 w-48"
-          />
-          {saveState.status === 'confirm-overwrite' ? (
-            <>
-              <span className="text-xs text-warning">Already exists —</span>
-              <button type="button" onClick={() => handleSave(true)} className="btn-shadow btn-glow text-sm bg-danger text-white px-3 py-1.5 rounded-buttonTheme">
-                Overwrite
-              </button>
-              <button type="button" onClick={() => setSaveState({ status: 'idle', error: null })} className="text-xs text-muted hover:text-text">
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => handleSave(false)}
-              disabled={saveState.status === 'saving'}
-              className="btn-shadow btn-glow text-sm bg-button text-text px-3 py-1.5 rounded-buttonTheme hover:bg-buttonHover disabled:opacity-50"
-            >
-              {saveState.status === 'saving' ? 'Saving…' : 'Save as New Theme'}
-            </button>
-          )}
+          ))}
         </div>
       </div>
-      {saveState.status === 'saved-current' && (
-        <p className="text-xs text-success mb-2">
-          Saved! "{activeTheme.name}" has been updated with these changes.
-        </p>
-      )}
-      {saveState.status === 'saved' && (
-        <p className="text-xs text-success mb-2">
-          Saved! "{themeName.trim()}" is now available in the Appearance theme picker.
-        </p>
-      )}
-      {saveState.status === 'error' && (
-        <p className="text-xs text-danger mb-2">{saveState.error}</p>
-      )}
 
-      <div className="flex gap-2 mb-3 border-b border-border sticky top-0 bg-secondary z-10 pt-1">
-        {sections.map((section) => (
-          <button
-            key={section.id}
-            type="button"
-            onClick={() => setActiveSection(section.id)}
-            title={section.description}
-            className={`text-xs px-3 py-2 border-b-2 transition-colors -mb-px ${
-              activeSection === section.id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'
-            }`}
-          >
-            {section.label}
-          </button>
-        ))}
-      </div>
-
-      <div>
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 pt-3 pb-4">
         {activeSection === 'colors' && (
           <div>
             <p className="text-[10px] opacity-50 mb-2">

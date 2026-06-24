@@ -83,7 +83,7 @@ const Settings = () => {
         </button>
       </div>
       {/* Main Content */}
-      <div className="flex flex-1 rounded-windowTheme overflow-hidden transform-gpu [clip-path:inset(0_round_var(--radius-window-active))]">
+      <div className="flex flex-1 rounded-windowTheme overflow-hidden transform-gpu">
         {/* Settings Sidebar */}
         <div className="w-[180px] bg-primary h-full border-r border-border -webkit-app-region-no-drag">
           <div className="text-center text-accent font-bold text-md mt-4 mb-4 antialiased -webkit-app-region-drag">
