@@ -175,6 +175,15 @@ export const resolveColorValue = (key, value) => {
 
 export const RADIUS_OPTIONS = ['sm', 'md', 'lg', 'pill']
 
+// Window border radius uses its own, smaller option set — no 'pill'. Pill
+// (999px) makes sense for a button or a card; on a window-sized box, the
+// arc it draws sweeps dozens or hundreds of pixels deep into the window
+// (clearly visible eating into the sidebar, not just "cutting a corner"),
+// which is never the intent. 'none' (the default) is also exclusive to
+// this list — buttons/cards are never "no radius", but a window
+// definitely defaults to plain square corners.
+export const WINDOW_RADIUS_OPTIONS = ['none', 'sm', 'md', 'lg']
+
 /**
  * Nav position is independent of theme STATE (Appearance.layout in
  * config.ini is still the durable source of truth for what's currently
@@ -396,6 +405,16 @@ export const DEFAULT_THEME = {
   // transparent + square-cornered; still available to turn on from
   // Theme Builder for anyone who wants it.
   windowBorderEnabled: false,
+  // How rounded the window border (and every window's own corners, which
+  // must always match it exactly — see WindowBorderFrame.jsx) are — see
+  // WINDOW_RADIUS_OPTIONS above. 'none' by default: windows are square
+  // unless someone deliberately opts into rounding from Theme Builder.
+  windowBorderRadius: 'none',
+  // Lets the border be turned on everywhere EXCEPT the main library
+  // window specifically (Settings, Theme Builder, etc. still show it).
+  // Independent from windowBorderEnabled, which is the global on/off
+  // switch — this only ever narrows that, never widens it.
+  windowBorderHideOnMain: false,
   colors: {
     canvas:         '#000000',
     shadow:         '#000000',
@@ -462,15 +481,20 @@ export const normalizeTheme = (theme) => {
   const cardRadius = RADIUS_OPTIONS.includes(theme.cardRadius)
     ? theme.cardRadius
     : (legacyRadius || DEFAULT_THEME.cardRadius)
+  const windowBorderRadius = WINDOW_RADIUS_OPTIONS.includes(theme.windowBorderRadius)
+    ? theme.windowBorderRadius
+    : DEFAULT_THEME.windowBorderRadius
   return {
     ...DEFAULT_THEME,
     ...theme,
     buttonRadius,
     cardRadius,
+    windowBorderRadius,
     nav: normalizeNav(theme.nav),
     buttonEffects: normalizeButtonEffects(theme.buttonEffects),
     textEffects: normalizeTextEffects(theme.textEffects),
     windowBorderEnabled: theme.windowBorderEnabled !== false,
+    windowBorderHideOnMain: theme.windowBorderHideOnMain === true,
     colors: {
       ...DEFAULT_THEME.colors,
       ...(theme.colors || {}),

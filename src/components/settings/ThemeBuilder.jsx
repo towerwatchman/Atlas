@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { applyTheme } from '../../theme/applyTheme.js'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
 import {
-  THEME_COLOR_KEYS, GRADIENT_ELIGIBLE_KEYS, RADIUS_OPTIONS,
+  THEME_COLOR_KEYS, GRADIENT_ELIGIBLE_KEYS, RADIUS_OPTIONS, WINDOW_RADIUS_OPTIONS,
   LAYOUT_OPTIONS, NAV_DISPLAY_MODE_OPTIONS,
   FILTER_SIDEBAR_SIDE_OPTIONS, FILTER_SIDEBAR_MODE_OPTIONS,
   TEXT_EFFECT_CONTEXTS, normalizeTheme,
@@ -48,6 +48,18 @@ const RADIUS_DESCRIPTIONS = {
   md: 'Moderately rounded corners, a balanced default.',
   lg: 'Noticeably rounded corners for a softer look.',
   pill: 'Fully rounded ends, like a capsule or pill shape.',
+}
+
+// Separate from RADIUS_LABELS/DESCRIPTIONS above — windows use their own
+// smaller option set (see WINDOW_RADIUS_OPTIONS in themes.js): no 'pill'
+// (a window-sized capsule curve eats deep into the window, not just the
+// corner), plus 'none' since a window defaults to perfectly square.
+const WINDOW_RADIUS_LABELS = { none: 'Off', sm: 'Small', md: 'Medium', lg: 'Large' }
+const WINDOW_RADIUS_DESCRIPTIONS = {
+  none: 'Plain square corners — the default.',
+  sm: 'Slightly rounded corners — close to square.',
+  md: 'Moderately rounded corners, a balanced default.',
+  lg: 'Noticeably rounded corners for a softer look.',
 }
 
 const LAYOUT_LABELS = { sidebar: 'Sidebar', topnav: 'Top Bar' }
@@ -568,19 +580,47 @@ const ThemeBuilder = ({ onClose }) => {
               surfaces (Canvas, Primary, Secondary, Tertiary Surface) can also be set
               as a gradient using the "Gradient" checkbox on each.
             </p>
-            <div className="border border-border rounded-cardTheme p-2 mb-2 flex items-center justify-between">
-              <div>
-                <span className="text-xs font-semibold block">Window Border</span>
-                <span className="text-[10px] opacity-60">The accent-colored border drawn around every Atlas window. Uses the "Window Border" color below.</span>
+            <div className="border border-border rounded-cardTheme p-2 mb-2">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <span className="text-xs font-semibold block">Window Border</span>
+                  <span className="text-[10px] opacity-60">The accent-colored border drawn around every Atlas window. Uses the "Window Border" color below.</span>
+                </div>
+                <label className="flex items-center gap-1 text-xs cursor-pointer flex-shrink-0 ml-2">
+                  <input
+                    type="checkbox"
+                    checked={draft.windowBorderEnabled}
+                    onChange={(e) => setDraft((prev) => ({ ...prev, windowBorderEnabled: e.target.checked }))}
+                  />
+                  Enabled
+                </label>
               </div>
-              <label className="flex items-center gap-1 text-xs cursor-pointer flex-shrink-0 ml-2">
-                <input
-                  type="checkbox"
-                  checked={draft.windowBorderEnabled}
-                  onChange={(e) => setDraft((prev) => ({ ...prev, windowBorderEnabled: e.target.checked }))}
-                />
-                Enabled
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] opacity-60 max-w-[70%]">
+                  Keep every other window's border, but hide it on just the
+                  main library window.
+                </span>
+                <label className="flex items-center gap-1 text-xs cursor-pointer flex-shrink-0 ml-2">
+                  <input
+                    type="checkbox"
+                    checked={draft.windowBorderHideOnMain}
+                    onChange={(e) => setDraft((prev) => ({ ...prev, windowBorderHideOnMain: e.target.checked }))}
+                  />
+                  Hide on main window
+                </label>
+              </div>
+              <span className="text-[10px] opacity-60 block mb-1">
+                How rounded every window's corners are — applies even with the
+                border above turned off, since the corners themselves always
+                follow this.
+              </span>
+              <OptionPicker
+                options={WINDOW_RADIUS_OPTIONS}
+                labels={WINDOW_RADIUS_LABELS}
+                descriptions={WINDOW_RADIUS_DESCRIPTIONS}
+                value={draft.windowBorderRadius}
+                onChange={(windowBorderRadius) => setDraft((prev) => ({ ...prev, windowBorderRadius }))}
+              />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {THEME_COLOR_KEYS.map((key) => (

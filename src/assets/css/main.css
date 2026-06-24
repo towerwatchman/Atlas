@@ -87,6 +87,7 @@
   --color-window-border:      #2C8EA9;
 
   /* Shape */
+  --radius-none: 0px;
   --radius-sm:   4px;
   --radius-md:   6px;
   --radius-lg:   10px;
@@ -98,6 +99,11 @@
      regardless of theme. Both default to the Default theme's choice. */
   --radius-button-active: var(--radius-sm);
   --radius-card-active: var(--radius-sm);
+  /* Default theme's window border radius (rounded-windowTheme — see
+     tailwind.config.js, applyTheme.js). Windows default to plain square
+     corners (--radius-none) — rounding is opt-in from Theme Builder, not
+     a default look every existing install would suddenly get. */
+  --radius-window-active: var(--radius-none);
 
   /* Typography */
   --font-sans: "Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
@@ -153,8 +159,33 @@
        applyThemeOnLoad() paints the real theme's background almost
        immediately, but it's an async IPC round-trip; this is just the
        fallback for that brief gap, instead of showing through to the
-       desktop. Matches DEFAULT_THEME's primary color. */
+       desktop. Matches DEFAULT_THEME's primary color.
+
+       border-radius + overflow:hidden here matters: without it, this
+       fallback paints a full SQUARE rectangle exactly the size of the
+       window, sitting behind the actual rounded content div — and since
+       both are the same size, the content div's "cut" corners just
+       reveal this same-colored square underneath, making the whole
+       window look square regardless of the content div's own rounding.
+       Reads --radius-window-active (set by applyTheme.js from the
+       active theme's windowBorderRadius) rather than a hardcoded value,
+       so this fallback always matches whatever radius the content divs
+       and WindowBorderFrame are using — a mismatch here is exactly what
+       leaves a square sliver of this fallback background visible past
+       the border's curve at the corners. translateZ(0) forces this onto
+       its own compositing layer; without it, Chromium can leave a
+       stray, barely-opaque pixel of this square corner peeking out past
+       the rounded clip against the window's transparent backdrop.
+       clip-path is a second, independently-rasterized clip on top of
+       overflow:hidden — belt-and-suspenders against that same seam,
+       since the two clipping mechanisms aren't anti-aliased identically
+       and clip-path tends to hold up better against a transparent
+       backdrop specifically. */
     background-color: #19191c;
+    border-radius: var(--radius-window-active, 0px);
+    overflow: hidden;
+    clip-path: inset(0 round var(--radius-window-active, 0px));
+    transform: translateZ(0);
   }
   :focus:not(:focus-visible) {
     outline: none;

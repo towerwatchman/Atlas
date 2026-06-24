@@ -96,7 +96,7 @@ export class AppErrorBoundary extends Component {
   render() {
     if (this.state.error) {
       return (
-        <div className="h-screen bg-tertiary text-text flex items-center justify-center p-6 rounded-md overflow-hidden">
+        <div className="h-screen bg-tertiary text-text flex items-center justify-center p-6 rounded-windowTheme overflow-hidden transform-gpu [clip-path:inset(0_round_var(--radius-window-active))]">
           <WindowBorderFrame />
           <div className="bg-secondary border border-border rounded p-4 max-w-xl">
             <h1 className="text-lg font-bold mb-2">Atlas hit a display error</h1>
@@ -275,7 +275,7 @@ const App = () => {
         : 'Games'
 
   const { isMaximized, version, handleWindowStateChanged, loadVersion } = useWindowState()
-  const { layout, accentBarEnabled, filterSidebarSide, filterSidebarMode } = useTheme()
+  const { theme, layout, accentBarEnabled, filterSidebarSide, filterSidebarMode } = useTheme()
   const isTopNav = layout === 'topnav'
 
   const {
@@ -1110,12 +1110,29 @@ const App = () => {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen font-sans text-[13px] rounded-md overflow-hidden">
-      <WindowBorderFrame />
-      {/* Header */}
+    <div className="flex flex-col h-screen font-sans text-[13px] rounded-windowTheme overflow-hidden transform-gpu [clip-path:inset(0_round_var(--radius-window-active))]">
+      {/* windowBorderHideOnMain lets the border show on every other window
+          (Settings, Theme Builder, etc. — see their own unconditional
+          <WindowBorderFrame /> usage) while staying off on just this, the
+          main library window. windowBorderEnabled (the global on/off
+          switch) is still respected first via colors.windowBorder/
+          applyTheme.js — this only ever narrows that further, never
+          overrides it back on. */}
+      {!theme.windowBorderHideOnMain && <WindowBorderFrame />}
+      {/* Header — position:fixed (see comment above WindowBorderFrame.jsx
+          for why: so it can't visually cover the border overlay), which
+          means it also escapes the root div's own overflow-hidden/rounded
+          clip above. The logo block and the bg-primary block below it
+          each get their own matching top-corner rounding directly (NOT
+          overflow-hidden on this whole header — the TopNav "Add Game"
+          dropdown is absolutely positioned and extends below this 70px
+          bar, and would get clipped off if this clipped its own
+          overflow) — without that, those two blocks would paint a
+          square corner poking out past the border overlay's curve at
+          the window's actual top corners. */}
       <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
         <div
-          className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag"
+          className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag rounded-tl-windowTheme transform-gpu"
           onClick={goHome}
           title="Back to Library"
         >
@@ -1127,7 +1144,7 @@ const App = () => {
             dangerouslySetInnerHTML={{ __html: atlasLogo.path }}
           />
         </div>
-        <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)]">
+        <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)] rounded-tr-windowTheme transform-gpu">
           {/* Accent bar: the notched strip tucked behind the logo block.
               Shown in both layouts as long as the active theme's
               nav.accentBarEnabled hasn't been turned off (see
@@ -1519,8 +1536,12 @@ const App = () => {
         </div>
       )}
 
-      {/* Footer */}
-      <div className="bg-primary h-[40px] grid grid-cols-[1fr_auto_1fr] items-center px-4 fixed bottom-0 w-full border-t border-accent z-50">
+      {/* Footer — position:fixed, same reasoning as the header above: it
+          escapes the root div's own rounded clip, so it needs its own
+          matching bottom-corner rounding directly (just border-radius,
+          no overflow-hidden — the Add Game dropdown above opens upward
+          past this bar's top edge and would get clipped off by it). */}
+      <div className="bg-primary h-[40px] grid grid-cols-[1fr_auto_1fr] items-center px-4 fixed bottom-0 w-full border-t border-accent z-50 rounded-b-windowTheme transform-gpu">
         <ImporterSourceMenu placement="footer" onSelect={addGame}>
           {({ toggle, buttonProps }) => (
             <button

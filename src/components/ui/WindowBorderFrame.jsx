@@ -17,10 +17,18 @@
  *
  * Render this once, anywhere, in each window's root component (it doesn't
  * matter where in the tree — it's fixed to the viewport regardless).
+ *
+ * rounded-windowTheme (not a hardcoded rounded-md) so this always matches
+ * --radius-window-active — the same variable every window's own root
+ * content div is clipped to (see App.jsx, Settings.jsx, etc.). The two
+ * must never drift apart: a content corner clipped to a smaller radius
+ * than this border draws would leave a square sliver of that content
+ * visible just outside the border's curve.
  */
 const WindowBorderFrame = () => (
   <div
-    className="pointer-events-none fixed inset-0 z-[9999] rounded-md border border-windowBorder"
+    className="pointer-events-none fixed inset-0 z-[9999] rounded-windowTheme border border-windowBorder"
+    style={{ transform: 'translateZ(0)' }}
     aria-hidden="true"
   />
 )

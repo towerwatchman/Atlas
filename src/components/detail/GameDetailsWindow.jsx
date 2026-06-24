@@ -519,7 +519,7 @@ const GameDetailWindow = () => {
   // ── Loading state ─────────────────────────────────────────────────────────
   if (!game) {
     return (
-      <div className="flex flex-col h-screen bg-canvas text-text rounded-md overflow-hidden">
+      <div className="flex flex-col h-screen bg-canvas text-text rounded-windowTheme overflow-hidden transform-gpu [clip-path:inset(0_round_var(--radius-window-active))]">
         <WindowBorderFrame />
         <TitleBar isMaximized={isMaximized} />
         <div className="flex-grow flex flex-col items-center justify-center bg-secondary gap-4">
@@ -538,7 +538,7 @@ const GameDetailWindow = () => {
 
   // ── Main render ───────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen bg-canvas text-text rounded-md overflow-hidden">
+    <div className="flex flex-col h-screen bg-canvas text-text rounded-windowTheme overflow-hidden transform-gpu [clip-path:inset(0_round_var(--radius-window-active))]">
       <WindowBorderFrame />
       <TitleBar isMaximized={isMaximized} />
 

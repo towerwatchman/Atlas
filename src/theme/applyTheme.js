@@ -67,6 +67,13 @@ export function applyTheme(theme, layout, navOverrides = {}) {
 
   root.setProperty('--radius-button-active', `var(--radius-${safeTheme.buttonRadius})`)
   root.setProperty('--radius-card-active', `var(--radius-${safeTheme.cardRadius})`)
+  // Drives BOTH the border overlay's curve (WindowBorderFrame.jsx) and
+  // every window's own corner clip (App.jsx, Settings.jsx, etc. — see
+  // rounded-windowTheme in tailwind.config.js). The two must always
+  // share this one variable rather than each hardcoding their own value
+  // — any drift between them is exactly what leaves a square sliver of
+  // window content visible past the border's curve at the corners.
+  root.setProperty('--radius-window-active', `var(--radius-${safeTheme.windowBorderRadius})`)
   root.setProperty('--font-sans', safeTheme.font)
   root.setProperty('--nav-size', NAV_SIZES[safeLayout])
 

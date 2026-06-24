@@ -1305,7 +1305,7 @@ const Importer = () => {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="h-screen flex flex-col fixed w-full rounded-md overflow-hidden">
+    <div className="h-screen flex flex-col fixed w-full rounded-windowTheme overflow-hidden transform-gpu [clip-path:inset(0_round_var(--radius-window-active))]">
       <WindowBorderFrame />
       <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
         <p className="text-sm absolute left-2 top-1">Import Games Wizard</p>

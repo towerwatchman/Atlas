@@ -52,6 +52,10 @@ module.exports = {
         theme:       'var(--radius-button-active)',
         buttonTheme: 'var(--radius-button-active)',
         cardTheme:   'var(--radius-card-active)',
+        // Window border + every window's own corner clip (see
+        // WindowBorderFrame.jsx, App.jsx, Settings.jsx, etc.) — both
+        // must always use this same key so they can never drift apart.
+        windowTheme: 'var(--radius-window-active)',
         // Fixed literal steps, NOT theme-dependent. Use these for small
         // structural elements (status badges, checkboxes, pills) that should
         // stay visually consistent regardless of theme, so a 'pill' radius
