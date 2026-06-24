@@ -1305,24 +1305,39 @@ const Importer = () => {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="h-screen flex flex-col fixed w-full rounded-windowTheme overflow-hidden">
+    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text rounded-windowTheme overflow-hidden transform-gpu [clip-path:inset(0_round_var(--radius-window-active))]">
       <WindowBorderFrame />
-      <div className="bg-primary h-8 flex justify-end items-center pr-2 -webkit-app-region-drag">
-        <p className="text-sm absolute left-2 top-1">Import Games Wizard</p>
-        <div className="flex absolute top-1 right-2 h-[70px] -webkit-app-region-no-drag">
-          <button onClick={() => window.electronAPI.minimizeWindow()} className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
-            <i className="fas fa-minus fa-xs text-text"></i>
+      {/* Header row: a real flex row (not absolutely positioned) — same
+          pattern as ThemeBuilderWindow.jsx/BannerEditorWindow.jsx/
+          GameDetailsWindow.jsx, all of which round/clip correctly. The
+          importer previously used its own differently-structured header
+          (absolutely positioned title/controls), which is what didn't
+          fully match the rest. */}
+      <div className="flex items-center justify-between h-[50px] flex-shrink-0 px-4 -webkit-app-region-drag">
+        <h2 className="text-lg font-bold text-text">Import Games Wizard</h2>
+        <div className="flex h-[28px] -webkit-app-region-no-drag">
+          <button
+            onClick={() => window.electronAPI.minimizeWindow()}
+            className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+          >
+            <i className="fas fa-minus text-text"></i>
           </button>
-          <button onClick={() => window.electronAPI.maximizeWindow()} className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
-            <i className={isMaximized ? 'fas fa-window-restore fa-xs text-text' : 'fas fa-window-maximize fa-xs text-text'}></i>
+          <button
+            onClick={() => window.electronAPI.maximizeWindow()}
+            className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
+          >
+            <i className={isMaximized ? 'fas fa-window-restore text-text' : 'fas fa-window-maximize text-text'}></i>
           </button>
-          <button onClick={() => window.electronAPI.closeWindow()} className="w-6 h-6 flex items-center justify-center bg-transparent hover:bg-danger transition-colors duration-200" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
-            <i className="fas fa-times fa-xs text-text"></i>
+          <button
+            onClick={() => window.electronAPI.closeWindow()}
+            className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-danger transition-colors duration-200"
+          >
+            <i className="fas fa-times text-text"></i>
           </button>
         </div>
       </div>
-
-      <div className="flex-1 p-4 bg-secondary overflow-y-auto">
+      {/* Main Content — a separate flex child below the header row. */}
+      <div className="flex-1 min-h-0 p-4 overflow-y-auto">
         {view === 'settings' && (
           <SettingsStep
             folder={folder} customFormat={customFormat} useUnstructured={useUnstructured}

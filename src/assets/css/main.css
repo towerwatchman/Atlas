@@ -154,24 +154,25 @@
      clear, theme-colored ring for actual keyboard navigation. */
   html, body {
     outline: none;
+      border-radius: var(--radius-window-active, 0px);
+    overflow: hidden;
+    clip-path: inset(0 round var(--radius-window-active, 0px));
+    transform: translateZ(0);
     /* Windows are now OS-level transparent (see electron/main.js — needed
        to get rid of the native DWM resize border on frame:false windows).
-       applyThemeOnLoad() paints the real theme's background almost
-       immediately, but it's an async IPC round-trip; this is just the
-       fallback for that brief gap, instead of showing through to the
-       desktop. Matches DEFAULT_THEME's primary color.
-
-       overflow:hidden and clip-path were both tried here to round off
-       this fallback's corners to match the content div's own rounding —
-       but on this app's transparent, frameless windows, either one is
-       enough on its own to break the real content from ever painting
-       at all (not just a corner-pixel seam — the whole page can stay
-       blank, confirmed on the Importer window). Dropped both: the only
-       cost is this fallback's brief pre-paint flash shows square
-       corners instead of rounded ones, which is irrelevant next to the
-       window actually working. */
-    background-color: #19191c;
-    border-radius: var(--radius-window-active, 0px);
+       This used to paint an opaque fallback color here (matching
+       DEFAULT_THEME's primary color) for the brief async gap before
+       applyThemeOnLoad() finishes — but its own rounding never lined up
+       closely enough with the real content div's curve, leaving a
+       visible dark wedge of this color peeking out right at the corner
+       whenever a window radius was enabled (confirmed by screenshot).
+       Tried clipping it to match (border-radius, overflow:hidden,
+       clip-path, in various combinations) — every version either still
+       left a visible seam or broke rendering outright (see the Importer
+       window's gray-screen saga). The only fix that's actually certain:
+       no opaque fallback at all. Worst case is a few-millisecond flash
+       of the OS-transparent backdrop on load, which is far less
+       noticeable than a permanent dark sliver at every rounded corner. */
   }
   :focus:not(:focus-visible) {
     outline: none;

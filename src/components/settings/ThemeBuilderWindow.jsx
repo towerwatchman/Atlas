@@ -50,11 +50,12 @@ const ThemeBuilderWindow = () => {
           </button>
         </div>
       </div>
-      {/* Main Content — a separate flex child below the header row, so its
-          own overflow-y-auto scrolling can never visually pass behind the
-          header (there's nothing to pass behind; the header isn't
-          overlaid on top of this element's stacking context at all). */}
-      <div className="flex-1 min-h-0 p-4 overflow-y-auto">
+      {/* Main Content — a separate flex child below the OS window's drag
+          header above. No padding/overflow here anymore: ThemeBuilder
+          itself now splits into its own fixed header (back/save row +
+          tabs) and scrollable body, so that split needs to happen INSIDE
+          the flex-1 box ThemeBuilder fills, not wrapped around it. */}
+      <div className="flex-1 min-h-0 flex flex-col">
         <ThemeBuilder onClose={() => window.electronAPI.closeWindow()} />
       </div>
     </div>

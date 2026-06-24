@@ -37,7 +37,7 @@ const BannerEditorWindow = () => {
           </button>
         </div>
       </div>
-      <div className="flex-1 min-h-0 p-4 overflow-y-auto">
+      <div className="flex-1 min-h-0 flex flex-col p-4">
         <BannerEditor />
       </div>
     </div>
