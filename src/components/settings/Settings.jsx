@@ -49,8 +49,14 @@ const Settings = () => {
       <WindowBorderFrame />
       {/* Drag Header*/}
       <div className="absolute left-0 top-0 w-full h-[50px] ml-[-90px] z-40 -webkit-app-region-drag" />
-      {/* Window Controls */}
-      <div className="flex absolute top-1 right-2 h-[70px]">
+      {/* Window Controls — explicit z-50 (matching the Drag Header's
+          z-40 above it) so these always paint above Main Content. Main
+          Content now carries a transform (see the rounded-corner clip
+          fix), which makes it form its own stacking context; without an
+          explicit z-index here, that stacking context — being later in
+          the DOM — paints over these otherwise-z-index:auto absolutely
+          positioned buttons and hides them entirely. */}
+      <div className="flex absolute top-1 right-2 h-[70px] z-50">
         <button
           onClick={() => window.electronAPI.minimizeWindow()}
           className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200 -webkit-app-region-no-drag"
@@ -108,9 +114,11 @@ const Settings = () => {
           </ul>
         </div>
         {/* Settings Content */}
-        <div className="flex-1 bg-secondary p-4 overflow-y-auto">
-          <h2 className="text-2xl font-bold mb-4 text-text">{activeSelected}</h2>
-          {renderContent()}
+        <div className="flex-1 bg-secondary flex flex-col min-h-0">
+          <h2 className="flex-shrink-0 text-2xl font-bold px-4 pt-4 mb-4 text-text">{activeSelected}</h2>
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+            {renderContent()}
+          </div>
         </div>
       </div>
     </div>
