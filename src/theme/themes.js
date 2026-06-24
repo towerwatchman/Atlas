@@ -4,11 +4,10 @@
  * DEFAULT_THEME is the only theme defined in code. Every other theme is an
  * external, user-editable JSON file living in the app's data directory
  * (templates/theme/, alongside the existing templates/banner/ convention —
- * see electron/ipc/themes.js). Atlas ships one example file there,
- * xlibrary.json (sourced from src/assets/templates/theme/xlibrary.json on
- * first run), so there's a working second theme to look at out of the box,
- * but it is just a file — it can be edited, renamed, or deleted like any
- * other theme a person adds themselves.
+ * see electron/ipc/themes.js). A fresh install ships with no example
+ * themes there anymore — just Default — but anyone can add their own
+ * .json files to that folder (or build one from scratch in Theme Builder)
+ * and they'll show up in the Appearance picker alongside Default.
  *
  * A theme is a plain JSON-serializable object:
  * {
@@ -91,6 +90,15 @@ export const THEME_COLOR_KEYS = [
   // Progress bar track/fill — previously hardcoded to tertiary/accent.
   'progressBackground',
   'progressForeground',
+  // The main library/banner-grid view's background — deliberately its OWN
+  // key, separate from 'tertiary' even though it used to just be
+  // 'tertiary' directly. 'tertiary' is also used all over the place for
+  // unrelated things (inputs, menus, panels, hover states) via bg-tertiary
+  // — setting a gradient on 'tertiary' for the library view's background
+  // made every single one of those other things a gradient too. Defaults
+  // to the same value tertiary already had, so nothing changes visually
+  // until someone deliberately gives this its own color/gradient.
+  'library',
   // The accent-colored border drawn around every window (see
   // windowBorderEnabled below for the on/off toggle — the border itself
   // is drawn by src/components/ui/WindowBorderFrame.jsx, a fixed overlay
@@ -104,13 +112,13 @@ export const THEME_COLOR_KEYS = [
  * hex string. Restricted to surfaces that are ever used as a CSS
  * background-color in this app (confirmed by grepping every bg-, text-,
  * and border- usage across src/) — main.css has a matching
- * --gradient-canvas/-primary/-secondary/-tertiary variable for each of
- * these, and only these. A gradient on text/accent/border/etc. has no
- * CSS property to paint into (you can't put a gradient in `color` or
+ * --gradient-canvas/-primary/-secondary/-tertiary/-library variable for
+ * each of these, and only these. A gradient on text/accent/border/etc. has
+ * no CSS property to paint into (you can't put a gradient in `color` or
  * `border-color` the way you can `background-image`), so it's rejected
  * rather than silently doing nothing.
  */
-export const GRADIENT_ELIGIBLE_KEYS = ['canvas', 'primary', 'secondary', 'tertiary']
+export const GRADIENT_ELIGIBLE_KEYS = ['canvas', 'primary', 'secondary', 'tertiary', 'library']
 
 /**
  * A valid gradient object: { type: 'linear', angle: number, stops: [hex, hex, ...] }
@@ -400,16 +408,16 @@ export const DEFAULT_THEME = {
   // src/components/ui/WindowBorderFrame.jsx) is shown at all. The
   // border's color is colors.windowBorder below, like any other theme
   // color — this is just the on/off switch, same pattern as
-  // nav.accentBarEnabled. Off by default — it rendered as a thick,
-  // visually broken band rather than a clean line once windows went
-  // transparent + square-cornered; still available to turn on from
-  // Theme Builder for anyone who wants it.
-  windowBorderEnabled: false,
+  // nav.accentBarEnabled. On by default (this app's chosen preset);
+  // still toggleable from Theme Builder for anyone who'd rather not
+  // have it.
+  windowBorderEnabled: true,
   // How rounded the window border (and every window's own corners, which
   // must always match it exactly — see WindowBorderFrame.jsx) are — see
-  // WINDOW_RADIUS_OPTIONS above. 'none' by default: windows are square
-  // unless someone deliberately opts into rounding from Theme Builder.
-  windowBorderRadius: 'none',
+  // WINDOW_RADIUS_OPTIONS above. 'lg' by default (this app's chosen
+  // preset) — still adjustable (including back down to 'none' for
+  // perfectly square corners) from Theme Builder.
+  windowBorderRadius: 'lg',
   // Lets the border be turned on everywhere EXCEPT the main library
   // window specifically (Settings, Theme Builder, etc. still show it).
   // Independent from windowBorderEnabled, which is the global on/off
@@ -443,7 +451,8 @@ export const DEFAULT_THEME = {
     button:             '#313338', // matches `tertiary`, the previous hardcoded look
     progressBackground: '#313338', // matches `tertiary`, the previous hardcoded look
     progressForeground: '#2C8EA9', // matches `accent`, the previous hardcoded look
-    windowBorder:   '#2C8EA9', // matches `accent` by default; independently editable
+    library:        '#313338', // matches `tertiary`, the previous hardcoded look — see THEME_COLOR_KEYS
+    windowBorder:   '#424242', // matches `accent` by default; independently editable
   },
 }
 

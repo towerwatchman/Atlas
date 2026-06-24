@@ -18,87 +18,14 @@ try {
   console.warn('font-list not installed — run `npm install` to enable system font listing in the Theme Builder. Falling back to built-in font presets.')
 }
 
-// The one non-Default theme Atlas ships with, seeded into the user's
-// templates/theme/ folder on first run (only if that folder is empty) so
-// there's a working second theme to look at and edit immediately. This is
-// the SAME content as the old built-in XLIBRARY_THEME object that used to
-// live in src/theme/themes.js — moved here as a plain inline object (rather
-// than a bundled file under src/assets/) specifically so it ships correctly
-// in a packaged build without needing an electron-builder "files" entry:
-// electron/**/* is already packaged, src/assets/templates/** is not.
-//
-// Once written to disk, this object has no further special status — it's
-// just the starting contents of xlibrary.json. A person can edit, rename,
-// or delete that file like any other theme they add themselves.
-const SEED_THEMES = [
-  {
-    filename: 'xlibrary.json',
-    theme: {
-      id: 'xlibrary',
-      name: 'XLibrary',
-      radius: 'lg',
-      font: '"Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif',
-      // Requested defaults for this theme: nav buttons glow (accent-colored,
-      // matching the reference screenshot), nav sits at the top (topnav
-      // layout) with icon+text labels, and the header's accent-bar notch
-      // strip is turned off. filterSidebar keeps the overall default
-      // (right/overlay) — listed explicitly so this seed theme stays a
-      // complete, self-documenting reference for anyone authoring their
-      // own theme file. Selecting this theme in Appearance adopts all of
-      // this nav block — see ThemeProvider.jsx's setTheme.
-      nav: {
-        layout: 'topnav',
-        displayMode: 'iconsAndText',
-        accentBarEnabled: false,
-        glow: {
-          enabled: true,
-          color: '#E21D48',
-          offsetX: 0,
-          offsetY: 0,
-          intensity: 14,
-        },
-        filterSidebar: {
-          side: 'right',
-          mode: 'overlay',
-        },
-      },
-      colors: {
-        canvas: '#0B0A0F',
-        shadow: '#000000',
-        primary: '#100F15',
-        secondary: '#17151D',
-        // Subtle vertical gradient — darkest in the middle, slightly
-        // lighter toward top and bottom — matching the reference
-        // screenshot's main background (sampled directly from the
-        // image: roughly #14121A/#1E1B26 at the edges down to
-        // #0A0A10 in the middle). This is the one surface the
-        // reference actually uses a gradient on; everything else
-        // (buttons, the active tab, etc.) is flat color there too,
-        // so this theme keeps those flat as well.
-        tertiary: { type: 'linear', angle: 180, stops: ['#1E1B26', '#0A0A10', '#1E1B26'] },
-        border: '#322E3B',
-        selected: '#2A2733',
-        accent: '#E21D48',
-        accentBar: '#E21D48',
-        atlasLogo: '#FFFFFF',
-        text: '#E5E2E8',
-        highlight: '#E21D48',
-        overlayTop: '#000000',
-        overlayBottom: '#000000',
-        muted: '#9590A0',
-        danger: '#DC2626',
-        dangerHover: '#B91C1C',
-        dangerStrong: '#7F1D1D',
-        success: '#16A34A',
-        successHover: '#15803D',
-        warning: '#FACC15',
-        info: '#38BDF8',
-        buttonHover: '#2A2733',
-        accentHover: '#B9173B',
-      },
-    },
-  },
-]
+// Atlas used to seed one example theme (XLibrary) into a fresh
+// templates/theme/ folder on first run, so there was a working second
+// theme to look at immediately. No longer the case — only the built-in
+// Default theme (src/theme/themes.js) ships now. seedThemesIfEmpty below
+// is kept (rather than removed) since it's a harmless no-op with this
+// empty list, and gives somewhere obvious to add a seed theme back in the
+// future without re-deriving the plumbing.
+const SEED_THEMES = []
 
 // Structural validation only — NOT the full field-by-field schema check.
 // That's normalizeTheme() on the renderer side (src/theme/themes.js),

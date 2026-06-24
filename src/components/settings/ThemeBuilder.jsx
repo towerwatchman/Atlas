@@ -39,6 +39,7 @@ const COLOR_LABELS = {
   button: 'Button',
   progressBackground: 'Progress Bar (Background)',
   progressForeground: 'Progress Bar (Foreground)',
+  library: 'Library Background',
   windowBorder: 'Window Border',
 }
 

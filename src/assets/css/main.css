@@ -22,6 +22,7 @@
   --color-primary:            #19191c;
   --color-secondary:          #242629;
   --color-tertiary:           #313338;
+  --color-library:            #313338; /* matches --color-tertiary by default — see THEME_COLOR_KEYS in themes.js */
   --color-border:             #51535A;
   --color-selected:           #404249;
   --color-accent:             #2C8EA9;
@@ -32,10 +33,14 @@
   --color-overlay-top:        #000000;
   --color-overlay-bottom:     #000000;
 
-  /* Optional gradient layer for the 4 surfaces that are ever used as a
-     background (canvas/primary/secondary/tertiary — confirmed by grep,
-     none of the other color tokens are ever used as background-color
-     anywhere in the app, so gradients are only meaningful here).
+  /* Optional gradient layer for the 5 surfaces that are ever used as a
+     background (canvas/primary/secondary/tertiary/library — confirmed by
+     grep, none of the other color tokens are ever used as background-color
+     anywhere in the app, so gradients are only meaningful here). 'library'
+     is the main library/banner-grid view's background specifically,
+     deliberately separate from 'tertiary' (which is also used everywhere
+     else — inputs, menus, panels) so a gradient on one doesn't leak into
+     the other.
      Default 'none' means "just show the flat --color-X above" — a theme
      only needs to set one of these if it actually wants a gradient on
      that surface. See applyTheme.js for how a theme's JSON gradient
@@ -45,6 +50,7 @@
   --gradient-primary:   none;
   --gradient-secondary: none;
   --gradient-tertiary:  none;
+  --gradient-library:   none;
 
   /* Semantic status colors */
   --color-muted:              #9CA3AF; /* was text-gray-400/500 */
@@ -218,6 +224,19 @@
   *::-webkit-scrollbar-corner {
     background: var(--scrollbar-track);
   }
+
+  /* Reserves the scrollbar's gutter on the library/banner grid (App.jsx)
+     permanently, whether or not there's currently enough content to
+     actually need a scrollbar. Without this, the grid's available width
+     (and the column count/width react-virtualized computes from it via
+     getScrollbarWidth() in App.jsx) silently changes the moment a
+     scrollbar appears or disappears — which is exactly what was making
+     banners visibly shift right when the scrollbar toggled on. With the
+     gutter always reserved, that measurement is now constant regardless
+     of content amount. */
+  #gameGrid {
+    scrollbar-gutter: stable;
+  }
 }
 
 @layer utilities {
@@ -338,3 +357,4 @@ html[data-text-glow-game-titles="on"] .banner-root:hover .text-glow-fx.game-titl
 .bg-primary   { background-image: var(--gradient-primary); }
 .bg-secondary { background-image: var(--gradient-secondary); }
 .bg-tertiary  { background-image: var(--gradient-tertiary); }
+.bg-library   { background-image: var(--gradient-library); }

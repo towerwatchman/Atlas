@@ -400,12 +400,9 @@ const App = () => {
   }, [browseAvailable, catalogQueryFilters, catalogSearch, fetchCatalogGames, fetchWishlistGames, refreshGame])
 
   // ── Grid sizing ────────────────────────────────────────────────────────────
-  const getScrollbarWidth = () => {
-    if (gameGridRef.current) {
-      return gameGridRef.current.offsetWidth - gameGridRef.current.clientWidth
-    }
-    return 16
-  }
+  // Scrollbar space is reserved permanently via scrollbar-gutter:stable on
+  // #gameGrid (main.css), so AutoSizer's measured width already excludes
+  // it — no JS-side measurement/subtraction needed here anymore.
 
   const getColumnCountForWidth = (width) => {
     const availableWidth = Math.max(0, Number(width) || 0)
@@ -1252,7 +1249,7 @@ const App = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex flex-1 bg-tertiary fixed w-full top-[70px] bottom-[40px]">
+      <div className="flex flex-1 bg-library fixed w-full top-[70px] bottom-[40px]">
         {!isTopNav && (
           <Sidebar
             onToggleGameList={toggleGameList}
@@ -1321,7 +1318,7 @@ const App = () => {
             margin the inline panel would render underneath them instead
             of after them. */}
         {showSearchSidebar && !selectedGame && filterSidebarMode === 'inline' && filterSidebarSide === 'left' && (
-          <div className={isTopNav ? '' : showLibrarySidebar ? 'ml-[260px]' : 'ml-[60px]'}>
+          <div className={isTopNav ? (showLibrarySidebar ? 'ml-[200px]' : '') : showLibrarySidebar ? 'ml-[260px]' : 'ml-[60px]'}>
             <SearchSidebar
               isVisible={showSearchSidebar}
               searchText={activeFilters.text}
@@ -1341,9 +1338,9 @@ const App = () => {
 
         <div
           id="gameGrid"
-          className={`flex-1 bg-tertiary overflow-y-auto ${
+          className={`flex-1 bg-library overflow-y-auto ${
             isTopNav
-              ? ''
+              ? (showLibrarySidebar && !(showSearchSidebar && filterSidebarMode === 'inline' && filterSidebarSide === 'left' && !selectedGame) ? 'ml-[200px]' : '')
               // When the inline-left filter sidebar is showing, IT already
               // carries the ml-[60px]/ml-[260px] offset (see above) to
               // clear the fixed Sidebar/library-list panel — applying the
@@ -1384,8 +1381,14 @@ const App = () => {
           ) : (
             <AutoSizer>
               {({ height, width }) => {
-                const availableWidth = Math.max(0, width)
-                const adjustedWidth = Math.max(0, availableWidth - getScrollbarWidth())
+                // scrollbar-gutter:stable on #gameGrid (main.css) reserves
+                // the scrollbar's space at the CSS layout level, always —
+                // so AutoSizer's measured width here already excludes it,
+                // the same way clientWidth would. No further subtraction
+                // needed (and doing one anyway double-counts that space,
+                // leaving an empty gap to the right of the scrollbar the
+                // same width as the scrollbar itself).
+                const adjustedWidth = Math.max(0, width)
                 const currentColumnCount = getColumnCountForWidth(adjustedWidth)
                 const currentColumnWidth = currentColumnCount > 1
                   ? Math.max(bannerSize.bannerWidth + 16, adjustedWidth / currentColumnCount)

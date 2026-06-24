@@ -12,6 +12,7 @@ module.exports = {
         primary:            'var(--color-primary)',
         secondary:          'var(--color-secondary)',
         tertiary:           'var(--color-tertiary)',
+        library:            'var(--color-library)',
         border:             'var(--color-border)',
         selected:           'var(--color-selected)',
         accent:             'var(--color-accent)',
