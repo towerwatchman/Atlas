@@ -11,7 +11,7 @@ import SearchSidebar from './components/search/SearchSidebar.jsx'
 import SavedFiltersPanel from './components/search/SavedFiltersPanel.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
 import { useGames } from './hooks/useGames.js'
-import { builtInSavedFilters, filterGamesWithState, normalizeFilterState, useFilters } from './hooks/useFilters.js'
+import { builtInSavedFilters, defaultFilters, filterGamesWithState, normalizeFilterState, useFilters } from './hooks/useFilters.js'
 import { useAppUpdate } from './hooks/useAppUpdate.js'
 import { useWindowState } from './hooks/useWindowState.js'
 import { useTheme } from './theme/ThemeProvider.jsx'
@@ -506,42 +506,48 @@ const App = () => {
       setAndPersistSidePanelMode(SIDE_PANEL_MODES.GAMES)
       return
     }
+    const enteringFreshly = libraryMode !== 'catalog'
     setLibraryMode('catalog')
     setSelectedGame(null)
     setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
     setShowSearchSidebar(false)
-    if (catalogTotal === null) {
-      // Browse mode should default to showing the whole catalog, not just
-      // installed titles — the local library's bare-default installState
-      // is 'installed' (see defaultFilters in useFilters.js), which would
-      // otherwise carry over and make Browse mode look nearly empty the
-      // first time it's opened. Only nudge this when nothing's been
-      // deliberately chosen yet (no saved filter active); once the user
-      // picks ANY saved filter — including "Installed titles" itself —
-      // that choice is respected as-is, since catalogQueryFilters no
-      // longer overrides installState/updateAvailable.
-      const needsDefaultNudge = activeSavedFilterId === '' && activeFilters.installState === 'installed'
-      const effectiveFilters = needsDefaultNudge
-        ? { ...catalogQueryFilters, includeUninstalled: true, installState: 'all' }
-        : catalogQueryFilters
-      // Actually update activeFilters (not just this one fetch call) so
-      // catalogQueryFilters recomputes to match — otherwise the debounced
-      // reset effect's signature tracking would see a mismatch on its next
-      // run and immediately re-fetch with the un-nudged filters, undoing
-      // this and re-triggering the flash/reload sequence fixed earlier.
-      if (needsDefaultNudge) handleFilterChange({ includeUninstalled: true, installState: 'all' })
-      lastFetchedCatalogParamsKeyRef.current = JSON.stringify({ search: catalogSearch, filters: effectiveFilters })
-      fetchCatalogGames({ reset: true, search: catalogSearch, filters: effectiveFilters })
+
+    if (enteringFreshly) {
+      // Browse should always open with no filters active — the full
+      // catalog — rather than inheriting whatever filters were active in
+      // the Library view (most commonly the local library's
+      // installed-only default, or a saved filter someone left applied).
+      // This also clears any saved-filter selection so Browse never opens
+      // pre-narrowed to "your library" by accident.
+      setActiveSavedFilterId('')
+      const browseFilters = normalizeFilterState({
+        ...defaultFilters,
+        includeUninstalled: true,
+        installState: 'all',
+      })
+      const browseSearch = { text: browseFilters.text, type: browseFilters.type }
+      // Update the real activeFilters state (so catalogQueryFilters/
+      // catalogSearch recompute to match) while also fetching immediately
+      // with the same values here, and pre-marking the params key as
+      // already-fetched — otherwise the debounced reset effect would see
+      // its own state update land a moment later and immediately re-fetch
+      // with the (momentarily stale) un-reset filters, undoing this and
+      // re-triggering a flash/reload.
+      handleFilterChange(browseFilters)
+      lastFetchedCatalogParamsKeyRef.current = JSON.stringify({ search: browseSearch, filters: browseFilters })
+      fetchCatalogGames({ reset: true, search: browseSearch, filters: browseFilters })
+    } else if (catalogTotal === null) {
+      lastFetchedCatalogParamsKeyRef.current = JSON.stringify({ search: catalogSearch, filters: catalogQueryFilters })
+      fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
     }
   }, [
-    activeFilters.installState,
-    activeSavedFilterId,
     browseAvailable,
-    catalogTotal,
     catalogQueryFilters,
     catalogSearch,
+    catalogTotal,
     fetchCatalogGames,
     handleFilterChange,
+    libraryMode,
     setAndPersistSidePanelMode,
   ])
 
@@ -604,10 +610,18 @@ const App = () => {
     setActiveSavedFilterId('')
     pendingLibraryScrollTopRestoreRef.current = 0
     libraryScrollTopRef.current = 0
-    handleResetFilters()
+    if (libraryMode === 'catalog') {
+      // "Reset" in Browse mode should mean the whole catalog, not the
+      // local library's installed-only default — otherwise resetting
+      // filters while browsing collapses the view back down to just your
+      // installed titles instead of showing everything.
+      handleFilterChange({ ...defaultFilters, includeUninstalled: true, installState: 'all' })
+    } else {
+      handleResetFilters()
+    }
     gridRef.current?.recomputeGridSize?.()
     gridRef.current?.forceUpdate?.()
-  }, [handleResetFilters])
+  }, [handleResetFilters, handleFilterChange, libraryMode])
 
   const loadSavedFilters = useCallback(() => {
     return window.electronAPI
@@ -858,23 +872,22 @@ const App = () => {
         if (nsfwStatus && nsfwStatus.configured === false) setNsfwPromptOpen(true)
 
         const browseOk = BROWSE_MODE_ENABLED && enabled
-        const nextMode = normalizeSidePanelMode(
+        let nextMode = normalizeSidePanelMode(
           config.Interface?.sidePanelMode,
           config.Interface?.showGameList ?? true,
           browseOk,
         )
-        setSidebarMode(nextMode)
-        setLibraryMode(
-          browseOk && nextMode === SIDE_PANEL_MODES.CATALOG
-            ? 'catalog'
-            : nextMode === SIDE_PANEL_MODES.WISHLIST
-              ? 'wishlist'
-              : 'local',
-        )
-        if (browseOk && nextMode === SIDE_PANEL_MODES.CATALOG) {
-          fetchCatalogGames({ search: catalogSearchRef.current, filters: catalogQueryFiltersRef.current })
+        // Atlas should always open to the local library on launch. The
+        // persisted sidePanelMode is still used to restore the sidebar style
+        // (game list vs. saved filters) the user last had, but a persisted
+        // Browse (catalog) or Wishlist mode must NOT be used as the startup
+        // destination — those are only entered via explicit navigation
+        // during the session.
+        if (nextMode === SIDE_PANEL_MODES.CATALOG || nextMode === SIDE_PANEL_MODES.WISHLIST) {
+          nextMode = SIDE_PANEL_MODES.GAMES
         }
-        if (nextMode === SIDE_PANEL_MODES.WISHLIST) fetchWishlistGames()
+        setSidebarMode(nextMode)
+        setLibraryMode('local')
       })
       .catch(() => setSidebarMode(SIDE_PANEL_MODES.GAMES))
 

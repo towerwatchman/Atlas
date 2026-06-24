@@ -32,6 +32,14 @@ export const getNewestVersion = (game = {}) => {
     }
   }
 
+  // Some sources (e.g. Steam) never record a real per-build version locally —
+  // the installed "version" is just a generic placeholder label (literally
+  // "Steam"), not an actual numbered release. When none of the installed
+  // entries carried a numeric version, prefer the richer catalog/atlas
+  // version data if it's available rather than showing that placeholder,
+  // matching what Browse mode already shows for the same title.
+  if (maxValue === 0 && catalogVersion) return catalogVersion
+
   return maxVersion || catalogVersion || 'V 1.0'
 }
 
@@ -109,8 +117,20 @@ export const resolveBannerField = (fieldId, game = {}) => {
   switch (fieldId) {
     case 'title':
       return { value: getGameTitle(game), visible: true }
-    case 'creator':
-      return { value: game.creator || 'Unknown', visible: true }
+    case 'creator': {
+      const ownCreator = String(game.creator || '').trim()
+      if (ownCreator && ownCreator.toLowerCase() !== 'unknown') {
+        return { value: ownCreator, visible: true }
+      }
+      // The local "games" row's own creator column is set once at scan/
+      // import time and, for sources like Steam where metadata isn't cached
+      // yet, defaults to the literal placeholder "Unknown" — it's never
+      // refreshed afterward even once richer metadata is fetched. That
+      // richer data (publisher / developer) is already joined into this
+      // same row though, so prefer it before falling back to "Unknown".
+      const fallback = firstValue(game.publisher, game.steam_developer)
+      return { value: fallback || ownCreator || 'Unknown', visible: true }
+    }
     case 'engine':
       return { value: game.engine || 'Unknown', visible: true }
     case 'status':
