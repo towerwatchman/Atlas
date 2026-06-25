@@ -252,7 +252,12 @@ async function downloadImages(
               await sharp(imageBytes, { animated: true })
                 .resize({ width: 1260, withoutEnlargement: true })
                 .webp({
-                  quality: 80,
+                  // Matches every other webp() call in this file (90) —
+                  // this one was previously 80, which is noticeably
+                  // lossier on the kind of flat-color, sharp-edged, often
+                  // text-heavy content typical of screen-capture GIFs
+                  // than the same setting would be on a photo.
+                  quality: 90,
                   effort: 6,
                   loop: 0,
                 })
@@ -398,7 +403,11 @@ async function downloadImages(
               await sharp(imageBytes, { animated: true })
                 .resize({ width: 1260, withoutEnlargement: true })
                 .webp({
-                  quality: 80,
+                  // See the matching comment on the animated banner
+                  // conversion above — was 80, noticeably lossier on
+                  // GIF-typical content than that setting reads on a
+                  // photo. Now matches every other webp() call here.
+                  quality: 90,
                   effort: 6,
                   loop: 0,
                 })
