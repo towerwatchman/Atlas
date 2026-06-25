@@ -52,7 +52,7 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
           controls
           autoPlay
           onClick={(e) => e.stopPropagation()}
-          style={{ maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)', background: '#000' }}
+          style={{ width: '90vw', height: '85vh', objectFit: 'contain', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)', background: '#000' }}
         />
       ) : (
         <SafeImage
@@ -60,7 +60,7 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
           alt={`Preview ${lightboxIndex + 1}`}
           fallbackLabel="Preview unavailable"
           onClick={(e) => e.stopPropagation()}
-          style={{ maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
+          style={{ width: '90vw', height: '85vh', objectFit: 'contain', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
           placeholderStyle={{ width: 'min(90vw, 900px)', height: 'min(85vh, 520px)' }}
         />
       )}
