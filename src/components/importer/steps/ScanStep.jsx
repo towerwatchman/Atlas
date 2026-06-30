@@ -73,7 +73,7 @@ export default function ScanStep({
           onHydrateManualLcId={onHydrateManualLcId}
           getGameKey={getGameKey}
           getRowImportStatus={getRowImportStatus}
-          showReplaceVersion={autoSelectLatestReplaceVersion}
+          showReplaceVersion={true}
           scanPath={scanPath}
         />
       </div>
