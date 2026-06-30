@@ -475,6 +475,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [catalogImportError, setCatalogImportError] = useState('')
   const [catalogImportDragging, setCatalogImportDragging] = useState(false)
   const [catalogImportConflict, setCatalogImportConflict] = useState(null)
+  const [catalogDeleteSourceArchive, setCatalogDeleteSourceArchive] = useState(false)
   const [localImportPath, setLocalImportPath] = useState('')
   const [localImportVersion, setLocalImportVersion] = useState('')
   const [localImportBusy, setLocalImportBusy] = useState(false)
@@ -857,6 +858,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     if (!selectedPath) return
     setCatalogImportPath(selectedPath)
     setCatalogImportVersion((current) => current || inferImportVersion(game, selectedPath))
+    if (!isArchiveSourcePath(selectedPath, localArchiveExtensions)) setCatalogDeleteSourceArchive(false)
     setCatalogImportError('')
     setCatalogImportConflict(null)
   }
@@ -882,6 +884,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         sourcePath,
         version,
         conflictMode: options.conflictMode || 'check',
+        deleteSourceArchiveAfterImport: catalogDeleteSourceArchive && isArchiveSourcePath(sourcePath, localArchiveExtensions),
       })
       if (result?.conflict) {
         const suggested = result.suggestedVersion || `${version} (2)`
@@ -892,7 +895,12 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       }
       if (!result?.success) throw new Error(result?.error || 'Import failed')
       setCatalogImportPath('')
-      setCatalogImportStatus(`Imported ${result.version || version} into the Library.`)
+      setCatalogDeleteSourceArchive(false)
+      setCatalogImportStatus([
+        `Imported ${result.version || version} into the Library.`,
+        result.sourceArchiveDeleted ? 'Source archive deleted.' : '',
+        result.sourceArchiveDeleteError ? `Warning: ${result.sourceArchiveDeleteError}` : '',
+      ].filter(Boolean).join(' '))
       setShowLocalImportPanel(false)
       onRefresh?.(result.recordId)
     } catch (err) {
@@ -913,6 +921,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     }
     setCatalogImportPath(droppedPath)
     setCatalogImportVersion((current) => current || inferImportVersion(game, droppedPath))
+    if (!isArchiveSourcePath(droppedPath, localArchiveExtensions)) setCatalogDeleteSourceArchive(false)
     setCatalogImportError('')
     setCatalogImportConflict(null)
   }
@@ -1357,6 +1366,17 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                   </label>
                 )}
               </>
+            )}
+            {importPanelMode === 'catalog' && isArchiveSourcePath(catalogImportPath, localArchiveExtensions) && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={catalogDeleteSourceArchive}
+                  onChange={(event) => setCatalogDeleteSourceArchive(event.target.checked)}
+                  disabled={catalogImportBusy}
+                />
+                Delete source archive after successful import
+              </label>
             )}
             <button
               onClick={importPanelMode === 'catalog' ? () => runCatalogImport() : runLocalImport}

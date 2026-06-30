@@ -1177,7 +1177,14 @@ const Importer = () => {
       } else if (data.length > 1) {
         const results = data.map(buildMatchResult).filter((result) => result.key)
         const valid = results.find((r) => r.key === game.resultSelectedValue)
-        game = await chooseInstalledMatch({ ...game, resultSelectedValue: valid ? game.resultSelectedValue : results[0].key }, results)
+        const gameWithResults = {
+          ...game,
+          results,
+          resultSelectedValue: valid ? game.resultSelectedValue : results[0].key,
+        }
+        game = valid
+          ? await applySelectedMatch(gameWithResults, valid.key)
+          : await chooseInstalledMatch(gameWithResults, results)
         if (matchCancelRef.current) break
       } else {
         game = await applyImportStatus({ ...game, atlasId: '', f95Id: f95IdStr || game.f95Id || '', lcId: lcIdStr || game.lcId || game.lewdCornerId || '', lewdCornerId: lcIdStr || game.lewdCornerId || '', results: [], resultSelectedValue: '', resultVisibility: 'hidden' })

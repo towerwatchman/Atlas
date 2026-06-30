@@ -93,12 +93,17 @@ const getUrlHost = (value) => {
 // ── Importer helper functions ──────────────────────────────────────
 
 function sanitizePathSegment(value, fallback = "Unknown") {
-  const sanitized = String(value || fallback)
+  const windowsReservedName = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+  let sanitized = String(value || fallback)
     .replace(/[\/\\:*?"<>|]/g, "_")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .replace(/[. ]+$/g, "");
 
-  return sanitized && sanitized !== "." ? sanitized : fallback;
+  if (!sanitized || sanitized === "." || windowsReservedName.test(sanitized)) {
+    sanitized = windowsReservedName.test(sanitized) ? `_${sanitized}` : fallback;
+  }
+  return sanitized;
 }
 
 function normalizeVersionName(value, fallback = "Unknown") {
@@ -1326,6 +1331,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
   const rawSourcePath = String(payload.sourcePath || "").trim();
   const requestedVersion = String(payload.version || "").trim();
   const conflictMode = String(payload.conflictMode || "check");
+  const deleteSourceArchiveAfterImport = payload.deleteSourceArchiveAfterImport === true;
   const atlasId = toPositiveInteger(catalog.atlas_id ?? catalog.atlasId);
   const f95Id = toPositiveInteger(catalog.f95_id ?? catalog.f95Id);
   const lcId = getLewdCornerIdFromGame(catalog);
@@ -1458,6 +1464,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
     const targetBase = getUniquePath(buildStructuredImportPath(targetLibrary, destinationFormat, importGame));
     const extensions = getConfiguredGameExtensions(currentConfig);
     const archiveExtensions = getConfiguredExtractionExtensions(currentConfig);
+    const sourceIsArchive = stat.isFile() && isArchiveFilePath(sourcePath, currentConfig);
     if (stat.isFile() && !isArchiveFilePath(sourcePath, currentConfig)) {
       const ext = path.extname(sourcePath).toLowerCase().replace(/^\./, "");
       if (archiveExtensions.length > 0 && ["zip", "7z", "rar"].includes(ext) && !archiveExtensions.includes(ext)) {
@@ -1478,7 +1485,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
       const execs = findExecutables(gamePath, extensions);
       relativeExec = execs[0] || "";
       execPath = relativeExec ? path.join(gamePath, relativeExec) : "";
-    } else if (isArchiveFilePath(sourcePath, currentConfig)) {
+    } else if (sourceIsArchive) {
       const resolvedSevenZip = await resolveSevenZipExecutablePath({
         configuredPath: currentConfig?.Library?.sevenZipPath,
         currentConfig,
@@ -1557,6 +1564,28 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
     BrowserWindow.getAllWindows().forEach((win) => {
       if (!win.isDestroyed()) win.webContents.send("game-updated", refreshedGame || recordId);
     });
+    let sourceArchiveDeleted = false;
+    let sourceArchiveDeleteError = "";
+    if (deleteSourceArchiveAfterImport && sourceIsArchive) {
+      const sourceCleanupRoot = path.dirname(sourcePath);
+      try {
+        const deleteResult = await deletePathWithElevationFallback(sourcePath, {
+          recursive: false,
+          force: true,
+          description: `Delete source archive for ${importGame.title}`,
+          window: ownerWindow,
+          validatePath: (candidatePath) =>
+            validateSourceCleanupPath(candidatePath, sourceCleanupRoot),
+        });
+        if (deleteResult.success) {
+          sourceArchiveDeleted = true;
+        } else {
+          sourceArchiveDeleteError = deleteResult.error || "Source archive delete was skipped.";
+        }
+      } catch (deleteErr) {
+        sourceArchiveDeleteError = deleteErr.message || String(deleteErr);
+      }
+    }
     return {
       success: true,
       recordId,
@@ -1564,6 +1593,8 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
       gamePath,
       execPath,
       game: refreshedGame,
+      sourceArchiveDeleted,
+      sourceArchiveDeleteError,
       mappings: { atlasId, f95Id, lcId, steamId },
     };
   } catch (err) {

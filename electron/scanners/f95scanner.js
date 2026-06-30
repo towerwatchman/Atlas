@@ -207,15 +207,41 @@ function normalizeFormatToken(value) {
     .toLowerCase();
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseStructuredSegment(formatPart, pathPart) {
+  const tokens = [];
+  let pattern = "^";
+  let cursor = 0;
+  const tokenPattern = /\{([^}]+)\}/g;
+  let match;
+  while ((match = tokenPattern.exec(formatPart)) !== null) {
+    pattern += escapeRegExp(formatPart.slice(cursor, match.index));
+    tokens.push(normalizeFormatToken(match[1]));
+    pattern += "(.+?)";
+    cursor = match.index + match[0].length;
+  }
+  pattern += `${escapeRegExp(formatPart.slice(cursor))}$`;
+  if (tokens.length === 0) return {};
+  const values = String(pathPart || "").match(new RegExp(pattern, "i"));
+  if (!values) return {};
+  return tokens.reduce((result, token, index) => {
+    result[token] = String(values[index + 1] || "").trim();
+    return result;
+  }, {});
+}
+
 function normalizeStructuredMapping(format, pathParts) {
   const mapping = {};
   const formatParts = String(format || "")
     .split("/")
-    .map(normalizeFormatToken)
+    .map((part) => part.trim())
     .filter(Boolean);
 
   formatParts.forEach((part, index) => {
-    mapping[part] = pathParts[index] || "";
+    Object.assign(mapping, parseStructuredSegment(part, pathParts[index] || ""));
   });
 
   return mapping;

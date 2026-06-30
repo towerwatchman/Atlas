@@ -161,7 +161,7 @@ const BannerField = ({ field, game, index }) => {
     return (
       <button
         key={`${field.id}-${index}`}
-        className="w-[90px] h-[20px] bg-transparent border border-warning text-warning rounded-sm z-30 pointer-events-auto truncate px-1"
+        className="min-w-[110px] h-[20px] bg-transparent border border-warning text-warning rounded-sm z-30 pointer-events-auto whitespace-nowrap px-2"
         style={style}
         onClick={(event) => {
           event.stopPropagation()

@@ -397,6 +397,28 @@ const GameDetailWindow = () => {
     }
   }
 
+  const handleAddVersion = async () => {
+    try {
+      const sourcePath = await window.electronAPI.selectCatalogImportSource?.()
+      if (!sourcePath) return
+      const suggestedVersion = String(sourcePath).split(/[\\/]/).filter(Boolean).pop()?.replace(/\.(zip|7z|rar)$/i, '') || ''
+      const version = window.prompt('Version name', suggestedVersion)
+      if (!version?.trim()) return
+      const result = await window.electronAPI.importLocalGameVersion?.({
+        recordId: game.record_id,
+        sourcePath,
+        version: version.trim(),
+        replaceExisting: false,
+      })
+      if (!result?.success) throw new Error(result?.error || 'Import failed')
+      const refreshedGame = await window.electronAPI.getGame(game.record_id)
+      if (refreshedGame) refreshFromGame(refreshedGame)
+    } catch (err) {
+      console.error('Failed to add version:', err)
+      alert(`Failed to add version: ${err.message || 'Unknown error'}`)
+    }
+  }
+
   const handleRemoveVersion = async () => {
     if (!selectedVersion) { alert('No version selected.'); return }
     const versionLabel = selectedVersion.version || 'this version'
@@ -577,7 +599,7 @@ const GameDetailWindow = () => {
                 onOpenGamePath={handleOpenGamePath}
                 onRefreshVersionSize={handleRefreshVersionSize}
                 onChangeExecutable={handleChangeExecutable}
-                onAddVersion={() => console.log('TODO: Add version')}
+                onAddVersion={handleAddVersion}
                 onRemoveVersion={handleRemoveVersion}
                 onDeleteVersionFiles={handleDeleteVersionFiles}
               />

@@ -586,50 +586,40 @@ const SearchSidebar = ({
         </div>
         )}
 
-        {/* Personal rating */}
+        {/* Ratings */}
         {!isCatalogMode && (
         <div className="mb-6 border-b border-border pb-4">
-          <h4 className="font-bold mb-3">Personal Rating</h4>
+          <h4 className="font-bold mb-3">Ratings</h4>
           <div className="space-y-3">
             <label className="block text-sm">
-              <span className="block mb-1">Minimum rating</span>
+              <span className="block mb-1">Personal rating</span>
               <select
                 className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                value={selectedFilters.personalRatingMin}
-                disabled={selectedFilters.personalRatingStatus === 'unrated'}
+                value={selectedFilters.personalRatingStatus === 'unrated'
+                  ? 'unrated'
+                  : selectedFilters.personalRatingMin > 0
+                    ? String(selectedFilters.personalRatingMin)
+                    : selectedFilters.personalRatingStatus === 'rated'
+                      ? 'rated'
+                      : 'any'}
                 onChange={(e) => {
-                  const personalRatingMin = Number(e.target.value)
+                  const value = e.target.value
+                  const personalRatingMin = /^\d+$/.test(value) ? Number(value) : 0
+                  const personalRatingStatus = value === 'unrated' ? 'unrated' : value === 'any' ? 'any' : 'rated'
                   updateFilters({
                     personalRatingMin,
-                    personalRatingStatus: personalRatingMin > 0 ? 'rated' : selectedFilters.personalRatingStatus,
-                    personalRatingRatedOnly: personalRatingMin > 0,
+                    personalRatingStatus,
+                    personalRatingRatedOnly: personalRatingStatus === 'rated',
                   })
                 }}
               >
                 <option value={0}>Any</option>
+                <option value="rated">Rated only</option>
+                <option value="unrated">Unrated only</option>
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((rating) => (
                   <option key={rating} value={rating}>{rating}+</option>
                 ))}
                 <option value={10}>10</option>
-              </select>
-            </label>
-            <label className="block text-sm">
-              <span className="block mb-1">Rating status</span>
-              <select
-                className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                value={selectedFilters.personalRatingStatus || (selectedFilters.personalRatingRatedOnly ? 'rated' : 'any')}
-                onChange={(e) => {
-                  const personalRatingStatus = e.target.value
-                  updateFilters({
-                    personalRatingStatus,
-                    personalRatingRatedOnly: personalRatingStatus === 'rated',
-                    personalRatingMin: personalRatingStatus === 'unrated' ? 0 : selectedFilters.personalRatingMin,
-                  })
-                }}
-              >
-                <option value="any">Any</option>
-                <option value="rated">Rated only</option>
-                <option value="unrated">Unrated only</option>
               </select>
             </label>
           </div>
