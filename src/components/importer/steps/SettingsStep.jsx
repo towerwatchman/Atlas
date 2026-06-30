@@ -8,6 +8,21 @@ export default function SettingsStep({
   setDownloadBannerImages, setDownloadPreviewImages, setMoveFoldersToLibrary,
   setDeleteSourceArchiveAfterImport, onAutoSelectChange,
 }) {
+  const formatPresets = [
+    { label: 'Auto detect', value: 'auto' },
+    { label: 'Creator / Title / Version', value: '{creator}/{title}/{version}' },
+    { label: 'Title / Version', value: '{title}/{version}' },
+    { label: 'Creator / Title - Version', value: '{creator}/{title} - {version}' },
+    { label: 'Title / Version, Creator', value: '{title}/{version},{creator}' },
+    { label: 'F95 ID / Title / Version', value: '{f95Id}/{title}/{version}' },
+    { label: 'LewdCorner ID / Title / Version', value: '{lcId}/{title}/{version}' },
+  ]
+  const presetValue = useUnstructured
+    ? 'auto'
+    : formatPresets.some((preset) => preset.value === customFormat)
+      ? customFormat
+      : 'custom'
+
   return (
     <div className="space-y-4 flex-1">
       <div className="flex items-center">
@@ -19,16 +34,29 @@ export default function SettingsStep({
       </div>
 
       <div className="flex items-center">
-        <label>Folder Structure:</label>
+        <label>Scan Scheme:</label>
+        <select
+          value={presetValue}
+          onChange={(event) => {
+            const value = event.target.value
+            if (value === 'auto') {
+              setUseUnstructured(true)
+            } else {
+              setUseUnstructured(false)
+              if (value !== 'custom') setCustomFormat(value)
+            }
+          }}
+          className="ml-2 bg-secondary border border-border p-1"
+        >
+          {formatPresets.map((preset) => <option key={preset.value} value={preset.value}>{preset.label}</option>)}
+          <option value="custom">Custom</option>
+        </select>
         <input
           type="text" value={customFormat}
           onChange={(e) => setCustomFormat(e.target.value)}
           disabled={useUnstructured}
           className="ml-2 flex-1 bg-secondary border border-border p-1"
         />
-        <input type="checkbox" checked={useUnstructured} onChange={(e) => setUseUnstructured(e.target.checked)} className="ml-2"
-          title="When enabled, Atlas infers title and version from folder/archive names." />
-        <label title="When enabled, Atlas infers title and version from folder/archive names.">Unstructured Format</label>
       </div>
 
       <div className="flex items-center">
@@ -42,8 +70,8 @@ export default function SettingsStep({
       </div>
 
       <p className="text-sm text-text leading-relaxed">
-        Source folder structure options: <span className="font-semibold">Title</span>, <span className="font-semibold">Creator</span>,{' '}
-        <span className="font-semibold">Engine</span>, and <span className="font-semibold">Version</span>.<br />
+        Auto detect infers metadata from folder/archive names. Custom schemes support <span className="font-semibold">Title</span>, <span className="font-semibold">Creator</span>,{' '}
+        <span className="font-semibold">Engine</span>, <span className="font-semibold">Version</span>, <span className="font-semibold">F95 ID</span>, and <span className="font-semibold">LC ID</span>.<br />
         - Enclose each option in braces, e.g., <span className="font-mono">{'{Title}'}</span>. Use <span className="font-mono">/</span> for folder separators.<br /><br />
         Examples:<br />
         <span className="font-mono">{'{engine}/{creator}/{title}/{version}'}</span><br />

@@ -399,7 +399,7 @@ const getImportRecordStatus = (game) => {
       resolveBySteamId(steamId);
       return;
     }
-    if (lcId) {
+    if (lcId && !atlasId) {
       resolveByLewdCornerId(lcId);
       return;
     }

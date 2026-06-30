@@ -1309,13 +1309,25 @@ ipcMain.handle("select-catalog-import-source", async (event) => {
   const currentConfig = ctx.appConfig || appConfig || {};
   const archiveExtensions = getConfiguredExtractionExtensions(currentConfig);
   const gameExtensions = getConfiguredGameExtensions(currentConfig);
+  const sourceType = await dialog.showMessageBox(ownerWindow, {
+    type: "question",
+    title: "Choose import source",
+    message: "What do you want to import?",
+    buttons: ["Folder", "Archive or executable", "Cancel"],
+    defaultId: 0,
+    cancelId: 2,
+    noLink: true,
+  });
+  if (sourceType.response === 2) return null;
   const result = await showOpenDialog(ownerWindow, {
-    title: "Choose game folder, archive, or executable",
-    properties: ["openFile", "openDirectory"],
-    filters: [
-      { name: "Game files and archives", extensions: [...new Set([...archiveExtensions, ...gameExtensions])] },
-      { name: "All files", extensions: ["*"] },
-    ],
+    title: sourceType.response === 0 ? "Choose game folder" : "Choose archive or executable",
+    properties: [sourceType.response === 0 ? "openDirectory" : "openFile"],
+    ...(sourceType.response === 0 ? {} : {
+      filters: [
+        { name: "Game files and archives", extensions: [...new Set([...archiveExtensions, ...gameExtensions])] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    }),
   });
   if (result.canceled || !result.filePaths?.length) return null;
   return result.filePaths[0];

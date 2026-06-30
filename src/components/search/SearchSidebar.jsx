@@ -269,8 +269,8 @@ const SearchSidebar = ({
   return (
     <div className={containerClassName} style={containerStyle}>
       {/* Fixed-height sticky header */}
-      <div className="h-[60px] bg-secondary border-b border-border flex items-center justify-between px-4 sticky top-0 z-10">
-        <span className="text-lg font-bold">
+      <div className="h-[52px] bg-secondary border-b border-border flex items-center justify-between px-3 sticky top-0 z-10">
+        <span className="text-base font-bold">
           <i className="fas fa-filter mr-2"></i>Filters
         </span>
         <div className="flex space-x-3">
@@ -294,7 +294,7 @@ const SearchSidebar = ({
       </div>
 
       {/* Scrollable content */}
-      <div className="h-[calc(100%-60px)] overflow-y-auto p-4">
+      <div className="h-[calc(100%-52px)] overflow-y-auto p-3 [&>div]:!mb-4 [&>div]:!pb-3 [&_h4]:!mb-2 [&_.space-y-3]:space-y-2">
         {/* Search Input */}
         <div className="mb-6">
           <div className="flex items-center border border-border rounded bg-tertiary overflow-hidden -webkit-app-region-no-drag">

@@ -532,10 +532,11 @@ const Importer = () => {
       updatedGame = {
         ...updatedGame,
         atlasId: selected.atlasId || parts[0],
-        f95Id: selected.f95Id || parts[1] || updatedGame.f95Id || '',
-        lcId: selected.lcId || updatedGame.lcId || updatedGame.lewdCornerId || '',
-        lewdCornerId: selected.lcId || updatedGame.lewdCornerId || updatedGame.lcId || '',
-        lewdCornerSiteUrl: selected.lewdCornerSiteUrl || updatedGame.lewdCornerSiteUrl || '',
+        f95Id: selected.f95Id || parts[1] || '',
+        lcId: selected.lcId || '',
+        lewdCornerId: selected.lcId || '',
+        lewdCornerSiteUrl: selected.lewdCornerSiteUrl || '',
+        siteUrl: '',
         title: selected.title || parts[2],
         creator: selected.creator || parts[3],
         engine: selected.engine || updatedGame.engine,
@@ -546,8 +547,11 @@ const Importer = () => {
         updatedGame = {
           ...updatedGame,
           engine: atlasData.engine || 'Unknown',
-          f95Id: atlasData.f95_id || updatedGame.f95Id || '',
-          siteUrl: atlasData.siteUrl || atlasData.site_url || updatedGame.siteUrl || '',
+          f95Id: atlasData.f95_id || '',
+          lcId: atlasData.lc_id || atlasData.lcId || atlasData.lewdCornerId || '',
+          lewdCornerId: atlasData.lc_id || atlasData.lcId || atlasData.lewdCornerId || '',
+          lewdCornerSiteUrl: atlasData.lewdCornerSiteUrl || atlasData.lewdcornerSiteUrl || '',
+          siteUrl: atlasData.siteUrl || atlasData.site_url || '',
           latestVersion: atlasData.latestVersion || '',
         }
       } catch (err) { console.error('Failed to hydrate selected match:', err) }

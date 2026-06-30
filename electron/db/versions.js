@@ -37,6 +37,7 @@ const getTableColumns = (tableName) =>
   })
 
 const normalizePersonalRating = (value) => {
+  if (value === undefined || value === null || value === '') return null
   const number = Number(value)
   return Number.isFinite(number) ? number : null
 }
