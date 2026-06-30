@@ -81,14 +81,18 @@ const toBoolFlag = (value) => {
 };
 
 // A package is treated as a full snapshot when it carries an explicit truthy
-// "full"/"snapshot" flag. When no flag is present at all we assume snapshot
-// (per spec), but only act on it when it passes the completeness guard below.
-const readSnapshotFlag = (data) => {
-  const explicit = data?.full ?? data?.snapshot ?? data?.isFull ?? data?.is_snapshot;
-  if (explicit === undefined || explicit === null) {
-    return { isSnapshot: true, trusted: false };
+// "full"/"snapshot" flag, checked across the given sources in order (manifest
+// entry first, then the package payload). When no flag is present anywhere we
+// assume snapshot (per spec), but only act on it when it passes the
+// completeness guard in applyFullSnapshotPrune.
+const readSnapshotFlag = (...sources) => {
+  for (const source of sources) {
+    const explicit = source?.full ?? source?.snapshot ?? source?.isFull ?? source?.is_snapshot;
+    if (explicit !== undefined && explicit !== null) {
+      return { isSnapshot: toBoolFlag(explicit), trusted: true };
+    }
   }
-  return { isSnapshot: toBoolFlag(explicit), trusted: true };
+  return { isSnapshot: true, trusted: false };
 };
 
 // Load a list of ids into a temp table so prune queries avoid huge IN (...) lists.
@@ -318,7 +322,7 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
       // Full snapshot reconciliation: remove games that no longer exist on the
       // server (keeping/flagging any the user still owns or has wishlisted).
       // Only runs for snapshot packages; deltas are never pruned.
-      const { isSnapshot, trusted } = readSnapshotFlag(data);
+      const { isSnapshot, trusted } = readSnapshotFlag(update, data);
       if (isSnapshot) {
         mainWindow.webContents.send("db-update-progress", {
           text: `Reconciling removed games ${processed + 1}/${total}`,
