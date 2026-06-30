@@ -1288,7 +1288,12 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
     const browseSort = browseSortAliases[browseSortValue] || browseSortValue;
     const orderByParsedDate = (field, direction) => {
       const dateExpr = dateMsExpression(field);
-      return `ORDER BY CASE WHEN (${dateExpr}) IS NULL THEN 1 ELSE 0 END ASC, (${dateExpr}) ${direction}, title COLLATE NOCASE ASC, catalogKey ASC`;
+      const nowMs = Date.now();
+      // Rows with a valid, non-future date sort first (by direction); rows with
+      // a future date are pushed below them, and NULL/empty dates last. This
+      // keeps bogus future timestamps (e.g. mis-scraped thread_updated values)
+      // out of the top of the default newest-first Browse view.
+      return `ORDER BY CASE WHEN (${dateExpr}) IS NULL THEN 2 WHEN (${dateExpr}) > ${nowMs} THEN 1 ELSE 0 END ASC, (${dateExpr}) ${direction}, title COLLATE NOCASE ASC, catalogKey ASC`;
     };
     const orderByNullableNumber = (field, direction) =>
       `ORDER BY CASE WHEN ${field} IS NULL OR ${field} = '' THEN 1 ELSE 0 END ASC, CAST(${field} AS REAL) ${direction}, title COLLATE NOCASE ASC, catalogKey ASC`;
@@ -1392,7 +1397,6 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           MIN(steam_data.developer) AS steam_developer,
           atlas_data.short_name,
           atlas_data.external_ids as external_ids,
-        atlas_data.removed_from_server as atlas_removed_from_server,
           atlas_data.banner_wide as atlas_banner_wide,
           atlas_data.banner as atlas_banner,
           atlas_data.logo as atlas_logo,

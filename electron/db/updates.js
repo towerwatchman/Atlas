@@ -269,8 +269,10 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
     }
 
     let processed = 0;
+    let skipped = 0;
     for (const update of newUpdates.reverse()) {
       const { date, name, md5 } = update;
+      try {
       const downloadUrl = `https://atlas-gamesdb.com/packages/${name}`;
       const outputPath = path.join(updatesDir, name);
 
@@ -358,16 +360,35 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
         progress: processed,
         total,
       });
+      } catch (updateErr) {
+        // A single bad package (e.g. a manifest entry whose file is missing /
+        // returns 404, a corrupt download, or a decompress/parse failure) must
+        // not abort the whole update run — skip it and continue. It isn't
+        // recorded in `updates`, so it will be retried on the next check once
+        // the server publishes it.
+        skipped += 1;
+        const status = updateErr?.response?.status;
+        console.warn(
+          `Skipping database update ${name}${status ? ` (HTTP ${status})` : ""}: ${updateErr.message}`,
+        );
+        mainWindow.webContents.send("db-update-progress", {
+          text: `Skipped update ${name}${status === 404 ? " (not found)" : ""}`,
+          progress: processed,
+          total,
+        });
+        continue;
+      }
     }
 
     return {
       success: true,
-      message: `Processed ${processed} updates`,
+      message: `Processed ${processed} updates${skipped > 0 ? `, skipped ${skipped}` : ""}`,
       total,
       processed,
+      skipped,
     };
   } catch (err) {
-    console.error("Error checking database updates:", err);
+    console.error("Error checking database updates:", err.message);
     return { success: false, error: err.message, total: 0, processed: 0 };
   }
 };
