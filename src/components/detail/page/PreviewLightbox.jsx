@@ -1,10 +1,57 @@
+import { useEffect, useState } from 'react'
 import SafeImage from '../../ui/SafeImage.jsx'
 
+// Navigation buttons scale with the viewport so they stay comfortably sized
+// on high-resolution displays (past 1080p) while keeping a sane minimum.
+const NAV_BTN_SIZE = 'clamp(44px, 4vw, 84px)'
+const NAV_ICON_SIZE = 'clamp(16px, 1.8vw, 36px)'
+const NAV_EDGE_OFFSET = 'clamp(12px, 1.5vw, 28px)'
+
+// Media is scaled to fit 90% of the window (both up and down) while preserving
+// aspect ratio. We measure the natural size on load and size the element to the
+// exact fitted rectangle so it hugs the rendered image — that way the empty
+// space around a widescreen/portrait image is the backdrop and closes on click.
+const FIT_W = 0.9
+const FIT_H = 0.9
+
+function useViewport() {
+  const [vp, setVp] = useState(() => ({
+    w: typeof window === 'undefined' ? 1920 : window.innerWidth,
+    h: typeof window === 'undefined' ? 1080 : window.innerHeight,
+  }))
+  useEffect(() => {
+    const onResize = () => setVp({ w: window.innerWidth, h: window.innerHeight })
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  return vp
+}
+
+function fitSize(natural, vp) {
+  if (!natural || !natural.w || !natural.h) return null
+  const scale = Math.min((vp.w * FIT_W) / natural.w, (vp.h * FIT_H) / natural.h)
+  return { width: Math.round(natural.w * scale), height: Math.round(natural.h * scale) }
+}
+
 export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPrev, onNext }) {
+  const vp = useViewport()
+  const [natural, setNatural] = useState(null)
+  const key = lightboxIndex === null ? null : previews[lightboxIndex]
+
+  // Reset measured size whenever the displayed media changes.
+  useEffect(() => { setNatural(null) }, [key])
+
   if (lightboxIndex === null || !previews[lightboxIndex]) return null
 
   const current = previews[lightboxIndex]
   const isVideo = /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(current || ''))
+  const fit = fitSize(natural, vp)
+
+  // Once measured, lock to the exact fitted rectangle; before measuring, cap at
+  // 90% so an unmeasured frame never overflows.
+  const sizeStyle = fit
+    ? { width: fit.width, height: fit.height, margin: 'auto' }
+    : { maxWidth: '90vw', maxHeight: '90vh', margin: 'auto' }
 
   return (
     <div
@@ -37,31 +84,34 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
         <button
           onClick={(e) => { e.stopPropagation(); onPrev() }}
           title="Previous (←)"
-          style={{ position: 'absolute', left: 18, top: '50%', transform: 'translateY(-50%)', width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, color: '#d1d5db', cursor: 'pointer', transition: 'background 0.15s' }}
+          style={{ position: 'absolute', left: NAV_EDGE_OFFSET, top: '50%', transform: 'translateY(-50%)', width: NAV_BTN_SIZE, height: NAV_BTN_SIZE, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, color: '#d1d5db', cursor: 'pointer', transition: 'background 0.15s' }}
           onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
         >
-          <i className="fas fa-chevron-left" style={{ fontSize: 16 }}></i>
+          <i className="fas fa-chevron-left" style={{ fontSize: NAV_ICON_SIZE }}></i>
         </button>
       )}
 
-      {/* Media */}
+      {/* Media — sized to the fitted rectangle so empty space around it is the
+          backdrop, which closes the viewer on click. */}
       {isVideo ? (
         <video
           src={current}
           controls
           autoPlay
+          onLoadedMetadata={(e) => setNatural({ w: e.target.videoWidth, h: e.target.videoHeight })}
           onClick={(e) => e.stopPropagation()}
-          style={{ width: '90vw', height: '85vh', objectFit: 'contain', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)', background: '#000' }}
+          style={{ ...sizeStyle, display: 'block', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)', background: '#000' }}
         />
       ) : (
         <SafeImage
           src={current}
           alt={`Preview ${lightboxIndex + 1}`}
           fallbackLabel="Preview unavailable"
+          onLoad={(e) => setNatural({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
           onClick={(e) => e.stopPropagation()}
-          style={{ width: '90vw', height: '85vh', objectFit: 'contain', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
-          placeholderStyle={{ width: 'min(90vw, 900px)', height: 'min(85vh, 520px)' }}
+          style={{ ...sizeStyle, display: 'block', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
+          placeholderStyle={{ width: 'min(90vw, 900px)', height: 'min(90vh, 520px)' }}
         />
       )}
 
@@ -70,11 +120,11 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
         <button
           onClick={(e) => { e.stopPropagation(); onNext() }}
           title="Next (→)"
-          style={{ position: 'absolute', right: 18, top: '50%', transform: 'translateY(-50%)', width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, color: '#d1d5db', cursor: 'pointer', transition: 'background 0.15s' }}
+          style={{ position: 'absolute', right: NAV_EDGE_OFFSET, top: '50%', transform: 'translateY(-50%)', width: NAV_BTN_SIZE, height: NAV_BTN_SIZE, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, color: '#d1d5db', cursor: 'pointer', transition: 'background 0.15s' }}
           onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
         >
-          <i className="fas fa-chevron-right" style={{ fontSize: 16 }}></i>
+          <i className="fas fa-chevron-right" style={{ fontSize: NAV_ICON_SIZE }}></i>
         </button>
       )}
     </div>
