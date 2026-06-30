@@ -247,6 +247,44 @@ function normalizeStructuredMapping(format, pathParts) {
   return mapping;
 }
 
+// Parse a relative folder/file path with a user-supplied regex. The regex is
+// expected to use named capture groups (creator, title, version, engine,
+// f95id, lcid, atlasid). Path separators are normalized to "/" before
+// matching so a single pattern works across platforms. Returns null when the
+// regex is empty, invalid, or does not match (callers then fall back to the
+// token-based structured mapping).
+function parseWithCustomRegex(customRegex, relativePath) {
+  const pattern = String(customRegex || "").trim();
+  if (!pattern) return null;
+  let regex;
+  try {
+    regex = new RegExp(pattern, "i");
+  } catch (err) {
+    console.warn(`Invalid custom folder regex "${pattern}": ${err.message}`);
+    return null;
+  }
+  const normalized = String(relativePath || "").replace(/\\/g, "/");
+  const match = normalized.match(regex);
+  if (!match) return null;
+  const groups = match.groups || {};
+  const pick = (...names) => {
+    for (const name of names) {
+      const value = groups[name];
+      if (value != null && String(value).trim() !== "") return String(value).trim();
+    }
+    return "";
+  };
+  return {
+    creator: pick("creator"),
+    title: pick("title"),
+    version: pick("version"),
+    engine: pick("engine"),
+    f95id: pick("f95id", "f95Id"),
+    lcid: pick("lcid", "lcId"),
+    atlasid: pick("atlasid", "atlasId"),
+  };
+}
+
 function cleanIdValue(value) {
   return String(value || "")
     .trim()
@@ -616,8 +654,14 @@ async function findGame(
         .split("/")
         .map(normalizeFormatToken)
         .filter(Boolean);
-      if (pathParts.length >= formatParts.length) {
-        const mapping = normalizeStructuredMapping(format, pathParts);
+      // A user-supplied regex (when enabled) takes priority over the
+      // token-derived mapping. If it fails to match, fall back to tokens.
+      let mapping = parseWithCustomRegex(params.customRegex, parsePath);
+      const customMatched = Boolean(mapping && (mapping.title || mapping.creator || mapping.version));
+      if (!customMatched && pathParts.length >= formatParts.length) {
+        mapping = normalizeStructuredMapping(format, pathParts);
+      }
+      if (mapping && (customMatched || pathParts.length >= formatParts.length)) {
         creator = mapping.creator || "Unknown";
         title = mapping.title || "";
         lookupTitle = title;

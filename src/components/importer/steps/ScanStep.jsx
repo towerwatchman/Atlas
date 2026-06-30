@@ -3,6 +3,7 @@ import ScanTable from './ScanTable.jsx'
 export default function ScanStep({
   progress, progressLabel, visibleStats, sortedRows, isNewScanRow, sortConfig,
   hideMatches, includeUnmatched, forceReimport,
+  autoSelectLatestReplaceVersion,
   selectedRowKeys, selectedRowCount = 0, badRowCount = 0, lastSelectedRowKey,
   canImport, isResolvingMatches, isScanActive, isCancelingScan, getImportDisabledReason,
   importMode, scanPath, scanMessage,
@@ -72,6 +73,7 @@ export default function ScanStep({
           onHydrateManualLcId={onHydrateManualLcId}
           getGameKey={getGameKey}
           getRowImportStatus={getRowImportStatus}
+          showReplaceVersion={autoSelectLatestReplaceVersion}
           scanPath={scanPath}
         />
       </div>

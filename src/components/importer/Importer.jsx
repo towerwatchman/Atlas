@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import SettingsStep from './steps/SettingsStep.jsx'
 import ScanStep from './steps/ScanStep.jsx'
 import { normalizeImporterSource } from './importerSources.js'
+import { buildFolderRegex } from './folderRegex.js'
 import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
 
 const deriveImportStats = (games) => ({
@@ -66,7 +67,10 @@ const Importer = () => {
   const [useUnstructured, setUseUnstructured] = useState(true)
   const [customFormat, setCustomFormat] = useState(defaultSourceFolderStructure)
   const [gameExt, setGameExt] = useState(defaultGameExtensions)
+  const [includeArchives, setIncludeArchives] = useState(false)
   const [archiveExt, setArchiveExt] = useState(defaultArchiveExtensions)
+  const [useCustomRegex, setUseCustomRegex] = useState(false)
+  const [customRegex, setCustomRegex] = useState('')
   const [downloadBannerImages, setDownloadBannerImages] = useState(false)
   const [downloadPreviewImages, setDownloadPreviewImages] = useState(false)
   const [previewLimit, setPreviewLimit] = useState('Unlimited')
@@ -256,6 +260,9 @@ const Importer = () => {
     sourceGamePath: folder,
     sourceFolderStructure: customFormat,
     useUnstructured,
+    includeArchives,
+    useCustomRegex,
+    customRegex,
     downloadBannerImages,
     downloadPreviewImages,
     previewLimit,
@@ -269,6 +276,9 @@ const Importer = () => {
     folder,
     customFormat,
     useUnstructured,
+    includeArchives,
+    useCustomRegex,
+    customRegex,
     downloadBannerImages,
     downloadPreviewImages,
     previewLimit,
@@ -619,6 +629,9 @@ const Importer = () => {
         setCustomFormat(importer.sourceFolderStructure || defaultSourceFolderStructure)
         setGameExt(lib.gameExtensions || defaultGameExtensions)
         setArchiveExt(lib.extractionExtensions || defaultArchiveExtensions)
+        setIncludeArchives(toBoolean(importer.includeArchives, false))
+        setUseCustomRegex(toBoolean(importer.useCustomRegex, false))
+        setCustomRegex(importer.customRegex || '')
         setLibraryFormat(lib.libraryFolderStructure || defaultSourceFolderStructure)
         const autoSelect = lib.autoSelectLatestReplaceVersion === true || lib.autoSelectLatestReplaceVersion === 'true'
         autoSelectLatestReplaceVersionRef.current = autoSelect
@@ -789,6 +802,28 @@ const Importer = () => {
     saveImporterDefaults({}, { Library: { extractionExtensions: value } })
   }
 
+  const handleIncludeArchivesChange = (checked) => {
+    setIncludeArchives(checked)
+    saveImporterDefaults({ includeArchives: checked })
+  }
+
+  const handleUseCustomRegexChange = (checked) => {
+    setUseCustomRegex(checked)
+    // Seed the editable field with the generated regex the first time the
+    // user switches to a custom regex, so they start from a working pattern.
+    let nextRegex = customRegex
+    if (checked && !String(customRegex).trim()) {
+      nextRegex = buildFolderRegex(customFormat)
+      setCustomRegex(nextRegex)
+    }
+    saveImporterDefaults({ useCustomRegex: checked, customRegex: nextRegex })
+  }
+
+  const handleCustomRegexChange = (value) => {
+    setCustomRegex(value)
+    saveImporterDefaults({ customRegex: value })
+  }
+
   const handleDownloadBannerImagesChange = (checked) => {
     setDownloadBannerImages(checked)
     saveImporterDefaults(
@@ -837,8 +872,9 @@ const Importer = () => {
     const params = {
       folder, mode: 'local', scanId, deferMatching: true,
       format: useUnstructured ? '' : customFormat,
+      customRegex: (!useUnstructured && useCustomRegex && String(customRegex).trim()) ? String(customRegex).trim() : '',
       gameExt: gameExt.split(',').map((e) => e.trim()),
-      archiveExt: archiveExt.split(',').map((e) => e.trim()),
+      archiveExt: includeArchives ? archiveExt.split(',').map((e) => e.trim()).filter(Boolean) : [],
       scanSize, downloadBannerImages,
       downloadPreviewImages, previewLimit, downloadVideos,
     }
@@ -1353,6 +1389,8 @@ const Importer = () => {
           <SettingsStep
             folder={folder} customFormat={customFormat} useUnstructured={useUnstructured}
             gameExt={gameExt} archiveExt={archiveExt}
+            includeArchives={includeArchives}
+            useCustomRegex={useCustomRegex} customRegex={customRegex}
             downloadBannerImages={downloadBannerImages} downloadPreviewImages={downloadPreviewImages}
             previewLimit={previewLimit} deleteSourceArchiveAfterImport={deleteSourceArchiveAfterImport}
             moveFoldersToLibrary={moveFoldersToLibrary}
@@ -1361,6 +1399,8 @@ const Importer = () => {
             onSelectFolder={selectFolder} onStartScan={startScan}
             setCustomFormat={handleCustomFormatChange} setUseUnstructured={handleUseUnstructuredChange}
             setGameExt={handleGameExtChange} setArchiveExt={handleArchiveExtChange}
+            setIncludeArchives={handleIncludeArchivesChange}
+            setUseCustomRegex={handleUseCustomRegexChange} setCustomRegex={handleCustomRegexChange}
             setDownloadBannerImages={handleDownloadBannerImagesChange}
             setDownloadPreviewImages={handleDownloadPreviewImagesChange}
             setMoveFoldersToLibrary={handleMoveFoldersToLibraryChange}
@@ -1376,6 +1416,7 @@ const Importer = () => {
             sortedRows={sortedRows} isNewScanRow={isNewScanRow} sortConfig={sortConfig}
             hideMatches={hideMatches} includeUnmatched={includeUnmatched}
             forceReimport={forceReimport}
+            autoSelectLatestReplaceVersion={autoSelectLatestReplaceVersion}
             selectedRowKeys={selectedScanRowKeys}
             selectedRowCount={selectedScanRowCount}
             badRowCount={badScanRowCount}

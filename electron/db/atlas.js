@@ -97,7 +97,49 @@ const scoreAtlasSearchRow = (row, searchKeys, title, creator) => {
   return score;
 };
 
+// Exact title + creator lookup. There can legitimately be more than one
+// atlas record sharing the same title and creator, so this returns every
+// exact hit. Comparison is case/whitespace-insensitive (normalized title via
+// the indexed normalized_title column, creator trimmed/lowercased).
+const searchAtlasExact = async (title, creator) => {
+  const normalizedTitle = normalizeSearchKey(title);
+  const trimmedCreator = String(creator || "").trim();
+  if (!normalizedTitle || !trimmedCreator) return [];
+
+  const sql = `
+    SELECT
+      a.atlas_id,
+      a.title,
+      a.creator,
+      a.engine,
+      a.version as latestVersion,
+      f.f95_id,
+      f.site_url as siteUrl,
+      lc.lc_id,
+      lc.site_url as lewdCornerSiteUrl
+    FROM atlas_data a
+    LEFT JOIN f95_zone_data f ON f.atlas_id = a.atlas_id
+    LEFT JOIN lewdcorner_data lc ON lc.atlas_id = a.atlas_id
+    WHERE a.normalized_title = ?
+      AND LOWER(TRIM(a.creator)) = LOWER(?)
+  `;
+
+  const rows = await new Promise((resolve, reject) => {
+    getDb().all(sql, [normalizedTitle, trimmedCreator], (err, resultRows) => {
+      if (err) reject(err);
+      else resolve(resultRows || []);
+    });
+  });
+
+  return rows.map((row) => ({ ...row, f95_id: row.f95_id || "" }));
+};
+
 const searchAtlas = async (title, creator) => {
+  // Prefer exact title + creator matches; only fall back to the fuzzy
+  // scoring search when no exact match exists in the database.
+  const exactMatches = await searchAtlasExact(title, creator);
+  if (exactMatches.length > 0) return exactMatches;
+
   const searchKeys = buildAtlasSearchKeys(title);
   if (searchKeys.length === 0) return [];
 
@@ -633,6 +675,7 @@ const searchAtlasByF95Id = (f95Id) => {
 
 module.exports = {
   searchAtlas,
+  searchAtlasExact,
   findF95Id,
   GetAtlasIDbyRecord,
   addAtlasMapping,

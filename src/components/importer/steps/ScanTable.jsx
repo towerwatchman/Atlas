@@ -21,6 +21,14 @@ const SCAN_TABLE_COLUMNS = [
 const DEFAULT_COLUMN_WIDTHS = Object.fromEntries(SCAN_TABLE_COLUMNS.map((column) => [column.key, column.width]))
 const MIN_COLUMN_WIDTHS = Object.fromEntries(SCAN_TABLE_COLUMNS.map((column) => [column.key, column.minWidth]))
 
+// In-row editable controls render with a transparent background (so the row
+// color shows through) and no border or vertical padding — the surrounding
+// <td> already draws the grid lines, so the control blends into the cell.
+const ROW_INPUT_CLASS = 'w-full bg-transparent border-0 px-1 py-0 focus:outline-none focus:ring-1 focus:ring-accent'
+// Combo boxes keep a solid background and text color so the dropdown list stays
+// readable, and reserve right padding so the native arrow never overlaps text.
+const ROW_SELECT_CLASS = 'w-full bg-secondary text-text border-0 pl-1 pr-6 py-0 focus:outline-none focus:ring-1 focus:ring-accent'
+
 const isValidHttpUrl = (value) => {
   try {
     const url = new URL(String(value || '').trim())
@@ -76,18 +84,49 @@ export default function ScanTable({
   getRowImportStatus, onHydrateManualF95Id, onHydrateManualLcId,
   selectedRowKeys = new Set(), lastSelectedRowKey = '',
   onToggleRowSelection, onSelectRowRange, onSetVisibleRowSelection,
+  showReplaceVersion = true,
   scanPath = '',
 }) {
   const selectAllRef = useRef(null)
   const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS)
+  // Columns the user has dragged to resize — auto-sizing leaves these alone.
+  const manualResizeRef = useRef(new Set())
+  const visibleColumns = useMemo(
+    () => (showReplaceVersion ? SCAN_TABLE_COLUMNS : SCAN_TABLE_COLUMNS.filter((column) => column.key !== 'replaceVersion')),
+    [showReplaceVersion],
+  )
   const visibleRowKeys = useMemo(() => sortedRows.map(({ game }) => getGameKey(game)), [getGameKey, sortedRows])
   const selectedVisibleCount = visibleRowKeys.filter((key) => selectedRowKeys.has(key)).length
   const allVisibleSelected = visibleRowKeys.length > 0 && selectedVisibleCount === visibleRowKeys.length
   const someVisibleSelected = selectedVisibleCount > 0 && selectedVisibleCount < visibleRowKeys.length
   const tableMinWidth = useMemo(
-    () => SCAN_TABLE_COLUMNS.reduce((sum, column) => sum + (columnWidths[column.key] || column.width), 0),
-    [columnWidths],
+    () => visibleColumns.reduce((sum, column) => sum + (columnWidths[column.key] || column.width), 0),
+    [columnWidths, visibleColumns],
   )
+
+  // Size the Database Match column to its longest value so the full match text
+  // is visible (capped, and skipped if the user has manually resized it).
+  const databaseMatchWidth = useMemo(() => {
+    let maxLen = 'Database Match'.length
+    for (const { game } of sortedRows) {
+      const results = Array.isArray(game.results) ? game.results : []
+      if (results.length === 1 && results[0]?.key === 'match') {
+        maxLen = Math.max(maxLen, String(results[0].value || '').length)
+      } else {
+        for (const result of results) maxLen = Math.max(maxLen, String(result.value || '').length)
+      }
+    }
+    // ~7px/char + horizontal padding (pl-1 pr-6) + arrow + cell padding.
+    const px = Math.round(maxLen * 7.2) + 48
+    return Math.min(640, Math.max(MIN_COLUMN_WIDTHS.databaseMatch || 160, px))
+  }, [sortedRows])
+
+  useEffect(() => {
+    if (manualResizeRef.current.has('databaseMatch')) return
+    setColumnWidths((prev) => (
+      prev.databaseMatch === databaseMatchWidth ? prev : { ...prev, databaseMatch: databaseMatchWidth }
+    ))
+  }, [databaseMatchWidth])
 
   useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = someVisibleSelected
@@ -106,6 +145,7 @@ export default function ScanTable({
   const beginColumnResize = (event, columnKey) => {
     event.preventDefault()
     event.stopPropagation()
+    manualResizeRef.current.add(columnKey)
     const startX = event.clientX
     const startWidth = columnWidths[columnKey] || DEFAULT_COLUMN_WIDTHS[columnKey]
     const minWidth = MIN_COLUMN_WIDTHS[columnKey] || 80
@@ -188,7 +228,7 @@ export default function ScanTable({
   return (
     <table className="border-collapse border border-border table-fixed" style={{ minWidth: `${tableMinWidth}px` }}>
       <colgroup>
-        {SCAN_TABLE_COLUMNS.map((column) => (
+        {visibleColumns.map((column) => (
           <col key={column.key} style={{ width: `${columnWidths[column.key] || column.width}px` }} />
         ))}
       </colgroup>
@@ -213,9 +253,9 @@ export default function ScanTable({
           {renderSortableHeader('creator', 'Creator')}
           {renderSortableHeader('engine', 'Engine')}
           {renderSortableHeader('version', 'Version')}
-          {renderSortableHeader('replaceVersion', 'Replace Version')}
+          {showReplaceVersion && renderSortableHeader('replaceVersion', 'Replace Version')}
           {renderSortableHeader('executable', 'Executable')}
-          {renderSortableHeader('databaseMatch', 'Possible Database Matches')}
+          {renderSortableHeader('databaseMatch', 'Database Match')}
           {renderSortableHeader('source', 'Source')}
           {renderSortableHeader('status', 'Status')}
           <th className="relative border border-border p-1 pr-3">
@@ -294,9 +334,8 @@ export default function ScanTable({
                     e.preventDefault()
                     onHydrateManualF95Id?.(gameKey, e.currentTarget.value, { refresh: true })
                   }}
-                  placeholder="F95 ID or thread URL"
                   title="Enter a numeric F95 ID or F95 thread URL. Press Enter to update this row."
-                  className="w-full bg-secondary border border-border p-1"
+                  className={ROW_INPUT_CLASS}
                 />
               </td>
               <td className="border border-border p-1">
@@ -310,43 +349,44 @@ export default function ScanTable({
                     e.preventDefault()
                     onHydrateManualLcId?.(gameKey, e.currentTarget.value, { refresh: true })
                   }}
-                  placeholder="LC ID or LewdCorner URL"
                   title="Enter a numeric LC ID or LewdCorner URL. Press Enter to update this row."
-                  className="w-full bg-secondary border border-border p-1"
+                  className={ROW_INPUT_CLASS}
                 />
               </td>
               <td className="border border-border p-1">
-                <input value={game.title} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'title', e.target.value)} className="w-full bg-secondary border border-border p-1" />
+                <input value={game.title} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'title', e.target.value)} className={ROW_INPUT_CLASS} />
               </td>
               <td className="border border-border p-1">
-                <input value={game.creator} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'creator', e.target.value)} className="w-full bg-secondary border border-border p-1" />
+                <input value={game.creator} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'creator', e.target.value)} className={ROW_INPUT_CLASS} />
               </td>
               <td className="border border-border p-1">
-                <input value={game.engine} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'engine', e.target.value)} className="w-full bg-secondary border border-border p-1" />
+                <input value={game.engine} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'engine', e.target.value)} className={ROW_INPUT_CLASS} />
               </td>
               <td className="border border-border p-1">
-                <input value={game.version} disabled={!rowIsNew || isRenpySave} onChange={(e) => onUpdateGame(gameKey, 'version', e.target.value)} className="w-full bg-secondary border border-border p-1" />
+                <input value={game.version} disabled={!rowIsNew || isRenpySave} onChange={(e) => onUpdateGame(gameKey, 'version', e.target.value)} className={ROW_INPUT_CLASS} />
               </td>
-              <td className="border border-border p-1">
-                <select
-                  value={game.replaceVersion || ''}
-                  disabled={!rowIsNew || !game.replaceOptions?.length}
-                  onChange={(e) => onUpdateGame(gameKey, 'replaceVersion', e.target.value)}
-                  className="w-full bg-secondary border border-border p-1"
-                  title={game.replaceOptions?.length ? 'Optionally delete this installed version after the new import succeeds' : 'No installed versions available to replace'}
-                >
-                  <option value="">None</option>
-                  {(game.replaceOptions || []).map((version) => (
-                    <option key={version.version} value={version.version}>
-                      {formatReplaceVersionLabel(version)}
-                    </option>
-                  ))}
-                </select>
-              </td>
+              {showReplaceVersion && (
+                <td className="border border-border p-1">
+                  <select
+                    value={game.replaceVersion || ''}
+                    disabled={!rowIsNew || !game.replaceOptions?.length}
+                    onChange={(e) => onUpdateGame(gameKey, 'replaceVersion', e.target.value)}
+                    className={ROW_SELECT_CLASS}
+                    title={game.replaceOptions?.length ? 'Optionally delete this installed version after the new import succeeds' : 'No installed versions available to replace'}
+                  >
+                    <option value="">None</option>
+                    {(game.replaceOptions || []).map((version) => (
+                      <option key={version.version} value={version.version}>
+                        {formatReplaceVersionLabel(version)}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+              )}
               <td className="border border-border p-1">
                 <div className="truncate">
                 {isRenpySave ? 'N/A' : game.multipleVisible === 'visible' ? (
-                  <select value={game.selectedValue} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'selectedValue', e.target.value)} className="w-full bg-secondary border border-border p-1">
+                  <select value={game.selectedValue} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'selectedValue', e.target.value)} className={ROW_SELECT_CLASS}>
                     {game.executables.map((opt) => <option key={opt.key} value={opt.key}>{opt.value}</option>)}
                   </select>
                 ) : game.singleExecutable}
@@ -356,7 +396,7 @@ export default function ScanTable({
                 {matchResults.length === 1 && matchResults[0]?.key === 'match' ? (
                   <span className="text-text select-none">{matchResults[0].value}</span>
                 ) : matchResults.length > 1 && (
-                  <select value={selectedMatchValue} disabled={!rowIsNew} onChange={(e) => onResultChange(gameKey, e.target.value)} className="w-full bg-secondary border border-border p-1">
+                  <select value={selectedMatchValue} disabled={!rowIsNew} onChange={(e) => onResultChange(gameKey, e.target.value)} className={ROW_SELECT_CLASS}>
                     {matchResults.map((opt) => <option key={opt.key} value={opt.key}>{opt.value}</option>)}
                   </select>
                 )}
@@ -374,6 +414,8 @@ export default function ScanTable({
               <td className={`border border-border p-1 ${statusClass}`}>{statusText}</td>
               <td className="border border-border p-1 min-w-[220px]">
                 <div className="flex flex-wrap gap-2">
+                  <button onClick={() => onDeleteGame(gameKey)} className="bg-danger hover:bg-dangerHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Remove</button>
+                  <button onClick={() => window.electronAPI.openDirectory(game.folder || game.sourceFile)} className="bg-accent hover:bg-accentHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Open Folder</button>
                   {sourceUrls.f95 && (
                     <button
                       onClick={() => openSourceUrl(sourceUrls.f95)}
@@ -414,8 +456,6 @@ export default function ScanTable({
                       Atlas
                     </button>
                   )}
-                <button onClick={() => onDeleteGame(gameKey)} className="bg-danger hover:bg-dangerHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Remove</button>
-                <button onClick={() => window.electronAPI.openDirectory(game.folder || game.sourceFile)} className="bg-accent hover:bg-accentHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Open Folder</button>
                 </div>
               </td>
             </tr>
