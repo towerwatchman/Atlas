@@ -158,7 +158,8 @@ const initializeDatabase = (dataDir) => {
         wallpaper STRING,
         previews STRING,
         external_ids STRING,
-        last_record_update STRING
+        last_record_update STRING,
+        removed_from_server INTEGER NOT NULL DEFAULT 0
       );
     `);
     db.run(`
@@ -359,6 +360,10 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN steam_url TEXT;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN lc_id INTEGER;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN preview_urls TEXT;`, () => {});
+    // Marks an atlas record that is still referenced by the user (owned or
+    // wishlisted) but no longer present in the latest full snapshot. 0 = present.
+    db.run(`ALTER TABLE atlas_data ADD COLUMN removed_from_server INTEGER NOT NULL DEFAULT 0;`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_removed_from_server ON atlas_data(removed_from_server);`, () => {});
     db.run(`
       CREATE TABLE IF NOT EXISTS data_change
       (

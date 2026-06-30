@@ -1216,6 +1216,16 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         onBack={onBack}
       />
 
+      {Number(game?.atlas_removed_from_server) > 0 && (
+        <div className="mx-4 mt-3 flex items-start gap-2 rounded border border-warning/50 bg-warning/10 px-3 py-2 text-sm text-warning">
+          <i className="fas fa-triangle-exclamation mt-0.5"></i>
+          <span>
+            This game is no longer listed in the Atlas database. Your local copy and metadata have been kept,
+            but it won&apos;t receive further metadata updates.
+          </span>
+        </div>
+      )}
+
       <ActionBar
         game={game}
         actionVersion={actionVersion}
