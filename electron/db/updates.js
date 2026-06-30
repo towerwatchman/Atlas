@@ -87,7 +87,7 @@ const toBoolFlag = (value) => {
 // completeness guard in applyFullSnapshotPrune.
 const readSnapshotFlag = (...sources) => {
   for (const source of sources) {
-    const explicit = source?.full ?? source?.snapshot ?? source?.isFull ?? source?.is_snapshot;
+    const explicit = source?.is_full ?? source?.full ?? source?.snapshot ?? source?.isFull ?? source?.is_snapshot;
     if (explicit !== undefined && explicit !== null) {
       return { isSnapshot: toBoolFlag(explicit), trusted: true };
     }
