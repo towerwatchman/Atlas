@@ -431,6 +431,39 @@ const getImportRecordStatus = (game) => {
   return new Promise((resolve, reject) => {
     const steamId = game.steamId || game.steam_id || null;
 
+    const resolveStatusForRecord = (recordId, missingVersionStatus, { steam = false } = {}) => {
+      if (!recordId) {
+        resolve({ status: "new", recordId: null, exactPath: false });
+        return;
+      }
+      getDb().all(
+        `SELECT record_id, version, exec_path FROM versions WHERE record_id = ?`,
+        [recordId],
+        (err, rows) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          const matchingVersion = version
+            ? (rows || []).find(
+                (row) =>
+                  normalizeImportVersion(row.version) ===
+                  normalizeImportVersion(version),
+              )
+            : null;
+          if (matchingVersion) {
+            resolve(
+              steam
+                ? { status: "alreadyImported", recordId, exactPath: false }
+                : statusForVersionRow(matchingVersion, false),
+            );
+            return;
+          }
+          resolve({ status: missingVersionStatus, recordId, exactPath: false });
+        },
+      );
+    };
+
     // Steam games launch via steam:// and store a placeholder exec_path, so the
     // file-based path/exec checks below never apply to them — running those is
     // what made every already-imported Steam game look like "repairPath".
@@ -477,20 +510,12 @@ const getImportRecordStatus = (game) => {
             return;
           }
           if (row?.record_id) {
-            resolve({
-              status: "alreadyImported",
-              recordId: row.record_id,
-              exactPath: false,
-            });
+            resolveStatusForRecord(row.record_id, "steamVersion", { steam: true });
             return;
           }
           findRecordBySteamId(sid)
             .then((recordId) => {
-              resolve(
-                recordId
-                  ? { status: "steamVersion", recordId, exactPath: false }
-                  : { status: "new", recordId: null, exactPath: false },
-              );
+              resolveStatusForRecord(recordId, recordId ? "steamVersion" : "new", { steam: true });
             })
             .catch(reject);
         },
@@ -511,31 +536,12 @@ const getImportRecordStatus = (game) => {
           }
           const mappedRecordId = rows?.[0]?.record_id;
           if (mappedRecordId) {
-            const matchingVersion = version
-              ? rows.find(
-                  (row) =>
-                    normalizeImportVersion(row.version) ===
-                    normalizeImportVersion(version),
-                )
-              : null;
-            resolve(
-              matchingVersion
-                ? statusForVersionRow(matchingVersion, false)
-                : {
-                    status: "lewdCornerVersion",
-                    recordId: mappedRecordId,
-                    exactPath: false,
-                  },
-            );
+            resolveStatusForRecord(mappedRecordId, "lewdCornerVersion");
             return;
           }
           findRecordByLewdCornerId(id)
             .then((recordId) => {
-              resolve(
-                recordId
-                  ? { status: "lewdCornerVersion", recordId, exactPath: false }
-                  : { status: "new", recordId: null, exactPath: false },
-              );
+              resolveStatusForRecord(recordId, recordId ? "lewdCornerVersion" : "new");
             })
             .catch(reject);
         },
@@ -548,29 +554,15 @@ const getImportRecordStatus = (game) => {
         return;
       }
 
-      getDb().all(
-        `SELECT v.record_id, v.version, v.exec_path
-         FROM atlas_mappings am
-         JOIN versions v ON am.record_id = v.record_id
-         WHERE am.atlas_id = ?`,
+      getDb().get(
+        `SELECT record_id FROM atlas_mappings WHERE atlas_id = ? LIMIT 1`,
         [atlasId],
-        (err, rows) => {
+        (err, row) => {
           if (err) {
             reject(err);
             return;
           }
-
-          const matchingVersion = (rows || []).find(
-            (row) =>
-              normalizeImportVersion(row.version) ===
-              normalizeImportVersion(version),
-          );
-          if (matchingVersion) {
-            resolve(statusForVersionRow(matchingVersion, false));
-            return;
-          }
-
-          resolve({ status: "new", recordId: rows?.[0]?.record_id || null, exactPath: false });
+          resolveStatusForRecord(row?.record_id || null, "new");
         },
       );
     }
