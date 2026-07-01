@@ -2798,10 +2798,15 @@ ipcMain.handle("import-games", async (event, params) => {
       console.log("Adding Game");
       throwIfImportCanceled(session);
       const shouldUpsertExisting = forceReimport;
+      // A replace attaches a new version to an EXISTING record and removes the old
+      // one. It must resolve to that record regardless of forceReimport — the old
+      // code left recordId null when forceReimport was off, so addGame() below
+      // created a duplicate title and the replacement then found nothing to delete.
+      const isReplaceOperation = Boolean(String(game.replaceVersion || "").trim());
       let recordId =
-        shouldUpsertExisting && game.existingRecordId
+        (shouldUpsertExisting || isReplaceOperation) && game.existingRecordId
           ? game.existingRecordId
-          : shouldUpsertExisting
+          : shouldUpsertExisting || isReplaceOperation
             ? await findExistingRecordForImport(game)
             : null;
 
@@ -2816,6 +2821,27 @@ ipcMain.handle("import-games", async (event, params) => {
             ? game.existingRecordId
             : null) || (await findRecordBySteamId(steamId));
         if (steamMergeRecordId) recordId = steamMergeRecordId;
+      }
+
+      // Safety net: a replace whose existing record can't be resolved must NOT
+      // fall through to addGame() (that is exactly what produced duplicate
+      // titles). Skip it with a clear message instead.
+      if (isReplaceOperation && !recordId) {
+        console.warn(`Skipping replace for '${game.title}': existing record not found`);
+        results.push({
+          success: false,
+          skipped: true,
+          error: "Could not find the existing game to replace",
+        });
+        progress++;
+        session.progress = progress;
+        mainWindow.webContents.send("import-progress", {
+          text: `Skipped replace for '${game.title}' ${progress}/${total}: existing game not found`,
+          progress,
+          total,
+          canCancel: true,
+        });
+        continue;
       }
 
       if (game.scanStatus === "alreadyImported" && !recordId) {
