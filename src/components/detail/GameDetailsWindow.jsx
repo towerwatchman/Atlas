@@ -113,6 +113,9 @@ const GameDetailWindow = () => {
   const [activeTab, setActiveTab] = useState('Record')
   const [searchResults, setSearchResults] = useState([])
   const [showModal, setShowModal] = useState(false)
+  const [addVersionDraft, setAddVersionDraft] = useState(null)
+  const [addVersionBusy, setAddVersionBusy] = useState(false)
+  const [addVersionError, setAddVersionError] = useState('')
   const [dataReceived, setDataReceived] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const dataHandledRef = useRef(false)
@@ -443,20 +446,39 @@ const GameDetailWindow = () => {
       const sourcePath = await window.electronAPI.selectCatalogImportSource?.()
       if (!sourcePath) return
       const suggestedVersion = String(sourcePath).split(/[\\/]/).filter(Boolean).pop()?.replace(/\.(zip|7z|rar)$/i, '') || ''
-      const version = window.prompt('Version name', suggestedVersion)
-      if (!version?.trim()) return
+      setAddVersionDraft({ sourcePath, version: suggestedVersion })
+      setAddVersionError('')
+    } catch (err) {
+      console.error('Failed to choose version source:', err)
+      alert(`Failed to choose version source: ${err.message || 'Unknown error'}`)
+    }
+  }
+
+  const confirmAddVersion = async () => {
+    if (!addVersionDraft || addVersionBusy) return
+    const version = String(addVersionDraft.version || '').trim()
+    if (!version) {
+      setAddVersionError('Version name is required.')
+      return
+    }
+    setAddVersionBusy(true)
+    setAddVersionError('')
+    try {
       const result = await window.electronAPI.importLocalGameVersion?.({
         recordId: game.record_id,
-        sourcePath,
-        version: version.trim(),
+        sourcePath: addVersionDraft.sourcePath,
+        version,
         replaceExisting: false,
       })
       if (!result?.success) throw new Error(result?.error || 'Import failed')
       const refreshedGame = await window.electronAPI.getGame(game.record_id)
       if (refreshedGame) refreshFromGame(refreshedGame)
+      setAddVersionDraft(null)
     } catch (err) {
       console.error('Failed to add version:', err)
-      alert(`Failed to add version: ${err.message || 'Unknown error'}`)
+      setAddVersionError(err.message || 'Import failed')
+    } finally {
+      setAddVersionBusy(false)
     }
   }
 
@@ -717,6 +739,50 @@ const GameDetailWindow = () => {
                 className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {addVersionDraft && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-secondary border border-border p-4 rounded-md max-w-lg w-full">
+            <h2 className="text-lg font-semibold mb-3">Add Version</h2>
+            <label className="block text-sm mb-3">
+              <span className="block mb-1">Source</span>
+              <div className="bg-primary border border-border p-2 break-all text-muted">
+                {addVersionDraft.sourcePath}
+              </div>
+            </label>
+            <label className="block text-sm">
+              <span className="block mb-1">Version name</span>
+              <input
+                autoFocus
+                value={addVersionDraft.version}
+                onChange={(event) => setAddVersionDraft((current) => ({ ...current, version: event.target.value }))}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') confirmAddVersion()
+                  if (event.key === 'Escape' && !addVersionBusy) setAddVersionDraft(null)
+                }}
+                disabled={addVersionBusy}
+                className="w-full bg-primary border border-border p-2"
+              />
+            </label>
+            {addVersionError && <div className="text-danger text-sm mt-2">{addVersionError}</div>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={() => setAddVersionDraft(null)}
+                disabled={addVersionBusy}
+                className="px-4 py-2 bg-tertiary hover:bg-buttonHover rounded disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAddVersion}
+                disabled={addVersionBusy || !String(addVersionDraft.version || '').trim()}
+                className="px-4 py-2 bg-accent hover:bg-accentHover text-white rounded disabled:opacity-50"
+              >
+                {addVersionBusy ? 'Importing...' : 'Import'}
               </button>
             </div>
           </div>
