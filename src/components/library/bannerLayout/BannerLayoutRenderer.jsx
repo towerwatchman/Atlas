@@ -91,6 +91,12 @@ const isValidHttpUrl = (url) => {
   }
 }
 
+// Only still images can be cycled through an <img>; skip video previews so we
+// don't try to render a .mp4/.webm as an image.
+const IMAGE_PREVIEW_EXTENSIONS = /\.(jpe?g|png|webp|gif|avif|bmp)$/i
+const isImagePreview = (url) =>
+  typeof url === 'string' && IMAGE_PREVIEW_EXTENSIONS.test(url.split(/[?#]/)[0])
+
 const getBadgeStyle = (fieldId, value) => {
   if (fieldId === 'engine') return { backgroundColor: getEngineBackgroundColor(value) }
   if (fieldId === 'status') return { backgroundColor: getStatusBackgroundColor(value) }
@@ -251,6 +257,76 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
   const fallbackClass = imageConfig.fallbackBackground === 'theme' ? 'bg-secondary' : 'bg-[#1F2937]'
   const imageVisible = imageConfig.visible !== false
   const blurBackground = imageConfig.blurBackground || {}
+
+  // Hover-to-cycle-previews. When enabled in the banner layout, hovering the
+  // card fetches the game's previews once and cycles the banner image through
+  // them on a timer; leaving the card reverts to the banner.
+  const previewCycle = normalizedLayout?.previewCycle || {}
+  const cycleEnabled =
+    previewCycle.enabled === true &&
+    !!game?.record_id &&
+    typeof window !== 'undefined' &&
+    typeof window.electronAPI?.getPreviews === 'function'
+  const cycleIntervalMs = Math.max(250, Number(previewCycle.intervalMs) || 2000)
+
+  const [isHovering, setIsHovering] = React.useState(false)
+  const [cyclePreviews, setCyclePreviews] = React.useState([])
+  const [cycleIndex, setCycleIndex] = React.useState(0)
+  const [manualMode, setManualMode] = React.useState(false)
+  const previewsFetchedRef = React.useRef(false)
+
+  const handleBannerMouseEnter = React.useCallback(() => {
+    if (!cycleEnabled) return
+    setIsHovering(true)
+    if (previewsFetchedRef.current) return
+    previewsFetchedRef.current = true
+    Promise.resolve(window.electronAPI.getPreviews(game.record_id))
+      .then((urls) => {
+        const images = (Array.isArray(urls) ? urls : []).filter(isImagePreview)
+        setCyclePreviews(images)
+      })
+      .catch(() => setCyclePreviews([]))
+  }, [cycleEnabled, game?.record_id])
+
+  const handleBannerMouseLeave = React.useCallback(() => {
+    setIsHovering(false)
+    setCycleIndex(0)
+    setManualMode(false)
+  }, [])
+
+  // Manual navigation via the arrows. Clicking an arrow stops the auto-cycle
+  // (manualMode) and steps the image; stopPropagation keeps the click from
+  // also opening/selecting the game.
+  const goToPreview = React.useCallback(
+    (event, delta) => {
+      event.stopPropagation()
+      event.preventDefault()
+      setManualMode(true)
+      setCycleIndex((prev) => {
+        const len = cyclePreviews.length
+        if (len === 0) return 0
+        return (prev + delta + len) % len
+      })
+    },
+    [cyclePreviews.length],
+  )
+
+  React.useEffect(() => {
+    if (!cycleEnabled || !isHovering || manualMode || cyclePreviews.length <= 1) return undefined
+    const timer = setInterval(() => {
+      setCycleIndex((prev) => (prev + 1) % cyclePreviews.length)
+    }, cycleIntervalMs)
+    return () => clearInterval(timer)
+  }, [cycleEnabled, isHovering, manualMode, cyclePreviews, cycleIntervalMs])
+
+  const showCycleArrows = cycleEnabled && isHovering && cyclePreviews.length > 1
+
+  const cyclingSrc =
+    cycleEnabled && isHovering && cyclePreviews.length > 0
+      ? cyclePreviews[cycleIndex % cyclePreviews.length]
+      : null
+  const displaySrc = cyclingSrc || game.banner_url
+
   const fieldsBySlot = new Map()
 
   for (const rawField of normalizedLayout?.fields || []) {
@@ -267,13 +343,15 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
       style={{ width: normalizedLayout?.width || 537, height: normalizedLayout?.height || 251 }}
       onClick={onSelect}
       onContextMenu={onContextMenu}
+      onMouseEnter={handleBannerMouseEnter}
+      onMouseLeave={handleBannerMouseLeave}
     >
       <style>{bannerStyles}</style>
       <div className={`absolute inset-0 w-full h-full z-0 ${fallbackClass}`}>
-        {imageVisible && game.banner_url && isBlurredFill ? (
+        {imageVisible && displaySrc && isBlurredFill ? (
           <>
             <SafeImage
-              src={game.banner_url}
+              src={displaySrc}
               alt=""
               aria-hidden="true"
               className="absolute inset-0 block w-full h-full object-cover pointer-events-none"
@@ -288,7 +366,7 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
               fallbackContent={false}
             />
             <SafeImage
-              src={game.banner_url}
+              src={displaySrc}
               alt={displayTitle}
               className={`absolute inset-0 block w-full h-full pointer-events-none ${foregroundFitClass}`}
               style={{
@@ -299,14 +377,14 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
               fallbackContent={false}
               onError={() =>
                 console.error(
-                  `Failed to load banner image for recordId ${game.record_id}: ${game.banner_url}`,
+                  `Failed to load banner image for recordId ${game.record_id}: ${displaySrc}`,
                 )
               }
             />
           </>
-        ) : imageVisible && game.banner_url ? (
+        ) : imageVisible && displaySrc ? (
           <SafeImage
-            src={game.banner_url}
+            src={displaySrc}
             alt={displayTitle}
             className={`block w-full h-full ${imageFitClass}`}
             style={{ objectPosition: objectPositionByImagePosition[imageConfig.position] || 'center' }}
@@ -314,7 +392,7 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
             fallbackContent={false}
             onError={() =>
               console.error(
-                `Failed to load banner image for recordId ${game.record_id}: ${game.banner_url}`,
+                `Failed to load banner image for recordId ${game.record_id}: ${displaySrc}`,
               )
             }
           />
@@ -335,6 +413,28 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
           )
         })}
       </div>
+      {showCycleArrows && (
+        <>
+          <button
+            type="button"
+            aria-label="Previous preview"
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-30 w-7 h-14 flex items-center justify-center rounded-r-lg bg-black/40 hover:bg-black/60 text-gray-200 hover:text-white pointer-events-auto transition-colors"
+            onClick={(event) => goToPreview(event, -1)}
+            onContextMenu={(event) => event.stopPropagation()}
+          >
+            <i className="fas fa-chevron-left" style={{ fontSize: 18 }} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label="Next preview"
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-30 w-7 h-14 flex items-center justify-center rounded-l-lg bg-black/40 hover:bg-black/60 text-gray-200 hover:text-white pointer-events-auto transition-colors"
+            onClick={(event) => goToPreview(event, 1)}
+            onContextMenu={(event) => event.stopPropagation()}
+          >
+            <i className="fas fa-chevron-right" style={{ fontSize: 18 }} aria-hidden="true" />
+          </button>
+        </>
+      )}
     </div>
   )
 }

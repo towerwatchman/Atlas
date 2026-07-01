@@ -262,6 +262,12 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
     },
   }
 
+  const previewCycleSource = source.previewCycle || fallbackLayout?.previewCycle || {}
+  const previewCycle = {
+    enabled: previewCycleSource.enabled === true,
+    intervalMs: clampNumber(previewCycleSource.intervalMs, 250, 15000, 2000),
+  }
+
   return {
     id: source.id || fallbackLayout?.id || CLASSIC_BANNER_LAYOUT_ID,
     name: source.name || fallbackLayout?.name || 'Classic',
@@ -274,6 +280,7 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
     density: densitySet.has(source.density) ? source.density : fallbackLayout?.density || 'comfortable',
     image,
     imageFit: image.fit,
+    previewCycle,
     hoverEffect: source.hoverEffect || fallbackLayout?.hoverEffect || 'classic-tilt',
     overlays: {
       top: {
@@ -408,6 +415,10 @@ export const createBannerPresetExport = (presetOrLayout, name) => {
         },
       },
       imageFit: fitSet.has(layout?.image?.fit || layout?.imageFit) ? (layout?.image?.fit || layout?.imageFit) : 'contain',
+      previewCycle: {
+        enabled: layout?.previewCycle?.enabled === true,
+        intervalMs: clampNumber(layout?.previewCycle?.intervalMs, 250, 15000, 2000),
+      },
       hoverEffect: layout?.hoverEffect || 'classic-tilt',
       overlays: layout?.overlays || {},
       fields: Array.isArray(layout?.fields) ? layout.fields : [],

@@ -515,6 +515,18 @@ const BannerEditor = () => {
     }))
   }
 
+  const updatePreviewCycle = (patch) => {
+    markCustom((current) => ({
+      ...current,
+      previewCycle: {
+        enabled: false,
+        intervalMs: 2000,
+        ...current.previewCycle,
+        ...patch,
+      },
+    }))
+  }
+
   const resetField = (fieldId) => {
     const presetDraft = createDraftFromPreset(selectedPresetId)
     const presetField = presetDraft.fields.find((field) => field.id === fieldId)
@@ -709,6 +721,37 @@ const BannerEditor = () => {
                   <option value="theme">Theme secondary</option>
                 </select>
               </label>
+            </div>
+            <div className="border border-border rounded p-3 bg-secondary/40 space-y-2 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={draftLayout.previewCycle?.enabled === true}
+                  onChange={(event) => updatePreviewCycle({ enabled: event.target.checked })}
+                />
+                Cycle previews on hover
+              </label>
+              <label className="block">
+                Cycle interval (seconds)
+                <input
+                  type="number"
+                  min="0.25"
+                  max="15"
+                  step="0.25"
+                  disabled={draftLayout.previewCycle?.enabled !== true}
+                  className="mt-1 w-full bg-secondary border border-border text-text rounded p-1 disabled:opacity-50"
+                  value={(draftLayout.previewCycle?.intervalMs ?? 2000) / 1000}
+                  onChange={(event) => {
+                    const seconds = Number(event.target.value)
+                    if (!Number.isFinite(seconds)) return
+                    updatePreviewCycle({ intervalMs: Math.round(seconds * 1000) })
+                  }}
+                />
+              </label>
+              <p className="text-xs opacity-60">
+                Hovering a banner in the library cycles through the game's preview images.
+                Video previews are skipped.
+              </p>
             </div>
             {(draftLayout.image?.backgroundMode || 'image') === 'blurred-fill' && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm border border-border rounded p-3 bg-secondary/40">
