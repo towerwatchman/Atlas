@@ -907,7 +907,16 @@ const App = () => {
     loadSavedFilters()
 
     loadVersion()
-    runDbUpdateCheck()
+    // Defer the database update check so the initial UI and library grid render
+    // and load first. Processing a full snapshot holds the database in a long
+    // write transaction, which starves the initial get-games read on the shared
+    // connection and looks like the UI hanging. Running it once the renderer is
+    // idle lets the library show before the (background) update begins.
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(() => runDbUpdateCheck(), { timeout: 4000 })
+    } else {
+      setTimeout(() => runDbUpdateCheck(), 2000)
+    }
 
     // IPC handlers
     const handleDbUpdateProgress = (progress) => {
