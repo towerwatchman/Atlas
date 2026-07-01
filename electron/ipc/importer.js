@@ -1018,15 +1018,41 @@ async function replaceInstalledVersionAfterImport({
   newGamePath,
   replaceVersion,
   replaceVersionId,
+  oldVersionSnapshot = null,
+  deleteDatabaseRow = true,
   sender = ownerMainWindow,
 }) {
   const selectedReplaceVersion = String(replaceVersion || "").trim();
   if (!recordId || !selectedReplaceVersion) return { replaced: false };
+  const audit = (stage, details = {}) => {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      stage,
+      recordId,
+      replaceVersion: selectedReplaceVersion,
+      replaceVersionId: replaceVersionId || null,
+      newVersion: String(newVersion || ""),
+      newGamePath: newGamePath || "",
+      ...details,
+    };
+    console.log("[ReplacementAudit]", JSON.stringify(entry));
+    try {
+      fs.appendFileSync(
+        path.join(dataDir, "replacement-audit.jsonl"),
+        `${JSON.stringify(entry)}\n`,
+        "utf8",
+      );
+    } catch (auditErr) {
+      console.warn("Failed to write replacement audit:", auditErr.message);
+    }
+  };
+  audit("start");
 
   const normalizedNewVersion = String(newVersion || "").trim().toLowerCase();
   const normalizedReplaceVersion = selectedReplaceVersion.toLowerCase();
 
   if (normalizedNewVersion && normalizedNewVersion === normalizedReplaceVersion) {
+    audit("skipped-same-version-label");
     return {
       replaced: false,
       skipped: true,
@@ -1035,15 +1061,16 @@ async function replaceInstalledVersionAfterImport({
   }
 
   const selectedVersionId = Number.parseInt(replaceVersionId, 10);
-  const oldVersion = Number.isInteger(selectedVersionId) && selectedVersionId > 0
+  const oldVersion = oldVersionSnapshot || (Number.isInteger(selectedVersionId) && selectedVersionId > 0
     ? await dbGet(
         db,
         `SELECT rowid AS version_id, version, game_path, exec_path
          FROM versions WHERE rowid = ? AND record_id = ? LIMIT 1`,
         [selectedVersionId, recordId],
       )
-    : await getVersionForRecord(recordId, selectedReplaceVersion);
+    : await getVersionForRecord(recordId, selectedReplaceVersion));
   if (!oldVersion) {
+    audit("selected-version-not-found");
     return {
       replaced: false,
       skipped: true,
@@ -1052,6 +1079,11 @@ async function replaceInstalledVersionAfterImport({
   }
 
   const oldPath = oldVersion.game_path;
+  audit("selected-version-resolved", {
+    resolvedVersionId: oldVersion.version_id || null,
+    resolvedVersion: oldVersion.version || "",
+    oldPath: oldPath || "",
+  });
   if (!oldPath) {
     if (oldVersion.version_id) {
       await dbRun(db, `DELETE FROM versions WHERE rowid = ? AND record_id = ?`, [oldVersion.version_id, recordId]);
@@ -1077,6 +1109,14 @@ async function replaceInstalledVersionAfterImport({
   }
 
   const hadOldFiles = fs.existsSync(resolvedOldPath);
+  audit("path-check", {
+    resolvedOldPath,
+    resolvedNewPath,
+    hadOldFiles,
+    allowedDeletionPath: hadOldFiles
+      ? await isAllowedDeletionPath(recordId, resolvedOldPath)
+      : null,
+  });
   if (hadOldFiles) {
     if (!(await isAllowedDeletionPath(recordId, resolvedOldPath))) {
       return {
@@ -1127,6 +1167,11 @@ async function replaceInstalledVersionAfterImport({
           });
         },
       });
+      audit("file-delete-result", {
+        resolvedOldPath,
+        deleteResult,
+        existsAfterDelete: fs.existsSync(resolvedOldPath),
+      });
       if (!deleteResult.success) {
         return {
           replaced: false,
@@ -1149,10 +1194,18 @@ async function replaceInstalledVersionAfterImport({
     }
   }
 
-  if (oldVersion.version_id) {
-    await dbRun(db, `DELETE FROM versions WHERE rowid = ? AND record_id = ?`, [oldVersion.version_id, recordId]);
-  } else {
-    await deleteVersion(recordId, selectedReplaceVersion);
+  if (deleteDatabaseRow && oldVersion.version_id) {
+    const deleteRowResult = await dbRun(db, `DELETE FROM versions WHERE rowid = ? AND record_id = ?`, [oldVersion.version_id, recordId]);
+    audit("database-delete-result", {
+      resolvedVersionId: oldVersion.version_id,
+      changes: deleteRowResult?.changes ?? null,
+    });
+  } else if (deleteDatabaseRow) {
+    const deleteRowResult = await deleteVersion(recordId, selectedReplaceVersion);
+    audit("database-delete-result", {
+      resolvedVersionId: null,
+      changes: deleteRowResult?.changes ?? null,
+    });
   }
 
   sender?.webContents?.send("import-progress", {
@@ -1162,6 +1215,7 @@ async function replaceInstalledVersionAfterImport({
     canCancel: true,
   });
 
+  audit("complete", { deletedFiles: hadOldFiles, databaseRowUpdatedInPlace: !deleteDatabaseRow });
   return { replaced: true, deletedFiles: hadOldFiles };
 }
 
@@ -2896,8 +2950,35 @@ ipcMain.handle("import-games", async (event, params) => {
         sourceType: steamImport ? "steam" : game.sourceType,
         steamId: steamId || game.steamId,
       };
+      let bulkReplaceRow = null;
+      if (isReplaceOperation) {
+        const selectedVersionId = Number.parseInt(game.replaceVersionId, 10);
+        bulkReplaceRow = Number.isInteger(selectedVersionId) && selectedVersionId > 0
+          ? await dbGet(
+              db,
+              `SELECT rowid AS version_id, record_id, version, game_path, exec_path
+               FROM versions WHERE rowid = ? AND record_id = ? LIMIT 1`,
+              [selectedVersionId, recordId],
+            )
+          : await getVersionForRecord(recordId, game.replaceVersion);
+        if (!bulkReplaceRow) {
+          throw new Error(`Selected replacement version ${game.replaceVersion} was not found`);
+        }
+      }
       let savedVersionResult = null;
-      if (shouldUpsertExisting) {
+      if (bulkReplaceRow) {
+        savedVersionResult = await updateVersion(
+          {
+            ...versionGame,
+            version_id: bulkReplaceRow.version_id,
+            previousVersion: bulkReplaceRow.version,
+            version: game.version,
+            game_path: gamePath,
+            exec_path: execPath,
+          },
+          recordId,
+        );
+      } else if (shouldUpsertExisting) {
         savedVersionResult = await upsertVersion(versionGame, recordId);
       } else {
         savedVersionResult = await addVersion(versionGame, recordId);
@@ -2973,6 +3054,8 @@ ipcMain.handle("import-games", async (event, params) => {
           newGamePath: gamePath,
           replaceVersion: game.replaceVersion,
           replaceVersionId: game.replaceVersionId,
+          oldVersionSnapshot: bulkReplaceRow,
+          deleteDatabaseRow: false,
           sender: mainWindow,
         });
 
