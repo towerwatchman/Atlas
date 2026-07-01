@@ -6,6 +6,7 @@ const {
   checkRecordExist,
 } = require("../db/index");
 const { findGlInfosForGameFolder } = require("./glInfosParser");
+const { findExecutables } = require("./executableScanner");
 
 const engineMap = {
   rpgm: [
@@ -292,16 +293,42 @@ function cleanIdValue(value) {
     .replace(/^id[-_\s]*/i, "");
 }
 
-function createSkippedGame(folder, scanStatus, scanMessage) {
+// Parse a folder path against the active scheme (custom regex first, then the
+// token format). Returns the mapping when it yields at least one usable field,
+// otherwise null. Shared so both the main scan path and the skipped-row path
+// derive metadata from the scheme the same way.
+function parseSchemeFields(format, customRegex, rootPath, folderPath) {
+  const relativePath = String(folderPath || "").replace(`${rootPath}${path.sep}`, "");
+  let mapping = parseWithCustomRegex(customRegex, relativePath);
+  const customMatched = Boolean(mapping && (mapping.title || mapping.creator || mapping.version));
+  if (!customMatched && format && format.trim() !== "") {
+    const pathParts = relativePath.split(path.sep);
+    const formatParts = String(format || "")
+      .split("/")
+      .map(normalizeFormatToken)
+      .filter(Boolean);
+    if (pathParts.length >= formatParts.length) {
+      mapping = normalizeStructuredMapping(format, pathParts);
+    }
+  }
+  return mapping && (mapping.title || mapping.creator || mapping.version) ? mapping : null;
+}
+
+function createSkippedGame(folder, scanStatus, scanMessage, schemeContext = {}) {
+  const { format, customRegex, rootPath } = schemeContext;
+  // Prefer the user's scheme so a missing-launchable / empty row still shows the
+  // correct Title/Creator/Version instead of a mangled cleaned folder name.
+  const scheme = rootPath ? parseSchemeFields(format, customRegex, rootPath, folder) : null;
   const metadata = parseNameMetadata(path.basename(folder));
+  const title = (scheme?.title || "").trim() || metadata.title;
   return {
-    atlasId: "",
-    f95Id: "",
-    title: metadata.title,
-    lookupTitle: metadata.lookupTitle,
-    creator: "Unknown",
-    engine: "Unknown",
-    version: normalizeVersionName(metadata.version),
+    atlasId: cleanIdValue(scheme?.atlasid || ""),
+    f95Id: cleanIdValue(scheme?.f95id || ""),
+    title,
+    lookupTitle: title,
+    creator: (scheme?.creator || "").trim() || "Unknown",
+    engine: (scheme?.engine || "").trim() || "Unknown",
+    version: normalizeVersionName(scheme?.version || metadata.version),
     singleExecutable: "",
     executables: [],
     selectedValue: "",
@@ -430,6 +457,77 @@ async function startScan(params, window, cancelToken = {}) {
           continue;
         }
 
+        // Single-segment scheme (e.g. "{Engine} - {Title}[{Version}][{Creator}]"):
+        // the scanned folder itself is the game folder, and its launchable may be
+        // nested in a subfolder. Search the folder recursively so a nested exe is
+        // found and the scheme is applied to the folder name — instead of falling
+        // through to a mismatched "missing launchable" row. Multi-segment schemes
+        // (with "/") keep using the depth-based version-dir logic below.
+        const schemeSegmentCount =
+          format && format.trim() !== ""
+            ? format.split("/").map((p) => p.trim()).filter(Boolean).length
+            : 0;
+        if (schemeSegmentCount === 1 && target !== folder) {
+          const nestedLaunchables = findExecutables(target, extensions);
+          if (nestedLaunchables.length > 0) {
+            const res = await findGame(
+              target,
+              format,
+              extensions,
+              folder,
+              0,
+              false,
+              games,
+              window,
+              params,
+              nestedLaunchables,
+              cancelToken,
+            );
+            throwIfScanCanceled(cancelToken);
+            if (res) {
+              window.webContents.send("scan-complete", withScanId(games[games.length - 1], cancelToken));
+            }
+            sendScanProgress(window, ittr, totalDirs, games, cancelToken);
+            continue;
+          }
+
+          // No extracted executable inside the game folder — the game may be a
+          // nested archive (zip/7z/rar) instead. When archive scanning is enabled
+          // emit each nested archive as an importable archive row. findGame parses
+          // the archive's PARENT directory against the scheme (isFile sources use
+          // dirname), so the scheme still applies to the game-folder name.
+          if (archiveExtensions.length > 0) {
+            const nestedArchives = await getAllFiles(target, archiveExtensions, cancelToken);
+            throwIfScanCanceled(cancelToken);
+            let emittedArchive = false;
+            for (const archive of nestedArchives) {
+              throwIfScanCanceled(cancelToken);
+              const res = await findGame(
+                archive,
+                format,
+                archiveExtensions,
+                folder,
+                5,
+                true,
+                games,
+                window,
+                { ...params, isArchiveSource: true },
+                [],
+                cancelToken,
+              );
+              throwIfScanCanceled(cancelToken);
+              if (res) {
+                emittedArchive = true;
+                window.webContents.send("scan-complete", withScanId(games[games.length - 1], cancelToken));
+              }
+            }
+            if (emittedArchive) {
+              sendScanProgress(window, ittr, totalDirs, games, cancelToken);
+              continue;
+            }
+          }
+        }
+
         let foundInSubdir = false;
         const maxDepth = format && format.trim() !== "" ? 3 : Infinity;
         const subdirs = await getAllSubdirs(target, folder, maxDepth, cancelToken);
@@ -483,6 +581,7 @@ async function startScan(params, window, cancelToken = {}) {
             target,
             hasFiles ? "missingLaunchable" : "emptyFolder",
             hasFiles ? "No supported launchable found" : "Empty folder",
+            { format, customRegex: params.customRegex, rootPath: folder },
           );
           games.push(missingGame);
           window.webContents.send("scan-complete", withScanId(missingGame, cancelToken));
@@ -646,6 +745,17 @@ async function findGame(
     const relativePath = t.replace(`${rootPath}${path.sep}`, "");
     console.log(`Relative path: ${relativePath}, Format: ${format}`);
     let structuredTitleFound = false;
+    // schemeProvided: the user enabled a folder scheme (token format and/or a
+    // custom regex) for this scan. schemeMatched: that scheme actually produced
+    // usable fields for THIS path. When a scheme is provided but does not match,
+    // we must NOT silently fall through with empty fields (the old code did, by
+    // treating an empty {} mapping as a successful match) — instead we leave the
+    // fields untouched and let the row be flagged as a scheme mismatch below.
+    const schemeProvided = Boolean(
+      (format && format.trim() !== "") ||
+      (params.customRegex && String(params.customRegex).trim() !== ""),
+    );
+    let schemeMatched = false;
     if (format && format.trim() !== "") {
       const parsePath = isFile ? path.dirname(relativePath) : relativePath;
       const pathParts = parsePath.split(path.sep);
@@ -661,12 +771,17 @@ async function findGame(
       if (!customMatched && pathParts.length >= formatParts.length) {
         mapping = normalizeStructuredMapping(format, pathParts);
       }
-      if (mapping && (customMatched || pathParts.length >= formatParts.length)) {
+      // A real match must yield at least one usable field. An empty {} mapping
+      // (regex/token pattern did not match the folder name) is a mismatch, not a
+      // match — so we no longer enter the assignment branch for it.
+      const tokenMatched = Boolean(mapping && (mapping.title || mapping.creator || mapping.version));
+      if (customMatched || tokenMatched) {
         creator = mapping.creator || "Unknown";
         title = mapping.title || "";
         lookupTitle = title;
         version = normalizeVersionName(mapping.version, "");
         structuredTitleFound = Boolean(title);
+        schemeMatched = true;
         if (mapping.f95id) {
           f95Id = cleanIdValue(mapping.f95id);
         }
@@ -675,6 +790,11 @@ async function findGame(
         }
         console.log(
           `Structured match: creator=${creator}, title=${title}, version=${version}, f95Id=${f95Id}, atlasId=${atlasId}`,
+        );
+      } else {
+        console.warn(
+          `Scan scheme did not match folder "${parsePath}" (format "${format}"` +
+          `${params.customRegex ? `, regex "${params.customRegex}"` : ""}).`,
         );
       }
     }
@@ -692,7 +812,13 @@ async function findGame(
 
     const canHydrateTitleFromId = Boolean(f95Id || atlasId);
 
+    // Records whether we had to derive the title from the raw folder/file name
+    // (the "clean the folder name" fallback). Combined with schemeProvided /
+    // !schemeMatched below, this is what tells the UI a scheme was set but
+    // silently produced nothing usable for this row.
+    let usedFilenameFallback = false;
     if ((!title || title.trim() === "") && !canHydrateTitleFromId) {
+      usedFilenameFallback = true;
       let filename = isFile
         ? path.basename(t, path.extname(t))
         : path.basename(t);
@@ -804,6 +930,11 @@ async function findGame(
       metadataSource: glInfos?.source || "",
       hasGlInfos: glInfos?.hasGlInfos === true,
       glInfosPath: glInfos?.filePath || "",
+      // True when the user set a folder scheme (token format and/or custom regex)
+      // but it did not match this folder, so the title was derived from the raw
+      // folder name instead. The importer surfaces this as a "Scheme didn't match
+      // folder" status so the fallback is no longer silent.
+      schemeMismatch: schemeProvided && !schemeMatched && usedFilenameFallback,
       singleExecutable,
       executables: potentialExecutables.map((e) => ({ key: e, value: e })),
       selectedValue,

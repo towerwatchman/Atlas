@@ -64,7 +64,11 @@ const Importer = () => {
 
   // ── Scan settings ─────────────────────────────────────────────────────────
   const [folder, setFolder] = useState('')
-  const [useUnstructured, setUseUnstructured] = useState(true)
+  // Auto detect (unstructured name guessing) is temporarily removed from the UI,
+  // so the importer always runs in structured (scheme) mode. The useUnstructured
+  // plumbing is kept intact so the option can be re-added later by restoring the
+  // "Auto detect" preset in SettingsStep. Defaulting to false keeps schemes active.
+  const [useUnstructured, setUseUnstructured] = useState(false)
   const [customFormat, setCustomFormat] = useState(defaultSourceFolderStructure)
   const [gameExt, setGameExt] = useState(defaultGameExtensions)
   const [includeArchives, setIncludeArchives] = useState(false)
@@ -196,6 +200,13 @@ const Importer = () => {
     if (scanStatus !== 'new') return { text: game.scanMessage || 'Skipped', type: 'blocked' }
 
     const needsUnmatched = isUnmatchedGame(game) && !includeUnmatched
+
+    // A scheme was set but didn't match this folder, so its fields came from the
+    // raw folder name. Surface that plainly (only while the row is otherwise
+    // unidentified — a later database/ID match takes precedence and clears it).
+    if (game.schemeMismatch && isUnmatchedGame(game)) {
+      return { text: "Scheme didn't match folder", type: 'schemeMismatch' }
+    }
 
     if (game.sourceType === 'renpySave') {
       if (needsUnmatched) return { text: 'Requires Import unmatched games', type: 'blocked' }
@@ -625,7 +636,12 @@ const Importer = () => {
         const importer = config.Importer || {}
         const shouldDownload = meta.mediaStorageMode === 'download'
         setFolder(importer.sourceGamePath || '')
-        setUseUnstructured(toBoolean(importer.useUnstructured, true))
+        // Force structured mode while Auto detect is removed from the UI. This
+        // neutralizes any previously-saved useUnstructured=true config so a stale
+        // setting can't silently blank the scheme. Re-reading from config is a
+        // one-liner (toBoolean(importer.useUnstructured, false)) when Auto detect
+        // is added back.
+        setUseUnstructured(false)
         setCustomFormat(importer.sourceFolderStructure || defaultSourceFolderStructure)
         setGameExt(lib.gameExtensions || defaultGameExtensions)
         setArchiveExt(lib.extractionExtensions || defaultArchiveExtensions)
@@ -871,14 +887,23 @@ const Importer = () => {
     setGamesList([])
     const params = {
       folder, mode: 'local', scanId, deferMatching: true,
-      format: useUnstructured ? '' : customFormat,
-      customRegex: (!useUnstructured && useCustomRegex && String(customRegex).trim()) ? String(customRegex).trim() : '',
+      // Auto detect (unstructured) has no UI right now, so the scheme always
+      // applies. Do NOT gate the format on useUnstructured here — a stale flag
+      // (from an old config or partial deploy) could otherwise send an empty
+      // format and silently disable the scheme. When Auto detect is re-added,
+      // restore: format: useUnstructured ? '' : customFormat.
+      format: customFormat,
+      customRegex: (useCustomRegex && String(customRegex).trim()) ? String(customRegex).trim() : '',
       gameExt: gameExt.split(',').map((e) => e.trim()),
       archiveExt: includeArchives ? archiveExt.split(',').map((e) => e.trim()).filter(Boolean) : [],
       scanSize, downloadBannerImages,
       downloadPreviewImages, previewLimit, downloadVideos,
     }
     window.electronAPI.log(`Scan params: ${JSON.stringify(params)}`)
+    // Visible in the importer window DevTools console. If format is "" here the
+    // scheme is not being sent (stale build); if it shows your scheme but rows
+    // still come back mangled, the main-process scanner build is stale.
+    console.log('[Importer] scan format:', JSON.stringify(params.format), '| regex:', JSON.stringify(params.customRegex))
     const result = await window.electronAPI.startScan(params)
     if (result?.scanId && result.scanId !== currentScanIdRef.current) return
     if (result?.canceled) {

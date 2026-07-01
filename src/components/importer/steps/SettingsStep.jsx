@@ -24,7 +24,6 @@ export default function SettingsStep({
   setDeleteSourceArchiveAfterImport, onAutoSelectChange,
 }) {
   const formatPresets = [
-    { label: 'Auto detect', value: 'auto' },
     { label: 'Creator / Title / Version', value: '{creator}/{title}/{version}' },
     { label: 'Title / Version', value: '{title}/{version}' },
     { label: 'Creator / Title - Version', value: '{creator}/{title} - {version}' },
@@ -32,17 +31,18 @@ export default function SettingsStep({
     { label: 'F95 ID / Title / Version', value: '{f95Id}/{title}/{version}' },
     { label: 'LewdCorner ID / Title / Version', value: '{lcId}/{title}/{version}' },
   ]
-  const presetValue = useUnstructured
-    ? 'auto'
-    : formatPresets.some((preset) => preset.value === customFormat)
-      ? customFormat
-      : 'custom'
+  // "Auto detect" (unstructured name guessing) has been removed for now, so the
+  // dropdown only offers real schemes plus Custom. A stored scheme that isn't one
+  // of the presets shows as "Custom".
+  const presetValue = formatPresets.some((preset) => preset.value === customFormat)
+    ? customFormat
+    : 'custom'
 
   // The regex the scanner will actually use. When the user is not editing a
   // custom pattern, this is generated from the format template above.
-  const generatedRegex = useUnstructured ? '' : buildFolderRegex(customFormat)
+  const generatedRegex = buildFolderRegex(customFormat)
   const regexFieldValue = useCustomRegex ? customRegex : generatedRegex
-  const regexDisabled = useUnstructured || !useCustomRegex
+  const regexDisabled = !useCustomRegex
 
   const fieldRow = 'flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0'
   const fieldLabel = 'sm:w-40 sm:shrink-0'
@@ -65,12 +65,8 @@ export default function SettingsStep({
             value={presetValue}
             onChange={(event) => {
               const value = event.target.value
-              if (value === 'auto') {
-                setUseUnstructured(true)
-              } else {
-                setUseUnstructured(false)
-                if (value !== 'custom') setCustomFormat(value)
-              }
+              setUseUnstructured(false)
+              if (value !== 'custom') setCustomFormat(value)
             }}
             className="sm:ml-2 bg-secondary border border-border p-1"
           >
@@ -80,7 +76,6 @@ export default function SettingsStep({
           <input
             type="text" value={customFormat}
             onChange={(e) => setCustomFormat(e.target.value)}
-            disabled={useUnstructured}
             className="sm:ml-2 flex-1 min-w-0 bg-secondary border border-border p-1"
           />
         </div>
@@ -94,15 +89,14 @@ export default function SettingsStep({
           onChange={(e) => setCustomRegex(e.target.value)}
           disabled={regexDisabled}
           spellCheck={false}
-          placeholder={useUnstructured ? 'Auto detect uses inferred parsing (no regex)' : 'Regex generated from the scheme above'}
+          placeholder="Regex generated from the scheme above"
           title="This is the regex used to parse folder names. Enable 'Edit regex' to override it with named groups like (?<title>...)."
           className={`sm:ml-2 flex-1 min-w-0 bg-secondary border border-border p-1 font-mono text-xs ${regexDisabled ? 'opacity-70' : ''}`}
         />
-        <label className="sm:ml-2 flex items-center gap-1 whitespace-nowrap" title={useUnstructured ? 'Disabled while Auto detect is selected' : 'Edit the regex directly'}>
+        <label className="sm:ml-2 flex items-center gap-1 whitespace-nowrap" title="Edit the regex directly">
           <input
             type="checkbox"
             checked={useCustomRegex}
-            disabled={useUnstructured}
             onChange={(e) => setUseCustomRegex(e.target.checked)}
             className="h-4 w-4"
           />
@@ -128,7 +122,7 @@ export default function SettingsStep({
       )}
 
       <p className="text-sm text-text leading-relaxed">
-        Auto detect infers metadata from folder/archive names. Custom schemes support <span className="font-semibold">Title</span>, <span className="font-semibold">Creator</span>,{' '}
+        Pick a scheme that matches how your game folders are named. Custom schemes support <span className="font-semibold">Title</span>, <span className="font-semibold">Creator</span>,{' '}
         <span className="font-semibold">Engine</span>, <span className="font-semibold">Version</span>, <span className="font-semibold">F95 ID</span>, and <span className="font-semibold">LC ID</span>.<br />
         - Enclose each option in braces, e.g., <span className="font-mono">{'{Title}'}</span>. Use <span className="font-mono">/</span> for folder separators.<br />
         - The <span className="font-semibold">Folder Regex</span> field shows the pattern derived from your scheme. Enable <span className="font-semibold">Edit regex</span> to supply your own, using named groups such as <span className="font-mono">{'(?<title>.+?)'}</span>.<br /><br />

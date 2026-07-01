@@ -277,6 +277,7 @@ export default function ScanTable({
             : rowStatus.type === 'steamVersion' ? 'text-sky-300'
             : rowStatus.type === 'lewdCornerVersion' ? 'text-pink-300'
             : rowStatus.type === 'blocked' ? 'text-yellow-200'
+            : rowStatus.type === 'schemeMismatch' ? 'text-orange-300'
             : rowStatus.type === 'missingLaunchable' ? 'text-red-300'
             : 'text-green-300'
           const sourceUrls = getSourceUrls(game)
