@@ -2952,7 +2952,7 @@ ipcMain.handle("import-games", async (event, params) => {
       if (game.replaceVersion) {
         const replacementResult = await replaceInstalledVersionAfterImport({
           recordId,
-          newVersion: game.version,
+          newVersion: savedVersion,
           newGamePath: gamePath,
           replaceVersion: game.replaceVersion,
           sender: mainWindow,
