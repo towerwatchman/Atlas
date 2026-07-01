@@ -371,7 +371,12 @@ export default function ScanTable({
                   <select
                     value={game.replaceVersion || ''}
                     disabled={!rowIsNew || !game.replaceOptions?.length}
-                    onChange={(e) => onUpdateGame(gameKey, 'replaceVersion', e.target.value)}
+                    onChange={(e) => {
+                      const replaceVersion = e.target.value
+                      const selected = (game.replaceOptions || []).find((option) => option.version === replaceVersion)
+                      onUpdateGame(gameKey, 'replaceVersion', replaceVersion)
+                      onUpdateGame(gameKey, 'replaceVersionId', selected?.version_id || '')
+                    }}
                     className={ROW_SELECT_CLASS}
                     title={game.replaceOptions?.length ? 'Optionally delete this installed version after the new import succeeds' : 'No installed versions available to replace'}
                   >

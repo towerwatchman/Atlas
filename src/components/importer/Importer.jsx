@@ -478,7 +478,7 @@ const Importer = () => {
   // ── Match resolution ──────────────────────────────────────────────────────
   const applyReplaceOptions = async (game) => {
     const recordId = game?.existingRecordId || game?.recordId
-    if (!recordId) return { ...game, replaceVersion: '', replaceOptions: [], replaceOptionsRecordId: '' }
+    if (!recordId) return { ...game, replaceVersion: '', replaceVersionId: '', replaceOptions: [], replaceOptionsRecordId: '' }
     try {
       const versions = await window.electronAPI.getReplaceVersionOptions({ recordId })
       const normalizedNew = String(game.version || '').trim().toLowerCase()
@@ -486,6 +486,9 @@ const Importer = () => {
         .filter((v) => { const cv = String(v.version || '').trim().toLowerCase(); return cv && cv !== normalizedNew })
         .sort((a, b) => Number(b.date_added || 0) - Number(a.date_added || 0))
       const defaultReplaceVersion = autoSelectLatestReplaceVersionRef.current && replaceOptions.length > 0 ? replaceOptions[0].version || '' : ''
+      const defaultReplaceVersionId = defaultReplaceVersion
+        ? replaceOptions.find((option) => option.version === defaultReplaceVersion)?.version_id || ''
+        : ''
       const previousRecordId = String(game.replaceOptionsRecordId || '')
       const nextRecordId = String(recordId)
       const canKeepReplacement =
@@ -494,11 +497,14 @@ const Importer = () => {
       return {
         ...game,
         replaceVersion: canKeepReplacement ? game.replaceVersion : defaultReplaceVersion,
+        replaceVersionId: canKeepReplacement
+          ? replaceOptions.find((option) => option.version === game.replaceVersion)?.version_id || ''
+          : defaultReplaceVersionId,
         replaceOptions,
         replaceOptionsRecordId: nextRecordId,
       }
     } catch (err) {
-      return { ...game, replaceVersion: '', replaceOptions: [], replaceOptionsRecordId: '' }
+      return { ...game, replaceVersion: '', replaceVersionId: '', replaceOptions: [], replaceOptionsRecordId: '' }
     }
   }
 
@@ -1380,7 +1386,11 @@ const Importer = () => {
     if (checked) {
       setGamesList((prev) => prev.map((game) => {
         if (game.replaceVersion || !game.replaceOptions?.length) return game
-        return { ...game, replaceVersion: game.replaceOptions[0].version || '' }
+        return {
+          ...game,
+          replaceVersion: game.replaceOptions[0].version || '',
+          replaceVersionId: game.replaceOptions[0].version_id || '',
+        }
       }))
     }
     try {

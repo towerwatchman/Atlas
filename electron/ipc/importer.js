@@ -1017,6 +1017,7 @@ async function replaceInstalledVersionAfterImport({
   newVersion,
   newGamePath,
   replaceVersion,
+  replaceVersionId,
   sender = ownerMainWindow,
 }) {
   const selectedReplaceVersion = String(replaceVersion || "").trim();
@@ -1033,7 +1034,15 @@ async function replaceInstalledVersionAfterImport({
     };
   }
 
-  const oldVersion = await getVersionForRecord(recordId, selectedReplaceVersion);
+  const selectedVersionId = Number.parseInt(replaceVersionId, 10);
+  const oldVersion = Number.isInteger(selectedVersionId) && selectedVersionId > 0
+    ? await dbGet(
+        db,
+        `SELECT rowid AS version_id, version, game_path, exec_path
+         FROM versions WHERE rowid = ? AND record_id = ? LIMIT 1`,
+        [selectedVersionId, recordId],
+      )
+    : await getVersionForRecord(recordId, selectedReplaceVersion);
   if (!oldVersion) {
     return {
       replaced: false,
@@ -1044,7 +1053,11 @@ async function replaceInstalledVersionAfterImport({
 
   const oldPath = oldVersion.game_path;
   if (!oldPath) {
-    await deleteVersion(recordId, selectedReplaceVersion);
+    if (oldVersion.version_id) {
+      await dbRun(db, `DELETE FROM versions WHERE rowid = ? AND record_id = ?`, [oldVersion.version_id, recordId]);
+    } else {
+      await deleteVersion(recordId, selectedReplaceVersion);
+    }
     return { replaced: true, deletedFiles: false };
   }
 
@@ -1136,7 +1149,11 @@ async function replaceInstalledVersionAfterImport({
     }
   }
 
-  await deleteVersion(recordId, selectedReplaceVersion);
+  if (oldVersion.version_id) {
+    await dbRun(db, `DELETE FROM versions WHERE rowid = ? AND record_id = ?`, [oldVersion.version_id, recordId]);
+  } else {
+    await deleteVersion(recordId, selectedReplaceVersion);
+  }
 
   sender?.webContents?.send("import-progress", {
     text: `Replaced old version ${selectedReplaceVersion}`,
@@ -2955,6 +2972,7 @@ ipcMain.handle("import-games", async (event, params) => {
           newVersion: savedVersion,
           newGamePath: gamePath,
           replaceVersion: game.replaceVersion,
+          replaceVersionId: game.replaceVersionId,
           sender: mainWindow,
         });
 
