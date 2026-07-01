@@ -1072,7 +1072,7 @@ async function replaceInstalledVersionAfterImport({
     return {
       replaced: false,
       skipped: true,
-      reason: "Replacement path matches the newly imported path",
+      reason: `Replacement path matches the newly imported path: ${resolvedOldPath}`,
     };
   }
 
@@ -1082,7 +1082,7 @@ async function replaceInstalledVersionAfterImport({
       return {
         replaced: false,
         skipped: true,
-        reason: "Replacement path is not allowed for deletion",
+        reason: `Replacement path is not allowed for deletion: ${resolvedOldPath}`,
       };
     }
 
@@ -1091,7 +1091,7 @@ async function replaceInstalledVersionAfterImport({
       return {
         replaced: false,
         skipped: true,
-        reason: "Refusing to delete a drive root",
+        reason: `Refusing to delete a drive root: ${resolvedOldPath}`,
       };
     }
 
@@ -1100,7 +1100,7 @@ async function replaceInstalledVersionAfterImport({
       return {
         replaced: false,
         skipped: true,
-        reason: "Replacement path is not a directory",
+        reason: `Replacement path is not a directory: ${resolvedOldPath}`,
       };
     }
 
@@ -1133,7 +1133,7 @@ async function replaceInstalledVersionAfterImport({
           skipped: true,
           reason: deleteResult.canceled
             ? "Administrator delete was canceled"
-            : deleteResult.error || "Failed to delete replacement files",
+            : deleteResult.error || `Failed to delete replacement files: ${resolvedOldPath}`,
         };
       }
       await removeEmptyParentDirectories(
@@ -1144,7 +1144,7 @@ async function replaceInstalledVersionAfterImport({
       return {
         replaced: false,
         skipped: true,
-        reason: `Failed to delete replacement files: ${err.message}`,
+          reason: `Failed to delete replacement files at ${resolvedOldPath}: ${err.message}`,
       };
     }
   }
@@ -2977,15 +2977,9 @@ ipcMain.handle("import-games", async (event, params) => {
         });
 
         if (replacementResult?.skipped) {
-          console.warn(
-            `Skipped replacement for ${game.title}: ${replacementResult.reason}`,
+          throw new Error(
+            `Imported ${game.title}, but could not remove selected version ${game.replaceVersion}: ${replacementResult.reason}`,
           );
-          mainWindow.webContents.send("import-progress", {
-            text: `Imported ${game.title}, but skipped replacement: ${replacementResult.reason}`,
-            progress,
-            total,
-            canCancel: true,
-          });
         }
       }
       if (archiveToDeleteAfterImport) {
