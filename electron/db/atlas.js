@@ -498,20 +498,35 @@ const getImportRecordStatus = (game) => {
     }
 
     function resolveByLewdCornerId(id) {
-      getDb().get(
-        `SELECT record_id FROM lewdcorner_mappings WHERE lc_id = ? LIMIT 1`,
+      getDb().all(
+        `SELECT lm.record_id, v.version, v.exec_path
+         FROM lewdcorner_mappings lm
+         LEFT JOIN versions v ON v.record_id = lm.record_id
+         WHERE lm.lc_id = ?`,
         [id],
-        (err, row) => {
+        (err, rows) => {
           if (err) {
             reject(err);
             return;
           }
-          if (row?.record_id) {
-            resolve({
-              status: "alreadyImported",
-              recordId: row.record_id,
-              exactPath: false,
-            });
+          const mappedRecordId = rows?.[0]?.record_id;
+          if (mappedRecordId) {
+            const matchingVersion = version
+              ? rows.find(
+                  (row) =>
+                    normalizeImportVersion(row.version) ===
+                    normalizeImportVersion(version),
+                )
+              : null;
+            resolve(
+              matchingVersion
+                ? statusForVersionRow(matchingVersion, false)
+                : {
+                    status: "lewdCornerVersion",
+                    recordId: mappedRecordId,
+                    exactPath: false,
+                  },
+            );
             return;
           }
           findRecordByLewdCornerId(id)
