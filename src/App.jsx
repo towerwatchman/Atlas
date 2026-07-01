@@ -828,26 +828,6 @@ const App = () => {
     }
   }
 
-  const unzipGame = async () => {
-    const zipPath = await window.electronAPI.selectFile()
-    if (!zipPath) return
-    const extractPath = await window.electronAPI.selectDirectory()
-    if (!extractPath) return
-    setImportStatus({ text: 'Unzipping game', progress: 50, total: 100 })
-    try {
-      const result = await window.electronAPI.unzipGame({ zipPath, extractPath })
-      setImportStatus({
-        text: result.success ? 'Unzip complete' : `Error: ${result.error}`,
-        progress: result.success ? 100 : 50,
-        total: 100,
-      })
-    } catch (error) {
-      setImportStatus({ text: `Error: ${error.message}`, progress: 50, total: 100 })
-    } finally {
-      setTimeout(() => setImportStatus({ text: '', progress: 0, total: 0 }), 2000)
-    }
-  }
-
   const isTextInputTarget = (target) => {
     if (!target) return false
     const tagName = target.tagName?.toLowerCase()

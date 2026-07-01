@@ -1277,33 +1277,6 @@ module.exports = function registerImporterHandlers(ctx) {
   } = ctx
   ownerMainWindow = mainWindow
 
-ipcMain.handle("unzip-game", async (event, { zipPath, extractPath }) => {
-  try {
-    const ownerWindow = BrowserWindow.fromWebContents(event.sender);
-    const resolvedSevenZip = await resolveSevenZipExecutablePath({
-      configuredPath: appConfig?.Library?.sevenZipPath,
-      currentConfig: appConfig,
-      currentConfigPath: configPath,
-      ownerWindow,
-    });
-    if (!resolvedSevenZip?.path) {
-      throw new Error(
-        "7-Zip executable not found. Bundled 7zip was unavailable and no local 7-Zip installation could be detected.",
-      );
-    }
-    const extraction = await extractArchive(
-      zipPath,
-      extractPath,
-      resolvedSevenZip.path,
-      null,
-      ownerWindow,
-    );
-    return { success: true, extractPath: extraction.finalPath || extractPath };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
-});
-
 ipcMain.handle("select-catalog-import-source", async (event) => {
   const ownerWindow = BrowserWindow.fromWebContents(event.sender);
   const currentConfig = ctx.appConfig || appConfig || {};
