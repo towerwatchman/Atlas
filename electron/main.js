@@ -1,7 +1,35 @@
 'use strict'
 
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen, session } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen, session, protocol } = require('electron')
 const path = require('path')
+
+// Local downloaded media (banners/previews) is served to renderers through a
+// dedicated privileged scheme. Raw file:// URLs are blocked when the renderer
+// is served over http (the Vite dev server), so this makes downloaded images
+// load in both dev and packaged builds. Must be registered before app ready.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'atlas-media',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true },
+  },
+])
+
+function mediaContentType(filePath) {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.webp': return 'image/webp'
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg'
+    case '.png': return 'image/png'
+    case '.gif': return 'image/gif'
+    case '.avif': return 'image/avif'
+    case '.svg': return 'image/svg+xml'
+    case '.bmp': return 'image/bmp'
+    case '.mp4': return 'video/mp4'
+    case '.webm': return 'video/webm'
+    case '.m4v': return 'video/x-m4v'
+    default: return 'application/octet-stream'
+  }
+}
 const fs = require('fs')
 const fsp = require('fs').promises
 const sharp = require('sharp')
@@ -168,8 +196,9 @@ function getLegacyResourcesPath() {
 }
 
 function getAssetBasePath() {
-  // In dev: use app source dir. In prod: use appDataRoot (resolved after init)
-  if (process.defaultApp) return app.getAppPath()
+  // Assets/media live under <appDataRoot>/data (see dataDir/imagesDir). In dev
+  // appDataRoot is the electron dir; in prod it's the install dir / AppData.
+  // Reads and writes must resolve to the same base, so always use appDataRoot.
   return typeof appDataRoot !== 'undefined' ? appDataRoot : getLegacyResourcesPath()
 }
 
@@ -1213,6 +1242,32 @@ function buildCtx() {
 
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return
+
+  // Serve local downloaded media (atlas-media://local/<encoded-abs-path>).
+  // Files are only served from within the app's asset base directory.
+  protocol.handle('atlas-media', async (request) => {
+    try {
+      const url = new URL(request.url)
+      const decoded = decodeURIComponent(url.pathname.replace(/^\/+/, ''))
+      const resolved = path.resolve(decoded)
+      const baseResolved = path.resolve(getAssetBasePath())
+      const withinBase =
+        resolved.toLowerCase() === baseResolved.toLowerCase() ||
+        resolved.toLowerCase().startsWith(baseResolved.toLowerCase() + path.sep)
+      if (!withinBase) {
+        console.warn('atlas-media: blocked out-of-base request:', resolved)
+        return new Response('Forbidden', { status: 403 })
+      }
+      const data = await fsp.readFile(resolved)
+      return new Response(new Uint8Array(data), {
+        status: 200,
+        headers: { 'Content-Type': mediaContentType(resolved) },
+      })
+    } catch (err) {
+      console.error('atlas-media protocol error:', request.url, err.message)
+      return new Response('Not found', { status: 404 })
+    }
+  })
 
   // Initialize database
   initializeDatabase(dataDir)

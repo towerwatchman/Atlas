@@ -7,7 +7,7 @@ const axios = require('axios')
 const sharp = require('sharp')
 const dbModule = require('./index')
 const getDb = () => dbModule.db
-const { toLocalAssetPath, normalizeMediaStorageMode, remoteBannerExpression,
+const { toLocalAssetPath, getAssetBasePath, normalizeMediaStorageMode, remoteBannerExpression,
         buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
 const { normalizeSourceOrder, parseExternalIds, resolveSteamAppId } = require('./mediaSources')

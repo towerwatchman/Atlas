@@ -5,8 +5,10 @@ const path = require('path')
 // Shared query-building helpers. No circular deps — required by all domain files.
 // db is passed in at call time, NOT imported here.
 
-const getAssetBasePath = (appPath, isDev) =>
-  isDev ? path.join(appPath, "src") : appPath;
+// Media lives directly under the asset base dir (<base>/data/images), the same
+// layout in dev and prod, so this returns the base path unchanged. (isDev is
+// retained in the signature for call-site compatibility.)
+const getAssetBasePath = (appPath, isDev) => appPath;
 
 const toLocalAssetPath = (appPath, isDev, assetPath) =>
   path.join(getAssetBasePath(appPath, isDev), assetPath).replace(/\\/g, "/");

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { toMediaSrc } from '../utils/mediaSrc.js'
 
 // Given an ordered list of candidate image URLs, resolves to the first one that
 // actually loads. Used to implement cross-source image fallback, for example
@@ -14,13 +15,13 @@ export function useImageFallback(candidates) {
   const list = Array.isArray(candidates) ? candidates.filter(Boolean) : []
   const key = list.join('|')
 
-  const [src, setSrc] = useState(list[0] || null)
+  const [src, setSrc] = useState(toMediaSrc(list[0]) || null)
   const [failed, setFailed] = useState(false)
   const [loading, setLoading] = useState(list.length > 0)
 
   useEffect(() => {
     let cancelled = false
-    setSrc(list[0] || null)
+    setSrc(toMediaSrc(list[0]) || null)
     setFailed(list.length === 0)
     setLoading(list.length > 0)
 
@@ -37,12 +38,12 @@ export function useImageFallback(candidates) {
       const img = new Image()
       img.onload = () => {
         if (cancelled) return
-        setSrc(list[i])
+        setSrc(toMediaSrc(list[i]))
         setFailed(false)
         setLoading(false)
       }
       img.onerror = () => { if (!cancelled) tryAt(i + 1) }
-      img.src = list[i]
+      img.src = toMediaSrc(list[i])
     }
     tryAt(0)
 

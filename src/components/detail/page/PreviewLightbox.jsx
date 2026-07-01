@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import SafeImage from '../../ui/SafeImage.jsx'
+import { toMediaSrc } from '../../../utils/mediaSrc.js'
 
 // Navigation buttons scale with the viewport so they stay comfortably sized
 // on high-resolution displays (past 1080p) while keeping a sane minimum.
@@ -96,7 +97,7 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
           backdrop, which closes the viewer on click. */}
       {isVideo ? (
         <video
-          src={current}
+          src={toMediaSrc(current)}
           controls
           autoPlay
           onLoadedMetadata={(e) => setNatural({ w: e.target.videoWidth, h: e.target.videoHeight })}

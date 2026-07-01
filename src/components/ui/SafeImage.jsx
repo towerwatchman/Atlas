@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { toMediaSrc } from '../../utils/mediaSrc.js'
 
 export default function SafeImage({
   src,
@@ -62,7 +63,7 @@ export default function SafeImage({
   return (
     <img
       {...imgProps}
-      src={src}
+      src={toMediaSrc(src)}
       alt={alt}
       className={className}
       style={style}

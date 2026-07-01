@@ -10,6 +10,7 @@ import {
   isSteamGame, getMappedSteamAppId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
 } from './page/gameDetailUtils.js'
 import { buildExternalLinks } from './externalLinks.js'
+import { toMediaSrc } from '../../utils/mediaSrc.js'
 
 const isValidHttpUrl = (url) => /^https?:\/\//i.test(String(url || '').trim())
 const isSteamInstallPath = (value) =>
@@ -1055,7 +1056,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                 <div key={`${preview}-${index}`} className="border border-border overflow-hidden aspect-video cursor-pointer hover:border-accent transition-colors relative" onClick={() => setLightboxIndex(index)} title={isVideoUrl(preview) ? 'Play trailer' : 'Click to view'}>
                   {isVideoUrl(preview) ? (
                     <>
-                      <video src={preview} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#000' }} />
+                      <video src={toMediaSrc(preview)} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#000' }} />
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)', pointerEvents: 'none' }}>
                         <i className="fas fa-play-circle" style={{ fontSize: 44, color: 'rgba(255,255,255,0.92)', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.6))' }}></i>
                       </div>
