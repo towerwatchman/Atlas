@@ -14,6 +14,7 @@ const fs = require('fs')
 const path = require('path')
 const { safeStorage } = require('electron')
 const { SITES, login, checkCookiesLive, cookieHeaderFromArray } = require('./xenforoAuth')
+const { loginWithBrowser } = require('./browserLogin')
 
 let storePath = null
 // On-disk shape: { [site]: { username, secretEnc (base64), updatedAt } }
@@ -21,6 +22,11 @@ let storePath = null
 let store = {}
 // In-memory decrypted cookie header per site, for the synchronous webRequest path.
 const cookieHeaderCache = Object.create(null)
+
+// Successful-but-not-yet-saved logins, keyed by site. The Verify / browser-login
+// steps populate this; commitAccount() persists it without logging in again.
+// { username, password (nullable), cookies, method: 'password' | 'browser' }
+const pending = new Map()
 
 function encryptionAvailable() {
   try {
@@ -137,7 +143,9 @@ function listAccounts() {
   })
 }
 
-// Attempt a login WITHOUT saving anything. Used by the Verify button.
+// Attempt a headless login WITHOUT saving. On success the verified session is
+// held in `pending` so commitAccount() can persist it without a second login.
+// Used by the Verify button.
 async function verifyAccount(site, username, password) {
   if (!SITES[site]) return { ok: false, error: `Unsupported site: ${site}` }
   if (!encryptionAvailable()) {
@@ -149,16 +157,19 @@ async function verifyAccount(site, username, password) {
     }
   }
   try {
-    await login(site, username, password)
+    const cookies = await login(site, username, password)
+    pending.set(site, { username, password, cookies, method: 'password' })
     return { ok: true }
   } catch (err) {
+    pending.delete(site)
     return { ok: false, error: err.message }
   }
 }
 
-// Log in and persist the account (encrypted). Overwrites any existing account
-// for the site (one account per site).
-async function saveAccount(site, username, password) {
+// Open the embedded browser login (handles captcha / 2FA). On success the
+// session is held in `pending`; no password is captured this way. Returns the
+// site-reported username when it could be read.
+async function verifyAccountBrowser(site) {
   if (!SITES[site]) return { ok: false, error: `Unsupported site: ${site}` }
   if (!encryptionAvailable()) {
     return {
@@ -168,19 +179,45 @@ async function saveAccount(site, username, password) {
         'account cannot be saved safely.',
     }
   }
-  let cookies
-  try {
-    cookies = await login(site, username, password)
-  } catch (err) {
-    return { ok: false, error: err.message }
+  const result = await loginWithBrowser(site)
+  if (!result.ok) {
+    pending.delete(site)
+    return { ok: false, error: result.error }
+  }
+  pending.set(site, {
+    username: result.username || null,
+    password: null,
+    cookies: result.cookies,
+    method: 'browser',
+  })
+  return { ok: true, username: result.username || null }
+}
+
+// Persist a previously-verified login (from `pending`) WITHOUT re-authenticating.
+// One account per site; overwrites any existing account for the site.
+function commitAccount(site) {
+  if (!SITES[site]) return { ok: false, error: `Unsupported site: ${site}` }
+  const p = pending.get(site)
+  if (!p) {
+    return { ok: false, error: 'No verified login to save — please verify first.' }
+  }
+  if (!encryptionAvailable()) {
+    return {
+      ok: false,
+      error:
+        'Secure credential storage is unavailable on this system, so the ' +
+        'account cannot be saved safely.',
+    }
   }
   store[site] = {
-    username,
-    secretEnc: encrypt(JSON.stringify({ password, cookies })),
+    username: p.username,
+    method: p.method,
+    secretEnc: encrypt(JSON.stringify({ password: p.password, cookies: p.cookies })),
     updatedAt: Date.now(),
   }
   persist()
   rebuildCookieCache()
+  pending.delete(site)
   return { ok: true }
 }
 
@@ -206,7 +243,14 @@ async function ensureFreshCookies(site) {
   if (Array.isArray(secret.cookies) && (await checkCookiesLive(site, secret.cookies))) {
     return true
   }
-  // Cookie expired — re-login with the stored credentials.
+  // Cookie expired. Browser-added accounts have no stored password, so they
+  // can't be refreshed headlessly — the user must re-authenticate via the
+  // browser login. Signal "not fresh" so the UI can prompt.
+  if (!secret.password) {
+    console.warn(`accountStore: ${site} session expired and has no stored password to refresh.`)
+    return false
+  }
+  // Password account — re-login with the stored credentials.
   try {
     const cookies = await login(site, entry.username, secret.password)
     store[site] = {
@@ -233,7 +277,8 @@ module.exports = {
   init,
   listAccounts,
   verifyAccount,
-  saveAccount,
+  verifyAccountBrowser,
+  commitAccount,
   removeAccount,
   getCookieHeaderForUrl,
   refererForUrl,

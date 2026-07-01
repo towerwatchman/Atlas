@@ -354,6 +354,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // ── Site accounts (F95 / LewdCorner auth for gated media) ────────────────
   listAccounts: () => ipcRenderer.invoke("accounts-list"),
   verifyAccount: (payload) => ipcRenderer.invoke("accounts-verify", payload),
+  verifyAccountBrowser: (payload) => ipcRenderer.invoke("accounts-verify-browser", payload),
   saveAccount: (payload) => ipcRenderer.invoke("accounts-save", payload),
   removeAccount: (payload) => ipcRenderer.invoke("accounts-remove", payload),
 

@@ -132,16 +132,25 @@ const AddAccountModal = ({ sites, onClose, onSaved }) => {
   const [site, setSite] = useState(sites[0]?.id || '')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [verified, setVerified] = useState(false)
   const [verify, setVerify] = useState({ status: 'idle', message: '' })
   const [saving, setSaving] = useState(false)
 
-  const canSubmit = site && username.trim() && password && !saving
+  const busy = verify.status === 'verifying' || saving
+  const canVerify = site && username.trim() && password && !busy
+  const canBrowser = site && !busy
+  const canAdd = verified && !busy
 
-  const resetVerify = () => setVerify({ status: 'idle', message: '' })
+  // Any change to the identity invalidates the prior verification.
+  const invalidate = () => {
+    setVerified(false)
+    if (verify.status !== 'idle') setVerify({ status: 'idle', message: '' })
+  }
 
   const handleVerify = async () => {
-    if (!canSubmit) return
+    if (!canVerify) return
     setVerify({ status: 'verifying', message: '' })
+    setVerified(false)
     try {
       const result = await window.electronAPI.verifyAccount({
         site,
@@ -149,7 +158,8 @@ const AddAccountModal = ({ sites, onClose, onSaved }) => {
         password,
       })
       if (result?.ok) {
-        setVerify({ status: 'ok', message: 'Login works.' })
+        setVerified(true)
+        setVerify({ status: 'ok', message: 'Login verified.' })
       } else {
         setVerify({ status: 'error', message: result?.error || 'Verification failed.' })
       }
@@ -158,20 +168,35 @@ const AddAccountModal = ({ sites, onClose, onSaved }) => {
     }
   }
 
-  const handleSave = async () => {
-    if (!canSubmit) return
-    setSaving(true)
-    setVerify({ status: 'verifying', message: '' })
+  const handleBrowserLogin = async () => {
+    if (!canBrowser) return
+    setVerify({ status: 'verifying', message: 'Complete the login in the browser window…' })
+    setVerified(false)
     try {
-      const result = await window.electronAPI.saveAccount({
-        site,
-        username: username.trim(),
-        password,
-      })
+      const result = await window.electronAPI.verifyAccountBrowser({ site })
+      if (result?.ok) {
+        if (result.username) setUsername(result.username)
+        setVerified(true)
+        setVerify({ status: 'ok', message: 'Login verified.' })
+      } else {
+        setVerify({ status: 'error', message: result?.error || 'Browser login was not completed.' })
+      }
+    } catch (err) {
+      setVerify({ status: 'error', message: err.message || 'Browser login failed.' })
+    }
+  }
+
+  // Commit the already-verified session — no second login.
+  const handleAdd = async () => {
+    if (!canAdd) return
+    setSaving(true)
+    try {
+      const result = await window.electronAPI.saveAccount({ site })
       if (result?.ok) {
         await onSaved()
       } else {
         setVerify({ status: 'error', message: result?.error || 'Could not add account.' })
+        setVerified(false)
         setSaving(false)
       }
     } catch (err) {
@@ -207,7 +232,7 @@ const AddAccountModal = ({ sites, onClose, onSaved }) => {
               value={site}
               onChange={(e) => {
                 setSite(e.target.value)
-                resetVerify()
+                invalidate()
               }}
             >
               {sites.map((s) => (
@@ -227,7 +252,7 @@ const AddAccountModal = ({ sites, onClose, onSaved }) => {
               value={username}
               onChange={(e) => {
                 setUsername(e.target.value)
-                resetVerify()
+                invalidate()
               }}
             />
           </label>
@@ -241,10 +266,16 @@ const AddAccountModal = ({ sites, onClose, onSaved }) => {
               value={password}
               onChange={(e) => {
                 setPassword(e.target.value)
-                resetVerify()
+                invalidate()
               }}
             />
           </label>
+
+          <p className="text-xs text-text/50 -mt-1">
+            If the site asks for a captcha or two-factor code, use “Log in with
+            browser” instead — you’ll complete it in a real window and Atlas will
+            capture the session.
+          </p>
 
           {verify.status === 'ok' && (
             <div className="text-sm text-green-500 flex items-center gap-2">
@@ -259,23 +290,32 @@ const AddAccountModal = ({ sites, onClose, onSaved }) => {
           )}
           {verify.status === 'verifying' && (
             <div className="text-sm text-text/70 flex items-center gap-2">
-              <i className="fas fa-spinner fa-spin" /> Checking…
+              <i className="fas fa-spinner fa-spin" /> {verify.message || 'Checking…'}
             </div>
           )}
         </div>
 
         <div className="flex flex-col sm:flex-row sm:justify-end gap-2 border-t border-border px-4 py-3">
           <button
+            onClick={handleBrowserLogin}
+            disabled={!canBrowser}
+            className="px-4 py-2 text-sm rounded bg-primary border border-border text-text hover:bg-highlight transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <i className="fas fa-globe mr-2" />
+            Log in with browser
+          </button>
+          <button
             onClick={handleVerify}
-            disabled={!canSubmit}
+            disabled={!canVerify}
             className="px-4 py-2 text-sm rounded bg-primary border border-border text-text hover:bg-highlight transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Verify
           </button>
           <button
-            onClick={handleSave}
-            disabled={!canSubmit}
+            onClick={handleAdd}
+            disabled={!canAdd}
             className="px-4 py-2 text-sm rounded bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+            title={verified ? '' : 'Verify a login first'}
           >
             {saving ? 'Adding…' : 'Add account'}
           </button>

@@ -13,14 +13,20 @@ module.exports = function registerAccountsHandlers(ctx) {
     }
   })
 
-  // Test credentials without saving. Returns { ok, error? }.
+  // Test credentials without saving; on success the verified session is held
+  // server-side. Returns { ok, error? }.
   ipcMain.handle('accounts-verify', async (event, { site, username, password } = {}) => {
     return accountStore.verifyAccount(site, username, password)
   })
 
-  // Log in and persist (encrypted). Returns { ok, error? }.
-  ipcMain.handle('accounts-save', async (event, { site, username, password } = {}) => {
-    return accountStore.saveAccount(site, username, password)
+  // Open the embedded browser login (captcha / 2FA). Returns { ok, username?, error? }.
+  ipcMain.handle('accounts-verify-browser', async (event, { site } = {}) => {
+    return accountStore.verifyAccountBrowser(site)
+  })
+
+  // Persist the already-verified session without re-authenticating.
+  ipcMain.handle('accounts-save', async (event, { site } = {}) => {
+    return accountStore.commitAccount(site)
   })
 
   ipcMain.handle('accounts-remove', async (event, { site } = {}) => {
