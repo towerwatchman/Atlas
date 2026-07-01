@@ -55,9 +55,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking selectFile");
     return ipcRenderer.invoke("select-file");
   },
-  selectDirectory: () => {
+  selectDirectory: (options) => {
     console.log("Invoking selectDirectory");
-    return ipcRenderer.invoke("select-directory");
+    return ipcRenderer.invoke("select-directory", options);
   },
   getVersion: () => ipcRenderer.invoke("get-version"),
   openSettings: () => ipcRenderer.invoke("open-settings"),

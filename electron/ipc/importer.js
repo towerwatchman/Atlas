@@ -430,7 +430,7 @@ async function extractArchive(
             if (fs.existsSync(finalPath)) {
               finalPath = getUniquePath(finalPath);
             }
-            await fsp.rename(tempPath, finalPath);
+            await moveDirWithRetry(tempPath, finalPath);
             resolve({ success: true, finalPath });
           } catch (err) {
             await removePathIfExists(tempPath);
@@ -981,6 +981,34 @@ async function removePathIfExists(targetPath) {
     });
   } catch (err) {
     console.error(`Failed to remove incomplete import path ${targetPath}:`, err);
+  }
+}
+
+// Move a directory robustly. On Windows fs.rename frequently fails with EPERM /
+// EBUSY / EACCES even when the destination doesn't exist, because antivirus,
+// Search Indexer, or a lingering file handle is momentarily holding the freshly
+// extracted files. Retry with backoff, then fall back to copy + delete (which
+// also covers cross-volume moves). ENOTEMPTY is handled by the existing
+// getUniquePath check before this is called, but is retried here too for safety.
+async function moveDirWithRetry(src, dest, { attempts = 6, baseDelayMs = 150 } = {}) {
+  const retryableCodes = ["EPERM", "EACCES", "EBUSY", "ENOTEMPTY", "EEXIST"];
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await fsp.rename(src, dest);
+      return;
+    } catch (err) {
+      const isRetryable = retryableCodes.includes(err.code) || err.code === "EXDEV";
+      const lastAttempt = attempt === attempts;
+      if (!isRetryable) throw err;
+      if (lastAttempt || err.code === "EXDEV") {
+        // Final fallback (or cross-device): copy then remove the source. cp with
+        // force overwrites anything a partially-failed rename may have created.
+        await fsp.cp(src, dest, { recursive: true, force: true });
+        await removePathIfExists(src);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, baseDelayMs * attempt));
+    }
   }
 }
 

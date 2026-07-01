@@ -790,7 +790,11 @@ const Importer = () => {
   }, [view, loadConfig])
 
   const selectFolder = async () => {
-    const path = await window.electronAPI.selectDirectory()
+    const path = await window.electronAPI.selectDirectory({
+      title: 'Select the folder to scan for games',
+      message: 'Choose the folder that contains the games (or archives) you want to import.',
+      buttonLabel: 'Scan this folder',
+    })
     if (path) {
       window.electronAPI.log(`Folder selected: ${path}`)
       setFolder(path)
@@ -1317,9 +1321,19 @@ const Importer = () => {
     const importNeedsLibrary = gamesToImport.some((game) => game.isArchive || (moveFoldersToLibrary && !isSteamImportRow(game)))
     if (importNeedsLibrary && !finalLibraryPath) {
       setAskingForLibraryFolder(true)
-      const selected = await window.electronAPI.selectDirectory()
-      setAskingForLibraryFolder(false)
-      if (!selected) return alert('Choose a library folder to continue')
+      let selected
+      try {
+        selected = await window.electronAPI.selectDirectory({
+          title: 'Select your games library folder',
+          message: 'Choose where imported games are stored. Archives are extracted here, and this becomes your default library folder.',
+          buttonLabel: 'Use this folder',
+        })
+      } finally {
+        // Always clear the waiting state, even if the dialog is dismissed or the
+        // call rejects, so the UI can't get stuck on "Waiting for selection".
+        setAskingForLibraryFolder(false)
+      }
+      if (!selected) return alert('A library folder is required to import. Import canceled.')
       else {
         try {
           const saveResult = await window.electronAPI.setDefaultGameFolder(selected)

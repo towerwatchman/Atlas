@@ -184,10 +184,21 @@ module.exports = function registerWindowsHandlers(ctx) {
     ctx.createBannerEditorWindow()
   })
 
-  ipcMain.handle('select-directory', async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openDirectory'],
-    })
+  ipcMain.handle('select-directory', async (event, options = {}) => {
+    // Attach the dialog to the requesting window so it is window-modal and can't
+    // open hidden behind the app (which made it look like the UI was stuck), and
+    // pass through a title/message so the user knows what the folder is for.
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const dialogOptions = {
+      properties: ['openDirectory', 'createDirectory'],
+      ...(options.title ? { title: options.title } : {}),
+      ...(options.message ? { message: options.message } : {}),
+      ...(options.buttonLabel ? { buttonLabel: options.buttonLabel } : {}),
+      ...(options.defaultPath ? { defaultPath: options.defaultPath } : {}),
+    }
+    const result = win
+      ? await dialog.showOpenDialog(win, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions)
     return result.canceled ? null : result.filePaths[0]
   })
 
