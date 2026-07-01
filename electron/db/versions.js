@@ -1231,6 +1231,16 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
     if (filters.favoritesOnly === true) {
       filterWhereParts.push('COALESCE(local_games.is_favorite, 0) = 1');
     }
+    if (filters.wishlistOnly === true) {
+      filterWhereParts.push(`EXISTS (
+        SELECT 1
+        FROM wishlist_entries wishlist
+        WHERE (wishlist.atlas_id IS NOT NULL AND wishlist.atlas_id = catalog.atlas_id)
+           OR (wishlist.f95_id IS NOT NULL AND wishlist.f95_id = catalog.f95_id)
+           OR (wishlist.lc_id IS NOT NULL AND wishlist.lc_id = catalog.lc_id)
+           OR (wishlist.steam_id IS NOT NULL AND wishlist.steam_id = catalog.steam_id)
+      )`);
+    }
     const personalRatingOverallExpr = `(
       (COALESCE(local_ratings.story, 0) + COALESCE(local_ratings.graphics, 0) + COALESCE(local_ratings.gameplay, 0) + COALESCE(local_ratings.fappability, 0)) * 1.0
       / NULLIF(

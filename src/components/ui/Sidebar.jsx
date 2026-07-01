@@ -40,7 +40,7 @@ const Sidebar = ({
         const isActive =
           selected === item.name ||
           (item.name === 'Browse' && libraryMode === 'catalog') ||
-          (item.name === 'Wishlist' && libraryMode === 'wishlist')
+          (item.name === 'Favorites' && libraryMode === 'local')
         const buttonContent = (
           <>
             <div className="absolute left-0 w-[3px] h-full bg-accent transition-opacity opacity-0 group-hover:opacity-100" />

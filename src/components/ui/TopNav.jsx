@@ -13,7 +13,7 @@ const LABELS = {
   Add: 'Import',
   List: 'List',
   Browse: 'Browse',
-  Wishlist: 'Wishlist',
+  Favorites: 'Favorites',
   Updates: 'Updates',
   Settings: 'Settings',
   Filters: 'Filters',
@@ -27,7 +27,7 @@ const LABELS = {
 // icon cluster in the reference design's top-right corner — but see
 // navDisplayMode for how this can include text too).
 const LEFT_ORDER = ['Library', 'Browse', 'Add', 'Settings', 'Filters']
-const RIGHT_ORDER = ['Updates', 'List', 'Wishlist', 'Help']
+const RIGHT_ORDER = ['Updates', 'List', 'Favorites', 'Help']
 
 const orderItems = (items, order) =>
   order.map((name) => items.find((item) => item.name === name)).filter(Boolean)
@@ -84,7 +84,7 @@ const TopNav = ({
         const isActive =
           selected === item.name ||
           (item.name === 'Browse' && libraryMode === 'catalog') ||
-          (item.name === 'Wishlist' && libraryMode === 'wishlist') ||
+          (item.name === 'Favorites' && libraryMode === 'local') ||
           (item.name === 'List' && showGameList)
         const buttonContent = (
           <>

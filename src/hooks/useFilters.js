@@ -29,6 +29,7 @@ export const defaultFilters = {
   tagLogic: 'AND',
   updateAvailable: false,
   favoritesOnly: false,
+  wishlistOnly: false,
   steamMapped: false,
   personalRatingMin: 0,
   personalRatingStatus: 'any',
@@ -171,6 +172,7 @@ export const normalizeFilterState = (filters = {}) => {
   merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
   merged.updateAvailable = merged.updateAvailable === true
   merged.favoritesOnly = merged.favoritesOnly === true
+  merged.wishlistOnly = merged.wishlistOnly === true
   merged.steamMapped = merged.steamMapped === true
   const personalRatingMin = Number(merged.personalRatingMin)
   merged.personalRatingMin = Number.isFinite(personalRatingMin)
@@ -1032,6 +1034,16 @@ export const builtInSavedFilters = [
     name: 'Favorites',
     builtIn: true,
     filters: normalizeFilterState({ favoritesOnly: true, includeUninstalled: true, installState: 'all' }),
+  },
+  {
+    id: 'builtin-wishlist',
+    name: 'Wishlist',
+    builtIn: true,
+    filters: normalizeFilterState({
+      wishlistOnly: true,
+      includeUninstalled: true,
+      installState: 'all',
+    }),
   },
   {
     id: 'builtin-highly-rated',

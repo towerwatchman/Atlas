@@ -571,6 +571,21 @@ const App = () => {
       .catch((err) => console.error('Failed to open wishlist:', err))
   }, [fetchWishlistGames, loadWishlistIdentities, setAndPersistSidePanelMode])
 
+  const openFavorites = useCallback(() => {
+    const favoriteFilters = normalizeFilterState({
+      ...defaultFilters,
+      favoritesOnly: true,
+      includeUninstalled: true,
+      installState: 'all',
+    })
+    setLibraryMode('local')
+    setSelectedGame(null)
+    setActiveSavedFilterId('builtin-favorites')
+    setAndPersistSidePanelMode(SIDE_PANEL_MODES.GAMES)
+    setShowSearchSidebar(false)
+    handleFilterChange(favoriteFilters)
+  }, [handleFilterChange, setAndPersistSidePanelMode])
+
   const handleWishlistChanged = useCallback(async (result = {}, sourceGame = null) => {
     const identityKey = result.identityKey || getWishlistIdentityKey(sourceGame || result.entry || {})
     setWishlistIdentityKeys((prev) => {
@@ -661,8 +676,12 @@ const App = () => {
     setSelectedGame(null)
     setShowSearchSidebar(false)
     setActiveSavedFilterId(filter.id || '')
+    if (filter.id === 'builtin-wishlist') {
+      setLibraryMode('catalog')
+      setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
+    }
     handleFilterChange(nextFilters)
-  }, [handleFilterChange])
+  }, [handleFilterChange, setAndPersistSidePanelMode])
 
   const deleteSavedFilter = useCallback(async (filter, action = 'request') => {
     if (!filter?.id || filter.builtIn) return
@@ -1172,7 +1191,7 @@ const App = () => {
                     onCheckDbUpdates={runDbUpdateCheck}
                     onGoHome={goHome}
                     onBrowseCatalog={browseCatalog}
-                    onOpenWishlist={openWishlist}
+                    onOpenWishlist={openFavorites}
                     onToggleSearchSidebar={toggleSearchSidebar}
                     onOpenHelp={openHelp}
                     showGameList={showLibrarySidebar}
@@ -1199,7 +1218,7 @@ const App = () => {
                     onCheckDbUpdates={runDbUpdateCheck}
                     onGoHome={goHome}
                     onBrowseCatalog={browseCatalog}
-                    onOpenWishlist={openWishlist}
+                    onOpenWishlist={openFavorites}
                     onToggleSearchSidebar={toggleSearchSidebar}
                     onOpenHelp={openHelp}
                     showGameList={showLibrarySidebar}
@@ -1245,7 +1264,7 @@ const App = () => {
             onCheckDbUpdates={runDbUpdateCheck}
             onGoHome={goHome}
             onBrowseCatalog={browseCatalog}
-            onOpenWishlist={openWishlist}
+            onOpenWishlist={openFavorites}
             onToggleSearchSidebar={toggleSearchSidebar}
             onOpenHelp={openHelp}
             showGameList={showLibrarySidebar}

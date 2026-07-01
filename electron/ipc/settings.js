@@ -128,6 +128,7 @@ const defaultSavedFilterState = {
   tagLogic: 'AND',
   updateAvailable: false,
   favoritesOnly: false,
+  wishlistOnly: false,
   steamMapped: false,
   personalRatingMin: 0,
   personalRatingStatus: 'any',
@@ -191,6 +192,7 @@ const normalizeSavedFilterState = (filters = {}) => {
   merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
   merged.updateAvailable = merged.updateAvailable === true
   merged.favoritesOnly = merged.favoritesOnly === true
+  merged.wishlistOnly = merged.wishlistOnly === true
   merged.steamMapped = merged.steamMapped === true
   const personalRatingMin = Number(merged.personalRatingMin)
   merged.personalRatingMin = Number.isFinite(personalRatingMin)
