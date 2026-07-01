@@ -348,10 +348,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Registering onPromptSteamDirectory listener");
     ipcRenderer.on("prompt-steam-directory", (event) => callback());
   },
-  openSteamImportWindow: () => {
-    console.log("Invoking openSteamImportWindow");
-    return ipcRenderer.invoke("open-steam-import-window");
-  },
   getSteamGameData: (steamId) =>
     ipcRenderer.invoke("get-steam-game-data", steamId),
 
@@ -361,8 +357,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getDefaultGameFolder: () => ipcRenderer.invoke("get-default-game-folder"),
   setDefaultGameFolder: (newPath) =>
     ipcRenderer.invoke("set-default-game-folder", newPath),
-  moveFolderToLibrary: (args) =>
-    ipcRenderer.invoke("move-folder-to-library", args),
 
   // Optional: better feedback during long imports/moves
   onImportWarning: (callback) =>

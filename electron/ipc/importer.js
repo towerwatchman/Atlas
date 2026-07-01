@@ -12,7 +12,7 @@ const { calculatePathSize } = require('../pathSize')
 const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
         checkRecordExist, checkPathExist } = require('../db/atlas')
 const { getGame } = require('../db/versions')
-const { fetchAndStoreSteamData, findSteamId } = require('../scanners/steamscanner')
+const { fetchAndStoreSteamData } = require('../scanners/steamscanner')
 const { findExecutables } = require("../scanners/executableScanner");
 const { getDefaultRenpySaveRoot, scanRenpySaveFolders } = require("../scanners/renpySaveScanner");
 const { findRecordBySteamId } = require('../db/steam')
@@ -3396,30 +3396,6 @@ ipcMain.handle("import-games", async (event, params) => {
   mainWindow.webContents.send("import-complete");
   ctx.activeImportSession = null;
   return results;
-});
-
-ipcMain.handle("get-steam-data", async (event, steam_id) => {
-  console.log("Handling get-steam-data:", steam_id);
-  try {
-    const game = await fetchAndStoreSteamData(db, steam_id, ctx.appConfig?.Metadata?.steamAssetSourceOrder);
-    console.log("Steam Game data updated in database");
-    return game;
-  } catch (err) {
-    console.error("Error updating Steam Game Data:", err);
-    throw err;
-  }
-});
-
-ipcMain.handle("find-steam-id", async (event, title, developer) => {
-  console.log("Handling find-steam-id:", title, developer);
-  try {
-    const steamId = await findSteamId(title, developer);
-    console.log("Steam Game id found:", steamId);
-    return steamId;
-  } catch (err) {
-    console.error("Error checking Steam ID:", err);
-    throw err;
-  }
 });
 
 ipcMain.handle("start-steam-scan", async (event, params) => {
