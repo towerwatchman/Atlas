@@ -514,12 +514,18 @@ const findExistingRecordForImport = (game) => {
 };
 
 function normalizeVersionForCompare(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replace(/^v/, "")
-    .replace(/[^0-9.]/g, "");
+  return (String(value || "").match(/\d+/g) || [])
+    .map((part) => String(Number.parseInt(part, 10) || 0))
+    .join(".");
+}
+
+function getVersionFamily(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (/\b(?:ep|episode)\.?\s*\d/.test(normalized)) return "episode";
+  if (/\b(?:ch|chapter)\.?\s*\d/.test(normalized)) return "chapter";
+  if (/\b(?:s|season)\.?\s*\d/.test(normalized)) return "season";
+  if (/\b(?:build)\s*\d/.test(normalized)) return "build";
+  return "generic";
 }
 
 function compareVersionParts(current, latest) {
@@ -554,19 +560,33 @@ function getIsUpdateAvailable(latestVersion, versions) {
 
   const latest = normalizeVersionForCompare(latestVersion);
   if (!latest) return false;
+  const latestFamily = getVersionFamily(latestVersion);
+  const exactLatest = String(latestVersion).trim().toLowerCase().replace(/\s+/g, "");
+  if (versions.some((version) =>
+    String(version.version || "").trim().toLowerCase().replace(/\s+/g, "") === exactLatest
+  )) {
+    return false;
+  }
 
   // Find the newest local version. An update is only available if even the
   // newest installed/known version is older than the latest — not if *any*
   // single version happens to be older.
   let newest = null;
   for (const version of versions) {
+    if (latestFamily !== "generic" && getVersionFamily(version.version) !== latestFamily) {
+      continue;
+    }
     const current = normalizeVersionForCompare(version.version);
     if (!current) continue;
     if (newest === null || compareVersionParts(current, newest) > 0) {
       newest = current;
     }
   }
-  if (newest === null) return false;
+  // A known latest version using a different progression scheme (for example
+  // Episode 1 Part 2 versus an installed Chapter 3) is not safely comparable.
+  // Since the labels are not equal, surface the update instead of silently
+  // treating the unrelated local number as newer.
+  if (newest === null) return latestFamily !== "generic";
 
   return compareVersionParts(newest, latest) < 0;
 }
@@ -1845,4 +1865,5 @@ module.exports = {
   chooseLaunchableForRepair,
   normalizeVersionName,
   getUniqueVersionName,
+  getIsUpdateAvailable,
 }
