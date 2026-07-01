@@ -1691,11 +1691,6 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
     }
 
     const currentConfig = ctx.appConfig || appConfig || {};
-    let targetLibrary = currentConfig?.Library?.gameFolder;
-    if (!targetLibrary || !fs.existsSync(targetLibrary)) {
-      const existingRoot = replaceRow?.game_path ? path.dirname(path.resolve(replaceRow.game_path)) : "";
-      targetLibrary = existingRoot && fs.existsSync(existingRoot) ? existingRoot : path.join(dataDir, "games");
-    }
     const destinationFormat = currentConfig?.Library?.libraryFolderStructure || "{creator}/{title}/{version}";
     const importGame = {
       title: gameRow.title || "Untitled",
@@ -1703,7 +1698,25 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
       engine: gameRow.engine || "Unknown",
       version,
     };
-    const targetBase = getUniquePath(buildStructuredImportPath(targetLibrary, destinationFormat, importGame));
+
+    let targetBase;
+    if (replaceExisting && replaceRow?.game_path) {
+      // Replacing an existing version: place the new files in the SAME folder
+      // that holds the version being replaced (its parent = the title folder),
+      // named for the new version. Previously this derived a "library root" from
+      // the old path via path.dirname() and then re-applied
+      // {creator}/{title}/{version}, which double-nested creator/title
+      // (e.g. E:\Games\W.M\Dogma\W.M\Dogma\v0.4 S2) and pushed files past the
+      // Windows path limit so the executable scan came up empty.
+      const titleFolder = path.dirname(path.resolve(replaceRow.game_path));
+      targetBase = getUniquePath(path.join(titleFolder, sanitizePathSegment(version)));
+    } else {
+      let targetLibrary = currentConfig?.Library?.gameFolder;
+      if (!targetLibrary || !fs.existsSync(targetLibrary)) {
+        targetLibrary = path.join(dataDir, "games");
+      }
+      targetBase = getUniquePath(buildStructuredImportPath(targetLibrary, destinationFormat, importGame));
+    }
     const extensions = getConfiguredGameExtensions(currentConfig);
     const archiveExtensions = getConfiguredExtractionExtensions(currentConfig);
     const sourceIsArchive = stat.isFile() && isArchiveFilePath(sourcePath, currentConfig);
