@@ -6,22 +6,10 @@ export default function MediaTab({
   game, bannerUrl, bannerMediaStatus,
   validPreviewUrls, previewMediaStatus, previewHeight,
   importProgress, setPreviewUrls,
-  onDownloadBanner, onSelectCustomBanner,
+  onDownloadBanner, onSelectCustomBanner, onDeleteBanner,
   onDownloadPreviews, onRefreshMetadata,
 }) {
   const [lightboxIndex, setLightboxIndex] = useState(null)
-
-  const handleDeleteBanner = async () => {
-    try {
-      await window.electronAPI.deleteBanner(game.record_id)
-      const updatedGame = await window.electronAPI.getGame(game.record_id)
-      // Banner URL update is handled by parent via onRefreshMetadata pattern
-      // but we can also just notify via a simple reload
-      window.location.reload()
-    } catch (err) {
-      console.error('Error deleting banner:', err)
-    }
-  }
 
   const handleDeletePreviews = async () => {
     try {
@@ -88,7 +76,7 @@ export default function MediaTab({
             <div className="flex space-x-2 mt-2">
               <button onClick={onDownloadBanner} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Download Banner</button>
               <button onClick={onSelectCustomBanner} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Select Custom Banner</button>
-              <button onClick={handleDeleteBanner} className="px-4 py-1 bg-danger text-white rounded hover:bg-dangerHover">Delete Downloaded Banner</button>
+              <button onClick={onDeleteBanner} className="px-4 py-1 bg-danger text-white rounded hover:bg-dangerHover">Delete Downloaded Banner</button>
             </div>
           </div>
         ) : (

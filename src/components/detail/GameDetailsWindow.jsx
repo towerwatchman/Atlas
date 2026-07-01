@@ -7,6 +7,7 @@ import MappingsTab from './window/MappingsTab.jsx'
 import { sanitizePercentText } from '../../utils/formatPercent.js'
 import { formatVersionDate } from '../../utils/formatVersionDate.js'
 import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
+import { toMediaSrc } from '../../utils/mediaSrc.js'
 
 const isRemoteMediaUrl = (url) => /^https?:\/\//i.test(String(url || ''))
 const firstMediaUrl = (value) => Array.isArray(value) ? value[0] || '' : value || ''
@@ -221,7 +222,7 @@ const GameDetailWindow = () => {
     Promise.all(
       previewUrls.map(async (url) => {
         try {
-          const img = new Image(); img.src = url
+          const img = new Image(); img.src = toMediaSrc(url)
           await new Promise((res, rej) => { img.onload = res; img.onerror = rej })
           return url
         } catch { return null }
@@ -254,6 +255,24 @@ const GameDetailWindow = () => {
       setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 1500)
     } catch (err) {
       alert(`Failed to save custom banner: ${err.message}`)
+      setImportProgress({ text: '', progress: 0, total: 0 })
+    }
+  }
+
+  const handleDeleteBanner = async () => {
+    try {
+      setImportProgress({ text: 'Deleting downloaded banner...', progress: 0, total: 1 })
+      await window.electronAPI.deleteBanner(game.record_id)
+      const refreshedGame = await window.electronAPI.getGame(game.record_id)
+      if (refreshedGame) {
+        refreshFromGame(refreshedGame, selectedVersion)
+        setBannerUrl(refreshedGame.banner_url || '')
+      }
+      setImportProgress({ text: 'Banner deleted', progress: 1, total: 1 })
+      setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 1500)
+    } catch (err) {
+      console.error('Failed to delete banner:', err)
+      alert(`Failed to delete banner: ${err.message || 'Unknown error'}`)
       setImportProgress({ text: '', progress: 0, total: 0 })
     }
   }
@@ -565,16 +584,25 @@ const GameDetailWindow = () => {
       <TitleBar isMaximized={isMaximized} />
 
       <div className="flex flex-col flex-1 min-h-0 bg-primary">
-        <div className="flex shrink-0 border-b border-border">
-          {['Record', 'Versions', 'Media', 'Mappings'].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 ${activeTab === tab ? 'bg-secondary border-t border-l border-r border-border' : 'bg-primary'}`}
-            >
-              {tab}
-            </button>
-          ))}
+        <div className="flex shrink-0 border-b border-border items-center justify-between">
+          <div className="flex flex-wrap">
+            {['Record', 'Versions', 'Media', 'Mappings'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-2 ${activeTab === tab ? 'bg-secondary border-t border-l border-r border-border' : 'bg-primary'}`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={handleFindGame}
+            className="mx-2 my-1 px-3 py-1 bg-accent text-white rounded hover:bg-accentHover text-sm whitespace-nowrap shrink-0"
+          >
+            <i className="fas fa-magnifying-glass mr-1" aria-hidden="true"></i>
+            Find Match
+          </button>
         </div>
 
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -616,6 +644,7 @@ const GameDetailWindow = () => {
                 setPreviewUrls={setPreviewUrls}
                 onDownloadBanner={handleDownloadBanner}
                 onSelectCustomBanner={handleSelectCustomBanner}
+                onDeleteBanner={handleDeleteBanner}
                 onDownloadPreviews={handleDownloadPreviews}
                 onRefreshMetadata={handleRefreshMetadata}
               />
@@ -623,11 +652,7 @@ const GameDetailWindow = () => {
             {activeTab === 'Mappings' && (
               <MappingsTab
                 game={game}
-                showModal={showModal}
-                searchResults={searchResults}
                 onFindGame={handleFindGame}
-                onSelectGame={handleSelectGame}
-                onCloseModal={() => { setShowModal(false); setSearchResults([]) }}
               />
             )}
           </div>
@@ -638,6 +663,43 @@ const GameDetailWindow = () => {
           <button onClick={() => window.electronAPI.closeWindow()} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Cancel</button>
         </div>
       </div>
+
+      {showModal && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => { setShowModal(false); setSearchResults([]) }}
+        >
+          <div className="bg-secondary p-4 rounded-md max-w-lg w-full" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg mb-4">Select Game Match</h2>
+            {searchResults.length > 0 ? (
+              <ul className="space-y-2 max-h-[300px] overflow-y-auto">
+                {searchResults.map((result, index) => (
+                  <li
+                    key={index}
+                    className="p-2 bg-tertiary hover:bg-buttonHover rounded cursor-pointer"
+                    onClick={() => handleSelectGame(result.atlas_id)}
+                  >
+                    <div>{result.title}</div>
+                    <div className="text-sm text-muted">
+                      Atlas ID: {result.atlas_id} | F95 ID: {result.f95_id || 'N/A'} | Creator: {result.creator || 'N/A'}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No matches found</p>
+            )}
+            <div className="flex justify-end space-x-2 mt-4">
+              <button
+                onClick={() => { setShowModal(false); setSearchResults([]) }}
+                className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

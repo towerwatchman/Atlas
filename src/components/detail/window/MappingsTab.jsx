@@ -12,7 +12,7 @@ const normalizeF95DisplayId = (value) => {
   return threadMatch ? threadMatch[1] : normalized
 }
 
-export default function MappingsTab({ game, showModal, searchResults, onFindGame, onSelectGame, onCloseModal }) {
+export default function MappingsTab({ game, onFindGame }) {
   const externalIds = parseExternalIds(game.external_ids)
   const steamAppId = getMappedSteamAppId(game)
   const f95DisplayId = normalizeF95DisplayId(game.f95_id)
@@ -130,35 +130,6 @@ export default function MappingsTab({ game, showModal, searchResults, onFindGame
           </div>
         )}
       </div>
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-secondary p-4 rounded-md max-w-lg w-full">
-            <h2 className="text-lg mb-4">Select Game Match</h2>
-            {searchResults.length > 0 ? (
-              <ul className="space-y-2 max-h-[300px] overflow-y-auto">
-                {searchResults.map((result, index) => (
-                  <li
-                    key={index}
-                    className="p-2 bg-tertiary hover:bg-buttonHover rounded cursor-pointer"
-                    onClick={() => onSelectGame(result.atlas_id)}
-                  >
-                    <div>{result.title}</div>
-                    <div className="text-sm text-muted">
-                      Atlas ID: {result.atlas_id} | F95 ID: {normalizeF95DisplayId(result.f95_id) || 'N/A'} | Creator: {result.creator || 'N/A'}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>No matches found</p>
-            )}
-            <div className="flex justify-end space-x-2 mt-4">
-              <button onClick={onCloseModal} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   )
 }
