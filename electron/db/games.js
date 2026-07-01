@@ -8,7 +8,7 @@ const getDb = () => dbModule.db
 const { toLocalAssetPath, normalizeMediaStorageMode,
         buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
 const { mapVersionRow, getVersionPathsForRecord } = require('./versions')
-const { deleteBanner, deletePreviews } = require('./media')
+const { deleteBanner, deletePreviews, deleteMediaAssets } = require('./media')
 
 let cachedFilterOptions = null
 const resetCachedFilterOptions = () => { cachedFilterOptions = null }
@@ -426,15 +426,24 @@ const deleteGameCompletely = async (recordId, appPath, isDev) => {
   }
 
   try {
+    await deleteMediaAssets(recordId, appPath, isDev);
+  } catch (err) {
+    console.warn("deleteGameCompletely media asset cleanup warning:", err);
+    warnings.push(`Media asset cleanup: ${err.message}`);
+  }
+
+  try {
     const tables = [
       "banners",
       "previews",
+      "media_assets",
       "atlas_mappings",
       "steam_mappings",
       "f95_zone_mappings",
       "lewdcorner_mappings",
       "tag_mappings",
-      // add others if you have more
+      "game_metadata_overrides",
+      "game_personal_ratings",
     ];
 
     await dbRun("BEGIN IMMEDIATE TRANSACTION");

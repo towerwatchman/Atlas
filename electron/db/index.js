@@ -537,7 +537,43 @@ const initializeDatabase = (dataDir) => {
     // constraint via ALTER, so rebuild the table without it — but only if the
     // old unique index is actually present.
     migrateDropAtlasIdNameUnique();
+    sweepOrphanedRecords();
   });
+};
+
+// One-time-per-launch integrity sweep. Historically some deletes did not clear
+// every child table, and because record_id (an INTEGER PRIMARY KEY without
+// AUTOINCREMENT) can be reused by SQLite, leftover child rows could bleed into a
+// later game that reused the id. This removes any child row whose record_id no
+// longer exists in games. Idempotent and cheap for a local library.
+function sweepOrphanedRecords() {
+  const childTables = [
+    "versions",
+    "atlas_mappings",
+    "tag_mappings",
+    "game_metadata_overrides",
+    "previews",
+    "banners",
+    "media_assets",
+    "f95_zone_mappings",
+    "lewdcorner_mappings",
+    "steam_mappings",
+    "game_personal_ratings",
+  ];
+  for (const tbl of childTables) {
+    db.run(
+      `DELETE FROM ${tbl}
+       WHERE record_id IS NOT NULL
+         AND record_id NOT IN (SELECT record_id FROM games)`,
+      function (err) {
+        if (err) {
+          console.warn(`Orphan sweep skipped for ${tbl}:`, err.message);
+        } else if (this.changes) {
+          console.log(`Orphan sweep: removed ${this.changes} stale row(s) from ${tbl}`);
+        }
+      },
+    );
+  }
 };
 
 // Rebuilds atlas_data without the inline UNIQUE on id_name, preserving every

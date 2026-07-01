@@ -936,6 +936,74 @@ const deletePreviews = (recordId, appPath, isDev) => {
   });
 };
 
+// Removes a record's cached media_assets rows and their backing files. Steam
+// art can be cached by appid and shared across records, so a file is only
+// unlinked when no OTHER record still references that same path.
+const deleteMediaAssets = (recordId, appPath, isDev) => {
+  return new Promise((resolve, reject) => {
+    const assetRoot = path.resolve(getAssetBasePath(appPath, isDev));
+    getDb().all(
+      `SELECT path FROM media_assets WHERE record_id = ?`,
+      [recordId],
+      async (err, rows) => {
+        if (err) {
+          console.error("Error fetching media_assets for deletion:", err);
+          reject(err);
+          return;
+        }
+        for (const row of rows || []) {
+          const rawPath = String(row?.path || "").replace("file://", "");
+          if (!rawPath) continue;
+
+          // Skip files still referenced by another record.
+          const sharedCount = await new Promise((res) => {
+            getDb().get(
+              `SELECT COUNT(*) AS c FROM media_assets WHERE path = ? AND record_id != ?`,
+              [row.path, recordId],
+              (cErr, cRow) => res(cErr ? 1 : Number(cRow?.c || 0)),
+            );
+          });
+          if (sharedCount > 0) continue;
+
+          const filePath = path.isAbsolute(rawPath)
+            ? rawPath
+            : path.join(getAssetBasePath(appPath, isDev), rawPath);
+          try {
+            const exists = await fsPromises
+              .access(filePath)
+              .then(() => true)
+              .catch(() => false);
+            if (!exists) continue;
+            await deletePathWithElevationFallback(filePath, {
+              recursive: false,
+              force: true,
+              description: "Delete media asset",
+              validatePath: (candidatePath) => {
+                const resolved = path.resolve(candidatePath);
+                const relative = path.relative(assetRoot, resolved);
+                if (relative.startsWith("..") || path.isAbsolute(relative)) {
+                  throw new Error("Media asset path is outside the app data folder");
+                }
+              },
+            });
+          } catch (fileErr) {
+            console.error("Error deleting media asset file:", fileErr);
+            // Continue with next file
+          }
+        }
+        getDb().run(`DELETE FROM media_assets WHERE record_id = ?`, [recordId], (delErr) => {
+          if (delErr) {
+            console.error("Error removing media_assets from database:", delErr);
+            reject(delErr);
+          } else {
+            resolve();
+          }
+        });
+      },
+    );
+  });
+};
+
 module.exports = {
   updateFolderSize,
   getBannerUrl,
@@ -952,4 +1020,5 @@ module.exports = {
   getBanner,
   deleteBanner,
   deletePreviews,
+  deleteMediaAssets,
 }
