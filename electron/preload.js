@@ -351,6 +351,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSteamGameData: (steamId) =>
     ipcRenderer.invoke("get-steam-game-data", steamId),
 
+  // ── Site accounts (F95 / LewdCorner auth for gated media) ────────────────
+  listAccounts: () => ipcRenderer.invoke("accounts-list"),
+  verifyAccount: (payload) => ipcRenderer.invoke("accounts-verify", payload),
+  saveAccount: (payload) => ipcRenderer.invoke("accounts-save", payload),
+  removeAccount: (payload) => ipcRenderer.invoke("accounts-remove", payload),
+
   // ────────────────────────────────────────────────────────────────
   //     METHODS FOR MOVE-TO-LIBRARY FEATURE (already added)
   // ────────────────────────────────────────────────────────────────

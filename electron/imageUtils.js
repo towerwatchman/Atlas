@@ -5,6 +5,21 @@ const fs = require('fs')
 const axios = require('axios')
 const sharp = require('sharp')
 
+const accountStore = require('./accounts/accountStore')
+
+// Merge the auth Cookie for F95zone/LewdCorner into a request's headers when an
+// account is configured, so login-gated artwork downloads succeed. No-op for
+// any other host (Steam CDNs, etc.).
+function withAuthCookie(url, headers) {
+  try {
+    const cookie = accountStore.getCookieHeaderForUrl(url)
+    if (cookie) return { ...headers, Cookie: cookie }
+  } catch (err) {
+    /* no account / store not ready — send unauthenticated */
+  }
+  return headers
+}
+
 
 const ANIMATED_IMAGE_EXTENSIONS = new Set([".gif", ".webp"]);
 
@@ -212,10 +227,10 @@ async function downloadImages(
           const response = await axios.get(bannerUrl, {
             responseType: "arraybuffer",
             maxRedirects: 5,
-            headers: {
+            headers: withAuthCookie(bannerUrl, {
               "User-Agent": "Atlas/1.0 (+https://github.com/towerwatchman/Atlas)",
               Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            },
+            }),
           });
           imageBytes = Buffer.from(response.data);
           downloaded = true;
@@ -362,10 +377,10 @@ async function downloadImages(
           const response = await axios.get(url, {
             responseType: "arraybuffer",
             maxRedirects: 5,
-            headers: {
+            headers: withAuthCookie(url, {
               "User-Agent": "Atlas/1.0 (+https://github.com/towerwatchman/Atlas)",
               Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            },
+            }),
           });
           imageBytes = Buffer.from(response.data);
           downloaded = true;
@@ -485,12 +500,12 @@ async function downloadImages(
       const response = async () => axios.get(url, {
         responseType: "arraybuffer",
         maxRedirects: 5,
-        headers: {
+        headers: withAuthCookie(url, {
           "User-Agent": "Atlas/1.0 (+https://github.com/towerwatchman/Atlas)",
           Accept: isVideo
             ? "video/webm,video/mp4,video/*,*/*;q=0.8"
             : "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        },
+        }),
       });
 
       if (isVideo && downloadVideos) {

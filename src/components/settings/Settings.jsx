@@ -3,6 +3,7 @@ import Interface from './Interface.jsx'
 import Library from './Library.jsx'
 import Appearance from './Appearance.jsx'
 import Metadata from './Metadata.jsx'
+import Accounts from './Accounts.jsx'
 import EmulatorLauncher from './EmulatorLauncher.jsx'
 import { settingsIcons } from './settingsIcons.js'
 import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
@@ -39,6 +40,8 @@ const Settings = () => {
         return <Appearance />;
       case "Metadata":
         return <Metadata />;
+      case "Accounts":
+        return <Accounts />;
       default:
         return <Interface />;
     }

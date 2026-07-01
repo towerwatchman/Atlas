@@ -37,6 +37,12 @@ export const settingsIcons = [
     viewBox: "0 0 32 32",
   },
   {
+    name: "Accounts",
+    icon: "accounts_icon",
+    path: "M12 12c2.761 0 5-2.239 5-5s-2.239-5-5-5-5 2.239-5 5 2.239 5 5 5zm0 2c-3.866 0-9 1.79-9 5v3h18v-3c0-3.21-5.134-5-9-5z",
+    viewBox: "0 0 24 24",
+  },
+  {
     name: "Search",
     hidden: true,
     icon: "search_icon",

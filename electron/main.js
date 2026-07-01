@@ -106,6 +106,8 @@ const registerUpdaterHandlers = require('./ipc/updater')
 const registerMediaHandlers = require('./ipc/media')
 const registerImporterHandlers = require('./ipc/importer')
 const registerThemeHandlers = require('./ipc/themes')
+const registerAccountsHandlers = require('./ipc/accounts')
+const accountStore = require('./accounts/accountStore')
 
 // ── Shared mutable state ────────────────────────────────────────────────────
 
@@ -160,31 +162,62 @@ if (!hasSingleInstanceLock) {
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
 
 
-let lewdCornerMediaHeadersRegistered = false
+let mediaAuthHeadersRegistered = false
 
 function setRequestHeader(headers, name, value) {
   const existingKey = Object.keys(headers).find((key) => key.toLowerCase() === name.toLowerCase())
   headers[existingKey || name] = value
 }
 
-function registerLewdCornerMediaHeaders() {
-  if (lewdCornerMediaHeadersRegistered) return
-  lewdCornerMediaHeadersRegistered = true
+// Injects the referer/UA (and, when an account is configured, the auth Cookie)
+// for streamed <img>/media requests to F95zone and LewdCorner, so login-gated
+// artwork loads in the renderer. The cookie is read synchronously from the
+// account store's in-memory cache. Downloaded (non-streamed) images get the
+// same cookie via imageUtils' axios headers.
+function registerMediaAuthHeaders() {
+  if (mediaAuthHeadersRegistered) return
+  mediaAuthHeadersRegistered = true
   session.defaultSession.webRequest.onBeforeSendHeaders(
-    { urls: ['https://lewdcorner.com/*', 'https://*.lewdcorner.com/*'] },
+    {
+      urls: [
+        'https://lewdcorner.com/*',
+        'https://*.lewdcorner.com/*',
+        'https://f95zone.to/*',
+        'https://*.f95zone.to/*',
+      ],
+    },
     (details, callback) => {
       const headers = { ...details.requestHeaders }
       const resourceType = String(details.resourceType || '').toLowerCase()
       if (['image', 'media', 'xhr', 'fetch'].includes(resourceType)) {
-        setRequestHeader(headers, 'Referer', 'https://lewdcorner.com/')
+        let referer = 'https://lewdcorner.com/'
+        try {
+          referer =
+            accountStore.refererForUrl(details.url) ||
+            new URL(details.url).origin + '/'
+        } catch (err) {
+          /* keep default */
+        }
+        setRequestHeader(headers, 'Referer', referer)
         setRequestHeader(headers, 'Accept', 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8')
         if (!Object.keys(headers).some((key) => key.toLowerCase() === 'user-agent')) {
           setRequestHeader(headers, 'User-Agent', 'Mozilla/5.0 Atlas/1.0')
+        }
+        try {
+          const cookie = accountStore.getCookieHeaderForUrl(details.url)
+          if (cookie) setRequestHeader(headers, 'Cookie', cookie)
+        } catch (err) {
+          /* no account configured — proceed without cookie */
         }
       }
       callback({ requestHeaders: headers })
     },
   )
+}
+
+// Backwards-compatible alias for the original call site.
+function registerLewdCornerMediaHeaders() {
+  registerMediaAuthHeaders()
 }
 
 // ── App data paths ──────────────────────────────────────────────────────────
@@ -1320,6 +1353,17 @@ app.whenReady().then(async () => {
   await repairMissingTotalPlaytime()
   await repairStaleVersionExecutables()
 
+  // Load encrypted site accounts before the window (and its webRequest cookie
+  // hook) come up, then refresh any expired sessions in the background.
+  try {
+    accountStore.init(dataDir)
+    accountStore.refreshAllAccounts().catch((err) =>
+      console.warn('Account cookie refresh failed:', err.message),
+    )
+  } catch (err) {
+    console.warn('Account store init failed:', err.message)
+  }
+
   createWindow()
 
   const ctx = buildCtx()
@@ -1372,6 +1416,7 @@ app.whenReady().then(async () => {
   registerMediaHandlers(ctx)
   registerImporterHandlers(ctx)
   registerThemeHandlers(ctx)
+  registerAccountsHandlers(ctx)
 
   if (appConfig?.Interface?.checkForAppUpdatesOnStartup) {
     autoUpdater.checkForUpdates().catch((err) => {
