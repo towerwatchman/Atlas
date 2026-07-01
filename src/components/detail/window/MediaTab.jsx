@@ -5,21 +5,11 @@ import PreviewLightbox from '../page/PreviewLightbox.jsx'
 export default function MediaTab({
   game, bannerUrl, bannerMediaStatus,
   validPreviewUrls, previewMediaStatus, previewHeight,
-  importProgress, setPreviewUrls,
+  importProgress,
   onDownloadBanner, onSelectCustomBanner, onDeleteBanner,
-  onDownloadPreviews, onRefreshMetadata,
+  onDownloadPreviews, onDeletePreviews, onRefreshMetadata,
 }) {
   const [lightboxIndex, setLightboxIndex] = useState(null)
-
-  const handleDeletePreviews = async () => {
-    try {
-      await window.electronAPI.deletePreviews(game.record_id)
-      const urls = await window.electronAPI.getPreviews(game.record_id)
-      setPreviewUrls(urls || [])
-    } catch (err) {
-      console.error('Error deleting previews:', err)
-    }
-  }
 
   const handleOpenImageFolder = async () => {
     try {
@@ -115,7 +105,7 @@ export default function MediaTab({
           <button onClick={onRefreshMetadata} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Refresh Media Links</button>
           <button onClick={onDownloadPreviews} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Download All Previews</button>
           {Array.isArray(validPreviewUrls) && validPreviewUrls.length > 0 && (
-            <button onClick={handleDeletePreviews} className="px-4 py-1 bg-danger text-white rounded hover:bg-dangerHover">Delete Downloaded Previews</button>
+            <button onClick={onDeletePreviews} className="px-4 py-1 bg-danger text-white rounded hover:bg-dangerHover">Delete Downloaded Previews</button>
           )}
         </div>
       </div>

@@ -89,6 +89,14 @@ const initializeDatabase = (dataDir) => {
     if (err) console.error("Database error:", err);
   });
 
+  // WAL lets reads proceed without being blocked by the write side and makes
+  // commits cheaper, so large background DB updates don't stall the UI's
+  // queries as badly. NORMAL synchronous is safe under WAL. busy_timeout keeps
+  // brief lock contention from erroring out.
+  db.run("PRAGMA journal_mode = WAL");
+  db.run("PRAGMA synchronous = NORMAL");
+  db.run("PRAGMA busy_timeout = 5000");
+
   db.serialize(() => {
     // Table creation migrations from C#
     db.run(`

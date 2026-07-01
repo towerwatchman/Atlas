@@ -101,11 +101,19 @@ const loadIdsIntoTemp = async (db, tempName, ids) => {
   await dbRun(db, `DELETE FROM ${tempName}`);
   const unique = [...new Set(ids.filter((id) => id !== null && id !== undefined && id !== ""))];
   if (unique.length === 0) return 0;
-  await dbRun(db, "BEGIN");
-  const stmt = db.prepare(`INSERT OR IGNORE INTO ${tempName} (id) VALUES (?)`);
-  for (const id of unique) stmt.run(id);
-  await new Promise((resolve, reject) => stmt.finalize((err) => (err ? reject(err) : resolve())));
-  await dbRun(db, "COMMIT");
+
+  const CHUNK = 1000;
+  const insertSql = `INSERT OR IGNORE INTO ${tempName} (id) VALUES (?)`;
+  for (let start = 0; start < unique.length; start += CHUNK) {
+    const chunk = unique.slice(start, start + CHUNK);
+    await dbRun(db, "BEGIN");
+    const stmt = db.prepare(insertSql);
+    for (const id of chunk) stmt.run(id);
+    await new Promise((resolve, reject) => stmt.finalize((err) => (err ? reject(err) : resolve())));
+    await dbRun(db, "COMMIT");
+    // Yield between batches so reads on the shared connection can run.
+    await new Promise((resolve) => setImmediate(resolve));
+  }
   return unique.length;
 };
 

@@ -603,47 +603,56 @@ function getValidatedUpdateColumns(jsonData, tableName) {
   return columns;
 }
 
-const insertJsonData = async (jsonData, tableName) => {
-  return new Promise((resolve, reject) => {
-    let columns;
-    try {
-      columns = getValidatedUpdateColumns(jsonData, tableName);
-    } catch (err) {
-      reject(err);
-      return;
-    }
+const INSERT_CHUNK_SIZE = 500;
 
-    getDb().serialize(() => {
-      getDb().run("BEGIN TRANSACTION");
-      const stmt = getDb().prepare(
-        `INSERT OR REPLACE INTO ${tableName} (${columns.join(", ")}) VALUES (${columns
-          .map(() => "?")
-          .join(", ")})`,
-      );
-      for (const item of jsonData) {
-        stmt.run(columns.map((column) => item[column]), (err) => {
+const insertJsonData = async (jsonData, tableName) => {
+  const rows = Array.isArray(jsonData) ? jsonData : [];
+  if (rows.length === 0) return;
+
+  // Validate/derive the column set from the payload (throws on malformed data).
+  const columns = getValidatedUpdateColumns(jsonData, tableName);
+  const insertSql = `INSERT OR REPLACE INTO ${tableName} (${columns.join(
+    ", ",
+  )}) VALUES (${columns.map(() => "?").join(", ")})`;
+
+  const writeChunk = (chunk) =>
+    new Promise((resolve, reject) => {
+      const db = getDb();
+      db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+        const stmt = db.prepare(insertSql);
+        let failed = null;
+        for (const item of chunk) {
+          stmt.run(
+            columns.map((column) => item[column]),
+            (err) => {
+              if (err && !failed) failed = err;
+            },
+          );
+        }
+        stmt.finalize((finalizeErr) => {
+          const err = failed || finalizeErr;
           if (err) {
-            getDb().run("ROLLBACK");
-            reject(err);
+            db.run("ROLLBACK", () => reject(err));
+          } else {
+            db.run("COMMIT", (commitErr) =>
+              commitErr ? reject(commitErr) : resolve(),
+            );
           }
         });
-      }
-      stmt.finalize((err) => {
-        if (err) {
-          getDb().run("ROLLBACK");
-          reject(err);
-        } else {
-          getDb().run("COMMIT", (err) => {
-            if (err) reject(err);
-            else {
-              resetCachedFilterOptions();
-              resolve();
-            }
-          });
-        }
       });
     });
-  });
+
+  // Process in bounded chunks, yielding the event loop between commits. On the
+  // single shared sqlite connection this lets renderer reads (games, previews,
+  // banners) that arrive mid-update execute between chunks instead of waiting
+  // for the whole snapshot to commit — which is what froze the UI.
+  for (let start = 0; start < rows.length; start += INSERT_CHUNK_SIZE) {
+    await writeChunk(rows.slice(start, start + INSERT_CHUNK_SIZE));
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  resetCachedFilterOptions();
 };
 
 const searchAtlasByF95Id = (f95Id) => {

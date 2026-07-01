@@ -288,6 +288,28 @@ const GameDetailWindow = () => {
     }
   }
 
+  const handleDeletePreviews = async () => {
+    try {
+      setImportProgress({ text: 'Deleting downloaded previews...', progress: 0, total: 1 })
+      await window.electronAPI.deletePreviews(game.record_id)
+      const [refreshedGame, urls] = await Promise.all([
+        window.electronAPI.getGame(game.record_id),
+        window.electronAPI.getPreviews(game.record_id),
+      ])
+      if (refreshedGame) {
+        refreshFromGame(refreshedGame, selectedVersion)
+        setBannerUrl(refreshedGame.banner_url || '')
+      }
+      setPreviewUrls(Array.isArray(urls) ? urls : [])
+      setImportProgress({ text: 'Previews deleted', progress: 1, total: 1 })
+      setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 1500)
+    } catch (err) {
+      console.error('Failed to delete previews:', err)
+      alert(`Failed to delete previews: ${err.message || 'Unknown error'}`)
+      setImportProgress({ text: '', progress: 0, total: 0 })
+    }
+  }
+
   const handleRefreshMetadata = async () => {
     setImportProgress({ text: 'Refreshing media links...', progress: 0, total: 1 })
     try {
@@ -641,11 +663,11 @@ const GameDetailWindow = () => {
                 previewMediaStatus={previewMediaStatus}
                 previewHeight={previewHeight}
                 importProgress={importProgress}
-                setPreviewUrls={setPreviewUrls}
                 onDownloadBanner={handleDownloadBanner}
                 onSelectCustomBanner={handleSelectCustomBanner}
                 onDeleteBanner={handleDeleteBanner}
                 onDownloadPreviews={handleDownloadPreviews}
+                onDeletePreviews={handleDeletePreviews}
                 onRefreshMetadata={handleRefreshMetadata}
               />
             )}
