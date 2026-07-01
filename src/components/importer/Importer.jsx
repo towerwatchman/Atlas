@@ -1038,7 +1038,21 @@ const Importer = () => {
   }, [])
 
   const updateGame = (gameKey, field, value) => {
-    setGamesList((prev) => prev.map((g) => getScanGameKey(g) === gameKey ? { ...g, [field]: value } : g))
+    setGamesList((prev) => prev.map((game) => {
+      if (getScanGameKey(game) !== gameKey) return game
+      const manuallyCorrected = game.scanStatus === 'alreadyImported'
+      return {
+        ...game,
+        [field]: value,
+        ...(manuallyCorrected
+          ? {
+              scanStatus: 'new',
+              scanMessage: 'Manually corrected - ready to import',
+              recordExist: false,
+            }
+          : {}),
+      }
+    }))
   }
 
   const hydrateManualF95Id = async (gameKey, rawValue, { refresh = false } = {}) => {

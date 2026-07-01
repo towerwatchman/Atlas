@@ -79,7 +79,7 @@ const getRelativeScanPath = (targetPath, scanPath) => {
 }
 
 export default function ScanTable({
-  sortedRows, isNewScanRow, sortConfig,
+  sortedRows, sortConfig,
   onSort, onUpdateGame, onDeleteGame, onResultChange, getGameKey,
   getRowImportStatus, onHydrateManualF95Id, onHydrateManualLcId,
   selectedRowKeys = new Set(), lastSelectedRowKey = '',
@@ -266,7 +266,6 @@ export default function ScanTable({
       </thead>
       <tbody>
         {sortedRows.map(({ game, originalIndex }) => {
-          const rowIsNew = isNewScanRow(game)
           const rowStatus = getRowImportStatus(game)
           const statusText = rowStatus.text
           const statusClass =
@@ -320,14 +319,17 @@ export default function ScanTable({
                   className="h-4 w-4"
                 />
               </td>
-              <td className="border border-border p-1 truncate">
-                {matchResults.length > 1 && <i className="fa-solid fa-triangle-exclamation text-yellow-400 mr-1"></i>}
-                {game.atlasId}
+              <td className="border border-border p-1">
+                <input
+                  value={game.atlasId || ''}
+                  onChange={(e) => onUpdateGame(gameKey, 'atlasId', e.target.value)}
+                  title="Atlas ID from the database match. Edit it if the match is incorrect, then use Update Matches."
+                  className={ROW_INPUT_CLASS}
+                />
               </td>
               <td className="border border-border p-1">
                 <input
                   value={game.f95Id || ''}
-                  disabled={!rowIsNew}
                   onChange={(e) => onUpdateGame(gameKey, 'f95Id', e.target.value)}
                   onBlur={(e) => onHydrateManualF95Id?.(gameKey, e.target.value)}
                   onKeyDown={(e) => {
@@ -342,7 +344,6 @@ export default function ScanTable({
               <td className="border border-border p-1">
                 <input
                   value={game.lcId || game.lewdCornerId || ''}
-                  disabled={!rowIsNew}
                   onChange={(e) => onUpdateGame(gameKey, 'lcId', e.target.value)}
                   onBlur={(e) => onHydrateManualLcId?.(gameKey, e.target.value)}
                   onKeyDown={(e) => {
@@ -355,22 +356,22 @@ export default function ScanTable({
                 />
               </td>
               <td className="border border-border p-1">
-                <input value={game.title} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'title', e.target.value)} className={ROW_INPUT_CLASS} />
+                <input value={game.title} onChange={(e) => onUpdateGame(gameKey, 'title', e.target.value)} className={ROW_INPUT_CLASS} />
               </td>
               <td className="border border-border p-1">
-                <input value={game.creator} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'creator', e.target.value)} className={ROW_INPUT_CLASS} />
+                <input value={game.creator} onChange={(e) => onUpdateGame(gameKey, 'creator', e.target.value)} className={ROW_INPUT_CLASS} />
               </td>
               <td className="border border-border p-1">
-                <input value={game.engine} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'engine', e.target.value)} className={ROW_INPUT_CLASS} />
+                <input value={game.engine} onChange={(e) => onUpdateGame(gameKey, 'engine', e.target.value)} className={ROW_INPUT_CLASS} />
               </td>
               <td className="border border-border p-1">
-                <input value={game.version} disabled={!rowIsNew || isRenpySave} onChange={(e) => onUpdateGame(gameKey, 'version', e.target.value)} className={ROW_INPUT_CLASS} />
+                <input value={game.version} disabled={isRenpySave} onChange={(e) => onUpdateGame(gameKey, 'version', e.target.value)} className={ROW_INPUT_CLASS} />
               </td>
               {showReplaceVersion && (
                 <td className="border border-border p-1">
                   <select
                     value={game.replaceVersion || ''}
-                    disabled={!rowIsNew || !game.replaceOptions?.length}
+                    disabled={!game.replaceOptions?.length}
                     onChange={(e) => {
                       const replaceVersion = e.target.value
                       const selected = (game.replaceOptions || []).find((option) => option.version === replaceVersion)
@@ -392,7 +393,7 @@ export default function ScanTable({
               <td className="border border-border p-1">
                 <div className="truncate">
                 {isRenpySave ? 'N/A' : game.multipleVisible === 'visible' ? (
-                  <select value={game.selectedValue} disabled={!rowIsNew} onChange={(e) => onUpdateGame(gameKey, 'selectedValue', e.target.value)} className={ROW_SELECT_CLASS}>
+                  <select value={game.selectedValue} onChange={(e) => onUpdateGame(gameKey, 'selectedValue', e.target.value)} className={ROW_SELECT_CLASS}>
                     {game.executables.map((opt) => <option key={opt.key} value={opt.key}>{opt.value}</option>)}
                   </select>
                 ) : game.singleExecutable}
@@ -402,7 +403,7 @@ export default function ScanTable({
                 {matchResults.length === 1 && matchResults[0]?.key === 'match' ? (
                   <span className="text-text select-none">{matchResults[0].value}</span>
                 ) : matchResults.length > 1 && (
-                  <select value={selectedMatchValue} disabled={!rowIsNew} onChange={(e) => onResultChange(gameKey, e.target.value)} className={ROW_SELECT_CLASS}>
+                  <select value={selectedMatchValue} onChange={(e) => onResultChange(gameKey, e.target.value)} className={ROW_SELECT_CLASS}>
                     {matchResults.map((opt) => <option key={opt.key} value={opt.key}>{opt.value}</option>)}
                   </select>
                 )}
