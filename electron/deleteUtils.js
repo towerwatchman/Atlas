@@ -104,6 +104,11 @@ async function deletePathWithElevationFallback(targetPath, options = {}) {
 
   try {
     await fs.promises.rm(resolvedPath, { recursive, force })
+    if (await pathExists(resolvedPath)) {
+      const err = new Error(`Delete reported success but did not remove ${resolvedPath}`)
+      err.code = process.platform === 'win32' ? 'EBUSY' : 'EIO'
+      throw err
+    }
     return { success: true, elevated: false }
   } catch (err) {
     if (!isPermissionDeleteError(err) || !allowElevatedRetry) throw err
