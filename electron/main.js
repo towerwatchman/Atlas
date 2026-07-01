@@ -867,9 +867,10 @@ function createWindow() {
     return mainWindow
   }
   const windowState = applySavedWindowBounds('main', {
-    width: 1366,
-    minWidth: 1366,
-    height: 800,
+    width: 1410,
+    minWidth: 1410,
+    height: 860,
+    minHeight: 860,
     frame: false,
     // Windows draws a native DWM resize border (often tinted with the
     // system accent color) around frame:false windows that aren't also
