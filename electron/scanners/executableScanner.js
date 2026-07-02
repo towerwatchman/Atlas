@@ -1,37 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-
-const blacklist = [
-  "UnityCrashHandler64.exe",
-  "UnityCrashHandler32.exe",
-  "payload.exe",
-  "nwjc.exe",
-  "notification_helper.exe",
-  "nacl64.exe",
-  "chromedriver.exe",
-  "Squirrel.exe",
-  "zsync.exe",
-  "zsyncmake.exe",
-  "cmake.exe",
-  "pythonw.exe",
-  "python.exe",
-  "dxwebsetup.exe",
-  "README.html",
-  "manual.htm",
-  "unins000.exe",
-  "UE4PrereqSetup_X64.exe",
-  "UEPrereqSetup_x64.exe",
-  "credits.html",
-  "LICENSES.chromium.html",
-  "Uninstall.exe",
-  "CONFIG_dl.exe",
-];
-
-// Blacklist check is case-insensitive exact match on filename
-function isBlacklisted(name) {
-  const lower = name.toLowerCase();
-  return blacklist.some((b) => b.toLowerCase() === lower);
-}
+const { isImportBlacklisted } = require("./importBlacklist");
 
 function findExecutables(dir, extensions) {
   const execs = [];
@@ -72,7 +41,7 @@ function findExecutables(dir, extensions) {
       const nameLower = item.name.toLowerCase();
 
       if (!extensions.includes(ext)) continue;
-      if (isBlacklisted(item.name) || nameLower.includes("-32")) continue;
+      if (isImportBlacklisted(item.name) || nameLower.includes("-32")) continue;
 
       // Valid executable found
       const relative = path.relative(dir, fullPath);

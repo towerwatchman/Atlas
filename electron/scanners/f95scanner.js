@@ -7,6 +7,7 @@ const {
 } = require("../db/index");
 const { findGlInfosForGameFolder } = require("./glInfosParser");
 const { findExecutables } = require("./executableScanner");
+const { isImportBlacklisted } = require("./importBlacklist");
 
 const engineMap = {
   rpgm: [
@@ -22,35 +23,8 @@ const engineMap = {
   flash: [".swf"],
 };
 
-const blacklist = [
-  "UnityCrashHandler64.exe",
-  "UnityCrashHandler32.exe",
-  "payload.exe",
-  "nwjc.exe",
-  "notification_helper.exe",
-  "nacl64.exe",
-  "chromedriver.exe",
-  "Squirrel.exe",
-  "zsync.exe",
-  "zsyncmake.exe",
-  "cmake.exe",
-  "pythonw.exe",
-  "python.exe",
-  "dxwebsetup.exe",
-  "README.html",
-  "manual.htm",
-  "unins000.exe",
-  "UE4PrereqSetup_X64.exe",
-  "UEPrereqSetup_x64.exe",
-  "credits.html",
-  "LICENSES.chromium.html",
-  "Uninstall.exe",
-  "CONFIG_dl.exe",
-];
-
 function isBlacklisted(filePath) {
-  const filename = path.basename(filePath).toLowerCase();
-  return blacklist.some((entry) => entry.toLowerCase() === filename);
+  return isImportBlacklisted(filePath);
 }
 
 function normalizeExtensions(extensions) {
