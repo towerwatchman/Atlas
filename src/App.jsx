@@ -506,7 +506,9 @@ const App = () => {
     const enteringFreshly = libraryMode !== 'catalog'
     setLibraryMode('catalog')
     setSelectedGame(null)
-    setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
+    if (sidebarMode !== SIDE_PANEL_MODES.SAVED_FILTERS) {
+      setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
+    }
     setShowSearchSidebar(false)
 
     if (enteringFreshly) {
@@ -546,6 +548,7 @@ const App = () => {
     handleFilterChange,
     libraryMode,
     setAndPersistSidePanelMode,
+    sidebarMode,
   ])
 
   const loadWishlistIdentities = useCallback(() => {
