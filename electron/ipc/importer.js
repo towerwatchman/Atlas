@@ -948,7 +948,7 @@ async function getTrustedVersion(recordId, version) {
   return selectedVersion;
 }
 
-async function isAllowedDeletionPath(recordId, folderPath) {
+async function isAllowedDeletionPath(recordId, folderPath, libraryRoot = null) {
   if (!recordId || !folderPath || typeof folderPath !== "string") return false;
 
   const resolvedPath = path.resolve(folderPath);
@@ -962,7 +962,6 @@ async function isAllowedDeletionPath(recordId, folderPath) {
     return true;
   }
 
-  const libraryRoot = appConfig?.Library?.gameFolder;
   return Boolean(
     libraryRoot &&
       fs.existsSync(libraryRoot) &&
@@ -1021,6 +1020,8 @@ async function replaceInstalledVersionAfterImport({
   oldVersionSnapshot = null,
   trustedOldPath = null,
   deleteDatabaseRow = true,
+  libraryRoot = null,
+  auditDataDir = null,
   sender = ownerMainWindow,
 }) {
   const selectedReplaceVersion = String(replaceVersion || "").trim();
@@ -1039,7 +1040,7 @@ async function replaceInstalledVersionAfterImport({
     console.log("[ReplacementAudit]", JSON.stringify(entry));
     try {
       fs.appendFileSync(
-        path.join(dataDir, "replacement-audit.jsonl"),
+        path.join(auditDataDir || process.cwd(), "replacement-audit.jsonl"),
         `${JSON.stringify(entry)}\n`,
         "utf8",
       );
@@ -1111,7 +1112,7 @@ async function replaceInstalledVersionAfterImport({
 
   const hadOldFiles = fs.existsSync(resolvedOldPath);
   const oldPathAllowed = trustedOldPath === null
-    ? await isAllowedDeletionPath(recordId, resolvedOldPath)
+    ? await isAllowedDeletionPath(recordId, resolvedOldPath, libraryRoot)
     : trustedOldPath === true;
   audit("path-check", {
     resolvedOldPath,
@@ -1189,7 +1190,7 @@ async function replaceInstalledVersionAfterImport({
       }
       await removeEmptyParentDirectories(
         resolvedOldPath,
-        appConfig?.Library?.gameFolder,
+        libraryRoot,
       );
     } catch (err) {
       return {
@@ -2999,7 +3000,11 @@ ipcMain.handle("import-games", async (event, params) => {
           throw new Error(`Selected replacement version ${game.replaceVersion} was not found`);
         }
         bulkReplacePathAllowed = bulkReplaceRow.game_path
-          ? await isAllowedDeletionPath(recordId, path.resolve(bulkReplaceRow.game_path))
+          ? await isAllowedDeletionPath(
+              recordId,
+              path.resolve(bulkReplaceRow.game_path),
+              ctx.appConfig?.Library?.gameFolder,
+            )
           : false;
       }
       let savedVersionResult = null;
@@ -3094,6 +3099,8 @@ ipcMain.handle("import-games", async (event, params) => {
           oldVersionSnapshot: bulkReplaceRow,
           trustedOldPath: bulkReplacePathAllowed,
           deleteDatabaseRow: false,
+          libraryRoot: ctx.appConfig?.Library?.gameFolder || null,
+          auditDataDir: dataDir,
           sender: mainWindow,
         });
 
