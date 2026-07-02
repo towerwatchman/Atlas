@@ -47,9 +47,9 @@ const previewGame = {
   status: 'Completed',
   latestVersion: 'v1.3.0',
   versions: [{ version: 'v1.2.0', isInstalled: true }, { version: 'v1.0.0', isInstalled: true }],
-  isUpdateAvailable: true,
-  isFavorite: true,
-  isWishlisted: true,
+  isUpdateAvailable: false,
+  isFavorite: false,
+  isWishlisted: false,
   hasInstalledVersion: true,
   atlas_id: 123,
   f95_id: 456,
@@ -67,11 +67,13 @@ const previewGame = {
 }
 
 const previewModes = {
-  local: { label: 'Local installed sample', patch: {} },
+  local: { label: 'Simple installed sample', patch: {} },
+  favorite: { label: 'Favorite sample', patch: { isFavorite: true } },
+  update: { label: 'Update available sample', patch: { isUpdateAvailable: true } },
   ...(BROWSE_MODE_ENABLED
     ? { browse: { label: 'Browse catalog sample', patch: { isCatalogEntry: true, isMetadataOnly: true, hasInstalledVersion: true, isFavorite: false, personalRatingOverall: null, totalPlaytime: 0, lastPlayed: 0 } } }
     : {}),
-  wishlist: { label: 'Wishlist sample', patch: { isCatalogEntry: true, isWishlistEntry: true, isWishlisted: true, isFavorite: false } },
+  wishlist: { label: 'Wishlist sample', patch: { isCatalogEntry: true, isWishlistEntry: true, isWishlisted: true } },
   missing: { label: 'Missing/uninstalled sample', patch: { hasInstalledVersion: false, versions: [], totalPlaytime: 0, lastPlayed: 0 } },
 }
 
