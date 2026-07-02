@@ -2525,6 +2525,26 @@ ipcMain.handle("import-games", async (event, params) => {
   } = params;
   const shouldDeleteSourceArchive =
     deleteSourceArchiveAfterImport === true || (deleteSourceArchiveAfterImport === undefined && deleteAfter === true);
+  const auditImportCleanup = (stage, details = {}) => {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      stage,
+      deleteSourceArchiveAfterImport,
+      shouldDeleteSourceArchive,
+      ...details,
+    };
+    console.log("[ImportCleanupAudit]", JSON.stringify(entry));
+    try {
+      fs.appendFileSync(
+        path.join(dataDir, "replacement-audit.jsonl"),
+        `${JSON.stringify(entry)}\n`,
+        "utf8",
+      );
+    } catch (auditErr) {
+      console.warn("Failed to write import cleanup audit:", auditErr.message);
+    }
+  };
+  auditImportCleanup("import-options", { sourceRoot, submittedGameCount: submittedGames.length });
 
   const games = submittedGames.filter(
     (game) =>
@@ -2740,6 +2760,13 @@ ipcMain.handle("import-games", async (event, params) => {
           extractPath = extraction.finalPath || extractPath;
           session.cleanupPaths = [extractPath];
           archiveToDeleteAfterImport = shouldDeleteSourceArchive ? zipPath : null;
+          auditImportCleanup("archive-extracted", {
+            title: game.title,
+            sourceArchive: zipPath,
+            sourceCleanupRoot,
+            archiveExists: fs.existsSync(zipPath),
+            scheduledForDeletion: Boolean(archiveToDeleteAfterImport),
+          });
 
           mainWindow?.webContents.send("import-progress", {
             text: `Extraction complete — 100% (${game.title})`,
@@ -3093,6 +3120,13 @@ ipcMain.handle("import-games", async (event, params) => {
                 canCancel: true,
               }),
           });
+          auditImportCleanup("source-archive-delete-result", {
+            title: game.title,
+            sourceArchive: archiveToDeleteAfterImport,
+            sourceCleanupRoot,
+            deleteResult,
+            existsAfterDelete: fs.existsSync(archiveToDeleteAfterImport),
+          });
           if (!deleteResult.success) {
             throw new Error(deleteResult.error || "Archive delete skipped");
           }
@@ -3107,15 +3141,19 @@ ipcMain.handle("import-games", async (event, params) => {
             canCancel: true,
           });
         } catch (archiveDeleteErr) {
+          auditImportCleanup("source-archive-delete-failed", {
+            title: game.title,
+            sourceArchive: archiveToDeleteAfterImport,
+            sourceCleanupRoot,
+            error: archiveDeleteErr.message || String(archiveDeleteErr),
+            existsAfterDelete: fs.existsSync(archiveToDeleteAfterImport),
+          });
           console.warn(
             `Failed to delete archive ${archiveToDeleteAfterImport}: ${archiveDeleteErr.message}`,
           );
-          mainWindow.webContents.send("import-progress", {
-            text: `Imported ${game.title}, but kept original archive because deletion failed`,
-            progress,
-            total,
-            canCancel: true,
-          });
+          throw new Error(
+            `Imported ${game.title}, but could not delete source archive ${archiveToDeleteAfterImport}: ${archiveDeleteErr.message}`,
+          );
         }
       }
       results.push({
