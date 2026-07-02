@@ -1019,6 +1019,7 @@ async function replaceInstalledVersionAfterImport({
   replaceVersion,
   replaceVersionId,
   oldVersionSnapshot = null,
+  trustedOldPath = null,
   deleteDatabaseRow = true,
   sender = ownerMainWindow,
 }) {
@@ -1109,16 +1110,18 @@ async function replaceInstalledVersionAfterImport({
   }
 
   const hadOldFiles = fs.existsSync(resolvedOldPath);
+  const oldPathAllowed = trustedOldPath === null
+    ? await isAllowedDeletionPath(recordId, resolvedOldPath)
+    : trustedOldPath === true;
   audit("path-check", {
     resolvedOldPath,
     resolvedNewPath,
     hadOldFiles,
-    allowedDeletionPath: hadOldFiles
-      ? await isAllowedDeletionPath(recordId, resolvedOldPath)
-      : null,
+    allowedDeletionPath: hadOldFiles ? oldPathAllowed : null,
+    trustCapturedBeforeVersionUpdate: trustedOldPath !== null,
   });
   if (hadOldFiles) {
-    if (!(await isAllowedDeletionPath(recordId, resolvedOldPath))) {
+    if (!oldPathAllowed) {
       return {
         replaced: false,
         skipped: true,
@@ -1154,8 +1157,11 @@ async function replaceInstalledVersionAfterImport({
           if (candidatePath === path.parse(candidatePath).root) {
             throw new Error("Refusing to delete a drive root");
           }
-          if (!(await isAllowedDeletionPath(recordId, candidatePath))) {
-            throw new Error("Replacement path is not allowed for deletion");
+          if (normalizeForPathCompare(candidatePath) !== normalizeForPathCompare(resolvedOldPath)) {
+            throw new Error("Replacement delete target changed");
+          }
+          if (!oldPathAllowed) {
+            throw new Error("Replacement path was not trusted before the version update");
           }
         },
         onProgress: (text) => {
@@ -2951,6 +2957,7 @@ ipcMain.handle("import-games", async (event, params) => {
         steamId: steamId || game.steamId,
       };
       let bulkReplaceRow = null;
+      let bulkReplacePathAllowed = null;
       if (isReplaceOperation) {
         const selectedVersionId = Number.parseInt(game.replaceVersionId, 10);
         bulkReplaceRow = Number.isInteger(selectedVersionId) && selectedVersionId > 0
@@ -2964,6 +2971,9 @@ ipcMain.handle("import-games", async (event, params) => {
         if (!bulkReplaceRow) {
           throw new Error(`Selected replacement version ${game.replaceVersion} was not found`);
         }
+        bulkReplacePathAllowed = bulkReplaceRow.game_path
+          ? await isAllowedDeletionPath(recordId, path.resolve(bulkReplaceRow.game_path))
+          : false;
       }
       let savedVersionResult = null;
       if (bulkReplaceRow) {
@@ -3055,6 +3065,7 @@ ipcMain.handle("import-games", async (event, params) => {
           replaceVersion: game.replaceVersion,
           replaceVersionId: game.replaceVersionId,
           oldVersionSnapshot: bulkReplaceRow,
+          trustedOldPath: bulkReplacePathAllowed,
           deleteDatabaseRow: false,
           sender: mainWindow,
         });
