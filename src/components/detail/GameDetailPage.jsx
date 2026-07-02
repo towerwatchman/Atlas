@@ -23,319 +23,6 @@ const personalRatingFields = [
   ['fappability', 'Fappability', 'personalRatingFappability'],
 ]
 
-const DEFAULT_DETAIL_MODULE_ORDER = ['previews', 'versions', 'personalRating', 'details', 'externalLinks', 'tags']
-const DETAIL_GRID_GAP = 18
-const DETAIL_GRID_ROW_HEIGHT = 12
-const DETAIL_MODULE_SIZES = {
-  tiny: { label: 'Tiny', span: 2 },
-  small: { label: 'Small', span: 4 },
-  medium: { label: 'Medium', span: 6 },
-  wide: { label: 'Wide', span: 8 },
-  stack: { label: 'Stack', span: 12 },
-}
-
-const normalizeDetailModuleOrder = (rawOrder, modules) => {
-  const availableIds = modules.map((module) => module.id)
-  const incoming = Array.isArray(rawOrder)
-    ? rawOrder
-    : String(rawOrder || '').split(',').map((id) => id.trim()).filter(Boolean)
-  const ordered = incoming.filter((id, index) => availableIds.includes(id) && incoming.indexOf(id) === index)
-  for (const id of DEFAULT_DETAIL_MODULE_ORDER) {
-    if (availableIds.includes(id) && !ordered.includes(id)) ordered.push(id)
-  }
-  for (const id of availableIds) {
-    if (!ordered.includes(id)) ordered.push(id)
-  }
-  return ordered
-}
-
-const parseDetailsLayoutSetting = (raw) => {
-  if (!raw) return { order: [], sizes: {} }
-  if (typeof raw === 'object') {
-    return {
-      order: Array.isArray(raw.order) ? raw.order : [],
-      sizes: raw.sizes && typeof raw.sizes === 'object' ? raw.sizes : {},
-    }
-  }
-  const text = String(raw || '').trim()
-  if (!text) return { order: [], sizes: {} }
-  if (text.startsWith('{')) {
-    try {
-      const parsed = JSON.parse(text)
-      return parseDetailsLayoutSetting(parsed)
-    } catch {
-      return { order: [], sizes: {} }
-    }
-  }
-  return { order: text.split(',').map((id) => id.trim()).filter(Boolean), sizes: {} }
-}
-
-const normalizeDetailModuleSizes = (rawSizes, modules) => {
-  const sizes = {}
-  for (const module of modules) {
-    const rawSize = rawSizes?.[module.id] || module.defaultSize || 'medium'
-    sizes[module.id] = DETAIL_MODULE_SIZES[rawSize] ? rawSize : 'medium'
-  }
-  return sizes
-}
-
-const DetailsModuleGrid = ({ modules }) => {
-  const [isEditing, setIsEditing] = useState(false)
-  const [draggingId, setDraggingId] = useState('')
-  const [order, setOrder] = useState(() => normalizeDetailModuleOrder([], modules))
-  const [sizes, setSizes] = useState(() => normalizeDetailModuleSizes({}, modules))
-  const [rowSpans, setRowSpans] = useState({})
-  const [status, setStatus] = useState('')
-  const observerRef = useRef(null)
-  const moduleNodesRef = useRef(new Map())
-
-  useEffect(() => {
-    let canceled = false
-    window.electronAPI.getConfig()
-      .then((config) => {
-        if (canceled) return
-        const layout = parseDetailsLayoutSetting(config?.Interface?.detailsPageLayout || config?.Interface?.detailsPageModuleOrder)
-        setOrder(normalizeDetailModuleOrder(layout.order, modules))
-        setSizes(normalizeDetailModuleSizes(layout.sizes, modules))
-      })
-      .catch((err) => {
-        console.error('Failed to load details page layout:', err)
-        setOrder(normalizeDetailModuleOrder([], modules))
-        setSizes(normalizeDetailModuleSizes({}, modules))
-      })
-    return () => { canceled = true }
-  }, [])
-
-  useEffect(() => {
-    setOrder((current) => normalizeDetailModuleOrder(current, modules))
-    setSizes((current) => normalizeDetailModuleSizes(current, modules))
-  }, [modules.map((module) => module.id).join(',')])
-
-  useEffect(() => {
-    observerRef.current = new ResizeObserver((entries) => {
-      setRowSpans((current) => {
-        let changed = false
-        const next = { ...current }
-        for (const entry of entries) {
-          const id = entry.target.dataset.moduleId
-          if (!id) continue
-          const height = entry.contentRect.height
-          const span = Math.max(1, Math.ceil((height + DETAIL_GRID_GAP) / (DETAIL_GRID_ROW_HEIGHT + DETAIL_GRID_GAP)))
-          if (next[id] !== span) {
-            next[id] = span
-            changed = true
-          }
-        }
-        return changed ? next : current
-      })
-    })
-    for (const node of moduleNodesRef.current.values()) observerRef.current.observe(node)
-    return () => {
-      observerRef.current?.disconnect()
-      observerRef.current = null
-    }
-  }, [])
-
-  const setModuleNode = (id, node) => {
-    const previous = moduleNodesRef.current.get(id)
-    if (previous && previous !== node) observerRef.current?.unobserve(previous)
-    if (node) {
-      moduleNodesRef.current.set(id, node)
-      observerRef.current?.observe(node)
-    } else {
-      moduleNodesRef.current.delete(id)
-    }
-  }
-
-  const moduleById = new Map(modules.map((module) => [module.id, module]))
-  const visibleModules = order.map((id) => moduleById.get(id)).filter(Boolean)
-
-  const moveModule = (targetId, placement = 'before') => {
-    if (!isEditing || !draggingId || draggingId === targetId) return
-    setOrder((current) => {
-      const next = current.filter((id) => id !== draggingId)
-      const targetIndex = next.indexOf(targetId)
-      const insertIndex = targetIndex < 0
-        ? next.length
-        : placement === 'after'
-          ? targetIndex + 1
-          : targetIndex
-      next.splice(insertIndex, 0, draggingId)
-      return next
-    })
-  }
-
-  const moveModuleToEnd = () => {
-    if (!isEditing || !draggingId) return
-    setOrder((current) => [...current.filter((id) => id !== draggingId), draggingId])
-  }
-
-  const getDropPlacement = (event) => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    const xRatio = rect.width ? (event.clientX - rect.left) / rect.width : 0
-    const yRatio = rect.height ? (event.clientY - rect.top) / rect.height : 0
-    return yRatio > 0.55 || (yRatio > 0.35 && xRatio > 0.5) ? 'after' : 'before'
-  }
-
-  const saveLayout = async () => {
-    try {
-      const config = await window.electronAPI.getConfig()
-      const nextConfig = {
-        ...config,
-        Interface: {
-          ...(config?.Interface || {}),
-          detailsPageLayout: JSON.stringify({ order, sizes }),
-          detailsPageModuleOrder: order.join(','),
-        },
-      }
-      const result = await window.electronAPI.saveSettings(nextConfig)
-      if (result?.success === false) throw new Error(result.error || 'Save failed')
-      setStatus('Layout saved')
-      setIsEditing(false)
-    } catch (err) {
-      console.error('Failed to save details page layout:', err)
-      setStatus('Could not save layout')
-    }
-  }
-
-  const resetLayout = () => {
-    setOrder(normalizeDetailModuleOrder(DEFAULT_DETAIL_MODULE_ORDER, modules))
-    setSizes(normalizeDetailModuleSizes({}, modules))
-    setStatus('')
-  }
-
-  const resizeModule = (id, size) => {
-    setSizes((current) => ({
-      ...current,
-      [id]: DETAIL_MODULE_SIZES[size] ? size : 'medium',
-    }))
-  }
-
-  return (
-    <div className="p-6">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-        <div style={{ color: '#9ca3af', fontSize: 12 }}>
-          {isEditing ? 'Drag across the upper/lower half of widgets to place before/after them. Size buttons control grid width.' : status}
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {isEditing && (
-            <>
-              <button type="button" onClick={resetLayout} className="bg-primary border border-border px-3 py-2 hover:bg-selected text-xs">
-                Reset
-              </button>
-              <button type="button" onClick={saveLayout} className="bg-accent px-3 py-2 hover:bg-accentHover text-xs">
-                Save layout
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              setIsEditing((value) => !value)
-              setStatus('')
-            }}
-            className="bg-primary border border-border px-3 py-2 hover:bg-selected text-xs"
-            title="Customize details layout"
-          >
-            <i className="fas fa-grip" style={{ marginRight: 6 }}></i>
-            {isEditing ? 'Done' : 'Customize layout'}
-          </button>
-        </div>
-      </div>
-      <style>
-        {`
-          .details-module-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
-          .details-module-grid-item { grid-column: span var(--detail-module-span, 6); }
-          @media (max-width: 900px) {
-            .details-module-grid-item { grid-column: 1 / -1; }
-          }
-        `}
-      </style>
-      <div
-        className="details-module-grid"
-        style={{
-          display: 'grid',
-          gridAutoFlow: 'dense',
-          gridAutoRows: DETAIL_GRID_ROW_HEIGHT,
-          gap: DETAIL_GRID_GAP,
-          alignItems: 'start',
-        }}
-      >
-        {visibleModules.map((module) => (
-          <div
-            key={module.id}
-            className="details-module-grid-item"
-            draggable={isEditing}
-            onDragStart={() => setDraggingId(module.id)}
-            onDragOver={(event) => {
-              if (!isEditing) return
-              event.preventDefault()
-              moveModule(module.id, getDropPlacement(event))
-            }}
-            onDragEnd={() => setDraggingId('')}
-            style={{
-              '--detail-module-span': DETAIL_MODULE_SIZES[sizes[module.id]]?.span || 6,
-              minWidth: 0,
-              gridRowEnd: `span ${rowSpans[module.id] || 1}`,
-              opacity: draggingId === module.id ? 0.55 : 1,
-              outline: isEditing ? '1px dashed rgba(134,168,231,0.55)' : 'none',
-              outlineOffset: isEditing ? 3 : 0,
-            }}
-          >
-            <div ref={(node) => setModuleNode(module.id, node)} data-module-id={module.id}>
-              {isEditing && (
-                <div
-                  className="bg-primary border border-border text-xs"
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '7px 9px', marginBottom: 8, color: '#cbd5e1' }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'grab' }}>
-                    <i className="fas fa-grip-vertical"></i>
-                    Move {module.title}
-                  </div>
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    {Object.entries(DETAIL_MODULE_SIZES).map(([size, meta]) => (
-                      <button
-                        key={size}
-                        type="button"
-                        onClick={() => resizeModule(module.id, size)}
-                        className={`border px-2 py-1 ${sizes[module.id] === size ? 'bg-selected border-accent' : 'bg-secondary border-border hover:bg-selected'}`}
-                        style={{ fontSize: 11 }}
-                      >
-                        {meta.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {module.content}
-            </div>
-          </div>
-        ))}
-        {isEditing && (
-          <div
-            onDragOver={(event) => {
-              event.preventDefault()
-              moveModuleToEnd()
-            }}
-            style={{
-              gridColumn: '1 / -1',
-              minHeight: 42,
-              border: '1px dashed rgba(134,168,231,0.45)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#9ca3af',
-              fontSize: 12,
-            }}
-          >
-            Drop here to place at the end
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 const normalizeRatingInput = (value) => {
   if (value === undefined || value === null || value === '') return ''
   const number = Number(value)
@@ -1038,173 +725,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
-  const previewTileMin = previews.length <= 1 ? 'min(100%, 520px)' : previews.length <= 3 ? 'min(100%, 320px)' : '220px'
-  const detailModules = [
-    {
-      id: 'previews',
-      title: 'Previews',
-      defaultSize: 'stack',
-      content: (
-        <section className="border border-border bg-secondary" style={{ padding: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <h2 className="text-lg font-semibold">Previews</h2>
-            <span style={{ fontSize: 11, color: '#9ca3af' }}>{previews.length} available</span>
-          </div>
-          {previews.length > 0 ? (
-            <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${previewTileMin}, 1fr))` }}>
-              {previews.map((preview, index) => (
-                <div key={`${preview}-${index}`} className="border border-border overflow-hidden aspect-video cursor-pointer hover:border-accent transition-colors relative" onClick={() => setLightboxIndex(index)} title={isVideoUrl(preview) ? 'Play trailer' : 'Click to view'}>
-                  {isVideoUrl(preview) ? (
-                    <>
-                      <video src={toMediaSrc(preview)} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#000' }} />
-                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)', pointerEvents: 'none' }}>
-                        <i className="fas fa-play-circle" style={{ fontSize: 44, color: 'rgba(255,255,255,0.92)', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.6))' }}></i>
-                      </div>
-                    </>
-                  ) : (
-                    <SafeImage src={preview} alt={`Preview ${index + 1}`} fallbackLabel="Preview unavailable" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ minHeight: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
-              {previewsLoading ? 'Loading previews...' : 'No previews available'}
-            </div>
-          )}
-        </section>
-      ),
-    },
-    {
-      id: 'versions',
-      title: 'Versions',
-      defaultSize: 'medium',
-      content: (
-        <section className="bg-secondary border border-border p-4">
-          <h2 className="text-lg font-semibold mb-3">Versions</h2>
-          {versionOptions.length > 0 ? (
-            <div className="space-y-2">
-              {versionOptions.map((version) => {
-                const isSelected = selectedVersion?.version === version.version && selectedVersion?.game_path === version.game_path
-                const installed = version.isInstalled !== false
-                return (
-                  <button key={`${version.version}-${version.game_path}`} onClick={() => setSelectedVersion(version)} className={`w-full text-left border p-3 transition-colors ${isSelected ? 'border-accent bg-selected' : 'border-border bg-primary hover:bg-selected'}`}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
-                        {isSelected && <i className="fas fa-play" style={{ fontSize: 9, color: 'var(--color-accent,#86a8e7)' }}></i>}
-                        {version.version || 'Unknown version'}
-                      </span>
-                      <span style={{ fontSize: 11, color: installed ? '#86efac' : '#fca5a5' }}>{installed ? 'Installed' : 'Missing'}</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: '#d1d5db', marginTop: 3 }}>{formatPlaytime(version.version_playtime)}</div>
-                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{version.game_path || 'No path set'}</div>
-                  </button>
-                )
-              })}
-            </div>
-          ) : (
-            <div style={{ color: '#9ca3af' }}>No versions recorded</div>
-          )}
-        </section>
-      ),
-    },
-    canManagePersonalRatings && {
-      id: 'personalRating',
-      title: 'Personal Rating',
-      defaultSize: 'small',
-      content: (
-        <section className="bg-secondary border border-border p-4">
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
-            <h2 className="text-lg font-semibold">Personal Rating</h2>
-            <span style={{ color: personalRatingsOverall === null ? '#9ca3af' : '#facc15', fontWeight: 700 }}>{personalRatingsOverall === null ? 'Unrated' : `${personalRatingsOverall}/10`}</span>
-          </div>
-          <div className="space-y-2">
-            {personalRatingFields.map(([key, label]) => (
-              <label key={key} className="text-sm" style={{ display: 'grid', gridTemplateColumns: '1fr 72px', gap: 10, alignItems: 'center' }}>
-                <span style={{ color: '#d1d5db' }}>{label}</span>
-                <input type="number" min="0" max="10" step="1" value={personalRatingsDraft[key]} onChange={(event) => updatePersonalRatingDraft(key, event.target.value)} placeholder="-" className="bg-primary border border-border px-2 py-1 text-sm text-right" />
-              </label>
-            ))}
-          </div>
-          {personalRatingsError && <div className="text-xs text-danger mt-3">{personalRatingsError}</div>}
-          <button type="button" onClick={savePersonalRatings} disabled={!personalRatingsDirty || personalRatingsBusy} className="mt-3 w-full px-3 py-2 rounded text-sm bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:hover:bg-accent">
-            {personalRatingsBusy ? 'Saving...' : personalRatingsDirty ? 'Save ratings' : 'Ratings saved'}
-          </button>
-        </section>
-      ),
-    },
-    {
-      id: 'details',
-      title: 'Details',
-      defaultSize: 'medium',
-      content: (
-        <section className="bg-secondary border border-border p-4">
-          <h2 className="text-lg font-semibold mb-3">Details</h2>
-          <div className="space-y-2 text-sm">
-            {metadataRows.map(([label, value]) => (
-              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 6 }}>
-                <span style={{ color: '#9ca3af', flexShrink: 0 }}>{label}</span>
-                <span style={{ textAlign: 'right', minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{String(value)}</span>
-              </div>
-            ))}
-            {steam && categories.length > 0 && (
-              <div style={{ paddingTop: 4 }}>
-                <div style={{ color: '#9ca3af', marginBottom: 6 }}>Category</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {categories.map((cat) => (
-                    <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                      <i className={getCategoryIcon(cat)} style={{ width: 16, textAlign: 'center', color: '#7a9cc4', flexShrink: 0, fontSize: 13 }} aria-hidden="true"></i>
-                      <span style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{cat}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {metadataRows.length === 0 && !(steam && categories.length > 0) && <div style={{ color: '#9ca3af' }}>No metadata available</div>}
-          </div>
-        </section>
-      ),
-    },
-    externalLinks.length > 0 && {
-      id: 'externalLinks',
-      title: 'External Links',
-      defaultSize: 'medium',
-      content: (
-        <section className="bg-secondary border border-border p-4">
-          <h2 className="text-lg font-semibold mb-3">External Links</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {externalLinks.map((link) => (
-              <div key={link.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                <i className={link.icon} style={{ width: 18, textAlign: 'center', color: '#9ca3af' }} aria-hidden="true"></i>
-                <span style={{ color: '#9ca3af', minWidth: 92 }}>{link.label}</span>
-                {link.url ? (
-                  <a href={link.url} onClick={(e) => { e.preventDefault(); window.electronAPI.openExternalUrl(link.url) }} className="text-accent hover:underline" style={{ cursor: 'pointer', wordBreak: 'break-all' }}>{link.value}</a>
-                ) : (
-                  <span style={{ wordBreak: 'break-all' }}>{link.value}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-      ),
-    },
-    detailTags.length > 0 && {
-      id: 'tags',
-      title: 'Tags',
-      defaultSize: 'medium',
-      content: (
-        <section className="bg-secondary border border-border p-4">
-          <h2 className="text-lg font-semibold mb-3">Tags</h2>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {detailTags.slice(0, 32).map((tag) => (
-              <span key={tag} className="bg-primary border border-border px-2 py-1 text-xs">{tag}</span>
-            ))}
-          </div>
-        </section>
-      ),
-    },
-  ].filter(Boolean)
-
   return (
     <div ref={rootRef} className="min-h-full bg-tertiary text-text flex flex-col">
 
@@ -1453,7 +973,192 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         />
       )}
 
-      <DetailsModuleGrid modules={detailModules} />
+      {/* Body */}
+      <div className="p-6 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-6">
+
+        {/* Previews */}
+        <section className="border border-border bg-secondary" style={{ padding: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <h2 className="text-lg font-semibold">Previews</h2>
+            <span style={{ fontSize: 11, color: '#9ca3af' }}>{previews.length} available</span>
+          </div>
+          {previews.length > 0 ? (
+            <div
+              className="grid gap-3"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}
+            >
+              {previews.map((preview, index) => (
+                <div
+                  key={`${preview}-${index}`}
+                  className="border border-border overflow-hidden aspect-video cursor-pointer hover:border-accent transition-colors relative"
+                  onClick={() => setLightboxIndex(index)}
+                  title={isVideoUrl(preview) ? 'Play trailer' : 'Click to view'}
+                >
+                  {isVideoUrl(preview) ? (
+                    <>
+                      <video src={toMediaSrc(preview)} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#000' }} />
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)', pointerEvents: 'none' }}>
+                        <i className="fas fa-play-circle" style={{ fontSize: 44, color: 'rgba(255,255,255,0.92)', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.6))' }}></i>
+                      </div>
+                    </>
+                  ) : (
+                    <SafeImage
+                      src={preview}
+                      alt={`Preview ${index + 1}`}
+                      fallbackLabel="Preview unavailable"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ minHeight: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
+              {previewsLoading ? 'Loading previews...' : 'No previews available'}
+            </div>
+          )}
+        </section>
+
+        {/* Sidebar */}
+        <aside className="space-y-5">
+          <section className="bg-secondary border border-border p-4">
+            <h2 className="text-lg font-semibold mb-3">Versions</h2>
+            {versionOptions.length > 0 ? (
+              <div className="space-y-2">
+                {versionOptions.map((version) => {
+                  const isSelected = selectedVersion?.version === version.version && selectedVersion?.game_path === version.game_path
+                  const installed = version.isInstalled !== false
+                  return (
+                    <button
+                      key={`${version.version}-${version.game_path}`}
+                      onClick={() => setSelectedVersion(version)}
+                      className={`w-full text-left border p-3 transition-colors ${isSelected ? 'border-accent bg-selected' : 'border-border bg-primary hover:bg-selected'}`}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
+                          {isSelected && <i className="fas fa-play" style={{ fontSize: 9, color: 'var(--color-accent,#86a8e7)' }}></i>}
+                          {version.version || 'Unknown version'}
+                        </span>
+                        <span style={{ fontSize: 11, color: installed ? '#86efac' : '#fca5a5' }}>{installed ? 'Installed' : 'Missing'}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#d1d5db', marginTop: 3 }}>{formatPlaytime(version.version_playtime)}</div>
+                      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{version.game_path || 'No path set'}</div>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <div style={{ color: '#9ca3af' }}>No versions recorded</div>
+            )}
+          </section>
+
+          {canManagePersonalRatings && (
+            <section className="bg-secondary border border-border p-4">
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+                <h2 className="text-lg font-semibold">Personal Rating</h2>
+                <span style={{ color: personalRatingsOverall === null ? '#9ca3af' : '#facc15', fontWeight: 700 }}>
+                  {personalRatingsOverall === null ? 'Unrated' : `${personalRatingsOverall}/10`}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {personalRatingFields.map(([key, label]) => (
+                  <label key={key} className="text-sm" style={{ display: 'grid', gridTemplateColumns: '1fr 72px', gap: 10, alignItems: 'center' }}>
+                    <span style={{ color: '#d1d5db' }}>{label}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="10"
+                      step="1"
+                      value={personalRatingsDraft[key]}
+                      onChange={(event) => updatePersonalRatingDraft(key, event.target.value)}
+                      placeholder="-"
+                      className="bg-primary border border-border px-2 py-1 text-sm text-right"
+                    />
+                  </label>
+                ))}
+              </div>
+              {personalRatingsError && (
+                <div className="text-xs text-danger mt-3">{personalRatingsError}</div>
+              )}
+              <button
+                type="button"
+                onClick={savePersonalRatings}
+                disabled={!personalRatingsDirty || personalRatingsBusy}
+                className="mt-3 w-full px-3 py-2 rounded text-sm bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:hover:bg-accent"
+              >
+                {personalRatingsBusy ? 'Saving...' : personalRatingsDirty ? 'Save ratings' : 'Ratings saved'}
+              </button>
+            </section>
+          )}
+
+          <section className="bg-secondary border border-border p-4">
+            <h2 className="text-lg font-semibold mb-3">Details</h2>
+            <div className="space-y-2 text-sm">
+              {metadataRows.map(([label, value]) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 6 }}>
+                  <span style={{ color: '#9ca3af', flexShrink: 0 }}>{label}</span>
+                  <span style={{ textAlign: 'right', minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{String(value)}</span>
+                </div>
+              ))}
+
+              {steam && categories.length > 0 && (
+                <div style={{ paddingTop: 4 }}>
+                  <div style={{ color: '#9ca3af', marginBottom: 6 }}>Category</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {categories.map((cat) => (
+                      <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                        <i className={getCategoryIcon(cat)} style={{ width: 16, textAlign: 'center', color: '#7a9cc4', flexShrink: 0, fontSize: 13 }} aria-hidden="true"></i>
+                        <span style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{cat}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {metadataRows.length === 0 && !(steam && categories.length > 0) && (
+                <div style={{ color: '#9ca3af' }}>No metadata available</div>
+              )}
+            </div>
+          </section>
+
+          {externalLinks.length > 0 && (
+            <section className="bg-secondary border border-border p-4">
+              <h2 className="text-lg font-semibold mb-3">External Links</h2>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {externalLinks.map((link) => (
+                  <div key={link.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                    <i className={link.icon} style={{ width: 18, textAlign: 'center', color: '#9ca3af' }} aria-hidden="true"></i>
+                    <span style={{ color: '#9ca3af', minWidth: 92 }}>{link.label}</span>
+                    {link.url ? (
+                      <a
+                        href={link.url}
+                        onClick={(e) => { e.preventDefault(); window.electronAPI.openExternalUrl(link.url) }}
+                        className="text-accent hover:underline"
+                        style={{ cursor: 'pointer', wordBreak: 'break-all' }}
+                      >
+                        {link.value}
+                      </a>
+                    ) : (
+                      <span style={{ wordBreak: 'break-all' }}>{link.value}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {detailTags.length > 0 && (
+            <section className="bg-secondary border border-border p-4">
+              <h2 className="text-lg font-semibold mb-3">Tags</h2>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {detailTags.slice(0, 32).map((tag) => (
+                  <span key={tag} className="bg-primary border border-border px-2 py-1 text-xs">{tag}</span>
+                ))}
+              </div>
+            </section>
+          )}
+        </aside>
+      </div>
 
       <PreviewLightbox
         previews={previews}
