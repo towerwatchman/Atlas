@@ -62,13 +62,13 @@ export default function RecordTab({ formData, onChange, onFindGame, onRemoveTitl
       </div>
 
       <div className="col-span-2 space-y-2 mt-4">
-        <div className="flex">
+        <div className="flex" title="Coming soon">
           <label className="w-24">Tags</label>
           <textarea
             name="tags"
             value={formData.tags}
-            onChange={onChange}
-            className="flex-grow h-24 bg-tertiary border border-border p-1 rounded"
+            disabled
+            className="flex-grow h-24 bg-tertiary border border-border p-1 rounded cursor-not-allowed opacity-60"
           />
         </div>
         <div className="flex">
