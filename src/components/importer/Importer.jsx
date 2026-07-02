@@ -1388,7 +1388,20 @@ const Importer = () => {
       libraryFormat,
     }
     try {
-      window.electronAPI.importGames(importParams)
+      const results = await window.electronAPI.importGames(importParams)
+      const rows = Array.isArray(results) ? results : []
+      const failures = rows.filter((result) => result?.success === false)
+      if (failures.length > 0) {
+        const details = failures
+          .map((result) => result.error || result.title || 'Unknown import failure')
+          .join('\n')
+        alert(`${failures.length} import operation${failures.length === 1 ? '' : 's'} failed:\n\n${details}`)
+        return
+      }
+      if (results?.success === false) {
+        alert(results.error || 'Import failed')
+        return
+      }
       window.electronAPI.closeWindow()
     } catch (err) { alert(`Import failed: ${err.message || 'Unknown error'}`) }
   }
