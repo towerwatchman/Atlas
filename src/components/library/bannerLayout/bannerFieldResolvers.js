@@ -59,7 +59,9 @@ const formatPlaytime = (value) => {
 }
 
 const formatDate = (value) => {
+  if (value === undefined || value === null || value === '') return ''
   const numeric = Number(value)
+  if (Number.isFinite(numeric) && numeric <= 0) return ''
   const date = Number.isFinite(numeric) && numeric > 0
     ? new Date(numeric < 10000000000 ? numeric * 1000 : numeric)
     : new Date(value)
