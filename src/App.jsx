@@ -678,10 +678,9 @@ const App = () => {
     setActiveSavedFilterId(filter.id || '')
     if (filter.id === 'builtin-wishlist') {
       setLibraryMode('catalog')
-      setAndPersistSidePanelMode(SIDE_PANEL_MODES.CATALOG)
     }
     handleFilterChange(nextFilters)
-  }, [handleFilterChange, setAndPersistSidePanelMode])
+  }, [handleFilterChange])
 
   const deleteSavedFilter = useCallback(async (filter, action = 'request') => {
     if (!filter?.id || filter.builtIn) return
