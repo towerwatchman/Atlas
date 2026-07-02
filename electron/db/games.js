@@ -513,23 +513,30 @@ const getUniqueFilterOptions = () => {
                         if (err) return reject(err);
                         options.languages = rows.map((r) => r.language);
 
-                        // Tags from source-specific remote tables
+                        // Include both source metadata and user-created local tags.
                         getDb().all(
                           `SELECT tags FROM f95_zone_data WHERE tags IS NOT NULL
                            UNION ALL
-                           SELECT tags FROM lewdcorner_data WHERE tags IS NOT NULL`,
+                           SELECT tags FROM lewdcorner_data WHERE tags IS NOT NULL
+                           UNION ALL
+                           SELECT tag AS tags FROM tags WHERE tag IS NOT NULL`,
                           [],
                           (err, rows) => {
                             if (err) return reject(err);
-                            const tagsSet = new Set();
+                            const tagsByName = new Map();
                             rows.forEach((row) => {
                               if (row.tags) {
                                 row.tags
                                   .split(",")
-                                  .forEach((tag) => tagsSet.add(tag.trim()));
+                                  .map((tag) => tag.trim())
+                                  .filter(Boolean)
+                                  .forEach((tag) => {
+                                    const key = tag.toLocaleLowerCase();
+                                    if (!tagsByName.has(key)) tagsByName.set(key, tag);
+                                  });
                               }
                             });
-                            options.tags = Array.from(tagsSet);
+                            options.tags = Array.from(tagsByName.values());
                             cachedFilterOptions = options;
                             resolve(options);
                           },
