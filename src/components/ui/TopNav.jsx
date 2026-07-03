@@ -52,7 +52,7 @@ const orderItems = (items, order) =>
  */
 const TopNav = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
-  onToggleSearchSidebar, onOpenHelp, showGameList, libraryMode = 'local', group = 'left',
+  onToggleSearchSidebar, onOpenHelp, showGameList, showSavedFilters = false, libraryMode = 'local', group = 'left',
   forceIconsOnly = false, browseAvailable, favoritesActive = false,
 }) => {
   const { navDisplayMode } = useTheme()
@@ -84,16 +84,25 @@ const TopNav = ({
         const isActive =
           item.name === 'Favorites'
             ? favoritesActive
-            : (
-                selected === item.name ||
-                (item.name === 'Browse' && libraryMode === 'catalog') ||
-                (item.name === 'List' && showGameList)
-              )
+            : item.name === 'Library'
+              // Library reflects the actual view (plain local library, not
+              // favorites/browse) rather than a per-group click flag — the
+              // left/right TopNav groups each have their own `selected`, so
+              // clicking Favorites (right group) can't otherwise clear
+              // Library's highlight (left group).
+              ? (libraryMode === 'local' && !favoritesActive)
+              : item.name === 'List'
+                // List is a view toggle, not a destination — hover/normal only.
+                ? false
+                : (
+                    selected === item.name ||
+                    (item.name === 'Browse' && libraryMode === 'catalog')
+                  )
         const buttonContent = (
           <>
             {showIcon && (
               <svg className={`w-[18px] h-[18px] flex-shrink-0 nav-icon-fx ${isActive ? 'selected' : ''}`} viewBox={item.viewBox || '0 0 24 24'} fill="currentColor">
-                {parseIconParts(item, { showGameList }).map((part, index) =>
+                {parseIconParts(item, { showGameList, showSavedFilters }).map((part, index) =>
                   part.tag === 'rect'
                     ? <rect key={index} {...part.props} />
                     : <path key={index} {...part.props} />

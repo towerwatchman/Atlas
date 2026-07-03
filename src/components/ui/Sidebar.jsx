@@ -5,7 +5,7 @@ import ImporterSourceMenu from '../importer/ImporterSourceMenu.jsx'
 
 const Sidebar = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
-  onToggleSearchSidebar, onOpenHelp, showGameList, libraryMode = 'local',
+  onToggleSearchSidebar, onOpenHelp, showGameList, showSavedFilters = false, libraryMode = 'local',
   browseAvailable, favoritesActive = false,
 }) => {
   const { navDisplayMode } = useTheme()
@@ -40,10 +40,14 @@ const Sidebar = ({
         const isActive =
           item.name === 'Favorites'
             ? favoritesActive
-            : (
-                selected === item.name ||
-                (item.name === 'Browse' && libraryMode === 'catalog')
-              )
+            : item.name === 'Library'
+              ? (libraryMode === 'local' && !favoritesActive)
+              : item.name === 'List'
+                ? false
+                : (
+                    selected === item.name ||
+                    (item.name === 'Browse' && libraryMode === 'catalog')
+                  )
         const buttonContent = (
           <>
             <div className="absolute left-0 w-[3px] h-full bg-accent transition-opacity opacity-0 group-hover:opacity-100" />
@@ -54,7 +58,7 @@ const Sidebar = ({
                 viewBox={item.viewBox || '0 0 24 24'}
                 fill="currentColor"
               >
-                {parseIconParts(item, { showGameList }).map((part, index) =>
+                {parseIconParts(item, { showGameList, showSavedFilters }).map((part, index) =>
                   part.tag === 'rect'
                     ? <rect key={index} {...part.props} />
                     : <path key={index} {...part.props} />

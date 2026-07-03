@@ -1224,7 +1224,8 @@ const App = () => {
                     onOpenWishlist={openFavorites}
                     onToggleSearchSidebar={toggleSearchSidebar}
                     onOpenHelp={openHelp}
-                    showGameList={showLibrarySidebar}
+                    showGameList={showGameList}
+                    showSavedFilters={showSavedFilters}
                     libraryMode={libraryMode}
                     favoritesActive={favoritesActive}
                     browseAvailable={browseAvailable}
@@ -1252,7 +1253,8 @@ const App = () => {
                     onOpenWishlist={openFavorites}
                     onToggleSearchSidebar={toggleSearchSidebar}
                     onOpenHelp={openHelp}
-                    showGameList={showLibrarySidebar}
+                    showGameList={showGameList}
+                    showSavedFilters={showSavedFilters}
                     libraryMode={libraryMode}
                     favoritesActive={favoritesActive}
                     browseAvailable={browseAvailable}
@@ -1299,7 +1301,8 @@ const App = () => {
             onOpenWishlist={openFavorites}
             onToggleSearchSidebar={toggleSearchSidebar}
             onOpenHelp={openHelp}
-            showGameList={showLibrarySidebar}
+            showGameList={showGameList}
+            showSavedFilters={showSavedFilters}
             libraryMode={libraryMode}
             favoritesActive={favoritesActive}
             browseAvailable={browseAvailable}
