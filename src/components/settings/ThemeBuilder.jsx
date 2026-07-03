@@ -398,6 +398,157 @@ const OptionPicker = ({ options, labels, descriptions, value, onChange }) => (
   </div>
 )
 
+// A titled block within the live preview column.
+const PreviewBlock = ({ title, children }) => (
+  <div className="mb-3">
+    <p className="text-[10px] font-bold uppercase tracking-wide opacity-45 mb-1">{title}</p>
+    {children}
+  </div>
+)
+
+// A small labeled color chip, for showing colors that don't have an obvious
+// "live" sample element of their own (hover states, strong variants, etc.).
+const Swatch = ({ varName, label }) => (
+  <div className="flex flex-col items-center gap-0.5" style={{ width: 46 }}>
+    <div className="w-full h-6 rounded" style={{ background: `var(${varName})`, border: '1px solid var(--color-border)' }} />
+    <span className="text-[8px] opacity-60 leading-none text-center">{label}</span>
+  </div>
+)
+
+/**
+ * Always-visible live preview column. Every sample here is painted by the
+ * SAME CSS variables / data attributes that applyTheme() writes on each
+ * draft change (see the [draft] effect in ThemeBuilder), so every control
+ * on every tab visibly changes something in this panel without the person
+ * needing another window open. Elements deliberately reuse the real
+ * utility classes (btn-shadow/btn-glow, nav-glow, text-shadow-fx +
+ * context, rounded-*Theme, bg-progress*, the --color-detail-* vars, etc.)
+ * so what shows here matches how those settings render in the actual app.
+ * Samples that only trigger on an interaction state (button glow, text
+ * glow) include an `.active`/`.selected` class so the effect is visible
+ * statically as well as on hover.
+ */
+const PreviewPane = ({ draft }) => {
+  const fontName = draft.font.split(',')[0].replace(/"/g, '').trim()
+  const showNavIcon = draft.nav.displayMode !== 'text'
+  const showNavText = draft.nav.displayMode !== 'icons'
+  return (
+    <div className="text-text" style={{ fontSize: 12 }}>
+      <p className="text-xs font-bold uppercase tracking-wide opacity-70 mb-2">Live Preview</p>
+
+      <PreviewBlock title="Surfaces">
+        <div className="bg-canvas p-2 rounded-cardTheme">
+          <div className="bg-primary p-2 rounded-cardTheme border border-border">
+            <span className="text-[10px] opacity-70">Primary</span>
+            <div className="bg-secondary p-2 mt-1 rounded-cardTheme">
+              <span className="text-[10px] opacity-70">Secondary</span>
+              <div className="bg-tertiary p-2 mt-1 rounded-cardTheme">
+                <span className="text-[10px] opacity-70">Tertiary</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-1 mt-1">
+            <div className="bg-selected flex-1 p-1.5 rounded-cardTheme text-[10px] text-center">Selected</div>
+            <div className="bg-library flex-1 p-1.5 rounded-cardTheme text-[10px] text-center border border-border">Library</div>
+            <div className="bg-secondary flex-1 p-1.5 rounded-cardTheme text-[10px] text-center" style={{ boxShadow: '0 5px 14px var(--color-shadow)' }}>Shadow</div>
+          </div>
+        </div>
+      </PreviewBlock>
+
+      <PreviewBlock title="Text & Font">
+        <p className="text-text leading-snug">The quick brown fox — <span style={{ fontWeight: 700 }}>{fontName}</span></p>
+        <p className="text-muted text-[11px]">Muted secondary text looks like this.</p>
+      </PreviewBlock>
+
+      <PreviewBlock title="Accent & Brand">
+        <div className="flex items-center gap-2 flex-wrap">
+          {draft.nav.accentBarEnabled
+            ? <div className="bg-accentBar rounded-cardTheme px-3 py-1"><span className="text-atlasLogo font-bold text-sm">ATLAS</span></div>
+            : <span className="text-atlasLogo font-bold text-sm px-1">ATLAS</span>}
+          <span className="bg-accent text-white text-[10px] px-2 py-1 rounded-buttonTheme">Accent</span>
+          <span className="bg-highlight text-[10px] px-2 py-1 rounded-buttonTheme">Highlight</span>
+        </div>
+      </PreviewBlock>
+
+      <PreviewBlock title="Buttons (hover to see glow)">
+        <div className="flex gap-1.5 flex-wrap">
+          <button type="button" className="btn-shadow btn-glow bg-button text-text text-[11px] px-2.5 py-1 rounded-buttonTheme hover:bg-buttonHover">Button</button>
+          <button type="button" className="btn-shadow btn-glow active bg-accent text-white text-[11px] px-2.5 py-1 rounded-buttonTheme hover:bg-accentHover">Accent (active)</button>
+          <button type="button" className="btn-shadow btn-glow bg-danger text-white text-[11px] px-2.5 py-1 rounded-buttonTheme hover:bg-dangerHover">Danger</button>
+          <button type="button" className="btn-shadow btn-glow bg-success text-white text-[11px] px-2.5 py-1 rounded-buttonTheme hover:bg-successHover">Success</button>
+        </div>
+      </PreviewBlock>
+
+      <PreviewBlock title="Status">
+        <div className="flex items-center gap-3 flex-wrap mb-1.5">
+          <span className="text-danger text-[11px]">Danger</span>
+          <span className="text-success text-[11px]">Success</span>
+          <span className="text-warning text-[11px]">Warning</span>
+          <span className="text-info text-[11px]">Info</span>
+        </div>
+        <div className="flex gap-1.5 flex-wrap">
+          <Swatch varName="--color-danger-hover" label="Dngr Hvr" />
+          <Swatch varName="--color-danger-strong" label="Dngr Str" />
+          <Swatch varName="--color-success-hover" label="Succ Hvr" />
+          <Swatch varName="--color-accent-hover" label="Acc Hvr" />
+        </div>
+      </PreviewBlock>
+
+      <PreviewBlock title="Progress Bar">
+        <div className="h-[14px] bg-progressBackground rounded overflow-hidden">
+          <div className="h-full bg-progressForeground" style={{ width: '62%' }} />
+        </div>
+      </PreviewBlock>
+
+      <PreviewBlock title="Cover-Art Overlay & Game Title">
+        <div className="rounded-cardTheme overflow-hidden border border-border" style={{ position: 'relative', height: 84, background: 'linear-gradient(135deg, var(--color-tertiary), var(--color-secondary))' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(var(--color-overlay-top), var(--color-overlay-bottom))' }} />
+          <span className="text-shadow-fx game-titles text-glow-fx game-titles selected" style={{ position: 'absolute', left: 8, bottom: 6, color: '#fff', fontWeight: 700, fontSize: 13 }}>
+            Game Title
+          </span>
+        </div>
+      </PreviewBlock>
+
+      <PreviewBlock title="Navigation (glow on active)">
+        <div className="flex gap-1.5 flex-wrap">
+          <span className="nav-glow bg-accent text-white active rounded-buttonTheme px-2.5 py-1 text-[11px]">
+            {showNavIcon && <i className="fas fa-th-large" />}
+            {showNavIcon && showNavText && ' '}
+            {showNavText && <span className="text-shadow-fx nav-labels text-glow-fx nav-labels selected">Library</span>}
+          </span>
+          <span className="text-text hover:bg-tertiary rounded-buttonTheme px-2.5 py-1 text-[11px]">
+            {showNavIcon && <i className="fas fa-download" />}
+            {showNavIcon && showNavText && ' '}
+            {showNavText && <span className="text-shadow-fx nav-labels">Import</span>}
+          </span>
+        </div>
+        <p className="text-shadow-fx page-titles text-glow-fx page-titles selected mt-1.5" style={{ fontWeight: 700, fontSize: 14 }}>Page Title</p>
+        <p className="text-[9px] opacity-50 mt-1.5 leading-tight">Nav position (Sidebar / Top Bar) and Filter Sidebar placement preview live in the main window.</p>
+      </PreviewBlock>
+
+      <PreviewBlock title="Window Border & Radius">
+        <div className="rounded-windowTheme p-2 text-[10px] text-center" style={{ border: '2px solid var(--color-window-border)', background: 'var(--color-primary)' }}>
+          Window corner &amp; border
+        </div>
+      </PreviewBlock>
+
+      <PreviewBlock title="Game Detail Page">
+        <div className="flex items-center gap-1.5 flex-wrap p-2 rounded-cardTheme" style={{ background: 'var(--color-primary)' }}>
+          <button type="button" className="text-[11px] font-bold px-3 py-1 rounded" style={{ background: 'var(--color-detail-play)', color: 'var(--color-detail-play-text)' }}>▶ PLAY</button>
+          <button type="button" className="text-[11px] font-bold px-2.5 py-1 rounded" style={{ background: 'var(--color-detail-accent)', color: 'var(--color-detail-accent-text)' }}>INSTALL</button>
+          <i className="fas fa-heart" style={{ color: 'var(--color-detail-favorite)', fontSize: 14 }} />
+        </div>
+        <div className="flex gap-1.5 mt-1.5">
+          <Swatch varName="--color-detail-launching" label="Launch" />
+          <Swatch varName="--color-detail-running" label="Running" />
+          <Swatch varName="--color-detail-wishlist-add" label="Wish +" />
+          <Swatch varName="--color-detail-wishlist-remove" label="Wish −" />
+        </div>
+      </PreviewBlock>
+    </div>
+  )
+}
+
 /**
  * Full theme authoring tool: every themeable property (colors, radius,
  * font, nav layout/display/accent-bar/filter-sidebar, nav glow, app-wide
@@ -688,6 +839,7 @@ const ThemeBuilder = ({ onClose }) => {
         </div>
       </div>
 
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
       <div className="flex-1 min-h-0 overflow-y-auto px-4 pt-3 pb-4">
         {activeSection === 'colors' && (
           <div>
@@ -957,6 +1109,10 @@ const ThemeBuilder = ({ onClose }) => {
             </div>
           </div>
         )}
+      </div>
+      <div className="overflow-y-auto p-3 border-t border-border lg:border-t-0 lg:border-l lg:w-[320px] lg:flex-shrink-0 flex-shrink-0 max-h-[42vh] lg:max-h-none bg-secondary">
+        <PreviewPane draft={draft} />
+      </div>
       </div>
     </div>
   )
