@@ -1,0 +1,111 @@
+{
+  "name": "Steam",
+  "buttonRadius": "sm",
+  "cardRadius": "sm",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "icons",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": false,
+      "color": "#66C0F4",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#66C0F4",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#66C0F4",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 10
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#66C0F4",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#66C0F4",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": false
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": false,
+  "windowBorderRadius": "sm",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": "#1B2838",
+    "shadow": "#0F141B",
+    "primary": "#171d25",
+    "secondary": {
+      "type": "linear",
+      "angle": 150,
+      "stops": [
+        "#2d333c",
+        "#252930",
+        "#2d333c",
+        "#252930"
+      ]
+    },
+    "tertiary": "#1f2126",
+    "border": "#4A6A8C",
+    "selected": "#2A475E",
+    "accent": "#1a9fff",
+    "accentBar": "#1a9fff",
+    "atlasLogo": "#FFFFFF",
+    "text": "#B8C6D4",
+    "highlight": "#66C0F4",
+    "overlayTop": "#171A21",
+    "overlayBottom": "#000000",
+    "muted": "#A0B0C0",
+    "danger": "#DC2626",
+    "dangerHover": "#B91C1C",
+    "dangerStrong": "#7F1D1D",
+    "success": "#16A34A",
+    "successHover": "#15803D",
+    "warning": "#FACC15",
+    "info": "#66C0F4",
+    "buttonHover": "#2A475E",
+    "accentHover": "#4A9ED9",
+    "button": "#212A3A",
+    "progressBackground": "#212A3A",
+    "progressForeground": "#66C0F4",
+    "library": "#2a2f37",
+    "windowBorder": "#3A4A5E"
+  }
+}

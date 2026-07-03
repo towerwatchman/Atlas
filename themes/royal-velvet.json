@@ -1,0 +1,102 @@
+{
+  "name": "Royal Velvet",
+  "buttonRadius": "md",
+  "cardRadius": "md",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "icons",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": true,
+      "color": "#7C3AED",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#7C3AED",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#7C3AED",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 14
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#7C3AED",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#7C3AED",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": true
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": "#0A0714",
+    "shadow": "#000000",
+    "primary": "#120F1F",
+    "secondary": "#1A1730",
+    "tertiary": "#221F3A",
+    "border": "#4C3D8A",
+    "selected": "#3A2E6B",
+    "accent": "#7C3AED",
+    "accentBar": "#7C3AED",
+    "atlasLogo": "#E0D9F5",
+    "text": "#E0D9F5",
+    "highlight": "#7C3AED",
+    "overlayTop": "#0A0714",
+    "overlayBottom": "#000000",
+    "muted": "#9B8BCF",
+    "danger": "#B91C1C",
+    "dangerHover": "#991B1B",
+    "dangerStrong": "#7F1D1D",
+    "success": "#16A34A",
+    "successHover": "#15803D",
+    "warning": "#FACC15",
+    "info": "#60A5FA",
+    "buttonHover": "#221F3A",
+    "accentHover": "#5B21B6",
+    "button": "#221F3A",
+    "progressBackground": "#221F3A",
+    "progressForeground": "#7C3AED",
+    "library": "#1A1730",
+    "windowBorder": "#4C3D8A"
+  }
+}

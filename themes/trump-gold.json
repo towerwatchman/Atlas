@@ -1,0 +1,102 @@
+{
+  "name": "Trump Gold",
+  "buttonRadius": "md",
+  "cardRadius": "md",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "iconsAndText",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": true,
+      "color": "#FACC15",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": true,
+      "color": "#78350F",
+      "offsetX": 0,
+      "offsetY": 2,
+      "intensity": 15
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#FACC15",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 10
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#FACC15",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#FACC15",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": false
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": "#11100E",
+    "shadow": "#0A0907",
+    "primary": "#1C1A17",
+    "secondary": "#2C2924",
+    "tertiary": "#3A362F",
+    "border": "#FACC15",
+    "selected": "#78350F",
+    "accent": "#F4D03F",
+    "accentBar": "#F4D03F",
+    "atlasLogo": "#FFFFFF",
+    "text": "#F5E8C7",
+    "highlight": "#F4D03F",
+    "overlayTop": "#1C1917",
+    "overlayBottom": "#0F0D0B",
+    "muted": "#A8A29E",
+    "danger": "#B91C1C",
+    "dangerHover": "#991B1B",
+    "dangerStrong": "#7F1D1D",
+    "success": "#16A34A",
+    "successHover": "#15803D",
+    "warning": "#FACC15",
+    "info": "#3B82F6",
+    "buttonHover": "#44403C",
+    "accentHover": "#D4AF37",
+    "button": "#292524",
+    "progressBackground": "#292524",
+    "progressForeground": "#FACC15",
+    "library": "#1b1918",
+    "windowBorder": "#78350F"
+  }
+}

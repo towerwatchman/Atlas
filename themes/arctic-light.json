@@ -1,0 +1,116 @@
+{
+  "name": "Arctic Light",
+  "buttonRadius": "md",
+  "cardRadius": "lg",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "iconsAndText",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": false,
+      "color": "#0EA5E9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": true,
+      "color": "#CBD5E1",
+      "offsetX": 0,
+      "offsetY": 2,
+      "intensity": 8
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#0EA5E9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#0EA5E9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 8
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#0EA5E9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": false
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": false,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": {
+      "type": "linear",
+      "angle": 150,
+      "stops": [
+        "#F8FAFC",
+        "#F1F5F9"
+      ]
+    },
+    "shadow": "#E2E8F0",
+    "primary": {
+      "type": "linear",
+      "angle": 149,
+      "stops": [
+        "#FFFFFF",
+        "#F8FAFC"
+      ]
+    },
+    "secondary": "#F1F5F9",
+    "tertiary": "#E2E8F0",
+    "border": "#CBD5E1",
+    "selected": "#E0F2FE",
+    "accent": "#0EA5E9",
+    "accentBar": "#0EA5E9",
+    "atlasLogo": "#1E293B",
+    "text": "#1E293B",
+    "highlight": "#0EA5E9",
+    "overlayTop": "#F8FAFC",
+    "overlayBottom": "#E2E8F0",
+    "muted": "#64748B",
+    "danger": "#EF4444",
+    "dangerHover": "#DC2626",
+    "dangerStrong": "#B91C1C",
+    "success": "#22C55E",
+    "successHover": "#16A34A",
+    "warning": "#b3d0ff",
+    "info": "#3B82F6",
+    "buttonHover": "#0284C7",
+    "accentHover": "#0284C7",
+    "button": "#FFFFFF",
+    "progressBackground": "#E2E8F0",
+    "progressForeground": "#0EA5E9",
+    "library": "#F1F5F9",
+    "windowBorder": "#94A3B8"
+  }
+}

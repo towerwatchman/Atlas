@@ -1,0 +1,102 @@
+{
+  "name": "High Contrast Yellow",
+  "buttonRadius": "sm",
+  "cardRadius": "sm",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "icons",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": false,
+      "color": "#FFFF00",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": true,
+      "color": "#FFFF00",
+      "offsetX": 0,
+      "offsetY": 2,
+      "intensity": 8
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#FFFF00",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#FFFF00",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#FFFF00",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": false
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "none",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": "#000000",
+    "shadow": "#000000",
+    "primary": "#000000",
+    "secondary": "#0A0A0A",
+    "tertiary": "#141414",
+    "border": "#FFFF00",
+    "selected": "#1A1A1A",
+    "accent": "#FFFF00",
+    "accentBar": "#FFFF00",
+    "atlasLogo": "#000000",
+    "text": "#ffffff",
+    "highlight": "#FFFF00",
+    "overlayTop": "#000000",
+    "overlayBottom": "#000000",
+    "muted": "#ffffff",
+    "danger": "#FF0000",
+    "dangerHover": "#CC0000",
+    "dangerStrong": "#990000",
+    "success": "#00FF00",
+    "successHover": "#00CC00",
+    "warning": "#FFFF00",
+    "info": "#00BFFF",
+    "buttonHover": "#1A1A1A",
+    "accentHover": "#FFFF99",
+    "button": "#0A0A0A",
+    "progressBackground": "#0A0A0A",
+    "progressForeground": "#FFFF00",
+    "library": "#0A0A0A",
+    "windowBorder": "#FFFF00"
+  }
+}

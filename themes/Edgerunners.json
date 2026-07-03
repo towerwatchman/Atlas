@@ -1,0 +1,102 @@
+{
+  "name": "Edgerunners",
+  "buttonRadius": "sm",
+  "cardRadius": "sm",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "icons",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": true,
+      "color": "#E91E8C",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 14
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#E91E8C",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#E91E8C",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 10
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#E91E8C",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#E91E8C",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": true
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": "#0A0A0F",
+    "shadow": "#000000",
+    "primary": "#0F0F18",
+    "secondary": "#161622",
+    "tertiary": "#1E1E2E",
+    "border": "#2A2A3E",
+    "selected": "#252535",
+    "accent": "#E91E8C",
+    "accentBar": "#E91E8C",
+    "atlasLogo": "#FFFFFF",
+    "text": "#C8C8D8",
+    "highlight": "#E91E8C",
+    "overlayTop": "#0A0A0F",
+    "overlayBottom": "#000000",
+    "muted": "#6B6B8A",
+    "danger": "#FF3B3B",
+    "dangerHover": "#CC2020",
+    "dangerStrong": "#7A0000",
+    "success": "#00E676",
+    "successHover": "#00C853",
+    "warning": "#FFD600",
+    "info": "#00D4FF",
+    "buttonHover": "#252535",
+    "accentHover": "#B8156E",
+    "button": "#1E1E2E",
+    "progressBackground": "#1E1E2E",
+    "progressForeground": "#E91E8C",
+    "library": "#161622",
+    "windowBorder": "#3A2A4A"
+  }
+}

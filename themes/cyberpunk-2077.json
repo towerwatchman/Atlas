@@ -1,0 +1,102 @@
+{
+  "name": "Cyberpunk 2077",
+  "buttonRadius": "sm",
+  "cardRadius": "sm",
+  "font": "\"Rajdhani\", \"Inter\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "icons",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": true,
+      "color": "#F5E642",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 14
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#F5E642",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#F5E642",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 10
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#F5E642",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#F5E642",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": true
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": "#060608",
+    "shadow": "#000000",
+    "primary": "#0D0D0F",
+    "secondary": "#131316",
+    "tertiary": "#1A1A1F",
+    "border": "#2A2A2F",
+    "selected": "#222228",
+    "accent": "#F5E642",
+    "accentBar": "#F5E642",
+    "atlasLogo": "#060608",
+    "text": "#D4D4C8",
+    "highlight": "#F5E642",
+    "overlayTop": "#060608",
+    "overlayBottom": "#000000",
+    "muted": "#6B6B6A",
+    "danger": "#FF3B3B",
+    "dangerHover": "#CC2020",
+    "dangerStrong": "#7A0000",
+    "success": "#00E676",
+    "successHover": "#00C853",
+    "warning": "#FF6B00",
+    "info": "#00B4FF",
+    "buttonHover": "#222228",
+    "accentHover": "#C9BB2A",
+    "button": "#1A1A1F",
+    "progressBackground": "#1A1A1F",
+    "progressForeground": "#F5E642",
+    "library": "#131316",
+    "windowBorder": "#2A2A20"
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "name": "Breaking Bad",
+  "buttonRadius": "sm",
+  "cardRadius": "sm",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "icons",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": true,
+      "color": "#22C55E",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#22C55E",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#22C55E",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 14
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#22C55E",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#22C55E",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": true
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": "#0F1114",
+    "shadow": "#000000",
+    "primary": "#1A1E24",
+    "secondary": "#252A32",
+    "tertiary": "#2F353F",
+    "border": "#22C55E",
+    "selected": "#374151",
+    "accent": "#22C55E",
+    "accentBar": "#22C55E",
+    "atlasLogo": "#FFFFFF",
+    "text": "#E5E7EB",
+    "highlight": "#22C55E",
+    "overlayTop": "#0F1114",
+    "overlayBottom": "#000000",
+    "muted": "#9CA3AF",
+    "danger": "#EF4444",
+    "dangerHover": "#DC2626",
+    "dangerStrong": "#B91C1C",
+    "success": "#22C55E",
+    "successHover": "#16A34A",
+    "warning": "#FACC15",
+    "info": "#3B82F6",
+    "buttonHover": "#252A32",
+    "accentHover": "#16A34A",
+    "button": "#1A1E24",
+    "progressBackground": "#1A1E24",
+    "progressForeground": "#22C55E",
+    "library": "#252A32",
+    "windowBorder": "#374151"
+  }
+}

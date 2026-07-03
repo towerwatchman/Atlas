@@ -1,0 +1,124 @@
+{
+  "name": "Sunny Golden Hour",
+  "buttonRadius": "lg",
+  "cardRadius": "lg",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "iconsAndText",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": true,
+      "color": "#F59E0B",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 14
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "inline"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#D97706",
+      "offsetX": 0,
+      "offsetY": 2,
+      "intensity": 10
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#F59E0B",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#F59E0B",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 10
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#F59E0B",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": true
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": {
+      "type": "linear",
+      "angle": 180,
+      "stops": [
+        "#FEF3C7",
+        "#FDE68A",
+        "#FCD34D"
+      ]
+    },
+    "shadow": "#D97706",
+    "primary": {
+      "type": "linear",
+      "angle": 180,
+      "stops": [
+        "#FFFBEB",
+        "#FEF3C7"
+      ]
+    },
+    "secondary": "#FEF3C7",
+    "tertiary": "#FDE68A",
+    "border": "#F59E0B",
+    "selected": "#FBBF24",
+    "accent": "#F59E0B",
+    "accentBar": "#F59E0B",
+    "atlasLogo": "#78350F",
+    "text": "#78350F",
+    "highlight": "#F59E0B",
+    "overlayTop": "#FEF3C7",
+    "overlayBottom": "#FCD34D",
+    "muted": "#92400E",
+    "danger": "#EF4444",
+    "dangerHover": "#DC2626",
+    "dangerStrong": "#B91C1C",
+    "success": "#22C55E",
+    "successHover": "#16A34A",
+    "warning": "#F59E0B",
+    "info": "#3B82F6",
+    "buttonHover": "#FCD34D",
+    "accentHover": "#D97706",
+    "button": "#FFFBEB",
+    "progressBackground": "#FDE68A",
+    "progressForeground": "#F59E0B",
+    "library": {
+      "type": "linear",
+      "angle": 180,
+      "stops": [
+        "#FEF3C7",
+        "#FDE68A"
+      ]
+    },
+    "windowBorder": "#D97706"
+  }
+}

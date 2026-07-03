@@ -1,0 +1,131 @@
+{
+  "name": "Plex Gradient",
+  "buttonRadius": "md",
+  "cardRadius": "md",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "iconsAndText",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": false,
+      "color": "#E5A00D",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": true,
+      "color": "#3F2A1A",
+      "offsetX": 0,
+      "offsetY": 2,
+      "intensity": 10
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#E5A00D",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#E5A00D",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#E5A00D",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": true
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": false,
+  "windowBorderRadius": "sm",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": {
+      "type": "linear",
+      "angle": 135,
+      "stops": [
+        "#282A2D",
+        "#1F2328",
+        "#2C2F35"
+      ]
+    },
+    "shadow": "#000000",
+    "primary": {
+      "type": "linear",
+      "angle": 150,
+      "stops": [
+        "#2a2a2a",
+        "#141414"
+      ]
+    },
+    "secondary": {
+      "type": "linear",
+      "angle": 180,
+      "stops": [
+        "#2a2a2a",
+        "#141414"
+      ]
+    },
+    "tertiary": "#36393F",
+    "border": "#E5A00D",
+    "selected": "#3F2A1A",
+    "accent": "#E5A00D",
+    "accentBar": "#E5A00D",
+    "atlasLogo": "#FFFFFF",
+    "text": "#E5E5E5",
+    "highlight": "#E5A00D",
+    "overlayTop": "#282A2D",
+    "overlayBottom": "#1F2328",
+    "muted": "#A1A1A1",
+    "danger": "#EF4444",
+    "dangerHover": "#DC2626",
+    "dangerStrong": "#B91C1C",
+    "success": "#22C55E",
+    "successHover": "#16A34A",
+    "warning": "#FACC15",
+    "info": "#3B82F6",
+    "buttonHover": "#36393F",
+    "accentHover": "#C38A0C",
+    "button": "#282A2D",
+    "progressBackground": "#36393F",
+    "progressForeground": "#E5A00D",
+    "library": {
+      "type": "linear",
+      "angle": 180,
+      "stops": [
+        "#262626",
+        "#141414"
+      ]
+    },
+    "windowBorder": "#000000"
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "name": "Jedi",
+  "buttonRadius": "sm",
+  "cardRadius": "sm",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "icons",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": false,
+      "color": "#4A90D9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#4A90D9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#4A90D9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#4A90D9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#4A90D9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": false
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": "#07090F",
+    "shadow": "#000000",
+    "primary": "#0C0F1A",
+    "secondary": "#111625",
+    "tertiary": "#181E30",
+    "border": "#252D45",
+    "selected": "#1A2238",
+    "accent": "#4A90D9",
+    "accentBar": "#4A90D9",
+    "atlasLogo": "#FFFFFF",
+    "text": "#E2E8F4",
+    "highlight": "#4A90D9",
+    "overlayTop": "#07090F",
+    "overlayBottom": "#000000",
+    "muted": "#8A96B0",
+    "danger": "#FF3B3B",
+    "dangerHover": "#CC2020",
+    "dangerStrong": "#7A0000",
+    "success": "#16A34A",
+    "successHover": "#15803D",
+    "warning": "#FACC15",
+    "info": "#38BDF8",
+    "buttonHover": "#1A2238",
+    "accentHover": "#3A74B8",
+    "button": "#181E30",
+    "progressBackground": "#181E30",
+    "progressForeground": "#4A90D9",
+    "library": "#111625",
+    "windowBorder": "#1E3A6A"
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "name": "Bloody Night",
+  "buttonRadius": "sm",
+  "cardRadius": "sm",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "icons",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": true,
+      "color": "#B91C1C",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 14
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#B91C1C",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#B91C1C",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 15
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#B91C1C",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#B91C1C",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": true
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": "#0A0708",
+    "shadow": "#000000",
+    "primary": "#120C0E",
+    "secondary": "#1C1417",
+    "tertiary": "#261B20",
+    "border": "#5C2A2A",
+    "selected": "#3A1F1F",
+    "accent": "#B91C1C",
+    "accentBar": "#B91C1C",
+    "atlasLogo": "#F5E8E8",
+    "text": "#E8D8D8",
+    "highlight": "#B91C1C",
+    "overlayTop": "#0A0708",
+    "overlayBottom": "#000000",
+    "muted": "#9A7A7A",
+    "danger": "#EF4444",
+    "dangerHover": "#DC2626",
+    "dangerStrong": "#991B1B",
+    "success": "#16A34A",
+    "successHover": "#15803D",
+    "warning": "#FACC15",
+    "info": "#60A5FA",
+    "buttonHover": "#261B20",
+    "accentHover": "#991B1B",
+    "button": "#261B20",
+    "progressBackground": "#261B20",
+    "progressForeground": "#B91C1C",
+    "library": "#1C1417",
+    "windowBorder": "#5C2A2A"
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "name": "Twitch",
+  "buttonRadius": "sm",
+  "cardRadius": "sm",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "icons",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": false,
+      "color": "#7851a9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#7851a9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 3
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#7851a9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#7851a9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#7851a9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": false
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "none",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": "#000000",
+    "shadow": "#000000",
+    "primary": "#19191c",
+    "secondary": "#181a1b",
+    "tertiary": "#181a1b",
+    "border": "#7851a9",
+    "selected": "#404249",
+    "accent": "#7851a9",
+    "accentBar": "#7851a9",
+    "atlasLogo": "#FFFFFF",
+    "text": "#d2d2d2",
+    "highlight": "#FFFFFF",
+    "overlayTop": "#000000",
+    "overlayBottom": "#000000",
+    "muted": "#9CA3AF",
+    "danger": "#DC2626",
+    "dangerHover": "#B91C1C",
+    "dangerStrong": "#7F1D1D",
+    "success": "#00C853",
+    "successHover": "#00A043",
+    "warning": "#FFD600",
+    "info": "#00D4FF",
+    "buttonHover": "#202226",
+    "accentHover": "#5f3d8a",
+    "button": "#181a1b",
+    "progressBackground": "#181a1b",
+    "progressForeground": "#7851a9",
+    "library": "#181a1b",
+    "windowBorder": "#7851a9"
+  }
+}

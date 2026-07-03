@@ -1,0 +1,109 @@
+{
+  "name": "Girly Pop Pink",
+  "buttonRadius": "pill",
+  "cardRadius": "lg",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "iconsAndText",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": true,
+      "color": "#FF69B4",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 15
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "inline"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#F8C4E0",
+      "offsetX": 0,
+      "offsetY": 2,
+      "intensity": 10
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#FF69B4",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 18
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#FF69B4",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 10
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#FF69B4",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": false
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": {
+      "type": "linear",
+      "angle": 180,
+      "stops": [
+        "#FFF0F5",
+        "#FCE7F3"
+      ]
+    },
+    "shadow": "#F8C4E0",
+    "primary": "#FFFFFF",
+    "secondary": "#FFF0F5",
+    "tertiary": "#FCE7F3",
+    "border": "#F9A8D4",
+    "selected": "#FBCFE8",
+    "accent": "#FF69B4",
+    "accentBar": "#FF69B4",
+    "atlasLogo": "#4C1D95",
+    "text": "#4C1D95",
+    "highlight": "#FF69B4",
+    "overlayTop": "#FFF0F5",
+    "overlayBottom": "#FCE7F3",
+    "muted": "#9F7A9F",
+    "danger": "#FF4D94",
+    "dangerHover": "#E63E85",
+    "dangerStrong": "#9F1239",
+    "success": "#22C55E",
+    "successHover": "#16A34A",
+    "warning": "#FACC15",
+    "info": "#3B82F6",
+    "buttonHover": "#FCE7F3",
+    "accentHover": "#DB2777",
+    "button": "#FFFFFF",
+    "progressBackground": "#FCE7F3",
+    "progressForeground": "#FF69B4",
+    "library": "#FFF0F5",
+    "windowBorder": "#F472B6"
+  }
+}

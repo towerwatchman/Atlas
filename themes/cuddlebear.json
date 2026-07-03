@@ -1,0 +1,103 @@
+{
+  "name": "CuddleBear",
+  "buttonRadius": "lg",
+  "cardRadius": "lg",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "iconsAndText",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": true,
+      "color": "#db14b7",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "inline"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#181c12",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 20
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#6a873a",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 20
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#2C8EA9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#2C8EA9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 20
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": false
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": "#000000",
+    "shadow": "DarkOliveGreen",
+    "primary": "#0f100f",
+    "secondary": "#0f100f",
+    "tertiary": "#0a0c0a",
+    "border": "DarkOliveGreen",
+    "selected": "#6a873a",
+    "accent": "DarkOliveGreen",
+    "accentBar": "DarkOliveGreen",
+    "atlasLogo": "#FFFFFF",
+    "text": "#ffffff",
+    "highlight": "DarkOliveGreen",
+    "overlayTop": "#000000",
+    "overlayBottom": "#000000",
+    "muted": "#b1aac0",
+    "danger": "DarkOliveGreen",
+    "dangerHover": "#7F1D1D",
+    "dangerStrong": "#7F1D1D",
+    "success": "DarkOliveGreen",
+    "successHover": "#6a873a",
+    "warning": "#FACC15",
+    "info": "#ff9326",
+    "buttonHover": "#2A2733",
+    "accentHover": "#6a873a",
+    "button": "#313338",
+    "progressBackground": "#313338",
+    "progressForeground": "#66b700",
+    "library": "#080a08",
+    "windowBorder": "#6a873a"
+  },
+  "radius": "lg"
+}

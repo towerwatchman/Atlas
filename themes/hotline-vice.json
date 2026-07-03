@@ -1,0 +1,102 @@
+{
+  "name": "Hotline Vice",
+  "buttonRadius": "sm",
+  "cardRadius": "sm",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "iconsAndText",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": true,
+      "color": "#FF00FF",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 18
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#00FFFF",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#FF00FF",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 15
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#00FFFF",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#FF00FF",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": true
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": true
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": false,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": "#0A0A0F",
+    "shadow": "#000000",
+    "primary": "#1A1A2E",
+    "secondary": "#16213E",
+    "tertiary": "#0F3460",
+    "border": "#E94560",
+    "selected": "#533483",
+    "accent": "#FF00FF",
+    "accentBar": "#FF00FF",
+    "atlasLogo": "#00FFFF",
+    "text": "#E0E0E0",
+    "highlight": "#00FFFF",
+    "overlayTop": "#0A0A0F",
+    "overlayBottom": "#000000",
+    "muted": "#A0A0C0",
+    "danger": "#FF2D55",
+    "dangerHover": "#E94560",
+    "dangerStrong": "#9F1239",
+    "success": "#39FF14",
+    "successHover": "#00FF7F",
+    "warning": "#FFD700",
+    "info": "#00FFFF",
+    "buttonHover": "#16213E",
+    "accentHover": "#C71585",
+    "button": "#1A1A2E",
+    "progressBackground": "#1A1A2E",
+    "progressForeground": "#FF00FF",
+    "library": "#16213E",
+    "windowBorder": "#E94560"
+  }
+}

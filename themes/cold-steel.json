@@ -1,0 +1,102 @@
+{
+  "name": "Cold Steel",
+  "buttonRadius": "sm",
+  "cardRadius": "sm",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "icons",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": false,
+      "color": "#94A3B8",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "overlay"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": true,
+      "color": "#475569",
+      "offsetX": 0,
+      "offsetY": 2,
+      "intensity": 10
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#94A3B8",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#94A3B8",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#94A3B8",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": false
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "none",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": "#0F172A",
+    "shadow": "#1E2937",
+    "primary": "#1E2937",
+    "secondary": "#334155",
+    "tertiary": "#475569",
+    "border": "#64748B",
+    "selected": "#475569",
+    "accent": "#94A3B8",
+    "accentBar": "#94A3B8",
+    "atlasLogo": "#F1F5F9",
+    "text": "#E2E8F0",
+    "highlight": "#CBD5E1",
+    "overlayTop": "#0F172A",
+    "overlayBottom": "#1E2937",
+    "muted": "#94A3B8",
+    "danger": "#EF4444",
+    "dangerHover": "#DC2626",
+    "dangerStrong": "#B91C1C",
+    "success": "#22C55E",
+    "successHover": "#16A34A",
+    "warning": "#F59E0B",
+    "info": "#60A5FA",
+    "buttonHover": "#334155",
+    "accentHover": "#CBD5E1",
+    "button": "#334155",
+    "progressBackground": "#334155",
+    "progressForeground": "#94A3B8",
+    "library": "#1E2937",
+    "windowBorder": "#64748B"
+  }
+}

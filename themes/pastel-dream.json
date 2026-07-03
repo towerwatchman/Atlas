@@ -1,0 +1,109 @@
+{
+  "name": "Pastel Dream",
+  "buttonRadius": "lg",
+  "cardRadius": "lg",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "iconsAndText",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": true,
+      "color": "#C084FC",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "inline"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#F9A8D4",
+      "offsetX": 0,
+      "offsetY": 2,
+      "intensity": 8
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#C084FC",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 15
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#C084FC",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#C084FC",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": true
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": {
+      "type": "linear",
+      "angle": 180,
+      "stops": [
+        "#FCE7F3",
+        "#E0F2FE"
+      ]
+    },
+    "shadow": "#E0F2FE",
+    "primary": "#F9FAFB",
+    "secondary": "#F3E8FF",
+    "tertiary": "#E0F2FE",
+    "border": "#C084FC",
+    "selected": "#F3E8FF",
+    "accent": "#C084FC",
+    "accentBar": "#C084FC",
+    "atlasLogo": "#4C1D95",
+    "text": "#4C1D95",
+    "highlight": "#C084FC",
+    "overlayTop": "#FCE7F3",
+    "overlayBottom": "#E0F2FE",
+    "muted": "#9CA3AF",
+    "danger": "#F87171",
+    "dangerHover": "#EF4444",
+    "dangerStrong": "#B91C1C",
+    "success": "#4ADE80",
+    "successHover": "#22C55E",
+    "warning": "#FACC15",
+    "info": "#60A5FA",
+    "buttonHover": "#F3E8FF",
+    "accentHover": "#A855F7",
+    "button": "#F9FAFB",
+    "progressBackground": "#F3E8FF",
+    "progressForeground": "#C084FC",
+    "library": "#FCE7F3",
+    "windowBorder": "#C084FC"
+  }
+}

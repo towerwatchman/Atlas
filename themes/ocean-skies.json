@@ -1,0 +1,139 @@
+{
+  "name": "Ocean Skies",
+  "buttonRadius": "pill",
+  "cardRadius": "lg",
+  "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
+  "nav": {
+    "layout": "sidebar",
+    "displayMode": "iconsAndText",
+    "accentBarEnabled": true,
+    "glow": {
+      "enabled": false,
+      "color": "#db14b7",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "filterSidebar": {
+      "side": "right",
+      "mode": "inline"
+    }
+  },
+  "buttonEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#181c12",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 20
+    },
+    "glow": {
+      "enabled": true,
+      "color": "#ffffff",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 50
+    }
+  },
+  "textEffects": {
+    "shadow": {
+      "enabled": false,
+      "color": "#2C8EA9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 12
+    },
+    "glow": {
+      "enabled": false,
+      "color": "#2C8EA9",
+      "offsetX": 0,
+      "offsetY": 0,
+      "intensity": 20
+    },
+    "contexts": {
+      "navLabels": {
+        "shadow": false,
+        "glow": false
+      },
+      "pageTitles": {
+        "shadow": false,
+        "glow": false
+      },
+      "gameTitles": {
+        "shadow": false,
+        "glow": false
+      }
+    }
+  },
+  "windowBorderEnabled": true,
+  "windowBorderRadius": "lg",
+  "windowBorderHideOnMain": false,
+  "colors": {
+    "canvas": {
+      "type": "linear",
+      "angle": 180,
+      "stops": [
+        "#06BEE1",
+        "#1768AC",
+        "#2541B2",
+        "#03256C"
+      ]
+    },
+    "shadow": "#03256C",
+    "primary": {
+      "type": "linear",
+      "angle": 110,
+      "stops": [
+        "#06BEE1",
+        "#1768AC",
+        "#2541B2",
+        "#03256C"
+      ]
+    },
+    "secondary": {
+      "type": "linear",
+      "angle": 180,
+      "stops": [
+        "#06BEE1",
+        "#1768AC",
+        "#2541B2",
+        "#03256C"
+      ]
+    },
+    "tertiary": "#03256C",
+    "border": "#ffffff",
+    "selected": "#06BEE1",
+    "accent": "##06BEE1",
+    "accentBar": "#03256C",
+    "atlasLogo": "#FFFFFF",
+    "text": "#ffffff",
+    "highlight": "#06BEE1",
+    "overlayTop": "#000000",
+    "overlayBottom": "#000000",
+    "muted": "#c8dce5",
+    "danger": "#06BEE1",
+    "dangerHover": "#7F1D1D",
+    "dangerStrong": "#7F1D1D",
+    "success": "#00ff00",
+    "successHover": "#ffffff",
+    "warning": "#FACC15",
+    "info": "#ff9326",
+    "buttonHover": "#06BEE1",
+    "accentHover": "#06BEE1",
+    "button": "#03256C",
+    "progressBackground": "#03256C",
+    "progressForeground": "#06BEE1",
+    "library": {
+      "type": "linear",
+      "angle": 180,
+      "stops": [
+        "#06BEE1",
+        "#1768AC",
+        "#2541B2",
+        "#03256C"
+      ]
+    },
+    "windowBorder": "#2541B2"
+  },
+  "radius": "lg"
+}
