@@ -1167,7 +1167,7 @@ const App = () => {
           the window's actual top corners. */}
       <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
         <div
-          className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag rounded-tl-windowTheme transform-gpu shadow-[0_4px_8px_rgba(0,0,0,0.5)]"
+          className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag rounded-tl-windowTheme transform-gpu shadow-[0_8px_8px_-8px_rgba(0,0,0,0.5)]"
           onClick={goHome}
           title="Back to Library"
         >
@@ -1179,7 +1179,7 @@ const App = () => {
             dangerouslySetInnerHTML={{ __html: atlasLogo.path }}
           />
         </div>
-        <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_4px_8px_rgba(0,0,0,0.5)] rounded-tr-windowTheme transform-gpu">
+        <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_8px_8px_-8px_rgba(0,0,0,0.5)] rounded-tr-windowTheme transform-gpu">
           {/* Accent bar: the notched strip tucked behind the logo block.
               Shown in both layouts as long as the active theme's
               nav.accentBarEnabled hasn't been turned off (see
