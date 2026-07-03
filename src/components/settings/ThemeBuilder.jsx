@@ -840,7 +840,7 @@ const ThemeBuilder = ({ onClose }) => {
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 pt-3 pb-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 pt-3 pb-4 scroll-window-inset">
         {activeSection === 'colors' && (
           <div>
             <p className="text-[10px] opacity-50 mb-2">
@@ -1110,7 +1110,7 @@ const ThemeBuilder = ({ onClose }) => {
           </div>
         )}
       </div>
-      <div className="overflow-y-auto p-3 border-t border-border lg:border-t-0 lg:border-l lg:w-[320px] lg:flex-shrink-0 flex-shrink-0 max-h-[42vh] lg:max-h-none bg-secondary">
+      <div className="overflow-y-auto p-3 border-t border-border lg:border-t-0 lg:border-l lg:w-[320px] lg:flex-shrink-0 flex-shrink-0 max-h-[42vh] lg:max-h-none bg-secondary scroll-window-inset">
         <PreviewPane draft={draft} />
       </div>
       </div>

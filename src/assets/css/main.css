@@ -238,6 +238,21 @@
     background: var(--scrollbar-track);
   }
 
+  /* When the window's corners are rounded (--radius-window-active > 0), a
+     scroll container that runs all the way to the window's bottom edge has
+     the bottom of its scrollbar clipped by the rounded corner — it looks
+     cut off. Insetting the scrollbar TRACK from the bottom by exactly the
+     window radius lifts the thumb up so it ends above the curve instead of
+     being clipped. At radius 0 (square windows) this resolves to 0 and has
+     no effect, so it's safe to apply to any bottom-edge scroll area.
+     Applied to the bottom-most scroll container in the chrome-less windows
+     (Settings, Theme Builder, Importer, Game Details); the main library
+     window doesn't need it since its footer already sits below the
+     corners. */
+  .scroll-window-inset::-webkit-scrollbar-track {
+    margin-bottom: var(--radius-window-active);
+  }
+
   /* Reserves the scrollbar's gutter on the library/banner grid (App.jsx)
      permanently, whether or not there's currently enough content to
      actually need a scrollbar. Without this, the grid's available width

@@ -1460,7 +1460,7 @@ const Importer = () => {
         </div>
       </div>
       {/* Main Content — a separate flex child below the header row. */}
-      <div className="flex-1 min-h-0 p-4 overflow-y-auto">
+      <div className="flex-1 min-h-0 p-4 overflow-y-auto scroll-window-inset">
         {view === 'settings' && (
           <SettingsStep
             folder={folder} customFormat={customFormat} useUnstructured={useUnstructured}

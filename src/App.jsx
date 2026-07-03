@@ -1057,6 +1057,20 @@ const App = () => {
     requestAnimationFrame(() => debounceResize())
   }, [showLibrarySidebar, showSearchSidebar, filterSidebarMode, filterSidebarSide, libraryMode])
 
+  // In 'inline' mode the filter sidebar is docked (shares space with the
+  // grid) rather than a toggle-on-demand overlay, so it should be visible
+  // whenever inline is the active mode — selecting inline is itself the
+  // request to show it. Runs when the mode becomes inline (or a game is
+  // deselected back to the library while inline), not continuously, so the
+  // Close button in the panel still works: closing sets showSearchSidebar
+  // false and this won't re-fire until the mode changes again. Overlay
+  // mode keeps its original toggle-driven behavior.
+  useEffect(() => {
+    if (filterSidebarMode === 'inline' && !selectedGame) {
+      setShowSearchSidebar(true)
+    }
+  }, [filterSidebarMode, selectedGame])
+
   const catalogResetDebounceRef = useRef(null)
   useEffect(() => {
     if (libraryMode !== 'catalog' || !browseAvailable) return
@@ -1276,7 +1290,10 @@ const App = () => {
         )}
 
         {showGameList && (
-          <div className={`w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ${isTopNav ? '' : 'ml-[60px]'}`}>
+          <div
+            className={`w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ${isTopNav ? '' : 'ml-[60px]'}`}
+            style={{ borderRight: '1px solid var(--color-window-border)' }}
+          >
             {filteredGames.length === 0 ? (
               <div className="p-2 text-center text-text">
                 {libraryMode === 'catalog'

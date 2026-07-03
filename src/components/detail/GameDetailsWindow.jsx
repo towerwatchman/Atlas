@@ -650,7 +650,7 @@ const GameDetailWindow = () => {
         </div>
 
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <div className="flex-1 min-h-0 overflow-y-auto p-4 bg-secondary pb-24">
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 bg-secondary pb-24 scroll-window-inset">
             {activeTab === 'Record' && (
               <RecordTab
                 formData={formData}

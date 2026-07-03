@@ -119,7 +119,7 @@ const Settings = () => {
         {/* Settings Content */}
         <div className="flex-1 bg-secondary flex flex-col min-h-0">
           <h2 className="flex-shrink-0 text-2xl font-bold px-4 pt-4 mb-4 text-text">{activeSelected}</h2>
-          <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 scroll-window-inset">
             {renderContent()}
           </div>
         </div>
