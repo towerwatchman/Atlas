@@ -50,7 +50,7 @@ const Sidebar = ({
 
             {showIcon && (
               <svg
-                className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-accent' : 'text-border'}`}
+                className={`w-5 h-5 flex-shrink-0 nav-icon-fx ${isActive ? 'text-accent selected' : 'text-accentMuted group-hover:text-accentHover'}`}
                 viewBox={item.viewBox || '0 0 24 24'}
                 fill="currentColor"
               >
@@ -62,7 +62,7 @@ const Sidebar = ({
               </svg>
             )}
             {showText && (
-              <span className={`text-shadow-fx text-glow-fx nav-labels text-[10px] leading-none font-medium ${isActive ? 'text-accent selected' : 'text-border'}`}>
+              <span className={`text-shadow-fx text-glow-fx nav-labels text-[10px] leading-none font-medium ${isActive ? 'text-accent selected' : 'text-accentMuted group-hover:text-accentHover'}`}>
                 {item.name}
               </span>
             )}

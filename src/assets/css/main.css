@@ -70,6 +70,7 @@
      that and give every button a single consistent hover behavior. */
   --color-button-hover:       var(--color-selected); /* hover shade for bg-tertiary buttons; matches the existing working hover:bg-selected pattern used elsewhere */
   --color-accent-hover:       #24748A; /* hover shade for bg-accent buttons; ~18% darker than --color-accent */
+  --color-accent-muted:       #4E6E76; /* dimmed accent for resting (unselected) nav icons/labels */
   /* Base/rest button background — independent from the 4 main surface
      colors (canvas/primary/secondary/tertiary) so restyling your page
      background doesn't also restyle your buttons. Defaults to the same
@@ -313,6 +314,23 @@
    on any theme that doesn't opt in. */
 .nav-glow {
   box-shadow: var(--nav-glow);
+}
+
+/* Optional glow ON THE NAV ICONS themselves (SVGs), separate from the
+   active-button box-shadow above. Opt-in per theme via nav.iconGlow (see
+   themes.js / applyTheme.js sets data-nav-icon-glow + --nav-icon-glow).
+   Uses filter:drop-shadow so it follows the icon's shape rather than its
+   box. Painted only on hover (a hovered nav button carries `.group`) and
+   on the selected icon (`.selected`) — never on a resting/unselected icon
+   — matching the "hover and selected only, not muted" intent. --nav-icon-
+   glow is 'none' unless the theme's nav.glow is enabled, so it's a no-op
+   otherwise. */
+.nav-icon-fx {
+  transition: filter 0.15s;
+}
+html[data-nav-icon-glow="on"] .group:hover .nav-icon-fx,
+html[data-nav-icon-glow="on"] .nav-icon-fx.selected {
+  filter: var(--nav-icon-glow);
 }
 
 /* App-wide button effects (DEFAULT_BUTTON_EFFECTS in themes.js) — meant to

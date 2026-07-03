@@ -24,6 +24,12 @@ const cssVarNameForColorKey = (key) =>
 const buildShadowValue = (spec) =>
   spec?.enabled ? `${spec.offsetX}px ${spec.offsetY}px ${spec.intensity}px ${spec.color}` : 'none'
 
+// Same GlowSpec, but as a CSS filter drop-shadow() value (for glowing an
+// icon's actual shape rather than its box) — used for the optional nav-icon
+// glow. 'none' when the glow isn't enabled.
+const buildDropShadowValue = (spec) =>
+  spec?.enabled ? `drop-shadow(${spec.offsetX}px ${spec.offsetY}px ${spec.intensity}px ${spec.color})` : 'none'
+
 // kebab-case for a TEXT_EFFECT_CONTEXTS entry, e.g. 'navLabels' -> 'nav-labels'
 const kebabCase = (key) => key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
 
@@ -82,6 +88,17 @@ export function applyTheme(theme, layout, navOverrides = {}) {
   // a theme that disables glow cleanly removes any previous theme's glow
   // rather than leaving it on.
   root.setProperty('--nav-glow', buildShadowValue(safeTheme.nav.glow))
+
+  // Optional nav-icon glow (theme.nav.iconGlow) — the icon drop-shadow is
+  // built from the SAME nav.glow spec, and CSS (main.css) only paints it on
+  // hover/selected icons when data-nav-icon-glow is 'on'. Gated on the glow
+  // itself being enabled too, so turning on iconGlow with no glow configured
+  // is a no-op rather than a broken 'none' filter reference.
+  root.setProperty('--nav-icon-glow', buildDropShadowValue(safeTheme.nav.glow))
+  document.documentElement.setAttribute(
+    'data-nav-icon-glow',
+    safeTheme.nav.iconGlow && safeTheme.nav.glow.enabled ? 'on' : 'off',
+  )
 
   // App-wide button effects (DEFAULT_BUTTON_EFFECTS in themes.js) — unlike
   // nav.glow above, these apply to every button in the app, not just the

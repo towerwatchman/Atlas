@@ -36,6 +36,7 @@ const COLOR_LABELS = {
   info: 'Info',
   buttonHover: 'Button (Hover)',
   accentHover: 'Accent (Hover)',
+  accentMuted: 'Accent (Muted)',
   button: 'Button',
   progressBackground: 'Progress Bar (Background)',
   progressForeground: 'Progress Bar (Foreground)',
@@ -69,6 +70,7 @@ const COLOR_DESCRIPTIONS = {
 
   accent: 'Primary brand color — active states, links, focus rings, emphasis.',
   accentHover: 'Hover shade for accent-colored buttons.',
+  accentMuted: 'Dimmed accent for resting (unselected) nav icons and labels.',
   accentBar: 'The decorative accent strip behind the logo in the header.',
   atlasLogo: 'The Atlas logo mark itself.',
   highlight: 'Hover/emphasis highlight for chips and links (matches accent by default).',
@@ -118,7 +120,7 @@ const COLOR_GROUPS = [
   {
     label: 'Accent & Brand',
     blurb: 'Your highlight color and the branded bits of the header.',
-    keys: ['accent', 'accentHover', 'accentBar', 'atlasLogo', 'highlight'],
+    keys: ['accent', 'accentHover', 'accentMuted', 'accentBar', 'atlasLogo', 'highlight'],
   },
   {
     label: 'Text',
@@ -512,7 +514,7 @@ const PreviewPane = ({ draft }) => {
       <PreviewBlock title="Navigation (glow on active)">
         <div className="flex gap-1.5 flex-wrap">
           <span className="nav-glow bg-accent text-white active rounded-buttonTheme px-2.5 py-1 text-[11px]">
-            {showNavIcon && <i className="fas fa-th-large" />}
+            {showNavIcon && <i className="fas fa-th-large nav-icon-fx selected" />}
             {showNavIcon && showNavText && ' '}
             {showNavText && <span className="text-shadow-fx nav-labels text-glow-fx nav-labels selected">Library</span>}
           </span>
@@ -524,6 +526,20 @@ const PreviewPane = ({ draft }) => {
         </div>
         <p className="text-shadow-fx page-titles text-glow-fx page-titles selected mt-1.5" style={{ fontWeight: 700, fontSize: 14 }}>Page Title</p>
         <p className="text-[9px] opacity-50 mt-1.5 leading-tight">Nav position (Sidebar / Top Bar) and Filter Sidebar placement preview live in the main window.</p>
+      </PreviewBlock>
+
+      <PreviewBlock title="Nav Icons (resting · hover · selected)">
+        <div className="flex gap-4 items-center">
+          <span className="group inline-flex flex-col items-center gap-0.5">
+            <i className="fas fa-folder nav-icon-fx text-accentMuted group-hover:text-accentHover" style={{ fontSize: 18 }} />
+            <span className="text-[8px] opacity-60">resting/hover</span>
+          </span>
+          <span className="inline-flex flex-col items-center gap-0.5">
+            <i className="fas fa-th-large nav-icon-fx selected text-accent" style={{ fontSize: 18 }} />
+            <span className="text-[8px] opacity-60">selected</span>
+          </span>
+        </div>
+        <p className="text-[9px] opacity-50 mt-1 leading-tight">Resting = Accent (Muted), hover = Accent (Hover), selected = Accent. Icon glow, when enabled, shows on hover &amp; selected only.</p>
       </PreviewBlock>
 
       <PreviewBlock title="Window Border & Radius">
@@ -1030,6 +1046,15 @@ const ThemeBuilder = ({ onClose }) => {
             <SectionHeader>Nav Button Glow</SectionHeader>
             <p className="text-[10px] opacity-50 mb-2">A colored glow effect. Only ever shown on the Top Bar's active/selected button — never the Sidebar, and never a permanent effect (it disappears when nothing is selected).</p>
             <EffectSpecEditor label="Nav Glow" spec={draft.nav.glow} onChange={(glow) => updateNav({ glow })} />
+            <label className="flex items-center gap-2 text-sm cursor-pointer mt-1">
+              <input
+                type="checkbox"
+                checked={draft.nav.iconGlow}
+                onChange={(e) => updateNav({ iconGlow: e.target.checked })}
+              />
+              Also apply this glow to nav icons (on hover &amp; when selected)
+            </label>
+            <p className="text-[10px] opacity-50 mt-1">Uses the same glow settings above, applied to the icon shape itself in both Sidebar and Top Bar layouts. Never shown on resting/unselected icons. Requires the glow above to be enabled.</p>
           </div>
         )}
 

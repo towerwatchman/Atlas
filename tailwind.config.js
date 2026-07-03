@@ -37,6 +37,7 @@ module.exports = {
         button:             'var(--color-button)',
         buttonHover:        'var(--color-button-hover)',
         accentHover:        'var(--color-accent-hover)',
+        accentMuted:        'var(--color-accent-muted)',
 
         // ── Progress bars ──
         progressBackground: 'var(--color-progress-background)',

@@ -92,7 +92,7 @@ const TopNav = ({
         const buttonContent = (
           <>
             {showIcon && (
-              <svg className="w-[18px] h-[18px] flex-shrink-0" viewBox={item.viewBox || '0 0 24 24'} fill="currentColor">
+              <svg className={`w-[18px] h-[18px] flex-shrink-0 nav-icon-fx ${isActive ? 'selected' : ''}`} viewBox={item.viewBox || '0 0 24 24'} fill="currentColor">
                 {parseIconParts(item, { showGameList }).map((part, index) =>
                   part.tag === 'rect'
                     ? <rect key={index} {...part.props} />
@@ -107,7 +107,7 @@ const TopNav = ({
             )}
           </>
         )
-        const buttonClassName = `btn-shadow btn-glow flex items-center justify-center gap-1.5 rounded-buttonTheme transition-colors ${
+        const buttonClassName = `group btn-shadow btn-glow flex items-center justify-center gap-1.5 rounded-buttonTheme transition-colors ${
           showText ? 'h-8 px-2.5' : 'w-8 h-8'
         } ${isActive ? 'nav-glow bg-accent text-white active' : 'text-text hover:bg-tertiary'}`
         if (item.name === 'Add') {

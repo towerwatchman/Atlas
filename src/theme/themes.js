@@ -81,6 +81,7 @@ export const THEME_COLOR_KEYS = [
   'info',
   'buttonHover',
   'accentHover',
+  'accentMuted',
   // Base/rest button background — separate from buttonHover (which already
   // existed) so a button's resting color isn't tied to one of the 4 main
   // surface colors (canvas/primary/secondary/tertiary). Previously several
@@ -370,6 +371,9 @@ export const DEFAULT_NAV = {
   displayMode: DEFAULT_NAV_DISPLAY_MODE,
   accentBarEnabled: true,
   glow: { ...DEFAULT_GLOW },
+  // Apply the nav glow to nav icons too (hover + selected only), not just
+  // the active TopNav button's box-shadow. Off by default.
+  iconGlow: false,
   filterSidebar: { ...DEFAULT_FILTER_SIDEBAR },
 }
 
@@ -392,6 +396,7 @@ export const normalizeNav = (nav) => {
       ...DEFAULT_GLOW,
       ...(safeNav.glow && typeof safeNav.glow === 'object' ? safeNav.glow : {}),
     },
+    iconGlow: safeNav.iconGlow === true,
     filterSidebar: {
       side: normalizeFilterSidebarSide(safeFilterSidebar.side),
       mode: normalizeFilterSidebarMode(safeFilterSidebar.mode),
@@ -465,6 +470,7 @@ export const DEFAULT_THEME = {
     info:           '#38BDF8',
     buttonHover:    '#404249', // matches `selected`, the existing working hover pattern
     accentHover:    '#24748A', // ~18% darker than accent
+    accentMuted:    '#4E6E76', // desaturated/dim accent for resting nav icons
     button:             '#313338', // matches `tertiary`, the previous hardcoded look
     progressBackground: '#313338', // matches `tertiary`, the previous hardcoded look
     progressForeground: '#2C8EA9', // matches `accent`, the previous hardcoded look
