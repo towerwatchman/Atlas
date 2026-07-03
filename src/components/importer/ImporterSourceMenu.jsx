@@ -12,7 +12,10 @@ const placementClasses = {
   },
   topnav: {
     wrapper: 'relative',
-    menu: 'absolute right-0 top-[calc(100%+8px)] w-60',
+    // Left-align to the button so the menu opens rightward into open space.
+    // (Right-aligning made it extend left from the +, which sits near the
+    // window's left edge, pushing the menu behind the logo and off-screen.)
+    menu: 'absolute left-0 top-[calc(100%+8px)] w-60',
   },
 }
 

@@ -242,7 +242,7 @@ export default function ScanTable({
               onChange={handleHeaderCheckboxChange}
               title="Select all visible rows"
               aria-label="Select all visible rows"
-              className="h-4 w-4"
+              className="h-4 w-4 accent-accent"
             />
             {renderResizeHandle('select')}
           </th>
@@ -316,7 +316,7 @@ export default function ScanTable({
                   onClick={(event) => event.stopPropagation()}
                   title={`Select row ${originalIndex + 1}`}
                   aria-label={`Select row ${originalIndex + 1}`}
-                  className="h-4 w-4"
+                  className="h-4 w-4 accent-accent"
                 />
               </td>
               <td className="border border-border p-1">
@@ -421,13 +421,13 @@ export default function ScanTable({
               <td className={`border border-border p-1 ${statusClass}`}>{statusText}</td>
               <td className="border border-border p-1 min-w-[220px]">
                 <div className="flex flex-wrap gap-2">
-                  <button onClick={() => onDeleteGame(gameKey)} className="bg-danger hover:bg-dangerHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Remove</button>
-                  <button onClick={() => window.electronAPI.openDirectory(game.folder || game.sourceFile)} className="bg-accent hover:bg-accentHover text-text text-xs p-1 rounded whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Open Folder</button>
+                  <button onClick={() => onDeleteGame(gameKey)} className="bg-danger hover:bg-dangerHover text-text text-xs p-1 rounded-buttonTheme whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Remove</button>
+                  <button onClick={() => window.electronAPI.openDirectory(game.folder || game.sourceFile)} className="bg-accent hover:bg-accentHover text-text text-xs p-1 rounded-buttonTheme whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Open Folder</button>
                   {sourceUrls.f95 && (
                     <button
                       onClick={() => openSourceUrl(sourceUrls.f95)}
                       title="Open F95 thread"
-                      className="bg-button hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
+                      className="bg-button hover:bg-buttonHover text-text text-xs p-1 rounded-buttonTheme whitespace-nowrap"
                       style={{ pointerEvents: 'auto' }}
                     >
                       F95
@@ -437,7 +437,7 @@ export default function ScanTable({
                     <button
                       onClick={() => openSourceUrl(sourceUrls.lewdcorner)}
                       title="Open LewdCorner thread"
-                      className="bg-button hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
+                      className="bg-button hover:bg-buttonHover text-text text-xs p-1 rounded-buttonTheme whitespace-nowrap"
                       style={{ pointerEvents: 'auto' }}
                     >
                       LewdCorner
@@ -447,7 +447,7 @@ export default function ScanTable({
                     <button
                       onClick={() => openSourceUrl(sourceUrls.steam)}
                       title="Open Steam store page"
-                      className="bg-button hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
+                      className="bg-button hover:bg-buttonHover text-text text-xs p-1 rounded-buttonTheme whitespace-nowrap"
                       style={{ pointerEvents: 'auto' }}
                     >
                       Steam
@@ -457,7 +457,7 @@ export default function ScanTable({
                     <button
                       onClick={() => openSourceUrl(sourceUrls.atlas)}
                       title="Open source page"
-                      className="bg-button hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
+                      className="bg-button hover:bg-buttonHover text-text text-xs p-1 rounded-buttonTheme whitespace-nowrap"
                       style={{ pointerEvents: 'auto' }}
                     >
                       Atlas

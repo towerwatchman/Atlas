@@ -5,7 +5,7 @@ import { buildFolderRegex } from '../folderRegex.js'
 function Check({ checked, onChange, title, children }) {
   return (
     <label className="flex items-start gap-2 cursor-pointer" title={title}>
-      <input type="checkbox" checked={checked} onChange={onChange} className="mt-1 h-4 w-4 shrink-0" />
+      <input type="checkbox" checked={checked} onChange={onChange} className="mt-1 h-4 w-4 shrink-0 accent-accent" />
       <span className="min-w-0">{children}</span>
     </label>
   )
@@ -52,8 +52,8 @@ export default function SettingsStep({
     <div className="space-y-4 flex-1">
       <div className={fieldRow}>
         <label className={fieldLabel}>Game Path:</label>
-        <input type="text" value={folder} readOnly className="sm:ml-2 flex-1 min-w-0 bg-secondary border border-border p-1" />
-        <button onClick={onSelectFolder} className="sm:ml-2 bg-accent p-1" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
+        <input type="text" value={folder} readOnly className="sm:ml-2 flex-1 min-w-0 bg-secondary text-text border border-border rounded-buttonTheme p-1 focus:outline-none focus:ring-1 focus:ring-accent" />
+        <button onClick={onSelectFolder} className="sm:ml-2 bg-accent hover:bg-accentHover text-white rounded-buttonTheme px-3 py-1 transition-colors" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
           Set Folder
         </button>
       </div>
@@ -68,7 +68,7 @@ export default function SettingsStep({
               setUseUnstructured(false)
               if (value !== 'custom') setCustomFormat(value)
             }}
-            className="sm:ml-2 bg-secondary border border-border p-1"
+            className="sm:ml-2 bg-secondary text-text border border-border rounded-buttonTheme p-1 focus:outline-none focus:ring-1 focus:ring-accent"
           >
             {formatPresets.map((preset) => <option key={preset.value} value={preset.value}>{preset.label}</option>)}
             <option value="custom">Custom</option>
@@ -76,7 +76,7 @@ export default function SettingsStep({
           <input
             type="text" value={customFormat}
             onChange={(e) => setCustomFormat(e.target.value)}
-            className="sm:ml-2 flex-1 min-w-0 bg-secondary border border-border p-1"
+            className="sm:ml-2 flex-1 min-w-0 bg-secondary text-text border border-border rounded-buttonTheme p-1 focus:outline-none focus:ring-1 focus:ring-accent"
           />
         </div>
       </div>
@@ -91,14 +91,14 @@ export default function SettingsStep({
           spellCheck={false}
           placeholder="Regex generated from the scheme above"
           title="This is the regex used to parse folder names. Enable 'Edit regex' to override it with named groups like (?<title>...)."
-          className={`sm:ml-2 flex-1 min-w-0 bg-secondary border border-border p-1 font-mono text-xs ${regexDisabled ? 'opacity-70' : ''}`}
+          className={`sm:ml-2 flex-1 min-w-0 bg-secondary text-text border border-border rounded-buttonTheme p-1 focus:outline-none focus:ring-1 focus:ring-accent font-mono text-xs ${regexDisabled ? 'opacity-70' : ''}`}
         />
         <label className="sm:ml-2 flex items-center gap-1 whitespace-nowrap" title="Edit the regex directly">
           <input
             type="checkbox"
             checked={useCustomRegex}
             onChange={(e) => setUseCustomRegex(e.target.checked)}
-            className="h-4 w-4"
+            className="h-4 w-4 accent-accent"
           />
           <span className="text-sm">Edit regex</span>
         </label>
@@ -106,7 +106,7 @@ export default function SettingsStep({
 
       <div className={fieldRow}>
         <label className={fieldLabel}>Game Extensions:</label>
-        <input type="text" value={gameExt} onChange={(e) => setGameExt(e.target.value)} className="sm:ml-2 flex-1 min-w-0 bg-secondary border border-border p-1" />
+        <input type="text" value={gameExt} onChange={(e) => setGameExt(e.target.value)} className="sm:ml-2 flex-1 min-w-0 bg-secondary text-text border border-border rounded-buttonTheme p-1 focus:outline-none focus:ring-1 focus:ring-accent" />
       </div>
 
       <Check checked={includeArchives} onChange={(e) => setIncludeArchives(e.target.checked)}>
@@ -117,7 +117,7 @@ export default function SettingsStep({
       {includeArchives && (
         <div className={fieldRow}>
           <label className={fieldLabel}>Archive Extensions:</label>
-          <input type="text" value={archiveExt} onChange={(e) => setArchiveExt(e.target.value)} className="sm:ml-2 flex-1 min-w-0 bg-secondary border border-border p-1" />
+          <input type="text" value={archiveExt} onChange={(e) => setArchiveExt(e.target.value)} className="sm:ml-2 flex-1 min-w-0 bg-secondary text-text border border-border rounded-buttonTheme p-1 focus:outline-none focus:ring-1 focus:ring-accent" />
         </div>
       )}
 
@@ -180,8 +180,8 @@ export default function SettingsStep({
       </div>
 
       <div className="flex justify-end space-x-2">
-        <button onClick={onStartScan} className="bg-accent p-2" style={{ pointerEvents: 'auto', zIndex: 1000 }}>Next</button>
-        <button onClick={() => window.electronAPI.closeWindow()} className="bg-accent p-2" style={{ pointerEvents: 'auto', zIndex: 1000 }}>Cancel</button>
+        <button onClick={onStartScan} className="bg-accent hover:bg-accentHover text-white rounded-buttonTheme px-4 py-2 transition-colors" style={{ pointerEvents: 'auto', zIndex: 1000 }}>Next</button>
+        <button onClick={() => window.electronAPI.closeWindow()} className="bg-danger hover:bg-dangerHover text-white rounded-buttonTheme px-4 py-2 transition-colors" style={{ pointerEvents: 'auto', zIndex: 1000 }}>Cancel</button>
       </div>
     </div>
   )

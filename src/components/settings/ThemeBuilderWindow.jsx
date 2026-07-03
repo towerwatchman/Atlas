@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import ThemeBuilder from './ThemeBuilder.jsx'
 import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
+import WindowTitleBar from '../ui/WindowTitleBar.jsx'
 
 /**
  * Window chrome (drag region, minimize/maximize/close) for the Theme
@@ -27,29 +28,7 @@ const ThemeBuilderWindow = () => {
           scrollable content below can never slide up underneath it — the
           previous absolute-header-over-absolute-content approach let the
           content visibly scroll behind the header/window-controls. */}
-      <div className="flex items-center justify-between h-[50px] flex-shrink-0 px-4 -webkit-app-region-drag">
-        <h2 className="text-lg font-bold text-text">Theme Builder</h2>
-        <div className="flex h-[28px] -webkit-app-region-no-drag">
-          <button
-            onClick={() => window.electronAPI.minimizeWindow()}
-            className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
-          >
-            <i className="fas fa-minus text-text"></i>
-          </button>
-          <button
-            onClick={() => window.electronAPI.maximizeWindow()}
-            className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
-          >
-            <i className={isMaximized ? 'fas fa-window-restore text-text' : 'fas fa-window-maximize text-text'}></i>
-          </button>
-          <button
-            onClick={() => window.electronAPI.closeWindow()}
-            className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-danger transition-colors duration-200"
-          >
-            <i className="fas fa-times text-text"></i>
-          </button>
-        </div>
-      </div>
+      <WindowTitleBar title="Theme Builder" isMaximized={isMaximized} />
       {/* Main Content — a separate flex child below the OS window's drag
           header above. No padding/overflow here anymore: ThemeBuilder
           itself now splits into its own fixed header (back/save row +

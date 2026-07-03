@@ -4,6 +4,7 @@ import ScanStep from './steps/ScanStep.jsx'
 import { normalizeImporterSource } from './importerSources.js'
 import { buildFolderRegex } from './folderRegex.js'
 import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
+import WindowTitleBar from '../ui/WindowTitleBar.jsx'
 
 const deriveImportStats = (games) => ({
   potential: games.filter((game) => (game.scanStatus || 'new') === 'new').length,
@@ -1436,29 +1437,7 @@ const Importer = () => {
           importer previously used its own differently-structured header
           (absolutely positioned title/controls), which is what didn't
           fully match the rest. */}
-      <div className="flex items-center justify-between h-[50px] flex-shrink-0 px-4 -webkit-app-region-drag">
-        <h2 className="text-lg font-bold text-text">Import Games Wizard</h2>
-        <div className="flex h-[28px] -webkit-app-region-no-drag">
-          <button
-            onClick={() => window.electronAPI.minimizeWindow()}
-            className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
-          >
-            <i className="fas fa-minus text-text"></i>
-          </button>
-          <button
-            onClick={() => window.electronAPI.maximizeWindow()}
-            className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200"
-          >
-            <i className={isMaximized ? 'fas fa-window-restore text-text' : 'fas fa-window-maximize text-text'}></i>
-          </button>
-          <button
-            onClick={() => window.electronAPI.closeWindow()}
-            className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-danger transition-colors duration-200"
-          >
-            <i className="fas fa-times text-text"></i>
-          </button>
-        </div>
-      </div>
+      <WindowTitleBar title="Import Games Wizard" isMaximized={isMaximized} />
       {/* Main Content — a separate flex child below the header row. */}
       <div className="flex-1 min-h-0 p-4 overflow-y-auto scroll-window-inset">
         {view === 'settings' && (

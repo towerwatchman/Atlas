@@ -7,21 +7,21 @@ export default function SourceStep({ onSelect, onStartSteam, onStartRenpy }) {
         <h2 className="text-xl text-center">Select Import Source</h2>
         <button
           onClick={() => onSelect('settings')}
-          className="bg-secondary hover:bg-selected text-text p-2 rounded flex items-center justify-center gap-2"
+          className="bg-secondary hover:bg-selected text-text p-2 rounded-buttonTheme flex items-center justify-center gap-2"
         >
           <img src={atlasLogo} alt="" className="h-5 w-5 object-contain" />
           Atlas Game Importer
         </button>
         <button
           onClick={() => onStartSteam?.()}
-          className="bg-secondary hover:bg-selected text-text p-2 rounded flex items-center justify-center gap-2"
+          className="bg-secondary hover:bg-selected text-text p-2 rounded-buttonTheme flex items-center justify-center gap-2"
         >
           <i className="fab fa-steam"></i>
           Steam Library
         </button>
         <button
           onClick={() => onStartRenpy?.()}
-          className="bg-secondary hover:bg-selected text-text p-2 rounded flex items-center justify-center gap-2"
+          className="bg-secondary hover:bg-selected text-text p-2 rounded-buttonTheme flex items-center justify-center gap-2"
         >
           <i className="fas fa-save"></i>
           Ren'Py Save Importer

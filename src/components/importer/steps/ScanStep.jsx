@@ -34,7 +34,7 @@ export default function ScanStep({
             {scanMessage && <div className="mt-1 text-yellow-200">{scanMessage}</div>}
             <button
               onClick={onSelectRenpyFolder}
-              className="mt-2 bg-accent hover:bg-accentHover px-3 py-1 rounded text-text"
+              className="mt-2 bg-accent hover:bg-accentHover px-3 py-1 rounded-buttonTheme text-text"
               style={{ pointerEvents: 'auto' }}
             >
               Select Ren'Py Save Folder
@@ -84,7 +84,7 @@ export default function ScanStep({
           <button
             onClick={onDeleteSelectedRows}
             disabled={selectedRowCount === 0}
-            className={`px-3 py-1 rounded text-sm text-text ${selectedRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-danger hover:bg-dangerHover'}`}
+            className={`px-3 py-1 rounded-buttonTheme text-sm text-text ${selectedRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-danger hover:bg-dangerHover'}`}
             title="Remove selected rows from this scan only"
             style={{ pointerEvents: 'auto' }}
           >
@@ -93,7 +93,7 @@ export default function ScanStep({
           <button
             onClick={onDeleteBadRows}
             disabled={badRowCount === 0}
-            className={`px-3 py-1 rounded text-sm text-text ${badRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-danger hover:bg-dangerHover'}`}
+            className={`px-3 py-1 rounded-buttonTheme text-sm text-text ${badRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-danger hover:bg-dangerHover'}`}
             title="Remove incomplete rows from this scan only"
             style={{ pointerEvents: 'auto' }}
           >
@@ -102,20 +102,20 @@ export default function ScanStep({
           <button
             onClick={onClearRowSelection}
             disabled={selectedRowCount === 0}
-            className={`px-3 py-1 rounded text-sm text-text ${selectedRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-tertiary hover:bg-selected'}`}
+            className={`px-3 py-1 rounded-buttonTheme text-sm text-text ${selectedRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-tertiary hover:bg-selected'}`}
             title="Clear selected scan rows"
             style={{ pointerEvents: 'auto' }}
           >
             Clear selection
           </button>
           <div className="flex items-center space-x-2">
-            <input type="checkbox" id="include-unmatched" checked={includeUnmatched} onChange={(e) => setIncludeUnmatched(e.target.checked)} className="h-4 w-4" />
+            <input type="checkbox" id="include-unmatched" checked={includeUnmatched} onChange={(e) => setIncludeUnmatched(e.target.checked)} className="h-4 w-4 accent-accent" />
             <label htmlFor="include-unmatched" className="text-sm text-text">Import unmatched games</label>
           </div>
           {!isRenpyMode && (
             <>
               <div className="flex items-center space-x-2">
-                <input type="checkbox" id="force-reimport" checked={forceReimport} onChange={(e) => setForceReimport(e.target.checked)} className="h-4 w-4" />
+                <input type="checkbox" id="force-reimport" checked={forceReimport} onChange={(e) => setForceReimport(e.target.checked)} className="h-4 w-4 accent-accent" />
                 <label htmlFor="force-reimport" className="text-sm text-text" title="Safely repairs existing rows and refreshes selected media without creating duplicate game records.">
                   Force re-import existing games
                 </label>
@@ -128,7 +128,7 @@ export default function ScanStep({
           <button
             onClick={onUpdateMatches}
             disabled={isResolvingMatches || isScanActive || isCancelingScan}
-            className={`px-4 py-2 rounded text-text ${(isResolvingMatches || isScanActive || isCancelingScan) ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-accent hover:bg-accentHover'}`}
+            className={`px-4 py-2 rounded-buttonTheme text-text ${(isResolvingMatches || isScanActive || isCancelingScan) ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-accent hover:bg-accentHover'}`}
             style={{ pointerEvents: 'auto', zIndex: 1000 }}
           >
             {isResolvingMatches ? 'Resolving...' : 'Update Matches'}
@@ -137,25 +137,25 @@ export default function ScanStep({
             <button
               onClick={onCancelMatch}
               disabled={isCancelingScan}
-              className={`px-4 py-2 rounded text-white ${isCancelingScan ? 'bg-danger cursor-not-allowed opacity-70' : 'bg-danger hover:bg-dangerHover'}`}
+              className={`px-4 py-2 rounded-buttonTheme text-white ${isCancelingScan ? 'bg-danger cursor-not-allowed opacity-70' : 'bg-danger hover:bg-dangerHover'}`}
               style={{ pointerEvents: 'auto', zIndex: 1000 }}
             >
               {isScanActive || isCancelingScan ? (isCancelingScan ? 'Canceling...' : 'Cancel Scan') : 'Stop Matching'}
             </button>
           )}
-          <button onClick={() => setHideMatches(!hideMatches)} className="bg-tertiary hover:bg-selected px-4 py-2 rounded text-text" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
+          <button onClick={() => setHideMatches(!hideMatches)} className="bg-tertiary hover:bg-selected px-4 py-2 rounded-buttonTheme text-text" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
             {hideMatches ? 'Show All' : 'Hide Matches'}
           </button>
           <button
             onClick={onImport}
             disabled={!canImport || isScanActive || isCancelingScan}
-            className={`px-6 py-2 rounded font-medium transition-colors ${(canImport && !isScanActive && !isCancelingScan) ? 'bg-success hover:bg-successHover text-white' : 'bg-tertiary cursor-not-allowed opacity-70 text-muted'}`}
+            className={`px-6 py-2 rounded-buttonTheme font-medium transition-colors ${(canImport && !isScanActive && !isCancelingScan) ? 'bg-success hover:bg-successHover text-white' : 'bg-tertiary cursor-not-allowed opacity-70 text-muted'}`}
             title={getImportDisabledReason()}
             style={{ pointerEvents: 'auto' }}
           >
             Import
           </button>
-          <button onClick={() => window.electronAPI.closeWindow()} className="bg-danger hover:bg-dangerHover px-6 py-2 rounded text-white" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
+          <button onClick={() => window.electronAPI.closeWindow()} className="bg-danger hover:bg-dangerHover px-6 py-2 rounded-buttonTheme text-white" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
             Cancel
           </button>
         </div>

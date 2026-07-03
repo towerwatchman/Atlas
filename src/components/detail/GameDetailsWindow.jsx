@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import TitleBar from './window/TitleBar.jsx'
+import WindowTitleBar from '../ui/WindowTitleBar.jsx'
 import RecordTab from './window/RecordTab.jsx'
 import VersionsTab from './window/VersionsTab.jsx'
 import MediaTab from './window/MediaTab.jsx'
@@ -606,7 +606,7 @@ const GameDetailWindow = () => {
     return (
       <div className="flex flex-col h-screen bg-canvas text-text rounded-windowTheme overflow-hidden transform-gpu">
         <WindowBorderFrame />
-        <TitleBar isMaximized={isMaximized} />
+        <WindowTitleBar title="Edit Game Details" isMaximized={isMaximized} />
         <div className="flex-grow flex flex-col items-center justify-center bg-secondary gap-4">
           {loadError ? (
             <>
@@ -625,7 +625,7 @@ const GameDetailWindow = () => {
   return (
     <div className="flex flex-col h-screen bg-canvas text-text rounded-windowTheme overflow-hidden transform-gpu">
       <WindowBorderFrame />
-      <TitleBar isMaximized={isMaximized} />
+      <WindowTitleBar title="Edit Game Details" isMaximized={isMaximized} />
 
       <div className="flex flex-col flex-1 min-h-0 bg-primary">
         <div className="flex shrink-0 border-b border-border items-center justify-between">
