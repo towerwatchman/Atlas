@@ -68,11 +68,11 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
         onClick={(e) => e.stopPropagation()}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px' }}
       >
-        <span style={{ fontSize: 12, fontWeight: 600, color: '#9ca3af' }}>{lightboxIndex + 1} / {previews.length}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-muted)' }}>{lightboxIndex + 1} / {previews.length}</span>
         <button
           onClick={onClose}
           title="Close (Esc)"
-          style={{ width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, color: '#d1d5db', cursor: 'pointer', transition: 'background 0.15s' }}
+          style={{ width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, color: 'var(--color-text)', cursor: 'pointer', transition: 'background 0.15s' }}
           onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
         >
@@ -85,7 +85,7 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
         <button
           onClick={(e) => { e.stopPropagation(); onPrev() }}
           title="Previous (←)"
-          style={{ position: 'absolute', left: NAV_EDGE_OFFSET, top: '50%', transform: 'translateY(-50%)', width: NAV_BTN_SIZE, height: NAV_BTN_SIZE, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, color: '#d1d5db', cursor: 'pointer', transition: 'background 0.15s' }}
+          style={{ position: 'absolute', left: NAV_EDGE_OFFSET, top: '50%', transform: 'translateY(-50%)', width: NAV_BTN_SIZE, height: NAV_BTN_SIZE, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, color: 'var(--color-text)', cursor: 'pointer', transition: 'background 0.15s' }}
           onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
         >
@@ -121,7 +121,7 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
         <button
           onClick={(e) => { e.stopPropagation(); onNext() }}
           title="Next (→)"
-          style={{ position: 'absolute', right: NAV_EDGE_OFFSET, top: '50%', transform: 'translateY(-50%)', width: NAV_BTN_SIZE, height: NAV_BTN_SIZE, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, color: '#d1d5db', cursor: 'pointer', transition: 'background 0.15s' }}
+          style={{ position: 'absolute', right: NAV_EDGE_OFFSET, top: '50%', transform: 'translateY(-50%)', width: NAV_BTN_SIZE, height: NAV_BTN_SIZE, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, color: 'var(--color-text)', cursor: 'pointer', transition: 'background 0.15s' }}
           onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
         >

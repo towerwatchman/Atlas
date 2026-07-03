@@ -703,8 +703,8 @@ const GameDetailWindow = () => {
         </div>
 
         <div className="shrink-0 p-4 bg-primary flex justify-end space-x-2 z-10 border-t border-border">
-          <button onClick={handleSave} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Save</button>
-          <button onClick={() => window.electronAPI.closeWindow()} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Cancel</button>
+          <button onClick={handleSave} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Save</button>
+          <button onClick={() => window.electronAPI.closeWindow()} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Cancel</button>
         </div>
       </div>
 
@@ -720,7 +720,7 @@ const GameDetailWindow = () => {
                 {searchResults.map((result, index) => (
                   <li
                     key={index}
-                    className="p-2 bg-tertiary hover:bg-buttonHover rounded cursor-pointer"
+                    className="p-2 bg-button hover:bg-buttonHover rounded cursor-pointer"
                     onClick={() => handleSelectGame(result.atlas_id)}
                   >
                     <div>{result.title}</div>
@@ -736,7 +736,7 @@ const GameDetailWindow = () => {
             <div className="flex justify-end space-x-2 mt-4">
               <button
                 onClick={() => { setShowModal(false); setSearchResults([]) }}
-                className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded"
+                className="px-4 py-1 bg-button hover:bg-buttonHover rounded"
               >
                 Cancel
               </button>
@@ -773,7 +773,7 @@ const GameDetailWindow = () => {
               <button
                 onClick={() => setAddVersionDraft(null)}
                 disabled={addVersionBusy}
-                className="px-4 py-2 bg-tertiary hover:bg-buttonHover rounded disabled:opacity-50"
+                className="px-4 py-2 bg-button hover:bg-buttonHover rounded disabled:opacity-50"
               >
                 Cancel
               </button>

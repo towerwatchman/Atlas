@@ -18,7 +18,7 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
   const showLogo = logoUrl && !logoFailed
 
   return (
-    <div ref={bannerRef} style={{ position: 'relative', height: 370, flexShrink: 0, overflow: 'hidden', backgroundColor: '#1a1f2e' }}>
+    <div ref={bannerRef} style={{ position: 'relative', height: 370, flexShrink: 0, overflow: 'hidden', backgroundColor: 'var(--color-primary)' }}>
       {/* Blurred background fill */}
       {heroUrl && (
         <SafeImage src={heroUrl} alt="" fallbackMode="hidden" fallbackContent={false} style={{
@@ -28,7 +28,7 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
           transform: 'scale(1.1)', opacity: 0.6,
         }} placeholderStyle={{ background: 'transparent' }} />
       )}
-      {!heroUrl && <div style={{ position: 'absolute', inset: 0, background: '#1d2734' }} />}
+      {!heroUrl && <div style={{ position: 'absolute', inset: 0, background: 'var(--color-primary)' }} />}
 
       {/* Foreground */}
       {heroUrl && (

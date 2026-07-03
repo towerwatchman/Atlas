@@ -92,6 +92,19 @@
      than removing the border element itself. */
   --color-window-border:      #2C8EA9;
 
+  /* Game detail page (Steam-style) accents — see THEME_COLOR_KEYS in
+     themes.js. Default to the exact colors the detail page used to
+     hardcode, so it looks identical until a theme overrides them. */
+  --color-detail-play:            #5ba300;
+  --color-detail-play-text:       #d2e885;
+  --color-detail-launching:       #b58e00;
+  --color-detail-running:         #3a6db5;
+  --color-detail-accent:          #2f6fc0;
+  --color-detail-accent-text:     #c8e0ff;
+  --color-detail-wishlist-add:    #2f5f78;
+  --color-detail-wishlist-remove: #6b2f42;
+  --color-detail-favorite:        #f59e0b;
+
   /* Shape */
   --radius-none: 0px;
   --radius-sm:   4px;

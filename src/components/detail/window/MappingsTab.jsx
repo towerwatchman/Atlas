@@ -33,7 +33,7 @@ export default function MappingsTab({ game, onFindGame }) {
     <>
       <div className="flex flex-col gap-4">
         <div className="flex justify-end">
-          <button onClick={onFindGame} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">
+          <button onClick={onFindGame} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">
             Add Mapping
           </button>
         </div>

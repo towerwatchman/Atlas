@@ -41,6 +41,15 @@ const COLOR_LABELS = {
   progressForeground: 'Progress Bar (Foreground)',
   library: 'Library Background',
   windowBorder: 'Window Border',
+  detailPlay: 'Detail · Play Button',
+  detailPlayText: 'Detail · Play Button Text',
+  detailLaunching: 'Detail · Launching State',
+  detailRunning: 'Detail · Running State',
+  detailAccent: 'Detail · Accent (Install/Update)',
+  detailAccentText: 'Detail · Accent Text',
+  detailWishlistAdd: 'Detail · Wishlist (Add)',
+  detailWishlistRemove: 'Detail · Wishlist (Remove)',
+  detailFavorite: 'Detail · Favorite',
 }
 
 const RADIUS_LABELS = { sm: 'Small', md: 'Medium', lg: 'Large', pill: 'Pill' }

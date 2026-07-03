@@ -210,10 +210,10 @@ export const formatReleaseDate = (game = {}) => {
 
 export const LAUNCH_STATE = { IDLE: 'idle', LAUNCHING: 'launching', RUNNING: 'running' }
 
-export const STEAM_GREEN  = '#5ba300'
-export const STEAM_BLUE   = '#3a6db5'
-export const STEAM_YELLOW = '#b58e00'
-export const STEAM_GRAY   = '#3a3a3a'
+export const STEAM_GREEN  = 'var(--color-detail-play)'      // Play (idle)
+export const STEAM_BLUE   = 'var(--color-detail-running)'   // Play (running)
+export const STEAM_YELLOW = 'var(--color-detail-launching)' // Play (launching)
+export const STEAM_GRAY   = 'var(--color-selected)'         // Play (disabled)
 
 export const ACTION_BTN = {
   height: 36,
@@ -221,7 +221,7 @@ export const ACTION_BTN = {
   fontWeight: 700,
   fontSize: 12,
   letterSpacing: '0.05em',
-  color: '#d2e885',
+  color: 'var(--color-detail-play-text)',
   border: 'none',
   borderRadius: 2,
   display: 'flex',

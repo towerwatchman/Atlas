@@ -26,9 +26,9 @@ export default function InfoPanel({ game, latestVersion, isUpdateAvailable }) {
   return (
     <div className="bg-secondary border-b border-border" style={{ padding: '20px 24px' }}>
       {isUpdateAvailable && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginBottom: 16, padding: '8px 12px', background: 'rgba(74,144,217,0.15)', border: '1px solid rgba(74,144,217,0.3)', borderRadius: 2 }}>
-          <i className="fas fa-arrow-circle-up" style={{ color: '#4a90d9' }}></i>
-          <span style={{ color: '#c8e0ff' }}>Update available — {latestVersion}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginBottom: 16, padding: '8px 12px', background: 'color-mix(in srgb, var(--color-detail-accent) 15%, transparent)', border: '1px solid color-mix(in srgb, var(--color-detail-accent) 30%, transparent)', borderRadius: 2 }}>
+          <i className="fas fa-arrow-circle-up" style={{ color: 'var(--color-detail-accent)' }}></i>
+          <span style={{ color: 'var(--color-detail-accent-text)' }}>Update available — {latestVersion}</span>
         </div>
       )}
 
@@ -47,23 +47,23 @@ export default function InfoPanel({ game, latestVersion, isUpdateAvailable }) {
         <div style={{ flex: '1 1 320px', minWidth: 0 }}>
           {description ? (
             <>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#7a9cc4', textTransform: 'uppercase', marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
                 About
               </div>
-              <div style={{ fontSize: 13, lineHeight: 1.55, color: '#d1d5db', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 320, overflowY: 'auto' }}>
+              <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-text)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 320, overflowY: 'auto' }}>
                 {description}
               </div>
             </>
           ) : (
-            <div style={{ color: '#9ca3af', fontSize: 13 }}>No description available</div>
+            <div style={{ color: 'var(--color-muted)', fontSize: 13 }}>No description available</div>
           )}
 
           {changelog && (
             <div style={{ marginTop: 18 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#7a9cc4', textTransform: 'uppercase', marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
                 Changelog
               </div>
-              <div style={{ fontSize: 12, lineHeight: 1.5, color: '#c2c7d0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 220, overflowY: 'auto' }}>
+              <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--color-text)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 220, overflowY: 'auto' }}>
                 {changelog}
               </div>
             </div>

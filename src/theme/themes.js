@@ -105,6 +105,23 @@ export const THEME_COLOR_KEYS = [
   // rather than a regular CSS border, so it can't be visually covered by
   // a scrollbar or a full-width fixed header/footer bar).
   'windowBorder',
+  // ── Game Detail Page (Steam-style) accent colors ───────────────────
+  // Drive the standalone game detail page (GameDetailPage.jsx +
+  // src/components/detail/page/*), which was originally built with a
+  // hardcoded Steam-inspired palette that ignored the theme. Each defaults
+  // to the exact color it replaced, so the page looks identical until a
+  // theme deliberately changes it. Neutral/status text on that page (muted
+  // greys, warning/success/danger states) intentionally reuses the existing
+  // muted/warning/success/danger/text tokens above rather than new keys.
+  'detailPlay',           // Play button background (was STEAM_GREEN)
+  'detailPlayText',       // Play button label text (was #d2e885)
+  'detailLaunching',      // Play button while launching (was STEAM_YELLOW)
+  'detailRunning',        // Play button while game is running (was STEAM_BLUE)
+  'detailAccent',         // Install/Update button + info highlights (was #2f6fc0)
+  'detailAccentText',     // Text on accent-colored buttons/highlights (was #c8e0ff)
+  'detailWishlistAdd',    // "Add to Wishlist" button background (was #2f5f78)
+  'detailWishlistRemove', // "Remove from Wishlist" button background (was #6b2f42)
+  'detailFavorite',       // Favorite (star/heart) accent (was #f59e0b)
 ]
 
 /**
@@ -453,6 +470,16 @@ export const DEFAULT_THEME = {
     progressForeground: '#2C8EA9', // matches `accent`, the previous hardcoded look
     library:        '#313338', // matches `tertiary`, the previous hardcoded look — see THEME_COLOR_KEYS
     windowBorder:   '#424242', // matches `accent` by default; independently editable
+    // Game detail page (Steam-style) accents — see THEME_COLOR_KEYS.
+    detailPlay:            '#5ba300',
+    detailPlayText:        '#d2e885',
+    detailLaunching:       '#b58e00',
+    detailRunning:         '#3a6db5',
+    detailAccent:          '#2f6fc0',
+    detailAccentText:      '#c8e0ff',
+    detailWishlistAdd:     '#2f5f78',
+    detailWishlistRemove:  '#6b2f42',
+    detailFavorite:        '#f59e0b',
   },
 }
 

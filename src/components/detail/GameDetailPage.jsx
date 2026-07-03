@@ -784,7 +784,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
             <div>
               <h2 className="text-base font-semibold">{importPanelMode === 'catalog' ? 'Install / Import Files' : 'Update / Import Files'}</h2>
-              <p style={{ color: '#9ca3af', fontSize: 12 }}>
+              <p style={{ color: 'var(--color-muted)', fontSize: 12 }}>
                 {importPanelMode === 'catalog'
                   ? 'Drop a folder, archive, or executable here to install this title into your Library.'
                   : 'Drop a folder, archive, or executable here to add or replace files for this Library title.'}
@@ -832,7 +832,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {(importPanelMode === 'catalog' ? catalogImportPath : localImportPath) || 'No source selected'}
               </div>
-              <div style={{ color: '#9ca3af', fontSize: 12 }}>
+              <div style={{ color: 'var(--color-muted)', fontSize: 12 }}>
                 Accepted: folder, .zip, .7z, .rar, or launchable file.
               </div>
             </div>
@@ -918,13 +918,13 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             </button>
           </div>
           {importPanelMode === 'local' && localReplaceExisting && (
-            <div style={{ color: '#9ca3af', fontSize: 12, marginTop: 6 }}>
+            <div style={{ color: 'var(--color-muted)', fontSize: 12, marginTop: 6 }}>
               Old version files will be deleted after the replacement succeeds. If deletion fails, Atlas will keep the import and show a warning.
             </div>
           )}
           {catalogImportConflict && (
             <div className="border border-border bg-primary p-3" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 10 }}>
-              <div style={{ color: '#facc15', fontSize: 12 }}>
+              <div style={{ color: 'var(--color-warning)', fontSize: 12 }}>
                 Version "{catalogImportConflict.version}" already exists for this title.
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
@@ -952,15 +952,15 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               </div>
             </div>
           )}
-          {importPanelMode === 'catalog' && catalogImportStatus && <div style={{ color: '#86efac', fontSize: 12, marginTop: 8 }}>{catalogImportStatus}</div>}
-          {importPanelMode === 'catalog' && catalogImportError && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 8 }}>{catalogImportError}</div>}
-          {importPanelMode === 'local' && localImportStatus && <div style={{ color: localImportStatus.includes('Warning:') ? '#facc15' : '#86efac', fontSize: 12, marginTop: 8 }}>{localImportStatus}</div>}
-          {importPanelMode === 'local' && localImportError && <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 8 }}>{localImportError}</div>}
+          {importPanelMode === 'catalog' && catalogImportStatus && <div style={{ color: 'var(--color-success)', fontSize: 12, marginTop: 8 }}>{catalogImportStatus}</div>}
+          {importPanelMode === 'catalog' && catalogImportError && <div style={{ color: 'var(--color-danger)', fontSize: 12, marginTop: 8 }}>{catalogImportError}</div>}
+          {importPanelMode === 'local' && localImportStatus && <div style={{ color: localImportStatus.includes('Warning:') ? 'var(--color-warning)' : 'var(--color-success)', fontSize: 12, marginTop: 8 }}>{localImportStatus}</div>}
+          {importPanelMode === 'local' && localImportError && <div style={{ color: 'var(--color-danger)', fontSize: 12, marginTop: 8 }}>{localImportError}</div>}
         </section>
       )}
 
       {(canManageLocalTitle || canManageWishlist) && !showLocalImportPanel && (localImportStatus || localImportError || catalogImportStatus || catalogImportError) && (
-        <div className="mx-6 mt-3 border border-border bg-secondary px-3 py-2" style={{ color: localImportError || catalogImportError ? '#fca5a5' : localImportStatus.includes('Warning:') ? '#facc15' : '#86efac', fontSize: 12 }}>
+        <div className="mx-6 mt-3 border border-border bg-secondary px-3 py-2" style={{ color: localImportError || catalogImportError ? 'var(--color-danger)' : localImportStatus.includes('Warning:') ? 'var(--color-warning)' : 'var(--color-success)', fontSize: 12 }}>
           {localImportError || catalogImportError || localImportStatus || catalogImportStatus}
         </div>
       )}
@@ -980,7 +980,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         <section className="border border-border bg-secondary" style={{ padding: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <h2 className="text-lg font-semibold">Previews</h2>
-            <span style={{ fontSize: 11, color: '#9ca3af' }}>{previews.length} available</span>
+            <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>{previews.length} available</span>
           </div>
           {previews.length > 0 ? (
             <div
@@ -1013,7 +1013,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               ))}
             </div>
           ) : (
-            <div style={{ minHeight: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
+            <div style={{ minHeight: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-muted)' }}>
               {previewsLoading ? 'Loading previews...' : 'No previews available'}
             </div>
           )}
@@ -1039,16 +1039,16 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                           {isSelected && <i className="fas fa-play" style={{ fontSize: 9, color: 'var(--color-accent,#86a8e7)' }}></i>}
                           {version.version || 'Unknown version'}
                         </span>
-                        <span style={{ fontSize: 11, color: installed ? '#86efac' : '#fca5a5' }}>{installed ? 'Installed' : 'Missing'}</span>
+                        <span style={{ fontSize: 11, color: installed ? 'var(--color-success)' : 'var(--color-danger)' }}>{installed ? 'Installed' : 'Missing'}</span>
                       </div>
-                      <div style={{ fontSize: 11, color: '#d1d5db', marginTop: 3 }}>{formatPlaytime(version.version_playtime)}</div>
-                      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{version.game_path || 'No path set'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text)', marginTop: 3 }}>{formatPlaytime(version.version_playtime)}</div>
+                      <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{version.game_path || 'No path set'}</div>
                     </button>
                   )
                 })}
               </div>
             ) : (
-              <div style={{ color: '#9ca3af' }}>No versions recorded</div>
+              <div style={{ color: 'var(--color-muted)' }}>No versions recorded</div>
             )}
           </section>
 
@@ -1056,14 +1056,14 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             <section className="bg-secondary border border-border p-4">
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
                 <h2 className="text-lg font-semibold">Personal Rating</h2>
-                <span style={{ color: personalRatingsOverall === null ? '#9ca3af' : '#facc15', fontWeight: 700 }}>
+                <span style={{ color: personalRatingsOverall === null ? 'var(--color-muted)' : 'var(--color-warning)', fontWeight: 700 }}>
                   {personalRatingsOverall === null ? 'Unrated' : `${personalRatingsOverall}/10`}
                 </span>
               </div>
               <div className="space-y-2">
                 {personalRatingFields.map(([key, label]) => (
                   <label key={key} className="text-sm" style={{ display: 'grid', gridTemplateColumns: '1fr 72px', gap: 10, alignItems: 'center' }}>
-                    <span style={{ color: '#d1d5db' }}>{label}</span>
+                    <span style={{ color: 'var(--color-text)' }}>{label}</span>
                     <input
                       type="number"
                       min="0"
@@ -1096,18 +1096,18 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             <div className="space-y-2 text-sm">
               {metadataRows.map(([label, value]) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 6 }}>
-                  <span style={{ color: '#9ca3af', flexShrink: 0 }}>{label}</span>
+                  <span style={{ color: 'var(--color-muted)', flexShrink: 0 }}>{label}</span>
                   <span style={{ textAlign: 'right', minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{String(value)}</span>
                 </div>
               ))}
 
               {steam && categories.length > 0 && (
                 <div style={{ paddingTop: 4 }}>
-                  <div style={{ color: '#9ca3af', marginBottom: 6 }}>Category</div>
+                  <div style={{ color: 'var(--color-muted)', marginBottom: 6 }}>Category</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {categories.map((cat) => (
                       <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                        <i className={getCategoryIcon(cat)} style={{ width: 16, textAlign: 'center', color: '#7a9cc4', flexShrink: 0, fontSize: 13 }} aria-hidden="true"></i>
+                        <i className={getCategoryIcon(cat)} style={{ width: 16, textAlign: 'center', color: 'var(--color-muted)', flexShrink: 0, fontSize: 13 }} aria-hidden="true"></i>
                         <span style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{cat}</span>
                       </div>
                     ))}
@@ -1116,7 +1116,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               )}
 
               {metadataRows.length === 0 && !(steam && categories.length > 0) && (
-                <div style={{ color: '#9ca3af' }}>No metadata available</div>
+                <div style={{ color: 'var(--color-muted)' }}>No metadata available</div>
               )}
             </div>
           </section>
@@ -1127,8 +1127,8 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {externalLinks.map((link) => (
                   <div key={link.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                    <i className={link.icon} style={{ width: 18, textAlign: 'center', color: '#9ca3af' }} aria-hidden="true"></i>
-                    <span style={{ color: '#9ca3af', minWidth: 92 }}>{link.label}</span>
+                    <i className={link.icon} style={{ width: 18, textAlign: 'center', color: 'var(--color-muted)' }} aria-hidden="true"></i>
+                    <span style={{ color: 'var(--color-muted)', minWidth: 92 }}>{link.label}</span>
                     {link.url ? (
                       <a
                         href={link.url}

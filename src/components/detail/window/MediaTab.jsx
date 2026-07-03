@@ -45,7 +45,7 @@ export default function MediaTab({
         <button
           onClick={handleOpenImageFolder}
           disabled={!game?.record_id}
-          className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-4 py-1 bg-button hover:bg-buttonHover rounded disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Open Image Folder
         </button>
@@ -64,15 +64,15 @@ export default function MediaTab({
               onError={() => console.error('Failed to load banner:', bannerUrl)}
             />
             <div className="flex space-x-2 mt-2">
-              <button onClick={onDownloadBanner} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Download Banner</button>
-              <button onClick={onSelectCustomBanner} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Select Custom Banner</button>
+              <button onClick={onDownloadBanner} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Download Banner</button>
+              <button onClick={onSelectCustomBanner} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Select Custom Banner</button>
               <button onClick={onDeleteBanner} className="px-4 py-1 bg-danger text-white rounded hover:bg-dangerHover">Delete Downloaded Banner</button>
             </div>
           </div>
         ) : (
           <div className="flex space-x-2">
-            <button onClick={onDownloadBanner} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded" style={{ marginTop: '350px' }}>Download Banner</button>
-            <button onClick={onSelectCustomBanner} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded" style={{ marginTop: '350px' }}>Select Custom Banner</button>
+            <button onClick={onDownloadBanner} className="px-4 py-1 bg-button hover:bg-buttonHover rounded" style={{ marginTop: '350px' }}>Download Banner</button>
+            <button onClick={onSelectCustomBanner} className="px-4 py-1 bg-button hover:bg-buttonHover rounded" style={{ marginTop: '350px' }}>Select Custom Banner</button>
           </div>
         )}
       </div>
@@ -102,8 +102,8 @@ export default function MediaTab({
           </div>
         </div>
         <div className="flex space-x-2 mt-2">
-          <button onClick={onRefreshMetadata} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Refresh Media Links</button>
-          <button onClick={onDownloadPreviews} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">Download All Previews</button>
+          <button onClick={onRefreshMetadata} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Refresh Media Links</button>
+          <button onClick={onDownloadPreviews} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Download All Previews</button>
           {Array.isArray(validPreviewUrls) && validPreviewUrls.length > 0 && (
             <button onClick={onDeletePreviews} className="px-4 py-1 bg-danger text-white rounded hover:bg-dangerHover">Delete Downloaded Previews</button>
           )}

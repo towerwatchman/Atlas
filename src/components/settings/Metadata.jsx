@@ -73,7 +73,7 @@ const SourceOrderList = ({ order, availableSources, labelFor, onMove, onRemove, 
             <button
               onClick={() => onMove(index, -1)}
               disabled={index === 0}
-              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-buttonHover disabled:opacity-30 disabled:cursor-not-allowed"
+              className="w-7 h-7 flex items-center justify-center rounded bg-button hover:bg-buttonHover disabled:opacity-30 disabled:cursor-not-allowed"
               title="Move up"
             >
               <i className="fas fa-chevron-up"></i>
@@ -81,7 +81,7 @@ const SourceOrderList = ({ order, availableSources, labelFor, onMove, onRemove, 
             <button
               onClick={() => onMove(index, 1)}
               disabled={index === order.length - 1}
-              className="w-7 h-7 flex items-center justify-center rounded bg-tertiary hover:bg-buttonHover disabled:opacity-30 disabled:cursor-not-allowed"
+              className="w-7 h-7 flex items-center justify-center rounded bg-button hover:bg-buttonHover disabled:opacity-30 disabled:cursor-not-allowed"
               title="Move down"
             >
               <i className="fas fa-chevron-down"></i>

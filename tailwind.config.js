@@ -44,6 +44,17 @@ module.exports = {
 
         // ── Window chrome ──
         windowBorder:       'var(--color-window-border)',
+
+        // ── Game detail page (Steam-style) accents ──
+        detailPlay:          'var(--color-detail-play)',
+        detailPlayText:      'var(--color-detail-play-text)',
+        detailLaunching:     'var(--color-detail-launching)',
+        detailRunning:       'var(--color-detail-running)',
+        detailAccent:        'var(--color-detail-accent)',
+        detailAccentText:    'var(--color-detail-accent-text)',
+        detailWishlistAdd:   'var(--color-detail-wishlist-add)',
+        detailWishlistRemove:'var(--color-detail-wishlist-remove)',
+        detailFavorite:      'var(--color-detail-favorite)',
       },
       borderRadius: {
         // Follows whichever radius the active theme has chosen for buttons

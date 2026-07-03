@@ -36,7 +36,7 @@ const SavedFilterRow = ({
             Delete
           </button>
           <button
-            className="px-2 py-1 bg-tertiary hover:bg-buttonHover rounded disabled:opacity-50"
+            className="px-2 py-1 bg-button hover:bg-buttonHover rounded disabled:opacity-50"
             disabled={deleteState.busy}
             onClick={(event) => {
               event.stopPropagation()

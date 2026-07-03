@@ -427,7 +427,7 @@ export default function ScanTable({
                     <button
                       onClick={() => openSourceUrl(sourceUrls.f95)}
                       title="Open F95 thread"
-                      className="bg-tertiary hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
+                      className="bg-button hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
                       style={{ pointerEvents: 'auto' }}
                     >
                       F95
@@ -437,7 +437,7 @@ export default function ScanTable({
                     <button
                       onClick={() => openSourceUrl(sourceUrls.lewdcorner)}
                       title="Open LewdCorner thread"
-                      className="bg-tertiary hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
+                      className="bg-button hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
                       style={{ pointerEvents: 'auto' }}
                     >
                       LewdCorner
@@ -447,7 +447,7 @@ export default function ScanTable({
                     <button
                       onClick={() => openSourceUrl(sourceUrls.steam)}
                       title="Open Steam store page"
-                      className="bg-tertiary hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
+                      className="bg-button hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
                       style={{ pointerEvents: 'auto' }}
                     >
                       Steam
@@ -457,7 +457,7 @@ export default function ScanTable({
                     <button
                       onClick={() => openSourceUrl(sourceUrls.atlas)}
                       title="Open source page"
-                      className="bg-tertiary hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
+                      className="bg-button hover:bg-buttonHover text-text text-xs p-1 rounded whitespace-nowrap"
                       style={{ pointerEvents: 'auto' }}
                     >
                       Atlas

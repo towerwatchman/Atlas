@@ -20,9 +20,9 @@ export default function VersionsTab({
           ))}
         </ul>
         <div className="flex flex-col space-y-2 mt-2 px-2">
-          <button onClick={onAddVersion} className="w-full px-3 py-1 bg-tertiary hover:bg-buttonHover rounded text-xs">Add</button>
-          <button onClick={onRemoveVersion} className="w-full px-3 py-1 bg-tertiary hover:bg-buttonHover rounded text-xs">Remove from Library</button>
-          <button onClick={onDeleteVersionFiles} className="w-full px-3 py-1 bg-tertiary hover:bg-buttonHover rounded text-xs">Delete Files</button>
+          <button onClick={onAddVersion} className="w-full px-3 py-1 bg-button hover:bg-buttonHover rounded text-xs">Add</button>
+          <button onClick={onRemoveVersion} className="w-full px-3 py-1 bg-button hover:bg-buttonHover rounded text-xs">Remove from Library</button>
+          <button onClick={onDeleteVersionFiles} className="w-full px-3 py-1 bg-button hover:bg-buttonHover rounded text-xs">Delete Files</button>
         </div>
       </div>
 
@@ -39,11 +39,11 @@ export default function VersionsTab({
         <div className="flex items-center">
           <label className="w-24">Game Path</label>
           <input name="game_path" value={versionData.game_path || ''} onChange={onVersionInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-          <button onClick={onSetPath} className="ml-2 px-2 py-1 bg-tertiary hover:bg-buttonHover rounded">Change</button>
+          <button onClick={onSetPath} className="ml-2 px-2 py-1 bg-button hover:bg-buttonHover rounded">Change</button>
           <button
             onClick={onOpenGamePath}
             disabled={!versionData.game_path}
-            className="ml-2 px-2 py-1 bg-tertiary hover:bg-buttonHover rounded disabled:opacity-50 disabled:cursor-not-allowed"
+            className="ml-2 px-2 py-1 bg-button hover:bg-buttonHover rounded disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Open
           </button>
@@ -51,7 +51,7 @@ export default function VersionsTab({
         <div className="flex items-center">
           <label className="w-24">Executable</label>
           <input name="executable" value={versionData.executable || ''} onChange={onVersionInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
-          <button onClick={onChangeExecutable} className="ml-2 px-2 py-1 bg-tertiary hover:bg-buttonHover rounded">Change</button>
+          <button onClick={onChangeExecutable} className="ml-2 px-2 py-1 bg-button hover:bg-buttonHover rounded">Change</button>
         </div>
         {[
           { name: 'last_played', label: 'Last Played', titleName: 'last_played_title' },
@@ -72,7 +72,7 @@ export default function VersionsTab({
               <button
                 onClick={onRefreshVersionSize}
                 disabled={!versionData.game_path}
-                className="ml-2 px-2 py-1 bg-tertiary hover:bg-buttonHover rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                className="ml-2 px-2 py-1 bg-button hover:bg-buttonHover rounded disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Refresh
               </button>

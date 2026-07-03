@@ -81,7 +81,7 @@ export default function RecordTab({ formData, onChange, onFindGame, onRemoveTitl
           />
         </div>
         <div className="flex justify-end">
-          <button onClick={onFindGame} className="px-4 py-1 bg-tertiary hover:bg-buttonHover rounded">
+          <button onClick={onFindGame} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">
             Find Game
           </button>
         </div>

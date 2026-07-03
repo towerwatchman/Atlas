@@ -13,17 +13,17 @@ export default function ActionBar({
   const showInstallCta = !canLaunch && canInstallFromDetail
 
   const playBg =
-    showInstallCta ? '#2f6fc0'
+    showInstallCta ? 'var(--color-detail-accent)'
     : launchState === LAUNCH_STATE.LAUNCHING ? STEAM_YELLOW
     : launchState === LAUNCH_STATE.RUNNING ? STEAM_BLUE
     : !canLaunch ? STEAM_GRAY
     : STEAM_GREEN
 
   const playColor =
-    showInstallCta ? '#c8e0ff'
-    : launchState === LAUNCH_STATE.RUNNING ? '#8ab4f8'
-    : !canLaunch ? '#888'
-    : '#d2e885'
+    showInstallCta ? 'var(--color-detail-accent-text)'
+    : launchState === LAUNCH_STATE.RUNNING ? 'var(--color-detail-accent-text)'
+    : !canLaunch ? 'var(--color-muted)'
+    : 'var(--color-detail-play-text)'
 
   const playLabel =
     showInstallCta
@@ -31,7 +31,7 @@ export default function ActionBar({
     : launchState === LAUNCH_STATE.LAUNCHING
       ? <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><i className="fas fa-circle-notch fa-spin" style={{ fontSize: 11 }}></i>LAUNCHING</span>
     : launchState === LAUNCH_STATE.RUNNING
-      ? <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><i className="fas fa-circle" style={{ fontSize: 9, color: '#4ade80' }}></i>RUNNING</span>
+      ? <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><i className="fas fa-circle" style={{ fontSize: 9, color: 'var(--color-success)' }}></i>RUNNING</span>
     : <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><i className="fas fa-play" style={{ fontSize: 11 }}></i>PLAY</span>
 
   return (
@@ -68,7 +68,7 @@ export default function ActionBar({
         {game.isUpdateAvailable && (
           <button
             onClick={canManageLocalTitle ? onToggleLocalImport : onOpenWebsite}
-            style={{ ...ACTION_BTN, minWidth: 130, background: '#2f6fc0', color: '#c8e0ff' }}
+            style={{ ...ACTION_BTN, minWidth: 130, background: 'var(--color-detail-accent)', color: 'var(--color-detail-accent-text)' }}
             onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.12)' }}
             onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
             title={canManageLocalTitle ? 'Open update/import panel' : 'Open update page'}
@@ -83,14 +83,14 @@ export default function ActionBar({
         {actionVersion && (
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', lineHeight: 1.25, marginLeft: 6, minWidth: 0 }}>
             {game.isUpdateAvailable && latestVersion && (
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#7fb4ef', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-detail-accent-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <i className="fas fa-arrow-up" style={{ fontSize: 9 }}></i>{latestVersion}
               </span>
             )}
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: '#7a8aa0', textTransform: 'uppercase' }}>Selected Version</span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: actionVersion.isInstalled !== false ? '#d1d5db' : '#fca5a5', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', textTransform: 'uppercase' }}>Selected Version</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: actionVersion.isInstalled !== false ? 'var(--color-text)' : 'var(--color-danger)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {actionVersion.version || 'Unknown'}
-              {actionVersion.isInstalled === false && <span style={{ fontSize: 10, color: '#fca5a5', marginLeft: 6 }}>(missing)</span>}
+              {actionVersion.isInstalled === false && <span style={{ fontSize: 10, color: 'var(--color-danger)', marginLeft: 6 }}>(missing)</span>}
             </span>
           </div>
         )}
@@ -108,8 +108,8 @@ export default function ActionBar({
                 ...ACTION_BTN,
                 minWidth: 146,
                 height: 32,
-                background: isWishlisted ? '#6b2f42' : '#2f5f78',
-                color: isWishlisted ? '#ffd4df' : '#d4efff',
+                background: isWishlisted ? 'var(--color-detail-wishlist-remove)' : 'var(--color-detail-wishlist-add)',
+                color: isWishlisted ? 'var(--color-detail-accent-text)' : 'var(--color-detail-accent-text)',
                 opacity: wishlistBusy ? 0.65 : 1,
                 cursor: wishlistBusy ? 'wait' : 'pointer',
               }}
@@ -129,14 +129,14 @@ export default function ActionBar({
               title={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
               style={{
                 ...iconBtn(favoriteBusy),
-                background: isFavorite ? 'rgba(245, 158, 11, 0.14)' : 'transparent',
-                borderColor: isFavorite ? 'rgba(245, 158, 11, 0.45)' : 'transparent',
+                background: isFavorite ? 'color-mix(in srgb, var(--color-detail-favorite) 14%, transparent)' : 'transparent',
+                borderColor: isFavorite ? 'color-mix(in srgb, var(--color-detail-favorite) 45%, transparent)' : 'transparent',
               }}
               className="hover:bg-secondary hover:border-border"
             >
               <i
                 className={favoriteBusy ? 'fas fa-circle-notch fa-spin' : isFavorite ? 'fas fa-heart' : 'far fa-heart'}
-                style={{ fontSize: 14, color: isFavorite ? '#f59e0b' : 'inherit' }}
+                style={{ fontSize: 14, color: isFavorite ? 'var(--color-detail-favorite)' : 'inherit' }}
               ></i>
             </button>
           )}
@@ -165,16 +165,16 @@ export default function ActionBar({
           )}
           {onUninstallSteam && (
             <button onClick={onUninstallSteam} title="Uninstall from Steam" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
-              <i className="fas fa-unlink" style={{ fontSize: 13, color: '#fca5a5' }}></i>
+              <i className="fas fa-unlink" style={{ fontSize: 13, color: 'var(--color-danger)' }}></i>
             </button>
           )}
           {canManageLocalTitle && (
             <>
               <button onClick={onRemoveTitle} title="Remove Title from Library" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
-                <i className="fas fa-minus-circle" style={{ fontSize: 13, color: '#fca5a5' }}></i>
+                <i className="fas fa-minus-circle" style={{ fontSize: 13, color: 'var(--color-danger)' }}></i>
               </button>
               <button onClick={onDeleteTitle} title="Delete Title and Files" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
-                <i className="fas fa-trash-alt" style={{ fontSize: 13, color: '#ef4444' }}></i>
+                <i className="fas fa-trash-alt" style={{ fontSize: 13, color: 'var(--color-danger)' }}></i>
               </button>
             </>
           )}
