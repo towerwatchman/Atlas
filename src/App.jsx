@@ -277,6 +277,11 @@ const App = () => {
   const { isMaximized, version, handleWindowStateChanged, loadVersion } = useWindowState()
   const { theme, layout, accentBarEnabled, filterSidebarSide, filterSidebarMode } = useTheme()
   const isTopNav = layout === 'topnav'
+  // The Favorites nav button is a filtered LOCAL view (built-in saved
+  // filter), not its own libraryMode — so its active state must track that
+  // filter being applied, not libraryMode === 'local' (which is the normal
+  // library too, and made the button look permanently active).
+  const favoritesActive = activeSavedFilterId === 'builtin-favorites' && libraryMode === 'local'
 
   const {
     appUpdateNotice, setAppUpdateNotice, appUpdateActionBusy,
@@ -335,8 +340,17 @@ const App = () => {
     if (sidebarMode === SIDE_PANEL_MODES.CATALOG || sidebarMode === SIDE_PANEL_MODES.WISHLIST) {
       setAndPersistSidePanelMode(SIDE_PANEL_MODES.HIDDEN)
     }
+    // If a built-in/saved filter is applied (e.g. Favorites, which is a
+    // filtered local view rather than its own libraryMode), clear it and
+    // reset to the default library — otherwise "go home"/Library would
+    // leave the still-filtered subset showing and you couldn't get back to
+    // the full library.
+    if (activeSavedFilterId) {
+      setActiveSavedFilterId('')
+      handleResetFilters()
+    }
     goBackToLibrary()
-  }, [goBackToLibrary, setAndPersistSidePanelMode, sidebarMode])
+  }, [goBackToLibrary, setAndPersistSidePanelMode, sidebarMode, activeSavedFilterId, handleResetFilters])
 
   const selectGame = useCallback((game) => {
     setShowSearchSidebar(false)
@@ -1153,7 +1167,7 @@ const App = () => {
           the window's actual top corners. */}
       <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
         <div
-          className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag rounded-tl-windowTheme transform-gpu"
+          className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag rounded-tl-windowTheme transform-gpu shadow-[0_4px_8px_rgba(0,0,0,0.5)]"
           onClick={goHome}
           title="Back to Library"
         >
@@ -1212,6 +1226,7 @@ const App = () => {
                     onOpenHelp={openHelp}
                     showGameList={showLibrarySidebar}
                     libraryMode={libraryMode}
+                    favoritesActive={favoritesActive}
                     browseAvailable={browseAvailable}
                   />
                 </div>
@@ -1239,6 +1254,7 @@ const App = () => {
                     onOpenHelp={openHelp}
                     showGameList={showLibrarySidebar}
                     libraryMode={libraryMode}
+                    favoritesActive={favoritesActive}
                     browseAvailable={browseAvailable}
                   />
                   <span className="text-text text-xs whitespace-nowrap">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
@@ -1285,6 +1301,7 @@ const App = () => {
             onOpenHelp={openHelp}
             showGameList={showLibrarySidebar}
             libraryMode={libraryMode}
+            favoritesActive={favoritesActive}
             browseAvailable={browseAvailable}
           />
         )}

@@ -6,7 +6,7 @@ import ImporterSourceMenu from '../importer/ImporterSourceMenu.jsx'
 const Sidebar = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
   onToggleSearchSidebar, onOpenHelp, showGameList, libraryMode = 'local',
-  browseAvailable,
+  browseAvailable, favoritesActive = false,
 }) => {
   const { navDisplayMode } = useTheme()
   const [selected, setSelected] = useState('Library')
@@ -38,9 +38,12 @@ const Sidebar = ({
     <div className="w-navSize bg-primary flex flex-col items-center min-w-[60px] py-[1px] fixed top-[70px] bottom-[40px] z-50">
       {items.map((item) => {
         const isActive =
-          selected === item.name ||
-          (item.name === 'Browse' && libraryMode === 'catalog') ||
-          (item.name === 'Favorites' && libraryMode === 'local')
+          item.name === 'Favorites'
+            ? favoritesActive
+            : (
+                selected === item.name ||
+                (item.name === 'Browse' && libraryMode === 'catalog')
+              )
         const buttonContent = (
           <>
             <div className="absolute left-0 w-[3px] h-full bg-accent transition-opacity opacity-0 group-hover:opacity-100" />

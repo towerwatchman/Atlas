@@ -53,7 +53,7 @@ const orderItems = (items, order) =>
 const TopNav = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
   onToggleSearchSidebar, onOpenHelp, showGameList, libraryMode = 'local', group = 'left',
-  forceIconsOnly = false, browseAvailable,
+  forceIconsOnly = false, browseAvailable, favoritesActive = false,
 }) => {
   const { navDisplayMode } = useTheme()
   const [selected, setSelected] = useState(null)
@@ -82,10 +82,13 @@ const TopNav = ({
     <div className="flex items-center gap-1 h-full -webkit-app-region-no-drag">
       {groupItems.map((item) => {
         const isActive =
-          selected === item.name ||
-          (item.name === 'Browse' && libraryMode === 'catalog') ||
-          (item.name === 'Favorites' && libraryMode === 'local') ||
-          (item.name === 'List' && showGameList)
+          item.name === 'Favorites'
+            ? favoritesActive
+            : (
+                selected === item.name ||
+                (item.name === 'Browse' && libraryMode === 'catalog') ||
+                (item.name === 'List' && showGameList)
+              )
         const buttonContent = (
           <>
             {showIcon && (
