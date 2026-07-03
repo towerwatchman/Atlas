@@ -149,6 +149,15 @@ module.exports = function registerThemeHandlers(ctx) {
       // ignores anyway.
       const { id, ...themeToWrite } = theme
       fs.writeFileSync(filePath, JSON.stringify(themeToWrite, null, 2) + '\n', 'utf8')
+      // Tell every open window the theme list on disk changed, so their
+      // ThemeProvider re-reads templates/theme/ and the new theme shows up
+      // in the Appearance picker immediately — no client restart needed.
+      // The Theme Builder is its own window, so the Settings/Appearance
+      // window that needs to update is a DIFFERENT one than the sender;
+      // broadcast to all (harmless for windows that don't list themes).
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send('themes-changed')
+      })
       return { success: true, theme: { ...themeToWrite, id: slug } }
     } catch (err) {
       console.error('save-theme error:', err)

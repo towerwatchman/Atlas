@@ -238,6 +238,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("theme-preview-ended", () => callback());
     return () => ipcRenderer.removeAllListeners("theme-preview-ended");
   },
+  // Fired (to every window) whenever the set of theme files on disk
+  // changes — currently after the Theme Builder saves a new/updated theme.
+  // Lets each window's ThemeProvider re-read the available theme list so a
+  // newly created theme appears in the Appearance picker without a restart.
+  onThemesChanged: (callback) => {
+    ipcRenderer.on("themes-changed", () => callback());
+    return () => ipcRenderer.removeAllListeners("themes-changed");
+  },
   openThemeBuilder: () => ipcRenderer.invoke("open-theme-builder"),
   openBannerEditor: () => ipcRenderer.invoke("open-banner-editor"),
   broadcastThemePreview: (draftTheme) => ipcRenderer.invoke("broadcast-theme-preview", draftTheme),

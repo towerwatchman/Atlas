@@ -218,6 +218,21 @@ export function ThemeProvider({ children }) {
     }
   }, [])
 
+  // Keep availableThemes in sync when the theme files on disk change (e.g.
+  // the Theme Builder just saved a new theme in its own window). Without
+  // this, this window's theme list is frozen at whatever it read on mount,
+  // so a newly created theme wouldn't appear in the Appearance picker until
+  // the client restarted. Re-reads the list and updates state, which flows
+  // straight through to any consumer of useTheme().availableThemes.
+  useEffect(() => {
+    const removeThemesChangedListener = window.electronAPI.onThemesChanged?.(() => {
+      fetchAvailableThemes().then((themeList) => setAvailableThemes(themeList))
+    })
+    return () => {
+      if (typeof removeThemesChangedListener === 'function') removeThemesChangedListener()
+    }
+  }, [])
+
   const persist = useCallback((nextAppearance) => {
     window.electronAPI.getConfig().then((config) => {
       window.electronAPI.saveSettings({
