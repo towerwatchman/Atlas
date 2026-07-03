@@ -976,8 +976,14 @@ function createThemeBuilderWindow() {
     return
   }
   const windowState = applySavedWindowBounds('themeBuilder', {
-    width: 1000,
-    height: 720,
+    width: 1410,
+    height: 860,
+    // Match the main library window's minimum size (see createMainWindow)
+    // so the Theme Builder is always wide enough for its side-by-side
+    // settings + live-preview layout — the preview stays a right-hand
+    // column and never has to collapse to a cramped bottom strip.
+    minWidth: 1410,
+    minHeight: 860,
     frame: false,
     // Windows draws a native DWM resize border (often tinted with the
     // system accent color) around frame:false windows that aren't also
