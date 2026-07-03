@@ -52,6 +52,101 @@ const COLOR_LABELS = {
   detailFavorite: 'Detail · Favorite',
 }
 
+// A short "what is this actually used for" note shown under each color's
+// label in the builder, so a person doesn't have to reverse-engineer the
+// name. Kept deliberately plain-language and concrete (which UI element it
+// paints) rather than restating the key.
+const COLOR_DESCRIPTIONS = {
+  canvas: 'The outermost window background, behind every other surface.',
+  shadow: 'Color used for drop shadows and depth around raised elements.',
+  primary: 'Main content background — headers and primary panels.',
+  secondary: 'Slightly raised surface — cards, inputs, and secondary panels.',
+  tertiary: 'Nested surfaces — inputs, menus, dropdowns, and hover fills.',
+  library: 'Background of the main library / banner-grid view specifically.',
+  border: 'Default lines and dividers between elements.',
+  selected: 'Background of a selected or active item (e.g. a highlighted row).',
+  windowBorder: 'The accent border drawn around the outside of every window.',
+
+  accent: 'Primary brand color — active states, links, focus rings, emphasis.',
+  accentHover: 'Hover shade for accent-colored buttons.',
+  accentBar: 'The decorative accent strip behind the logo in the header.',
+  atlasLogo: 'The Atlas logo mark itself.',
+  highlight: 'Hover/emphasis highlight for chips and links (matches accent by default).',
+
+  text: 'Default body and label text throughout the app.',
+  muted: 'Dimmed secondary text — captions, placeholders, minor labels.',
+
+  overlayTop: 'Top of the dark gradient laid over cover art so text stays readable.',
+  overlayBottom: 'Bottom of that same cover-art gradient.',
+
+  danger: 'Destructive actions and errors — delete/remove buttons, error text.',
+  dangerHover: 'Hover shade for danger buttons.',
+  dangerStrong: 'The most severe, irreversible actions (e.g. delete files from disk).',
+  success: 'Positive states — success messages and "installed" indicators.',
+  successHover: 'Hover shade for success buttons.',
+  warning: 'Cautions and warnings — warning text and highlights.',
+  info: 'Informational text and icons.',
+
+  button: 'Resting background of standard buttons.',
+  buttonHover: 'Hover shade for standard buttons.',
+
+  progressBackground: 'The unfilled track of a progress bar.',
+  progressForeground: 'The filled portion of a progress bar.',
+
+  detailPlay: 'Game detail page — the Play button when ready to launch.',
+  detailPlayText: 'Game detail page — text/icon on the Play button.',
+  detailLaunching: 'Game detail page — Play button while the game is launching.',
+  detailRunning: 'Game detail page — Play button while the game is running.',
+  detailAccent: 'Game detail page — Install/Update buttons and info highlights.',
+  detailAccentText: 'Game detail page — text on those accent-colored buttons.',
+  detailWishlistAdd: 'Game detail page — the "Add to Wishlist" button.',
+  detailWishlistRemove: 'Game detail page — the "Remove from Wishlist" button.',
+  detailFavorite: 'Game detail page — the favorite (heart/star) accent.',
+}
+
+// Colors grouped by what part of the app they affect, each with a one-line
+// summary for the group. The builder renders these in order; any
+// THEME_COLOR_KEYS not listed here still appear under a catch-all "Other"
+// group (see the colors section render below), so adding a new key can
+// never make it silently disappear from the builder.
+const COLOR_GROUPS = [
+  {
+    label: 'Surfaces & Structure',
+    blurb: 'The stacked background layers and the lines that separate them.',
+    keys: ['canvas', 'primary', 'secondary', 'tertiary', 'library', 'border', 'selected', 'shadow', 'windowBorder'],
+  },
+  {
+    label: 'Accent & Brand',
+    blurb: 'Your highlight color and the branded bits of the header.',
+    keys: ['accent', 'accentHover', 'accentBar', 'atlasLogo', 'highlight'],
+  },
+  {
+    label: 'Text',
+    blurb: 'The two text colors used almost everywhere.',
+    keys: ['text', 'muted'],
+  },
+  {
+    label: 'Cover-Art Overlay',
+    blurb: 'The gradient drawn over banner/cover images to keep text legible.',
+    keys: ['overlayTop', 'overlayBottom'],
+  },
+  {
+    label: 'Buttons & Progress',
+    blurb: 'Standard button backgrounds and progress-bar colors.',
+    keys: ['button', 'buttonHover', 'progressBackground', 'progressForeground'],
+  },
+  {
+    label: 'Status',
+    blurb: 'Meaning-carrying colors: danger, success, warning, and info.',
+    keys: ['danger', 'dangerHover', 'dangerStrong', 'success', 'successHover', 'warning', 'info'],
+  },
+  {
+    label: 'Game Detail Page',
+    blurb: 'The Steam-style detail page — Play/Install buttons, wishlist, and favorite.',
+    keys: ['detailPlay', 'detailPlayText', 'detailLaunching', 'detailRunning', 'detailAccent', 'detailAccentText', 'detailWishlistAdd', 'detailWishlistRemove', 'detailFavorite'],
+  },
+]
+
 const RADIUS_LABELS = { sm: 'Small', md: 'Medium', lg: 'Large', pill: 'Pill' }
 const RADIUS_DESCRIPTIONS = {
   sm: 'Slightly rounded corners — close to square.',
@@ -128,7 +223,7 @@ const ColorField = ({ label, value, onChange }) => (
       type="color"
       value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000'}
       onChange={(e) => onChange(e.target.value)}
-      className="w-8 h-8 rounded border border-border bg-transparent cursor-pointer flex-shrink-0"
+      className="w-8 h-8 rounded bg-transparent cursor-pointer flex-shrink-0"
     />
     <span className="text-xs flex-1">{label}</span>
     <input
@@ -143,7 +238,7 @@ const ColorField = ({ label, value, onChange }) => (
 // One color key's full control: a Gradient toggle (only for
 // GRADIENT_ELIGIBLE_KEYS) plus either a single ColorField (solid) or 2-3
 // ColorFields for gradient stops + an angle slider.
-const ColorKeyEditor = ({ themeKey, value, onChange }) => {
+const ColorKeyEditor = ({ themeKey, value, onChange, description }) => {
   const isEligible = GRADIENT_ELIGIBLE_KEYS.includes(themeKey)
   const isGradient = isEligible && value && typeof value === 'object'
   const stops = isGradient ? value.stops : [typeof value === 'string' ? value : '#000000']
@@ -180,6 +275,9 @@ const ColorKeyEditor = ({ themeKey, value, onChange }) => {
           </label>
         )}
       </div>
+      {description && (
+        <p className="text-[10px] opacity-55 leading-tight mb-1.5 -mt-0.5">{description}</p>
+      )}
       {!isGradient ? (
         <ColorField label="Color" value={stops[0]} onChange={setSolid} />
       ) : (
@@ -594,9 +692,10 @@ const ThemeBuilder = ({ onClose }) => {
         {activeSection === 'colors' && (
           <div>
             <p className="text-[10px] opacity-50 mb-2">
-              Every color used throughout the app. Most are flat colors; the 4 main
-              surfaces (Canvas, Primary, Secondary, Tertiary Surface) can also be set
-              as a gradient using the "Gradient" checkbox on each.
+              Every color in the app, grouped by where it's used, with a note on
+              each. Most are flat colors; the main surfaces (Canvas, Primary,
+              Secondary, Tertiary Surface, Library) can also be set as a gradient
+              using the "Gradient" checkbox on each. Changes preview live everywhere.
             </p>
             <div className="border border-border rounded-cardTheme p-2 mb-2">
               <div className="flex items-center justify-between mb-2">
@@ -640,16 +739,51 @@ const ThemeBuilder = ({ onClose }) => {
                 onChange={(windowBorderRadius) => setDraft((prev) => ({ ...prev, windowBorderRadius }))}
               />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {THEME_COLOR_KEYS.map((key) => (
-                <ColorKeyEditor
-                  key={key}
-                  themeKey={key}
-                  value={draft.colors[key]}
-                  onChange={(value) => updateColor(key, value)}
-                />
-              ))}
-            </div>
+            {COLOR_GROUPS.map((group) => {
+              const keys = group.keys.filter((k) => THEME_COLOR_KEYS.includes(k))
+              if (keys.length === 0) return null
+              return (
+                <div key={group.label} className="mb-4">
+                  <SectionHeader>{group.label}</SectionHeader>
+                  {group.blurb && <p className="text-[10px] opacity-50 mb-2 -mt-1">{group.blurb}</p>}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {keys.map((key) => (
+                      <ColorKeyEditor
+                        key={key}
+                        themeKey={key}
+                        value={draft.colors[key]}
+                        onChange={(value) => updateColor(key, value)}
+                        description={COLOR_DESCRIPTIONS[key]}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+            {/* Catch-all: any THEME_COLOR_KEYS not placed in a group above still
+                shows here, so adding a new color key can never make it silently
+                vanish from the builder. */}
+            {(() => {
+              const grouped = new Set(COLOR_GROUPS.flatMap((g) => g.keys))
+              const leftovers = THEME_COLOR_KEYS.filter((k) => !grouped.has(k))
+              if (leftovers.length === 0) return null
+              return (
+                <div className="mb-4">
+                  <SectionHeader>Other</SectionHeader>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {leftovers.map((key) => (
+                      <ColorKeyEditor
+                        key={key}
+                        themeKey={key}
+                        value={draft.colors[key]}
+                        onChange={(value) => updateColor(key, value)}
+                        description={COLOR_DESCRIPTIONS[key]}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         )}
 
