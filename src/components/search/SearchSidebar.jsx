@@ -309,6 +309,17 @@ const SearchSidebar = ({
               onKeyDown={handleInputKeyDown}
               className="bg-transparent outline-none text-text flex-1 px-3 py-2 focus:outline-none -webkit-app-region-no-drag"
             />
+            {searchText && (
+              <button
+                type="button"
+                onClick={() => onSearchChange?.("")}
+                title="Clear search"
+                aria-label="Clear search"
+                className="w-8 h-8 flex items-center justify-center text-muted hover:text-text focus:outline-none -webkit-app-region-no-drag"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            )}
             <select
               value={selectedFilters.type}
               onChange={(e) => updateFilters({ type: e.target.value })}

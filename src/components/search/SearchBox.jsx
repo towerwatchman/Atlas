@@ -15,6 +15,17 @@ export default function SearchBox({ value = "", onSearchChange, onToggleSidebar 
           onKeyDown={handleInputKeyDown}
           className="bg-transparent outline-none text-text flex-1 px-2 focus:outline-none -webkit-app-region-no-drag"
         />
+        {value && (
+          <button
+            type="button"
+            onClick={() => onSearchChange?.("")}
+            title="Clear search"
+            aria-label="Clear search"
+            className="w-6 h-6 flex items-center justify-center text-muted hover:text-text focus:outline-none -webkit-app-region-no-drag"
+          >
+            <i className="fas fa-times"></i>
+          </button>
+        )}
         <button
           onClick={onToggleSidebar} // Now toggles the right sidebar
           className="w-10 h-10 flex items-center justify-center text-text hover:text-highlight focus:outline-none -webkit-app-region-no-drag"
