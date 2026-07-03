@@ -1,11 +1,11 @@
 {
   "name": "Bloody Night",
-  "buttonRadius": "sm",
-  "cardRadius": "sm",
+  "buttonRadius": "lg",
+  "cardRadius": "lg",
   "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
   "nav": {
     "layout": "sidebar",
-    "displayMode": "icons",
+    "displayMode": "iconsAndText",
     "accentBarEnabled": true,
     "glow": {
       "enabled": true,
@@ -14,6 +14,7 @@
       "offsetY": 0,
       "intensity": 14
     },
+    "iconGlow": false,
     "filterSidebar": {
       "side": "right",
       "mode": "overlay"
@@ -93,10 +94,20 @@
     "info": "#60A5FA",
     "buttonHover": "#261B20",
     "accentHover": "#991B1B",
+    "accentMuted": "#5C2A2A",
     "button": "#261B20",
     "progressBackground": "#261B20",
     "progressForeground": "#B91C1C",
     "library": "#1C1417",
-    "windowBorder": "#5C2A2A"
+    "windowBorder": "#5C2A2A",
+    "detailPlay": "#5ba300",
+    "detailPlayText": "#d2e885",
+    "detailLaunching": "#b58e00",
+    "detailRunning": "#3a6db5",
+    "detailAccent": "#2f6fc0",
+    "detailAccentText": "#c8e0ff",
+    "detailWishlistAdd": "#2f5f78",
+    "detailWishlistRemove": "#6b2f42",
+    "detailFavorite": "#f59e0b"
   }
 }

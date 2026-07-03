@@ -14,6 +14,7 @@
       "offsetY": 0,
       "intensity": 12
     },
+    "iconGlow": false,
     "filterSidebar": {
       "side": "right",
       "mode": "inline"
@@ -22,10 +23,10 @@
   "buttonEffects": {
     "shadow": {
       "enabled": false,
-      "color": "#181c12",
+      "color": "#5562ec",
       "offsetX": 0,
       "offsetY": 0,
-      "intensity": 20
+      "intensity": 2
     },
     "glow": {
       "enabled": true,
@@ -120,6 +121,7 @@
     "info": "#ff9326",
     "buttonHover": "#06BEE1",
     "accentHover": "#06BEE1",
+    "accentMuted": "#b0b0b0",
     "button": "#03256C",
     "progressBackground": "#03256C",
     "progressForeground": "#06BEE1",
@@ -133,7 +135,16 @@
         "#03256C"
       ]
     },
-    "windowBorder": "#2541B2"
+    "windowBorder": "#2541B2",
+    "detailPlay": "#5ba300",
+    "detailPlayText": "#d2e885",
+    "detailLaunching": "#b58e00",
+    "detailRunning": "#3a6db5",
+    "detailAccent": "#ffffff",
+    "detailAccentText": "#000000",
+    "detailWishlistAdd": "#2f5f78",
+    "detailWishlistRemove": "#6b2f42",
+    "detailFavorite": "#f59e0b"
   },
   "radius": "lg"
 }

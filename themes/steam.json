@@ -5,7 +5,7 @@
   "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
   "nav": {
     "layout": "sidebar",
-    "displayMode": "icons",
+    "displayMode": "iconsAndText",
     "accentBarEnabled": true,
     "glow": {
       "enabled": false,
@@ -14,6 +14,7 @@
       "offsetY": 0,
       "intensity": 12
     },
+    "iconGlow": false,
     "filterSidebar": {
       "side": "right",
       "mode": "overlay"
@@ -102,10 +103,20 @@
     "info": "#66C0F4",
     "buttonHover": "#2A475E",
     "accentHover": "#4A9ED9",
+    "accentMuted": "#6387a1",
     "button": "#212A3A",
     "progressBackground": "#212A3A",
     "progressForeground": "#66C0F4",
     "library": "#2a2f37",
-    "windowBorder": "#3A4A5E"
+    "windowBorder": "#3A4A5E",
+    "detailPlay": "#5ba300",
+    "detailPlayText": "#d2e885",
+    "detailLaunching": "#b58e00",
+    "detailRunning": "#3a6db5",
+    "detailAccent": "#1a9fff",
+    "detailAccentText": "#ffffff",
+    "detailWishlistAdd": "#2f5f78",
+    "detailWishlistRemove": "#6b2f42",
+    "detailFavorite": "#f59e0b"
   }
 }

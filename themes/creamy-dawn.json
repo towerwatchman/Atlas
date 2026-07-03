@@ -14,6 +14,7 @@
       "offsetY": 0,
       "intensity": 12
     },
+    "iconGlow": false,
     "filterSidebar": {
       "side": "right",
       "mode": "overlay"
@@ -65,7 +66,7 @@
       }
     }
   },
-  "windowBorderEnabled": false,
+  "windowBorderEnabled": true,
   "windowBorderRadius": "lg",
   "windowBorderHideOnMain": false,
   "colors": {
@@ -107,10 +108,20 @@
     "info": "#0891B2",
     "buttonHover": "#FEF3C7",
     "accentHover": "#B45309",
+    "accentMuted": "#bc884e",
     "button": "#FFFEF5",
     "progressBackground": "#FEF3C7",
     "progressForeground": "#D97706",
     "library": "#FEF3C7",
-    "windowBorder": "#B45309"
+    "windowBorder": "#B45309",
+    "detailPlay": "#5ba300",
+    "detailPlayText": "#d2e885",
+    "detailLaunching": "#b58e00",
+    "detailRunning": "#3a6db5",
+    "detailAccent": "#eb9500",
+    "detailAccentText": "#4d2900",
+    "detailWishlistAdd": "#2f5f78",
+    "detailWishlistRemove": "#6b2f42",
+    "detailFavorite": "#f59e0b"
   }
 }

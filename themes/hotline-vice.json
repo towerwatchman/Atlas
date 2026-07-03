@@ -14,6 +14,7 @@
       "offsetY": 0,
       "intensity": 18
     },
+    "iconGlow": false,
     "filterSidebar": {
       "side": "right",
       "mode": "overlay"
@@ -93,10 +94,20 @@
     "info": "#00FFFF",
     "buttonHover": "#16213E",
     "accentHover": "#C71585",
+    "accentMuted": "#641b64",
     "button": "#1A1A2E",
     "progressBackground": "#1A1A2E",
     "progressForeground": "#FF00FF",
     "library": "#16213E",
-    "windowBorder": "#E94560"
+    "windowBorder": "#E94560",
+    "detailPlay": "#5ba300",
+    "detailPlayText": "#d2e885",
+    "detailLaunching": "#b58e00",
+    "detailRunning": "#3a6db5",
+    "detailAccent": "#FF00FF",
+    "detailAccentText": "#c8e0ff",
+    "detailWishlistAdd": "#2f5f78",
+    "detailWishlistRemove": "#6b2f42",
+    "detailFavorite": "#f59e0b"
   }
 }

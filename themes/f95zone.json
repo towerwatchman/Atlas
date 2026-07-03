@@ -5,7 +5,7 @@
   "font": "\"Inter\", \"Segoe UI\", ui-sans-serif, system-ui, sans-serif",
   "nav": {
     "layout": "sidebar",
-    "displayMode": "icons",
+    "displayMode": "iconsAndText",
     "accentBarEnabled": true,
     "glow": {
       "enabled": false,
@@ -14,6 +14,7 @@
       "offsetY": 0,
       "intensity": 12
     },
+    "iconGlow": false,
     "filterSidebar": {
       "side": "right",
       "mode": "overlay"
@@ -28,8 +29,8 @@
       "intensity": 12
     },
     "glow": {
-      "enabled": false,
-      "color": "#C4872A",
+      "enabled": true,
+      "color": "#9b3e3e",
       "offsetX": 0,
       "offsetY": 0,
       "intensity": 12
@@ -67,7 +68,7 @@
   },
   "windowBorderEnabled": true,
   "windowBorderRadius": "lg",
-  "windowBorderHideOnMain": false,
+  "windowBorderHideOnMain": true,
   "colors": {
     "canvas": "#0F0C08",
     "shadow": "#000000",
@@ -93,10 +94,20 @@
     "info": "#5A8FA0",
     "buttonHover": "#702e2e",
     "accentHover": "#702e2e",
+    "accentMuted": "#944c4c",
     "button": "#9b3e3e",
     "progressBackground": "#181a1d",
     "progressForeground": "#9b3e3e",
     "library": "#181a1d",
-    "windowBorder": "#181a1d"
+    "windowBorder": "#9b3e3e",
+    "detailPlay": "#5ba300",
+    "detailPlayText": "#d2e885",
+    "detailLaunching": "#b58e00",
+    "detailRunning": "#3a6db5",
+    "detailAccent": "#9b3e3e",
+    "detailAccentText": "#ffffff",
+    "detailWishlistAdd": "#2f5f78",
+    "detailWishlistRemove": "#6b2f42",
+    "detailFavorite": "#f59e0b"
   }
 }
