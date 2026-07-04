@@ -1,6 +1,33 @@
 import { useState, useEffect, useMemo } from 'react'
 import { builtInSavedFilters, getDefaultSortDirectionForSort, normalizeFilterState } from '../../hooks/useFilters.js'
 
+// Collapsible accordion section — keeps the long filter list scannable so
+// the panel isn't one endless scroll (matches the grouped/accordion layout
+// of the reference filter sidebars). Each section owns its own open state
+// and starts closed unless defaultOpen is set; the most-used sections open
+// by default. An optional badge shows a count/summary next to the title.
+function Collapsible({ title, badge, defaultOpen = false, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border-b border-border">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between py-3 text-left -webkit-app-region-no-drag"
+      >
+        <span className="font-bold text-sm flex items-center gap-2">
+          {title}
+          {badge != null && badge !== "" && (
+            <span className="text-[11px] font-normal text-muted">{badge}</span>
+          )}
+        </span>
+        <i className={`fas fa-chevron-down text-xs text-muted transition-transform ${open ? "rotate-180" : ""}`}></i>
+      </button>
+      {open && <div className="pb-4">{children}</div>}
+    </div>
+  );
+}
+
 const SearchSidebar = ({
   isVisible,
   searchText = "",
@@ -294,9 +321,9 @@ const SearchSidebar = ({
       </div>
 
       {/* Scrollable content */}
-      <div className="h-[calc(100%-52px)] overflow-y-auto p-3 [&>div]:!mb-4 [&>div]:!pb-3 [&_h4]:!mb-2 [&_.space-y-3]:space-y-2">
-        {/* Search Input */}
-        <div className="mb-6">
+      <div className="h-[calc(100%-52px)] overflow-y-auto -webkit-app-region-no-drag">
+        {/* Search — always visible at the top */}
+        <div className="p-3 border-b border-border">
           <div className="flex items-center border border-border rounded bg-tertiary overflow-hidden -webkit-app-region-no-drag">
             <i className="fas fa-search w-6 h-6 text-text pl-3 flex items-center justify-center"></i>
             <input
@@ -338,570 +365,543 @@ const SearchSidebar = ({
           </div>
         </div>
 
-        {/* Saved filters */}
-        <div className="mb-6 border-b border-border pb-4">
-          <h4 className="font-bold mb-2">Saved Filters</h4>
-          <p className="text-xs text-muted mb-3">
-            View and apply saved filters from the left sidebar.
-          </p>
-          {!isSaveFormOpen ? (
-            <button
-              onClick={() => {
-                setIsSaveFormOpen(true);
-                setSaveName("");
-                setSaveError("");
-              }}
-              className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-highlight"
-            >
-              Save Current
-            </button>
-          ) : (
-            <div className="space-y-2">
-              <input
-                type="text"
-                value={saveName}
-                autoFocus
-                placeholder="Filter name"
-                onChange={(e) => {
-                  setSaveName(e.target.value);
-                  setSaveError("");
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSaveCurrentFilter();
-                  if (e.key === "Escape") closeSaveForm();
-                }}
-                className="w-full p-2 bg-tertiary border border-border rounded text-sm -webkit-app-region-no-drag"
-                disabled={saveBusy}
-              />
-              {saveError && (
-                <div className="text-xs text-danger">{saveError}</div>
+        <div className="px-3">
+          {/* Sorting */}
+          {!isCatalogMode && (
+            <Collapsible title="Sorting" defaultOpen>
+              <div className="flex gap-2">
+                <select
+                  className="min-w-0 flex-1 p-2 bg-tertiary border border-border rounded text-sm"
+                  value={selectedFilters.sort}
+                  onChange={(e) => {
+                    const sort = e.target.value
+                    updateFilters({ sort, sortDirection: getDefaultSortDirectionForSort(sort) })
+                  }}
+                >
+                  <option value="name">Title</option>
+                  <option value="creator">Creator</option>
+                  <option value="date">Release Date</option>
+                  <option value="likes">Likes</option>
+                  <option value="views">Views</option>
+                  <option value="rating">Rating</option>
+                  <option value="installedVersionCount">Number of Versions</option>
+                  <option value="newlyInstalled">Install Date</option>
+                  <option value="newlyPlayed">Last Played</option>
+                  <option value="playtime">Playtime</option>
+                  <option value="fileSize">File Size</option>
+                  <option value="personalRating">Personal Rating</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => updateFilters({
+                    sortDirection: selectedFilters.sortDirection === "asc" ? "desc" : "asc",
+                  })}
+                  className="w-[112px] px-3 py-2 rounded text-sm bg-tertiary hover:bg-highlight border border-border"
+                  title="Toggle sort direction"
+                >
+                  {selectedFilters.sortDirection === "asc" ? "Ascending" : "Descending"}
+                </button>
+              </div>
+            </Collapsible>
+          )}
+
+          {/* Browse (catalog mode) */}
+          {isCatalogMode && (
+            <Collapsible title="Browse" defaultOpen>
+              <div className="space-y-3">
+                <label className="block text-sm">
+                  <span className="block mb-1">Source</span>
+                  <select
+                    className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                    value={selectedFilters.browseSource}
+                    onChange={(e) => updateFilters({ browseSource: e.target.value })}
+                  >
+                    <option value="all">All sources</option>
+                    <option value="f95">F95</option>
+                    <option value="lewdcorner">LewdCorner</option>
+                    <option value="steam">Steam</option>
+                    <option value="atlas">AtlasDB</option>
+                  </select>
+                </label>
+                <label className="block text-sm">
+                  <span className="block mb-1">Sort</span>
+                  <select
+                    className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                    value={selectedFilters.browseSort}
+                    onChange={(e) => updateFilters({ browseSort: e.target.value })}
+                  >
+                    <option value="titleAsc">Title A/Z</option>
+                    <option value="titleDesc">Title Z/A</option>
+                    <option value="threadUpdatedDesc">Latest update</option>
+                    <option value="threadUpdatedAsc">Oldest update</option>
+                    <option value="threadPublishedDesc">Thread published newest</option>
+                    <option value="threadPublishedAsc">Thread published oldest</option>
+                    <option value="releaseDateDesc">Release date newest</option>
+                    <option value="releaseDateAsc">Release date oldest</option>
+                    <option value="f95LatestOrderDesc">F95 latest page order</option>
+                    <option value="f95LatestOrderAsc">F95 oldest page order</option>
+                  </select>
+                  <p className="text-xs text-muted mt-1">
+                    Latest update uses AtlasDB thread_updated. Entries without a known thread update date sort last and are excluded from date-range filters.
+                  </p>
+                </label>
+                <label className="block text-sm">
+                  <span className="block mb-1">Minimum F95/LewdCorner rating</span>
+                  <select
+                    className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                    value={selectedFilters.communityRatingMin}
+                    onChange={(e) => updateFilters({ communityRatingMin: Number(e.target.value) })}
+                  >
+                    <option value={0}>Any</option>
+                    {[1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].map((rating) => (
+                      <option key={rating} value={rating}>{rating}+</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted mt-1">
+                    Uses the community rating from the source site — works across the whole catalog, not just installed titles.
+                  </p>
+                </label>
+              </div>
+            </Collapsible>
+          )}
+
+          {/* Category */}
+          <Collapsible title="Category" defaultOpen>
+            <div className="flex flex-wrap gap-2">
+              {options.categories.map((cat) => (
+                <span key={cat} className="inline-flex items-center gap-1 bg-primary border border-border rounded px-2 py-1 text-sm">
+                  <span>{cat}</span>
+                  {renderIncludeExcludeButtons("category", "excludedCategories", cat)}
+                </span>
+              ))}
+            </div>
+          </Collapsible>
+
+          {/* Quick Filters — grouped toggles + library scope */}
+          <Collapsible title="Quick Filters" defaultOpen>
+            <div className="space-y-3">
+              {!isCatalogMode && (
+                <div>
+                  <label className="block text-sm mb-1">Library scope</label>
+                  <select
+                    className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                    value={selectedFilters.installState}
+                    onChange={(e) => {
+                      const installState = e.target.value;
+                      updateFilters({
+                        installState,
+                        includeUninstalled: ['all', 'uninstalled'].includes(installState),
+                      });
+                    }}
+                  >
+                    <option value="installed">Installed titles</option>
+                    <option value="all">Installed and uninstalled</option>
+                    <option value="uninstalled">Uninstalled only</option>
+                  </select>
+                </div>
               )}
+              {!isCatalogMode && (
+                <label className="flex items-center space-x-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedFilters.updateAvailable || false}
+                    onChange={() => updateFilters({ updateAvailable: !selectedFilters.updateAvailable })}
+                    className="accent-accent -webkit-app-region-no-drag"
+                  />
+                  <span>Show only games with updates available</span>
+                </label>
+              )}
+              {!isCatalogMode && (
+                <label className="flex items-center space-x-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedFilters.favoritesOnly || false}
+                    onChange={() => updateFilters({ favoritesOnly: !selectedFilters.favoritesOnly })}
+                    className="accent-accent -webkit-app-region-no-drag"
+                  />
+                  <span>Favorites only</span>
+                </label>
+              )}
+              {!isCatalogMode && (
+                <label className="flex items-center space-x-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedFilters.multipleInstalledVersions || false}
+                    onChange={() => updateFilters({ multipleInstalledVersions: !selectedFilters.multipleInstalledVersions })}
+                    className="accent-accent -webkit-app-region-no-drag"
+                  />
+                  <span>Show games with multiple installed versions</span>
+                </label>
+              )}
+              <label className="flex items-center space-x-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={selectedFilters.steamMapped || false}
+                  onChange={() => updateFilters({ steamMapped: !selectedFilters.steamMapped })}
+                  className="accent-accent -webkit-app-region-no-drag"
+                />
+                <span>Has Steam mapping</span>
+              </label>
+            </div>
+          </Collapsible>
+
+          {/* Tags */}
+          <Collapsible
+            title="Tags"
+            badge={`${selectedFilters.tags.length + selectedFilters.excludedTags.length}/10`}
+          >
+            <div className="flex items-center justify-between mb-3">
               <div className="flex gap-2">
                 <button
-                  onClick={() => handleSaveCurrentFilter()}
-                  disabled={saveBusy}
-                  className="px-3 py-1 rounded text-sm bg-accent text-white disabled:opacity-50"
+                  onClick={() => updateFilters({ tagLogic: "AND" })}
+                  className={`px-4 py-1 rounded text-sm ${
+                    selectedFilters.tagLogic === "AND"
+                      ? "bg-accent text-white"
+                      : "bg-tertiary hover:bg-highlight"
+                  }`}
                 >
-                  Save
+                  AND
                 </button>
-                {saveError === "A saved filter with this name already exists." && (
+                <button
+                  onClick={() => updateFilters({ tagLogic: "OR" })}
+                  className={`px-4 py-1 rounded text-sm ${
+                    selectedFilters.tagLogic === "OR"
+                      ? "bg-accent text-white"
+                      : "bg-tertiary hover:bg-highlight"
+                  }`}
+                >
+                  OR
+                </button>
+              </div>
+              <span className="text-xs text-muted">Match {selectedFilters.tagLogic}</span>
+            </div>
+            <input
+              type="text"
+              placeholder="Search tags... (↑↓ highlight, Enter select)"
+              value={tagSearch}
+              onChange={(e) => setTagSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (filteredTags.length === 0) return;
+
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setHighlightedTagIndex((prev) =>
+                    prev < filteredTags.length - 1 ? prev + 1 : 0,
+                  );
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setHighlightedTagIndex((prev) =>
+                    prev > 0 ? prev - 1 : filteredTags.length - 1,
+                  );
+                } else if (e.key === "Enter" && highlightedTagIndex >= 0) {
+                  e.preventDefault();
+                  const selectedTag = filteredTags[highlightedTagIndex];
+                  togglePairedFilter("tags", "excludedTags", selectedTag, "include");
+                  setTagSearch("");
+                  setHighlightedTagIndex(-1);
+                }
+              }}
+              className="w-full p-2 bg-tertiary border border-border rounded mb-3 text-sm -webkit-app-region-no-drag"
+            />
+            {(selectedFilters.tags.length > 0 || selectedFilters.excludedTags.length > 0) && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {selectedFilters.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="bg-accent px-3 py-1 rounded text-sm flex items-center text-white"
+                  >
+                    {tag}
+                    <button
+                      onClick={() => handleCheckbox("tags", tag)}
+                      className="ml-2 text-white text-xs"
+                    >
+                      x
+                    </button>
+                  </span>
+                ))}
+                {selectedFilters.excludedTags.map((tag) => (
+                  <span
+                    key={`excluded-${tag}`}
+                    className="bg-danger px-3 py-1 rounded text-sm flex items-center text-white"
+                  >
+                    -{tag}
+                    <button
+                      onClick={() => togglePairedFilter("tags", "excludedTags", tag, "exclude")}
+                      className="ml-2 text-white text-xs"
+                    >
+                      x
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {tagError && <div className="text-xs text-danger mb-2">{tagError}</div>}
+            <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
+              {filteredTags.length === 0 ? (
+                <p className="text-sm text-muted">No tags found</p>
+              ) : (
+                filteredTags.map((tag, index) => (
+                  <label
+                    key={tag}
+                    className={`flex items-center space-x-2 py-1 text-sm block px-1 rounded cursor-pointer ${
+                      index === highlightedTagIndex
+                        ? "bg-accent text-white"
+                        : "hover:bg-highlight"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedFilters.tags.includes(tag)}
+                      onChange={() => togglePairedFilter("tags", "excludedTags", tag, "include")}
+                      disabled={
+                        selectedFilters.tags.length >= 10 &&
+                        !selectedFilters.tags.includes(tag)
+                      }
+                      className="accent-accent -webkit-app-region-no-drag"
+                    />
+                    <span className="flex-1">{tag}</span>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        togglePairedFilter("tags", "excludedTags", tag, "exclude");
+                      }}
+                      className={`px-2 py-0.5 rounded text-xs ${
+                        selectedFilters.excludedTags.includes(tag)
+                          ? "bg-danger text-white"
+                          : "bg-primary hover:bg-selected"
+                      }`}
+                      title={`Exclude ${tag}`}
+                    >
+                      -
+                    </button>
+                  </label>
+                ))
+              )}
+            </div>
+          </Collapsible>
+
+          {/* Engine */}
+          <Collapsible
+            title="Engine"
+            badge={selectedFilters.engine.length ? String(selectedFilters.engine.length) : ""}
+          >
+            <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
+              {options.engines.length === 0 ? (
+                <p className="text-sm text-muted">No engines found</p>
+              ) : (
+                options.engines.map((engine) => (
+                  <label
+                    key={engine}
+                    className="flex items-center gap-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedFilters.engine.includes(engine)}
+                      onChange={() => togglePairedFilter("engine", "excludedEngines", engine, "include")}
+                      className="accent-accent -webkit-app-region-no-drag"
+                    />
+                    <span className="flex-1">{engine}</span>
+                    {renderIncludeExcludeButtons("engine", "excludedEngines", engine)}
+                  </label>
+                ))
+              )}
+            </div>
+          </Collapsible>
+
+          {/* Status */}
+          <Collapsible
+            title="Status"
+            badge={selectedFilters.status.length ? String(selectedFilters.status.length) : ""}
+          >
+            <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
+              {options.statuses.length === 0 ? (
+                <p className="text-sm text-muted">No statuses found</p>
+              ) : (
+                options.statuses.map((status) => (
+                  <label
+                    key={status}
+                    className="flex items-center gap-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedFilters.status.includes(status)}
+                      onChange={() => togglePairedFilter("status", "excludedStatuses", status, "include")}
+                      className="accent-accent -webkit-app-region-no-drag"
+                    />
+                    <span className="flex-1">{status}</span>
+                    {renderIncludeExcludeButtons("status", "excludedStatuses", status)}
+                  </label>
+                ))
+              )}
+            </div>
+          </Collapsible>
+
+          {/* Ratings */}
+          {!isCatalogMode && (
+            <Collapsible title="Ratings">
+              <label className="block text-sm">
+                <span className="block mb-1">Personal rating</span>
+                <select
+                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                  value={selectedFilters.personalRatingStatus === 'unrated'
+                    ? 'unrated'
+                    : selectedFilters.personalRatingMin > 0
+                      ? String(selectedFilters.personalRatingMin)
+                      : selectedFilters.personalRatingStatus === 'rated'
+                        ? 'rated'
+                        : 'any'}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    const personalRatingMin = /^\d+$/.test(value) ? Number(value) : 0
+                    const personalRatingStatus = value === 'unrated' ? 'unrated' : value === 'any' ? 'any' : 'rated'
+                    updateFilters({
+                      personalRatingMin,
+                      personalRatingStatus,
+                      personalRatingRatedOnly: personalRatingStatus === 'rated',
+                    })
+                  }}
+                >
+                  <option value={0}>Any</option>
+                  <option value="rated">Rated only</option>
+                  <option value="unrated">Unrated only</option>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((rating) => (
+                    <option key={rating} value={rating}>{rating}+</option>
+                  ))}
+                  <option value={10}>10</option>
+                </select>
+              </label>
+            </Collapsible>
+          )}
+
+          {/* Dates */}
+          <Collapsible title="Dates">
+            <div className="space-y-3">
+              <label className="block text-sm">
+                <span className="block mb-1">Date field</span>
+                <select
+                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                  value={selectedFilters.dateField}
+                  onChange={(e) => handleDateFieldChange(e.target.value)}
+                >
+                  {dateFieldOptions.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+                {isCatalogMode && selectedFilters.dateField === "latestUpdate" && (
+                  <p className="text-xs text-muted mt-1">
+                    Latest Update depends on AtlasDB thread update data. Some records may not appear until the database has finished updating.
+                  </p>
+                )}
+              </label>
+              <label className="block text-sm">
+                <span className="block mb-1">Date range</span>
+                <select
+                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                  value={selectedFilters.dateRange}
+                  onChange={(e) => handleDateRangeChange(e.target.value)}
+                  disabled={selectedFilters.dateField === "none"}
+                >
+                  <option value="any">Any time</option>
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d">Last 30 days</option>
+                  <option value="90d">Last 90 days</option>
+                  <option value="year">This year</option>
+                  <option value="custom">Custom range</option>
+                </select>
+              </label>
+              {selectedFilters.dateRange === "custom" && selectedFilters.dateField !== "none" && (
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block text-sm">
+                    <span className="block mb-1">From</span>
+                    <input
+                      type="date"
+                      className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                      value={selectedFilters.dateFrom}
+                      onChange={(e) => updateFilters({ dateFrom: e.target.value })}
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="block mb-1">To</span>
+                    <input
+                      type="date"
+                      className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                      value={selectedFilters.dateTo}
+                      onChange={(e) => updateFilters({ dateTo: e.target.value })}
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+          </Collapsible>
+
+          {/* Saved Filters */}
+          <Collapsible title="Saved Filters">
+            <p className="text-xs text-muted mb-3">
+              View and apply saved filters from the left sidebar.
+            </p>
+            {!isSaveFormOpen ? (
+              <button
+                onClick={() => {
+                  setIsSaveFormOpen(true);
+                  setSaveName("");
+                  setSaveError("");
+                }}
+                className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-highlight"
+              >
+                Save Current
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={saveName}
+                  autoFocus
+                  placeholder="Filter name"
+                  onChange={(e) => {
+                    setSaveName(e.target.value);
+                    setSaveError("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveCurrentFilter();
+                    if (e.key === "Escape") closeSaveForm();
+                  }}
+                  className="w-full p-2 bg-tertiary border border-border rounded text-sm -webkit-app-region-no-drag"
+                  disabled={saveBusy}
+                />
+                {saveError && (
+                  <div className="text-xs text-danger">{saveError}</div>
+                )}
+                <div className="flex gap-2">
                   <button
-                    onClick={() => handleSaveCurrentFilter({ overwrite: true })}
+                    onClick={() => handleSaveCurrentFilter()}
+                    disabled={saveBusy}
+                    className="px-3 py-1 rounded text-sm bg-accent text-white disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                  {saveError === "A saved filter with this name already exists." && (
+                    <button
+                      onClick={() => handleSaveCurrentFilter({ overwrite: true })}
+                      disabled={saveBusy}
+                      className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-highlight disabled:opacity-50"
+                    >
+                      Overwrite
+                    </button>
+                  )}
+                  <button
+                    onClick={closeSaveForm}
                     disabled={saveBusy}
                     className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-highlight disabled:opacity-50"
                   >
-                    Overwrite
+                    Cancel
                   </button>
-                )}
-                <button
-                  onClick={closeSaveForm}
-                  disabled={saveBusy}
-                  className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-highlight disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {isCatalogMode && (
-          <div className="mb-6 border-b border-border pb-4">
-            <h4 className="font-bold mb-3">Browse</h4>
-            <div className="space-y-3">
-              <label className="block text-sm">
-                <span className="block mb-1">Source</span>
-                <select
-                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                  value={selectedFilters.browseSource}
-                  onChange={(e) => updateFilters({ browseSource: e.target.value })}
-                >
-                  <option value="all">All sources</option>
-                  <option value="f95">F95</option>
-                  <option value="lewdcorner">LewdCorner</option>
-                  <option value="steam">Steam</option>
-                  <option value="atlas">AtlasDB</option>
-                </select>
-              </label>
-              <label className="block text-sm">
-                <span className="block mb-1">Sort</span>
-                <select
-                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                  value={selectedFilters.browseSort}
-                  onChange={(e) => updateFilters({ browseSort: e.target.value })}
-                >
-                  <option value="titleAsc">Title A/Z</option>
-                  <option value="titleDesc">Title Z/A</option>
-                  <option value="threadUpdatedDesc">Latest update</option>
-                  <option value="threadUpdatedAsc">Oldest update</option>
-                  <option value="threadPublishedDesc">Thread published newest</option>
-                  <option value="threadPublishedAsc">Thread published oldest</option>
-                  <option value="releaseDateDesc">Release date newest</option>
-                  <option value="releaseDateAsc">Release date oldest</option>
-                  <option value="f95LatestOrderDesc">F95 latest page order</option>
-                  <option value="f95LatestOrderAsc">F95 oldest page order</option>
-                </select>
-                <p className="text-xs text-muted mt-1">
-                  Latest update uses AtlasDB thread_updated. Entries without a known thread update date sort last and are excluded from date-range filters.
-                </p>
-              </label>
-              <label className="block text-sm">
-                <span className="block mb-1">Minimum F95/LewdCorner rating</span>
-                <select
-                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                  value={selectedFilters.communityRatingMin}
-                  onChange={(e) => updateFilters({ communityRatingMin: Number(e.target.value) })}
-                >
-                  <option value={0}>Any</option>
-                  {[1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].map((rating) => (
-                    <option key={rating} value={rating}>{rating}+</option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted mt-1">
-                  Uses the community rating from the source site — works across the whole catalog, not just installed titles.
-                </p>
-              </label>
-            </div>
-          </div>
-        )}
-
-        {/* Dates */}
-        <div className="mb-6 border-b border-border pb-4">
-          <h4 className="font-bold mb-3">Dates</h4>
-          <div className="space-y-3">
-            <label className="block text-sm">
-              <span className="block mb-1">Date field</span>
-              <select
-                className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                value={selectedFilters.dateField}
-                onChange={(e) => handleDateFieldChange(e.target.value)}
-              >
-                {dateFieldOptions.map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-              {isCatalogMode && selectedFilters.dateField === "latestUpdate" && (
-                <p className="text-xs text-muted mt-1">
-                  Latest Update depends on AtlasDB thread update data. Some records may not appear until the database has finished updating.
-                </p>
-              )}
-            </label>
-            <label className="block text-sm">
-              <span className="block mb-1">Date range</span>
-              <select
-                className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                value={selectedFilters.dateRange}
-                onChange={(e) => handleDateRangeChange(e.target.value)}
-                disabled={selectedFilters.dateField === "none"}
-              >
-                <option value="any">Any time</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-                <option value="90d">Last 90 days</option>
-                <option value="year">This year</option>
-                <option value="custom">Custom range</option>
-              </select>
-            </label>
-            {selectedFilters.dateRange === "custom" && selectedFilters.dateField !== "none" && (
-              <div className="grid grid-cols-2 gap-2">
-                <label className="block text-sm">
-                  <span className="block mb-1">From</span>
-                  <input
-                    type="date"
-                    className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                    value={selectedFilters.dateFrom}
-                    onChange={(e) => updateFilters({ dateFrom: e.target.value })}
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="block mb-1">To</span>
-                  <input
-                    type="date"
-                    className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                    value={selectedFilters.dateTo}
-                    onChange={(e) => updateFilters({ dateTo: e.target.value })}
-                  />
-                </label>
+                </div>
               </div>
             )}
-          </div>
+          </Collapsible>
         </div>
-
-        {/* Steam mapping */}
-        <div className="mb-6 border-b border-border pb-4">
-          <label className="flex items-center space-x-2 text-sm">
-            <input
-              type="checkbox"
-              checked={selectedFilters.steamMapped || false}
-              onChange={() =>
-                updateFilters({
-                  steamMapped: !selectedFilters.steamMapped,
-                })
-              }
-              className="-webkit-app-region-no-drag"
-            />
-            <span>Has Steam mapping</span>
-          </label>
-        </div>
-
-        {/* Category */}
-        <div className="mb-6 border-b border-border pb-4">
-          <h4 className="font-bold mb-3">Category</h4>
-          <div className="flex flex-wrap gap-2">
-            {options.categories.map((cat) => (
-              <span key={cat} className="inline-flex items-center gap-1 bg-primary border border-border rounded px-2 py-1 text-sm">
-                <span>{cat}</span>
-                {renderIncludeExcludeButtons("category", "excludedCategories", cat)}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* Sorting */}
-        {!isCatalogMode && (
-        <div className="mb-6 border-b border-border pb-4">
-          <h4 className="font-bold mb-3">Sorting</h4>
-          <div className="flex gap-2">
-            <select
-              className="min-w-0 flex-1 p-2 bg-tertiary border border-border rounded text-sm"
-              value={selectedFilters.sort}
-              onChange={(e) => {
-                const sort = e.target.value
-                updateFilters({ sort, sortDirection: getDefaultSortDirectionForSort(sort) })
-              }}
-            >
-              <option value="name">Title</option>
-              <option value="creator">Creator</option>
-              <option value="date">Release Date</option>
-              <option value="likes">Likes</option>
-              <option value="views">Views</option>
-              <option value="rating">Rating</option>
-              <option value="installedVersionCount">Number of Versions</option>
-              <option value="newlyInstalled">Install Date</option>
-              <option value="newlyPlayed">Last Played</option>
-              <option value="playtime">Playtime</option>
-              <option value="fileSize">File Size</option>
-              <option value="personalRating">Personal Rating</option>
-            </select>
-            <button
-              type="button"
-              onClick={() => updateFilters({
-                sortDirection: selectedFilters.sortDirection === "asc" ? "desc" : "asc",
-              })}
-              className="w-[112px] px-3 py-2 rounded text-sm bg-tertiary hover:bg-highlight border border-border"
-              title="Toggle sort direction"
-            >
-              {selectedFilters.sortDirection === "asc" ? "Ascending" : "Descending"}
-            </button>
-          </div>
-        </div>
-        )}
-
-        {/* Ratings */}
-        {!isCatalogMode && (
-        <div className="mb-6 border-b border-border pb-4">
-          <h4 className="font-bold mb-3">Ratings</h4>
-          <div className="space-y-3">
-            <label className="block text-sm">
-              <span className="block mb-1">Personal rating</span>
-              <select
-                className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                value={selectedFilters.personalRatingStatus === 'unrated'
-                  ? 'unrated'
-                  : selectedFilters.personalRatingMin > 0
-                    ? String(selectedFilters.personalRatingMin)
-                    : selectedFilters.personalRatingStatus === 'rated'
-                      ? 'rated'
-                      : 'any'}
-                onChange={(e) => {
-                  const value = e.target.value
-                  const personalRatingMin = /^\d+$/.test(value) ? Number(value) : 0
-                  const personalRatingStatus = value === 'unrated' ? 'unrated' : value === 'any' ? 'any' : 'rated'
-                  updateFilters({
-                    personalRatingMin,
-                    personalRatingStatus,
-                    personalRatingRatedOnly: personalRatingStatus === 'rated',
-                  })
-                }}
-              >
-                <option value={0}>Any</option>
-                <option value="rated">Rated only</option>
-                <option value="unrated">Unrated only</option>
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((rating) => (
-                  <option key={rating} value={rating}>{rating}+</option>
-                ))}
-                <option value={10}>10</option>
-              </select>
-            </label>
-          </div>
-        </div>
-        )}
-
-        {/* Tags */}
-        <div className="mb-6 border-b border-border pb-4">
-          <h4 className="font-bold mb-3 flex justify-between items-center">
-            Tags (Max 10)
-            <span className="text-sm font-normal text-muted">
-              {selectedFilters.tagLogic}
-            </span>
-          </h4>
-          <div className="flex gap-4 mb-3">
-            <button
-              onClick={() => updateFilters({ tagLogic: "AND" })}
-              className={`px-4 py-1 rounded text-sm ${
-                selectedFilters.tagLogic === "AND"
-                  ? "bg-accent text-white"
-                  : "bg-tertiary hover:bg-highlight"
-              }`}
-            >
-              AND
-            </button>
-            <button
-              onClick={() => updateFilters({ tagLogic: "OR" })}
-              className={`px-4 py-1 rounded text-sm ${
-                selectedFilters.tagLogic === "OR"
-                  ? "bg-accent text-white"
-                  : "bg-tertiary hover:bg-highlight"
-              }`}
-            >
-              OR
-            </button>
-          </div>
-          <input
-            type="text"
-            placeholder="Search tags... (↑↓ highlight, Enter select)"
-            value={tagSearch}
-            onChange={(e) => setTagSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (filteredTags.length === 0) return;
-
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setHighlightedTagIndex((prev) =>
-                  prev < filteredTags.length - 1 ? prev + 1 : 0,
-                );
-              } else if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setHighlightedTagIndex((prev) =>
-                  prev > 0 ? prev - 1 : filteredTags.length - 1,
-                );
-              } else if (e.key === "Enter" && highlightedTagIndex >= 0) {
-                e.preventDefault();
-                const selectedTag = filteredTags[highlightedTagIndex];
-                togglePairedFilter("tags", "excludedTags", selectedTag, "include");
-                setTagSearch("");
-                setHighlightedTagIndex(-1);
-              }
-            }}
-            className="w-full p-2 bg-tertiary border border-border rounded mb-3 text-sm -webkit-app-region-no-drag"
-          />
-          <div className="flex flex-wrap gap-2 mb-3">
-            {selectedFilters.tags.map((tag) => (
-              <span
-                key={tag}
-                className="bg-accent px-3 py-1 rounded text-sm flex items-center"
-              >
-                {tag}
-                <button
-                  onClick={() => handleCheckbox("tags", tag)}
-                  className="ml-2 text-white text-xs"
-                >
-                  x
-                </button>
-              </span>
-            ))}
-            {selectedFilters.excludedTags.map((tag) => (
-              <span
-                key={`excluded-${tag}`}
-                className="bg-danger px-3 py-1 rounded text-sm flex items-center"
-              >
-                -{tag}
-                <button
-                  onClick={() => togglePairedFilter("tags", "excludedTags", tag, "exclude")}
-                  className="ml-2 text-white text-xs"
-                >
-                  x
-                </button>
-              </span>
-            ))}
-          </div>
-          {tagError && <div className="text-xs text-danger mb-2">{tagError}</div>}
-          <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
-            {filteredTags.length === 0 ? (
-              <p className="text-sm text-muted">No tags found</p>
-            ) : (
-              filteredTags.map((tag, index) => (
-                <label
-                  key={tag}
-                  className={`flex items-center space-x-2 py-1 text-sm block px-1 rounded cursor-pointer ${
-                    index === highlightedTagIndex
-                      ? "bg-accent text-white"
-                      : "hover:bg-highlight"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedFilters.tags.includes(tag)}
-                    onChange={() => togglePairedFilter("tags", "excludedTags", tag, "include")}
-                    disabled={
-                      selectedFilters.tags.length >= 10 &&
-                      !selectedFilters.tags.includes(tag)
-                    }
-                    className="-webkit-app-region-no-drag"
-                  />
-                  <span className="flex-1">{tag}</span>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      togglePairedFilter("tags", "excludedTags", tag, "exclude");
-                    }}
-                    className={`px-2 py-0.5 rounded text-xs ${
-                      selectedFilters.excludedTags.includes(tag)
-                        ? "bg-danger text-white"
-                        : "bg-primary hover:bg-selected"
-                    }`}
-                    title={`Exclude ${tag}`}
-                  >
-                    -
-                  </button>
-                </label>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Engine */}
-        <div className="mb-6 border-b border-border pb-4">
-          <h4 className="font-bold mb-3">Engine</h4>
-          <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
-            {options.engines.length === 0 ? (
-              <p className="text-sm text-muted">No engines found</p>
-            ) : (
-              options.engines.map((engine) => (
-                <label
-                  key={engine}
-                  className="flex items-center gap-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedFilters.engine.includes(engine)}
-                    onChange={() => togglePairedFilter("engine", "excludedEngines", engine, "include")}
-                    className="-webkit-app-region-no-drag"
-                  />
-                  <span className="flex-1">{engine}</span>
-                  {renderIncludeExcludeButtons("engine", "excludedEngines", engine)}
-                </label>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Status */}
-        <div className="mb-6 border-b border-border pb-4">
-          <h4 className="font-bold mb-3">Status</h4>
-          <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
-            {options.statuses.length === 0 ? (
-              <p className="text-sm text-muted">No statuses found</p>
-            ) : (
-              options.statuses.map((status) => (
-                <label
-                  key={status}
-                  className="flex items-center gap-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedFilters.status.includes(status)}
-                    onChange={() => togglePairedFilter("status", "excludedStatuses", status, "include")}
-                    className="-webkit-app-region-no-drag"
-                  />
-                  <span className="flex-1">{status}</span>
-                  {renderIncludeExcludeButtons("status", "excludedStatuses", status)}
-                </label>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Update Available */}
-        {!isCatalogMode && (
-        <div className="mb-4">
-          <label className="flex items-center space-x-2 text-sm">
-            <input
-              type="checkbox"
-              checked={selectedFilters.updateAvailable || false}
-              onChange={() =>
-                updateFilters({
-                  updateAvailable: !selectedFilters.updateAvailable,
-                })
-              }
-              className="-webkit-app-region-no-drag"
-            />
-            <span>Show only games with updates available</span>
-          </label>
-        </div>
-        )}
-
-        {!isCatalogMode && (
-          <div className="mb-4">
-            <label className="block text-sm mb-1">Library scope</label>
-            <select
-              className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-              value={selectedFilters.installState}
-              onChange={(e) => {
-                const installState = e.target.value;
-                updateFilters({
-                  installState,
-                  includeUninstalled: ['all', 'uninstalled'].includes(installState),
-                });
-              }}
-            >
-              <option value="installed">Installed titles</option>
-              <option value="all">Installed and uninstalled</option>
-              <option value="uninstalled">Uninstalled only</option>
-            </select>
-          </div>
-        )}
-
-        {/* Favorites */}
-        {!isCatalogMode && (
-        <div className="mb-4">
-          <label className="flex items-center space-x-2 text-sm">
-            <input
-              type="checkbox"
-              checked={selectedFilters.favoritesOnly || false}
-              onChange={() =>
-                updateFilters({
-                  favoritesOnly: !selectedFilters.favoritesOnly,
-                })
-              }
-              className="-webkit-app-region-no-drag"
-            />
-            <span>Favorites only</span>
-          </label>
-        </div>
-        )}
-
-        {/* Multiple installed versions */}
-        {!isCatalogMode && (
-        <div className="mb-4">
-          <label className="flex items-center space-x-2 text-sm">
-            <input
-              type="checkbox"
-              checked={selectedFilters.multipleInstalledVersions || false}
-              onChange={() =>
-                updateFilters({
-                  multipleInstalledVersions:
-                    !selectedFilters.multipleInstalledVersions,
-                })
-              }
-              className="-webkit-app-region-no-drag"
-            />
-            <span>Show games with multiple installed versions</span>
-          </label>
-        </div>
-        )}
       </div>
     </div>
   );

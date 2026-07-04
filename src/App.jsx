@@ -1259,7 +1259,7 @@ const App = () => {
                     favoritesActive={favoritesActive}
                     browseAvailable={browseAvailable}
                   />
-                  <span className="text-text text-xs whitespace-nowrap">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
+                  <span className="text-text text-xs whitespace-nowrap">Version: {version} {/*<span style={{ color: 'Goldenrod' }}>α</span>*/}</span>
                 </div>
               </>
             ) : (
@@ -1284,7 +1284,7 @@ const App = () => {
               it isn't duplicated here. */}
           {!isTopNav && (
             <div className="absolute mt-10 top-0 right-0 flex h-[10px]">
-              <span className="text-text text-xs mr-4">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
+              <span className="text-text text-xs mr-4">Version: {version} {/*<span style={{ color: 'Goldenrod' }}>α</span>*/}</span>
             </div>
           )}
         </div>
