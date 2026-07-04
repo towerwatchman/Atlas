@@ -143,27 +143,21 @@ export function getNavItems({
 // array of { tag: 'path' | 'rect', props: {...} } for the caller to map
 // into real JSX elements (kept tag-agnostic here so this module stays
 // plain JS with no JSX/React dependency).
-export function parseIconParts(item, { showGameList, showSavedFilters } = {}) {
+export function parseIconParts(item, { showGameList } = {}) {
   if (item.name === 'List') {
-    // The List button cycles three side-panel states (see toggleGameList in
-    // App.jsx): games list -> saved filters -> hidden. The icon reflects
-    // which is (or would be) showing: a filter funnel for the saved-filters
-    // panel, the list-rows glyph for the games list, and the grid glyph when
-    // the panel is hidden.
-    const d = showSavedFilters
-      // Filter funnel (same glyph as the Filters nav item).
-      ? 'M3 4C3 3.447715 3.447715 3 4 3H20C20.552285 3 21 3.447715 21 4V5.585C21 5.850715 20.894643 6.105357 20.707107 6.292893L14.292893 12.707107C14.105357 12.894643 14 13.149285 14 13.415V18L10 20V13.415C10 13.149285 9.894643 12.894643 9.707107 12.707107L3.292893 6.292893C3.105357 6.105357 3 5.850715 3 5.585V4Z'
-      : showGameList
-        // List is visible -> show list icon
-        ? 'M6 5C4.894531 5 4 5.894531 4 7C4 8.105469 4.894531 9 6 9C7.105469 9 8 8.105469 8 7C8 5.894531 7.105469 5 6 5 Z M 11 6L11 8L28 8L28 6 Z M 6 14C4.894531 14 4 14.894531 4 16C4 17.105469 4.894531 18 6 18C7.105469 18 8 17.105469 8 16C8 14.894531 7.105469 14 6 14 Z M 11 15L11 17L28 17L28 15 Z M 6 23C4.894531 23 4 23.894531 4 25C4 26.105469 4.894531 27 6 27C7.105469 27 8 26.105469 8 25C8 23.894531 7.105469 23 6 23 Z M 11 24L11 26L28 26L28 24Z'
-        // Panel hidden -> show grid icon
-        : 'M5 5h6v6H5zM13 5h6v6h-6zM21 5h6v6h-6zM5 13h6v6H5zM13 13h6v6h-6zM21 13h6v6h-6zM5 21h6v6H5zM13 21h6v6h-6zM21 21h6v6h-6z'
-    // The funnel path uses a 0 0 24 24 coordinate space, unlike the list/grid
-    // glyphs' 0 0 28 28; keep it visually consistent by scaling it to 28.
-    if (showSavedFilters) {
-      return [{ tag: 'path', props: { fill: 'currentColor', d, transform: 'scale(1.1667)' } }]
-    }
-    return [{ tag: 'path', props: { fill: 'currentColor', d } }]
+    // The List button toggles the games-list side panel (show/hide). Icon
+    // reflects it: list-rows glyph when shown, grid glyph when hidden.
+    return [{
+      tag: 'path',
+      props: {
+        fill: 'currentColor',
+        d: showGameList
+          // List is visible -> show list icon
+          ? 'M6 5C4.894531 5 4 5.894531 4 7C4 8.105469 4.894531 9 6 9C7.105469 9 8 8.105469 8 7C8 5.894531 7.105469 5 6 5 Z M 11 6L11 8L28 8L28 6 Z M 6 14C4.894531 14 4 14.894531 4 16C4 17.105469 4.894531 18 6 18C7.105469 18 8 17.105469 8 16C8 14.894531 7.105469 14 6 14 Z M 11 15L11 17L28 17L28 15 Z M 6 23C4.894531 23 4 23.894531 4 25C4 26.105469 4.894531 27 6 27C7.105469 27 8 26.105469 8 25C8 23.894531 7.105469 23 6 23 Z M 11 24L11 26L28 26L28 24Z'
+          // List is hidden -> show grid icon
+          : 'M5 5h6v6H5zM13 5h6v6h-6zM21 5h6v6h-6zM5 13h6v6H5zM13 13h6v6h-6zM21 13h6v6h-6zM5 21h6v6H5zM13 21h6v6h-6zM21 21h6v6h-6z',
+      },
+    }]
   }
 
   return (item.path || []).map((pathStr, index) => {

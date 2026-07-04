@@ -72,7 +72,6 @@ const SavedFiltersPanel = ({
   activeSavedFilterId = '',
   counts = {},
   deleteStateById = {},
-  leftOffsetClassName = '',
   onApplyFilter,
   onDeleteFilter,
 }) => {
@@ -118,16 +117,8 @@ const SavedFiltersPanel = ({
   )
 
   return (
-    <div
-      className={`w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ${leftOffsetClassName}`}
-      style={{ borderRight: '1px solid var(--color-window-border)' }}
-    >
-      <div className="px-2 py-3 border-b border-border">
-        <div className="font-semibold text-sm">Saved Filters</div>
-        <div className="text-[11px] text-muted">Click to apply</div>
-      </div>
-
-      <div className="py-2">
+    <div>
+      <div className="pt-1 pb-2">
         <div className="px-2 pb-1 text-[11px] uppercase tracking-wide text-muted">
           Built-in
         </div>
@@ -140,7 +131,7 @@ const SavedFiltersPanel = ({
         </div>
         {sortedUserFilters.length === 0 ? (
           <div className="px-2 py-2 text-xs text-muted">
-            Save the current filters from the filter panel.
+            Save the current filters with the save button in the header.
           </div>
         ) : (
           sortedUserFilters.map(renderRow)

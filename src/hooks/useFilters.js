@@ -63,6 +63,7 @@ const sortTypes = [
   'name',
   'creator',
   'date',
+  'lastUpdated',
   'likes',
   'views',
   'rating',
@@ -73,7 +74,7 @@ const sortTypes = [
   'fileSize',
   'personalRating',
 ]
-const defaultDescSortTypes = ['date', 'likes', 'views', 'rating', 'installedVersionCount', 'newlyInstalled', 'newlyPlayed', 'playtime', 'fileSize', 'personalRating']
+const defaultDescSortTypes = ['date', 'lastUpdated', 'likes', 'views', 'rating', 'installedVersionCount', 'newlyInstalled', 'newlyPlayed', 'playtime', 'fileSize', 'personalRating']
 
 export const getDefaultSortDirectionForSort = (sort) =>
   defaultDescSortTypes.includes(sort) ? 'desc' : 'asc'
@@ -338,6 +339,8 @@ const compareLocalGames = (a, b, activeFilters) => {
     result = compareText(a.creator, b.creator, direction)
   } else if (activeFilters.sort === 'date') {
     result = compareMaybeNumber(getReleaseDateValue(a), getReleaseDateValue(b), direction)
+  } else if (activeFilters.sort === 'lastUpdated') {
+    result = compareMaybeNumber(getBrowseDate(a, 'thread_updated'), getBrowseDate(b, 'thread_updated'), direction)
   } else if (['likes', 'views', 'rating'].includes(activeFilters.sort)) {
     result = compareMaybeNumber(parseSortableMetric(a[activeFilters.sort]), parseSortableMetric(b[activeFilters.sort]), direction)
   } else if (activeFilters.sort === 'installedVersionCount') {

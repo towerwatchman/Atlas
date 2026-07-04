@@ -52,7 +52,7 @@ const orderItems = (items, order) =>
  */
 const TopNav = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
-  onToggleSearchSidebar, onOpenHelp, showGameList, showSavedFilters = false, libraryMode = 'local', group = 'left',
+  onToggleSearchSidebar, onOpenHelp, showGameList, libraryMode = 'local', group = 'left',
   forceIconsOnly = false, browseAvailable, favoritesActive = false,
 }) => {
   const { navDisplayMode } = useTheme()
@@ -102,7 +102,7 @@ const TopNav = ({
           <>
             {showIcon && (
               <svg className={`w-[18px] h-[18px] flex-shrink-0 nav-icon-fx ${isActive ? 'selected' : ''}`} viewBox={item.viewBox || '0 0 24 24'} fill="currentColor">
-                {parseIconParts(item, { showGameList, showSavedFilters }).map((part, index) =>
+                {parseIconParts(item, { showGameList }).map((part, index) =>
                   part.tag === 'rect'
                     ? <rect key={index} {...part.props} />
                     : <path key={index} {...part.props} />

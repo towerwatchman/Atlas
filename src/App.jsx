@@ -8,7 +8,6 @@ import { atlasLogo } from './assets/icons/data.js'
 import GameBanner from './components/library/GameBanner.jsx'
 import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
-import SavedFiltersPanel from './components/search/SavedFiltersPanel.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
 import { useGames } from './hooks/useGames.js'
 import { builtInSavedFilters, defaultFilters, filterGamesWithState, normalizeFilterState, useFilters } from './hooks/useFilters.js'
@@ -489,13 +488,13 @@ const App = () => {
 
   // ── Sidebar / list toggle ──────────────────────────────────────────────────
   const toggleGameList = () => {
-    const nextMode =
+    // Games list is a simple show/hide now that saved filters live in the
+    // filter sidebar rather than a third state of this toggle.
+    setAndPersistSidePanelMode(
       sidebarMode === SIDE_PANEL_MODES.GAMES
-        ? SIDE_PANEL_MODES.SAVED_FILTERS
-        : sidebarMode === SIDE_PANEL_MODES.SAVED_FILTERS
-          ? SIDE_PANEL_MODES.HIDDEN
-          : SIDE_PANEL_MODES.GAMES
-    setAndPersistSidePanelMode(nextMode)
+        ? SIDE_PANEL_MODES.HIDDEN
+        : SIDE_PANEL_MODES.GAMES
+    )
   }
 
   // Records the user's answer to the first-run NSFW/adult-content prompt.
@@ -1225,7 +1224,6 @@ const App = () => {
                     onToggleSearchSidebar={toggleSearchSidebar}
                     onOpenHelp={openHelp}
                     showGameList={showGameList}
-                    showSavedFilters={showSavedFilters}
                     libraryMode={libraryMode}
                     favoritesActive={favoritesActive}
                     browseAvailable={browseAvailable}
@@ -1254,12 +1252,11 @@ const App = () => {
                     onToggleSearchSidebar={toggleSearchSidebar}
                     onOpenHelp={openHelp}
                     showGameList={showGameList}
-                    showSavedFilters={showSavedFilters}
                     libraryMode={libraryMode}
                     favoritesActive={favoritesActive}
                     browseAvailable={browseAvailable}
                   />
-                  <span className="text-text text-xs whitespace-nowrap">Version: {version} {/*<span style={{ color: 'Goldenrod' }}>α</span>*/}</span>
+                  <span className="text-text text-xs whitespace-nowrap">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
                 </div>
               </>
             ) : (
@@ -1284,7 +1281,7 @@ const App = () => {
               it isn't duplicated here. */}
           {!isTopNav && (
             <div className="absolute mt-10 top-0 right-0 flex h-[10px]">
-              <span className="text-text text-xs mr-4">Version: {version} {/*<span style={{ color: 'Goldenrod' }}>α</span>*/}</span>
+              <span className="text-text text-xs mr-4">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
             </div>
           )}
         </div>
@@ -1302,7 +1299,6 @@ const App = () => {
             onToggleSearchSidebar={toggleSearchSidebar}
             onOpenHelp={openHelp}
             showGameList={showGameList}
-            showSavedFilters={showSavedFilters}
             libraryMode={libraryMode}
             favoritesActive={favoritesActive}
             browseAvailable={browseAvailable}
@@ -1339,17 +1335,6 @@ const App = () => {
           </div>
         )}
 
-        {showSavedFilters && (
-          <SavedFiltersPanel
-            userSavedFilters={userSavedFilters}
-            activeSavedFilterId={activeSavedFilterId}
-            counts={savedFilterCounts}
-            deleteStateById={savedFilterDeleteStateById}
-            leftOffsetClassName={isTopNav ? '' : 'ml-[60px]'}
-            onApplyFilter={applySavedFilter}
-            onDeleteFilter={deleteSavedFilter}
-          />
-        )}
 
         {/* Filter sidebar placement: side ('left'/'right') and mode
             ('overlay'/'inline') both come from the active theme's
@@ -1378,6 +1363,11 @@ const App = () => {
               onFilterChange={handleFilterChange}
               onResetFilters={resetFilters}
               onSavedFilterSaved={handleSavedFilterSaved}
+              activeSavedFilterId={activeSavedFilterId}
+              savedFilterCounts={savedFilterCounts}
+              savedFilterDeleteStateById={savedFilterDeleteStateById}
+              onApplySavedFilter={applySavedFilter}
+              onDeleteSavedFilter={deleteSavedFilter}
               onClose={() => setShowSearchSidebar(false)}
             />
           </div>
@@ -1489,6 +1479,11 @@ const App = () => {
             onFilterChange={handleFilterChange}
             onResetFilters={resetFilters}
             onSavedFilterSaved={handleSavedFilterSaved}
+            activeSavedFilterId={activeSavedFilterId}
+            savedFilterCounts={savedFilterCounts}
+            savedFilterDeleteStateById={savedFilterDeleteStateById}
+            onApplySavedFilter={applySavedFilter}
+            onDeleteSavedFilter={deleteSavedFilter}
             onClose={() => setShowSearchSidebar(false)}
           />
         )}
@@ -1506,6 +1501,11 @@ const App = () => {
             onFilterChange={handleFilterChange}
             onResetFilters={resetFilters}
             onSavedFilterSaved={handleSavedFilterSaved}
+            activeSavedFilterId={activeSavedFilterId}
+            savedFilterCounts={savedFilterCounts}
+            savedFilterDeleteStateById={savedFilterDeleteStateById}
+            onApplySavedFilter={applySavedFilter}
+            onDeleteSavedFilter={deleteSavedFilter}
             onClose={() => setShowSearchSidebar(false)}
           />
         )}

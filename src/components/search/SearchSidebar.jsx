@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { builtInSavedFilters, getDefaultSortDirectionForSort, normalizeFilterState } from '../../hooks/useFilters.js'
+import SavedFiltersPanel from './SavedFiltersPanel.jsx'
 
 // Collapsible accordion section — keeps the long filter list scannable so
 // the panel isn't one endless scroll (matches the grouped/accordion layout
@@ -28,6 +29,17 @@ function Collapsible({ title, badge, defaultOpen = false, children }) {
   );
 }
 
+// Sort options shown as the always-visible icon row. Kept intentionally
+// small (Title / Creator / Last Updated / Likes / Rating). "Last Updated"
+// sorts by thread_updated (see useFilters 'lastUpdated').
+const SORT_OPTIONS = [
+  { value: 'name', label: 'Title', icon: 'fa-arrow-down-a-z' },
+  { value: 'creator', label: 'Creator', icon: 'fa-user' },
+  { value: 'lastUpdated', label: 'Last Updated', icon: 'fa-clock' },
+  { value: 'likes', label: 'Likes', icon: 'fa-thumbs-up' },
+  { value: 'rating', label: 'Rating', icon: 'fa-star' },
+]
+
 const SearchSidebar = ({
   isVisible,
   searchText = "",
@@ -39,6 +51,11 @@ const SearchSidebar = ({
   onFilterChange,
   onResetFilters,
   onClose,
+  activeSavedFilterId = '',
+  savedFilterCounts = {},
+  savedFilterDeleteStateById = {},
+  onApplySavedFilter,
+  onDeleteSavedFilter,
   // mode: 'overlay' (default, original behavior) floats fixed on top of
   // the library grid without affecting its layout. 'inline' instead
   // renders as a normal block — App.jsx places it as a flex sibling of
@@ -56,6 +73,7 @@ const SearchSidebar = ({
   const [saveError, setSaveError] = useState("");
   const [saveBusy, setSaveBusy] = useState(false);
   const [tagError, setTagError] = useState("");
+  const [showSavedView, setShowSavedView] = useState(false);
   const selectedFilters = normalizeFilterState(activeFilters);
   const [options, setOptions] = useState({
     categories: [],
@@ -75,6 +93,14 @@ const SearchSidebar = ({
 
   const updateFilters = (changes) => {
     onFilterChange?.({ ...selectedFilters, ...changes });
+  };
+
+  const handleSortClick = (value) => {
+    if (selectedFilters.sort === value) {
+      updateFilters({ sortDirection: selectedFilters.sortDirection === "asc" ? "desc" : "asc" });
+    } else {
+      updateFilters({ sort: value, sortDirection: getDefaultSortDirectionForSort(value) });
+    }
   };
 
   const handleInputKeyDown = (event) => {
@@ -294,35 +320,68 @@ const SearchSidebar = ({
       };
 
   return (
+    <>
     <div className={containerClassName} style={containerStyle}>
       {/* Fixed-height sticky header */}
       <div className="h-[52px] bg-secondary border-b border-border flex items-center justify-between px-3 sticky top-0 z-10">
-        <span className="text-base font-bold">
-          <i className="fas fa-filter mr-2"></i>Filters
+        <span className="text-base font-bold flex items-center gap-2">
+          <i className={`fas ${showSavedView ? 'fa-bookmark' : 'fa-filter'}`}></i>
+          {showSavedView ? 'Saved Filters' : 'Filters'}
         </span>
-        <div className="flex space-x-3">
+        <div className="flex items-center gap-1">
+          {!showSavedView && (
+            <button
+              onClick={() => { setIsSaveFormOpen(true); setSaveName(""); setSaveError(""); }}
+              className="w-8 h-8 flex items-center justify-center rounded text-text hover:bg-tertiary hover:text-accent -webkit-app-region-no-drag"
+              title="Save current filters"
+              aria-label="Save current filters"
+            >
+              <i className="fas fa-floppy-disk"></i>
+            </button>
+          )}
           <button
-            onClick={() => {
-              setTagSearch("");
-              setHighlightedTagIndex(-1);
-              onResetFilters?.();
-            }}
-            className="text-text hover:text-accent text-sm flex items-center"
+            onClick={() => setShowSavedView((v) => !v)}
+            className="w-8 h-8 flex items-center justify-center rounded text-text hover:bg-tertiary hover:text-accent -webkit-app-region-no-drag"
+            title={showSavedView ? 'Back to filters' : 'Saved filters'}
+            aria-label={showSavedView ? 'Back to filters' : 'Saved filters'}
           >
-            <i className="fas fa-undo-alt mr-1"></i> Reset
+            <i className={`fas ${showSavedView ? 'fa-filter' : 'fa-bookmark'}`}></i>
+          </button>
+          <button
+            onClick={() => { setTagSearch(""); setHighlightedTagIndex(-1); onResetFilters?.(); }}
+            className="w-8 h-8 flex items-center justify-center rounded text-text hover:bg-tertiary hover:text-accent -webkit-app-region-no-drag"
+            title="Reset filters"
+            aria-label="Reset filters"
+          >
+            <i className="fas fa-undo-alt"></i>
           </button>
           <button
             onClick={onClose}
-            className="text-text hover:text-accent text-sm flex items-center"
+            className="w-8 h-8 flex items-center justify-center rounded text-text hover:bg-tertiary hover:text-accent -webkit-app-region-no-drag"
+            title="Close"
+            aria-label="Close"
           >
-            <i className="fas fa-times mr-1"></i> Close
+            <i className="fas fa-times"></i>
           </button>
         </div>
       </div>
 
       {/* Scrollable content */}
       <div className="h-[calc(100%-52px)] overflow-y-auto -webkit-app-region-no-drag">
-        {/* Search — always visible at the top */}
+        {showSavedView ? (
+          <div className="p-1">
+            <SavedFiltersPanel
+              userSavedFilters={userSavedFilters}
+              activeSavedFilterId={activeSavedFilterId}
+              counts={savedFilterCounts}
+              deleteStateById={savedFilterDeleteStateById}
+              onApplyFilter={onApplySavedFilter}
+              onDeleteFilter={onDeleteSavedFilter}
+            />
+          </div>
+        ) : (
+          <>
+        {/* Search */}
         <div className="p-3 border-b border-border">
           <div className="flex items-center border border-border rounded bg-tertiary overflow-hidden -webkit-app-region-no-drag">
             <i className="fas fa-search w-6 h-6 text-text pl-3 flex items-center justify-center"></i>
@@ -347,62 +406,38 @@ const SearchSidebar = ({
                 <i className="fas fa-times"></i>
               </button>
             )}
-            <select
-              value={selectedFilters.type}
-              onChange={(e) => updateFilters({ type: e.target.value })}
-              className="bg-primary border-l border-border text-text text-xs px-2 py-2 outline-none -webkit-app-region-no-drag"
-              title="Search mode"
-            >
-              <option value="all">All</option>
-              <option value="title">Title</option>
-              <option value="creator">Creator</option>
-              <option value="anyId">Any ID</option>
-              <option value="atlasId">Atlas ID</option>
-              <option value="f95Id">F95 ID</option>
-              <option value="lewdcornerId">LewdCorner ID</option>
-              <option value="steamId">Steam ID</option>
-            </select>
           </div>
         </div>
 
         <div className="px-3">
-          {/* Sorting */}
+          {/* Sorting — always visible icon row */}
           {!isCatalogMode && (
-            <Collapsible title="Sorting" defaultOpen>
-              <div className="flex gap-2">
-                <select
-                  className="min-w-0 flex-1 p-2 bg-tertiary border border-border rounded text-sm"
-                  value={selectedFilters.sort}
-                  onChange={(e) => {
-                    const sort = e.target.value
-                    updateFilters({ sort, sortDirection: getDefaultSortDirectionForSort(sort) })
-                  }}
-                >
-                  <option value="name">Title</option>
-                  <option value="creator">Creator</option>
-                  <option value="date">Release Date</option>
-                  <option value="likes">Likes</option>
-                  <option value="views">Views</option>
-                  <option value="rating">Rating</option>
-                  <option value="installedVersionCount">Number of Versions</option>
-                  <option value="newlyInstalled">Install Date</option>
-                  <option value="newlyPlayed">Last Played</option>
-                  <option value="playtime">Playtime</option>
-                  <option value="fileSize">File Size</option>
-                  <option value="personalRating">Personal Rating</option>
-                </select>
-                <button
-                  type="button"
-                  onClick={() => updateFilters({
-                    sortDirection: selectedFilters.sortDirection === "asc" ? "desc" : "asc",
-                  })}
-                  className="w-[112px] px-3 py-2 rounded text-sm bg-tertiary hover:bg-highlight border border-border"
-                  title="Toggle sort direction"
-                >
+            <div className="pt-3 pb-4 border-b border-border">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-bold text-sm">Sorting</span>
+                <span className="text-[11px] text-muted">
                   {selectedFilters.sortDirection === "asc" ? "Ascending" : "Descending"}
-                </button>
+                </span>
               </div>
-            </Collapsible>
+              <div className="flex gap-1">
+                {SORT_OPTIONS.map((opt) => {
+                  const active = selectedFilters.sort === opt.value
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => handleSortClick(opt.value)}
+                      title={active ? `${opt.label} — ${selectedFilters.sortDirection === "asc" ? "Ascending" : "Descending"} (click to flip)` : opt.label}
+                      aria-label={opt.label}
+                      className={`flex-1 h-9 flex items-center justify-center gap-1 rounded border text-sm ${active ? "bg-accent text-white border-accent" : "bg-tertiary hover:bg-highlight border-border text-text"}`}
+                    >
+                      <i className={`fas ${opt.icon}`}></i>
+                      {active && <i className={`fas ${selectedFilters.sortDirection === "asc" ? "fa-caret-up" : "fa-caret-down"} text-xs`}></i>}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
           )}
 
           {/* Browse (catalog mode) */}
@@ -836,74 +871,59 @@ const SearchSidebar = ({
             </div>
           </Collapsible>
 
-          {/* Saved Filters */}
-          <Collapsible title="Saved Filters">
-            <p className="text-xs text-muted mb-3">
-              View and apply saved filters from the left sidebar.
-            </p>
-            {!isSaveFormOpen ? (
-              <button
-                onClick={() => {
-                  setIsSaveFormOpen(true);
-                  setSaveName("");
-                  setSaveError("");
-                }}
-                className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-highlight"
-              >
-                Save Current
-              </button>
-            ) : (
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  value={saveName}
-                  autoFocus
-                  placeholder="Filter name"
-                  onChange={(e) => {
-                    setSaveName(e.target.value);
-                    setSaveError("");
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSaveCurrentFilter();
-                    if (e.key === "Escape") closeSaveForm();
-                  }}
-                  className="w-full p-2 bg-tertiary border border-border rounded text-sm -webkit-app-region-no-drag"
-                  disabled={saveBusy}
-                />
-                {saveError && (
-                  <div className="text-xs text-danger">{saveError}</div>
-                )}
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleSaveCurrentFilter()}
-                    disabled={saveBusy}
-                    className="px-3 py-1 rounded text-sm bg-accent text-white disabled:opacity-50"
-                  >
-                    Save
-                  </button>
-                  {saveError === "A saved filter with this name already exists." && (
-                    <button
-                      onClick={() => handleSaveCurrentFilter({ overwrite: true })}
-                      disabled={saveBusy}
-                      className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-highlight disabled:opacity-50"
-                    >
-                      Overwrite
-                    </button>
-                  )}
-                  <button
-                    onClick={closeSaveForm}
-                    disabled={saveBusy}
-                    className="px-3 py-1 rounded text-sm bg-tertiary hover:bg-highlight disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-          </Collapsible>
         </div>
+          </>
+        )}
       </div>
     </div>
+
+    {isSaveFormOpen && (
+      <div
+        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 -webkit-app-region-no-drag"
+        onClick={closeSaveForm}
+      >
+        <div
+          className="w-[360px] max-w-[90vw] bg-secondary border border-accent rounded-lg shadow-2xl p-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <span className="font-bold text-base">Save filter</span>
+            <button
+              onClick={closeSaveForm}
+              disabled={saveBusy}
+              className="w-7 h-7 flex items-center justify-center rounded text-muted hover:bg-tertiary hover:text-text disabled:opacity-50"
+              aria-label="Close"
+            >
+              <i className="fas fa-times"></i>
+            </button>
+          </div>
+          <label className="block text-xs text-muted mb-1">Save current filters as…</label>
+          <input
+            type="text"
+            value={saveName}
+            autoFocus
+            placeholder="Filter name"
+            onChange={(e) => { setSaveName(e.target.value); setSaveError(""); }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") handleSaveCurrentFilter();
+              if (e.key === "Escape") closeSaveForm();
+            }}
+            className="w-full p-2 bg-tertiary border border-border rounded text-sm -webkit-app-region-no-drag"
+            disabled={saveBusy}
+          />
+          {saveError && <div className="text-xs text-danger mt-2">{saveError}</div>}
+          <div className="flex justify-end gap-2 mt-4">
+            <button onClick={closeSaveForm} disabled={saveBusy} className="px-3 py-1.5 rounded text-sm bg-tertiary hover:bg-highlight disabled:opacity-50">Cancel</button>
+            {saveError === "A saved filter with this name already exists." && (
+              <button onClick={() => handleSaveCurrentFilter({ overwrite: true })} disabled={saveBusy} className="px-3 py-1.5 rounded text-sm bg-tertiary hover:bg-highlight disabled:opacity-50">Overwrite</button>
+            )}
+            <button onClick={() => handleSaveCurrentFilter()} disabled={saveBusy} className="px-3 py-1.5 rounded text-sm bg-accent text-white disabled:opacity-50">Save</button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 
