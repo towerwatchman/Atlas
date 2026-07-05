@@ -670,7 +670,7 @@ const SearchSidebar = ({
           </Collapsible>
 
           {/* Category */}
-          <Collapsible title="Category" defaultOpen>
+          <Collapsible title="Category">
             <div className="border border-border p-2 rounded bg-tertiary">
               {options.categories.length === 0 ? (
                 <p className="text-sm text-muted">No categories found</p>
@@ -781,7 +781,7 @@ const SearchSidebar = ({
           )}
 
           {/* Quick Filters — grouped toggles + library scope */}
-          <Collapsible title="Quick Filters" defaultOpen>
+          <Collapsible title="Quick Filters">
             <div className="space-y-3">
               {!isCatalogMode && (
                 <div>
