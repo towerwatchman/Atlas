@@ -34,6 +34,7 @@ export const defaultFilters = {
   personalRatingMin: 0,
   personalRatingStatus: 'any',
   personalRatingRatedOnly: false,
+  personalRatingOp: 'gte',
   // F95Zone/LewdCorner community rating (0-5, distinct from the personal
   // 0-10 rating above) — works across the whole catalog regardless of
   // install status, since it comes from the source site itself.
@@ -191,6 +192,7 @@ export const normalizeFilterState = (filters = {}) => {
     merged.personalRatingMin = 0
   }
   merged.personalRatingRatedOnly = merged.personalRatingStatus === 'rated'
+  merged.personalRatingOp = ['lt', 'gt', 'eq', 'gte'].includes(merged.personalRatingOp) ? merged.personalRatingOp : 'gte'
   const communityRatingMin = Number(merged.communityRatingMin)
   merged.communityRatingMin = Number.isFinite(communityRatingMin)
     ? Math.max(0, Math.min(5, Math.round(communityRatingMin * 10) / 10))
@@ -870,12 +872,17 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
     result = result.filter((game) => game.isFavorite === true || game.is_favorite === 1)
   }
 
-  if (activeFilters.personalRatingStatus !== 'any' || activeFilters.personalRatingMin > 0) {
+  if (activeFilters.personalRatingStatus !== 'any') {
     result = result.filter((game) => {
       const rating = getPersonalRatingOverall(game)
       if (activeFilters.personalRatingStatus === 'unrated') return rating === null
       if (rating === null) return false
-      return activeFilters.personalRatingMin <= 0 || rating >= activeFilters.personalRatingMin
+      const v = activeFilters.personalRatingMin
+      const op = activeFilters.personalRatingOp
+      if (op === 'lt') return rating < v
+      if (op === 'gt') return rating > v
+      if (op === 'eq') return rating === v
+      return rating >= v
     })
   }
 

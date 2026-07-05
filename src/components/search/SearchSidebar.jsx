@@ -38,6 +38,11 @@ const SORT_OPTIONS = [
   { value: 'lastUpdated', label: 'Last Updated', icon: 'fa-clock' },
   { value: 'likes', label: 'Likes', icon: 'fa-thumbs-up' },
   { value: 'rating', label: 'Rating', icon: 'fa-star' },
+  { value: 'newlyInstalled', label: 'Install Date', icon: 'fa-download' },
+  { value: 'newlyPlayed', label: 'Last Played', icon: 'fa-play' },
+  { value: 'playtime', label: 'Playtime', icon: 'fa-stopwatch' },
+  { value: 'fileSize', label: 'File Size', icon: 'fa-hard-drive' },
+  { value: 'date', label: 'Release Date', icon: 'fa-calendar-day' },
 ]
 
 const SearchSidebar = ({
@@ -103,6 +108,32 @@ const SearchSidebar = ({
     }
   };
 
+  // Date slider drives the existing "custom" range as a rolling "last N days"
+  // window (0 = Any time). Derived from dateFrom so it stays in sync.
+  const dateSliderDays = useMemo(() => {
+    if (selectedFilters.dateRange === "custom" && selectedFilters.dateFrom && !selectedFilters.dateTo) {
+      const fromMs = Date.parse(`${selectedFilters.dateFrom}T00:00:00`);
+      if (Number.isFinite(fromMs)) {
+        return Math.max(0, Math.min(365, Math.round((Date.now() - fromMs) / 86400000)));
+      }
+    }
+    return 0;
+  }, [selectedFilters.dateRange, selectedFilters.dateFrom, selectedFilters.dateTo]);
+
+  const handleDateSlider = (days) => {
+    if (!days || days <= 0) {
+      updateFilters({ dateRange: "any", dateFrom: "", dateTo: "" });
+      return;
+    }
+    const iso = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+    updateFilters({
+      dateField: selectedFilters.dateField === "none" ? "releaseDate" : selectedFilters.dateField,
+      dateRange: "custom",
+      dateFrom: iso,
+      dateTo: "",
+    });
+  };
+
   const handleInputKeyDown = (event) => {
     event.stopPropagation();
   };
@@ -165,10 +196,6 @@ const SearchSidebar = ({
     if (newVals.includes(value)) {
       newVals = newVals.filter((v) => v !== value);
     } else {
-      if (group === "tags" && newVals.length >= 10) {
-        setTagError("Max 10 tags allowed.");
-        return;
-      }
       newVals.push(value);
     }
     if (group === "tags") setTagError("");
@@ -189,14 +216,6 @@ const SearchSidebar = ({
       ? currentValues.filter((item) => item !== value)
       : [...currentValues, value];
 
-    if (!exists && targetGroup === "tags" && nextValues.length > 10) {
-      setTagError("Max 10 tags allowed.");
-      return;
-    }
-    if (!exists && targetGroup === "excludedTags" && nextValues.length > 10) {
-      setTagError("Max 10 excluded tags allowed.");
-      return;
-    }
     if (includeGroup === "tags") setTagError("");
 
     updateFilters({
@@ -209,7 +228,7 @@ const SearchSidebar = ({
     const included = selectedFilters[includeGroup].includes(value);
     const excluded = selectedFilters[excludeGroup].includes(value);
     return (
-      <div className="inline-flex rounded overflow-hidden border border-border">
+      <div className="inline-flex rounded overflow-hidden border border-border shrink-0">
         <button
           type="button"
           onClick={(event) => {
@@ -217,10 +236,11 @@ const SearchSidebar = ({
             event.stopPropagation();
             togglePairedFilter(includeGroup, excludeGroup, value, "include");
           }}
-          className={`px-2 py-1 text-xs ${included ? "bg-accent text-white" : "bg-tertiary hover:bg-highlight"}`}
+          className={`w-7 h-7 flex items-center justify-center text-xs ${included ? "bg-accent text-white" : "bg-tertiary hover:bg-highlight text-muted"}`}
           title={`Include ${value}`}
+          aria-label={`Include ${value}`}
         >
-          +
+          <i className="fas fa-check"></i>
         </button>
         <button
           type="button"
@@ -229,10 +249,11 @@ const SearchSidebar = ({
             event.stopPropagation();
             togglePairedFilter(includeGroup, excludeGroup, value, "exclude");
           }}
-          className={`px-2 py-1 text-xs ${excluded ? "bg-danger text-white" : "bg-tertiary hover:bg-highlight"}`}
+          className={`w-7 h-7 flex items-center justify-center text-xs border-l border-border ${excluded ? "bg-danger text-white" : "bg-tertiary hover:bg-highlight text-muted"}`}
           title={`Exclude ${value}`}
+          aria-label={`Exclude ${value}`}
         >
-          -
+          <i className="fas fa-times"></i>
         </button>
       </div>
     );
@@ -419,7 +440,7 @@ const SearchSidebar = ({
                   {selectedFilters.sortDirection === "asc" ? "Ascending" : "Descending"}
                 </span>
               </div>
-              <div className="flex gap-1">
+              <div className="grid grid-cols-5 gap-1">
                 {SORT_OPTIONS.map((opt) => {
                   const active = selectedFilters.sort === opt.value
                   return (
@@ -429,7 +450,7 @@ const SearchSidebar = ({
                       onClick={() => handleSortClick(opt.value)}
                       title={active ? `${opt.label} — ${selectedFilters.sortDirection === "asc" ? "Ascending" : "Descending"} (click to flip)` : opt.label}
                       aria-label={opt.label}
-                      className={`flex-1 h-9 flex items-center justify-center gap-1 rounded border text-sm ${active ? "bg-accent text-white border-accent" : "bg-tertiary hover:bg-highlight border-border text-text"}`}
+                      className={`h-9 flex items-center justify-center gap-1 rounded border text-sm ${active ? "bg-accent text-white border-accent" : "bg-tertiary hover:bg-highlight border-border text-text"}`}
                     >
                       <i className={`fas ${opt.icon}`}></i>
                       {active && <i className={`fas ${selectedFilters.sortDirection === "asc" ? "fa-caret-up" : "fa-caret-down"} text-xs`}></i>}
@@ -500,17 +521,264 @@ const SearchSidebar = ({
             </Collapsible>
           )}
 
-          {/* Category */}
-          <Collapsible title="Category" defaultOpen>
-            <div className="flex flex-wrap gap-2">
-              {options.categories.map((cat) => (
-                <span key={cat} className="inline-flex items-center gap-1 bg-primary border border-border rounded px-2 py-1 text-sm">
-                  <span>{cat}</span>
-                  {renderIncludeExcludeButtons("category", "excludedCategories", cat)}
-                </span>
-              ))}
+          {/* Dates */}
+          <Collapsible title="Dates">
+            <div className="space-y-3">
+              <label className="block text-sm">
+                <span className="block mb-1">Date field</span>
+                <select
+                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                  value={selectedFilters.dateField}
+                  onChange={(e) => handleDateFieldChange(e.target.value)}
+                >
+                  {dateFieldOptions.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+                {isCatalogMode && selectedFilters.dateField === "latestUpdate" && (
+                  <p className="text-xs text-muted mt-1">
+                    Latest Update depends on AtlasDB thread update data. Some records may not appear until the database has finished updating.
+                  </p>
+                )}
+              </label>
+              <div className="text-sm">
+                <div className="flex items-center justify-between mb-1">
+                  <span>Date limit</span>
+                  <span className="text-[11px] text-muted">
+                    {dateSliderDays === 0 ? "Any time" : `Last ${dateSliderDays} days`}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="365"
+                  step="1"
+                  value={dateSliderDays}
+                  onChange={(e) => handleDateSlider(Number(e.target.value))}
+                  disabled={selectedFilters.dateField === "none"}
+                  className="w-full accent-accent -webkit-app-region-no-drag"
+                />
+                {selectedFilters.dateField === "none" && (
+                  <p className="text-[11px] text-muted mt-1">Choose a date field to enable.</p>
+                )}
+              </div>
             </div>
           </Collapsible>
+
+          {/* Tags */}
+          <Collapsible title="Tags">
+            <div className="flex items-center gap-2 mb-3">
+              <input
+                type="text"
+                placeholder="Search tags..."
+                value={tagSearch}
+                onChange={(e) => setTagSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (filteredTags.length === 0) return;
+
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setHighlightedTagIndex((prev) =>
+                      prev < filteredTags.length - 1 ? prev + 1 : 0,
+                    );
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setHighlightedTagIndex((prev) =>
+                      prev > 0 ? prev - 1 : filteredTags.length - 1,
+                    );
+                  } else if (e.key === "Enter" && highlightedTagIndex >= 0) {
+                    e.preventDefault();
+                    const selectedTag = filteredTags[highlightedTagIndex];
+                    togglePairedFilter("tags", "excludedTags", selectedTag, "include");
+                    setTagSearch("");
+                    setHighlightedTagIndex(-1);
+                  }
+                }}
+                className="flex-1 min-w-0 p-2 bg-tertiary border border-border rounded text-sm -webkit-app-region-no-drag"
+              />
+              <div className="inline-flex rounded overflow-hidden border border-border shrink-0">
+                <button
+                  type="button"
+                  onClick={() => updateFilters({ tagLogic: "AND" })}
+                  className={`px-3 py-2 text-xs ${selectedFilters.tagLogic === "AND" ? "bg-accent text-white" : "bg-tertiary hover:bg-highlight"}`}
+                  title="Match all selected tags"
+                >
+                  AND
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateFilters({ tagLogic: "OR" })}
+                  className={`px-3 py-2 text-xs border-l border-border ${selectedFilters.tagLogic === "OR" ? "bg-accent text-white" : "bg-tertiary hover:bg-highlight"}`}
+                  title="Match any selected tag"
+                >
+                  OR
+                </button>
+              </div>
+            </div>
+            {(selectedFilters.tags.length > 0 || selectedFilters.excludedTags.length > 0) && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {selectedFilters.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="bg-accent px-3 py-1 rounded text-sm flex items-center text-white"
+                  >
+                    {tag}
+                    <button
+                      onClick={() => handleCheckbox("tags", tag)}
+                      className="ml-2 text-white text-xs"
+                    >
+                      x
+                    </button>
+                  </span>
+                ))}
+                {selectedFilters.excludedTags.map((tag) => (
+                  <span
+                    key={`excluded-${tag}`}
+                    className="bg-danger px-3 py-1 rounded text-sm flex items-center text-white"
+                  >
+                    -{tag}
+                    <button
+                      onClick={() => togglePairedFilter("tags", "excludedTags", tag, "exclude")}
+                      className="ml-2 text-white text-xs"
+                    >
+                      x
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {tagError && <div className="text-xs text-danger mb-2">{tagError}</div>}
+            <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
+              {filteredTags.length === 0 ? (
+                <p className="text-sm text-muted">No tags found</p>
+              ) : (
+                filteredTags.map((tag, index) => (
+                  <div
+                    key={tag}
+                    className={`flex items-center gap-2 py-1 text-sm px-1 rounded ${
+                      index === highlightedTagIndex
+                        ? "bg-accent text-white"
+                        : "hover:bg-highlight"
+                    }`}
+                  >
+                    <span className="flex-1">{tag}</span>
+                    {renderIncludeExcludeButtons("tags", "excludedTags", tag)}
+                  </div>
+                ))
+              )}
+            </div>
+          </Collapsible>
+
+          {/* Category */}
+          <Collapsible title="Category" defaultOpen>
+            <div className="border border-border p-2 rounded bg-tertiary">
+              {options.categories.length === 0 ? (
+                <p className="text-sm text-muted">No categories found</p>
+              ) : (
+                options.categories.map((cat) => (
+                  <div
+                    key={cat}
+                    className="flex items-center gap-2 py-1 text-sm hover:bg-highlight px-1 rounded"
+                  >
+                    <span className="flex-1">{cat}</span>
+                    {renderIncludeExcludeButtons("category", "excludedCategories", cat)}
+                  </div>
+                ))
+              )}
+            </div>
+          </Collapsible>
+
+          {/* Engine */}
+          <Collapsible
+            title="Engine"
+            badge={selectedFilters.engine.length ? String(selectedFilters.engine.length) : ""}
+          >
+            <div className="border border-border p-2 rounded bg-tertiary">
+              {options.engines.length === 0 ? (
+                <p className="text-sm text-muted">No engines found</p>
+              ) : (
+                options.engines.map((engine) => (
+                  <div
+                    key={engine}
+                    className="flex items-center gap-2 py-1 text-sm hover:bg-highlight px-1 rounded"
+                  >
+                    <span className="flex-1">{engine}</span>
+                    {renderIncludeExcludeButtons("engine", "excludedEngines", engine)}
+                  </div>
+                ))
+              )}
+            </div>
+          </Collapsible>
+
+          {/* Status */}
+          <Collapsible
+            title="Status"
+            badge={selectedFilters.status.length ? String(selectedFilters.status.length) : ""}
+          >
+            <div className="border border-border p-2 rounded bg-tertiary">
+              {options.statuses.length === 0 ? (
+                <p className="text-sm text-muted">No statuses found</p>
+              ) : (
+                options.statuses.map((status) => (
+                  <div
+                    key={status}
+                    className="flex items-center gap-2 py-1 text-sm hover:bg-highlight px-1 rounded"
+                  >
+                    <span className="flex-1">{status}</span>
+                    {renderIncludeExcludeButtons("status", "excludedStatuses", status)}
+                  </div>
+                ))
+              )}
+            </div>
+          </Collapsible>
+
+          {/* Ratings */}
+          {!isCatalogMode && (
+            <Collapsible title="Ratings">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex rounded overflow-hidden border border-border shrink-0">
+                    {[["lt", "<"], ["eq", "="], ["gt", ">"]].map(([op, label]) => {
+                      const active = selectedFilters.personalRatingStatus === "rated" && selectedFilters.personalRatingOp === op
+                      return (
+                        <button
+                          key={op}
+                          type="button"
+                          onClick={() => {
+                            if (active) {
+                              updateFilters({ personalRatingStatus: "any", personalRatingRatedOnly: false })
+                            } else {
+                              updateFilters({ personalRatingStatus: "rated", personalRatingRatedOnly: true, personalRatingOp: op })
+                            }
+                          }}
+                          className={`w-8 h-8 flex items-center justify-center text-sm ${op !== "lt" ? "border-l border-border" : ""} ${active ? "bg-accent text-white" : "bg-tertiary hover:bg-highlight"}`}
+                          title={op === "lt" ? "Less than" : op === "gt" ? "Greater than" : "Equals"}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="10"
+                    step="1"
+                    value={selectedFilters.personalRatingMin}
+                    onChange={(e) => updateFilters({ personalRatingMin: Number(e.target.value) })}
+                    disabled={selectedFilters.personalRatingStatus !== "rated"}
+                    className="flex-1 min-w-0 accent-accent -webkit-app-region-no-drag"
+                  />
+                  <span className="text-sm w-5 text-right tabular-nums">{selectedFilters.personalRatingMin}</span>
+                </div>
+                <p className="text-[11px] text-muted">
+                  {selectedFilters.personalRatingStatus === "rated"
+                    ? `Personal rating ${selectedFilters.personalRatingOp === "lt" ? "<" : selectedFilters.personalRatingOp === "gt" ? ">" : "="} ${selectedFilters.personalRatingMin}`
+                    : "Pick an operator to filter by your rating"}
+                </p>
+              </div>
+            </Collapsible>
+          )}
 
           {/* Quick Filters — grouped toggles + library scope */}
           <Collapsible title="Quick Filters" defaultOpen>
@@ -577,297 +845,6 @@ const SearchSidebar = ({
                 />
                 <span>Has Steam mapping</span>
               </label>
-            </div>
-          </Collapsible>
-
-          {/* Tags */}
-          <Collapsible
-            title="Tags"
-            badge={`${selectedFilters.tags.length + selectedFilters.excludedTags.length}/10`}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex gap-2">
-                <button
-                  onClick={() => updateFilters({ tagLogic: "AND" })}
-                  className={`px-4 py-1 rounded text-sm ${
-                    selectedFilters.tagLogic === "AND"
-                      ? "bg-accent text-white"
-                      : "bg-tertiary hover:bg-highlight"
-                  }`}
-                >
-                  AND
-                </button>
-                <button
-                  onClick={() => updateFilters({ tagLogic: "OR" })}
-                  className={`px-4 py-1 rounded text-sm ${
-                    selectedFilters.tagLogic === "OR"
-                      ? "bg-accent text-white"
-                      : "bg-tertiary hover:bg-highlight"
-                  }`}
-                >
-                  OR
-                </button>
-              </div>
-              <span className="text-xs text-muted">Match {selectedFilters.tagLogic}</span>
-            </div>
-            <input
-              type="text"
-              placeholder="Search tags... (↑↓ highlight, Enter select)"
-              value={tagSearch}
-              onChange={(e) => setTagSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (filteredTags.length === 0) return;
-
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setHighlightedTagIndex((prev) =>
-                    prev < filteredTags.length - 1 ? prev + 1 : 0,
-                  );
-                } else if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setHighlightedTagIndex((prev) =>
-                    prev > 0 ? prev - 1 : filteredTags.length - 1,
-                  );
-                } else if (e.key === "Enter" && highlightedTagIndex >= 0) {
-                  e.preventDefault();
-                  const selectedTag = filteredTags[highlightedTagIndex];
-                  togglePairedFilter("tags", "excludedTags", selectedTag, "include");
-                  setTagSearch("");
-                  setHighlightedTagIndex(-1);
-                }
-              }}
-              className="w-full p-2 bg-tertiary border border-border rounded mb-3 text-sm -webkit-app-region-no-drag"
-            />
-            {(selectedFilters.tags.length > 0 || selectedFilters.excludedTags.length > 0) && (
-              <div className="flex flex-wrap gap-2 mb-3">
-                {selectedFilters.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="bg-accent px-3 py-1 rounded text-sm flex items-center text-white"
-                  >
-                    {tag}
-                    <button
-                      onClick={() => handleCheckbox("tags", tag)}
-                      className="ml-2 text-white text-xs"
-                    >
-                      x
-                    </button>
-                  </span>
-                ))}
-                {selectedFilters.excludedTags.map((tag) => (
-                  <span
-                    key={`excluded-${tag}`}
-                    className="bg-danger px-3 py-1 rounded text-sm flex items-center text-white"
-                  >
-                    -{tag}
-                    <button
-                      onClick={() => togglePairedFilter("tags", "excludedTags", tag, "exclude")}
-                      className="ml-2 text-white text-xs"
-                    >
-                      x
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-            {tagError && <div className="text-xs text-danger mb-2">{tagError}</div>}
-            <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
-              {filteredTags.length === 0 ? (
-                <p className="text-sm text-muted">No tags found</p>
-              ) : (
-                filteredTags.map((tag, index) => (
-                  <label
-                    key={tag}
-                    className={`flex items-center space-x-2 py-1 text-sm block px-1 rounded cursor-pointer ${
-                      index === highlightedTagIndex
-                        ? "bg-accent text-white"
-                        : "hover:bg-highlight"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedFilters.tags.includes(tag)}
-                      onChange={() => togglePairedFilter("tags", "excludedTags", tag, "include")}
-                      disabled={
-                        selectedFilters.tags.length >= 10 &&
-                        !selectedFilters.tags.includes(tag)
-                      }
-                      className="accent-accent -webkit-app-region-no-drag"
-                    />
-                    <span className="flex-1">{tag}</span>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        togglePairedFilter("tags", "excludedTags", tag, "exclude");
-                      }}
-                      className={`px-2 py-0.5 rounded text-xs ${
-                        selectedFilters.excludedTags.includes(tag)
-                          ? "bg-danger text-white"
-                          : "bg-primary hover:bg-selected"
-                      }`}
-                      title={`Exclude ${tag}`}
-                    >
-                      -
-                    </button>
-                  </label>
-                ))
-              )}
-            </div>
-          </Collapsible>
-
-          {/* Engine */}
-          <Collapsible
-            title="Engine"
-            badge={selectedFilters.engine.length ? String(selectedFilters.engine.length) : ""}
-          >
-            <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
-              {options.engines.length === 0 ? (
-                <p className="text-sm text-muted">No engines found</p>
-              ) : (
-                options.engines.map((engine) => (
-                  <label
-                    key={engine}
-                    className="flex items-center gap-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedFilters.engine.includes(engine)}
-                      onChange={() => togglePairedFilter("engine", "excludedEngines", engine, "include")}
-                      className="accent-accent -webkit-app-region-no-drag"
-                    />
-                    <span className="flex-1">{engine}</span>
-                    {renderIncludeExcludeButtons("engine", "excludedEngines", engine)}
-                  </label>
-                ))
-              )}
-            </div>
-          </Collapsible>
-
-          {/* Status */}
-          <Collapsible
-            title="Status"
-            badge={selectedFilters.status.length ? String(selectedFilters.status.length) : ""}
-          >
-            <div className="max-h-40 overflow-y-auto border border-border p-2 rounded bg-tertiary">
-              {options.statuses.length === 0 ? (
-                <p className="text-sm text-muted">No statuses found</p>
-              ) : (
-                options.statuses.map((status) => (
-                  <label
-                    key={status}
-                    className="flex items-center gap-2 py-1 text-sm block hover:bg-highlight px-1 rounded cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedFilters.status.includes(status)}
-                      onChange={() => togglePairedFilter("status", "excludedStatuses", status, "include")}
-                      className="accent-accent -webkit-app-region-no-drag"
-                    />
-                    <span className="flex-1">{status}</span>
-                    {renderIncludeExcludeButtons("status", "excludedStatuses", status)}
-                  </label>
-                ))
-              )}
-            </div>
-          </Collapsible>
-
-          {/* Ratings */}
-          {!isCatalogMode && (
-            <Collapsible title="Ratings">
-              <label className="block text-sm">
-                <span className="block mb-1">Personal rating</span>
-                <select
-                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                  value={selectedFilters.personalRatingStatus === 'unrated'
-                    ? 'unrated'
-                    : selectedFilters.personalRatingMin > 0
-                      ? String(selectedFilters.personalRatingMin)
-                      : selectedFilters.personalRatingStatus === 'rated'
-                        ? 'rated'
-                        : 'any'}
-                  onChange={(e) => {
-                    const value = e.target.value
-                    const personalRatingMin = /^\d+$/.test(value) ? Number(value) : 0
-                    const personalRatingStatus = value === 'unrated' ? 'unrated' : value === 'any' ? 'any' : 'rated'
-                    updateFilters({
-                      personalRatingMin,
-                      personalRatingStatus,
-                      personalRatingRatedOnly: personalRatingStatus === 'rated',
-                    })
-                  }}
-                >
-                  <option value={0}>Any</option>
-                  <option value="rated">Rated only</option>
-                  <option value="unrated">Unrated only</option>
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((rating) => (
-                    <option key={rating} value={rating}>{rating}+</option>
-                  ))}
-                  <option value={10}>10</option>
-                </select>
-              </label>
-            </Collapsible>
-          )}
-
-          {/* Dates */}
-          <Collapsible title="Dates">
-            <div className="space-y-3">
-              <label className="block text-sm">
-                <span className="block mb-1">Date field</span>
-                <select
-                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                  value={selectedFilters.dateField}
-                  onChange={(e) => handleDateFieldChange(e.target.value)}
-                >
-                  {dateFieldOptions.map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
-                {isCatalogMode && selectedFilters.dateField === "latestUpdate" && (
-                  <p className="text-xs text-muted mt-1">
-                    Latest Update depends on AtlasDB thread update data. Some records may not appear until the database has finished updating.
-                  </p>
-                )}
-              </label>
-              <label className="block text-sm">
-                <span className="block mb-1">Date range</span>
-                <select
-                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                  value={selectedFilters.dateRange}
-                  onChange={(e) => handleDateRangeChange(e.target.value)}
-                  disabled={selectedFilters.dateField === "none"}
-                >
-                  <option value="any">Any time</option>
-                  <option value="7d">Last 7 days</option>
-                  <option value="30d">Last 30 days</option>
-                  <option value="90d">Last 90 days</option>
-                  <option value="year">This year</option>
-                  <option value="custom">Custom range</option>
-                </select>
-              </label>
-              {selectedFilters.dateRange === "custom" && selectedFilters.dateField !== "none" && (
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="block text-sm">
-                    <span className="block mb-1">From</span>
-                    <input
-                      type="date"
-                      className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                      value={selectedFilters.dateFrom}
-                      onChange={(e) => updateFilters({ dateFrom: e.target.value })}
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    <span className="block mb-1">To</span>
-                    <input
-                      type="date"
-                      className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                      value={selectedFilters.dateTo}
-                      onChange={(e) => updateFilters({ dateTo: e.target.value })}
-                    />
-                  </label>
-                </div>
-              )}
             </div>
           </Collapsible>
 
