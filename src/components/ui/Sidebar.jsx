@@ -5,20 +5,25 @@ import ImporterSourceMenu from '../importer/ImporterSourceMenu.jsx'
 
 const Sidebar = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
-  onToggleSearchSidebar, onOpenHelp, showGameList, libraryMode = 'local',
+  onToggleSearchSidebar, onOpenAbout, showGameList, libraryMode = 'local',
   browseAvailable, favoritesActive = false,
 }) => {
   const { navDisplayMode } = useTheme()
   const [selected, setSelected] = useState('Library')
-  // Filters and Help are new shared nav items added for the topnav layout's
-  // right-hand icon group (see TopNav.jsx). The left rail already has its
-  // own inline SearchBox with a built-in filter toggle and has no Help
-  // destination yet, so those two are left out here rather than adding two
-  // unrequested icons to the existing vertical icon list.
-  const items = getNavItems({
+  // Filters is a topnav-only shared nav item (see TopNav.jsx) — the left
+  // rail already has its own inline SearchBox with a built-in filter
+  // toggle, so it's left out here. About IS shown in the rail, pinned to
+  // the very bottom so it sits directly below Settings (which getNavItems
+  // returns last), per the requested layout.
+  const rawItems = getNavItems({
     onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
-    onToggleSearchSidebar, onOpenHelp, browseModeAvailable: browseAvailable,
-  }).filter((item) => item.name !== 'Filters' && item.name !== 'Help')
+    onToggleSearchSidebar, onOpenAbout, browseModeAvailable: browseAvailable,
+  }).filter((item) => item.name !== 'Filters')
+  const aboutItem = rawItems.find((item) => item.name === 'About')
+  const items = [
+    ...rawItems.filter((item) => item.name !== 'About'),
+    aboutItem,
+  ].filter(Boolean)
   const showIcon = navDisplayMode !== 'text'
   const showText = navDisplayMode !== 'icons'
 
@@ -83,6 +88,7 @@ const Sidebar = ({
                   type="button"
                   className={buttonClassName}
                   title={item.name}
+                  data-tour={item.name}
                   {...buttonProps}
                   onClick={toggle}
                 >
@@ -98,6 +104,7 @@ const Sidebar = ({
             className={buttonClassName}
             title={item.name}
             aria-label={item.name}
+            data-tour={item.name}
             onClick={() => handleClick(item)}
           >
             {buttonContent}

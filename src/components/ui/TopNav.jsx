@@ -17,17 +17,17 @@ const LABELS = {
   Updates: 'Updates',
   Settings: 'Settings',
   Filters: 'Filters',
-  Help: 'Help',
+  About: 'About',
 }
 
 // Explicit left-to-right order for each group, independent of the order
 // getNavItems() happens to return them in — see App.jsx's task notes:
 // left = Library, Browse, Import, Settings, Filters; right = Updates,
-// List, Wishlist, Help (icon-only by default, like the help/list/theme
+// List, Wishlist, About (icon-only by default, like the help/list/theme
 // icon cluster in the reference design's top-right corner — but see
 // navDisplayMode for how this can include text too).
 const LEFT_ORDER = ['Library', 'Browse', 'Add', 'Settings', 'Filters']
-const RIGHT_ORDER = ['Updates', 'List', 'Favorites', 'Help']
+const RIGHT_ORDER = ['Updates', 'List', 'Favorites', 'About']
 
 const orderItems = (items, order) =>
   order.map((name) => items.find((item) => item.name === name)).filter(Boolean)
@@ -52,14 +52,14 @@ const orderItems = (items, order) =>
  */
 const TopNav = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
-  onToggleSearchSidebar, onOpenHelp, showGameList, libraryMode = 'local', group = 'left',
+  onToggleSearchSidebar, onOpenAbout, showGameList, libraryMode = 'local', group = 'left',
   forceIconsOnly = false, browseAvailable, favoritesActive = false,
 }) => {
   const { navDisplayMode } = useTheme()
   const [selected, setSelected] = useState(null)
   const items = getNavItems({
     onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
-    onToggleSearchSidebar, onOpenHelp, browseModeAvailable: browseAvailable,
+    onToggleSearchSidebar, onOpenAbout, browseModeAvailable: browseAvailable,
   })
   const groupItems = orderItems(items, group === 'right' ? RIGHT_ORDER : LEFT_ORDER)
   const effectiveDisplayMode = forceIconsOnly ? 'icons' : navDisplayMode
@@ -127,6 +127,7 @@ const TopNav = ({
                   type="button"
                   onClick={toggle}
                   title={LABELS[item.name] || item.name}
+                  data-tour={item.name}
                   className={buttonClassName}
                   {...buttonProps}
                 >
@@ -143,6 +144,7 @@ const TopNav = ({
             onClick={() => handleClick(item)}
             title={LABELS[item.name] || item.name}
             aria-label={LABELS[item.name] || item.name}
+            data-tour={item.name}
             className={buttonClassName}
           >
             {buttonContent}

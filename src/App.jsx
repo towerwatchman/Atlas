@@ -3,6 +3,8 @@ import { AutoSizer, Grid } from 'react-virtualized'
 import Sidebar from './components/ui/Sidebar.jsx'
 import TopNav from './components/ui/TopNav.jsx'
 import WindowBorderFrame from './components/ui/WindowBorderFrame.jsx'
+import AboutModal from './components/ui/AboutModal.jsx'
+import WelcomeTour, { WELCOME_TOUR_SEEN_KEY } from './components/ui/WelcomeTour.jsx'
 import ImporterSourceMenu from './components/importer/ImporterSourceMenu.jsx'
 import { atlasLogo } from './assets/icons/data.js'
 import GameBanner from './components/library/GameBanner.jsx'
@@ -148,6 +150,11 @@ const App = () => {
   // line yet), not just whenever it's currently false.
   const [nsfwEnabled, setNsfwEnabled] = useState(false)
   const [nsfwPromptOpen, setNsfwPromptOpen] = useState(false)
+  // About modal + first-run interactive welcome tour. The tour is shown
+  // once (persisted in localStorage under WELCOME_TOUR_SEEN_KEY) and can be
+  // re-launched from the About modal.
+  const [aboutOpen, setAboutOpen] = useState(false)
+  const [showWelcomeTour, setShowWelcomeTour] = useState(false)
 
   const gridRef = useRef(null)
   const gameGridRef = useRef(null)
@@ -841,12 +848,34 @@ const App = () => {
   // ── Actions ────────────────────────────────────────────────────────────────
   const addGame = (source = 'atlas') => window.electronAPI.openImporter(source)
 
-  // Stub — no help destination wired up yet (no docs site / in-app help
-  // content exists today). See navItems.js's Help item for more context;
-  // only this handler needs to change once a real destination is decided.
-  const openHelp = () => {
-    console.log('Help clicked (not yet implemented)')
+  // Opens the About modal (app description, community/help links,
+  // issue-reporting info, and a way to replay the welcome tour).
+  const openAbout = () => setAboutOpen(true)
+
+  // Replay the welcome tour from the About modal.
+  const replayWelcomeTour = () => {
+    setAboutOpen(false)
+    setShowWelcomeTour(true)
   }
+
+  // Auto-show the welcome tour once, on first run — but not while the
+  // first-run adult-content prompt is still up (so the two don't stack).
+  // Persistence lives in localStorage (renderer-only UI preference); can be
+  // moved to config.ini later if it should survive a profile reset.
+  useEffect(() => {
+    if (nsfwPromptOpen) return
+    let seen = false
+    try {
+      seen = window.localStorage?.getItem(WELCOME_TOUR_SEEN_KEY) === 'true'
+    } catch {
+      seen = false
+    }
+    if (!seen) {
+      // Let the nav render first so the tour can find its targets.
+      const t = setTimeout(() => setShowWelcomeTour(true), 400)
+      return () => clearTimeout(t)
+    }
+  }, [nsfwPromptOpen])
 
   const cancelImport = async () => {
     try {
@@ -1222,7 +1251,7 @@ const App = () => {
                     onBrowseCatalog={browseCatalog}
                     onOpenWishlist={openFavorites}
                     onToggleSearchSidebar={toggleSearchSidebar}
-                    onOpenHelp={openHelp}
+                    onOpenAbout={openAbout}
                     showGameList={showGameList}
                     libraryMode={libraryMode}
                     favoritesActive={favoritesActive}
@@ -1250,13 +1279,13 @@ const App = () => {
                     onBrowseCatalog={browseCatalog}
                     onOpenWishlist={openFavorites}
                     onToggleSearchSidebar={toggleSearchSidebar}
-                    onOpenHelp={openHelp}
+                    onOpenAbout={openAbout}
                     showGameList={showGameList}
                     libraryMode={libraryMode}
                     favoritesActive={favoritesActive}
                     browseAvailable={browseAvailable}
                   />
-                  <span className="text-text text-xs whitespace-nowrap">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
+                  <span className="text-text text-xs whitespace-nowrap">Version: {version} <span style={{ color: 'Goldenrod' }}>β</span></span>
                 </div>
               </>
             ) : (
@@ -1281,7 +1310,7 @@ const App = () => {
               it isn't duplicated here. */}
           {!isTopNav && (
             <div className="absolute mt-10 top-0 right-0 flex h-[10px]">
-              <span className="text-text text-xs mr-4">Version: {version} <span style={{ color: 'Goldenrod' }}>α</span></span>
+              <span className="text-text text-xs mr-4">Version: {version} <span style={{ color: 'Goldenrod' }}>β</span></span>
             </div>
           )}
         </div>
@@ -1297,7 +1326,7 @@ const App = () => {
             onBrowseCatalog={browseCatalog}
             onOpenWishlist={openFavorites}
             onToggleSearchSidebar={toggleSearchSidebar}
-            onOpenHelp={openHelp}
+            onOpenAbout={openAbout}
             showGameList={showGameList}
             libraryMode={libraryMode}
             favoritesActive={favoritesActive}
@@ -1651,6 +1680,18 @@ const App = () => {
           </div>
         </div>
       )}
+
+      <AboutModal
+        open={aboutOpen}
+        onClose={() => setAboutOpen(false)}
+        version={version}
+        onReplayTour={replayWelcomeTour}
+      />
+
+      <WelcomeTour
+        open={showWelcomeTour}
+        onClose={() => setShowWelcomeTour(false)}
+      />
     </div>
   )
 }

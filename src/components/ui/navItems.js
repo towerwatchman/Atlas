@@ -6,14 +6,14 @@
 // components that render this list in different directions.
 //
 // onToggleGameList / onCheckDbUpdates / onBrowseCatalog / onOpenWishlist /
-// onToggleSearchSidebar / onOpenHelp are passed in by the caller (App.jsx,
+// onToggleSearchSidebar / onOpenAbout are passed in by the caller (App.jsx,
 // same as before) rather than baked in here, since they close over
 // App.jsx's own state.
 import { BROWSE_MODE_ENABLED } from '../../features.js'
 
 export function getNavItems({
   onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
-  onToggleSearchSidebar, onOpenHelp,
+  onToggleSearchSidebar, onOpenAbout,
   // Runtime gate for the Browse nav item: requires BOTH the build-time
   // BROWSE_MODE_ENABLED flag AND the user's per-install NSFW opt-in
   // (see App.jsx's browseAvailable / electron/ipc/settings.js's
@@ -110,21 +110,20 @@ export function getNavItems({
       },
     },
     {
-      // Stub for now — no help destination wired up yet (no docs site /
-      // in-app help content exists today). Keeping this as a real nav item
-      // with a no-op-ish default click means the rest of the UI (ordering,
-      // icon-only rendering on the right side of TopNav, etc.) is already
-      // correct once a real destination (e.g. open Discord/GitHub/docs
-      // link) is decided later — only this one onClick will need to change.
-      name: 'Help',
+      // "About" — opens the About modal (app description, community/help
+      // links, issue-reporting info, and a way to replay the welcome tour).
+      // Rendered in the topnav's right-hand icon group and, in the sidebar
+      // layout, pinned below Settings (see Sidebar.jsx). Uses a standard
+      // "info" (i-in-a-circle) glyph.
+      name: 'About',
       path: [
         '<path d="M12 2C6.477 2 2 6.477 2 12C2 17.523 6.477 22 12 22C17.523 22 22 17.523 22 12C22 6.477 17.523 2 12 2Z M 12 4C16.418 4 20 7.582 20 12C20 16.418 16.418 20 12 20C7.582 20 4 16.418 4 12C4 7.582 7.582 4 12 4Z"/>',
-        '<path d="M12 7C10.343 7 9 8.343 9 10C9 10.552 9.447 11 10 11C10.553 11 11 10.552 11 10C11 9.448 11.448 9 12 9C12.552 9 13 9.448 13 10C13 10.395 12.863 10.591 12.469 10.93C12.281 11.090 12.060 11.260 11.832 11.479C11.314 11.973 11 12.611 11 13.5C11 14.052 11.447 14.5 12 14.5C12.553 14.5 13 14.052 13 13.5C13 13.166 13.097 13.018 13.207 12.914C13.36 12.769 13.555 12.622 13.781 12.422C14.227 12.034 15 11.336 15 10C15 8.343 13.657 7 12 7Z"/>',
-        '<path d="M12 16C11.448 16 11 16.448 11 17C11 17.552 11.448 18 12 18C12.552 18 13 17.552 13 17C13 16.448 12.552 16 12 16Z"/>',
+        '<path d="M12 6.5C11.310 6.5 10.75 7.060 10.75 7.75C10.75 8.440 11.310 9 12 9C12.690 9 13.25 8.440 13.25 7.75C13.25 7.060 12.690 6.5 12 6.5Z"/>',
+        '<path d="M11 10.75C11 10.336 11.336 10 11.75 10L12.25 10C12.664 10 13 10.336 13 10.75L13 16.25C13 16.664 12.664 17 12.25 17L11.75 17C11.336 17 11 16.664 11 16.25L11 10.75Z"/>',
       ],
       viewBox: '0 0 24 24',
       onClick: () => {
-        if (onOpenHelp) onOpenHelp()
+        if (onOpenAbout) onOpenAbout()
       },
     },
     {
