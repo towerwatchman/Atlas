@@ -10,6 +10,8 @@
 // open in the user's real browser rather than inside an Electron window
 // (same pattern used by the game-details external links).
 
+import atlasLogoUrl from '../../assets/images/atlas_logo.svg'
+
 const LINKS = {
   steamCurator:
     'https://store.steampowered.com/curator/44473903-Atlas-Game-Manager/',
@@ -64,10 +66,13 @@ const AboutModal = ({ open, onClose, version, onReplayTour }) => {
         {/* Header */}
         <div className="flex items-start justify-between gap-4 p-5 pb-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="flex-shrink-0 w-10 h-10 rounded-cardTheme bg-primary flex items-center justify-center">
-              <svg viewBox="0 0 24 24" className="w-6 h-6 text-accent" fill="currentColor">
-                <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Zm-1 3h2v2h-2V7Zm0 4h2v6h-2v-6Z" />
-              </svg>
+            <div className="flex-shrink-0 w-10 h-10 rounded-cardTheme bg-primary flex items-center justify-center overflow-hidden">
+              <img
+                src={atlasLogoUrl}
+                alt="Atlas"
+                className="w-8 h-8 object-contain select-none"
+                draggable={false}
+              />
             </div>
             <div className="min-w-0">
               <h2 className="text-lg font-semibold leading-tight">About Atlas</h2>

@@ -4,7 +4,8 @@ import Sidebar from './components/ui/Sidebar.jsx'
 import TopNav from './components/ui/TopNav.jsx'
 import WindowBorderFrame from './components/ui/WindowBorderFrame.jsx'
 import AboutModal from './components/ui/AboutModal.jsx'
-import WelcomeTour, { WELCOME_TOUR_SEEN_KEY } from './components/ui/WelcomeTour.jsx'
+import WelcomeTour from './components/ui/WelcomeTour.jsx'
+import WelcomePage, { WELCOME_SEEN_KEY } from './components/ui/WelcomePage.jsx'
 import ImporterSourceMenu from './components/importer/ImporterSourceMenu.jsx'
 import { atlasLogo } from './assets/icons/data.js'
 import GameBanner from './components/library/GameBanner.jsx'
@@ -155,6 +156,12 @@ const App = () => {
   // re-launched from the About modal.
   const [aboutOpen, setAboutOpen] = useState(false)
   const [showWelcomeTour, setShowWelcomeTour] = useState(false)
+  // First-run welcome page (own flag, checked separately from the age
+  // prompt). The refs coordinate the first-run sequence: welcome ->
+  // (age confirmation if needed) -> interactive tour.
+  const [showWelcome, setShowWelcome] = useState(false)
+  const ageNeedsPromptRef = useRef(false)
+  const startTourAfterAgeRef = useRef(false)
 
   const gridRef = useRef(null)
   const gameGridRef = useRef(null)
@@ -512,6 +519,12 @@ const App = () => {
   const handleNsfwChoice = useCallback((enabled) => {
     setNsfwPromptOpen(false)
     setNsfwEnabled(enabled)
+    // First-run sequence step 2 -> 3: if the age prompt was reached via the
+    // welcome page, launch the interactive tour now that it's been answered.
+    if (startTourAfterAgeRef.current) {
+      startTourAfterAgeRef.current = false
+      setShowWelcomeTour(true)
+    }
     window.electronAPI.setNsfwEnabled?.(enabled)
       .catch((err) => console.error('Failed to save NSFW setting:', err))
   }, [])
@@ -858,24 +871,25 @@ const App = () => {
     setShowWelcomeTour(true)
   }
 
-  // Auto-show the welcome tour once, on first run — but not while the
-  // first-run adult-content prompt is still up (so the two don't stack).
-  // Persistence lives in localStorage (renderer-only UI preference); can be
-  // moved to config.ini later if it should survive a profile reset.
-  useEffect(() => {
-    if (nsfwPromptOpen) return
-    let seen = false
+  // First-run sequence step 1 -> 2: user pressed "Get Started" on the
+  // welcome page. Persist that the welcome page has been seen (its own flag,
+  // separate from the age prompt), then either show the age confirmation
+  // (which will launch the tour once answered) or, if age is already
+  // configured, go straight to the tour.
+  const handleWelcomeDone = () => {
     try {
-      seen = window.localStorage?.getItem(WELCOME_TOUR_SEEN_KEY) === 'true'
+      window.localStorage?.setItem(WELCOME_SEEN_KEY, 'true')
     } catch {
-      seen = false
+      // best-effort persistence only
     }
-    if (!seen) {
-      // Let the nav render first so the tour can find its targets.
-      const t = setTimeout(() => setShowWelcomeTour(true), 400)
-      return () => clearTimeout(t)
+    setShowWelcome(false)
+    if (ageNeedsPromptRef.current) {
+      startTourAfterAgeRef.current = true
+      setNsfwPromptOpen(true)
+    } else {
+      setShowWelcomeTour(true)
     }
-  }, [nsfwPromptOpen])
+  }
 
   const cancelImport = async () => {
     try {
@@ -906,10 +920,30 @@ const App = () => {
       .then(([nsfwStatus, config]) => {
         const enabled = nsfwStatus?.enabled === true
         setNsfwEnabled(enabled)
-        // Only ever show the prompt when the config has never recorded an
-        // answer at all (configured === false) — not just whenever the
-        // current answer happens to be "no".
-        if (nsfwStatus && nsfwStatus.configured === false) setNsfwPromptOpen(true)
+        // Whether the age/adult-content prompt still needs an answer
+        // (config has never recorded one). We don't open it immediately
+        // anymore — the first-run welcome page comes first (tracked by its
+        // own separate flag). See handleWelcomeDone / handleNsfwChoice for
+        // the welcome -> age -> tour sequence.
+        const ageNeedsPrompt = !!(nsfwStatus && nsfwStatus.configured === false)
+        ageNeedsPromptRef.current = ageNeedsPrompt
+
+        let welcomeSeen = false
+        try {
+          welcomeSeen = window.localStorage?.getItem(WELCOME_SEEN_KEY) === 'true'
+        } catch {
+          welcomeSeen = false
+        }
+        if (!welcomeSeen) {
+          // Brand-new user (or one who has never seen the welcome page):
+          // show the welcome page first; the age prompt (if needed) and the
+          // tour follow from "Get Started".
+          setShowWelcome(true)
+        } else if (ageNeedsPrompt) {
+          // Returning user who somehow hasn't answered the age prompt yet:
+          // just show that prompt on its own (no welcome, no tour).
+          setNsfwPromptOpen(true)
+        }
 
         const browseOk = BROWSE_MODE_ENABLED && enabled
         let nextMode = normalizeSidePanelMode(
@@ -1680,6 +1714,12 @@ const App = () => {
           </div>
         </div>
       )}
+
+      <WelcomePage
+        open={showWelcome}
+        onGetStarted={handleWelcomeDone}
+        version={version}
+      />
 
       <AboutModal
         open={aboutOpen}
