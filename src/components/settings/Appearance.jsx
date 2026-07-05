@@ -16,7 +16,8 @@ const ThemeSwatchCard = ({ theme, isActive, onSelect }) => (
   <button
     type="button"
     onClick={() => onSelect(theme)}
-    className={`text-left rounded-cardTheme border-2 p-3 transition-colors ${
+    style={{ width: 225 }}
+    className={`flex-none text-left rounded-cardTheme border-2 p-3 transition-colors ${
       isActive ? 'border-accent' : 'border-border hover:border-muted'
     }`}
     style={{ background: backgroundStyleFor('secondary', theme.colors.secondary) }}
@@ -111,7 +112,7 @@ const Appearance = () => {
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      <div className="flex flex-wrap gap-3">
         {availableThemes.map((availableTheme) => (
           <ThemeSwatchCard
             key={availableTheme.id}
@@ -129,42 +130,25 @@ const Appearance = () => {
       <div className="border-t border-text opacity-25 my-3"></div>
 
       <section className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="font-semibold">Banner preset</label>
-          <select
-            className="w-72 bg-secondary border border-border text-text rounded p-1"
-            value={selectedBannerPreset}
-            onChange={(event) => handleSelectBannerPreset(event.target.value)}
-          >
-            <optgroup label="Built-in">
-              {builtInBannerLayouts.map((layout) => (
-                <option key={layout.id} value={layout.id}>{layout.name}</option>
-              ))}
-            </optgroup>
-            {userPresets.length > 0 && (
-              <optgroup label="User">
-                {userPresets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>{preset.name}</option>
-                ))}
-              </optgroup>
-            )}
-            <option value="custom">Custom draft</option>
-          </select>
-          <button
-            type="button"
-            className="bg-button text-text px-3 py-1 rounded hover:bg-buttonHover"
-            onClick={() => window.electronAPI.openBannersFolder?.()}
-          >
-            <i className="fas fa-folder-open mr-1.5"></i>Open Banners Folder
-          </button>
-          <button
-            type="button"
-            className="bg-accent text-text px-3 py-1 rounded hover:bg-accentHover"
-            onClick={() => window.electronAPI.openBannerEditor()}
-          >
-            Open Banner Editor
-          </button>
-          {statusText && <span className="text-xs opacity-70">{statusText}</span>}
+        <div className="mb-2 flex items-center justify-between">
+          <label className="block mb-3 font-semibold">Banner preset</label>
+          <div className="flex items-center gap-2">
+            {statusText && <span className="text-xs opacity-70 mr-1">{statusText}</span>}
+            <button
+              type="button"
+              onClick={() => window.electronAPI.openBannersFolder?.()}
+              className="btn-shadow text-sm bg-button text-text px-3 py-1.5 rounded-buttonTheme hover:bg-buttonHover"
+            >
+              <i className="fas fa-folder-open mr-1.5"></i>Open Banners Folder
+            </button>
+            <button
+              type="button"
+              onClick={() => window.electronAPI.openBannerEditor()}
+              className="btn-shadow btn-glow text-sm bg-accent text-white px-3 py-1.5 rounded-buttonTheme hover:bg-accentHover"
+            >
+              <i className="fas fa-edit mr-1.5"></i>Open Banner Editor
+            </button>
+          </div>
         </div>
         <p className="text-xs opacity-60">
           Choose the active banner layout here — pick a card below to preview and apply it. Use the
