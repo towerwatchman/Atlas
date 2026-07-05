@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { formatPercent, sanitizePercentText } from '../../utils/formatPercent.js'
 
-const visibleSidePanelModes = new Set(['games', 'savedFilters'])
 const PACKAGE_NOT_READY_CODE = 'UPDATE_PACKAGE_NOT_READY'
 
 const Interface = () => {
@@ -10,7 +9,6 @@ const Interface = () => {
   const [gameStartup, setGameStartup] = useState("Do Nothing");
   const [showDebugConsole, setShowDebugConsole] = useState(false);
   const [minimizeToTray, setMinimizeToTray] = useState(false);
-  const [showGameList, setShowGameList] = useState(true);
   const [checkForAppUpdatesOnStartup, setCheckForAppUpdatesOnStartup] =
     useState(true);
   const [updateStatus, setUpdateStatus] = useState("idle");
@@ -49,11 +47,6 @@ const Interface = () => {
       setGameStartup(interfaceSettings.gameStartup || "Do Nothing");
       setShowDebugConsole(interfaceSettings.showDebugConsole || false);
       setMinimizeToTray(interfaceSettings.minimizeToTray || false);
-      setShowGameList(
-        interfaceSettings.sidePanelMode
-          ? visibleSidePanelModes.has(interfaceSettings.sidePanelMode)
-          : interfaceSettings.showGameList ?? true,
-      );
       setCheckForAppUpdatesOnStartup(
         interfaceSettings.checkForAppUpdatesOnStartup ?? true,
       );
@@ -92,12 +85,6 @@ const Interface = () => {
       };
       window.electronAPI.saveSettings(newConfig);
     });
-  };
-  const handleShowSidebarChange = () => {
-    const newVal = !showGameList;
-    setShowGameList(newVal);
-    saveSettings({ showGameList: newVal, sidePanelMode: newVal ? 'games' : 'hidden' });
-    alert("Sidebar visibility change requires app restart.");
   };
 
   const handleLanguageChange = (e) => {
@@ -268,20 +255,6 @@ const Interface = () => {
         </div>
         <div className="border-t border-text opacity-25 my-2"></div>
       </div>
-      <div className="flex items-center mb-2">
-        <label className="flex-1">Show Sidebar</label>
-        <input
-          type="checkbox"
-          className="mr-5"
-          checked={showGameList}
-          onChange={handleShowSidebarChange}
-        />
-      </div>
-      <p className="text-xs opacity-50 mb-2">
-        Hide/show the left sidebar. Requires restart.
-      </p>
-      <div className="border-t border-text opacity-25 my-2"></div>
-
       <div className="flex items-center mb-2">
         <label className="flex-1">Enable adult (18+) content in Browse mode</label>
         <input

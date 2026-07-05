@@ -1,6 +1,6 @@
 'use strict'
 
-const { ipcMain, BrowserWindow } = require('electron')
+const { ipcMain, BrowserWindow, shell } = require('electron')
 const fs = require('fs')
 const path = require('path')
 
@@ -56,7 +56,7 @@ function idFromFilename(filename) {
 }
 
 module.exports = function registerThemeHandlers(ctx) {
-  const { themeTemplatesDir, createThemeBuilderWindow } = ctx
+  const { themeTemplatesDir, templatesDir, createThemeBuilderWindow } = ctx
 
   // Seed the example theme(s) on first run only — i.e. only if the folder
   // is completely empty. If a person deletes xlibrary.json on purpose,
@@ -209,4 +209,26 @@ module.exports = function registerThemeHandlers(ctx) {
       return []
     }
   })
+
+  // Reveal the user-editable theme JSON folder / banner template folder in
+  // the OS file manager (Explorer / Finder / Files). The renderer never
+  // knows these absolute paths (they resolve from the app data root in
+  // main.js), so opening them has to go through the main process. Both
+  // ensure the directory exists first so the button never silently fails
+  // on a fresh install where the folder hasn't been created yet.
+  const openFolder = async (dir) => {
+    try {
+      fs.mkdirSync(dir, { recursive: true })
+      const error = await shell.openPath(dir)
+      return { success: !error, error: error || undefined }
+    } catch (err) {
+      console.error('Failed to open folder:', dir, err)
+      return { success: false, error: String(err?.message || err) }
+    }
+  }
+
+  ipcMain.handle('open-themes-folder', () => openFolder(themeTemplatesDir))
+  ipcMain.handle('open-banners-folder', () => openFolder(templatesDir))
+
 }
+
