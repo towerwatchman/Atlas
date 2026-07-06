@@ -1075,18 +1075,6 @@ const BannerEditor = () => {
                         )}
                       </div>
                     </label>
-                    <label className="block">
-                      Text color
-                      <div className="mt-1 flex items-center gap-2">
-                        <input type="color" disabled={!enabled} value={hexOnly(fg, '#ffffff')} onChange={(event) => updatePanel(side, { textColor: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer disabled:opacity-50" />
-                        <input type="text" disabled={!enabled} value={fg} onChange={(event) => updatePanel(side, { textColor: event.target.value })} className="flex-1 bg-secondary border border-border text-text rounded p-1 disabled:opacity-50" placeholder="#ffffff" />
-                        {eyedropperAvailable && (
-                          <button type="button" disabled={!enabled} title="Pick a color from anywhere on screen" onClick={() => pickColorFromScreen((color) => updatePanel(side, { textColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover disabled:opacity-50">
-                            <i className="fas fa-eye-dropper"></i>
-                          </button>
-                        )}
-                      </div>
-                    </label>
                   </div>
                   <div className="space-y-2 text-sm border-t border-border/60 pt-2">
                     <div className="grid grid-cols-2 gap-2">

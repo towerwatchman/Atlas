@@ -163,13 +163,13 @@ const fieldPassesConditions = (field, game) => {
   return true
 }
 
-const renderMarkerIcon = (fieldId) => {
+const renderMarkerIcon = (fieldId, scale = 1) => {
   if (fieldId !== 'favorite' && fieldId !== 'wishlist') return null
   return (
     <i
       className="fas fa-heart"
       style={{
-        fontSize: 10,
+        fontSize: Math.round(10 * (Number(scale) || 1)),
         color: `var(--banner-icon-color, ${fieldId === 'favorite' ? '#f59e0b' : '#f9a8d4'})`,
         marginRight: 5,
       }}
@@ -195,9 +195,17 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
     ...(field.bold ? { fontWeight: 700 } : {}),
     ...(field.italic ? { fontStyle: 'italic' } : {}),
     ...(field.textShadow ? { textShadow: '0 1px 3px rgba(0,0,0,0.9)' } : {}),
+    ...(field.textColor ? { color: field.textColor } : {}),
     ...(fieldBorder.width > 0
       ? { border: `${fieldBorder.width}px solid ${fieldBorder.color || '#000000'}`, borderRadius: 4, padding: '0 4px' }
       : {}),
+  }
+  // Icons can be scaled independently of the text (e.g. a bigger star/heart).
+  const iconScale = Number(field.iconScale) || 1
+  const iconStyle = {
+    marginRight: 4,
+    color: 'var(--banner-icon-color, currentColor)',
+    ...(iconScale !== 1 ? { fontSize: Math.round(fontSize * iconScale) } : {}),
   }
 
   if (field.id === 'update') {
@@ -227,7 +235,7 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
         key={`${field.id}-${index}`}
         className={`bg-black/60 border ${borderClass} text-white text-[10px] px-2 py-1 pointer-events-none whitespace-nowrap`}
       >
-        {renderMarkerIcon(field.id)}
+        {renderMarkerIcon(field.id, field.iconScale)}
         {resolved.value}
       </div>
     )
@@ -251,7 +259,7 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
         className={`rounded-sm px-2 py-0.5 truncate max-w-[180px] ${badgeVariantClasses[resolved.variant || 'neutral'] || 'text-white'}`}
         style={{ ...style, ...(resolved.variant ? {} : getBadgeStyle(field.id, resolved.value)) }}
       >
-        {resolved.icon && <i className={resolved.icon} style={{ marginRight: 4, color: 'var(--banner-icon-color, currentColor)' }} aria-hidden="true" />}
+        {resolved.icon && <i className={resolved.icon} style={iconStyle} aria-hidden="true" />}
         {resolved.value}
       </div>
     )
@@ -270,9 +278,9 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
     <div
       key={`${field.id}-${index}`}
       className={`${colorClass} ${shadowClass} ${baseClass} ${maxWClass}`.trim()}
-      style={inPanel ? { ...style, color: 'inherit' } : style}
+      style={inPanel ? { color: 'inherit', ...style } : style}
     >
-      {resolved.icon && <i className={resolved.icon} style={{ marginRight: 4, color: 'var(--banner-icon-color, currentColor)' }} aria-hidden="true" />}
+      {resolved.icon && <i className={resolved.icon} style={iconStyle} aria-hidden="true" />}
       {displayValue}
     </div>
   )

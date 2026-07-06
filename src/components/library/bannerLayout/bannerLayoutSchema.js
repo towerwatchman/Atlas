@@ -2,6 +2,10 @@ export const CLASSIC_BANNER_LAYOUT_ID = 'classic'
 export const CUSTOM_BANNER_LAYOUT_ID = 'custom'
 export const BANNER_PRESET_EXPORT_TYPE = 'atlas-banner-layout'
 export const BANNER_PRESET_SCHEMA_VERSION = 1
+// Oldest layout schema version this build can still load. Gallery submissions
+// must satisfy BANNER_PRESET_SCHEMA_MIN <= version <= BANNER_PRESET_SCHEMA_VERSION
+// on every release channel (see scripts/validate-submission.js).
+export const BANNER_PRESET_SCHEMA_MIN = 1
 export const BANNER_SIZE_LIMITS = {
   minWidth: 240,
   maxWidth: 720,
@@ -228,6 +232,8 @@ export const normalizeBannerField = (field) => {
       width: clampInt(field.border?.width, 0, 10, 0),
       color: sanitizeColor(field.border?.color) || '#000000',
     },
+    textColor: sanitizeColor(field.textColor) || '',
+    iconScale: clampNumber(field.iconScale, 0.5, 3, 1),
     fontSize: clampNumber(field.fontSize, 8, 24, registry.defaultFontSize || (field.badge ? 10 : 12)),
     badge: registry.supportsBadge === true && field.badge === true,
     hideWhenEmpty: field.hideWhenEmpty === true,
@@ -319,6 +325,8 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
         width: clampInt(field.border?.width, 0, 10, 0),
         color: sanitizeColor(field.border?.color) || '#000000',
       },
+      textColor: sanitizeColor(field.textColor) || '',
+      iconScale: clampNumber(field.iconScale, 0.5, 3, 1),
       visible: field.visible !== false,
       fontSize: clampNumber(field.fontSize, 8, 24, registry.defaultFontSize || (field.badge ? 10 : 12)),
       badge: registry.supportsBadge === true && field.badge === true,
@@ -342,6 +350,8 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
       bold: false,
       italic: false,
       border: { width: 0, color: '#000000' },
+      textColor: '',
+      iconScale: 1,
       visible: registry.defaultVisible === true,
       fontSize: registry.defaultFontSize || 12,
       badge: false,

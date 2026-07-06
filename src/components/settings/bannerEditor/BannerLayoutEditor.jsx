@@ -24,6 +24,12 @@ const ALIGN_LABELS = { left: 'Left', center: 'Center', right: 'Right', between: 
 
 const DND_MIME = 'application/x-atlas-banner-field'
 
+// Fields whose resolver renders an icon (so the icon-size control is relevant).
+const ICON_FIELDS = new Set([
+  'playtime', 'lastPlayed', 'sourceRating', 'personalRating',
+  'likes', 'views', 'downloads', 'comments', 'lastUpdated', 'favorite', 'wishlist',
+])
+
 const BannerLayoutEditor = ({
   layout,
   fieldLabels,
@@ -127,8 +133,8 @@ const BannerLayoutEditor = ({
         setPlacingFieldId(null)
       }}
       title={fieldLabels[field.id]}
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] cursor-grab max-w-full ${
-        selectedFieldId === field.id ? 'bg-accent text-white' : 'bg-tertiary text-text'
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[11px] cursor-grab max-w-full ${
+        selectedFieldId === field.id ? 'bg-accent text-white border-accent' : 'bg-tertiary text-text border-border'
       }`}
     >
       <span className="truncate">{fieldLabels[field.id]}</span>
@@ -441,6 +447,37 @@ const BannerLayoutEditor = ({
             </div>
           </label>
         </div>
+
+        {/* Text color */}
+        <label className="block text-sm">
+          Text color
+          <div className="mt-1 flex items-center gap-2">
+            <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(field.textColor || '') ? field.textColor : '#ffffff'} onChange={(e) => onFieldChange(field.id, { textColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+            <input type="text" value={field.textColor ?? ''} onChange={(e) => onFieldChange(field.id, { textColor: e.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="(default)" />
+            {eyedropperAvailable && (
+              <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { textColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
+                <i className="fas fa-eye-dropper"></i>
+              </button>
+            )}
+            <button type="button" title="Clear (default)" onClick={() => onFieldChange(field.id, { textColor: '' })} className="h-8 px-2 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover text-xs">Clear</button>
+          </div>
+        </label>
+
+        {/* Icon size (only for fields that render an icon) */}
+        {ICON_FIELDS.has(field.id) && (
+          <label className="block text-sm">
+            Icon size ({Math.round((field.iconScale ?? 1) * 100)}% of text)
+            <input
+              type="range"
+              min="0.5"
+              max="3"
+              step="0.1"
+              className="mt-2 w-full"
+              value={field.iconScale ?? 1}
+              onChange={(e) => onFieldChange(field.id, { iconScale: Number(e.target.value) })}
+            />
+          </label>
+        )}
 
         <button type="button" className="w-full bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={() => onResetField(field.id)}>
           Reset this field
