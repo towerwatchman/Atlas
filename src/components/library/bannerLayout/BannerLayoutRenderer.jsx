@@ -163,13 +163,13 @@ const fieldPassesConditions = (field, game) => {
   return true
 }
 
-const renderMarkerIcon = (fieldId, scale = 1) => {
+const renderMarkerIcon = (fieldId, scale = 1, baseFontSize = 10) => {
   if (fieldId !== 'favorite' && fieldId !== 'wishlist') return null
   return (
     <i
       className="fas fa-heart"
       style={{
-        fontSize: Math.round(10 * (Number(scale) || 1)),
+        fontSize: Math.round((Number(baseFontSize) || 10) * (Number(scale) || 1)),
         color: `var(--banner-icon-color, ${fieldId === 'favorite' ? '#f59e0b' : '#f9a8d4'})`,
         marginRight: 5,
       }}
@@ -200,6 +200,15 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
   const offsetX = Number(field.offsetX) || 0
   const offsetY = Number(field.offsetY) || 0
   const fieldBorder = field.border || {}
+  const fieldOutline = field.outline || {}
+  const outlineStyle = fieldOutline.width > 0
+    ? {
+        WebkitTextStrokeWidth: `${fieldOutline.width}px`,
+        WebkitTextStrokeColor: fieldOutline.color || '#000000',
+        // paint-order keeps the fill on top of the stroke so thin text stays legible
+        paintOrder: 'stroke fill',
+      }
+    : {}
   const style = {
     fontSize,
     ...(offsetX || offsetY ? { transform: `translate(${offsetX}px, ${offsetY}px)` } : {}),
@@ -207,6 +216,7 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
     ...(field.italic ? { fontStyle: 'italic' } : {}),
     ...(field.textShadow ? { textShadow: '0 1px 3px rgba(0,0,0,0.9)' } : {}),
     ...(field.textColor ? { color: field.textColor } : {}),
+    ...outlineStyle,
     ...(fieldBorder.width > 0
       ? { border: `${fieldBorder.width}px solid ${fieldBorder.color || '#000000'}`, borderRadius: 4, padding: '0 4px' }
       : {}),
@@ -223,7 +233,7 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
     return (
       <button
         key={`${field.id}-${index}`}
-        className="min-w-[110px] h-[20px] bg-transparent border border-yellow-400 text-yellow-300 rounded-sm z-30 pointer-events-auto whitespace-nowrap px-2"
+        className="inline-flex items-center justify-center leading-none min-w-[110px] bg-transparent border border-yellow-400 text-yellow-300 rounded-sm z-30 pointer-events-auto whitespace-nowrap px-2 py-0.5 align-top box-border"
         style={style}
         onClick={(event) => {
           event.stopPropagation()
@@ -244,21 +254,27 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
     return (
       <div
         key={`${field.id}-${index}`}
-        className={`bg-black/60 border ${borderClass} text-white text-[10px] px-2 py-1 pointer-events-none whitespace-nowrap`}
+        className={`bg-black/60 border ${borderClass} text-white px-2 py-1 pointer-events-none whitespace-nowrap`}
+        style={style}
       >
-        {renderMarkerIcon(field.id, field.iconScale)}
+        {renderMarkerIcon(field.id, field.iconScale, fontSize)}
         {resolved.value}
       </div>
     )
   }
 
   if (field.badge) {
+    // A user-set badge color overrides both the variant class background and
+    // the auto engine/status/etc. palette. When set we drop the variant class
+    // so the inline backgroundColor wins (variant classes still supply text
+    // color via the class, so we keep text white for contrast).
+    const badgeColorStyle = field.badgeColor ? { backgroundColor: field.badgeColor } : {}
     if (Array.isArray(resolved.value)) {
       return resolved.value.map((badge, badgeIndex) => (
         <div
           key={`${field.id}-${index}-${badgeIndex}`}
-          className={`rounded-sm px-2 py-0.5 truncate max-w-[120px] ${badgeVariantClasses[badge.variant || resolved.variant || 'neutral']}`}
-          style={style}
+          className={`rounded-sm px-2 py-0.5 truncate max-w-[120px] ${field.badgeColor ? 'text-white' : badgeVariantClasses[badge.variant || resolved.variant || 'neutral']}`}
+          style={{ ...style, ...badgeColorStyle }}
         >
           {badge.label}
         </div>
@@ -267,8 +283,12 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
     return (
       <div
         key={`${field.id}-${index}`}
-        className={`rounded-sm px-2 py-0.5 truncate max-w-[180px] ${badgeVariantClasses[resolved.variant || 'neutral'] || 'text-white'}`}
-        style={{ ...style, ...(resolved.variant ? {} : getBadgeStyle(field.id, resolved.value)) }}
+        className={`rounded-sm px-2 py-0.5 truncate max-w-[180px] ${field.badgeColor ? 'text-white' : (badgeVariantClasses[resolved.variant || 'neutral'] || 'text-white')}`}
+        style={{
+          ...style,
+          ...(field.badgeColor ? {} : (resolved.variant ? {} : getBadgeStyle(field.id, resolved.value))),
+          ...badgeColorStyle,
+        }}
       >
         {resolved.icon && <i className={resolved.icon} style={iconStyle} aria-hidden="true" />}
         {resolved.value}
@@ -626,7 +646,7 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
           panels too — not just the image — and never get cut at the seam. */}
       <div className="absolute z-30" style={imageRegionStyle}>
         {orderedSlots.map((slot) => {
-          const fields = fieldsBySlot.get(slot) || []
+          const fields = (fieldsBySlot.get(slot) || []).slice().sort((a, b) => (a.order || 0) - (b.order || 0))
           if (fields.length === 0) return null
           return (
             <div key={slot} className={slotClasses[slot] || slotClasses['bottom-left']}>

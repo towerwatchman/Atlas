@@ -251,6 +251,14 @@ export const normalizeBannerField = (field) => {
       color: sanitizeColor(field.border?.color) || '#000000',
     },
     textColor: sanitizeColor(field.textColor) || '',
+    // Optional user-set badge background color. When empty, badge fields fall
+    // back to their built-in palette (engine/status auto colors, etc.).
+    badgeColor: sanitizeColor(field.badgeColor) || '',
+    // Optional text outline (stroke around glyphs). width 0 = off.
+    outline: {
+      width: clampInt(field.outline?.width, 0, 8, 0),
+      color: sanitizeColor(field.outline?.color) || '#000000',
+    },
     iconScale: clampNumber(field.iconScale, 0.5, 3, 1),
     fontSize: clampNumber(field.fontSize, 8, 24, registry.defaultFontSize || (field.badge ? 10 : 12)),
     badge: registry.supportsBadge === true && field.badge === true,
@@ -348,6 +356,11 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
         color: sanitizeColor(field.border?.color) || '#000000',
       },
       textColor: sanitizeColor(field.textColor) || '',
+      badgeColor: sanitizeColor(field.badgeColor) || '',
+      outline: {
+        width: clampInt(field.outline?.width, 0, 8, 0),
+        color: sanitizeColor(field.outline?.color) || '#000000',
+      },
       iconScale: clampNumber(field.iconScale, 0.5, 3, 1),
       visible: field.visible !== false,
       fontSize: clampNumber(field.fontSize, 8, 24, registry.defaultFontSize || (field.badge ? 10 : 12)),
@@ -373,6 +386,8 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
       italic: false,
       border: { width: 0, color: '#000000' },
       textColor: '',
+      badgeColor: '',
+      outline: { width: 0, color: '#000000' },
       iconScale: 1,
       visible: registry.defaultVisible === true,
       fontSize: registry.defaultFontSize || 12,

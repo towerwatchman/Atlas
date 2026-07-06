@@ -468,6 +468,11 @@ const BannerLayoutEditor = ({
           </label>
         </div>
 
+        <label className="block text-sm">
+          Order (within its slot/row \u2014 lower shows first)
+          <input type="number" min="0" max="100" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.order ?? 0} onChange={(e) => onFieldChange(field.id, { order: Number(e.target.value) })} />
+        </label>
+
         <div className="grid grid-cols-2 gap-2">
           <label className="block text-sm">
             Font size
@@ -529,6 +534,43 @@ const BannerLayoutEditor = ({
             <button type="button" title="Clear (default)" onClick={() => onFieldChange(field.id, { textColor: '' })} className="h-8 px-2 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover text-xs">Clear</button>
           </div>
         </label>
+
+        {/* Badge background color — only meaningful for badge-style fields.
+            Overrides the built-in engine/status/etc. palette. */}
+        {badgeFields.has(field.id) && field.badge === true && (
+          <label className="block text-sm">
+            Badge color
+            <div className="mt-1 flex items-center gap-2">
+              <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(field.badgeColor || '') ? field.badgeColor : '#3f4043'} onChange={(e) => onFieldChange(field.id, { badgeColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+              <input type="text" value={field.badgeColor ?? ''} onChange={(e) => onFieldChange(field.id, { badgeColor: e.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="(auto)" />
+              {eyedropperAvailable && (
+                <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { badgeColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
+                  <i className="fas fa-eye-dropper"></i>
+                </button>
+              )}
+              <button type="button" title="Clear (auto)" onClick={() => onFieldChange(field.id, { badgeColor: '' })} className="h-8 px-2 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover text-xs">Clear</button>
+            </div>
+          </label>
+        )}
+
+        {/* Text outline (stroke around the glyphs) */}
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <label className="block">
+            Outline size
+            <input type="number" min="0" max="8" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.outline?.width ?? 0} onChange={(e) => onFieldChange(field.id, { outline: { ...field.outline, width: Number(e.target.value) } })} />
+          </label>
+          <label className="block">
+            Outline color
+            <div className="mt-1 flex items-center gap-2">
+              <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(field.outline?.color || '') ? field.outline.color : '#000000'} onChange={(e) => onFieldChange(field.id, { outline: { ...field.outline, color: e.target.value } })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+              {eyedropperAvailable && (
+                <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { outline: { ...field.outline, color } }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
+                  <i className="fas fa-eye-dropper"></i>
+                </button>
+              )}
+            </div>
+          </label>
+        </div>
 
         {/* Icon size (only for fields that render an icon) */}
         {ICON_FIELDS.has(field.id) && (

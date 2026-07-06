@@ -145,7 +145,12 @@ export default function ScreenColorPicker({ onPick, onCancel }) {
     else setCursor((c) => ({ ...c, visible: false }))
   }
 
-  const handleClick = (e) => {
+  // Commit the color on mouse-UP rather than click, so the user can press and
+  // drag across pixels (watching the live magnifier update) and only lock in
+  // the color where they release. A plain click (press+release in place) still
+  // works exactly as before.
+  const handleMouseUp = (e) => {
+    if (e.button !== 0) return // left button only; right-click cancels via overlay
     const sample = sampleAt(e.clientX, e.clientY)
     if (sample) onPick?.(sample.hex)
   }
@@ -199,7 +204,9 @@ export default function ScreenColorPicker({ onPick, onCancel }) {
             alt="Screen capture"
             draggable={false}
             onMouseMove={handleMove}
-            onClick={handleClick}
+            onMouseUp={handleMouseUp}
+            onMouseDown={(e) => e.preventDefault()}
+            onDragStart={(e) => e.preventDefault()}
             className="cursor-crosshair select-none max-w-none"
             style={{
               width: Math.round(compositeRef.current.width * zoom),
