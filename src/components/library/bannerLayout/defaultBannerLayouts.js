@@ -122,7 +122,7 @@ export const defaultBannerLayouts = [
         "region": "image",
         "visible": true,
         "badge": true,
-        "fontSize": 13,
+        "fontSize": 12,
         "offsetY": 13,
         "textShadow": true,
         "bold": true
@@ -134,7 +134,7 @@ export const defaultBannerLayouts = [
         "row": 0,
         "visible": true,
         "bold": true,
-        "fontSize": 19
+        "fontSize": 16
       },
       {
         "id": "status",
@@ -154,7 +154,7 @@ export const defaultBannerLayouts = [
         "region": "image",
         "visible": true,
         "badge": true,
-        "fontSize": 13,
+        "fontSize": 12,
         "offsetY": 13,
         "textShadow": true,
         "bold": true
@@ -188,7 +188,7 @@ export const defaultBannerLayouts = [
         "order": 1,
         "offsetX": 2,
         "visible": true,
-        "fontSize": 15,
+        "fontSize": 14,
         "iconScale": 1.2,
         "textColor": "#c7c7c7"
       },
