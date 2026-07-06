@@ -8,7 +8,6 @@ const Interface = () => {
   const [atlasStartup, setAtlasStartup] = useState("Do Nothing");
   const [gameStartup, setGameStartup] = useState("Do Nothing");
   const [showDebugConsole, setShowDebugConsole] = useState(false);
-  const [minimizeToTray, setMinimizeToTray] = useState(false);
   const [checkForAppUpdatesOnStartup, setCheckForAppUpdatesOnStartup] =
     useState(true);
   const [updateStatus, setUpdateStatus] = useState("idle");
@@ -46,7 +45,6 @@ const Interface = () => {
       setAtlasStartup(interfaceSettings.atlasStartup || "Do Nothing");
       setGameStartup(interfaceSettings.gameStartup || "Do Nothing");
       setShowDebugConsole(interfaceSettings.showDebugConsole || false);
-      setMinimizeToTray(interfaceSettings.minimizeToTray || false);
       setCheckForAppUpdatesOnStartup(
         interfaceSettings.checkForAppUpdatesOnStartup ?? true,
       );
@@ -107,11 +105,6 @@ const Interface = () => {
     setShowDebugConsole(!showDebugConsole);
     saveSettings({ showDebugConsole: !showDebugConsole });
     alert("Changing the debug console setting requires a restart.");
-  };
-
-  const handleMinimizeToTrayChange = () => {
-    setMinimizeToTray(!minimizeToTray);
-    saveSettings({ minimizeToTray: !minimizeToTray });
   };
 
   const handleStartupUpdateCheckChange = () => {
@@ -240,21 +233,6 @@ const Interface = () => {
         Enabling or Disabling the debug console will require a restart
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
-      <div className="opacity-50">
-        <div className="flex items-center mb-2">
-          <label className="flex-1">
-            Minimize Atlas to system tray when the application window is closed
-          </label>
-          <input
-            type="checkbox"
-            className="mr-5"
-            checked={minimizeToTray}
-            onChange={handleMinimizeToTrayChange}
-            disabled
-          />
-        </div>
-        <div className="border-t border-text opacity-25 my-2"></div>
-      </div>
       <div className="flex items-center mb-2">
         <label className="flex-1">Enable adult (18+) content in Browse mode</label>
         <input

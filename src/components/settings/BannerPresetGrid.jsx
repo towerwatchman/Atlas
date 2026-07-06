@@ -24,7 +24,15 @@ import {
 // Fixed preview width in px. The 537x251 banner is scaled uniformly to fit.
 const CARD_W = 312
 
-// A representative sample game so every field slot has something to show.
+// A representative sample game so the always-on field slots (title, creator,
+// engine, status, version, source ids, ratings, counts, etc.) have something
+// to show. The conditional STATE markers — Update Available, Favorite,
+// Wishlist, Uninstalled — are deliberately left OFF here: those only appear
+// in the real library on games that are actually in that state (see
+// resolveBannerField / fieldPassesConditions in BannerLayoutRenderer), so a
+// preview that forced them all on would show markers a typical banner never
+// carries and misrepresent the layout. The preview reflects a normal
+// installed, non-favorited, up-to-date title.
 const SAMPLE_GAME = {
   record_id: 'banner-preview',
   title: 'Example Game Title',
@@ -36,9 +44,9 @@ const SAMPLE_GAME = {
     { version: 'v1.2.0', isInstalled: true },
     { version: 'v1.0.0', isInstalled: true },
   ],
-  isUpdateAvailable: true,
-  isFavorite: true,
-  isWishlisted: true,
+  isUpdateAvailable: false,
+  isFavorite: false,
+  isWishlisted: false,
   hasInstalledVersion: true,
   atlas_id: 123,
   f95_id: 456,
