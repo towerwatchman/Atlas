@@ -58,7 +58,7 @@ const {
   addGame, updateGame, removeGame, deleteGameCompletely,
   getGameRecordIds, countVersions, deleteVersion,
   getUniqueFilterOptions, recordGameLaunchStarted, recordGamePlaytime,
-  setGameFavorite, setGamePersonalRatings, setSelectedGameVersion,
+  setGameFavorite, setGamePersonalRatings,
 } = require('./db/games')
 
 const {
@@ -1045,8 +1045,10 @@ function createBannerEditorWindow() {
     return
   }
   const windowState = applySavedWindowBounds('bannerEditor', {
-    width: 1200,
-    height: 800,
+    width: 1444,
+    height: 1010,
+    minWidth: 1444,
+    minHeight: 1010,
     frame: false,
     // Windows draws a native DWM resize border (often tinted with the
     // system accent color) around frame:false windows that aren't also
@@ -1258,7 +1260,7 @@ function buildCtx() {
     isAllowedDeletionPath, getTrustedVersion, deleteTitleRecord,
     // db functions
     addGame, updateGame, addVersion, upsertVersion, updateVersion,
-    recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePersonalRatings, setSelectedGameVersion,
+    recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePersonalRatings,
     addAtlasMapping, getGame, getGames, getCatalogGames, getGameRecordIds,
     removeGame, checkDbUpdates, updateFolderSize,
     addWishlistEntry, removeWishlistEntry, toggleWishlistEntry,

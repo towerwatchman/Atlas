@@ -1,7 +1,7 @@
 import React from 'react'
 import SafeImage from '../../ui/SafeImage.jsx'
 import { getGameTitle } from '../../../utils/gameDisplay.js'
-import { normalizeBannerField, normalizeBannerLayout } from './bannerLayoutSchema.js'
+import { normalizeBannerField, normalizeBannerLayout, getBannerTotalSize } from './bannerLayoutSchema.js'
 import { getBannerFieldSources, resolveBannerField } from './bannerFieldResolvers.js'
 import {
   getEngineBackgroundColor,
@@ -20,11 +20,23 @@ const bannerStyles = `
     transform: skewX(0.001deg);
     backface-visibility: hidden;
     will-change: transform;
-    transition: transform 0.35s ease-in-out;
+    box-shadow: var(--banner-shadow, none);
+    transition: transform 0.35s ease-in-out, box-shadow 0.35s ease-in-out, filter 0.35s ease-in-out;
   }
-  .banner-root:hover {
-    transform: rotateX(7deg) translateY(-6px) scale(1.02);
+  /* Classic 3D tilt (default). Scale amount is configurable via --hover-scale. */
+  .banner-root[data-hover="classic-tilt"]:hover {
+    transform: rotateX(7deg) translateY(-6px) scale(var(--hover-scale, 1.02));
     transition: transform 0.35s ease-in-out 0.1s;
+  }
+  /* Steam-style: flat zoom + subtle brighten + outer glow/shadow, no tilt. */
+  .banner-root[data-hover="zoom"]:hover {
+    transform: scale(var(--hover-scale, 1.05));
+    filter: brightness(1.08);
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.35), 0 10px 26px rgba(0,0,0,0.55);
+    z-index: 5;
+  }
+  .banner-root[data-hover="none"]:hover {
+    transform: none;
   }
   .banner-root::before {
     content: '';
@@ -40,9 +52,9 @@ const bannerStyles = `
     transform: skewX(0.001deg);
     transition: transform 0.35s ease-in-out 0.1s, opacity 0.5s ease-in-out 0.1s;
   }
-  .banner-root:hover::before {
+  .banner-root[data-hover="classic-tilt"]:hover::before {
     opacity: 0.6;
-    transform: rotateX(7deg) translateY(-6px) scale(1.02);
+    transform: rotateX(7deg) translateY(-6px) scale(var(--hover-scale, 1.02));
   }
 `
 
@@ -112,14 +124,17 @@ const getBadgeStyle = (fieldId, value) => {
   return { backgroundColor: '#3F4043' }
 }
 
+// Fixed, theme-independent badge palettes. Banners must look identical
+// regardless of the active app theme (the only app-wide inheritance is the font
+// family via --font-sans; font size and all colors come from the layout).
 const badgeVariantClasses = {
-  neutral: 'bg-primary border-border text-text',
-  source: 'bg-blue-700 border-blue-400 text-white',
-  success: 'bg-green-700 border-green-400 text-white',
-  warning: 'bg-warning/20 border-warning text-warning',
-  danger: 'bg-danger border-dangerHover text-white',
-  favorite: 'bg-primary border-warning text-text',
-  wishlist: 'bg-primary border-accent text-text',
+  neutral: 'bg-black/60 text-white',
+  source: 'bg-blue-700 text-white',
+  success: 'bg-green-700 text-white',
+  warning: 'bg-yellow-500/20 text-yellow-200',
+  danger: 'bg-red-700 text-white',
+  favorite: 'bg-black/60 text-white',
+  wishlist: 'bg-black/60 text-white',
 }
 
 const isEmptyValue = (value) =>
@@ -154,7 +169,7 @@ const renderMarkerIcon = (fieldId) => {
       className="fas fa-heart"
       style={{
         fontSize: 10,
-        color: fieldId === 'favorite' ? '#f59e0b' : '#f9a8d4',
+        color: `var(--banner-icon-color, ${fieldId === 'favorite' ? '#f59e0b' : '#f9a8d4'})`,
         marginRight: 5,
       }}
     />
@@ -168,13 +183,27 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
   if (field.hideWhenEmpty && isEmptyValue(resolved.value)) return null
 
   const fontSize = normalizeFontSize(field.fontSize, field.badge ? 10 : 12)
-  const style = { fontSize }
+  // Per-field pixel nudge (offsetX/offsetY) applied as a transform so it shifts
+  // the field visually without disturbing slot/row layout.
+  const offsetX = Number(field.offsetX) || 0
+  const offsetY = Number(field.offsetY) || 0
+  const fieldBorder = field.border || {}
+  const style = {
+    fontSize,
+    ...(offsetX || offsetY ? { transform: `translate(${offsetX}px, ${offsetY}px)` } : {}),
+    ...(field.bold ? { fontWeight: 700 } : {}),
+    ...(field.italic ? { fontStyle: 'italic' } : {}),
+    ...(field.textShadow ? { textShadow: '0 1px 3px rgba(0,0,0,0.9)' } : {}),
+    ...(fieldBorder.width > 0
+      ? { border: `${fieldBorder.width}px solid ${fieldBorder.color || '#000000'}`, borderRadius: 4, padding: '0 4px' }
+      : {}),
+  }
 
   if (field.id === 'update') {
     return (
       <button
         key={`${field.id}-${index}`}
-        className="min-w-[110px] h-[20px] bg-transparent border border-warning text-warning rounded-sm z-30 pointer-events-auto whitespace-nowrap px-2"
+        className="min-w-[110px] h-[20px] bg-transparent border border-yellow-400 text-yellow-300 rounded-sm z-30 pointer-events-auto whitespace-nowrap px-2"
         style={style}
         onClick={(event) => {
           event.stopPropagation()
@@ -191,11 +220,11 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
   }
 
   if (field.id === 'favorite' || field.id === 'wishlist') {
-    const borderClass = field.id === 'favorite' ? 'border-warning' : 'border-accent'
+    const borderClass = field.id === 'favorite' ? 'border-yellow-400' : 'border-sky-400'
     return (
       <div
         key={`${field.id}-${index}`}
-        className={`bg-primary border ${borderClass} text-text text-[10px] px-2 py-1 pointer-events-none whitespace-nowrap`}
+        className={`bg-black/60 border ${borderClass} text-white text-[10px] px-2 py-1 pointer-events-none whitespace-nowrap`}
       >
         {renderMarkerIcon(field.id)}
         {resolved.value}
@@ -208,7 +237,7 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
       return resolved.value.map((badge, badgeIndex) => (
         <div
           key={`${field.id}-${index}-${badgeIndex}`}
-          className={`border rounded-sm px-2 py-0.5 truncate max-w-[120px] ${badgeVariantClasses[badge.variant || resolved.variant || 'neutral']}`}
+          className={`rounded-sm px-2 py-0.5 truncate max-w-[120px] ${badgeVariantClasses[badge.variant || resolved.variant || 'neutral']}`}
           style={style}
         >
           {badge.label}
@@ -218,10 +247,10 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
     return (
       <div
         key={`${field.id}-${index}`}
-        className={`border rounded-sm px-2 py-0.5 truncate max-w-[180px] ${badgeVariantClasses[resolved.variant || 'neutral'] || 'text-white'}`}
+        className={`rounded-sm px-2 py-0.5 truncate max-w-[180px] ${badgeVariantClasses[resolved.variant || 'neutral'] || 'text-white'}`}
         style={{ ...style, ...(resolved.variant ? {} : getBadgeStyle(field.id, resolved.value)) }}
       >
-        {resolved.icon && <i className={resolved.icon} style={{ marginRight: 4 }} aria-hidden="true" />}
+        {resolved.icon && <i className={resolved.icon} style={{ marginRight: 4, color: 'var(--banner-icon-color, currentColor)' }} aria-hidden="true" />}
         {resolved.value}
       </div>
     )
@@ -242,7 +271,7 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
       className={`${colorClass} ${shadowClass} ${baseClass} ${maxWClass}`.trim()}
       style={inPanel ? { ...style, color: 'inherit' } : style}
     >
-      {resolved.icon && <i className={resolved.icon} style={{ marginRight: 4 }} aria-hidden="true" />}
+      {resolved.icon && <i className={resolved.icon} style={{ marginRight: 4, color: 'var(--banner-icon-color, currentColor)' }} aria-hidden="true" />}
       {displayValue}
     </div>
   )
@@ -280,7 +309,8 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
     previewCycle.enabled === true &&
     !!game?.record_id &&
     typeof window !== 'undefined' &&
-    typeof window.electronAPI?.getPreviews === 'function'
+    (typeof window.electronAPI?.getPreviews === 'function' ||
+      typeof window.electronAPI?.getBrowsePreviewUrls === 'function')
   const cycleIntervalMs = Math.max(250, Number(previewCycle.intervalMs) || 2000)
 
   const [isHovering, setIsHovering] = React.useState(false)
@@ -294,7 +324,13 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
     setIsHovering(true)
     if (previewsFetchedRef.current) return
     previewsFetchedRef.current = true
-    Promise.resolve(window.electronAPI.getPreviews(game.record_id))
+    // Catalog/browse entries resolve their preview URLs differently from local
+    // library records.
+    const fetchPreviewUrls =
+      isCatalog && typeof window.electronAPI?.getBrowsePreviewUrls === 'function'
+        ? window.electronAPI.getBrowsePreviewUrls(game)
+        : window.electronAPI.getPreviews(game.record_id)
+    Promise.resolve(fetchPreviewUrls)
       .then((urls) => {
         const images = (Array.isArray(urls) ? urls : []).filter(isImagePreview)
         setCyclePreviews(images)
@@ -374,6 +410,20 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
   const leftSize = leftP ? leftP.size : 0
   const rightSize = rightP ? rightP.size : 0
   const imageRegionStyle = { top: topSize, bottom: bottomSize, left: leftSize, right: rightSize }
+  // Outer banner box = image size + panels (panels grow outward; the image
+  // stays exactly width x height inside the inset region above).
+  const totalSize = getBannerTotalSize(normalizedLayout)
+  const bannerBorder = normalizedLayout?.border || {}
+  const hoverEffect = normalizedLayout?.hoverEffect || 'classic-tilt'
+  const hoverScale = normalizedLayout?.hoverScale || 1.02
+  const bannerShadow = normalizedLayout?.shadow || {}
+  const iconColor = normalizedLayout?.iconColor || ''
+  const rootBorderStyle = {
+    ...(bannerBorder.width > 0
+      ? { borderStyle: 'solid', borderWidth: bannerBorder.width, borderColor: bannerBorder.color || '#000000' }
+      : {}),
+    ...(bannerBorder.radius > 0 ? { borderRadius: bannerBorder.radius } : {}),
+  }
 
   const renderPanel = (sideKey, panel, positionStyle) => {
     if (!panel) return null
@@ -384,15 +434,27 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
       rowMap.set(field.row, arr)
     }
     const rows = [...rowMap.entries()].sort((a, b) => a[0] - b[0])
+    const b = panel.border || {}
+    const panelBorderStyle = b.width > 0
+      ? {
+          borderStyle: 'solid',
+          borderColor: b.color || '#000000',
+          borderTopWidth: b.top ? b.width : 0,
+          borderRightWidth: b.right ? b.width : 0,
+          borderBottomWidth: b.bottom ? b.width : 0,
+          borderLeftWidth: b.left ? b.width : 0,
+        }
+      : {}
     return (
       <div
-        className="absolute overflow-hidden flex flex-col z-20"
+        className="absolute overflow-hidden flex flex-col z-20 box-border"
         style={{
           ...positionStyle,
           background: panel.background,
           color: panel.textColor,
           padding: panel.padding,
           gap: panel.gap,
+          ...panelBorderStyle,
         }}
       >
         {rows.map(([row, rowFields]) => {
@@ -416,8 +478,16 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
 
   return (
     <div
-      className={`relative border border-black cursor-pointer overflow-hidden box-border ${fallbackClass} banner-root`}
-      style={{ width: normalizedLayout?.width || 537, height: normalizedLayout?.height || 251 }}
+      className={`relative cursor-pointer overflow-hidden box-border ${fallbackClass} banner-root`}
+      data-hover={hoverEffect}
+      style={{
+        width: totalSize.width,
+        height: totalSize.height,
+        ...rootBorderStyle,
+        '--hover-scale': hoverScale,
+        ...(bannerShadow.enabled ? { '--banner-shadow': `0 8px 20px 0 ${bannerShadow.color || 'rgba(0,0,0,0.5)'}` } : {}),
+        ...(iconColor ? { '--banner-icon-color': iconColor } : {}),
+      }}
       onClick={onSelect}
       onContextMenu={onContextMenu}
       onMouseEnter={handleBannerMouseEnter}
@@ -478,19 +548,6 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
       </div>
       <Overlay position="top" overlay={normalizedLayout?.overlays?.top} />
       <Overlay position="bottom" overlay={normalizedLayout?.overlays?.bottom} />
-      <div className="absolute inset-0 z-20">
-        {orderedSlots.map((slot) => {
-          const fields = fieldsBySlot.get(slot) || []
-          if (fields.length === 0) return null
-          return (
-            <div key={slot} className={slotClasses[slot] || slotClasses['bottom-left']}>
-              {fields.map((field, index) => (
-                <BannerField key={`${field.id}-${index}`} field={field} game={game} index={index} />
-              ))}
-            </div>
-          )
-        })}
-      </div>
       {showCycleArrows && (
         <>
           <button
@@ -517,6 +574,22 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
       {renderPanel('top', topP, { top: 0, left: 0, width: '100%', height: topSize })}
       {renderPanel('bottom', bottomP, { bottom: 0, left: 0, width: '100%', height: bottomSize })}
       {renderPanel('left', leftP, { top: topSize, bottom: bottomSize, left: 0, width: leftSize })}
+      {/* Image-region fields/badges live in their own top overlay (z-30, not
+          clipped) positioned over the image area, so they render on top of the
+          panels too — not just the image — and never get cut at the seam. */}
+      <div className="absolute z-30" style={imageRegionStyle}>
+        {orderedSlots.map((slot) => {
+          const fields = fieldsBySlot.get(slot) || []
+          if (fields.length === 0) return null
+          return (
+            <div key={slot} className={slotClasses[slot] || slotClasses['bottom-left']}>
+              {fields.map((field, index) => (
+                <BannerField key={`${field.id}-${index}`} field={field} game={game} index={index} />
+              ))}
+            </div>
+          )
+        })}
+      </div>
       {renderPanel('right', rightP, { top: topSize, bottom: bottomSize, right: 0, width: rightSize })}
     </div>
   )

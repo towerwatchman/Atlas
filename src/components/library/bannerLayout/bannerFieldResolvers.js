@@ -77,6 +77,29 @@ const normalizePlatforms = (value) => {
   return []
 }
 
+// Compact "time since" showing only the largest whole unit (min -> hour -> day
+// -> year), floored: 1.3 hours renders as "1h". Accepts unix seconds, ms, or a
+// parseable date string.
+const formatSinceNow = (value) => {
+  if (value === undefined || value === null || value === '') return ''
+  let ts = Number(value)
+  if (!Number.isFinite(ts)) {
+    const parsed = Date.parse(value)
+    if (Number.isNaN(parsed)) return ''
+    ts = parsed
+  }
+  if (ts > 0 && ts < 1e12) ts *= 1000 // seconds -> ms
+  const diffMs = Date.now() - ts
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return '0m'
+  if (mins < 60) return `${mins}m`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  if (days < 365) return `${days}d`
+  return `${Math.floor(days / 365)}y`
+}
+
 const formatDate = (value) => {
   if (value === undefined || value === null || value === '') return ''
   const numeric = Number(value)
@@ -235,6 +258,12 @@ export const resolveBannerField = (fieldId, game = {}) => {
     case 'platforms': {
       const list = normalizePlatforms(firstValue(game.platforms, game.os, game.operatingSystems))
       return { value: list.map((label) => ({ label })), visible: list.length > 0, variant: 'source' }
+    }
+    case 'lastUpdated': {
+      const value = formatSinceNow(
+        firstValue(game.threadUpdated, game.thread_updated, game.f95ThreadUpdated, game.lewdcornerThreadUpdated),
+      )
+      return { value, visible: Boolean(value), variant: 'neutral', icon: 'fas fa-clock-rotate-left' }
     }
     default:
       return { value: '', visible: false }

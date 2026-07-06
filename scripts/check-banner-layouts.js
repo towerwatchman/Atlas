@@ -63,6 +63,7 @@ const validFieldIds = new Set([
   'downloads',
   'comments',
   'platforms',
+  'lastUpdated',
 ])
 
 const validRegions = new Set(['image', 'top', 'right', 'bottom', 'left'])

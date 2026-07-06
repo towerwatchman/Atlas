@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import BannerVisualEditor from './bannerEditor/BannerVisualEditor.jsx'
+import BannerLayoutEditor from './bannerEditor/BannerLayoutEditor.jsx'
 import BannerEditorPreview from './bannerEditor/BannerEditorPreview.jsx'
 import { defaultBannerLayouts, getBuiltInBannerLayoutOptions } from '../library/bannerLayout/defaultBannerLayouts.js'
 import {
@@ -63,6 +63,7 @@ const previewGame = {
   platforms: 'Windows, Mac, Linux',
   personalRatingOverall: 4.8,
   totalPlaytime: 9280,
+  thread_updated: Math.floor((Date.now() - 5 * 3600 * 1000) / 1000),
   lastPlayed: Date.now() - 86400000,
   tags: 'Female Protagonist, Romance, Mystery, Choices, Animated',
   category: 'Game',
@@ -112,18 +113,22 @@ const BannerEditor = () => {
   const [statusText, setStatusText] = useState('')
   const [lockAspectRatio, setLockAspectRatio] = useState(true)
   const [previewMode, setPreviewMode] = useState('local')
+  const [previewSource, setPreviewSource] = useState('sample')
+  const [liveGame, setLiveGame] = useState(null)
+  const [liveStatus, setLiveStatus] = useState('')
   const [activeTab, setActiveTab] = useState('presets')
   const customSaveTimerRef = useRef(null)
 
   const selectedUserPreset = userPresets.find((preset) => preset.id === selectedPresetId)
   const selectedBuiltIn = builtInBannerLayouts.find((layout) => layout.id === selectedPresetId)
   const isUserPresetSelected = Boolean(selectedUserPreset)
-  const activePreviewGame = { ...previewGame, ...(previewModes[previewMode]?.patch || {}) }
+  const syntheticPreviewGame = { ...previewGame, ...(previewModes[previewMode]?.patch || {}) }
+  const activePreviewGame = previewSource === 'sample' ? syntheticPreviewGame : (liveGame || syntheticPreviewGame)
   const tabs = [
     { id: 'presets', label: 'Presets' },
-    { id: 'visual', label: 'Visual' },
+    { id: 'layout', label: 'Layout' },
     { id: 'sizeImage', label: 'Size & Image' },
-    { id: 'fields', label: 'Fields' },
+    { id: 'panels', label: 'Panels' },
     { id: 'export', label: 'Import / Export' },
   ]
 
@@ -456,6 +461,132 @@ const BannerEditor = () => {
     }))
   }
 
+  // Panels are the colored regions around the image (top/right/bottom/left).
+  // Enabling one and giving it a size makes the banner larger than the image;
+  // fields with a matching region live inside it (see the Fields tab).
+  const enablePanel = (side) => {
+    const existing = draftLayout.panels?.[side]?.size || 0
+    const defaultSize = side === 'left' || side === 'right' ? 150 : 90
+    updatePanel(side, { enabled: true, size: existing > 0 ? existing : defaultSize })
+  }
+
+  const updatePanel = (side, patch) => {
+    markCustom((current) => ({
+      ...current,
+      panels: {
+        ...current.panels,
+        [side]: {
+          enabled: false,
+          size: 0,
+          background: '#0e1116',
+          textColor: '#ffffff',
+          padding: 10,
+          gap: 6,
+          ...current.panels?.[side],
+          ...patch,
+        },
+      },
+    }))
+  }
+
+  // Whole-banner border (width/color) and corner radius.
+  const updateBorder = (patch) => {
+    markCustom((current) => ({
+      ...current,
+      border: { width: 0, color: '#000000', radius: 0, ...current.border, ...patch },
+    }))
+  }
+
+  const updateHoverEffect = (hoverEffect) => markCustom((current) => ({ ...current, hoverEffect }))
+  const updateHoverScale = (hoverScale) => markCustom((current) => ({ ...current, hoverScale }))
+  const updateShadow = (patch) =>
+    markCustom((current) => ({
+      ...current,
+      shadow: { enabled: false, color: 'rgba(0,0,0,0.5)', ...current.shadow, ...patch },
+    }))
+  const updateIconColor = (iconColor) => markCustom((current) => ({ ...current, iconColor }))
+
+  // Per-panel border: width, color, and which sides show it (all, or e.g. just
+  // the top edge between the image and the panel).
+  const updatePanelBorder = (side, patch) => {
+    markCustom((current) => {
+      const panel = current.panels?.[side] || {}
+      return {
+        ...current,
+        panels: {
+          ...current.panels,
+          [side]: {
+            ...panel,
+            border: {
+              width: 0,
+              color: '#000000',
+              top: false,
+              right: false,
+              bottom: false,
+              left: false,
+              ...panel.border,
+              ...patch,
+            },
+          },
+        },
+      }
+    })
+  }
+
+  // Pull a real record (local library or browse catalog) to preview against, so
+  // the layout is validated with actual titles, metadata, and streamed images
+  // (including hover preview cycling). Picks a random entry each time.
+  const loadLiveSample = async (source) => {
+    setLiveStatus('Loading sample...')
+    try {
+      let games = []
+      if (source === 'browse') {
+        const offset = Math.floor(Math.random() * 500)
+        const result = await window.electronAPI.getCatalogGames?.({ offset, limit: 50 })
+        games = Array.isArray(result) ? result : result?.games || []
+      } else {
+        const offset = Math.floor(Math.random() * 200)
+        const result = await window.electronAPI.getGames?.(offset, 50, {})
+        games = Array.isArray(result) ? result : result?.games || []
+      }
+      const usable = (games || []).filter(Boolean)
+      if (usable.length === 0) {
+        setLiveGame(null)
+        setLiveStatus(source === 'browse' ? 'No browse entries found' : 'No library games found')
+        return
+      }
+      const picked = usable[Math.floor(Math.random() * usable.length)]
+      setLiveGame(picked)
+      setLiveStatus(`Previewing: ${picked.title || 'Untitled'}`)
+    } catch (err) {
+      console.error('Failed to load live banner sample:', err)
+      setLiveGame(null)
+      setLiveStatus('Failed to load sample')
+    }
+  }
+
+  const handlePreviewSourceChange = (source) => {
+    setPreviewSource(source)
+    if (source === 'sample') {
+      setLiveStatus('')
+      return
+    }
+    loadLiveSample(source)
+  }
+
+  // Sample a color from anywhere on screen (including outside this window) via
+  // the native EyeDropper API, then apply it to the given panel color.
+  const eyedropperAvailable = typeof window !== 'undefined' && typeof window.EyeDropper === 'function'
+  const pickColorFromScreen = async (apply) => {
+    if (!eyedropperAvailable) return
+    try {
+      const result = await new window.EyeDropper().open()
+      if (result?.sRGBHex) apply(result.sRGBHex)
+    } catch {
+      // user cancelled — ignore
+    }
+  }
+
   const updateField = (fieldId, patch) => {
     markCustom((current) => ({
       ...current,
@@ -551,16 +682,38 @@ const BannerEditor = () => {
       <div className="flex-shrink-0 space-y-4 pb-2">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
           <div className="flex flex-wrap items-center gap-2">
-            <label className="text-sm font-semibold">Preview sample</label>
+            <label className="text-sm font-semibold">Preview data</label>
             <select
               className="bg-secondary border border-border text-text rounded p-1"
-              value={previewMode}
-              onChange={(event) => setPreviewMode(event.target.value)}
+              value={previewSource}
+              onChange={(event) => handlePreviewSourceChange(event.target.value)}
             >
-              {Object.entries(previewModes).map(([id, mode]) => (
-                <option key={id} value={id}>{mode.label}</option>
-              ))}
+              <option value="sample">Sample data</option>
+              <option value="library">Random from library</option>
+              {BROWSE_MODE_ENABLED && <option value="browse">Random from browse</option>}
             </select>
+            {previewSource === 'sample' ? (
+              <select
+                className="bg-secondary border border-border text-text rounded p-1"
+                value={previewMode}
+                onChange={(event) => setPreviewMode(event.target.value)}
+              >
+                {Object.entries(previewModes).map(([id, mode]) => (
+                  <option key={id} value={id}>{mode.label}</option>
+                ))}
+              </select>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => loadLiveSample(previewSource)}
+                  className="text-sm px-3 py-1 rounded-buttonTheme bg-button hover:bg-buttonHover"
+                >
+                  <i className="fas fa-shuffle mr-1.5"></i>Shuffle
+                </button>
+                {liveStatus && <span className="text-xs opacity-70">{liveStatus}</span>}
+              </>
+            )}
           </div>
           <span className="text-xs opacity-70">
             {selectedLayoutId === CUSTOM_BANNER_LAYOUT_ID
@@ -638,10 +791,9 @@ const BannerEditor = () => {
         </section>
       )}
 
-      {activeTab === 'visual' && (
-        <BannerVisualEditor
+      {activeTab === 'layout' && (
+        <BannerLayoutEditor
           layout={draftLayout}
-          previewGame={activePreviewGame}
           fieldLabels={FIELD_LABELS}
           slotLabels={SLOT_LABELS}
           badgeFields={BADGE_FIELDS}
@@ -649,14 +801,16 @@ const BannerEditor = () => {
           fieldCategories={BANNER_FIELD_CATEGORIES}
           onFieldChange={updateField}
           onResetField={resetField}
-          showPreview={false}
+          onEnablePanel={enablePanel}
+          eyedropperAvailable={eyedropperAvailable}
+          onPickColor={pickColorFromScreen}
         />
       )}
 
       {activeTab === 'sizeImage' && (
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <div className="space-y-3">
-            <SectionHeader>Size</SectionHeader>
+            <SectionHeader>Image size</SectionHeader>
             <label className="block text-sm">
               Size preset
               <select
@@ -685,8 +839,91 @@ const BannerEditor = () => {
               Lock aspect ratio
             </label>
             <p className="text-xs opacity-60">
-              Width clamps to {BANNER_SIZE_LIMITS.minWidth}-{BANNER_SIZE_LIMITS.maxWidth}px; height clamps to {BANNER_SIZE_LIMITS.minHeight}-{BANNER_SIZE_LIMITS.maxHeight}px.
+              This is the image size only. Enabled panels (Panels tab) grow the banner outward and never shrink the image. Width clamps to {BANNER_SIZE_LIMITS.minWidth}-{BANNER_SIZE_LIMITS.maxWidth}px; height clamps to {BANNER_SIZE_LIMITS.minHeight}-{BANNER_SIZE_LIMITS.maxHeight}px.
             </p>
+
+            <SectionHeader>Banner border &amp; radius</SectionHeader>
+            <div className="grid grid-cols-3 gap-2 text-sm max-w-md">
+              <label className="block">
+                Border width
+                <input type="number" min="0" max="20" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.border?.width ?? 0} onChange={(event) => updateBorder({ width: Number(event.target.value) })} />
+              </label>
+              <label className="block">
+                Corner radius
+                <input type="number" min="0" max="80" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.border?.radius ?? 0} onChange={(event) => updateBorder({ radius: Number(event.target.value) })} />
+              </label>
+              <label className="block">
+                Border color
+                <div className="mt-1 flex items-center gap-2">
+                  <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(draftLayout.border?.color || '') ? draftLayout.border.color : '#000000'} onChange={(event) => updateBorder({ color: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer" />
+                  {eyedropperAvailable && (
+                    <button type="button" title="Pick a color from anywhere on screen" onClick={() => pickColorFromScreen((color) => updateBorder({ color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
+                      <i className="fas fa-eye-dropper"></i>
+                    </button>
+                  )}
+                </div>
+              </label>
+            </div>
+
+            <SectionHeader>Hover effect</SectionHeader>
+            <div className="grid grid-cols-2 gap-2 text-sm max-w-md">
+              <label className="block">
+                Effect
+                <select className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.hoverEffect || 'classic-tilt'} onChange={(event) => updateHoverEffect(event.target.value)}>
+                  <option value="classic-tilt">Classic 3D tilt</option>
+                  <option value="zoom">Steam-style zoom</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
+              <label className="block">
+                Zoom amount ({Math.round((draftLayout.hoverScale ?? 1.02) * 100)}%)
+                <input
+                  type="range"
+                  min="1"
+                  max="1.5"
+                  step="0.01"
+                  disabled={(draftLayout.hoverEffect || 'classic-tilt') === 'none'}
+                  className="mt-2 w-full disabled:opacity-50"
+                  value={draftLayout.hoverScale ?? 1.02}
+                  onChange={(event) => updateHoverScale(Number(event.target.value))}
+                />
+              </label>
+            </div>
+
+            <SectionHeader>Banner shadow</SectionHeader>
+            <div className="space-y-2 text-sm max-w-md">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={draftLayout.shadow?.enabled === true} onChange={(event) => updateShadow({ enabled: event.target.checked })} />
+                Drop a shadow under the banner
+              </label>
+              <label className="block">
+                Shadow color
+                <div className="mt-1 flex items-center gap-2">
+                  <input type="color" disabled={draftLayout.shadow?.enabled !== true} value={/^#[0-9a-fA-F]{6}$/.test(draftLayout.shadow?.color || '') ? draftLayout.shadow.color : '#000000'} onChange={(event) => updateShadow({ color: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer disabled:opacity-50" />
+                  <input type="text" disabled={draftLayout.shadow?.enabled !== true} value={draftLayout.shadow?.color ?? 'rgba(0,0,0,0.5)'} onChange={(event) => updateShadow({ color: event.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1 disabled:opacity-50" placeholder="rgba(0,0,0,0.5) or #000000" />
+                  {eyedropperAvailable && (
+                    <button type="button" disabled={draftLayout.shadow?.enabled !== true} title="Pick a color from anywhere on screen" onClick={() => pickColorFromScreen((color) => updateShadow({ color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover disabled:opacity-50">
+                      <i className="fas fa-eye-dropper"></i>
+                    </button>
+                  )}
+                </div>
+              </label>
+            </div>
+
+            <SectionHeader>Icon color</SectionHeader>
+            <div className="space-y-2 text-sm max-w-md">
+              <p className="text-xs opacity-60 -mt-1">Applies to icons on stat fields (playtime, rating, likes, last updated, …). Leave blank to inherit each field's text color.</p>
+              <div className="flex items-center gap-2">
+                <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(draftLayout.iconColor || '') ? draftLayout.iconColor : '#ffffff'} onChange={(event) => updateIconColor(event.target.value)} className="h-8 w-10 rounded bg-transparent cursor-pointer" />
+                <input type="text" value={draftLayout.iconColor ?? ''} onChange={(event) => updateIconColor(event.target.value)} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="(inherit)" />
+                {eyedropperAvailable && (
+                  <button type="button" title="Pick a color from anywhere on screen" onClick={() => pickColorFromScreen((color) => updateIconColor(color))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
+                    <i className="fas fa-eye-dropper"></i>
+                  </button>
+                )}
+                <button type="button" title="Clear (inherit)" onClick={() => updateIconColor('')} className="h-8 px-2 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover text-xs">Clear</button>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -794,55 +1031,111 @@ const BannerEditor = () => {
         </section>
       )}
 
-      {activeTab === 'fields' && (
-        <section className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm border-collapse">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left py-2">Field</th>
-                <th className="text-left py-2">Visible</th>
-                <th className="text-left py-2">Position</th>
-                <th className="text-left py-2">Font size</th>
-                <th className="text-left py-2">Badge</th>
-              </tr>
-            </thead>
-            <tbody>
-              {SUPPORTED_BANNER_FIELD_IDS.map((fieldId) => {
-                const field = draftLayout.fields.find((candidate) => candidate.id === fieldId) || {
-                  id: fieldId,
-                  slot: 'bottom-left',
-                  visible: false,
-                  fontSize: 12,
-                  badge: false,
-                }
-                const canBadge = BADGE_FIELDS.has(fieldId)
-                return (
-                  <tr key={fieldId} className="border-b border-border/60">
-                    <td className="py-2 pr-3">{FIELD_LABELS[fieldId]}</td>
-                    <td className="py-2 pr-3">
-                      <input type="checkbox" checked={field.visible !== false} onChange={(event) => updateField(fieldId, { visible: event.target.checked })} />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <select className="w-48 bg-secondary border border-border text-text rounded p-1" value={field.slot} onChange={(event) => updateField(fieldId, { slot: event.target.value })}>
-                        {SUPPORTED_BANNER_SLOTS.map((slot) => (
-                          <option key={slot} value={slot}>{SLOT_LABELS[slot]}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input type="number" min="8" max="24" className="w-20 bg-secondary border border-border text-text rounded p-1" value={field.fontSize ?? 12} onChange={(event) => updateField(fieldId, { fontSize: Number(event.target.value) })} />
-                    </td>
-                    <td className="py-2 pr-3">
-                      <input type="checkbox" disabled={!canBadge} checked={canBadge && field.badge === true} onChange={(event) => updateField(fieldId, { badge: event.target.checked })} />
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+      {activeTab === 'panels' && (
+        <section className="space-y-3">
+          <SectionHeader>Panels (space around the image)</SectionHeader>
+          <p className="text-xs opacity-60 -mt-1">
+            Enable a side and give it a size to make the banner larger than the image. The image
+            shrinks to the remaining middle area; the panel is a solid colored box that holds any
+            fields you assign to it (set a field's Region to this side in the Fields tab).
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {[
+              { side: 'top', label: 'Top', sizeLabel: 'Height (px)' },
+              { side: 'bottom', label: 'Bottom', sizeLabel: 'Height (px)' },
+              { side: 'left', label: 'Left', sizeLabel: 'Width (px)' },
+              { side: 'right', label: 'Right', sizeLabel: 'Width (px)' },
+            ].map(({ side, label, sizeLabel }) => {
+              const panel = draftLayout.panels?.[side] || {}
+              const enabled = panel.enabled === true
+              const bg = panel.background || '#0e1116'
+              const fg = panel.textColor || '#ffffff'
+              const hexOnly = (value, fallback) => (/^#[0-9a-fA-F]{6}$/.test(value) ? value : fallback)
+              return (
+                <div key={side} className="space-y-2 border border-border rounded p-3 bg-secondary/40">
+                  <label className="flex items-center gap-2 text-sm font-semibold">
+                    <input type="checkbox" checked={enabled} onChange={(event) => updatePanel(side, { enabled: event.target.checked })} />
+                    {label} panel
+                  </label>
+                  <div className="grid grid-cols-3 gap-2 text-sm">
+                    <label className="block">
+                      {sizeLabel}
+                      <input type="number" min="0" max="400" disabled={!enabled} className="mt-1 w-full bg-secondary border border-border text-text rounded p-1 disabled:opacity-50" value={panel.size ?? 0} onChange={(event) => updatePanel(side, { size: Number(event.target.value) })} />
+                    </label>
+                    <label className="block">
+                      Padding
+                      <input type="number" min="0" max="48" disabled={!enabled} className="mt-1 w-full bg-secondary border border-border text-text rounded p-1 disabled:opacity-50" value={panel.padding ?? 10} onChange={(event) => updatePanel(side, { padding: Number(event.target.value) })} />
+                    </label>
+                    <label className="block">
+                      Gap
+                      <input type="number" min="0" max="32" disabled={!enabled} className="mt-1 w-full bg-secondary border border-border text-text rounded p-1 disabled:opacity-50" value={panel.gap ?? 6} onChange={(event) => updatePanel(side, { gap: Number(event.target.value) })} />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <label className="block">
+                      Background
+                      <div className="mt-1 flex items-center gap-2">
+                        <input type="color" disabled={!enabled} value={hexOnly(bg, '#0e1116')} onChange={(event) => updatePanel(side, { background: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer disabled:opacity-50" />
+                        <input type="text" disabled={!enabled} value={bg} onChange={(event) => updatePanel(side, { background: event.target.value })} className="flex-1 bg-secondary border border-border text-text rounded p-1 disabled:opacity-50" placeholder="#0e1116 or rgba(...)" />
+                        {eyedropperAvailable && (
+                          <button type="button" disabled={!enabled} title="Pick a color from anywhere on screen" onClick={() => pickColorFromScreen((color) => updatePanel(side, { background: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover disabled:opacity-50">
+                            <i className="fas fa-eye-dropper"></i>
+                          </button>
+                        )}
+                      </div>
+                    </label>
+                    <label className="block">
+                      Text color
+                      <div className="mt-1 flex items-center gap-2">
+                        <input type="color" disabled={!enabled} value={hexOnly(fg, '#ffffff')} onChange={(event) => updatePanel(side, { textColor: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer disabled:opacity-50" />
+                        <input type="text" disabled={!enabled} value={fg} onChange={(event) => updatePanel(side, { textColor: event.target.value })} className="flex-1 bg-secondary border border-border text-text rounded p-1 disabled:opacity-50" placeholder="#ffffff" />
+                        {eyedropperAvailable && (
+                          <button type="button" disabled={!enabled} title="Pick a color from anywhere on screen" onClick={() => pickColorFromScreen((color) => updatePanel(side, { textColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover disabled:opacity-50">
+                            <i className="fas fa-eye-dropper"></i>
+                          </button>
+                        )}
+                      </div>
+                    </label>
+                  </div>
+                  <div className="space-y-2 text-sm border-t border-border/60 pt-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block">
+                        Border width
+                        <input type="number" min="0" max="20" disabled={!enabled} className="mt-1 w-full bg-secondary border border-border text-text rounded p-1 disabled:opacity-50" value={panel.border?.width ?? 0} onChange={(event) => updatePanelBorder(side, { width: Number(event.target.value) })} />
+                      </label>
+                      <label className="block">
+                        Border color
+                        <div className="mt-1 flex items-center gap-2">
+                          <input type="color" disabled={!enabled} value={hexOnly(panel.border?.color, '#000000')} onChange={(event) => updatePanelBorder(side, { color: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer disabled:opacity-50" />
+                          <input type="text" disabled={!enabled} value={panel.border?.color ?? '#000000'} onChange={(event) => updatePanelBorder(side, { color: event.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1 disabled:opacity-50" placeholder="#000000" />
+                          {eyedropperAvailable && (
+                            <button type="button" disabled={!enabled} title="Pick a color from anywhere on screen" onClick={() => pickColorFromScreen((color) => updatePanelBorder(side, { color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover disabled:opacity-50">
+                              <i className="fas fa-eye-dropper"></i>
+                            </button>
+                          )}
+                        </div>
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="opacity-70">Border sides:</span>
+                      {['top', 'right', 'bottom', 'left'].map((edge) => (
+                        <label key={edge} className="flex items-center gap-1 capitalize">
+                          <input type="checkbox" disabled={!enabled} checked={panel.border?.[edge] === true} onChange={(event) => updatePanelBorder(side, { [edge]: event.target.checked })} />
+                          {edge}
+                        </label>
+                      ))}
+                      <button type="button" disabled={!enabled} className="text-xs underline opacity-80 hover:opacity-100 disabled:opacity-40" onClick={() => updatePanelBorder(side, { top: true, right: true, bottom: true, left: true })}>All</button>
+                      <button type="button" disabled={!enabled} className="text-xs underline opacity-80 hover:opacity-100 disabled:opacity-40" onClick={() => updatePanelBorder(side, { top: false, right: false, bottom: false, left: false })}>None</button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </section>
       )}
 
+      
       {activeTab === 'export' && (
         <section className="space-y-4">
           <SectionHeader>Import / Export</SectionHeader>

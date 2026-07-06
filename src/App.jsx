@@ -8,6 +8,7 @@ import WelcomeTour from './components/ui/WelcomeTour.jsx'
 import WelcomePage, { WELCOME_SEEN_KEY } from './components/ui/WelcomePage.jsx'
 import ImporterSourceMenu from './components/importer/ImporterSourceMenu.jsx'
 import { atlasLogo } from './assets/icons/data.js'
+import { getBannerTotalSize } from './components/library/bannerLayout/bannerLayoutSchema.js'
 import GameBanner from './components/library/GameBanner.jsx'
 import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
@@ -136,9 +137,10 @@ const App = () => {
   const selectedBannerTemplate = useBannerTemplate()
   const bannerSize = useMemo(() => {
     const layout = selectedBannerTemplate?.type === 'layout' ? selectedBannerTemplate.value : null
+    const total = getBannerTotalSize(layout || {})
     return {
-      bannerWidth: layout?.width || 537,
-      bannerHeight: layout?.height || 251,
+      bannerWidth: total.width,
+      bannerHeight: total.height,
     }
   }, [selectedBannerTemplate])
   const [importStatus, setImportStatus] = useState({ text: '', progress: 0, total: 0 })

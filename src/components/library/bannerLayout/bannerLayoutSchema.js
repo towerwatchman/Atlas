@@ -60,6 +60,7 @@ export const SUPPORTED_BANNER_FIELD_IDS = [
   'downloads',
   'comments',
   'platforms',
+  'lastUpdated',
 ]
 
 export const BANNER_FIELD_REGISTRY = [
@@ -93,6 +94,7 @@ export const BANNER_FIELD_REGISTRY = [
   { id: 'downloads', label: 'Downloads', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true },
   { id: 'comments', label: 'Comments', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true },
   { id: 'platforms', label: 'Platforms', category: 'Metadata', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'lastUpdated', label: 'Last Updated', category: 'Activity', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true },
 ]
 
 export const BANNER_FIELD_CATEGORIES = ['Basic', 'Source', 'State', 'Ratings', 'Activity', 'Metadata']
@@ -105,6 +107,22 @@ export const BANNER_PANEL_SIDES = ['top', 'right', 'bottom', 'left']
 export const BANNER_PANEL_ALIGNMENTS = ['left', 'center', 'right', 'between']
 export const BANNER_PANEL_SIZE_LIMITS = { min: 0, max: 400 }
 export const BANNER_FIELD_REGIONS = ['image', 'top', 'right', 'bottom', 'left']
+
+// The banner's outer size = image size (width/height) PLUS any enabled
+// panels. Panels grow the banner outward; they never shrink the image. Use
+// this for anything that sizes the outer banner box (renderer root, library
+// grid cells, preview cards). width/height on the layout are the IMAGE size.
+export const getBannerTotalSize = (layout) => {
+  const width = Number(layout?.width) || 537
+  const height = Number(layout?.height) || 251
+  const panels = layout?.panels || {}
+  const sideSize = (side) =>
+    panels[side] && panels[side].enabled && panels[side].size > 0 ? Number(panels[side].size) || 0 : 0
+  return {
+    width: width + sideSize('left') + sideSize('right'),
+    height: height + sideSize('top') + sideSize('bottom'),
+  }
+}
 
 const slotSet = new Set(SUPPORTED_BANNER_SLOTS)
 const regionSet = new Set(BANNER_FIELD_REGIONS)
@@ -140,6 +158,15 @@ const sanitizeColor = (value) => {
   return v || null
 }
 
+const normalizePanelBorder = (border = {}, fallback = {}) => ({
+  width: clampInt(border?.width, 0, 20, fallback.width ?? 0),
+  color: sanitizeColor(border?.color) || fallback.color || '#000000',
+  top: border?.top === true,
+  right: border?.right === true,
+  bottom: border?.bottom === true,
+  left: border?.left === true,
+})
+
 const normalizePanel = (panel = {}, fallback = {}) => ({
   enabled: panel && panel.enabled === true,
   size: clampInt(panel?.size, BANNER_PANEL_SIZE_LIMITS.min, BANNER_PANEL_SIZE_LIMITS.max, fallback.size ?? 0),
@@ -147,6 +174,7 @@ const normalizePanel = (panel = {}, fallback = {}) => ({
   textColor: sanitizeColor(panel?.textColor) || fallback.textColor || '#ffffff',
   padding: clampInt(panel?.padding, 0, 48, fallback.padding ?? 10),
   gap: clampInt(panel?.gap, 0, 32, fallback.gap ?? 6),
+  border: normalizePanelBorder(panel?.border, fallback.border),
 })
 
 const cloneLayout = (layout) => JSON.parse(JSON.stringify(layout))
@@ -191,6 +219,15 @@ export const normalizeBannerField = (field) => {
     row: clampInt(field.row, 0, 30, 0),
     align: alignSet.has(field.align) ? field.align : 'left',
     order: clampInt(field.order, 0, 100, 0),
+    offsetX: clampInt(field.offsetX, -400, 400, 0),
+    offsetY: clampInt(field.offsetY, -400, 400, 0),
+    textShadow: field.textShadow === true,
+    bold: field.bold === true,
+    italic: field.italic === true,
+    border: {
+      width: clampInt(field.border?.width, 0, 10, 0),
+      color: sanitizeColor(field.border?.color) || '#000000',
+    },
     fontSize: clampNumber(field.fontSize, 8, 24, registry.defaultFontSize || (field.badge ? 10 : 12)),
     badge: registry.supportsBadge === true && field.badge === true,
     hideWhenEmpty: field.hideWhenEmpty === true,
@@ -245,11 +282,13 @@ export const mergeBannerLayout = (baseLayout, overrides = {}) => {
     panels: {
       ...base.panels,
       ...overrides.panels,
-      top: { ...base.panels?.top, ...overrides.panels?.top },
-      right: { ...base.panels?.right, ...overrides.panels?.right },
-      bottom: { ...base.panels?.bottom, ...overrides.panels?.bottom },
-      left: { ...base.panels?.left, ...overrides.panels?.left },
+      top: { ...base.panels?.top, ...overrides.panels?.top, border: { ...base.panels?.top?.border, ...overrides.panels?.top?.border } },
+      right: { ...base.panels?.right, ...overrides.panels?.right, border: { ...base.panels?.right?.border, ...overrides.panels?.right?.border } },
+      bottom: { ...base.panels?.bottom, ...overrides.panels?.bottom, border: { ...base.panels?.bottom?.border, ...overrides.panels?.bottom?.border } },
+      left: { ...base.panels?.left, ...overrides.panels?.left, border: { ...base.panels?.left?.border, ...overrides.panels?.left?.border } },
     },
+    border: { ...base.border, ...overrides.border },
+    shadow: { ...base.shadow, ...overrides.shadow },
     fields: Array.isArray(overrides.fields) ? overrides.fields : base.fields,
   }
 }
@@ -271,6 +310,15 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
       row: clampInt(field.row, 0, 30, 0),
       align: alignSet.has(field.align) ? field.align : 'left',
       order: clampInt(field.order, 0, 100, 0),
+      offsetX: clampInt(field.offsetX, -400, 400, 0),
+      offsetY: clampInt(field.offsetY, -400, 400, 0),
+      textShadow: field.textShadow === true,
+      bold: field.bold === true,
+      italic: field.italic === true,
+      border: {
+        width: clampInt(field.border?.width, 0, 10, 0),
+        color: sanitizeColor(field.border?.color) || '#000000',
+      },
       visible: field.visible !== false,
       fontSize: clampNumber(field.fontSize, 8, 24, registry.defaultFontSize || (field.badge ? 10 : 12)),
       badge: registry.supportsBadge === true && field.badge === true,
@@ -288,6 +336,12 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
       row: 0,
       align: 'left',
       order: 0,
+      offsetX: 0,
+      offsetY: 0,
+      textShadow: false,
+      bold: false,
+      italic: false,
+      border: { width: 0, color: '#000000' },
       visible: registry.defaultVisible === true,
       fontSize: registry.defaultFontSize || 12,
       badge: false,
@@ -341,7 +395,17 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
     image,
     imageFit: image.fit,
     previewCycle,
-    hoverEffect: source.hoverEffect || fallbackLayout?.hoverEffect || 'classic-tilt',
+    hoverEffect: ['classic-tilt', 'zoom', 'none'].includes(source.hoverEffect)
+      ? source.hoverEffect
+      : ['classic-tilt', 'zoom', 'none'].includes(fallbackLayout?.hoverEffect)
+        ? fallbackLayout.hoverEffect
+        : 'classic-tilt',
+    hoverScale: clampNumber(source.hoverScale, 1, 1.5, fallbackLayout?.hoverScale ?? 1.02),
+    shadow: {
+      enabled: source.shadow?.enabled === true,
+      color: sanitizeColor(source.shadow?.color) || fallbackLayout?.shadow?.color || 'rgba(0,0,0,0.5)',
+    },
+    iconColor: sanitizeColor(source.iconColor) || fallbackLayout?.iconColor || '',
     overlays: {
       top: {
         visible: source.overlays?.top?.visible !== false,
@@ -357,6 +421,13 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
       right: normalizePanel(source.panels?.right, fallbackLayout?.panels?.right),
       bottom: normalizePanel(source.panels?.bottom, fallbackLayout?.panels?.bottom),
       left: normalizePanel(source.panels?.left, fallbackLayout?.panels?.left),
+    },
+    border: {
+      // Default to the classic 1px black border every banner used to have
+      // (before it became configurable). Set width to 0 on a layout to remove it.
+      width: clampInt(source.border?.width, 0, 20, fallbackLayout?.border?.width ?? 1),
+      color: sanitizeColor(source.border?.color) || fallbackLayout?.border?.color || '#000000',
+      radius: clampInt(source.border?.radius, 0, 80, fallbackLayout?.border?.radius ?? 0),
     },
     fields: Array.from(fieldsById.values()),
   }

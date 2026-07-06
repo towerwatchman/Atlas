@@ -7,6 +7,7 @@ import {
   getBannerLayoutById,
   normalizeBannerLayout,
   normalizeBannerPreset,
+  getBannerTotalSize,
 } from '../library/bannerLayout/bannerLayoutSchema.js'
 
 // Selectable preview cards for the Appearance tab — a shrunk-down render of
@@ -74,8 +75,9 @@ const CARD_BORDER = 2 // border-2 on the card, on each side
 
 const BannerPreviewCard = ({ option, isActive, onSelect }) => {
   const layout = resolveLayout(option)
-  const baseW = layout.width || 537
-  const baseH = layout.height || 251
+  const total = getBannerTotalSize(layout)
+  const baseW = total.width
+  const baseH = total.height
   // Interior width = card width minus its border on both sides, then minus
   // the padding on both sides. Computing from the true interior keeps the
   // left/right gaps symmetric (setting the preview to the full CARD_W made
