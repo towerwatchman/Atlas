@@ -323,10 +323,32 @@ module.exports = function registerMediaHandlers(ctx) {
       if (steamId) {
         await fetchAndStoreSteamData(null, steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder)
       }
-      const atlasId = await GetAtlasIDbyRecord(recordId)
       const sourceOrder = getMetadataSourceOrder()
       const bannerUrl = await getRemoteBannerUrl(recordId, { sourceOrder })
       const rawPreviewUrls = await getRemotePreviewUrls(recordId, { sourceOrder })
+      const mediaStorageMode = getMediaStorageMode()
+
+      if (mediaStorageMode !== 'download') {
+        const previewUrls = orderPreviewsBySource(
+          await getPreviews(recordId, getAssetBasePath(), process.defaultApp, {
+            mode: 'stream',
+            sourceOrder,
+          }),
+          sourceOrder,
+        )
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) win.webContents.send('game-updated', recordId)
+        })
+        return {
+          success: true,
+          mediaStorageMode,
+          bannerUrl,
+          previewUrls,
+          downloadResult: null,
+        }
+      }
+
+      const atlasId = await GetAtlasIDbyRecord(recordId)
       const screenUrls = rawPreviewUrls
         .map((url) => String(url || '').trim())
         .filter(Boolean)
