@@ -17,7 +17,7 @@
     "iconGlow": false,
     "filterSidebar": {
       "side": "right",
-      "mode": "inline"
+      "mode": "overlay"
     }
   },
   "buttonEffects": {
