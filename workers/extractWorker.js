@@ -1,8 +1,15 @@
 // workers/extractWorker.js
 const { parentPort, workerData } = require("worker_threads");
 const { spawn } = require("child_process");
+const fs = require("fs");
 
-const { archivePath, extractPath, sevenZipBin } = workerData;
+const {
+  archivePath,
+  extractPath,
+  sevenZipBin,
+  useBundledRarExtractor,
+  rarWasmPath,
+} = workerData;
 
 let child = null;
 let canceled = false;
@@ -58,6 +65,36 @@ function createCanceledError() {
   const err = new Error("Archive extraction canceled");
   err.code = "IMPORT_CANCELED";
   return err;
+}
+
+async function extractRarInWorker() {
+  const { createExtractorFromFile } = require("node-unrar-js");
+  const wasmBinary = fs.readFileSync(rarWasmPath);
+  postProgress(0, "Starting bundled RAR extraction...", "starting");
+
+  const extractor = await createExtractorFromFile({
+    filepath: archivePath,
+    targetPath: extractPath,
+    wasmBinary,
+  });
+  const headers = [...extractor.getFileList().fileHeaders];
+  const totalFiles = headers.filter((header) => !header.flags.directory).length;
+  const extracted = extractor.extract();
+  let extractedCount = 0;
+
+  for (const file of extracted.files) {
+    if (canceled) throw createCanceledError();
+    if (file.fileHeader.flags.directory) continue;
+    extractedCount += 1;
+    const percent = totalFiles > 0
+      ? Math.min(99, Math.floor((extractedCount / totalFiles) * 100))
+      : undefined;
+    postProgress(percent, `Extracting RAR... ${extractedCount}/${totalFiles || "?"}`);
+  }
+
+  if (extractedCount === 0) {
+    throw new Error("RAR extraction completed but no files were extracted");
+  }
 }
 
 parentPort.on("message", (message) => {
@@ -119,7 +156,11 @@ function extractInWorker() {
   });
 }
 
-extractInWorker()
+const extraction = useBundledRarExtractor
+  ? extractRarInWorker()
+  : extractInWorker();
+
+extraction
   .then(() => {
     parentPort.postMessage({
       type: "done",

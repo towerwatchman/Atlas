@@ -195,6 +195,9 @@ const isArchiveFilePath = (filePath, appConfig) => {
   return ext ? getConfiguredExtractionExtensions(appConfig).includes(ext) : false;
 };
 
+const isRarArchivePath = (filePath) =>
+  path.extname(String(filePath || "")).toLowerCase() === ".rar";
+
 function isSteamImportRow(game = {}) {
   return (
     game.sourceType === "steam" ||
@@ -362,6 +365,7 @@ async function extractArchive(
   sevenZipBin,
   session,
   progressWindow,
+  useBundledRarExtractor = false,
 ) {
   const workerPath = resolvePackagedModulePath(
     path.join(__dirname, "../../workers/extractWorker.js"),
@@ -382,6 +386,10 @@ async function extractArchive(
         archivePath,
         extractPath: tempPath,
         sevenZipBin,
+        useBundledRarExtractor,
+        rarWasmPath: useBundledRarExtractor
+          ? resolvePackagedModulePath(require.resolve("node-unrar-js/dist/js/unrar.wasm"))
+          : null,
       },
     });
     if (session) session.currentExtractionWorker = worker;
@@ -460,31 +468,6 @@ async function extractArchive(
   });
 }
 
-async function extractRarArchive(archivePath, extractPath) {
-  const { createExtractorFromFile } = require("node-unrar-js");
-  const wasmPath = resolvePackagedModulePath(
-    require.resolve("node-unrar-js/dist/js/unrar.wasm"),
-  );
-  const wasmBinary = await fs.promises.readFile(wasmPath);
-  const extractor = await createExtractorFromFile({
-    filepath: archivePath,
-    targetPath: extractPath,
-    wasmBinary,
-  });
-  const extracted = extractor.extract();
-  let extractedCount = 0;
-
-  for (const file of extracted.files) {
-    if (!file.fileHeader.flags.directory) {
-      extractedCount += 1;
-    }
-  }
-
-  if (extractedCount === 0) {
-    throw new Error("RAR extraction completed but no files were extracted");
-  }
-}
-
 function resolvePackagedModulePath(modulePath) {
   if (app.isPackaged && modulePath.includes(`${path.sep}app.asar${path.sep}`)) {
     return modulePath.replace(
@@ -505,10 +488,10 @@ function getCommonSevenZipPaths() {
     possiblePaths.push(
       "C:\\Program Files\\7-Zip\\7z.exe",
       "C:\\Program Files (x86)\\7-Zip\\7z.exe",
-      "C:\\Program Files\\7-Zip\\7za.exe",
-      "C:\\Program Files (x86)\\7-Zip\\7za.exe",
       "C:\\Program Files\\7-Zip\\7zz.exe",
       "C:\\Program Files (x86)\\7-Zip\\7zz.exe",
+      "C:\\Program Files\\7-Zip\\7za.exe",
+      "C:\\Program Files (x86)\\7-Zip\\7za.exe",
     );
   } else if (process.platform === "linux") {
     possiblePaths.push("/usr/bin/7z", "/usr/bin/7zz", "/usr/local/bin/7z");
@@ -636,15 +619,6 @@ async function resolveSevenZipExecutablePath({
     });
   }
 
-  const bundledPath = getBundledSevenZipPath();
-  if (bundledPath) {
-    candidates.push({
-      path: bundledPath,
-      source: "bundled",
-      message: "Using bundled 7-Zip",
-    });
-  }
-
   for (const candidate of getCommonSevenZipPaths()) {
     candidates.push({
       path: candidate,
@@ -654,11 +628,20 @@ async function resolveSevenZipExecutablePath({
     });
   }
 
-  for (const command of ["7z", "7za", "7zz"]) {
+  for (const command of ["7z", "7zz", "7za"]) {
     candidates.push({
       path: command,
       source: "PATH",
       message: "Using 7-Zip from PATH",
+    });
+  }
+
+  const bundledPath = getBundledSevenZipPath();
+  if (bundledPath) {
+    candidates.push({
+      path: bundledPath,
+      source: "bundled",
+      message: "Using bundled 7-Zip fallback",
     });
   }
 
@@ -1586,7 +1569,14 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
       });
       if (!resolvedSevenZip?.path) throw new Error("7-Zip is required for archive import");
       notify(`Extracting ${importGame.title}...`, 15);
-      const extraction = await extractArchive(sourcePath, targetBase, resolvedSevenZip.path, session, ownerWindow);
+      const extraction = await extractArchive(
+        sourcePath,
+        targetBase,
+        resolvedSevenZip.path,
+        session,
+        ownerWindow,
+        isRarArchivePath(sourcePath) && resolvedSevenZip.source === "bundled",
+      );
       gamePath = extraction.finalPath || targetBase;
 
       const items = await fsp.readdir(gamePath, { withFileTypes: true }).catch(() => []);
@@ -1849,7 +1839,14 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
         notify: () => {},
       });
       if (!resolvedSevenZip?.path) throw new Error("7-Zip is required for archive import");
-      const extraction = await extractArchive(sourcePath, targetBase, resolvedSevenZip.path, session, ownerWindow);
+      const extraction = await extractArchive(
+        sourcePath,
+        targetBase,
+        resolvedSevenZip.path,
+        session,
+        ownerWindow,
+        isRarArchivePath(sourcePath) && resolvedSevenZip.source === "bundled",
+      );
       gamePath = extraction.finalPath || targetBase;
       console.log("[LocalImport] Archive extracted", { sourcePath, gamePath });
       const items = await fsp.readdir(gamePath, { withFileTypes: true }).catch(() => []);
@@ -2607,6 +2604,7 @@ ipcMain.handle("import-games", async (event, params) => {
   //  Resolve 7-Zip once before archive extraction
   // ────────────────────────────────────────────────────────────────
   let sevenZipPath = null;
+  let sevenZipSource = null;
 
   const needsExtraction = games.some((g) => g.isArchive === true);
 
@@ -2631,6 +2629,7 @@ ipcMain.handle("import-games", async (event, params) => {
     }
 
     sevenZipPath = resolvedSevenZip.path;
+    sevenZipSource = resolvedSevenZip.source;
 
   }
 
@@ -2757,6 +2756,7 @@ ipcMain.handle("import-games", async (event, params) => {
             sevenZipPath,
             session,
             mainWindow,
+            isRarArchivePath(zipPath) && sevenZipSource === "bundled",
           );
           extractPath = extraction.finalPath || extractPath;
           session.cleanupPaths = [extractPath];
