@@ -160,6 +160,12 @@ export const normalizeFilterState = (filters = {}) => {
   merged.browseSort = [
     'titleAsc',
     'titleDesc',
+    'creatorAsc',
+    'creatorDesc',
+    'likesDesc',
+    'likesAsc',
+    'ratingDesc',
+    'ratingAsc',
     'threadUpdatedDesc',
     'threadUpdatedAsc',
     'threadPublishedDesc',
@@ -888,8 +894,12 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
 
   if (activeFilters.communityRatingMin > 0) {
     result = result.filter((game) => {
-      const rating = getNullableNumber(game.rating ?? game.lewdcornerRating)
-      return rating !== null && rating >= activeFilters.communityRatingMin
+      // Higher of the F95 and LewdCorner ratings, matching the server-side
+      // catalog filter (see communityRatingMin in getCatalogGames).
+      const f95 = getNullableNumber(game.rating)
+      const lc = getNullableNumber(game.lewdcornerRating)
+      const rating = Math.max(f95 ?? 0, lc ?? 0)
+      return rating > 0 && rating >= activeFilters.communityRatingMin
     })
   }
 

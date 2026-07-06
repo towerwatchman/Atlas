@@ -1317,7 +1317,10 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
     // anything local.
     const communityRatingMinValue = Number(filters.communityRatingMin);
     if (Number.isFinite(communityRatingMinValue) && communityRatingMinValue > 0) {
-      filterWhereParts.push('CAST(catalog.rating AS REAL) >= ?');
+      // Community rating spans both F95 and LewdCorner — a title passes if
+      // EITHER source's rating meets the threshold (i.e. the higher of the
+      // two). COALESCE guards against a NULL/empty rating on one source.
+      filterWhereParts.push('MAX(COALESCE(CAST(catalog.rating AS REAL), 0), COALESCE(CAST(catalog.lewdcornerRating AS REAL), 0)) >= ?');
       filterParams.push(communityRatingMinValue);
     }
     if (filters.dateField === 'releaseDate' && filters.dateRange && filters.dateRange !== 'any') {
@@ -1352,25 +1355,47 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
     };
     const orderByNullableNumber = (field, direction) =>
       `ORDER BY CASE WHEN ${field} IS NULL OR ${field} = '' THEN 1 ELSE 0 END ASC, CAST(${field} AS REAL) ${direction}, title COLLATE NOCASE ASC, catalogKey ASC`;
+    // Rating and Likes span both F95 and LewdCorner — sort by the higher of
+    // the two so a title ranks by its best community signal from either
+    // source. Rows with no value on either source sort last.
+    const bestOfExpr = (a, b) => `MAX(COALESCE(CAST(${a} AS REAL), 0), COALESCE(CAST(${b} AS REAL), 0))`;
+    const orderByBestOf = (a, b, direction) => {
+      const expr = bestOfExpr(a, b);
+      return `ORDER BY CASE WHEN ${expr} <= 0 THEN 1 ELSE 0 END ASC, ${expr} ${direction}, title COLLATE NOCASE ASC, catalogKey ASC`;
+    };
+    const orderByText = (field, direction) =>
+      `ORDER BY CASE WHEN ${field} IS NULL OR ${field} = '' THEN 1 ELSE 0 END ASC, ${field} COLLATE NOCASE ${direction}, title COLLATE NOCASE ASC, catalogKey ASC`;
     const orderByClause = browseSort === 'titleDesc'
       ? 'ORDER BY title COLLATE NOCASE DESC, catalogKey DESC'
-      : browseSort === 'threadUpdatedDesc'
-        ? orderByParsedDate('catalog.thread_updated', 'DESC')
-        : browseSort === 'threadUpdatedAsc'
-          ? orderByParsedDate('catalog.thread_updated', 'ASC')
-          : browseSort === 'threadPublishedDesc'
-            ? orderByParsedDate('catalog.thread_publish_date', 'DESC')
-            : browseSort === 'threadPublishedAsc'
-              ? orderByParsedDate('catalog.thread_publish_date', 'ASC')
-              : browseSort === 'releaseDateDesc'
-                ? orderByParsedDate('catalog.release_date', 'DESC')
-                : browseSort === 'releaseDateAsc'
-                  ? orderByParsedDate('catalog.release_date', 'ASC')
-                  : browseSort === 'f95LatestOrderDesc'
-                    ? orderByNullableNumber('catalog.f95_latest_order', 'DESC')
-                    : browseSort === 'f95LatestOrderAsc'
-                      ? orderByNullableNumber('catalog.f95_latest_order', 'ASC')
-                      : 'ORDER BY title COLLATE NOCASE ASC, catalogKey ASC';
+      : browseSort === 'creatorAsc'
+        ? orderByText('catalog.creator', 'ASC')
+        : browseSort === 'creatorDesc'
+          ? orderByText('catalog.creator', 'DESC')
+          : browseSort === 'likesDesc'
+            ? orderByBestOf('catalog.likes', 'catalog.lewdcornerLikes', 'DESC')
+            : browseSort === 'likesAsc'
+              ? orderByBestOf('catalog.likes', 'catalog.lewdcornerLikes', 'ASC')
+              : browseSort === 'ratingDesc'
+                ? orderByBestOf('catalog.rating', 'catalog.lewdcornerRating', 'DESC')
+                : browseSort === 'ratingAsc'
+                  ? orderByBestOf('catalog.rating', 'catalog.lewdcornerRating', 'ASC')
+                  : browseSort === 'threadUpdatedDesc'
+                    ? orderByParsedDate('catalog.thread_updated', 'DESC')
+                    : browseSort === 'threadUpdatedAsc'
+                      ? orderByParsedDate('catalog.thread_updated', 'ASC')
+                      : browseSort === 'threadPublishedDesc'
+                        ? orderByParsedDate('catalog.thread_publish_date', 'DESC')
+                        : browseSort === 'threadPublishedAsc'
+                          ? orderByParsedDate('catalog.thread_publish_date', 'ASC')
+                          : browseSort === 'releaseDateDesc'
+                            ? orderByParsedDate('catalog.release_date', 'DESC')
+                            : browseSort === 'releaseDateAsc'
+                              ? orderByParsedDate('catalog.release_date', 'ASC')
+                              : browseSort === 'f95LatestOrderDesc'
+                                ? orderByNullableNumber('catalog.f95_latest_order', 'DESC')
+                                : browseSort === 'f95LatestOrderAsc'
+                                  ? orderByNullableNumber('catalog.f95_latest_order', 'ASC')
+                                  : 'ORDER BY title COLLATE NOCASE ASC, catalogKey ASC';
     getTableColumns('f95_zone_data').then((f95Columns) => {
       const hasThreadUpdated = f95Columns.has('thread_updated')
       const threadUpdatedSelect = hasThreadUpdated

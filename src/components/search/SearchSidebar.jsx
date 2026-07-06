@@ -45,6 +45,22 @@ const SORT_OPTIONS = [
   { value: 'date', label: 'Release Date', icon: 'fa-calendar-day' },
 ]
 
+// Catalog (Browse) sorting is server-side and uses distinct browseSort
+// values rather than the client-side `sort` keys above. These map the same
+// icon affordances the Library uses onto browseSort so the Browse sidebar
+// has the identical icon-grid layout. Each option has an ascending and
+// descending browseSort value so the shared "click the active icon to flip
+// direction" behavior works exactly like the library. Rating and Likes sort
+// by the higher of the F95 / LewdCorner values (see getCatalogGames).
+const CATALOG_SORT_OPTIONS = [
+  { key: 'title', label: 'Title', icon: 'fa-arrow-down-a-z', asc: 'titleAsc', desc: 'titleDesc' },
+  { key: 'creator', label: 'Creator', icon: 'fa-user', asc: 'creatorAsc', desc: 'creatorDesc' },
+  { key: 'lastUpdated', label: 'Last Updated', icon: 'fa-clock', asc: 'threadUpdatedAsc', desc: 'threadUpdatedDesc' },
+  { key: 'likes', label: 'Likes', icon: 'fa-thumbs-up', asc: 'likesAsc', desc: 'likesDesc' },
+  { key: 'rating', label: 'Rating', icon: 'fa-star', asc: 'ratingAsc', desc: 'ratingDesc' },
+  { key: 'releaseDate', label: 'Release Date', icon: 'fa-calendar-day', asc: 'releaseDateAsc', desc: 'releaseDateDesc' },
+]
+
 const SearchSidebar = ({
   isVisible,
   searchText = "",
@@ -105,6 +121,24 @@ const SearchSidebar = ({
       updateFilters({ sortDirection: selectedFilters.sortDirection === "asc" ? "desc" : "asc" });
     } else {
       updateFilters({ sort: value, sortDirection: getDefaultSortDirectionForSort(value) });
+    }
+  };
+
+  // Catalog equivalent of handleSortClick: the icons drive browseSort (which
+  // encodes both the sort field and its direction), so clicking the active
+  // icon flips between that field's asc/desc browseSort values, and clicking
+  // a different one selects its default (descending, matching the library's
+  // default direction for most fields — title defaults ascending).
+  const catalogActiveSort = CATALOG_SORT_OPTIONS.find(
+    (opt) => opt.asc === selectedFilters.browseSort || opt.desc === selectedFilters.browseSort,
+  );
+  const catalogSortDirection = catalogActiveSort && catalogActiveSort.asc === selectedFilters.browseSort ? "asc" : "desc";
+  const handleCatalogSortClick = (opt) => {
+    if (catalogActiveSort?.key === opt.key) {
+      updateFilters({ browseSort: catalogSortDirection === "asc" ? opt.desc : opt.asc });
+    } else {
+      // Title reads most naturally A→Z; everything else defaults newest-first.
+      updateFilters({ browseSort: opt.key === "title" ? opt.asc : opt.desc });
     }
   };
 
@@ -345,10 +379,16 @@ const SearchSidebar = ({
     <div className={containerClassName} style={containerStyle}>
       {/* Fixed-height sticky header */}
       <div className="h-[52px] bg-secondary border-b border-border flex items-center justify-between px-3 sticky top-0 z-10">
-        <span className="text-base font-bold flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setShowSavedView((v) => !v)}
+          className="text-base font-bold flex items-center gap-2 -webkit-app-region-no-drag hover:text-accent transition-colors cursor-pointer"
+          title={showSavedView ? 'Back to filters' : 'Saved filters'}
+          aria-label={showSavedView ? 'Show filters' : 'Show saved filters'}
+        >
           <i className={`fas ${showSavedView ? 'fa-bookmark' : 'fa-filter'}`}></i>
           {showSavedView ? 'Saved Filters' : 'Filters'}
-        </span>
+        </button>
         <div className="flex items-center gap-1">
           {!showSavedView && (
             <button
@@ -461,64 +501,57 @@ const SearchSidebar = ({
             </div>
           )}
 
-          {/* Browse (catalog mode) */}
+          {/* Browse (catalog mode) — mirrors the Library layout exactly:
+              the same icon-grid Sorting block (wired to the catalog's
+              server-side browseSort instead of the local sort keys), the
+              browse-specific Source control, and (further down, next to the
+              Library's own Ratings block) a community-rating filter. */}
           {isCatalogMode && (
-            <Collapsible title="Browse" defaultOpen>
-              <div className="space-y-3">
-                <label className="block text-sm">
-                  <span className="block mb-1">Source</span>
-                  <select
-                    className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                    value={selectedFilters.browseSource}
-                    onChange={(e) => updateFilters({ browseSource: e.target.value })}
-                  >
-                    <option value="all">All sources</option>
-                    <option value="f95">F95</option>
-                    <option value="lewdcorner">LewdCorner</option>
-                    <option value="steam">Steam</option>
-                    <option value="atlas">AtlasDB</option>
-                  </select>
-                </label>
-                <label className="block text-sm">
-                  <span className="block mb-1">Sort</span>
-                  <select
-                    className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                    value={selectedFilters.browseSort}
-                    onChange={(e) => updateFilters({ browseSort: e.target.value })}
-                  >
-                    <option value="titleAsc">Title A/Z</option>
-                    <option value="titleDesc">Title Z/A</option>
-                    <option value="threadUpdatedDesc">Latest update</option>
-                    <option value="threadUpdatedAsc">Oldest update</option>
-                    <option value="threadPublishedDesc">Thread published newest</option>
-                    <option value="threadPublishedAsc">Thread published oldest</option>
-                    <option value="releaseDateDesc">Release date newest</option>
-                    <option value="releaseDateAsc">Release date oldest</option>
-                    <option value="f95LatestOrderDesc">F95 latest page order</option>
-                    <option value="f95LatestOrderAsc">F95 oldest page order</option>
-                  </select>
-                  <p className="text-xs text-muted mt-1">
-                    Latest update uses AtlasDB thread_updated. Entries without a known thread update date sort last and are excluded from date-range filters.
-                  </p>
-                </label>
-                <label className="block text-sm">
-                  <span className="block mb-1">Minimum F95/LewdCorner rating</span>
-                  <select
-                    className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                    value={selectedFilters.communityRatingMin}
-                    onChange={(e) => updateFilters({ communityRatingMin: Number(e.target.value) })}
-                  >
-                    <option value={0}>Any</option>
-                    {[1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].map((rating) => (
-                      <option key={rating} value={rating}>{rating}+</option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-muted mt-1">
-                    Uses the community rating from the source site — works across the whole catalog, not just installed titles.
-                  </p>
-                </label>
+            <>
+              <div className="pt-3 pb-4 border-b border-border">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-bold text-sm">Sorting</span>
+                  <span className="text-[11px] text-muted">
+                    {catalogSortDirection === "asc" ? "Ascending" : "Descending"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-5 gap-1">
+                  {CATALOG_SORT_OPTIONS.map((opt) => {
+                    const active = catalogActiveSort?.key === opt.key
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => handleCatalogSortClick(opt)}
+                        title={active ? `${opt.label} — ${catalogSortDirection === "asc" ? "Ascending" : "Descending"} (click to flip)` : opt.label}
+                        aria-label={opt.label}
+                        className={`h-9 flex items-center justify-center gap-1 rounded border text-sm ${active ? "bg-accent text-white border-accent" : "bg-tertiary hover:bg-highlight border-border text-text"}`}
+                      >
+                        <i className={`fas ${opt.icon}`}></i>
+                        {active && <i className={`fas ${catalogSortDirection === "asc" ? "fa-caret-up" : "fa-caret-down"} text-xs`}></i>}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-            </Collapsible>
+
+              <div className="pt-3 pb-4 border-b border-border">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-bold text-sm">Source</span>
+                </div>
+                <select
+                  className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                  value={selectedFilters.browseSource}
+                  onChange={(e) => updateFilters({ browseSource: e.target.value })}
+                >
+                  <option value="all">All sources</option>
+                  <option value="f95">F95</option>
+                  <option value="lewdcorner">LewdCorner</option>
+                  <option value="steam">Steam</option>
+                  <option value="atlas">AtlasDB</option>
+                </select>
+              </div>
+            </>
           )}
 
           {/* Dates */}
@@ -780,7 +813,37 @@ const SearchSidebar = ({
             </Collapsible>
           )}
 
-          {/* Quick Filters — grouped toggles + library scope */}
+          {/* Ratings (catalog mode) — filters the whole catalog by community
+              rating, using the higher of the F95 and LewdCorner ratings
+              (see communityRatingMin in getCatalogGames). Sits in the same
+              slot and Collapsible style as the Library's personal-rating
+              Ratings block above. Community ratings are on a 0–5 scale. */}
+          {isCatalogMode && (
+            <Collapsible title="Ratings">
+              <div className="space-y-2">
+                <label className="block text-sm">
+                  <span className="block mb-1">Minimum F95 / LewdCorner rating</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min="0"
+                      max="5"
+                      step="0.5"
+                      value={selectedFilters.communityRatingMin}
+                      onChange={(e) => updateFilters({ communityRatingMin: Number(e.target.value) })}
+                      className="flex-1 min-w-0 accent-accent -webkit-app-region-no-drag"
+                    />
+                    <span className="text-sm w-10 text-right tabular-nums">
+                      {Number(selectedFilters.communityRatingMin) > 0 ? `${selectedFilters.communityRatingMin}+` : "Any"}
+                    </span>
+                  </div>
+                </label>
+                <p className="text-[11px] text-muted">
+                  Uses the community rating from the source site (whichever of F95 or LewdCorner is higher) — works across the whole catalog, not just installed titles.
+                </p>
+              </div>
+            </Collapsible>
+          )}
           <Collapsible title="Quick Filters">
             <div className="space-y-3">
               {!isCatalogMode && (
