@@ -544,7 +544,17 @@ function compareVersionParts(current, latest) {
   return 0;
 }
 
-function getIsUpdateAvailable(latestVersion, versions) {
+function normalizeTimestampMs(value) {
+  if (value === undefined || value === null || value === "") return 0;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric > 100000000000 ? numeric : numeric * 1000;
+  }
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getIsUpdateAvailable(latestVersion, versions, metadataUpdatedAt = null) {
   if (!latestVersion || !versions || versions.length === 0) return false;
 
   if (
@@ -566,6 +576,15 @@ function getIsUpdateAvailable(latestVersion, versions) {
     String(version.version || "").trim().toLowerCase().replace(/\s+/g, "") === exactLatest
   )) {
     return false;
+  }
+
+  const metadataUpdatedMs = normalizeTimestampMs(metadataUpdatedAt);
+  const newestInstallMs = Math.max(
+    0,
+    ...versions.map((version) => normalizeTimestampMs(version.date_added)),
+  );
+  if (metadataUpdatedMs > 0 && newestInstallMs > 0 && metadataUpdatedMs > newestInstallMs) {
+    return true;
   }
 
   // Find the newest local version. An update is only available if even the
@@ -811,6 +830,7 @@ ${bannerSelectFields},
         f95_zone_data.views as views,
         f95_zone_data.likes as likes,
         f95_zone_data.tags as f95_tags,
+        COALESCE(f95_zone_data.thread_updated, direct_lewdcorner_data.thread_updated, lewdcorner_data.thread_updated) as thread_updated,
         COALESCE(game_metadata_overrides.rating, f95_zone_data.rating) as rating,
 ${lewdCornerSelectFields}
         COALESCE(game_metadata_overrides.status, atlas_data.status) AS status,
@@ -896,6 +916,7 @@ ${bannerJoinClauses}
           game.isUpdateAvailable = getIsUpdateAvailable(
             row.latestVersion,
             installedVersions,
+            row.thread_updated,
           );
           resolve(game);
         },
@@ -947,6 +968,7 @@ ${bannerSelectFields},
         f95_zone_data.views as views,
         f95_zone_data.likes as likes,
         f95_zone_data.tags as f95_tags,
+        COALESCE(f95_zone_data.thread_updated, direct_lewdcorner_data.thread_updated, lewdcorner_data.thread_updated) as thread_updated,
         COALESCE(game_metadata_overrides.rating, f95_zone_data.rating) as rating,
 ${lewdCornerSelectFields}
         COALESCE(game_metadata_overrides.status, atlas_data.status) AS status,
@@ -1061,6 +1083,7 @@ ${bannerJoinClauses}
               isUpdateAvailable: getIsUpdateAvailable(
                 row.latestVersion,
                 installedVersions,
+                row.thread_updated,
               ),
             }, row), allVersions, installedVersions);
           })
@@ -1715,7 +1738,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
             return;
           }
           getDb().all(
-            `SELECT record_id, version FROM versions WHERE record_id IN (${recordIds.map(() => '?').join(', ')})`,
+            `SELECT record_id, version, date_added FROM versions WHERE record_id IN (${recordIds.map(() => '?').join(', ')})`,
             recordIds,
             (versionsErr, versionRows) => {
               if (versionsErr) {
@@ -1729,7 +1752,11 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
                 versionsByRecord.get(versionRow.record_id).push({ version: versionRow.version });
               }
               const matchingRows = rows.filter((row) =>
-                getIsUpdateAvailable(row.latestVersion, versionsByRecord.get(row.local_record_id) || []),
+                getIsUpdateAvailable(
+                  row.latestVersion,
+                  versionsByRecord.get(row.local_record_id) || [],
+                  row.thread_updated,
+                ),
               );
               const total = matchingRows.length;
               if (countOnly) {

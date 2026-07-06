@@ -21,5 +21,17 @@ assert.strictEqual(
   getIsUpdateAvailable("Ch.4", [{ version: "Ch.3" }]),
   true,
 );
+assert.strictEqual(
+  getIsUpdateAvailable("1.2", [{ version: "1.13", date_added: 100 }], 200),
+  true,
+);
+assert.strictEqual(
+  getIsUpdateAvailable("1.2", [{ version: "1.13", date_added: 200 }], 100),
+  false,
+);
+assert.strictEqual(
+  getIsUpdateAvailable("1.2", [{ version: "1.2", date_added: 100 }], 200),
+  false,
+);
 
 console.log("version comparison checks passed");
