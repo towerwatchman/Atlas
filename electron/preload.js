@@ -254,6 +254,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   openThemeBuilder: () => ipcRenderer.invoke("open-theme-builder"),
   openBannerEditor: () => ipcRenderer.invoke("open-banner-editor"),
+  captureScreens: () => ipcRenderer.invoke("capture-screens"),
   openThemesFolder: () => ipcRenderer.invoke("open-themes-folder"),
   openBannersFolder: () => ipcRenderer.invoke("open-banners-folder"),
   broadcastThemePreview: (draftTheme) => ipcRenderer.invoke("broadcast-theme-preview", draftTheme),

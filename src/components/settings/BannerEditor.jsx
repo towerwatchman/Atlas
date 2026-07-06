@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import BannerLayoutEditor from './bannerEditor/BannerLayoutEditor.jsx'
 import BannerEditorPreview from './bannerEditor/BannerEditorPreview.jsx'
+import ScreenColorPicker from './bannerEditor/ScreenColorPicker.jsx'
 import { defaultBannerLayouts, getBuiltInBannerLayoutOptions } from '../library/bannerLayout/defaultBannerLayouts.js'
 import {
   BANNER_PRESET_EXPORT_TYPE,
@@ -117,6 +118,9 @@ const BannerEditor = () => {
   const [liveGame, setLiveGame] = useState(null)
   const [liveStatus, setLiveStatus] = useState('')
   const [activeTab, setActiveTab] = useState('layout')
+  // Holds the pending "apply(color)" callback while the cross-screen color
+  // picker overlay is open; null when closed. See pickColorFromScreen.
+  const [screenPickerApply, setScreenPickerApply] = useState(null)
   const customSaveTimerRef = useRef(null)
 
   const selectedUserPreset = userPresets.find((preset) => preset.id === selectedPresetId)
@@ -588,16 +592,28 @@ const BannerEditor = () => {
     loadLiveSample(source)
   }
 
-  // Sample a color from anywhere on screen (including outside this window) via
-  // the native EyeDropper API, then apply it to the given panel color.
-  const eyedropperAvailable = typeof window !== 'undefined' && typeof window.EyeDropper === 'function'
+  // Sample a color from anywhere on ANY window or monitor. Prefers the custom
+  // cross-screen picker (a full desktop capture the user clicks — works across
+  // windows and displays, unlike the native EyeDropper which is limited to
+  // this window's own content in Electron). Falls back to the native
+  // EyeDropper API if screen capture isn't available.
+  const canCaptureScreens = typeof window !== 'undefined' && typeof window.electronAPI?.captureScreens === 'function'
+  const nativeEyedropperAvailable = typeof window !== 'undefined' && typeof window.EyeDropper === 'function'
+  const eyedropperAvailable = canCaptureScreens || nativeEyedropperAvailable
   const pickColorFromScreen = async (apply) => {
-    if (!eyedropperAvailable) return
-    try {
-      const result = await new window.EyeDropper().open()
-      if (result?.sRGBHex) apply(result.sRGBHex)
-    } catch {
-      // user cancelled — ignore
+    if (canCaptureScreens) {
+      // Store the apply callback and open the overlay; the overlay calls back
+      // with the picked hex (see ScreenColorPicker render below).
+      setScreenPickerApply(() => apply)
+      return
+    }
+    if (nativeEyedropperAvailable) {
+      try {
+        const result = await new window.EyeDropper().open()
+        if (result?.sRGBHex) apply(result.sRGBHex)
+      } catch {
+        // user cancelled — ignore
+      }
     }
   }
 
@@ -1171,6 +1187,15 @@ const BannerEditor = () => {
         </section>
       )}
       </div>
+
+      {screenPickerApply && (
+        <ScreenColorPicker
+          onPick={(hex) => {
+            try { screenPickerApply?.(hex) } finally { setScreenPickerApply(null) }
+          }}
+          onCancel={() => setScreenPickerApply(null)}
+        />
+      )}
     </div>
   )
 }

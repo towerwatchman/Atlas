@@ -1,6 +1,6 @@
 'use strict'
 
-const { ipcMain, BrowserWindow, dialog, shell, app, Menu } = require('electron')
+const { ipcMain, BrowserWindow, dialog, shell, app, Menu, desktopCapturer, screen } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { launchGame } = require('./games')
@@ -182,6 +182,44 @@ module.exports = function registerWindowsHandlers(ctx) {
 
   ipcMain.handle('open-banner-editor', () => {
     ctx.createBannerEditorWindow()
+  })
+
+  // Cross-screen color picker support. Captures every display at full
+  // resolution and returns each as a PNG data URL along with its logical
+  // bounds and scale factor. The renderer overlays these captures fullscreen
+  // so the user can sample a pixel from ANY window or monitor — the native
+  // EyeDropper API can't see other windows / the desktop in Electron, so we
+  // roll our own from a desktopCapturer snapshot instead.
+  ipcMain.handle('capture-screens', async () => {
+    try {
+      const displays = screen.getAllDisplays()
+      // Request thumbnails at each display's full pixel size so sampled colors
+      // are accurate (no downscale blur). Use the largest display size as the
+      // thumbnail ceiling; desktopCapturer maps sources to displays by id.
+      const maxW = Math.max(...displays.map((d) => Math.round(d.size.width * d.scaleFactor)))
+      const maxH = Math.max(...displays.map((d) => Math.round(d.size.height * d.scaleFactor)))
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: maxW, height: maxH },
+      })
+      const captures = sources.map((source) => {
+        // display_id is a string; match it to the Electron display.
+        const display = displays.find((d) => String(d.id) === String(source.display_id)) || null
+        const bounds = display ? display.bounds : null
+        const scaleFactor = display ? display.scaleFactor : 1
+        return {
+          id: source.id,
+          displayId: source.display_id || (display ? String(display.id) : ''),
+          dataUrl: source.thumbnail.toDataURL(),
+          bounds,
+          scaleFactor,
+        }
+      })
+      return { success: true, captures }
+    } catch (err) {
+      console.error('capture-screens error:', err)
+      return { success: false, error: String(err?.message || err), captures: [] }
+    }
   })
 
   ipcMain.handle('select-directory', async (event, options = {}) => {

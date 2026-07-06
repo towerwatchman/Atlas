@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen, session, protocol } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, screen, session, protocol, desktopCapturer } = require('electron')
 const path = require('path')
 
 // Local downloaded media (banners/previews) is served to renderers through a
