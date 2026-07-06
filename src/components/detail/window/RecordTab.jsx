@@ -1,4 +1,4 @@
-export default function RecordTab({ formData, onChange, onRemoveTitle, onDeleteTitleAndFiles }) {
+export default function RecordTab({ formData, onChange }) {
   const fields = [
     { name: 'title', label: 'Title' },
     { name: 'mappings', label: 'Mappings', disabled: true },
@@ -62,17 +62,6 @@ export default function RecordTab({ formData, onChange, onRemoveTitle, onDeleteT
       </div>
 
       <div className="col-span-2 space-y-2 mt-4">
-        <div className="border-t border-border pt-3">
-          <div className="text-sm font-semibold text-danger mb-2">Title Actions</div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={onRemoveTitle} className="px-4 py-1 bg-danger hover:bg-dangerHover text-white rounded">
-              Remove Title from Library
-            </button>
-            <button onClick={onDeleteTitleAndFiles} className="px-4 py-1 bg-dangerStrong hover:bg-danger text-white rounded">
-              Delete Title and Files
-            </button>
-          </div>
-        </div>
         <div className="flex" title="Coming soon">
           <label className="w-24">Tags</label>
           <textarea

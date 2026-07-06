@@ -4,7 +4,7 @@ import PreviewLightbox from '../page/PreviewLightbox.jsx'
 
 export default function MediaTab({
   game, bannerUrl, bannerMediaStatus,
-  validPreviewUrls, previewMediaStatus, previewHeight,
+  validPreviewUrls, previewMediaStatus,
   importProgress,
   onDownloadBanner, onSelectCustomBanner, onDeleteBanner,
   onDownloadPreviews, onDeletePreviews, onRefreshMetadata,
@@ -51,39 +51,41 @@ export default function MediaTab({
         </button>
       </div>
 
-      <div className="flex flex-col h-[414px]">
+      <div className="flex flex-col shrink-0 h-[320px]">
         <label>Banner Image</label>
         <p className="text-xs opacity-60 mb-1">{bannerMediaStatus}</p>
         {bannerUrl ? (
-          <div className="flex flex-col flex-grow">
+          <div className="flex flex-col flex-grow min-h-0">
             <SafeImage
               src={bannerUrl}
               alt="Banner"
-              className="w-full h-[350px] object-contain rounded"
+              className="w-full flex-1 min-h-0 object-contain rounded"
               fallbackLabel="Banner unavailable"
               onError={() => console.error('Failed to load banner:', bannerUrl)}
             />
-            <div className="flex space-x-2 mt-2">
+            <div className="flex space-x-2 mt-2 shrink-0">
               <button onClick={onDownloadBanner} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Download Banner</button>
               <button onClick={onSelectCustomBanner} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Select Custom Banner</button>
               <button onClick={onDeleteBanner} className="px-4 py-1 bg-danger text-white rounded hover:bg-dangerHover">Delete Downloaded Banner</button>
             </div>
           </div>
         ) : (
-          <div className="flex space-x-2">
-            <button onClick={onDownloadBanner} className="px-4 py-1 bg-button hover:bg-buttonHover rounded" style={{ marginTop: '350px' }}>Download Banner</button>
-            <button onClick={onSelectCustomBanner} className="px-4 py-1 bg-button hover:bg-buttonHover rounded" style={{ marginTop: '350px' }}>Select Custom Banner</button>
+          <div className="flex flex-col flex-grow min-h-0 items-start justify-end">
+            <div className="flex space-x-2">
+              <button onClick={onDownloadBanner} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Download Banner</button>
+              <button onClick={onSelectCustomBanner} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Select Custom Banner</button>
+            </div>
           </div>
         )}
       </div>
 
-      <div className="flex flex-col flex-grow">
+      <div className="flex flex-col flex-1 min-h-0">
         <label>Preview Images</label>
         <p className="text-xs opacity-60 mb-1">{previewMediaStatus}</p>
-        <div style={{ height: `${previewHeight}px`, overflowY: 'auto' }}>
+        <div className="flex-1 min-h-0 overflow-y-auto">
           <div
             className="grid gap-2 p-2"
-            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}
+            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}
           >
             {Array.isArray(validPreviewUrls) && validPreviewUrls.length > 0 ? (
               validPreviewUrls.map((url, index) => (

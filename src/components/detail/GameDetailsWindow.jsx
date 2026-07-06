@@ -108,7 +108,6 @@ const GameDetailWindow = () => {
   const [bannerUrl, setBannerUrl] = useState('')
   const [previewUrls, setPreviewUrls] = useState([])
   const [validPreviewUrls, setValidPreviewUrls] = useState([])
-  const [previewHeight, setPreviewHeight] = useState(250)
   const [importProgress, setImportProgress] = useState({ text: '', progress: 0, total: 0 })
   const [isMaximized, setIsMaximized] = useState(false)
   const [activeTab, setActiveTab] = useState('Record')
@@ -238,16 +237,6 @@ const GameDetailWindow = () => {
     }
     window.electronAPI.onGameDetailsImportProgress(handleImportProgress)
     return () => window.electronAPI.removeGameDetailsImportProgressListener(handleImportProgress)
-  }, [])
-
-  useEffect(() => {
-    const update = () => {
-      const available = window.innerHeight - 32 - 170 - 48 - 414
-      setPreviewHeight(Math.max(available, 100))
-    }
-    update()
-    window.addEventListener('resize', update)
-    return () => window.removeEventListener('resize', update)
   }, [])
 
   useEffect(() => {
@@ -486,21 +475,38 @@ const GameDetailWindow = () => {
     }
   }
 
-  const handleAddVersion = async () => {
+  const handleAddVersion = () => {
+    // Open the modal first (task: Add should be a modal), then let the user
+    // choose the source from within it — rather than jumping straight to the
+    // OS file picker before any modal appears.
+    setAddVersionDraft({ sourcePath: '', version: '' })
+    setAddVersionError('')
+  }
+
+  const chooseAddVersionSource = async () => {
     try {
       const sourcePath = await window.electronAPI.selectCatalogImportSource?.()
       if (!sourcePath) return
       const suggestedVersion = String(sourcePath).split(/[\\/]/).filter(Boolean).pop()?.replace(/\.(zip|7z|rar)$/i, '') || ''
-      setAddVersionDraft({ sourcePath, version: suggestedVersion })
+      setAddVersionDraft((current) => ({
+        ...current,
+        sourcePath,
+        // Only auto-fill the version name if the user hasn't typed one yet.
+        version: current?.version ? current.version : suggestedVersion,
+      }))
       setAddVersionError('')
     } catch (err) {
       console.error('Failed to choose version source:', err)
-      alert(`Failed to choose version source: ${err.message || 'Unknown error'}`)
+      setAddVersionError(`Failed to choose source: ${err.message || 'Unknown error'}`)
     }
   }
 
   const confirmAddVersion = async () => {
     if (!addVersionDraft || addVersionBusy) return
+    if (!addVersionDraft.sourcePath) {
+      setAddVersionError('Choose a source file or folder first.')
+      return
+    }
     const version = String(addVersionDraft.version || '').trim()
     if (!version) {
       setAddVersionError('Version name is required.')
@@ -769,8 +775,6 @@ const GameDetailWindow = () => {
               <RecordTab
                 formData={formData}
                 onChange={(e) => setFormData({ ...formData, [e.target.name]: e.target.value })}
-                onRemoveTitle={handleRemoveTitle}
-                onDeleteTitleAndFiles={handleDeleteTitleAndFiles}
               />
             )}
             {activeTab === 'Versions' && (
@@ -796,7 +800,6 @@ const GameDetailWindow = () => {
                 bannerMediaStatus={bannerMediaStatus}
                 validPreviewUrls={validPreviewUrls}
                 previewMediaStatus={previewMediaStatus}
-                previewHeight={previewHeight}
                 importProgress={importProgress}
                 onDownloadBanner={handleDownloadBanner}
                 onSelectCustomBanner={handleSelectCustomBanner}
@@ -815,9 +818,19 @@ const GameDetailWindow = () => {
           </div>
         </div>
 
-        <div className="shrink-0 p-4 bg-primary flex justify-end space-x-2 z-10 border-t border-border">
-          <button onClick={handleSave} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Save</button>
-          <button onClick={() => window.electronAPI.closeWindow()} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Cancel</button>
+        <div className="shrink-0 p-4 bg-primary flex items-center justify-between z-10 border-t border-border">
+          <div className="flex gap-2">
+            <button onClick={handleRemoveTitle} className="px-4 py-1 bg-danger hover:bg-dangerHover text-white rounded">
+              Remove Title
+            </button>
+            <button onClick={handleDeleteTitleAndFiles} className="px-4 py-1 bg-dangerStrong hover:bg-danger text-white rounded">
+              Delete Title
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleSave} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Save</button>
+            <button onClick={() => window.electronAPI.closeWindow()} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Cancel</button>
+          </div>
         </div>
       </div>
 
@@ -863,8 +876,17 @@ const GameDetailWindow = () => {
             <h2 className="text-lg font-semibold mb-3">Add Version</h2>
             <label className="block text-sm mb-3">
               <span className="block mb-1">Source</span>
-              <div className="bg-primary border border-border p-2 break-all text-muted">
-                {addVersionDraft.sourcePath}
+              <div className="flex items-center gap-2">
+                <div className="flex-grow bg-primary border border-border p-2 break-all text-muted min-h-[38px]">
+                  {addVersionDraft.sourcePath || 'No source selected'}
+                </div>
+                <button
+                  onClick={chooseAddVersionSource}
+                  disabled={addVersionBusy}
+                  className="px-3 py-2 bg-button hover:bg-buttonHover rounded whitespace-nowrap disabled:opacity-50"
+                >
+                  {addVersionDraft.sourcePath ? 'Change' : 'Choose...'}
+                </button>
               </div>
             </label>
             <label className="block text-sm">
@@ -892,7 +914,7 @@ const GameDetailWindow = () => {
               </button>
               <button
                 onClick={confirmAddVersion}
-                disabled={addVersionBusy || !String(addVersionDraft.version || '').trim()}
+                disabled={addVersionBusy || !addVersionDraft.sourcePath || !String(addVersionDraft.version || '').trim()}
                 className="px-4 py-2 bg-accent hover:bg-accentHover text-white rounded disabled:opacity-50"
               >
                 {addVersionBusy ? 'Importing...' : 'Import'}
