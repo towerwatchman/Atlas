@@ -56,6 +56,73 @@ module.exports = function registerMediaHandlers(ctx) {
     getMetadataSourceOrder,
   } = ctx
 
+  // ── User banner-layout presets are stored as individual JSON files ──────────
+  // (templates/banner-layout/<id>.json), the same way themes live in
+  // templates/theme/. They used to be crammed into a single config.ini key
+  // (Appearance.userBannerLayouts); migrateBannerLayoutsFromConfig() below moves
+  // any legacy value out to files once, then drops the key. One file per preset
+  // makes them easy to back up, hand-edit, and share via the gallery.
+  const bannerLayoutTemplatesDir = path.join(dataDir, 'templates', 'banner-layout')
+  try {
+    if (!fs.existsSync(bannerLayoutTemplatesDir)) fs.mkdirSync(bannerLayoutTemplatesDir, { recursive: true })
+  } catch (err) {
+    console.error('Failed to create banner-layout templates dir:', err)
+  }
+
+  const bannerLayoutFileName = (idOrName) =>
+    `${String(idOrName || 'layout')
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'layout'}.json`
+
+  const readUserBannerLayoutFiles = () => {
+    if (!fs.existsSync(bannerLayoutTemplatesDir)) return []
+    const presets = []
+    for (const filename of fs.readdirSync(bannerLayoutTemplatesDir).filter((f) => f.endsWith('.json'))) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(path.join(bannerLayoutTemplatesDir, filename), 'utf8'))
+        if (parsed && typeof parsed === 'object' && parsed.layout) {
+          const id = parsed.id || path.basename(filename, '.json')
+          presets.push({ ...parsed, id })
+        } else {
+          console.warn(`Skipping ${filename}: not a valid banner-layout preset`)
+        }
+      } catch (err) {
+        console.warn(`Skipping ${filename}: ${err.message}`)
+      }
+    }
+    presets.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+    return presets
+  }
+
+  const migrateBannerLayoutsFromConfig = () => {
+    try {
+      const raw = ctx.appConfig?.Appearance?.userBannerLayouts
+      if (raw === undefined) return
+      let legacy = []
+      try { legacy = JSON.parse(raw) } catch { legacy = [] }
+      if (Array.isArray(legacy)) {
+        for (const preset of legacy) {
+          if (!preset || !preset.id || !preset.layout) continue
+          const file = path.join(bannerLayoutTemplatesDir, bannerLayoutFileName(preset.id))
+          if (!fs.existsSync(file)) {
+            fs.writeFileSync(file, JSON.stringify(preset, null, 2) + '\n', 'utf8')
+          }
+        }
+      }
+      // Drop the legacy key now that presets live in files.
+      const ini = require('ini')
+      const newConfig = { ...ctx.appConfig, Appearance: { ...ctx.appConfig.Appearance } }
+      delete newConfig.Appearance.userBannerLayouts
+      fs.writeFileSync(configPath, ini.stringify(newConfig))
+      ctx.appConfig = newConfig
+      console.log('Migrated user banner layouts from config.ini to templates/banner-layout/')
+    } catch (err) {
+      console.error('Banner layout migration error:', err)
+    }
+  }
+  migrateBannerLayoutsFromConfig()
+
   ipcMain.handle('get-available-banner-templates', async () => {
     try {
       const builtIn = ['Default']
@@ -129,10 +196,7 @@ module.exports = function registerMediaHandlers(ctx) {
 
   ipcMain.handle('get-user-banner-layouts', async () => {
     try {
-      const raw = ctx.appConfig?.Appearance?.userBannerLayouts
-      if (!raw) return []
-      const parsed = JSON.parse(raw)
-      return Array.isArray(parsed) ? parsed : []
+      return readUserBannerLayoutFiles()
     } catch (err) {
       console.error('get-user-banner-layouts error:', err)
       return []
@@ -141,16 +205,26 @@ module.exports = function registerMediaHandlers(ctx) {
 
   ipcMain.handle('set-user-banner-layouts', async (event, presets) => {
     try {
-      const ini = require('ini')
-      const newConfig = {
-        ...ctx.appConfig,
-        Appearance: {
-          ...ctx.appConfig.Appearance,
-          userBannerLayouts: JSON.stringify(Array.isArray(presets) ? presets : []),
-        },
+      const list = Array.isArray(presets) ? presets : []
+      if (!fs.existsSync(bannerLayoutTemplatesDir)) fs.mkdirSync(bannerLayoutTemplatesDir, { recursive: true })
+      // Write one file per preset and prune files for presets that were removed,
+      // keeping the folder in sync with the incoming set.
+      const keep = new Set()
+      for (const preset of list) {
+        if (!preset || !preset.id) continue
+        const filename = bannerLayoutFileName(preset.id)
+        keep.add(filename)
+        fs.writeFileSync(
+          path.join(bannerLayoutTemplatesDir, filename),
+          JSON.stringify(preset, null, 2) + '\n',
+          'utf8',
+        )
       }
-      fs.writeFileSync(configPath, ini.stringify(newConfig))
-      ctx.appConfig = newConfig
+      for (const filename of fs.readdirSync(bannerLayoutTemplatesDir).filter((f) => f.endsWith('.json'))) {
+        if (!keep.has(filename)) {
+          try { fs.unlinkSync(path.join(bannerLayoutTemplatesDir, filename)) } catch (err) { console.warn(err.message) }
+        }
+      }
       broadcastBannerLayoutUpdated()
       return { success: true }
     } catch (err) {
@@ -323,32 +397,10 @@ module.exports = function registerMediaHandlers(ctx) {
       if (steamId) {
         await fetchAndStoreSteamData(null, steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder)
       }
+      const atlasId = await GetAtlasIDbyRecord(recordId)
       const sourceOrder = getMetadataSourceOrder()
       const bannerUrl = await getRemoteBannerUrl(recordId, { sourceOrder })
       const rawPreviewUrls = await getRemotePreviewUrls(recordId, { sourceOrder })
-      const mediaStorageMode = getMediaStorageMode()
-
-      if (mediaStorageMode !== 'download') {
-        const previewUrls = orderPreviewsBySource(
-          await getPreviews(recordId, getAssetBasePath(), process.defaultApp, {
-            mode: 'stream',
-            sourceOrder,
-          }),
-          sourceOrder,
-        )
-        BrowserWindow.getAllWindows().forEach((win) => {
-          if (!win.isDestroyed()) win.webContents.send('game-updated', recordId)
-        })
-        return {
-          success: true,
-          mediaStorageMode,
-          bannerUrl,
-          previewUrls,
-          downloadResult: null,
-        }
-      }
-
-      const atlasId = await GetAtlasIDbyRecord(recordId)
       const screenUrls = rawPreviewUrls
         .map((url) => String(url || '').trim())
         .filter(Boolean)
