@@ -17,52 +17,73 @@ const backfillF95LatestOrderFromUpdateFiles = async (updatesDir) => {
   const lz4 = require("lz4js");
   if (!fs.existsSync(updatesDir)) return 0;
 
+  const db = getDb();
+
+  // Bail unless the column exists.
+  const columns = await new Promise((resolve) => {
+    db.all(`PRAGMA table_info(f95_zone_data)`, [], (err, cols = []) =>
+      resolve(err || !Array.isArray(cols) ? [] : cols),
+    );
+  });
+  if (!columns.some((column) => column.name === "f95_latest_order")) return 0;
+
+  // Guard: this is a one-time migration for F95 rows that were inserted before
+  // f95_latest_order existed. New rows already get the value during normal
+  // updates (see withF95LatestOrder in insertJsonData). Without this guard the
+  // backfill re-read and re-decompressed every .update file on disk on EVERY
+  // "no new updates" check — synchronously, on the main-process event loop —
+  // which froze the app for seconds before it became usable. If nothing is
+  // missing the value, there's nothing to do, so return immediately.
+  const missing = await new Promise((resolve) => {
+    db.get(
+      `SELECT COUNT(*) AS c FROM f95_zone_data WHERE f95_latest_order IS NULL OR f95_latest_order = 0`,
+      [],
+      (err, row) => resolve(err ? 0 : row?.c || 0),
+    );
+  });
+  if (!missing) return 0;
+
   const files = fs.readdirSync(updatesDir)
     .filter((name) => /^\d+\.update$/.test(name))
     .sort((a, b) => Number(a.replace(".update", "")) - Number(b.replace(".update", "")));
   if (files.length === 0) return 0;
 
-  return new Promise((resolve) => {
-    const db = getDb();
-    db.all(`PRAGMA table_info(f95_zone_data)`, [], (columnErr, columns = []) => {
-      if (
-        columnErr ||
-        !Array.isArray(columns) ||
-        !columns.some((column) => column.name === "f95_latest_order")
-      ) {
-        resolve(0);
-        return;
-      }
+  let updated = 0;
+  for (const name of files) {
+    let data;
+    try {
+      const compressedData = fs.readFileSync(path.join(updatesDir, name));
+      data = JSON.parse(Buffer.from(lz4.decompress(compressedData)).toString("utf8"));
+    } catch (err) {
+      console.warn(`Unable to read F95 backfill file ${name}:`, err.message);
+      await new Promise((resolve) => setImmediate(resolve));
+      continue;
+    }
 
-      db.serialize(() => {
-        let updated = 0;
-        db.run("BEGIN TRANSACTION");
-        const stmt = db.prepare(
-          `UPDATE f95_zone_data SET f95_latest_order = ? WHERE f95_id = ?`,
-        );
-
-        for (const name of files) {
-          try {
-            const updateDate = Number(name.replace(".update", ""));
-            const compressedData = fs.readFileSync(path.join(updatesDir, name));
-            const data = JSON.parse(Buffer.from(lz4.decompress(compressedData)).toString("utf8"));
-            if (!Array.isArray(data.f95_zone)) continue;
-            for (const row of withF95LatestOrder(data.f95_zone, updateDate)) {
-              if (!row.f95_id) continue;
-              stmt.run([row.f95_latest_order, row.f95_id]);
-              updated++;
-            }
-          } catch (err) {
-            console.warn(`Unable to backfill F95 latest order from ${name}:`, err.message);
-          }
+    if (Array.isArray(data.f95_zone)) {
+      const updateDate = Number(name.replace(".update", ""));
+      try {
+        await dbRun(db, "BEGIN");
+        const stmt = db.prepare(`UPDATE f95_zone_data SET f95_latest_order = ? WHERE f95_id = ?`);
+        for (const row of withF95LatestOrder(data.f95_zone, updateDate)) {
+          if (!row.f95_id) continue;
+          stmt.run([row.f95_latest_order, row.f95_id]);
+          updated++;
         }
+        await new Promise((resolve, reject) => stmt.finalize((err) => (err ? reject(err) : resolve())));
+        await dbRun(db, "COMMIT");
+      } catch (err) {
+        await dbRun(db, "ROLLBACK").catch(() => {});
+        console.warn(`Unable to backfill F95 latest order from ${name}:`, err.message);
+      }
+    }
 
-        stmt.finalize(() => {
-          db.run("COMMIT", () => resolve(updated));
-        });
-      });
-    });
-  });
+    // Yield between files so the main-process event loop (IPC, window input)
+    // stays responsive even on the one run where the migration actually works.
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  return updated;
 }
 
 
