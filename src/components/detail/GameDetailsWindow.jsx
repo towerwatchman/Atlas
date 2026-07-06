@@ -123,9 +123,18 @@ const GameDetailWindow = () => {
   const sizeRefreshKeyRef = useRef(new Set())
 
   // ── Helpers ──────────────────────────────────────────────────────────────
-  const handleVersionSelect = (version) => {
+  const handleVersionSelect = (version, persist = false) => {
     setSelectedVersion(version)
     setVersionData(versionToData(version))
+    if (persist && game?.record_id && version?.version_id) {
+      window.electronAPI.setSelectedGameVersion(game.record_id, version.version_id)
+        .then((result) => {
+          if (result?.success === false) {
+            console.error('Failed to save selected version:', result.error)
+          }
+        })
+        .catch((err) => console.error('Failed to save selected version:', err))
+    }
   }
 
   const refreshFromGame = (updatedGame, preferredVersion) => {
@@ -144,7 +153,11 @@ const GameDetailWindow = () => {
         preferredVersionId
           ? v.version_id === preferredVersionId
           : v.version === preferredVersionName
-      ) || updatedVersions[0]
+      ) ||
+      updatedVersions.find((v) =>
+        Number(v.version_id) === Number(updatedGame.selected_version_id)
+      ) ||
+      updatedVersions[0]
     if (versionToSelect) handleVersionSelect(versionToSelect)
     else { setSelectedVersion(null); setVersionData(EMPTY_VERSION) }
   }
@@ -159,7 +172,13 @@ const GameDetailWindow = () => {
       setGame(fetchedGame)
       setVersions(fetchedGame.versions || [])
       setFormData(gameToFormData(fetchedGame))
-      if (fetchedGame.versions?.length > 0) handleVersionSelect(fetchedGame.versions[0])
+      if (fetchedGame.versions?.length > 0) {
+        handleVersionSelect(
+          fetchedGame.versions.find((version) =>
+            Number(version.version_id) === Number(fetchedGame.selected_version_id)
+          ) || fetchedGame.versions[0],
+        )
+      }
       recalculateMissingVersionSizes(fetchedGame)
       setBannerUrl(fetchedGame.banner_url || '')
       window.electronAPI.getPreviews(fetchedGame.record_id)
@@ -665,7 +684,7 @@ const GameDetailWindow = () => {
                 versions={versions}
                 selectedVersion={selectedVersion}
                 versionData={versionData}
-                onVersionSelect={handleVersionSelect}
+                onVersionSelect={(version) => handleVersionSelect(version, true)}
                 onVersionInputChange={(e) => setVersionData({ ...versionData, [e.target.name]: e.target.value })}
                 onSetPath={handleSetPath}
                 onOpenGamePath={handleOpenGamePath}

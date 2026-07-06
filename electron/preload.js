@@ -215,6 +215,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking updateVersion with version data:", version);
     return ipcRenderer.invoke("update-version", version, record_id);
   },
+  setSelectedGameVersion: (recordId, versionId) =>
+    ipcRenderer.invoke("set-selected-game-version", { recordId, versionId }),
   recalculateVersionSize: (params) =>
     ipcRenderer.invoke("recalculate-version-size", params),
   onWindowStateChanged: (callback) => {

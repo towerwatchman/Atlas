@@ -107,7 +107,7 @@ function registerGamesHandlers(ctx) {
     upsertVersion, updateVersion, deleteGameCompletely, getUniqueFilterOptions,
     updateFolderSize, countVersions, deleteVersion, getVersionForRecord,
     getVersionPathsForRecord, getInstalledVersionsForRecord,
-    recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePersonalRatings, getEmulatorByExtension,
+    recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePersonalRatings, setSelectedGameVersion, getEmulatorByExtension,
     // helpers
     deleteTitleRecord, isAllowedDeletionPath, getTrustedVersion,
     removeEmptyParentDirectories, normalizeForPathCompare,
@@ -331,6 +331,15 @@ function registerGamesHandlers(ctx) {
     } catch (err) {
       console.error('update-version failed:', err)
       return { success: false, error: err.message || 'Failed to update version' }
+    }
+  })
+
+  ipcMain.handle('set-selected-game-version', async (event, { recordId, versionId }) => {
+    try {
+      return await setSelectedGameVersion(recordId, versionId)
+    } catch (err) {
+      console.error('set-selected-game-version failed:', err)
+      return { success: false, error: err.message || 'Failed to save selected version' }
     }
   })
 

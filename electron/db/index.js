@@ -110,6 +110,7 @@ const initializeDatabase = (dataDir) => {
         total_playtime INTEGER DEFAULT 0,
         description TEXT,
         last_played_version TEXT,
+        selected_version_id INTEGER,
         UNIQUE (title, creator, engine)
       );
     `);
@@ -477,6 +478,7 @@ const initializeDatabase = (dataDir) => {
     db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_mappings_f95_id ON f95_zone_mappings(f95_id);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_mappings_record_id ON f95_zone_mappings(record_id);`);
     db.run(`ALTER TABLE games ADD COLUMN is_favorite INTEGER DEFAULT 0;`, () => {});
+    db.run(`ALTER TABLE games ADD COLUMN selected_version_id INTEGER;`, () => {});
     db.run(`
       CREATE TABLE IF NOT EXISTS game_personal_ratings
       (

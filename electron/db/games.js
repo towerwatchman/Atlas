@@ -547,6 +547,28 @@ const getUniqueFilterOptions = () => {
   });
 };
 
+const setSelectedGameVersion = async (recordId, versionId) => {
+  const selectedVersionId = Number.parseInt(versionId, 10);
+  if (!Number.isInteger(selectedVersionId) || selectedVersionId <= 0) {
+    throw new Error("Invalid selected version");
+  }
+  const version = await new Promise((resolve, reject) => {
+    getDb().get(
+      `SELECT rowid AS version_id
+       FROM versions
+       WHERE rowid = ? AND record_id = ?`,
+      [selectedVersionId, recordId],
+      (err, row) => err ? reject(err) : resolve(row),
+    );
+  });
+  if (!version) throw new Error("Selected version does not belong to this game");
+  await dbRun(
+    "UPDATE games SET selected_version_id = ? WHERE record_id = ?",
+    [selectedVersionId, recordId],
+  );
+  return { success: true, selectedVersionId };
+};
+
 module.exports = {
   addGame,
   updateGame,
@@ -559,6 +581,7 @@ module.exports = {
   recordGamePlaytime,
   setGameFavorite,
   setGamePersonalRatings,
+  setSelectedGameVersion,
   getUniqueFilterOptions,
   resetCachedFilterOptions,
 }

@@ -190,7 +190,11 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     if (!game?.record_id) return
     setSelectedVersion((current) => {
       const versions = game.versions || []
-      if (!current) return getDefaultVersion(versions)
+      if (!current) {
+        return versions.find((version) =>
+          Number(version.version_id) === Number(game.selected_version_id)
+        ) || getDefaultVersion(versions)
+      }
       return versions.find((v) => v.version === current.version && v.game_path === current.game_path) || getDefaultVersion(versions)
     })
     const loadPreviews = async () => {
@@ -225,7 +229,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       }
     }
     loadPreviews()
-  }, [game?.record_id, game?.versions, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.lc_id, game?.lcId, game?.steam_id])
+  }, [game?.record_id, game?.versions, game?.selected_version_id, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.lc_id, game?.lcId, game?.steam_id])
 
   useEffect(() => {
     setLaunchState(LAUNCH_STATE.IDLE)
@@ -724,6 +728,18 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     }
   }
 
+  const selectVersion = async (version) => {
+    setSelectedVersion(version)
+    if (!canManageLocalTitle || !game?.record_id || !version?.version_id) return
+    const result = await window.electronAPI.setSelectedGameVersion(
+      game.record_id,
+      version.version_id,
+    )
+    if (result?.success === false) {
+      console.error('Failed to save selected version:', result.error)
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div ref={rootRef} className="min-h-full bg-tertiary text-text flex flex-col">
@@ -1031,7 +1047,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                   return (
                     <button
                       key={`${version.version}-${version.game_path}`}
-                      onClick={() => setSelectedVersion(version)}
+                      onClick={() => selectVersion(version)}
                       className={`w-full text-left border p-3 transition-colors ${isSelected ? 'border-accent bg-selected' : 'border-border bg-primary hover:bg-selected'}`}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
