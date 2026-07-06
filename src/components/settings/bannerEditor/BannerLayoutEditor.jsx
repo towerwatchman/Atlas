@@ -39,6 +39,8 @@ const BannerLayoutEditor = ({
   fieldCategories,
   onFieldChange,
   onResetField,
+  onAddDivider,
+  onRemoveField,
   onEnablePanel,
   onDisablePanel,
   eyedropperAvailable = false,
@@ -133,12 +135,12 @@ const BannerLayoutEditor = ({
         setSelectedFieldId(field.id)
         setPlacingFieldId(null)
       }}
-      title={fieldLabels[field.id]}
+      title={field.type === 'divider' ? 'Divider line' : fieldLabels[field.id]}
       className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[11px] cursor-grab max-w-full ${
         selectedFieldId === field.id ? 'bg-accent text-white border-accent' : 'bg-tertiary text-text border-border'
       }`}
     >
-      <span className="truncate">{fieldLabels[field.id]}</span>
+      <span className="truncate">{field.type === 'divider' ? (field.orientation === 'vertical' ? '│ Line' : '─ Line') : fieldLabels[field.id]}</span>
       <button
         type="button"
         title="Remove from banner"
@@ -172,6 +174,14 @@ const BannerLayoutEditor = ({
       <div className="grid grid-cols-1 xl:grid-cols-[220px_minmax(340px,1fr)_280px] gap-4">
         {/* ── Palette ──────────────────────────────────────────────── */}
         <div className="space-y-3 max-h-[560px] overflow-y-auto pr-1">
+          <button
+            type="button"
+            onClick={() => { const id = onAddDivider?.(); if (id) { setSelectedFieldId(id); setPlacingFieldId(null) } }}
+            className="w-full px-2 py-1 rounded border border-dashed border-border text-sm hover:bg-tertiary"
+            title="Add a horizontal or vertical line to a panel row"
+          >
+            ＋ Add divider line
+          </button>
           {fieldCategories.map((category) => {
             const metas = fieldRegistry.filter((meta) => meta.category === category)
             if (metas.length === 0) return null
@@ -339,6 +349,52 @@ const BannerLayoutEditor = ({
     }
     const field = selectedField
     const region = field.region || 'image'
+    if (field.type === 'divider') {
+      return (
+        <div className="border border-border rounded p-3 bg-secondary/60 space-y-3 max-h-[560px] overflow-y-auto">
+          <div className="font-medium">{field.orientation === 'vertical' ? '│ Vertical line' : '─ Horizontal line'}</div>
+          <label className="block text-sm">
+            Orientation
+            <select className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.orientation || 'horizontal'} onChange={(e) => onFieldChange(field.id, { orientation: e.target.value })}>
+              <option value="horizontal">Horizontal (full row)</option>
+              <option value="vertical">Vertical</option>
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <label className="block">
+              Panel
+              <select className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={region} onChange={(e) => onFieldChange(field.id, { region: e.target.value })}>
+                <option value="bottom">Bottom</option>
+                <option value="top">Top</option>
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+              </select>
+            </label>
+            <label className="block">
+              Row
+              <input type="number" min="0" max="30" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.row ?? 0} onChange={(e) => onFieldChange(field.id, { row: Number(e.target.value) })} />
+            </label>
+          </div>
+          <label className="block text-sm">
+            Thickness ({field.lineSize ?? 2}px)
+            <input type="range" min="1" max="20" step="1" className="mt-2 w-full" value={field.lineSize ?? 2} onChange={(e) => onFieldChange(field.id, { lineSize: Number(e.target.value) })} />
+          </label>
+          <label className="block text-sm">
+            Color
+            <div className="mt-1 flex items-center gap-2">
+              <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(field.lineColor || '') ? field.lineColor : '#ffffff'} onChange={(e) => onFieldChange(field.id, { lineColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+              <input type="text" value={field.lineColor ?? '#ffffff'} onChange={(e) => onFieldChange(field.id, { lineColor: e.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="#ffffff" />
+              {eyedropperAvailable && (
+                <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { lineColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
+                  <i className="fas fa-eye-dropper"></i>
+                </button>
+              )}
+            </div>
+          </label>
+          <button type="button" onClick={() => { onRemoveField?.(field.id); setSelectedFieldId('title') }} className="w-full text-sm bg-button hover:bg-danger hover:text-white px-3 py-1.5 rounded">Remove line</button>
+        </div>
+      )
+    }
     const updateConditions = (patch) =>
       onFieldChange(field.id, { conditions: { ...field.conditions, ...patch } })
     const updateSourceCondition = (source, enabled) => {

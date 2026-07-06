@@ -44,7 +44,14 @@ export const getNewestVersion = (game = {}) => {
 }
 
 const formatRating = (value) => {
-  const rating = Number(value)
+  if (value === undefined || value === null || value === '') return ''
+  // Ratings arrive in several shapes: a clean number ("4.5"), F95's
+  // "4.50 star(s)", "4,5", or "4.5/5". Number() on the whole string fails on any
+  // non-numeric suffix (which hid F95 ratings entirely), so pull the first
+  // number out instead.
+  const match = String(value).replace(',', '.').match(/\d+(?:\.\d+)?/)
+  if (!match) return ''
+  const rating = Number(match[0])
   if (!Number.isFinite(rating) || rating <= 0) return ''
   return rating <= 5 ? `${rating.toFixed(1)}/5` : `${rating.toFixed(1)}/10`
 }
@@ -109,6 +116,11 @@ const formatDate = (value) => {
     : new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+const splitCommaList = (value) => {
+  const arr = Array.isArray(value) ? value : String(value || '').split(/[,|;]/)
+  return arr.map((v) => String(v).trim()).filter(Boolean)
 }
 
 const compactTags = (value) => {
@@ -210,7 +222,7 @@ export const resolveBannerField = (fieldId, game = {}) => {
     case 'lewdCornerId':
       return { value: ids.lewdcorner ? `LC ${ids.lewdcorner}` : '', visible: Boolean(ids.lewdcorner), variant: 'source' }
     case 'sourceRating': {
-      const value = formatRating(firstValue(game.sourceRating, game.rating, game.score, game.f95Rating, game.steamRating))
+      const value = formatRating(firstValue(game.sourceRating, game.rating, game.lewdcornerRating, game.score, game.f95Rating, game.steamRating))
       return { value, visible: Boolean(value), variant: 'neutral', icon: 'fas fa-star' }
     }
     case 'personalRating': {
@@ -232,8 +244,8 @@ export const resolveBannerField = (fieldId, game = {}) => {
     case 'category':
       return { value: visibleText(game.category), visible: Boolean(game.category), variant: 'neutral' }
     case 'tags': {
-      const value = compactTags(firstValue(game.tags, game.f95_tags))
-      return { value, visible: Boolean(value), variant: 'neutral' }
+      const list = splitCommaList(firstValue(game.tags, game.f95_tags)).slice(0, 4)
+      return { value: list.map((label) => ({ label })), visible: list.length > 0, variant: 'neutral' }
     }
     case 'censored':
       return { value: visibleText(game.censored), visible: Boolean(game.censored), variant: 'neutral' }
@@ -256,7 +268,7 @@ export const resolveBannerField = (fieldId, game = {}) => {
       return { value, visible: Boolean(value), variant: 'neutral', icon: 'fas fa-comment' }
     }
     case 'platforms': {
-      const list = normalizePlatforms(firstValue(game.platforms, game.os, game.operatingSystems))
+      const list = normalizePlatforms(firstValue(game.platforms, game.os, game.operatingSystems)).slice(0, 4)
       return { value: list.map((label) => ({ label })), visible: list.length > 0, variant: 'source' }
     }
     case 'lastUpdated': {

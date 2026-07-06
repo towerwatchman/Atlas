@@ -178,6 +178,17 @@ const renderMarkerIcon = (fieldId, scale = 1) => {
 }
 
 const BannerField = ({ field, game, index, inPanel = false }) => {
+  // Dividers are decorative lines, not data — render before any resolver logic.
+  if (field?.type === 'divider') {
+    const vertical = field.orientation === 'vertical'
+    const size = Math.max(1, Number(field.lineSize) || 2)
+    const color = field.lineColor || '#ffffff'
+    const lineStyle = vertical
+      ? { width: size, alignSelf: 'stretch', minHeight: '1em', backgroundColor: color, borderRadius: size > 3 ? 2 : 1 }
+      : { width: '100%', height: size, backgroundColor: color, borderRadius: size > 3 ? 2 : 1 }
+    return <div key={`${field.id}-${index}`} style={lineStyle} aria-hidden="true" />
+  }
+
   const resolved = resolveBannerField(field.id, game)
   if (!fieldPassesConditions(field, game)) return null
   if (!resolved.visible) return null
@@ -270,9 +281,24 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
   const maxWClass = inPanel ? 'max-w-full' : isTitle ? 'max-w-[360px]' : 'max-w-[300px]'
   const colorClass = inPanel ? '' : 'text-white drop-shadow'
   const shadowClass = isTitle && !inPanel ? 'text-shadow-fx text-glow-fx' : ''
-  const displayValue = Array.isArray(resolved.value)
-    ? resolved.value.map((item) => item.label || item).join(' ')
-    : resolved.value
+
+  // Multi-value fields (tags, platforms) render each value as its own item —
+  // no comma-joined string.
+  if (Array.isArray(resolved.value)) {
+    return (
+      <div
+        key={`${field.id}-${index}`}
+        className={`flex flex-wrap items-center gap-1.5 ${maxWClass}`}
+        style={inPanel ? { color: 'inherit', ...style } : style}
+      >
+        {resolved.value.map((item, itemIndex) => (
+          <span key={`${field.id}-${index}-${itemIndex}`} className={`${colorClass} ${baseClass}`.trim()}>
+            {item.label || item}
+          </span>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div
@@ -281,7 +307,7 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
       style={inPanel ? { color: 'inherit', ...style } : style}
     >
       {resolved.icon && <i className={resolved.icon} style={iconStyle} aria-hidden="true" />}
-      {displayValue}
+      {resolved.value}
     </div>
   )
 }

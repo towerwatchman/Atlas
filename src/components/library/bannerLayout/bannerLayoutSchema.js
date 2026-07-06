@@ -84,7 +84,7 @@ export const BANNER_FIELD_REGISTRY = [
   { id: 'f95Id', label: 'F95 ID', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true, conditions: { source: ['f95'] } },
   { id: 'steamId', label: 'Steam ID', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true, conditions: { source: ['steam'] } },
   { id: 'lewdCornerId', label: 'LewdCorner ID', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true, conditions: { source: ['lewdcorner'] } },
-  { id: 'sourceRating', label: 'Source Rating', category: 'Ratings', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-right', defaultFontSize: 10, hideWhenEmpty: true, conditions: { browseOnly: true } },
+  { id: 'sourceRating', label: 'Source Rating', category: 'Ratings', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-right', defaultFontSize: 10, hideWhenEmpty: true },
   { id: 'personalRating', label: 'Personal Rating', category: 'Ratings', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-right', defaultFontSize: 10, hideWhenEmpty: true, conditions: { localOnly: true } },
   { id: 'playtime', label: 'Playtime', category: 'Activity', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true, conditions: { localOnly: true } },
   { id: 'lastPlayed', label: 'Last Played', category: 'Activity', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true, conditions: { localOnly: true } },
@@ -213,8 +213,26 @@ export const normalizeBannerLayoutId = (layoutId) => {
   return String(layoutId)
 }
 
+// Dividers are repeatable decorative lines (not tied to the fixed field
+// registry). Each has a unique id and a type marker so it can live in the same
+// fields array as normal fields while being handled specially everywhere.
+export const normalizeBannerDivider = (field) => ({
+  id: field.id,
+  type: 'divider',
+  region: regionSet.has(field.region) ? field.region : 'bottom',
+  row: clampInt(field.row, 0, 30, 0),
+  order: clampInt(field.order, 0, 100, 0),
+  align: alignSet.has(field.align) ? field.align : 'left',
+  orientation: field.orientation === 'vertical' ? 'vertical' : 'horizontal',
+  lineColor: sanitizeColor(field.lineColor) || '#ffffff',
+  lineSize: clampInt(field.lineSize, 1, 20, 2),
+  visible: field.visible !== false,
+})
+
 export const normalizeBannerField = (field) => {
-  if (!field || !fieldSet.has(field.id) || field.visible === false) return null
+  if (!field || field.visible === false) return null
+  if (field.type === 'divider') return normalizeBannerDivider(field)
+  if (!fieldSet.has(field.id)) return null
   const registry = fieldRegistryById.get(field.id) || {}
   return {
     ...field,
@@ -307,6 +325,10 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
   const fieldsById = new Map()
 
   for (const field of [...fallbackFields, ...sourceFields]) {
+    if (field?.type === 'divider' && field?.id) {
+      fieldsById.set(field.id, normalizeBannerDivider(field))
+      continue
+    }
     if (!fieldSet.has(field?.id)) continue
     const registry = fieldRegistryById.get(field.id) || {}
     fieldsById.set(field.id, {

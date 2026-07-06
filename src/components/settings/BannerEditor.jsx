@@ -610,6 +610,34 @@ const BannerEditor = () => {
     }))
   }
 
+  // Dividers are repeatable, so they're added/removed outright rather than
+  // toggled visible. Drop a new one into the first enabled panel (bottom
+  // preferred), where a full-row line makes sense.
+  const addDivider = () => {
+    const id = `divider-${Date.now().toString(36)}-${Math.floor(Math.random() * 1000)}`
+    markCustom((current) => {
+      const sides = ['bottom', 'top', 'left', 'right']
+      const region = sides.find((side) => current.panels?.[side]?.enabled) || 'bottom'
+      const rows = current.fields.filter((f) => f.region === region).map((f) => f.row || 0)
+      const row = rows.length ? Math.max(...rows) + 1 : 0
+      return {
+        ...current,
+        fields: [
+          ...current.fields,
+          { id, type: 'divider', region, row, order: 0, align: 'left', orientation: 'horizontal', lineColor: '#ffffff', lineSize: 2, visible: true },
+        ],
+      }
+    })
+    return id
+  }
+
+  const removeField = (fieldId) => {
+    markCustom((current) => ({
+      ...current,
+      fields: current.fields.filter((field) => field.id !== fieldId),
+    }))
+  }
+
   const updateImageFit = (imageFit) => {
     markCustom((current) => ({
       ...current,
@@ -807,6 +835,8 @@ const BannerEditor = () => {
           fieldCategories={BANNER_FIELD_CATEGORIES}
           onFieldChange={updateField}
           onResetField={resetField}
+          onAddDivider={addDivider}
+          onRemoveField={removeField}
           onEnablePanel={enablePanel}
           onDisablePanel={(side) => updatePanel(side, { enabled: false })}
           eyedropperAvailable={eyedropperAvailable}
