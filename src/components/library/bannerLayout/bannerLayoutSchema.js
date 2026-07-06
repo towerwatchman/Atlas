@@ -226,6 +226,14 @@ export const normalizeBannerDivider = (field) => ({
   orientation: field.orientation === 'vertical' ? 'vertical' : 'horizontal',
   lineColor: sanitizeColor(field.lineColor) || '#ffffff',
   lineSize: clampInt(field.lineSize, 1, 20, 2),
+  // Padding around the line so it doesn't sit flush against the panel edges.
+  // Horizontal dividers default to a little left/right inset plus 2px top/bottom.
+  padding: {
+    top: clampInt(field.padding?.top, 0, 48, 2),
+    right: clampInt(field.padding?.right, 0, 48, 4),
+    bottom: clampInt(field.padding?.bottom, 0, 48, 2),
+    left: clampInt(field.padding?.left, 0, 48, 4),
+  },
   visible: field.visible !== false,
 })
 

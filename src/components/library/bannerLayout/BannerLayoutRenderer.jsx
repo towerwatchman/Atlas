@@ -183,10 +183,25 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
     const vertical = field.orientation === 'vertical'
     const size = Math.max(1, Number(field.lineSize) || 2)
     const color = field.lineColor || '#ffffff'
+    const pad = field.padding || {}
+    const wrapperStyle = {
+      width: vertical ? undefined : '100%',
+      alignSelf: vertical ? 'stretch' : undefined,
+      paddingTop: pad.top ?? 2,
+      paddingRight: pad.right ?? 4,
+      paddingBottom: pad.bottom ?? 2,
+      paddingLeft: pad.left ?? 4,
+      boxSizing: 'border-box',
+      display: vertical ? 'flex' : 'block',
+    }
     const lineStyle = vertical
       ? { width: size, alignSelf: 'stretch', minHeight: '1em', backgroundColor: color, borderRadius: size > 3 ? 2 : 1 }
       : { width: '100%', height: size, backgroundColor: color, borderRadius: size > 3 ? 2 : 1 }
-    return <div key={`${field.id}-${index}`} style={lineStyle} aria-hidden="true" />
+    return (
+      <div key={`${field.id}-${index}`} style={wrapperStyle} aria-hidden="true">
+        <div style={lineStyle} />
+      </div>
+    )
   }
 
   const resolved = resolveBannerField(field.id, game)

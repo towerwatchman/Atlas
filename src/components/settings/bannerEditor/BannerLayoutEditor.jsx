@@ -159,8 +159,8 @@ const BannerLayoutEditor = ({
     `${base} ${isDropZoneActive(key) ? 'border-accent bg-accent/10' : 'border-border'}`
 
   return (
-    <section className="space-y-3">
-      <p className="text-xs opacity-60">
+    <section className="flex flex-col flex-1 min-h-0 gap-3">
+      <p className="text-xs opacity-60 flex-shrink-0">
         Drag a field from the left onto the image or a panel — or click a field, then click a zone. Panel
         sizes and colors live in the Panels tab.
         {placingFieldId && (
@@ -171,9 +171,9 @@ const BannerLayoutEditor = ({
         )}
       </p>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[220px_minmax(340px,1fr)_280px] gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-[240px_minmax(340px,1fr)_360px] gap-4 flex-1 min-h-0">
         {/* ── Palette ──────────────────────────────────────────────── */}
-        <div className="space-y-3 max-h-[560px] overflow-y-auto pr-1">
+        <div className="space-y-3 h-full min-h-0 overflow-y-auto pr-1">
           <button
             type="button"
             onClick={() => { const id = onAddDivider?.(); if (id) { setSelectedFieldId(id); setPlacingFieldId(null) } }}
@@ -218,7 +218,7 @@ const BannerLayoutEditor = ({
         </div>
 
         {/* ── Zone canvas (banner skeleton) ────────────────────────── */}
-        <div className="space-y-2">
+        <div className="space-y-2 h-full min-h-0 overflow-y-auto pr-1">
           {/* Top panel */}
           {enabledPanelSides.includes('top')
             ? <PanelZone side="top" />
@@ -272,7 +272,9 @@ const BannerLayoutEditor = ({
         </div>
 
         {/* ── Inspector ────────────────────────────────────────────── */}
-        <Inspector />
+        <div className="h-full min-h-0 overflow-y-auto pr-1">
+          <Inspector />
+        </div>
       </div>
     </section>
   )
@@ -351,7 +353,7 @@ const BannerLayoutEditor = ({
     const region = field.region || 'image'
     if (field.type === 'divider') {
       return (
-        <div className="border border-border rounded p-3 bg-secondary/60 space-y-3 max-h-[560px] overflow-y-auto">
+        <div className="border border-border rounded p-3 bg-secondary/60 space-y-3">
           <div className="font-medium">{field.orientation === 'vertical' ? '│ Vertical line' : '─ Horizontal line'}</div>
           <label className="block text-sm">
             Orientation
@@ -379,10 +381,28 @@ const BannerLayoutEditor = ({
             Thickness ({field.lineSize ?? 2}px)
             <input type="range" min="1" max="20" step="1" className="mt-2 w-full" value={field.lineSize ?? 2} onChange={(e) => onFieldChange(field.id, { lineSize: Number(e.target.value) })} />
           </label>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <label className="block">
+              Padding top
+              <input type="number" min="0" max="48" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.padding?.top ?? 2} onChange={(e) => onFieldChange(field.id, { padding: { ...field.padding, top: Number(e.target.value) } })} />
+            </label>
+            <label className="block">
+              Padding bottom
+              <input type="number" min="0" max="48" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.padding?.bottom ?? 2} onChange={(e) => onFieldChange(field.id, { padding: { ...field.padding, bottom: Number(e.target.value) } })} />
+            </label>
+            <label className="block">
+              Padding left
+              <input type="number" min="0" max="48" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.padding?.left ?? 4} onChange={(e) => onFieldChange(field.id, { padding: { ...field.padding, left: Number(e.target.value) } })} />
+            </label>
+            <label className="block">
+              Padding right
+              <input type="number" min="0" max="48" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.padding?.right ?? 4} onChange={(e) => onFieldChange(field.id, { padding: { ...field.padding, right: Number(e.target.value) } })} />
+            </label>
+          </div>
           <label className="block text-sm">
             Color
             <div className="mt-1 flex items-center gap-2">
-              <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(field.lineColor || '') ? field.lineColor : '#ffffff'} onChange={(e) => onFieldChange(field.id, { lineColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+              <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.lineColor || '') ? field.lineColor : '#ffffff'} onChange={(e) => onFieldChange(field.id, { lineColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
               <input type="text" value={field.lineColor ?? '#ffffff'} onChange={(e) => onFieldChange(field.id, { lineColor: e.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="#ffffff" />
               {eyedropperAvailable && (
                 <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { lineColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
@@ -403,7 +423,7 @@ const BannerLayoutEditor = ({
     }
 
     return (
-      <div className="border border-border rounded p-3 bg-secondary/60 space-y-3 max-h-[560px] overflow-y-auto">
+      <div className="border border-border rounded p-3 bg-secondary/60 space-y-3">
         <div className="font-medium">{fieldLabels[field.id]}</div>
 
         <label className="flex items-center gap-2 text-sm">
@@ -509,7 +529,7 @@ const BannerLayoutEditor = ({
           <label className="block">
             Border color
             <div className="mt-1 flex items-center gap-2">
-              <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(field.border?.color || '') ? field.border.color : '#000000'} onChange={(e) => onFieldChange(field.id, { border: { ...field.border, color: e.target.value } })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+              <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.border?.color || '') ? field.border.color : '#000000'} onChange={(e) => onFieldChange(field.id, { border: { ...field.border, color: e.target.value } })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
               <input type="text" value={field.border?.color ?? '#000000'} onChange={(e) => onFieldChange(field.id, { border: { ...field.border, color: e.target.value } })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="#000000" />
               {eyedropperAvailable && (
                 <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { border: { ...field.border, color } }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
@@ -524,7 +544,7 @@ const BannerLayoutEditor = ({
         <label className="block text-sm">
           Text color
           <div className="mt-1 flex items-center gap-2">
-            <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(field.textColor || '') ? field.textColor : '#ffffff'} onChange={(e) => onFieldChange(field.id, { textColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+            <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.textColor || '') ? field.textColor : '#ffffff'} onChange={(e) => onFieldChange(field.id, { textColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
             <input type="text" value={field.textColor ?? ''} onChange={(e) => onFieldChange(field.id, { textColor: e.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="(default)" />
             {eyedropperAvailable && (
               <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { textColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
@@ -541,7 +561,7 @@ const BannerLayoutEditor = ({
           <label className="block text-sm">
             Badge color
             <div className="mt-1 flex items-center gap-2">
-              <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(field.badgeColor || '') ? field.badgeColor : '#3f4043'} onChange={(e) => onFieldChange(field.id, { badgeColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+              <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.badgeColor || '') ? field.badgeColor : '#3f4043'} onChange={(e) => onFieldChange(field.id, { badgeColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
               <input type="text" value={field.badgeColor ?? ''} onChange={(e) => onFieldChange(field.id, { badgeColor: e.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="(auto)" />
               {eyedropperAvailable && (
                 <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { badgeColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
@@ -562,7 +582,7 @@ const BannerLayoutEditor = ({
           <label className="block">
             Outline color
             <div className="mt-1 flex items-center gap-2">
-              <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(field.outline?.color || '') ? field.outline.color : '#000000'} onChange={(e) => onFieldChange(field.id, { outline: { ...field.outline, color: e.target.value } })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+              <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.outline?.color || '') ? field.outline.color : '#000000'} onChange={(e) => onFieldChange(field.id, { outline: { ...field.outline, color: e.target.value } })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
               {eyedropperAvailable && (
                 <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { outline: { ...field.outline, color } }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
                   <i className="fas fa-eye-dropper"></i>

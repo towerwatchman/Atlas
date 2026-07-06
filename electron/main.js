@@ -1046,10 +1046,10 @@ function createBannerEditorWindow() {
     return
   }
   const windowState = applySavedWindowBounds('bannerEditor', {
-    width: 1444,
-    height: 1050,
-    minWidth: 1444,
-    minHeight: 1050,
+    width: 1644,
+    height: 1150,
+    minWidth: 1644,
+    minHeight: 1150,
     frame: false,
     // Windows draws a native DWM resize border (often tinted with the
     // system accent color) around frame:false windows that aren't also

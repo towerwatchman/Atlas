@@ -839,7 +839,7 @@ const BannerEditor = () => {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pt-3">
+      <div className={`flex-1 min-h-0 pt-3 ${activeTab === 'layout' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto space-y-4'}`}>
       
       {activeTab === 'layout' && (
         <BannerLayoutEditor
@@ -908,7 +908,7 @@ const BannerEditor = () => {
               <label className="block">
                 Border color
                 <div className="mt-1 flex items-center gap-2">
-                  <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(draftLayout.border?.color || '') ? draftLayout.border.color : '#000000'} onChange={(event) => updateBorder({ color: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer" />
+                  <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(draftLayout.border?.color || '') ? draftLayout.border.color : '#000000'} onChange={(event) => updateBorder({ color: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer" />
                   {eyedropperAvailable && (
                     <button type="button" title="Pick a color from anywhere on screen" onClick={() => pickColorFromScreen((color) => updateBorder({ color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
                       <i className="fas fa-eye-dropper"></i>
@@ -952,7 +952,7 @@ const BannerEditor = () => {
               <label className="block">
                 Shadow color
                 <div className="mt-1 flex items-center gap-2">
-                  <input type="color" disabled={draftLayout.shadow?.enabled !== true} value={/^#[0-9a-fA-F]{6}$/.test(draftLayout.shadow?.color || '') ? draftLayout.shadow.color : '#000000'} onChange={(event) => updateShadow({ color: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer disabled:opacity-50" />
+                  <input type="color" onClick={(e) => e.stopPropagation()} disabled={draftLayout.shadow?.enabled !== true} value={/^#[0-9a-fA-F]{6}$/.test(draftLayout.shadow?.color || '') ? draftLayout.shadow.color : '#000000'} onChange={(event) => updateShadow({ color: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer disabled:opacity-50" />
                   <input type="text" disabled={draftLayout.shadow?.enabled !== true} value={draftLayout.shadow?.color ?? 'rgba(0,0,0,0.5)'} onChange={(event) => updateShadow({ color: event.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1 disabled:opacity-50" placeholder="rgba(0,0,0,0.5) or #000000" />
                   {eyedropperAvailable && (
                     <button type="button" disabled={draftLayout.shadow?.enabled !== true} title="Pick a color from anywhere on screen" onClick={() => pickColorFromScreen((color) => updateShadow({ color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover disabled:opacity-50">
@@ -967,7 +967,7 @@ const BannerEditor = () => {
             <div className="space-y-2 text-sm max-w-md">
               <p className="text-xs opacity-60 -mt-1">Applies to icons on stat fields (playtime, rating, likes, last updated, …). Leave blank to inherit each field's text color.</p>
               <div className="flex items-center gap-2">
-                <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(draftLayout.iconColor || '') ? draftLayout.iconColor : '#ffffff'} onChange={(event) => updateIconColor(event.target.value)} className="h-8 w-10 rounded bg-transparent cursor-pointer" />
+                <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(draftLayout.iconColor || '') ? draftLayout.iconColor : '#ffffff'} onChange={(event) => updateIconColor(event.target.value)} className="h-8 w-10 rounded bg-transparent cursor-pointer" />
                 <input type="text" value={draftLayout.iconColor ?? ''} onChange={(event) => updateIconColor(event.target.value)} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="(inherit)" />
                 {eyedropperAvailable && (
                   <button type="button" title="Pick a color from anywhere on screen" onClick={() => pickColorFromScreen((color) => updateIconColor(color))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
@@ -1128,7 +1128,7 @@ const BannerEditor = () => {
                     <label className="block">
                       Background
                       <div className="mt-1 flex items-center gap-2">
-                        <input type="color" disabled={!enabled} value={hexOnly(bg, '#0e1116')} onChange={(event) => updatePanel(side, { background: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer disabled:opacity-50" />
+                        <input type="color" onClick={(e) => e.stopPropagation()} disabled={!enabled} value={hexOnly(bg, '#0e1116')} onChange={(event) => updatePanel(side, { background: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer disabled:opacity-50" />
                         <input type="text" disabled={!enabled} value={bg} onChange={(event) => updatePanel(side, { background: event.target.value })} className="flex-1 bg-secondary border border-border text-text rounded p-1 disabled:opacity-50" placeholder="#0e1116 or rgba(...)" />
                         {eyedropperAvailable && (
                           <button type="button" disabled={!enabled} title="Pick a color from anywhere on screen" onClick={() => pickColorFromScreen((color) => updatePanel(side, { background: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover disabled:opacity-50">
@@ -1147,7 +1147,7 @@ const BannerEditor = () => {
                       <label className="block">
                         Border color
                         <div className="mt-1 flex items-center gap-2">
-                          <input type="color" disabled={!enabled} value={hexOnly(panel.border?.color, '#000000')} onChange={(event) => updatePanelBorder(side, { color: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer disabled:opacity-50" />
+                          <input type="color" onClick={(e) => e.stopPropagation()} disabled={!enabled} value={hexOnly(panel.border?.color, '#000000')} onChange={(event) => updatePanelBorder(side, { color: event.target.value })} className="h-8 w-10 rounded bg-transparent cursor-pointer disabled:opacity-50" />
                           <input type="text" disabled={!enabled} value={panel.border?.color ?? '#000000'} onChange={(event) => updatePanelBorder(side, { color: event.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1 disabled:opacity-50" placeholder="#000000" />
                           {eyedropperAvailable && (
                             <button type="button" disabled={!enabled} title="Pick a color from anywhere on screen" onClick={() => pickColorFromScreen((color) => updatePanelBorder(side, { color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover disabled:opacity-50">
