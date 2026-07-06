@@ -141,6 +141,7 @@ const App = () => {
     return {
       bannerWidth: total.width,
       bannerHeight: total.height,
+      shadowEnabled: layout?.shadow?.enabled === true,
     }
   }, [selectedBannerTemplate])
   const [importStatus, setImportStatus] = useState({ text: '', progress: 0, total: 0 })
@@ -489,11 +490,12 @@ const App = () => {
     return (
       <div
         key={game.record_id}
+        className="hover:z-20"
         style={{
           ...style,
           display: 'flex',
           justifyContent: 'center',
-          padding: '8px 4px',
+          padding: bannerSize.shadowEnabled ? '16px 12px 32px' : '8px 4px',
           maxWidth: '100%',
         }}
       >
@@ -1493,8 +1495,8 @@ const App = () => {
                 const adjustedWidth = Math.max(0, width)
                 const currentColumnCount = getColumnCountForWidth(adjustedWidth)
                 const currentColumnWidth = currentColumnCount > 1
-                  ? Math.max(bannerSize.bannerWidth + 16, adjustedWidth / currentColumnCount)
-                  : Math.max(adjustedWidth, bannerSize.bannerWidth + 16)
+                  ? Math.max(bannerSize.bannerWidth + (bannerSize.shadowEnabled ? 24 : 16), adjustedWidth / currentColumnCount)
+                  : Math.max(adjustedWidth, bannerSize.bannerWidth + (bannerSize.shadowEnabled ? 24 : 16))
                 const currentRowCount = Math.ceil(filteredGames.length / currentColumnCount)
                 return (
                   <Grid
@@ -1502,7 +1504,7 @@ const App = () => {
                     columnCount={currentColumnCount}
                     columnWidth={currentColumnWidth}
                     rowCount={currentRowCount}
-                    rowHeight={bannerSize.bannerHeight + 16}
+                    rowHeight={bannerSize.bannerHeight + (bannerSize.shadowEnabled ? 48 : 16)}
                     height={height}
                     width={adjustedWidth}
                     cellRenderer={getCellRenderer(currentColumnCount)}

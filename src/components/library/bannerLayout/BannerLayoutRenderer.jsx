@@ -27,13 +27,14 @@ const bannerStyles = `
   .banner-root[data-hover="classic-tilt"]:hover {
     transform: rotateX(7deg) translateY(-6px) scale(var(--hover-scale, 1.02));
     transition: transform 0.35s ease-in-out 0.1s;
+    z-index: 10;
   }
   /* Steam-style: flat zoom + subtle brighten + outer glow/shadow, no tilt. */
   .banner-root[data-hover="zoom"]:hover {
     transform: scale(var(--hover-scale, 1.05));
     filter: brightness(1.08);
     box-shadow: 0 0 0 2px rgba(255,255,255,0.35), 0 10px 26px rgba(0,0,0,0.55);
-    z-index: 5;
+    z-index: 10;
   }
   .banner-root[data-hover="none"]:hover {
     transform: none;
@@ -317,11 +318,18 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
   const [cyclePreviews, setCyclePreviews] = React.useState([])
   const [cycleIndex, setCycleIndex] = React.useState(0)
   const [manualMode, setManualMode] = React.useState(false)
+  // Previews don't start the instant you hover — we wait one interval first
+  // (so a quick pass-over doesn't flicker), then show the first preview and
+  // continue cycling. cycleActive gates that "after the delay" state.
+  const [cycleActive, setCycleActive] = React.useState(false)
   const previewsFetchedRef = React.useRef(false)
+  const hoverDelayRef = React.useRef(null)
 
   const handleBannerMouseEnter = React.useCallback(() => {
     if (!cycleEnabled) return
     setIsHovering(true)
+    if (hoverDelayRef.current) clearTimeout(hoverDelayRef.current)
+    hoverDelayRef.current = setTimeout(() => setCycleActive(true), cycleIntervalMs)
     if (previewsFetchedRef.current) return
     previewsFetchedRef.current = true
     // Catalog/browse entries resolve their preview URLs differently from local
@@ -336,10 +344,15 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
         setCyclePreviews(images)
       })
       .catch(() => setCyclePreviews([]))
-  }, [cycleEnabled, game?.record_id])
+  }, [cycleEnabled, game?.record_id, cycleIntervalMs])
 
   const handleBannerMouseLeave = React.useCallback(() => {
+    if (hoverDelayRef.current) {
+      clearTimeout(hoverDelayRef.current)
+      hoverDelayRef.current = null
+    }
     setIsHovering(false)
+    setCycleActive(false)
     setCycleIndex(0)
     setManualMode(false)
   }, [])
@@ -362,17 +375,17 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
   )
 
   React.useEffect(() => {
-    if (!cycleEnabled || !isHovering || manualMode || cyclePreviews.length <= 1) return undefined
+    if (!cycleEnabled || !isHovering || !cycleActive || manualMode || cyclePreviews.length <= 1) return undefined
     const timer = setInterval(() => {
       setCycleIndex((prev) => (prev + 1) % cyclePreviews.length)
     }, cycleIntervalMs)
     return () => clearInterval(timer)
-  }, [cycleEnabled, isHovering, manualMode, cyclePreviews, cycleIntervalMs])
+  }, [cycleEnabled, isHovering, cycleActive, manualMode, cyclePreviews, cycleIntervalMs])
 
-  const showCycleArrows = cycleEnabled && isHovering && cyclePreviews.length > 1
+  const showCycleArrows = cycleEnabled && isHovering && cycleActive && cyclePreviews.length > 1
 
   const cyclingSrc =
-    cycleEnabled && isHovering && cyclePreviews.length > 0
+    cycleEnabled && isHovering && cycleActive && cyclePreviews.length > 0
       ? cyclePreviews[cycleIndex % cyclePreviews.length]
       : null
   const displaySrc = cyclingSrc || game.banner_url

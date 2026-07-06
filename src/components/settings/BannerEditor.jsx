@@ -116,7 +116,7 @@ const BannerEditor = () => {
   const [previewSource, setPreviewSource] = useState('sample')
   const [liveGame, setLiveGame] = useState(null)
   const [liveStatus, setLiveStatus] = useState('')
-  const [activeTab, setActiveTab] = useState('presets')
+  const [activeTab, setActiveTab] = useState('layout')
   const customSaveTimerRef = useRef(null)
 
   const selectedUserPreset = userPresets.find((preset) => preset.id === selectedPresetId)
@@ -125,7 +125,6 @@ const BannerEditor = () => {
   const syntheticPreviewGame = { ...previewGame, ...(previewModes[previewMode]?.patch || {}) }
   const activePreviewGame = previewSource === 'sample' ? syntheticPreviewGame : (liveGame || syntheticPreviewGame)
   const tabs = [
-    { id: 'presets', label: 'Presets' },
     { id: 'layout', label: 'Layout' },
     { id: 'sizeImage', label: 'Size & Image' },
     { id: 'panels', label: 'Panels' },
@@ -680,6 +679,45 @@ const BannerEditor = () => {
           scrolls. Previously this whole block lived inside the same
           scrollable container as that content. */}
       <div className="flex-shrink-0 space-y-4 pb-2">
+        {/* Preset bar (mirrors the theme editor): choose a preset, name it, and
+            save — always visible at the top rather than buried in a tab. */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
+          <label className="text-sm font-semibold">Preset</label>
+          <select
+            className="bg-secondary border border-border text-text text-sm rounded p-1.5"
+            value={selectedPresetId}
+            onChange={(event) => handlePresetChange(event.target.value)}
+          >
+            <optgroup label="Built-in">
+              {builtInBannerLayouts.map((layout) => (
+                <option key={layout.id} value={layout.id}>{layout.name}</option>
+              ))}
+            </optgroup>
+            {userPresets.length > 0 && (
+              <optgroup label="User">
+                {userPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>{preset.name}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <input
+            type="text"
+            className="bg-secondary border border-border text-text text-sm rounded p-1.5 w-48"
+            value={presetName}
+            placeholder="Preset name"
+            onChange={(event) => setPresetName(event.target.value)}
+          />
+          <button type="button" onClick={handleSavePreset} className="text-sm bg-accent text-white px-3 py-1.5 rounded hover:bg-accentHover">
+            {isUserPresetSelected ? 'Save' : 'Save as new'}
+          </button>
+          <button type="button" onClick={handleDuplicatePreset} className="text-sm bg-button text-text px-3 py-1.5 rounded hover:bg-buttonHover">Duplicate</button>
+          {isUserPresetSelected && (
+            <button type="button" onClick={handleDeletePreset} className="text-sm bg-button text-text px-3 py-1.5 rounded hover:bg-buttonHover">Delete</button>
+          )}
+          <button type="button" onClick={handleResetCustom} title="Reset the current layout back to the selected preset" className="text-sm bg-button text-text px-3 py-1.5 rounded hover:bg-buttonHover">Reset</button>
+          {statusText && <span className="text-xs opacity-70 ml-auto">{statusText}</span>}
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-sm font-semibold">Preview data</label>
@@ -719,7 +757,6 @@ const BannerEditor = () => {
             {selectedLayoutId === CUSTOM_BANNER_LAYOUT_ID
               ? `Editing a custom copy of ${selectedBuiltIn?.name || selectedUserPreset?.name || 'preset'}`
               : isUserPresetSelected ? `Saved as ${selectedUserPreset.name}` : 'Built-in preset'}
-            {statusText ? ` - ${statusText}` : ''}
           </span>
         </div>
 
@@ -744,53 +781,7 @@ const BannerEditor = () => {
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pt-3">
-      {activeTab === 'presets' && (
-        <section className="space-y-4">
-          <SectionHeader>Preset Selection</SectionHeader>
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(220px,320px)_minmax(220px,320px)] gap-3">
-            <label className="block text-sm">
-              Banner preset
-              <select
-                className="mt-1 w-full bg-secondary border border-border text-text rounded p-1"
-                value={selectedPresetId}
-                onChange={(event) => handlePresetChange(event.target.value)}
-              >
-                <optgroup label="Built-in">
-                  {builtInBannerLayouts.map((layout) => (
-                    <option key={layout.id} value={layout.id}>{layout.name}</option>
-                  ))}
-                </optgroup>
-                {userPresets.length > 0 && (
-                  <optgroup label="User">
-                    {userPresets.map((preset) => (
-                      <option key={preset.id} value={preset.id}>{preset.name}</option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-            </label>
-            <label className="block text-sm">
-              Preset name
-              <input
-                className="mt-1 w-full bg-secondary border border-border text-text rounded p-1"
-                value={presetName}
-                placeholder="Preset name"
-                onChange={(event) => setPresetName(event.target.value)}
-              />
-            </label>
-          </div>
-
-          <SectionHeader>Preset Actions</SectionHeader>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="bg-accent text-text px-3 py-1 rounded hover:bg-accentHover" onClick={handleSavePreset}>Save as preset</button>
-            <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleDuplicatePreset}>Duplicate preset</button>
-            <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleRenamePreset}>Rename preset</button>
-            <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleDeletePreset}>Delete preset</button>
-            <button type="button" className="bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={handleResetCustom}>Reset current layout to preset</button>
-          </div>
-        </section>
-      )}
-
+      
       {activeTab === 'layout' && (
         <BannerLayoutEditor
           layout={draftLayout}
