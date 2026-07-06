@@ -74,6 +74,13 @@ const orderedSlots = [
   'top-right-floating',
 ]
 
+const panelAlignJustify = {
+  left: 'justify-start',
+  center: 'justify-center',
+  right: 'justify-end',
+  between: 'justify-between',
+}
+
 const objectPositionByImagePosition = {
   center: 'center',
   top: 'center top',
@@ -154,7 +161,7 @@ const renderMarkerIcon = (fieldId) => {
   )
 }
 
-const BannerField = ({ field, game, index }) => {
+const BannerField = ({ field, game, index, inPanel = false }) => {
   const resolved = resolveBannerField(field.id, game)
   if (!fieldPassesConditions(field, game)) return null
   if (!resolved.visible) return null
@@ -214,21 +221,28 @@ const BannerField = ({ field, game, index }) => {
         className={`border rounded-sm px-2 py-0.5 truncate max-w-[180px] ${badgeVariantClasses[resolved.variant || 'neutral'] || 'text-white'}`}
         style={{ ...style, ...(resolved.variant ? {} : getBadgeStyle(field.id, resolved.value)) }}
       >
+        {resolved.icon && <i className={resolved.icon} style={{ marginRight: 4 }} aria-hidden="true" />}
         {resolved.value}
       </div>
     )
   }
 
-  const titleClass =
-    field.id === 'title'
-      ? 'text-shadow-fx text-glow-fx game-titles font-semibold max-w-[360px] truncate'
-      : 'max-w-[300px] truncate'
+  const isTitle = field.id === 'title'
+  const baseClass = isTitle ? 'game-titles font-semibold truncate' : 'truncate'
+  const maxWClass = inPanel ? 'max-w-full' : isTitle ? 'max-w-[360px]' : 'max-w-[300px]'
+  const colorClass = inPanel ? '' : 'text-white drop-shadow'
+  const shadowClass = isTitle && !inPanel ? 'text-shadow-fx text-glow-fx' : ''
   const displayValue = Array.isArray(resolved.value)
     ? resolved.value.map((item) => item.label || item).join(' ')
     : resolved.value
 
   return (
-    <div key={`${field.id}-${index}`} className={`text-white drop-shadow ${titleClass}`} style={style}>
+    <div
+      key={`${field.id}-${index}`}
+      className={`${colorClass} ${shadowClass} ${baseClass} ${maxWClass}`.trim()}
+      style={inPanel ? { ...style, color: 'inherit' } : style}
+    >
+      {resolved.icon && <i className={resolved.icon} style={{ marginRight: 4 }} aria-hidden="true" />}
       {displayValue}
     </div>
   )
@@ -327,14 +341,77 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
       : null
   const displaySrc = cyclingSrc || game.banner_url
 
+  // Split fields into those overlaid on the image (region 'image', placed by
+  // corner slot) and those living in a side panel (region top/right/bottom/
+  // left, placed by row/align). Panels let the banner be larger than the art.
   const fieldsBySlot = new Map()
+  const panelFieldsBySide = { top: [], right: [], bottom: [], left: [] }
 
   for (const rawField of normalizedLayout?.fields || []) {
     const field = normalizeBannerField(rawField)
     if (!field) continue
+    if (field.region && field.region !== 'image') {
+      if (panelFieldsBySide[field.region]) panelFieldsBySide[field.region].push(field)
+      continue
+    }
     const fields = fieldsBySlot.get(field.slot) || []
     fields.push(field)
     fieldsBySlot.set(field.slot, fields)
+  }
+
+  // Which panels are actually active, and how far they inset the image.
+  const panels = normalizedLayout?.panels || {}
+  const activePanel = (sideKey) => {
+    const panel = panels[sideKey]
+    return panel && panel.enabled && panel.size > 0 ? panel : null
+  }
+  const topP = activePanel('top')
+  const bottomP = activePanel('bottom')
+  const leftP = activePanel('left')
+  const rightP = activePanel('right')
+  const topSize = topP ? topP.size : 0
+  const bottomSize = bottomP ? bottomP.size : 0
+  const leftSize = leftP ? leftP.size : 0
+  const rightSize = rightP ? rightP.size : 0
+  const imageRegionStyle = { top: topSize, bottom: bottomSize, left: leftSize, right: rightSize }
+
+  const renderPanel = (sideKey, panel, positionStyle) => {
+    if (!panel) return null
+    const rowMap = new Map()
+    for (const field of panelFieldsBySide[sideKey] || []) {
+      const arr = rowMap.get(field.row) || []
+      arr.push(field)
+      rowMap.set(field.row, arr)
+    }
+    const rows = [...rowMap.entries()].sort((a, b) => a[0] - b[0])
+    return (
+      <div
+        className="absolute overflow-hidden flex flex-col z-20"
+        style={{
+          ...positionStyle,
+          background: panel.background,
+          color: panel.textColor,
+          padding: panel.padding,
+          gap: panel.gap,
+        }}
+      >
+        {rows.map(([row, rowFields]) => {
+          const ordered = [...rowFields].sort((a, b) => a.order - b.order)
+          const align = ordered[0]?.align || 'left'
+          return (
+            <div
+              key={row}
+              className={`flex items-center flex-wrap ${panelAlignJustify[align] || 'justify-start'}`}
+              style={{ gap: panel.gap }}
+            >
+              {ordered.map((field, index) => (
+                <BannerField key={`${field.id}-${index}`} field={field} game={game} index={index} inPanel />
+              ))}
+            </div>
+          )
+        })}
+      </div>
+    )
   }
 
   return (
@@ -347,6 +424,7 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
       onMouseLeave={handleBannerMouseLeave}
     >
       <style>{bannerStyles}</style>
+      <div className={`absolute overflow-hidden ${fallbackClass}`} style={imageRegionStyle}>
       <div className={`absolute inset-0 w-full h-full z-0 ${fallbackClass}`}>
         {imageVisible && displaySrc && isBlurredFill ? (
           <>
@@ -435,6 +513,11 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
           </button>
         </>
       )}
+      </div>
+      {renderPanel('top', topP, { top: 0, left: 0, width: '100%', height: topSize })}
+      {renderPanel('bottom', bottomP, { bottom: 0, left: 0, width: '100%', height: bottomSize })}
+      {renderPanel('left', leftP, { top: topSize, bottom: bottomSize, left: 0, width: leftSize })}
+      {renderPanel('right', rightP, { top: topSize, bottom: bottomSize, right: 0, width: rightSize })}
     </div>
   )
 }

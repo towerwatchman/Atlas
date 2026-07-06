@@ -55,6 +55,11 @@ export const SUPPORTED_BANNER_FIELD_IDS = [
   'tags',
   'censored',
   'language',
+  'likes',
+  'views',
+  'downloads',
+  'comments',
+  'platforms',
 ]
 
 export const BANNER_FIELD_REGISTRY = [
@@ -83,11 +88,27 @@ export const BANNER_FIELD_REGISTRY = [
   { id: 'tags', label: 'Tags', category: 'Metadata', supportsBadge: true, defaultVisible: false, defaultSlot: 'center', defaultFontSize: 10, hideWhenEmpty: true },
   { id: 'censored', label: 'Censored', category: 'Metadata', supportsBadge: true, defaultVisible: false, defaultSlot: 'center-right', defaultFontSize: 10, hideWhenEmpty: true },
   { id: 'language', label: 'Language', category: 'Metadata', supportsBadge: true, defaultVisible: false, defaultSlot: 'center-right', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'likes', label: 'Likes', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'views', label: 'Views', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'downloads', label: 'Downloads', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'comments', label: 'Comments', category: 'Source', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true },
+  { id: 'platforms', label: 'Platforms', category: 'Metadata', supportsBadge: true, defaultVisible: false, defaultSlot: 'bottom-left', defaultFontSize: 10, hideWhenEmpty: true },
 ]
 
 export const BANNER_FIELD_CATEGORIES = ['Basic', 'Source', 'State', 'Ratings', 'Activity', 'Metadata']
 
+// Panels are solid colored regions on any side of the image. When a panel
+// is enabled, the image shrinks to the remaining middle area and the panel
+// holds fields laid out as a vertical stack of rows (see region/row/align
+// on fields). This is what lets a banner be larger than its image.
+export const BANNER_PANEL_SIDES = ['top', 'right', 'bottom', 'left']
+export const BANNER_PANEL_ALIGNMENTS = ['left', 'center', 'right', 'between']
+export const BANNER_PANEL_SIZE_LIMITS = { min: 0, max: 400 }
+export const BANNER_FIELD_REGIONS = ['image', 'top', 'right', 'bottom', 'left']
+
 const slotSet = new Set(SUPPORTED_BANNER_SLOTS)
+const regionSet = new Set(BANNER_FIELD_REGIONS)
+const alignSet = new Set(BANNER_PANEL_ALIGNMENTS)
 const fieldSet = new Set(SUPPORTED_BANNER_FIELD_IDS)
 const fieldRegistryById = new Map(BANNER_FIELD_REGISTRY.map((field) => [field.id, field]))
 const fitSet = new Set(['contain', 'cover'])
@@ -108,6 +129,25 @@ const clampNumber = (value, min, max, fallback) => {
   if (!Number.isFinite(numeric)) return fallback
   return Math.min(max, Math.max(min, numeric))
 }
+
+const clampInt = (value, min, max, fallback) => Math.round(clampNumber(value, min, max, fallback))
+
+// Panel background/text accept any CSS color the banner editor produces; it's
+// saved verbatim with the banner. We only guard against non-strings.
+const sanitizeColor = (value) => {
+  if (typeof value !== 'string') return null
+  const v = value.trim()
+  return v || null
+}
+
+const normalizePanel = (panel = {}, fallback = {}) => ({
+  enabled: panel && panel.enabled === true,
+  size: clampInt(panel?.size, BANNER_PANEL_SIZE_LIMITS.min, BANNER_PANEL_SIZE_LIMITS.max, fallback.size ?? 0),
+  background: sanitizeColor(panel?.background) || fallback.background || '#0e1116',
+  textColor: sanitizeColor(panel?.textColor) || fallback.textColor || '#ffffff',
+  padding: clampInt(panel?.padding, 0, 48, fallback.padding ?? 10),
+  gap: clampInt(panel?.gap, 0, 32, fallback.gap ?? 6),
+})
 
 const cloneLayout = (layout) => JSON.parse(JSON.stringify(layout))
 
@@ -147,6 +187,10 @@ export const normalizeBannerField = (field) => {
   return {
     ...field,
     slot: slotSet.has(field.slot) ? field.slot : registry.defaultSlot || 'bottom-left',
+    region: regionSet.has(field.region) ? field.region : 'image',
+    row: clampInt(field.row, 0, 30, 0),
+    align: alignSet.has(field.align) ? field.align : 'left',
+    order: clampInt(field.order, 0, 100, 0),
     fontSize: clampNumber(field.fontSize, 8, 24, registry.defaultFontSize || (field.badge ? 10 : 12)),
     badge: registry.supportsBadge === true && field.badge === true,
     hideWhenEmpty: field.hideWhenEmpty === true,
@@ -198,6 +242,14 @@ export const mergeBannerLayout = (baseLayout, overrides = {}) => {
         ...overrides.image?.blurBackground,
       },
     },
+    panels: {
+      ...base.panels,
+      ...overrides.panels,
+      top: { ...base.panels?.top, ...overrides.panels?.top },
+      right: { ...base.panels?.right, ...overrides.panels?.right },
+      bottom: { ...base.panels?.bottom, ...overrides.panels?.bottom },
+      left: { ...base.panels?.left, ...overrides.panels?.left },
+    },
     fields: Array.isArray(overrides.fields) ? overrides.fields : base.fields,
   }
 }
@@ -215,6 +267,10 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
     fieldsById.set(field.id, {
       id: field.id,
       slot: slotSet.has(field.slot) ? field.slot : registry.defaultSlot || 'bottom-left',
+      region: regionSet.has(field.region) ? field.region : 'image',
+      row: clampInt(field.row, 0, 30, 0),
+      align: alignSet.has(field.align) ? field.align : 'left',
+      order: clampInt(field.order, 0, 100, 0),
       visible: field.visible !== false,
       fontSize: clampNumber(field.fontSize, 8, 24, registry.defaultFontSize || (field.badge ? 10 : 12)),
       badge: registry.supportsBadge === true && field.badge === true,
@@ -228,6 +284,10 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
     fieldsById.set(registry.id, {
       id: registry.id,
       slot: registry.defaultSlot || 'bottom-left',
+      region: 'image',
+      row: 0,
+      align: 'left',
+      order: 0,
       visible: registry.defaultVisible === true,
       fontSize: registry.defaultFontSize || 12,
       badge: false,
@@ -292,6 +352,12 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
         opacity: clampNumber(source.overlays?.bottom?.opacity, 0, 1, fallbackLayout?.overlays?.bottom?.opacity ?? 0.8),
       },
     },
+    panels: {
+      top: normalizePanel(source.panels?.top, fallbackLayout?.panels?.top),
+      right: normalizePanel(source.panels?.right, fallbackLayout?.panels?.right),
+      bottom: normalizePanel(source.panels?.bottom, fallbackLayout?.panels?.bottom),
+      left: normalizePanel(source.panels?.left, fallbackLayout?.panels?.left),
+    },
     fields: Array.from(fieldsById.values()),
   }
 }
@@ -310,7 +376,11 @@ export const validateBannerLayout = (layout) => {
 
   for (const field of layout.fields || []) {
     if (!fieldSet.has(field.id)) errors.push(`Invalid field id ${field.id}`)
-    if (!slotSet.has(field.slot)) errors.push(`Invalid slot ${field.slot}`)
+    const region = field.region || 'image'
+    if (!regionSet.has(region)) errors.push(`Invalid region ${region}`)
+    // Only image-region fields require a corner slot; panel fields use row/align.
+    if (region === 'image' && !slotSet.has(field.slot)) errors.push(`Invalid slot ${field.slot}`)
+    if (region !== 'image' && field.align && !alignSet.has(field.align)) errors.push(`Invalid align ${field.align}`)
     const fontSize = Number(field.fontSize)
     if (Number.isFinite(fontSize) && (fontSize < 8 || fontSize > 24)) {
       errors.push(`Field ${field.id} font size is outside the safe range`)
@@ -437,7 +507,8 @@ export const validateBannerLayouts = (layouts) => {
     if (!layout?.id) errors.push('Banner layout is missing an id')
     for (const field of layout?.fields || []) {
       if (!fieldSet.has(field.id)) errors.push(`${layout.id} has invalid field id ${field.id}`)
-      if (!slotSet.has(field.slot)) errors.push(`${layout.id} has invalid slot ${field.slot}`)
+      const region = field.region || 'image'
+      if (region === 'image' && !slotSet.has(field.slot)) errors.push(`${layout.id} has invalid slot ${field.slot}`)
     }
   }
 

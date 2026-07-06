@@ -58,6 +58,25 @@ const formatPlaytime = (value) => {
   return `${minutes}m`
 }
 
+// Counts (likes/views/downloads/comments) may arrive already-formatted from a
+// scraper (e.g. "2.5M") or as a raw number; pass strings through, compact numbers.
+const formatCount = (value) => {
+  if (value === undefined || value === null || value === '') return ''
+  const str = String(value).trim()
+  if (str === '') return ''
+  const num = Number(str.replace(/,/g, ''))
+  if (!Number.isFinite(num)) return str
+  if (num >= 1000000) return `${(num / 1000000).toFixed(1).replace(/\.0$/, '')}M`
+  if (num >= 1000) return `${(num / 1000).toFixed(1).replace(/\.0$/, '')}K`
+  return String(num)
+}
+
+const normalizePlatforms = (value) => {
+  if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter(Boolean)
+  if (typeof value === 'string') return value.split(/[,;/|]/).map((v) => v.trim()).filter(Boolean)
+  return []
+}
+
 const formatDate = (value) => {
   if (value === undefined || value === null || value === '') return ''
   const numeric = Number(value)
@@ -169,19 +188,19 @@ export const resolveBannerField = (fieldId, game = {}) => {
       return { value: ids.lewdcorner ? `LC ${ids.lewdcorner}` : '', visible: Boolean(ids.lewdcorner), variant: 'source' }
     case 'sourceRating': {
       const value = formatRating(firstValue(game.sourceRating, game.rating, game.score, game.f95Rating, game.steamRating))
-      return { value, visible: Boolean(value), variant: 'neutral' }
+      return { value, visible: Boolean(value), variant: 'neutral', icon: 'fas fa-star' }
     }
     case 'personalRating': {
       const value = formatRating(firstValue(game.personalRatingOverall, game.personal_rating_overall, game.personalRating))
-      return { value, visible: Boolean(value), variant: 'favorite' }
+      return { value, visible: Boolean(value), variant: 'favorite', icon: 'fas fa-star' }
     }
     case 'playtime': {
       const value = formatPlaytime(firstValue(game.totalPlaytime, game.total_playtime, game.playtime))
-      return { value, visible: Boolean(value), variant: 'neutral' }
+      return { value, visible: Boolean(value), variant: 'neutral', icon: 'fas fa-clock' }
     }
     case 'lastPlayed': {
       const value = formatDate(firstValue(game.lastPlayed, game.last_played_r, game.last_played))
-      return { value, visible: Boolean(value), variant: 'neutral' }
+      return { value, visible: Boolean(value), variant: 'neutral', icon: 'fas fa-calendar' }
     }
     case 'installedVersionCount': {
       const count = installedVersionCount(game)
@@ -197,6 +216,26 @@ export const resolveBannerField = (fieldId, game = {}) => {
       return { value: visibleText(game.censored), visible: Boolean(game.censored), variant: 'neutral' }
     case 'language':
       return { value: visibleText(game.language), visible: Boolean(game.language), variant: 'neutral' }
+    case 'likes': {
+      const value = formatCount(firstValue(game.likes, game.f95_likes, game.lc_likes))
+      return { value, visible: Boolean(value), variant: 'neutral', icon: 'fas fa-thumbs-up' }
+    }
+    case 'views': {
+      const value = formatCount(firstValue(game.views, game.f95_views, game.lc_views))
+      return { value, visible: Boolean(value), variant: 'neutral', icon: 'fas fa-eye' }
+    }
+    case 'downloads': {
+      const value = formatCount(firstValue(game.downloads, game.f95_downloads, game.lc_downloads))
+      return { value, visible: Boolean(value), variant: 'neutral', icon: 'fas fa-download' }
+    }
+    case 'comments': {
+      const value = formatCount(firstValue(game.comments, game.commentCount, game.comment_count))
+      return { value, visible: Boolean(value), variant: 'neutral', icon: 'fas fa-comment' }
+    }
+    case 'platforms': {
+      const list = normalizePlatforms(firstValue(game.platforms, game.os, game.operatingSystems))
+      return { value: list.map((label) => ({ label })), visible: list.length > 0, variant: 'source' }
+    }
     default:
       return { value: '', visible: false }
   }
