@@ -240,10 +240,27 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
   const axios = require("axios");
   const fs = require("fs");
   const lz4 = require("lz4js");
+  const http = require("http");
+  const https = require("https");
+
+  // Reuse a single keep-alive connection for the manifest and every package
+  // download. Without this, axios opens a fresh TCP + TLS connection per
+  // request; on high-latency links (users far from the US-hosted server) the
+  // handshake overhead — several round trips each — dominates and makes many
+  // sequential downloads very slow. Keep-alive plus the bounded parallel
+  // prefetch below is the main fix for "slow outside the US".
+  const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 8 });
+  const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 8 });
+  const client = axios.create({
+    httpAgent,
+    httpsAgent,
+    timeout: 60000,
+    headers: { "Accept-Encoding": "gzip, deflate, br" },
+  });
 
   try {
     const url = "https://atlas-gamesdb.com/api/updates";
-    const response = await axios.get(url);
+    const response = await client.get(url);
     const updates = response.data;
     if (!Array.isArray(updates)) throw new Error("Invalid updates data");
 
@@ -276,28 +293,58 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
       };
     }
 
+    const ordered = newUpdates.reverse();
     let processed = 0;
     let skipped = 0;
-    for (const update of newUpdates.reverse()) {
+
+    // Bounded parallel prefetch: download up to PREFETCH packages ahead while
+    // the current one is decompressed and inserted. The slow part abroad is the
+    // network transfer, so overlapping it with CPU/DB work (instead of running
+    // strictly one-at-a-time) is where most of the speedup comes from.
+    // Insertion stays strictly sequential to preserve ordering guarantees
+    // (f95_latest_order, snapshot pruning, and the updates ledger).
+    const PREFETCH = 4;
+    const downloadPackage = async (update) => {
+      try {
+        const downloadUrl = `https://atlas-gamesdb.com/packages/${update.name}`;
+        const outputPath = path.join(updatesDir, update.name);
+        const res = await client.get(downloadUrl, { responseType: "arraybuffer" });
+        const buffer = Buffer.from(res.data);
+        fs.writeFileSync(outputPath, buffer);
+        return { ok: true, buffer };
+      } catch (error) {
+        // Resolve (never reject) so a prefetched failure can't trigger an
+        // unhandled rejection before we reach its turn; it's rethrown then and
+        // handled by the per-update skip logic below.
+        return { ok: false, error };
+      }
+    };
+
+    const downloads = new Array(ordered.length);
+    const startDownload = (i) => {
+      if (i < ordered.length && !downloads[i]) downloads[i] = downloadPackage(ordered[i]);
+    };
+    for (let i = 0; i < Math.min(PREFETCH, ordered.length); i += 1) startDownload(i);
+
+    for (let i = 0; i < ordered.length; i += 1) {
+      const update = ordered[i];
       const { date, name, md5 } = update;
       try {
-      const downloadUrl = `https://atlas-gamesdb.com/packages/${name}`;
-      const outputPath = path.join(updatesDir, name);
+      // Keep the prefetch window full by starting the next download as soon as
+      // this slot opens up.
+      startDownload(i + PREFETCH);
 
-      // Download update
       mainWindow.webContents.send("db-update-progress", {
         text: `Downloading Database Update ${processed + 1}/${total}`,
         progress: processed,
         total,
       });
-      const response = await axios.get(downloadUrl, {
-        responseType: "arraybuffer",
-      });
-      fs.writeFileSync(outputPath, response.data);
+      const result = await downloads[i];
+      if (!result.ok) throw result.error;
 
-      // Decompress LZ4
-      const compressedData = fs.readFileSync(outputPath);
-      const decompressedData = Buffer.from(lz4.decompress(compressedData));
+      // Decompress LZ4 straight from the downloaded buffer (no write-then-read
+      // round trip; the file is already persisted for later backfill).
+      const decompressedData = Buffer.from(lz4.decompress(result.buffer));
       const data = JSON.parse(decompressedData.toString("utf8"));
       // Process atlas_data
       mainWindow.webContents.send("db-update-progress", {
@@ -398,6 +445,10 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
   } catch (err) {
     console.error("Error checking database updates:", err.message);
     return { success: false, error: err.message, total: 0, processed: 0 };
+  } finally {
+    // Release the keep-alive sockets once the run is done.
+    try { httpAgent.destroy(); } catch { /* ignore */ }
+    try { httpsAgent.destroy(); } catch { /* ignore */ }
   }
 };
 
