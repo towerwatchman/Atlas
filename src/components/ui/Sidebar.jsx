@@ -12,18 +12,14 @@ const Sidebar = ({
   const [selected, setSelected] = useState('Library')
   // Filters is a topnav-only shared nav item (see TopNav.jsx) — the left
   // rail already has its own inline SearchBox with a built-in filter
-  // toggle, so it's left out here. About IS shown in the rail, pinned to
-  // the very bottom so it sits directly below Settings (which getNavItems
-  // returns last), per the requested layout.
-  const rawItems = getNavItems({
+  // toggle, so it's left out here. About is NOT shown in the rail: it's
+  // pinned to the header's top-right corner in both layouts (see App.jsx),
+  // so the About button always lives in the same place regardless of
+  // whether the nav is a top bar or this left rail.
+  const items = getNavItems({
     onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
     onToggleSearchSidebar, onOpenAbout, browseModeAvailable: browseAvailable,
-  }).filter((item) => item.name !== 'Filters')
-  const aboutItem = rawItems.find((item) => item.name === 'About')
-  const items = [
-    ...rawItems.filter((item) => item.name !== 'About'),
-    aboutItem,
-  ].filter(Boolean)
+  }).filter((item) => item.name !== 'Filters' && item.name !== 'About')
   const showIcon = navDisplayMode !== 'text'
   const showText = navDisplayMode !== 'icons'
 

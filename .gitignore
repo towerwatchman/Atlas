@@ -14,3 +14,4 @@ data/data.db
 src/data/config.ini
 /src/data/games
 /electron/data
+*.zip

@@ -1345,9 +1345,28 @@ const App = () => {
           </div>
           {/* Sidebar-mode version readout — topnav mode's version text now
               lives inline next to the right TopNav group above instead, so
-              it isn't duplicated here. */}
+              it isn't duplicated here. The About button is pinned here too
+              so that in BOTH layouts About lives in the header's top-right
+              corner (topnav mode renders it inside the right TopNav group
+              above); this keeps it in a single, predictable place whether
+              the nav is a top bar or the left rail. data-tour="About" is
+              kept so the welcome tour can still spotlight it. */}
           {!isTopNav && (
-            <div className="absolute mt-10 top-0 right-0 flex h-[10px]">
+            <div className="absolute mt-10 top-0 right-0 flex items-center h-[10px] -webkit-app-region-no-drag">
+              <button
+                type="button"
+                onClick={openAbout}
+                title="About"
+                aria-label="About"
+                data-tour="About"
+                className="group btn-shadow btn-glow w-7 h-7 mr-2 flex items-center justify-center rounded-buttonTheme text-text hover:bg-tertiary transition-colors"
+              >
+                <svg className="w-[18px] h-[18px] nav-icon-fx" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.477 2 2 6.477 2 12C2 17.523 6.477 22 12 22C17.523 22 22 17.523 22 12C22 6.477 17.523 2 12 2Z M 12 4C16.418 4 20 7.582 20 12C20 16.418 16.418 20 12 20C7.582 20 4 16.418 4 12C4 7.582 7.582 4 12 4Z" />
+                  <path d="M12 6.5C11.310 6.5 10.75 7.060 10.75 7.75C10.75 8.440 11.310 9 12 9C12.690 9 13.25 8.440 13.25 7.75C13.25 7.060 12.690 6.5 12 6.5Z" />
+                  <path d="M11 10.75C11 10.336 11.336 10 11.75 10L12.25 10C12.664 10 13 10.336 13 10.75L13 16.25C13 16.664 12.664 17 12.25 17L11.75 17C11.336 17 11 16.664 11 16.25L11 10.75Z" />
+                </svg>
+              </button>
               <span className="text-text text-xs mr-4">Version: {version} <span style={{ color: 'Goldenrod' }}>β</span></span>
             </div>
           )}
