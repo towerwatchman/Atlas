@@ -40,6 +40,7 @@ const BannerLayoutEditor = ({
   onFieldChange,
   onResetField,
   onEnablePanel,
+  onDisablePanel,
   eyedropperAvailable = false,
   onPickColor,
 }) => {
@@ -286,7 +287,17 @@ const BannerLayoutEditor = ({
     const rows = panelRows(side)
     return (
       <div className={`${vertical ? 'w-40' : 'w-full'} border rounded p-1.5 bg-secondary/40`} style={{ borderColor: 'var(--color-border)' }}>
-        <div className="text-[10px] uppercase tracking-wide opacity-50 mb-1">{PANEL_LABELS[side]}</div>
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-[10px] uppercase tracking-wide opacity-50">{PANEL_LABELS[side]}</div>
+          <button
+            type="button"
+            onClick={() => onDisablePanel?.(side)}
+            title={`Remove ${PANEL_LABELS[side]}`}
+            className="text-[11px] leading-none px-1.5 py-0.5 rounded bg-button hover:bg-danger hover:text-white opacity-70 hover:opacity-100"
+          >
+            ✕
+          </button>
+        </div>
         <div className="space-y-1">
           {rows.map(([row, rowFields]) => {
             const key = `panel:${side}:${row}`

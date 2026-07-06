@@ -540,12 +540,27 @@ const BannerEditor = () => {
     try {
       let games = []
       if (source === 'browse') {
-        const offset = Math.floor(Math.random() * 500)
-        const result = await window.electronAPI.getCatalogGames?.({ offset, limit: 50 })
+        // Bound the random offset by the real catalog size so small catalogs
+        // don't land on an empty page.
+        let total = 0
+        try {
+          const count = await window.electronAPI.getCatalogCount?.({})
+          total = typeof count === 'number' ? count : Number(count?.count ?? count?.total ?? 0)
+        } catch { total = 0 }
+        const offset = total > 1 ? Math.floor(Math.random() * total) : 0
+        const result = await window.electronAPI.getCatalogGames?.({ offset, limit: 20 })
         games = Array.isArray(result) ? result : result?.games || []
       } else {
-        const offset = Math.floor(Math.random() * 200)
-        const result = await window.electronAPI.getGames?.(offset, 50, {})
+        // getGames returns { games, total }. Ask for the count first, then pull
+        // a small page at a random offset within range — a random offset alone
+        // returns nothing for normal-sized libraries.
+        let total = 0
+        try {
+          const meta = await window.electronAPI.getGames?.(0, 1, {})
+          total = Array.isArray(meta) ? meta.length : Number(meta?.total ?? 0)
+        } catch { total = 0 }
+        const offset = total > 1 ? Math.floor(Math.random() * total) : 0
+        const result = await window.electronAPI.getGames?.(offset, 20, {})
         games = Array.isArray(result) ? result : result?.games || []
       }
       const usable = (games || []).filter(Boolean)
@@ -793,6 +808,7 @@ const BannerEditor = () => {
           onFieldChange={updateField}
           onResetField={resetField}
           onEnablePanel={enablePanel}
+          onDisablePanel={(side) => updatePanel(side, { enabled: false })}
           eyedropperAvailable={eyedropperAvailable}
           onPickColor={pickColorFromScreen}
         />
@@ -818,11 +834,11 @@ const BannerEditor = () => {
             <div className="grid grid-cols-2 gap-2 max-w-sm">
               <label className="block text-sm">
                 Width
-                <input type="number" min={BANNER_SIZE_LIMITS.minWidth} max={BANNER_SIZE_LIMITS.maxWidth} className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.width || 537} onChange={(event) => updateDimension('width', event.target.value)} />
+                <input type="number" min="1" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.width || 537} onChange={(event) => updateDimension('width', event.target.value)} />
               </label>
               <label className="block text-sm">
                 Height
-                <input type="number" min={BANNER_SIZE_LIMITS.minHeight} max={BANNER_SIZE_LIMITS.maxHeight} className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.height || 251} onChange={(event) => updateDimension('height', event.target.value)} />
+                <input type="number" min="1" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={draftLayout.height || 251} onChange={(event) => updateDimension('height', event.target.value)} />
               </label>
             </div>
             <label className="flex items-center gap-2 text-sm">
@@ -830,7 +846,7 @@ const BannerEditor = () => {
               Lock aspect ratio
             </label>
             <p className="text-xs opacity-60">
-              This is the image size only. Enabled panels (Panels tab) grow the banner outward and never shrink the image. Width clamps to {BANNER_SIZE_LIMITS.minWidth}-{BANNER_SIZE_LIMITS.maxWidth}px; height clamps to {BANNER_SIZE_LIMITS.minHeight}-{BANNER_SIZE_LIMITS.maxHeight}px.
+              This is the image size only. Enabled panels (Panels tab) grow the banner outward and never shrink the image.
             </p>
 
             <SectionHeader>Banner border &amp; radius</SectionHeader>

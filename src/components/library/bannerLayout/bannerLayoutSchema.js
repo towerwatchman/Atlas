@@ -360,8 +360,9 @@ export const normalizeBannerLayout = (layout, fallbackLayout = null) => {
     })
   }
 
-  const width = clampNumber(source.width, BANNER_SIZE_LIMITS.minWidth, BANNER_SIZE_LIMITS.maxWidth, fallbackLayout?.width || 537)
-  const height = clampNumber(source.height, BANNER_SIZE_LIMITS.minHeight, BANNER_SIZE_LIMITS.maxHeight, fallbackLayout?.height || 251)
+  // Image size is not clamped to the preset range — authors can set any size.
+  const width = Math.max(1, Math.round(Number(source.width) || fallbackLayout?.width || 537))
+  const height = Math.max(1, Math.round(Number(source.height) || fallbackLayout?.height || 251))
   const legacyImageFit = source.imageFit || fallbackLayout?.imageFit
   const backgroundMode = imageBackgroundModeSet.has(source.image?.backgroundMode)
     ? source.image.backgroundMode
@@ -546,8 +547,8 @@ export const createBannerPresetExport = (presetOrLayout, name) => {
     name: sanitizeBannerPresetName(name || presetOrLayout?.name || layout?.name),
     layout: {
       basePresetId: layout?.basePresetId,
-      width: clampNumber(layout?.width, BANNER_SIZE_LIMITS.minWidth, BANNER_SIZE_LIMITS.maxWidth, 537),
-      height: clampNumber(layout?.height, BANNER_SIZE_LIMITS.minHeight, BANNER_SIZE_LIMITS.maxHeight, 251),
+      width: Math.max(1, Math.round(Number(layout?.width) || 537)),
+      height: Math.max(1, Math.round(Number(layout?.height) || 251)),
       minWidth: BANNER_SIZE_LIMITS.minWidth,
       maxWidth: BANNER_SIZE_LIMITS.maxWidth,
       density: densitySet.has(layout?.density) ? layout.density : 'comfortable',
