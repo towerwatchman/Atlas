@@ -569,6 +569,51 @@ const setSelectedGameVersion = async (recordId, versionId) => {
   return { success: true, selectedVersionId };
 };
 
+// Manual source-ID overrides (F95 / Steam / LewdCorner) set by the user from
+// the game properties Mappings tab. Stored as a JSON blob on the per-game
+// override row (game_metadata_overrides.manual_external_ids). Only the keys
+// the user actually sets are kept; clearing a field removes its key. Steam is
+// ALSO written to steam_mappings via addSteamMapping so existing Steam art/
+// metadata linkage keeps working; the blob is the durable record of the raw
+// ids the user typed and what the Mappings tab renders.
+const getManualMappings = (recordId) =>
+  new Promise((resolve, reject) => {
+    getDb().get(
+      `SELECT manual_external_ids FROM game_metadata_overrides WHERE record_id = ?`,
+      [recordId],
+      (err, row) => {
+        if (err) return reject(err)
+        if (!row || !row.manual_external_ids) return resolve({})
+        try {
+          const parsed = JSON.parse(row.manual_external_ids)
+          resolve(parsed && typeof parsed === 'object' ? parsed : {})
+        } catch {
+          resolve({})
+        }
+      },
+    )
+  })
+
+const setManualMappings = async (recordId, mappings = {}) => {
+  if (!recordId) throw new Error('recordId is required')
+  // Keep only non-empty string/number values; drop cleared fields entirely.
+  const clean = {}
+  for (const [key, value] of Object.entries(mappings || {})) {
+    const v = String(value ?? '').trim()
+    if (v) clean[key] = v
+  }
+  const json = Object.keys(clean).length > 0 ? JSON.stringify(clean) : null
+  await dbRun(
+    `INSERT INTO game_metadata_overrides (record_id, manual_external_ids, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(record_id) DO UPDATE SET
+       manual_external_ids = excluded.manual_external_ids,
+       updated_at = excluded.updated_at`,
+    [recordId, json, Math.floor(Date.now() / 1000)],
+  )
+  return clean
+}
+
 module.exports = {
   addGame,
   updateGame,
@@ -584,4 +629,6 @@ module.exports = {
   setSelectedGameVersion,
   getUniqueFilterOptions,
   resetCachedFilterOptions,
+  getManualMappings,
+  setManualMappings,
 }

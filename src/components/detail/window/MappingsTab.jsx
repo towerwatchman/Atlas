@@ -12,11 +12,14 @@ const normalizeF95DisplayId = (value) => {
   return threadMatch ? threadMatch[1] : normalized
 }
 
-export default function MappingsTab({ game, onFindGame }) {
+export default function MappingsTab({ game, onAddMapping }) {
   const externalIds = parseExternalIds(game.external_ids)
-  const steamAppId = getMappedSteamAppId(game)
-  const f95DisplayId = normalizeF95DisplayId(game.f95_id)
-  const lewdCornerId = game.lc_id || game.lcId || game.lewdCornerId || externalIds.lc_id || externalIds.lewdcorner_id || null
+  // Manual (user-set) source ids override/supplement the derived ones. Stored
+  // as a JSON blob on the game (see set-manual-mappings / getGame).
+  const manualIds = parseExternalIds(game.manual_external_ids)
+  const steamAppId = manualIds.steam_appid || manualIds.steam_id || getMappedSteamAppId(game)
+  const f95DisplayId = normalizeF95DisplayId(manualIds.f95_id || game.f95_id)
+  const lewdCornerId = manualIds.lc_id || manualIds.lewdcorner_id || game.lc_id || game.lcId || game.lewdCornerId || externalIds.lc_id || externalIds.lewdcorner_id || null
   const iconCellClass = 'p-2 w-24 align-middle'
   const iconFrameClass = 'flex h-10 w-20 items-center justify-center'
 
@@ -33,7 +36,7 @@ export default function MappingsTab({ game, onFindGame }) {
     <>
       <div className="flex flex-col gap-4">
         <div className="flex justify-end">
-          <button onClick={onFindGame} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">
+          <button onClick={onAddMapping} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">
             Add Mapping
           </button>
         </div>

@@ -108,6 +108,7 @@ function registerGamesHandlers(ctx) {
     updateFolderSize, countVersions, deleteVersion, getVersionForRecord,
     getVersionPathsForRecord, getInstalledVersionsForRecord,
     recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePersonalRatings, setSelectedGameVersion, getEmulatorByExtension,
+    getManualMappings, setManualMappings, addSteamMapping,
     // helpers
     deleteTitleRecord, isAllowedDeletionPath, getTrustedVersion,
     removeEmptyParentDirectories, normalizeForPathCompare,
@@ -435,6 +436,32 @@ function registerGamesHandlers(ctx) {
   ipcMain.handle('open-directory', async (event, dirPath) => {
     await shell.openPath(dirPath)
     return { success: true }
+  })
+
+  ipcMain.handle('get-manual-mappings', async (event, recordId) => {
+    try {
+      return { success: true, mappings: await getManualMappings(recordId) }
+    } catch (err) {
+      console.error('get-manual-mappings error:', err)
+      return { success: false, error: err.message, mappings: {} }
+    }
+  })
+
+  ipcMain.handle('set-manual-mappings', async (event, { recordId, mappings } = {}) => {
+    try {
+      const saved = await setManualMappings(recordId, mappings)
+      // Keep Steam art/metadata linkage working when a Steam id is set
+      // manually — the blob is the record of what the user typed, but Steam
+      // data joins through steam_mappings elsewhere.
+      const steamId = Number.parseInt(saved.steam_appid ?? saved.steam_id, 10)
+      if (Number.isInteger(steamId) && steamId > 0 && typeof addSteamMapping === 'function') {
+        try { await addSteamMapping(recordId, steamId) } catch (e) { console.warn('addSteamMapping (manual) failed:', e.message) }
+      }
+      return { success: true, mappings: saved }
+    } catch (err) {
+      console.error('set-manual-mappings error:', err)
+      return { success: false, error: err.message }
+    }
   })
 }
 

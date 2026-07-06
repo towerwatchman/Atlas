@@ -369,6 +369,12 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN steam_url TEXT;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN lc_id INTEGER;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN preview_urls TEXT;`, () => {});
+    // User-set manual source IDs (F95 / Steam / LewdCorner) entered from the
+    // game properties Mappings tab. Stored as a JSON blob on the per-game
+    // override row so it survives metadata refreshes and is independent of the
+    // Atlas-linked source tables. Merged over the derived mapping ids in the
+    // renderer (see MappingsTab.jsx).
+    db.run(`ALTER TABLE game_metadata_overrides ADD COLUMN manual_external_ids TEXT;`, () => {});
     // Marks an atlas record that is still referenced by the user (owned or
     // wishlisted) but no longer present in the latest full snapshot. 0 = present.
     db.run(`ALTER TABLE atlas_data ADD COLUMN removed_from_server INTEGER NOT NULL DEFAULT 0;`, () => {});

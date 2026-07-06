@@ -95,6 +95,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("search-atlas", { title, creator }),
   addAtlasMapping: (recordId, atlasId) =>
     ipcRenderer.invoke("add-atlas-mapping", { recordId, atlasId }),
+  getManualMappings: (recordId) =>
+    ipcRenderer.invoke("get-manual-mappings", recordId),
+  setManualMappings: (recordId, mappings) =>
+    ipcRenderer.invoke("set-manual-mappings", { recordId, mappings }),
   findF95Id: (atlasId) => ipcRenderer.invoke("find-f95-id", atlasId),
   getAtlasData: (atlasId) => ipcRenderer.invoke("get-atlas-data", atlasId),
   checkRecordExist: (params) =>

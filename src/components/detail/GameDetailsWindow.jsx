@@ -4,6 +4,7 @@ import RecordTab from './window/RecordTab.jsx'
 import VersionsTab from './window/VersionsTab.jsx'
 import MediaTab from './window/MediaTab.jsx'
 import MappingsTab from './window/MappingsTab.jsx'
+import ConfirmModal from './window/ConfirmModal.jsx'
 import { sanitizePercentText } from '../../utils/formatPercent.js'
 import { formatVersionDate } from '../../utils/formatVersionDate.js'
 import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
@@ -116,6 +117,15 @@ const GameDetailWindow = () => {
   const [addVersionDraft, setAddVersionDraft] = useState(null)
   const [addVersionBusy, setAddVersionBusy] = useState(false)
   const [addVersionError, setAddVersionError] = useState('')
+  // Generic confirm/alert dialog (replaces window.confirm / alert). `dialog`
+  // holds the props for ConfirmModal, or null when closed.
+  const [dialog, setDialog] = useState(null)
+  const [dialogBusy, setDialogBusy] = useState(false)
+  // Manual (custom) source-id mapping modal — lets the user set F95 / Steam /
+  // LewdCorner ids directly (see Mappings tab / set-manual-mappings IPC).
+  const [mappingModalOpen, setMappingModalOpen] = useState(false)
+  const [mappingDraft, setMappingDraft] = useState({ f95: '', steam: '', lewdcorner: '' })
+  const [mappingBusy, setMappingBusy] = useState(false)
   const [dataReceived, setDataReceived] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const dataHandledRef = useRef(false)
@@ -123,6 +133,22 @@ const GameDetailWindow = () => {
   const sizeRefreshKeyRef = useRef(new Set())
 
   // ── Helpers ──────────────────────────────────────────────────────────────
+  // Show a simple in-app alert modal (single OK button).
+  const showAlert = (title, body) => setDialog({ alert: true, title, body })
+  // Show a confirm modal; onConfirm runs the (async) action, with busy state
+  // and the modal closing on completion.
+  const openConfirm = (opts) => setDialog(opts)
+  const closeDialog = () => { if (!dialogBusy) setDialog(null) }
+  const runDialogAction = async (action) => {
+    setDialogBusy(true)
+    try {
+      await action?.()
+      setDialog(null)
+    } finally {
+      setDialogBusy(false)
+    }
+  }
+
   const handleVersionSelect = (version, persist = false) => {
     setSelectedVersion(version)
     setVersionData(versionToData(version))
@@ -502,57 +528,88 @@ const GameDetailWindow = () => {
   }
 
   const handleRemoveVersion = async () => {
-    if (!selectedVersion) { alert('No version selected.'); return }
+    if (!selectedVersion) { showAlert('No version selected', 'Select a version first.'); return }
     const versionLabel = selectedVersion.version || 'this version'
     const currentCount = await window.electronAPI.countVersions(game.record_id)
     if (currentCount <= 1) {
-      if (!window.confirm(`Remove "${game.title}" from the local library?\n\nThis is the last version. Game files will be kept on disk.`)) return
-      const dbResult = await window.electronAPI.deleteGameCompletely(game.record_id)
-      if (!dbResult.success) { alert('Failed to remove game: ' + (dbResult.error || 'Unknown error')); return }
-      alert(`"${game.title}" has been removed from your library.`)
-      window.electronAPI.closeWindow()
+      openConfirm({
+        title: 'Remove from library',
+        body: `Remove "${game.title}" from the local library?\n\nThis is the last version. Game files will be kept on disk.`,
+        confirmLabel: 'Remove',
+        tone: 'danger',
+        onConfirm: () => runDialogAction(async () => {
+          const dbResult = await window.electronAPI.deleteGameCompletely(game.record_id)
+          if (!dbResult.success) { showAlert('Remove failed', dbResult.error || 'Unknown error'); return }
+          window.electronAPI.closeWindow()
+        }),
+      })
       return
     }
-    if (!window.confirm(`Remove version "${versionLabel}" from the local library?\n\nGame files will be kept on disk.`)) return
-    const result = await window.electronAPI.deleteVersion({ recordId: game.record_id, version: selectedVersion.version })
-    if (result.success) {
-      const updatedVersions = versions.filter((v) => v.version !== selectedVersion.version)
-      setVersions(updatedVersions)
-      if (updatedVersions.length > 0) handleVersionSelect(updatedVersions[0])
-      else { setSelectedVersion(null); setVersionData(EMPTY_VERSION) }
-    } else {
-      alert(`Failed to remove version: ${result.error || 'Unknown error'}`)
-    }
+    openConfirm({
+      title: 'Remove version',
+      body: `Remove version "${versionLabel}" from the local library?\n\nGame files will be kept on disk.`,
+      confirmLabel: 'Remove',
+      tone: 'danger',
+      onConfirm: () => runDialogAction(async () => {
+        const result = await window.electronAPI.deleteVersion({ recordId: game.record_id, version: selectedVersion.version })
+        if (result.success) {
+          const updatedVersions = versions.filter((v) => v.version !== selectedVersion.version)
+          setVersions(updatedVersions)
+          if (updatedVersions.length > 0) handleVersionSelect(updatedVersions[0])
+          else { setSelectedVersion(null); setVersionData(EMPTY_VERSION) }
+        } else {
+          showAlert('Remove failed', result.error || 'Unknown error')
+        }
+      }),
+    })
   }
 
   const handleDeleteVersionFiles = async () => {
-    if (!selectedVersion) { alert('No version selected.'); return }
-    if (!selectedVersion.game_path) { alert('No game folder is set for this version.'); return }
+    if (!selectedVersion) { showAlert('No version selected', 'Select a version first.'); return }
+    if (!selectedVersion.game_path) { showAlert('No game folder', 'No game folder is set for this version.'); return }
     const versionLabel = selectedVersion.version || 'this version'
-    if (!window.confirm(`Delete files for version "${versionLabel}" from disk?\n\nThis will delete:\n${selectedVersion.game_path}\n\nThe database entry will remain. This cannot be undone.`)) return
-    const result = await window.electronAPI.deleteFolderRecursive({ recordId: game.record_id, folderPath: selectedVersion.game_path })
-    if (!result.success) { alert('Failed to delete files: ' + (result.error || 'Unknown error')); return }
-    const refreshedGame = await window.electronAPI.getGame(game.record_id)
-    if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion)
-    alert(`Files for version "${versionLabel}" deleted.`)
+    openConfirm({
+      title: 'Delete files from disk',
+      body: `Delete files for version "${versionLabel}" from disk?\n\nThis will delete:\n${selectedVersion.game_path}\n\nThe database entry will remain. This cannot be undone.`,
+      confirmLabel: 'Delete Files',
+      tone: 'danger',
+      onConfirm: () => runDialogAction(async () => {
+        const result = await window.electronAPI.deleteFolderRecursive({ recordId: game.record_id, folderPath: selectedVersion.game_path })
+        if (!result.success) { showAlert('Delete failed', result.error || 'Unknown error'); return }
+        const refreshedGame = await window.electronAPI.getGame(game.record_id)
+        if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion)
+      }),
+    })
   }
 
   const handleRemoveTitle = async () => {
-    if (!window.confirm(`Remove "${game.title}" from the local library?\n\nGame files will be kept on disk.`)) return
-    const result = await window.electronAPI.deleteTitle({ recordId: game.record_id, deleteFiles: false })
-    if (!result.success) { alert(`Failed to remove title: ${result.error || 'Unknown error'}`); return }
-    alert(`"${game.title}" was removed from your library.`)
-    window.electronAPI.closeWindow()
+    openConfirm({
+      title: 'Remove title from library',
+      body: `Remove "${game.title}" from the local library?\n\nGame files will be kept on disk.`,
+      confirmLabel: 'Remove Title',
+      tone: 'danger',
+      onConfirm: () => runDialogAction(async () => {
+        const result = await window.electronAPI.deleteTitle({ recordId: game.record_id, deleteFiles: false })
+        if (!result.success) { showAlert('Remove failed', result.error || 'Unknown error'); return }
+        window.electronAPI.closeWindow()
+      }),
+    })
   }
 
   const handleDeleteTitleAndFiles = async () => {
     const versionPaths = (game.versions || []).map((v) => v.game_path).filter(Boolean)
     const pathList = versionPaths.length ? `\n\nFolders to delete:\n${versionPaths.join('\n')}` : '\n\nNo linked folders found.'
-    if (!window.confirm(`Delete "${game.title}" and all linked files from disk?${pathList}\n\nThis cannot be undone.`)) return
-    const result = await window.electronAPI.deleteTitle({ recordId: game.record_id, deleteFiles: true })
-    if (!result.success) { alert(`Failed to delete title: ${result.error || 'Unknown error'}`); return }
-    alert(`"${game.title}" and its linked files were deleted.`)
-    window.electronAPI.closeWindow()
+    openConfirm({
+      title: 'Delete title and files',
+      body: `Delete "${game.title}" and all linked files from disk?${pathList}\n\nThis cannot be undone.`,
+      confirmLabel: 'Delete Everything',
+      tone: 'danger',
+      onConfirm: () => runDialogAction(async () => {
+        const result = await window.electronAPI.deleteTitle({ recordId: game.record_id, deleteFiles: true })
+        if (!result.success) { showAlert('Delete failed', result.error || 'Unknown error'); return }
+        window.electronAPI.closeWindow()
+      }),
+    })
   }
 
   const handleSave = async () => {
@@ -612,6 +669,44 @@ const GameDetailWindow = () => {
     } catch (err) { console.error('Failed to update Atlas mapping:', err) }
   }
 
+  // Open the manual-mapping modal, seeded with any existing manual ids the
+  // user set previously (falls back to empty). Custom F95 / Steam / LewdCorner
+  // ids are stored via set-manual-mappings and merged into the Mappings tab.
+  const openMappingModal = async () => {
+    let existing = {}
+    try {
+      const result = await window.electronAPI.getManualMappings?.(game.record_id)
+      if (result?.success !== false) existing = result?.mappings || result || {}
+    } catch (err) { console.error('Failed to load manual mappings:', err) }
+    setMappingDraft({
+      f95: String(existing.f95_id ?? existing.f95 ?? ''),
+      steam: String(existing.steam_appid ?? existing.steam_id ?? existing.steam ?? ''),
+      lewdcorner: String(existing.lc_id ?? existing.lewdcorner_id ?? existing.lewdcorner ?? ''),
+    })
+    setMappingModalOpen(true)
+  }
+
+  const saveManualMappings = async () => {
+    setMappingBusy(true)
+    try {
+      const mappings = {
+        f95_id: mappingDraft.f95,
+        steam_appid: mappingDraft.steam,
+        lc_id: mappingDraft.lewdcorner,
+      }
+      const result = await window.electronAPI.setManualMappings?.(game.record_id, mappings)
+      if (result?.success === false) { showAlert('Save failed', result.error || 'Unknown error'); return }
+      const updatedGame = await window.electronAPI.getGame(game.record_id)
+      if (updatedGame) refreshFromGame(updatedGame, selectedVersion)
+      setMappingModalOpen(false)
+    } catch (err) {
+      console.error('Failed to save manual mappings:', err)
+      showAlert('Save failed', err.message || 'Unknown error')
+    } finally {
+      setMappingBusy(false)
+    }
+  }
+
   // ── Derived state ─────────────────────────────────────────────────────────
   const bannerMediaStatus = bannerUrl
     ? isRemoteMediaUrl(bannerUrl) ? 'Streaming from the web' : 'Downloaded to local storage'
@@ -661,9 +756,9 @@ const GameDetailWindow = () => {
           </div>
           <button
             onClick={handleFindGame}
-            className="mx-2 my-1 px-3 py-1 bg-accent text-white rounded hover:bg-accentHover text-sm whitespace-nowrap shrink-0"
+            className="mx-3 my-2 px-4 py-2 bg-accent text-white rounded hover:bg-accentHover text-sm whitespace-nowrap shrink-0"
           >
-            <i className="fas fa-magnifying-glass mr-1" aria-hidden="true"></i>
+            <i className="fas fa-magnifying-glass mr-2" aria-hidden="true"></i>
             Find Match
           </button>
         </div>
@@ -674,7 +769,6 @@ const GameDetailWindow = () => {
               <RecordTab
                 formData={formData}
                 onChange={(e) => setFormData({ ...formData, [e.target.name]: e.target.value })}
-                onFindGame={handleFindGame}
                 onRemoveTitle={handleRemoveTitle}
                 onDeleteTitleAndFiles={handleDeleteTitleAndFiles}
               />
@@ -715,7 +809,7 @@ const GameDetailWindow = () => {
             {activeTab === 'Mappings' && (
               <MappingsTab
                 game={game}
-                onFindGame={handleFindGame}
+                onAddMapping={openMappingModal}
               />
             )}
           </div>
@@ -802,6 +896,80 @@ const GameDetailWindow = () => {
                 className="px-4 py-2 bg-accent hover:bg-accentHover text-white rounded disabled:opacity-50"
               >
                 {addVersionBusy ? 'Importing...' : 'Import'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <ConfirmModal
+        open={!!dialog}
+        title={dialog?.title}
+        body={dialog?.body}
+        confirmLabel={dialog?.confirmLabel}
+        cancelLabel={dialog?.cancelLabel}
+        tone={dialog?.tone}
+        alert={dialog?.alert}
+        busy={dialogBusy}
+        onConfirm={dialog?.onConfirm}
+        onCancel={closeDialog}
+      />
+
+      {mappingModalOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4"
+          onClick={() => { if (!mappingBusy) setMappingModalOpen(false) }}
+        >
+          <div className="bg-secondary border border-border rounded-md max-w-lg w-full p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold mb-1">Add / Edit Mapping</h2>
+            <p className="text-xs text-muted mb-3">
+              Set source IDs manually. Leave a field blank to remove that mapping. To match against the Atlas database instead, use Find Match.
+            </p>
+            <div className="space-y-3">
+              <label className="block text-sm">
+                <span className="block mb-1">F95Zone ID</span>
+                <input
+                  value={mappingDraft.f95}
+                  onChange={(e) => setMappingDraft((d) => ({ ...d, f95: e.target.value }))}
+                  disabled={mappingBusy}
+                  placeholder="e.g. 12345"
+                  className="w-full bg-primary border border-border p-2 rounded"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="block mb-1">Steam App ID</span>
+                <input
+                  value={mappingDraft.steam}
+                  onChange={(e) => setMappingDraft((d) => ({ ...d, steam: e.target.value }))}
+                  disabled={mappingBusy}
+                  placeholder="e.g. 730"
+                  className="w-full bg-primary border border-border p-2 rounded"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="block mb-1">LewdCorner ID</span>
+                <input
+                  value={mappingDraft.lewdcorner}
+                  onChange={(e) => setMappingDraft((d) => ({ ...d, lewdcorner: e.target.value }))}
+                  disabled={mappingBusy}
+                  placeholder="e.g. 6789"
+                  className="w-full bg-primary border border-border p-2 rounded"
+                />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={() => setMappingModalOpen(false)}
+                disabled={mappingBusy}
+                className="px-4 py-1.5 bg-button hover:bg-buttonHover rounded disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveManualMappings}
+                disabled={mappingBusy}
+                className="px-4 py-1.5 bg-accent hover:bg-accentHover text-white rounded disabled:opacity-50"
+              >
+                {mappingBusy ? 'Saving...' : 'Save Mapping'}
               </button>
             </div>
           </div>
