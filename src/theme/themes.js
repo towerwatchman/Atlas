@@ -238,6 +238,23 @@ export const normalizeNavDisplayMode = (mode) =>
   NAV_DISPLAY_MODE_OPTIONS.includes(mode) ? mode : DEFAULT_NAV_DISPLAY_MODE
 
 /**
+ * Which mark to paint in the top-left header logo block (see App.jsx):
+ * - 'themed'  = the single-color Atlas glyph (data.js path) tinted with the
+ *               theme's own `atlasLogo` color. This is the classic look and
+ *               the default; it recolors itself to match any theme.
+ * - 'colored' = the full-color Atlas logo art (assets/images/atlas_logo.svg,
+ *               the same colored logo shown in the About modal / Welcome
+ *               page), rendered as-is regardless of theme colors.
+ * Lives in the theme's nav block so the choice travels with the theme and
+ * is editable in the Theme Builder alongside the other nav settings.
+ */
+export const LOGO_VARIANT_OPTIONS = ['themed', 'colored']
+export const DEFAULT_LOGO_VARIANT = 'themed'
+
+export const normalizeLogoVariant = (variant) =>
+  LOGO_VARIANT_OPTIONS.includes(variant) ? variant : DEFAULT_LOGO_VARIANT
+
+/**
  * A theme's `nav` block: its preferred layout + nav button presentation +
  * the optional glow effect applied only to the ACTIVE/selected button in
  * TopNav.jsx's topnav bar (never Sidebar.jsx's vertical rail, and never
@@ -370,6 +387,9 @@ export const DEFAULT_NAV = {
   layout: DEFAULT_LAYOUT,
   displayMode: DEFAULT_NAV_DISPLAY_MODE,
   accentBarEnabled: true,
+  // Which top-left header logo to show — the theme-tinted glyph ('themed')
+  // or the full-color Atlas art ('colored'). See LOGO_VARIANT_OPTIONS.
+  logoVariant: DEFAULT_LOGO_VARIANT,
   glow: { ...DEFAULT_GLOW },
   // Apply the nav glow to nav icons too (hover + selected only), not just
   // the active TopNav button's box-shadow. Off by default.
@@ -392,6 +412,7 @@ export const normalizeNav = (nav) => {
     layout: LAYOUT_OPTIONS.includes(safeNav.layout) ? safeNav.layout : DEFAULT_NAV.layout,
     displayMode: normalizeNavDisplayMode(safeNav.displayMode),
     accentBarEnabled: safeNav.accentBarEnabled !== false,
+    logoVariant: normalizeLogoVariant(safeNav.logoVariant),
     glow: {
       ...DEFAULT_GLOW,
       ...(safeNav.glow && typeof safeNav.glow === 'object' ? safeNav.glow : {}),

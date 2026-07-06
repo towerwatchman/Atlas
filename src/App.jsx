@@ -8,6 +8,7 @@ import WelcomeTour from './components/ui/WelcomeTour.jsx'
 import WelcomePage, { WELCOME_SEEN_KEY } from './components/ui/WelcomePage.jsx'
 import ImporterSourceMenu from './components/importer/ImporterSourceMenu.jsx'
 import { atlasLogo } from './assets/icons/data.js'
+import coloredAtlasLogoUrl from './assets/images/atlas_logo.svg'
 import { getBannerTotalSize } from './components/library/bannerLayout/bannerLayoutSchema.js'
 import GameBanner from './components/library/GameBanner.jsx'
 import SearchBox from './components/search/SearchBox.jsx'
@@ -291,7 +292,7 @@ const App = () => {
         : 'Games'
 
   const { isMaximized, version, handleWindowStateChanged, loadVersion } = useWindowState()
-  const { theme, layout, accentBarEnabled, filterSidebarSide, filterSidebarMode } = useTheme()
+  const { theme, layout, accentBarEnabled, filterSidebarSide, filterSidebarMode, logoVariant } = useTheme()
   const isTopNav = layout === 'topnav'
   // The Favorites nav button is a filtered LOCAL view (built-in saved
   // filter), not its own libraryMode — so its active state must track that
@@ -1237,13 +1238,23 @@ const App = () => {
           onClick={goHome}
           title="Back to Library"
         >
-          <svg
-            className="w-[50px] h-[50px] text-atlasLogo"
-            viewBox="0 0 24 24"
-            style={{ shapeRendering: 'geometricPrecision' }}
-            fill="currentColor"
-            dangerouslySetInnerHTML={{ __html: atlasLogo.path }}
-          />
+          {logoVariant === 'colored' ? (
+            <img
+              src={coloredAtlasLogoUrl}
+              alt="Atlas"
+              className="w-[50px] h-[50px] object-contain pointer-events-none select-none"
+              draggable={false}
+              style={{ shapeRendering: 'geometricPrecision' }}
+            />
+          ) : (
+            <svg
+              className="w-[50px] h-[50px] text-atlasLogo"
+              viewBox="0 0 24 24"
+              style={{ shapeRendering: 'geometricPrecision' }}
+              fill="currentColor"
+              dangerouslySetInnerHTML={{ __html: atlasLogo.path }}
+            />
+          )}
         </div>
         <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_8px_8px_-8px_rgba(0,0,0,0.5)] rounded-tr-windowTheme transform-gpu">
           {/* Accent bar: the notched strip tucked behind the logo block.

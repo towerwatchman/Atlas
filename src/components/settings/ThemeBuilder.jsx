@@ -3,7 +3,7 @@ import { applyTheme } from '../../theme/applyTheme.js'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
 import {
   THEME_COLOR_KEYS, GRADIENT_ELIGIBLE_KEYS, RADIUS_OPTIONS, WINDOW_RADIUS_OPTIONS,
-  LAYOUT_OPTIONS, NAV_DISPLAY_MODE_OPTIONS,
+  LAYOUT_OPTIONS, NAV_DISPLAY_MODE_OPTIONS, LOGO_VARIANT_OPTIONS,
   FILTER_SIDEBAR_SIDE_OPTIONS, FILTER_SIDEBAR_MODE_OPTIONS,
   TEXT_EFFECT_CONTEXTS, normalizeTheme,
 } from '../../theme/themes.js'
@@ -173,6 +173,12 @@ const LAYOUT_LABELS = { sidebar: 'Sidebar', topnav: 'Top Bar' }
 const LAYOUT_DESCRIPTIONS = {
   sidebar: 'Navigation icons run down the left edge of the window.',
   topnav: 'Navigation sits in a bar across the top of the window.',
+}
+
+const LOGO_VARIANT_LABELS = { themed: 'Themed', colored: 'Colored' }
+const LOGO_VARIANT_DESCRIPTIONS = {
+  themed: 'The Atlas glyph tinted with this theme\u2019s Logo color — recolors to match the theme.',
+  colored: 'The full-color Atlas logo art, shown as-is regardless of theme colors.',
 }
 
 const NAV_DISPLAY_LABELS = { icons: 'Icons Only', iconsAndText: 'Icons + Text', text: 'Text Only' }
@@ -1034,6 +1040,10 @@ const ThemeBuilder = ({ onClose }) => {
               <input type="checkbox" checked={draft.nav.accentBarEnabled} onChange={(e) => updateNav({ accentBarEnabled: e.target.checked })} />
               Show the accent-colored strip behind the logo
             </label>
+
+            <SectionHeader>Header Logo</SectionHeader>
+            <p className="text-[10px] opacity-50 mb-2">The mark shown in the top-left corner. Themed tints the Atlas glyph with this theme&apos;s Logo color; Colored uses the full-color Atlas logo art as-is.</p>
+            <OptionPicker options={LOGO_VARIANT_OPTIONS} labels={LOGO_VARIANT_LABELS} descriptions={LOGO_VARIANT_DESCRIPTIONS} value={draft.nav.logoVariant} onChange={(logoVariant) => updateNav({ logoVariant })} />
 
             <SectionHeader>Filter Sidebar Side</SectionHeader>
             <p className="text-[10px] opacity-50 mb-2">Which edge of the window the Filters panel (search/sort/filter controls) opens on.</p>

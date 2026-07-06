@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import { applyTheme } from './applyTheme.js'
 import {
   DEFAULT_THEME,
@@ -11,6 +11,7 @@ import {
   normalizeNavDisplayMode,
   normalizeFilterSidebarSide,
   normalizeFilterSidebarMode,
+  normalizeLogoVariant,
 } from './themes.js'
 
 const ThemeContext = createContext(null)
@@ -107,6 +108,14 @@ export function ThemeProvider({ children }) {
   // an actual state value to react to, which is exactly what this is for.
   const [previewTheme, setPreviewTheme] = useState(null)
 
+  // Ref mirror of previewTheme so the once-mounted themes-changed listener
+  // can tell whether a live builder preview is currently overriding this
+  // window, without re-subscribing whenever the preview changes.
+  const previewThemeRef = useRef(null)
+  useEffect(() => {
+    previewThemeRef.current = previewTheme
+  }, [previewTheme])
+
   // The values every consumer of useTheme() actually reads. When a
   // preview is active, these resolve to the draft's own nav settings
   // instead of the real persisted ones — exactly mirroring how
@@ -123,6 +132,11 @@ export function ThemeProvider({ children }) {
   const effectiveFilterSidebarMode = previewTheme
     ? normalizeFilterSidebarMode(previewTheme.nav?.filterSidebar?.mode)
     : filterSidebarMode
+  // Logo variant lives entirely in the theme's nav block (it isn't a
+  // separately-persisted Appearance field like layout/displayMode), so it's
+  // read straight off the effective theme — the draft during a preview, the
+  // persisted theme otherwise.
+  const effectiveLogoVariant = normalizeLogoVariant(effectiveTheme?.nav?.logoVariant)
 
   // Load the available theme list AND the saved appearance once on mount.
   // Both are needed together: parseAppearance needs the theme list to
@@ -218,15 +232,63 @@ export function ThemeProvider({ children }) {
     }
   }, [])
 
+  // Ref mirror of the currently-active theme id, so the themes-changed
+  // listener below can compare against it without having to re-subscribe
+  // every time the theme changes (the listener is registered once on
+  // mount). Kept in sync on every theme change via the effect below.
+  const activeThemeIdRef = useRef(theme?.id)
+  useEffect(() => {
+    activeThemeIdRef.current = theme?.id
+  }, [theme?.id])
+
   // Keep availableThemes in sync when the theme files on disk change (e.g.
   // the Theme Builder just saved a new theme in its own window). Without
   // this, this window's theme list is frozen at whatever it read on mount,
   // so a newly created theme wouldn't appear in the Appearance picker until
   // the client restarted. Re-reads the list and updates state, which flows
   // straight through to any consumer of useTheme().availableThemes.
+  //
+  // Additionally: if the file that just changed IS the currently-active
+  // theme (e.g. the Theme Builder's "Save to current theme" wrote over it),
+  // re-adopt the freshly-read version immediately so the edit takes effect
+  // the moment it's saved — in every open window — instead of only after
+  // the next restart or re-selection. This updates both the in-memory theme
+  // state and its nav-derived settings, and re-applies the CSS variables,
+  // exactly like picking the theme again would. A Theme Builder window that
+  // is still open keeps broadcasting its own draft preview on top of this
+  // (theme-preview-changed), so nothing flickers while editing; when that
+  // window closes and the preview ends, windows revert to this now-updated
+  // persisted theme rather than the stale pre-edit one.
   useEffect(() => {
     const removeThemesChangedListener = window.electronAPI.onThemesChanged?.(() => {
-      fetchAvailableThemes().then((themeList) => setAvailableThemes(themeList))
+      fetchAvailableThemes().then((themeList) => {
+        setAvailableThemes(themeList)
+        const activeId = activeThemeIdRef.current
+        if (!activeId) return
+        const refreshed = themeList.find((t) => t.id === activeId)
+        if (!refreshed) return
+        const nextLayout = normalizeLayout(refreshed?.nav?.layout)
+        const nextNavDisplayMode = normalizeNavDisplayMode(refreshed?.nav?.displayMode)
+        const nextAccentBarEnabled = refreshed?.nav?.accentBarEnabled !== false
+        const nextFilterSidebarSide = normalizeFilterSidebarSide(refreshed?.nav?.filterSidebar?.side)
+        const nextFilterSidebarMode = normalizeFilterSidebarMode(refreshed?.nav?.filterSidebar?.mode)
+        setThemeState(refreshed)
+        setLayoutState(nextLayout)
+        setNavDisplayModeState(nextNavDisplayMode)
+        setAccentBarEnabledState(nextAccentBarEnabled)
+        setFilterSidebarSideState(nextFilterSidebarSide)
+        setFilterSidebarModeState(nextFilterSidebarMode)
+        // Only paint immediately when no live builder preview is overriding
+        // this window right now — otherwise the effectiveTheme effect above
+        // would fight the active preview. When a preview is active it will
+        // resolve to this updated persisted theme on its own once it ends.
+        if (!previewThemeRef.current) {
+          applyTheme(refreshed, nextLayout, {
+            navDisplayMode: nextNavDisplayMode,
+            accentBarEnabled: nextAccentBarEnabled,
+          })
+        }
+      })
     })
     return () => {
       if (typeof removeThemesChangedListener === 'function') removeThemesChangedListener()
@@ -316,6 +378,7 @@ export function ThemeProvider({ children }) {
     accentBarEnabled: effectiveAccentBarEnabled,
     filterSidebarSide: effectiveFilterSidebarSide,
     filterSidebarMode: effectiveFilterSidebarMode,
+    logoVariant: effectiveLogoVariant,
     setTheme, setLayout, setNavDisplayMode, setAccentBarEnabled,
     setFilterSidebarSide, setFilterSidebarMode,
     isLoaded, availableThemes,
