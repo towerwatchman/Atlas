@@ -16,11 +16,10 @@ const ThemeSwatchCard = ({ theme, isActive, onSelect }) => (
   <button
     type="button"
     onClick={() => onSelect(theme)}
-    style={{ width: 225 }}
     className={`flex-none text-left rounded-cardTheme border-2 p-3 transition-colors ${
       isActive ? 'border-accent' : 'border-border hover:border-muted'
     }`}
-    style={{ background: backgroundStyleFor('secondary', theme.colors.secondary) }}
+    style={{ width: 225, background: backgroundStyleFor('secondary', theme.colors.secondary) }}
   >
     <div className="flex gap-1 mb-3">
       {SWATCH_KEYS.map((key) => (
