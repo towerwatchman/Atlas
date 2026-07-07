@@ -1,0 +1,418 @@
+import { useState } from 'react'
+
+// Row + column-band layout for the game detail page.
+//
+// The page is a vertical stack of "rows". Each row is either:
+//   { type: 'full',    panels: [id, ...] }                          full-width
+//   { type: 'columns', columns: [{ width }], cells: [[id,...], ...] } a band
+//
+// In a column band, panels stack vertically inside their column and never span
+// across columns, so panels can never overlap. Full-width panels live in their
+// own 'full' row. The LEFTMOST column of every band is locked to Flexible (1fr)
+// so it always fills leftover space. Other columns can be Auto / Flex / Fixed.
+//
+// Column width modes:
+//   { mode: 'flex' }              -> 1fr  (grows, shares leftover space)
+//   { mode: 'auto' }              -> auto (only as wide as its content)
+//   { mode: 'fixed', px: 320 }    -> fixed pixel width
+//
+// Legacy layouts ({items:[...]} or {columns:[[...]]}) are migrated on read.
+
+const MIN_COLS = 1
+const MAX_COLS = 5
+const DEFAULT_FIXED_PX = 320
+const DEFAULT_SPAN = { previews: 2 } // only used when migrating very old data
+
+export const DEFAULT_DETAIL_LAYOUT = {
+  rows: [
+    {
+      type: 'columns',
+      columns: [{ mode: 'flex' }, { mode: 'fixed', px: 360 }],
+      cells: [
+        ['previews'],
+        ['versions', 'rating', 'details', 'links', 'tags'],
+      ],
+    },
+  ],
+}
+
+const colWidthToTrack = (col, isLeftmost) => {
+  // Leftmost column is always flexible so it fills leftover space.
+  if (isLeftmost) return 'minmax(0, 1fr)'
+  if (!col || col.mode === 'flex') return 'minmax(0, 1fr)'
+  if (col.mode === 'fixed') {
+    // The typed value is stored raw so the input stays fully editable, but the
+    // applied column width is floored at 200px -- values <= 200 render as 200.
+    const raw = Number.isFinite(Number(col.px)) ? Number(col.px) : DEFAULT_FIXED_PX
+    return `${Math.max(200, raw)}px`
+  }
+  return 'auto'
+}
+
+// Normalize any stored layout into the rows model, keeping only ids that have a
+// node, dropping duplicates, and appending any available-but-unplaced id to the
+// last column of the last column-band (or a new band) so nothing disappears.
+export function normalizeDetailLayout(layout, availableIds) {
+  const available = new Set(availableIds)
+  const seen = new Set()
+
+  const cleanId = (id) => (available.has(id) && !seen.has(id) ? (seen.add(id), true) : false)
+
+  let rows = []
+
+  if (Array.isArray(layout?.rows)) {
+    for (const row of layout.rows) {
+      if (!row || typeof row !== 'object') continue
+      if (row.type === 'full') {
+        const panels = (Array.isArray(row.panels) ? row.panels : []).filter(cleanId)
+        rows.push({ type: 'full', panels })
+      } else if (row.type === 'columns') {
+        const cols = Array.isArray(row.columns) ? row.columns : []
+        const cells = Array.isArray(row.cells) ? row.cells : []
+        const n = Math.min(MAX_COLS, Math.max(MIN_COLS, Math.max(cols.length, cells.length, 1)))
+        const columns = []
+        const outCells = []
+        for (let i = 0; i < n; i++) {
+          columns.push(cols[i] && typeof cols[i] === 'object' ? { mode: cols[i].mode || 'flex', px: cols[i].px } : { mode: i === 0 ? 'flex' : 'auto' })
+          outCells.push((Array.isArray(cells[i]) ? cells[i] : []).filter(cleanId))
+        }
+        rows.push({ type: 'columns', columns, cells: outCells })
+      }
+    }
+  } else if (Array.isArray(layout?.columns)) {
+    // Legacy column model -> single band.
+    const cells = layout.columns.slice(0, MAX_COLS).map((col) =>
+      (Array.isArray(col) ? col : [])
+        .map((e) => (typeof e === 'string' ? e : e?.id))
+        .filter((id) => id && cleanId(id)),
+    )
+    const columns = cells.map((_, i) => ({ mode: i === 0 ? 'flex' : 'auto' }))
+    rows.push({ type: 'columns', columns, cells })
+  } else if (Array.isArray(layout?.items)) {
+    // Legacy flat model -> single 3-col band, previews left, rest right.
+    const left = []
+    const right = []
+    for (const it of layout.items) {
+      const id = typeof it === 'string' ? it : it?.id
+      if (!id || !cleanId(id)) continue
+      if (id === 'previews') left.push(id)
+      else right.push(id)
+    }
+    rows.push({ type: 'columns', columns: [{ mode: 'flex' }, { mode: 'auto' }, { mode: 'fixed', px: 340 }], cells: [left, [], right] })
+  }
+
+  // Ensure at least one column band exists to receive leftovers.
+  if (!rows.some((r) => r.type === 'columns')) {
+    rows.push({ type: 'columns', columns: [{ mode: 'flex' }], cells: [[]] })
+  }
+
+  // Append any unplaced ids to the last column of the last band.
+  const lastBand = [...rows].reverse().find((r) => r.type === 'columns')
+  for (const id of availableIds) {
+    if (seen.has(id)) continue
+    lastBand.cells[lastBand.cells.length - 1].push(id)
+    seen.add(id)
+  }
+
+  // Drop empty full rows.
+  rows = rows.filter((r) => r.type !== 'full' || r.panels.length > 0)
+  if (rows.length === 0) rows = [{ type: 'columns', columns: [{ mode: 'flex' }], cells: [[]] }]
+
+  return { rows }
+}
+
+export default function DetailPanelGrid({ layout, panels, editing, onLayoutChange }) {
+  const [drag, setDrag] = useState(null) // { id }
+  // Where the dragged panel would land. For a column cell:
+  //   { kind:'cell', rowIndex, colIndex, index }
+  // For a full-width row: { kind:'full', rowIndex, index }
+  const [dropTarget, setDropTarget] = useState(null)
+
+  const availableIds = Object.keys(panels).filter((id) => panels[id] != null)
+  const norm = normalizeDetailLayout(layout, availableIds)
+
+  const commit = (rows) => onLayoutChange?.({ rows })
+
+  // Remove an id from wherever it currently sits (mutates a deep copy).
+  const removeFrom = (rows, id) => {
+    for (const row of rows) {
+      if (row.type === 'full') {
+        const at = row.panels.indexOf(id)
+        if (at !== -1) { row.panels.splice(at, 1); return }
+      } else {
+        for (const cell of row.cells) {
+          const at = cell.indexOf(id)
+          if (at !== -1) { cell.splice(at, 1); return }
+        }
+      }
+    }
+  }
+
+  const clone = () => norm.rows.map((r) =>
+    r.type === 'full'
+      ? { type: 'full', panels: r.panels.slice() }
+      : { type: 'columns', columns: r.columns.map((c) => ({ ...c })), cells: r.cells.map((c) => c.slice()) },
+  )
+
+  // Insert the dragged id at a specific position within a column cell.
+  const dropIntoCell = (rowIndex, colIndex, index = null) => {
+    if (!drag) return
+    const rows = clone()
+    const row = rows[rowIndex]
+    if (!row || row.type !== 'columns' || !row.cells[colIndex]) { setDrag(null); setDropTarget(null); return }
+    removeFrom(rows, drag.id)
+    const cell = rows[rowIndex].cells[colIndex]
+    let at = index == null ? cell.length : index
+    if (at < 0) at = 0
+    if (at > cell.length) at = cell.length
+    cell.splice(at, 0, drag.id)
+    commit(rows)
+    setDrag(null)
+    setDropTarget(null)
+  }
+
+  const dropIntoFull = (rowIndex, index = null) => {
+    if (!drag) return
+    const rows = clone()
+    const row = rows[rowIndex]
+    if (!row || row.type !== 'full') { setDrag(null); setDropTarget(null); return }
+    removeFrom(rows, drag.id)
+    const arr = rows[rowIndex].panels
+    let at = index == null ? arr.length : index
+    if (at < 0) at = 0
+    if (at > arr.length) at = arr.length
+    arr.splice(at, 0, drag.id)
+    commit(rows)
+    setDrag(null)
+    setDropTarget(null)
+  }
+
+  const dropIntoNewFull = (position) => {
+    if (!drag) return
+    const rows = clone()
+    removeFrom(rows, drag.id)
+    const row = { type: 'full', panels: [drag.id] }
+    if (position === 'top') rows.unshift(row)
+    else rows.push(row)
+    commit(rows)
+    setDrag(null)
+    setDropTarget(null)
+  }
+
+  const addColumn = (rowIndex) => {
+    const rows = clone()
+    const band = rows[rowIndex]
+    if (band.columns.length >= MAX_COLS) return
+    band.columns.push({ mode: 'auto' })
+    band.cells.push([])
+    commit(rows)
+  }
+
+  const removeColumn = (rowIndex, colIndex) => {
+    const rows = clone()
+    const band = rows[rowIndex]
+    if (band.columns.length <= MIN_COLS) return
+    // Move this column's panels into the neighboring column (left, or right if
+    // removing the first) so nothing is lost.
+    const target = colIndex > 0 ? colIndex - 1 : 1
+    band.cells[target] = band.cells[target].concat(band.cells[colIndex])
+    band.columns.splice(colIndex, 1)
+    band.cells.splice(colIndex, 1)
+    commit(rows)
+  }
+
+  const setColMode = (rowIndex, colIndex, mode) => {
+    const rows = clone()
+    rows[rowIndex].columns[colIndex] = { mode, px: mode === 'fixed' ? (rows[rowIndex].columns[colIndex].px || DEFAULT_FIXED_PX) : undefined }
+    commit(rows)
+  }
+
+  const setColPx = (rowIndex, colIndex, px) => {
+    const rows = clone()
+    // Allow free text entry, including empty (treated as 0). We store the raw
+    // number and don't force a minimum here so the field is fully editable.
+    const raw = String(px).trim()
+    const n = raw === '' ? 0 : Math.max(0, Number.parseInt(raw, 10) || 0)
+    rows[rowIndex].columns[colIndex] = { mode: 'fixed', px: n }
+    commit(rows)
+  }
+
+  // ctx describes where this panel lives so we can compute insertion order:
+  //   { kind:'cell', rowIndex, colIndex, index } | { kind:'full', rowIndex, index }
+  const renderPanel = (id, ctx) => {
+    const showBarBefore = editing && drag && dropTarget &&
+      ((ctx.kind === 'cell' && dropTarget.kind === 'cell' && dropTarget.rowIndex === ctx.rowIndex && dropTarget.colIndex === ctx.colIndex && dropTarget.index === ctx.index) ||
+       (ctx.kind === 'full' && dropTarget.kind === 'full' && dropTarget.rowIndex === ctx.rowIndex && dropTarget.index === ctx.index))
+
+    const handleOverlayDragOver = (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const rect = e.currentTarget.getBoundingClientRect()
+      const before = e.clientY < rect.top + rect.height / 2
+      const index = before ? ctx.index : ctx.index + 1
+      if (ctx.kind === 'cell') setDropTarget({ kind: 'cell', rowIndex: ctx.rowIndex, colIndex: ctx.colIndex, index })
+      else setDropTarget({ kind: 'full', rowIndex: ctx.rowIndex, index })
+    }
+
+    const handleOverlayDrop = (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (ctx.kind === 'cell') {
+        // Use the computed before/after index only if it targets THIS cell;
+        // otherwise fall back to this panel's own index.
+        const idx = (dropTarget?.kind === 'cell' && dropTarget.rowIndex === ctx.rowIndex && dropTarget.colIndex === ctx.colIndex)
+          ? dropTarget.index
+          : ctx.index
+        dropIntoCell(ctx.rowIndex, ctx.colIndex, idx)
+      } else {
+        const idx = (dropTarget?.kind === 'full' && dropTarget.rowIndex === ctx.rowIndex)
+          ? dropTarget.index
+          : ctx.index
+        dropIntoFull(ctx.rowIndex, idx)
+      }
+    }
+
+    return (
+      <div key={id} className={`relative ${drag?.id === id ? 'opacity-40' : ''}`}>
+        {/* Accent insertion indicator (shows where the panel will drop). */}
+        {showBarBefore && <div className="absolute -top-2 left-0 right-0 h-1 bg-accent rounded z-30 pointer-events-none" />}
+
+        {/* Full-panel drag source + drop target overlay (edit mode only). */}
+        {editing && (
+          <div
+            draggable
+            onDragStart={(e) => { e.stopPropagation(); setDrag({ id }) }}
+            onDragEnd={() => { setDrag(null); setDropTarget(null) }}
+            onDragOver={drag ? handleOverlayDragOver : undefined}
+            onDrop={drag ? handleOverlayDrop : undefined}
+            className="absolute inset-0 z-20 cursor-move bg-accent/5 hover:bg-accent/10 rounded"
+            title="Drag to move this panel"
+          >
+            <div className="absolute top-3 right-3 bg-accent text-white text-sm font-semibold px-3 py-2 rounded-md shadow-lg flex items-center gap-2 select-none pointer-events-none">
+              <i className="fas fa-up-down-left-right text-base" aria-hidden="true"></i> Drag
+            </div>
+          </div>
+        )}
+        <div className={editing ? 'outline-dashed outline-2 outline-accent/50 rounded' : ''}>
+          {panels[id]}
+        </div>
+      </div>
+    )
+  }
+
+  const dropZone = (label, onDropFn) => (
+    <div
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => { e.preventDefault(); onDropFn() }}
+      className="border-2 border-dashed border-accent/60 rounded-md text-sm font-medium text-accent bg-accent/5 flex items-center justify-center h-20 my-2"
+    >
+      <i className="fas fa-arrows-up-to-line mr-2" aria-hidden="true"></i>{label}
+    </div>
+  )
+
+  return (
+    <div className="flex flex-col gap-3">
+      {editing && drag && dropZone('Drop here for a full-width row (top)', () => dropIntoNewFull('top'))}
+
+      {norm.rows.map((row, rowIndex) => {
+        if (row.type === 'full') {
+          return (
+            <div
+              key={`full-${rowIndex}`}
+              onDragOver={editing && drag ? (e) => { e.preventDefault(); setDropTarget({ kind: 'full', rowIndex, index: row.panels.length }) } : undefined}
+              onDrop={editing && drag ? (e) => { e.preventDefault(); dropIntoFull(rowIndex, dropTarget?.kind === 'full' && dropTarget.rowIndex === rowIndex ? dropTarget.index : row.panels.length) } : undefined}
+              className={editing ? 'rounded outline-dashed outline-1 outline-border p-2' : ''}
+            >
+              {editing && <div className="text-[11px] uppercase tracking-wide text-muted mb-2">Full-width row</div>}
+              <div className="flex flex-col gap-3">
+                {row.panels.length === 0 && editing
+                  ? <div className="text-sm text-muted h-20 border-2 border-dashed border-border rounded flex items-center justify-center">Drop a panel here</div>
+                  : row.panels.map((id, index) => renderPanel(id, { kind: 'full', rowIndex, index }))}
+              </div>
+            </div>
+          )
+        }
+
+        const template = row.columns.map((c, i) => colWidthToTrack(c, i === 0)).join(' ')
+        return (
+          <div key={`cols-${rowIndex}`} className={editing ? 'rounded outline-dashed outline-1 outline-border p-2' : ''}>
+            {editing && (
+              <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+                <span className="uppercase tracking-wide text-muted">Columns:</span>
+                <button onClick={() => addColumn(rowIndex)} disabled={row.columns.length >= MAX_COLS}
+                  className="px-2 py-1 rounded bg-secondary border border-border hover:bg-selected disabled:opacity-40">
+                  <i className="fas fa-plus mr-1" />Add column
+                </button>
+                <span className="text-muted">({row.columns.length}/{MAX_COLS})</span>
+              </div>
+            )}
+
+            {editing && (
+              <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: template }}>
+                {row.columns.map((col, colIndex) => {
+                  const isLeft = colIndex === 0
+                  return (
+                    <div key={colIndex} className="border border-border rounded bg-primary/60 p-3 text-sm">
+                      <div className="font-semibold mb-2">Col {colIndex + 1}{isLeft && ' (fills space)'}</div>
+                      {isLeft ? (
+                        <div className="text-muted">Flexible &mdash; locked</div>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex gap-1.5">
+                            {['auto', 'flex', 'fixed'].map((m) => (
+                              <button key={m} onClick={() => setColMode(rowIndex, colIndex, m)}
+                                className={`px-3 py-1.5 rounded capitalize ${col.mode === m ? 'bg-accent text-white' : 'bg-secondary hover:bg-selected'}`}>
+                                {m}
+                              </button>
+                            ))}
+                          </div>
+                          {col.mode === 'fixed' && (
+                            <label className="flex items-center gap-2 mt-1">
+                              <input type="number" min="0" max="1200" step="20" value={col.px ?? DEFAULT_FIXED_PX}
+                                onChange={(e) => setColPx(rowIndex, colIndex, e.target.value)}
+                                className="w-24 bg-secondary border border-border rounded px-2 py-1.5" />
+                              <span className="text-muted">px</span>
+                            </label>
+                          )}
+                          <button onClick={() => removeColumn(rowIndex, colIndex)} disabled={row.columns.length <= MIN_COLS}
+                            className="mt-1 px-3 py-1.5 rounded bg-danger/80 text-white hover:bg-danger disabled:opacity-40">
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            <div className="grid gap-3 items-start" style={{ gridTemplateColumns: template }}>
+              {row.cells.map((cell, colIndex) => (
+                <div
+                  key={colIndex}
+                  className="flex flex-col gap-3 min-w-0"
+                  style={{ minHeight: editing ? 60 : undefined }}
+                  onDragOver={editing && drag ? (e) => { e.preventDefault(); setDropTarget({ kind: 'cell', rowIndex, colIndex, index: cell.length }) } : undefined}
+                  onDrop={editing && drag ? (e) => { e.preventDefault(); dropIntoCell(rowIndex, colIndex, dropTarget?.kind === 'cell' && dropTarget.rowIndex === rowIndex && dropTarget.colIndex === colIndex ? dropTarget.index : cell.length) } : undefined}
+                >
+                  {cell.length === 0 && editing && (
+                    <div className="border-2 border-dashed border-border rounded-md text-sm text-muted flex items-center justify-center h-24">
+                      Drop a panel here
+                    </div>
+                  )}
+                  {cell.map((id, index) => renderPanel(id, { kind: 'cell', rowIndex, colIndex, index }))}
+                  {/* End-of-column insertion indicator. */}
+                  {editing && drag && dropTarget?.kind === 'cell' && dropTarget.rowIndex === rowIndex && dropTarget.colIndex === colIndex && dropTarget.index >= cell.length && cell.length > 0 && (
+                    <div className="h-1 bg-accent rounded pointer-events-none" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+
+      {editing && drag && dropZone('Drop here for a full-width row (bottom)', () => dropIntoNewFull('bottom'))}
+    </div>
+  )
+}
