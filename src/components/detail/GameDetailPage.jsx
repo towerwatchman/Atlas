@@ -3,7 +3,7 @@ import HeroBanner from './page/HeroBanner.jsx'
 import ActionBar from './page/ActionBar.jsx'
 import InfoPanel from './page/InfoPanel.jsx'
 import PreviewLightbox from './page/PreviewLightbox.jsx'
-import DetailPanelGrid, { normalizeDetailLayout, DEFAULT_DETAIL_LAYOUT } from './page/DetailPanelGrid.jsx'
+import DetailPanelGrid, { DEFAULT_DETAIL_LAYOUT } from './page/DetailPanelGrid.jsx'
 import SafeImage from '../ui/SafeImage.jsx'
 import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
@@ -323,7 +323,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           const raw = config?.Appearance?.detailLayout
           if (raw && !canceled) {
             const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-            if (parsed && (Array.isArray(parsed.items) || Array.isArray(parsed.columns))) setDetailLayout(parsed)
+            if (parsed && (Array.isArray(parsed.rows) || Array.isArray(parsed.items) || Array.isArray(parsed.columns))) setDetailLayout(parsed)
           }
         } catch (err) {
           console.warn('Failed to parse detail layout:', err)
@@ -1085,7 +1085,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         {editingLayout && (
           <div className="mb-4 flex items-center gap-2 rounded border border-accent/50 bg-accent/10 px-3 py-2 text-sm">
             <i className="fas fa-up-down-left-right text-accent" aria-hidden="true"></i>
-            <span className="flex-1">Editing layout — drag panels between the three columns, and use the 1/2/3 buttons to set width. Changes save automatically.</span>
+            <span className="flex-1">Editing layout — drag panels between columns, add/remove columns and set each column's width, or drop a panel into a full-width row. Changes save automatically.</span>
             <button onClick={() => handleLayoutChange(DEFAULT_DETAIL_LAYOUT)} className="px-3 py-1 rounded border border-border bg-secondary hover:bg-selected">Reset to defaults</button>
             <button onClick={() => setEditingLayout(false)} className="px-3 py-1 rounded bg-accent text-white hover:bg-accentHover">Done</button>
           </div>
