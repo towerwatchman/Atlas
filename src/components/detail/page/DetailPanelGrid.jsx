@@ -27,10 +27,9 @@ export const DEFAULT_DETAIL_LAYOUT = {
   rows: [
     {
       type: 'columns',
-      columns: [{ mode: 'flex' }, { mode: 'auto' }, { mode: 'fixed', px: 340 }],
+      columns: [{ mode: 'flex' }, { mode: 'fixed', px: 360 }],
       cells: [
         ['previews'],
-        [],
         ['versions', 'rating', 'details', 'links', 'tags'],
       ],
     },
@@ -41,7 +40,10 @@ const colWidthToTrack = (col, isLeftmost) => {
   // Leftmost column is always flexible so it fills leftover space.
   if (isLeftmost) return 'minmax(0, 1fr)'
   if (!col || col.mode === 'flex') return 'minmax(0, 1fr)'
-  if (col.mode === 'fixed') return `${Math.max(120, Number(col.px) || DEFAULT_FIXED_PX)}px`
+  if (col.mode === 'fixed') {
+    const px = Number.isFinite(Number(col.px)) ? Math.max(0, Number(col.px)) : DEFAULT_FIXED_PX
+    return `${px}px`
+  }
   return 'auto'
 }
 
@@ -205,7 +207,11 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
 
   const setColPx = (rowIndex, colIndex, px) => {
     const rows = clone()
-    rows[rowIndex].columns[colIndex] = { mode: 'fixed', px: Math.max(120, Number(px) || DEFAULT_FIXED_PX) }
+    // Allow free text entry, including empty (treated as 0). We store the raw
+    // number and don't force a minimum here so the field is fully editable.
+    const raw = String(px).trim()
+    const n = raw === '' ? 0 : Math.max(0, Number.parseInt(raw, 10) || 0)
+    rows[rowIndex].columns[colIndex] = { mode: 'fixed', px: n }
     commit(rows)
   }
 
@@ -296,7 +302,7 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
                           </div>
                           {col.mode === 'fixed' && (
                             <label className="flex items-center gap-1 mt-1">
-                              <input type="number" min="120" max="1200" step="20" value={col.px || DEFAULT_FIXED_PX}
+                              <input type="number" min="0" max="1200" step="20" value={col.px ?? DEFAULT_FIXED_PX}
                                 onChange={(e) => setColPx(rowIndex, colIndex, e.target.value)}
                                 className="w-20 bg-secondary border border-border rounded px-1 py-0.5" />
                               <span className="text-muted">px</span>
