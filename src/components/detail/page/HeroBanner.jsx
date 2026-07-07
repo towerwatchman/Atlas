@@ -1,7 +1,7 @@
 import useImageFallback from '../../../hooks/useImageFallback.js'
 import SafeImage from '../../ui/SafeImage.jsx'
 
-export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask, onLoad, onBack }) {
+export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask, onLoad, onBack, showBack = true }) {
   const isCatalogEntry = game.isCatalogEntry === true
   const hasInstalledVersion = isCatalogEntry || game.hasInstalledVersion !== false
   // When the hero is Steam key-art, zoom it slightly so it fills the frame the
@@ -54,6 +54,24 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
 
       {/* Bottom fade */}
       <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, transparent 30%, var(--color-tertiary,#12161f) 100%)' }} />
+
+      {/* Back button (top-left over the hero). Hidden once the action bar
+          sticks — the bar shows its own Back button then. */}
+      <div style={{ position: 'absolute', top: 14, left: 14, transition: 'opacity 0.15s', opacity: showBack ? 1 : 0, pointerEvents: showBack ? 'auto' : 'none' }}>
+        <button onClick={onBack}
+          className="text-xs text-white px-3 py-2 border border-white/10 transition-colors"
+          style={{
+            background: 'rgba(0,0,0,0.45)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            textShadow: '0 1px 3px rgba(0,0,0,0.8)',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0,0,0,0.65)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(0,0,0,0.45)' }}
+        >
+          <i className="fas fa-arrow-left" style={{ marginRight: 6 }}></i>Back to Library
+        </button>
+      </div>
 
       {/* Title / logo (bottom-left, steam-style). Bottom padding clears the
           action bar, which now overlaps the lower edge of the hero. */}

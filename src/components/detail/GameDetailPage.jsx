@@ -186,8 +186,12 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   // The About/description panel is hidden by default; toggled by the info
   // button in the action bar. Its Read More expansion is internal to the panel.
   const [showInfo, setShowInfo] = useState(false)
+  // True once the sticky ActionBar has "stuck" (user scrolled past the hero).
+  // Drives moving the Back button from the hero into the ActionBar.
+  const [barStuck, setBarStuck] = useState(false)
   const isRunningRef  = useRef(false)
   const rootRef       = useRef(null)
+  const stickySentinelRef = useRef(null)
   const bannerRef     = useRef(null)
   const bannerDimsRef = useRef(null)
   const browsePreviewCacheRef = useRef(new Map())
@@ -390,6 +394,20 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     window.addEventListener('resize', recomputeFeather)
     return () => window.removeEventListener('resize', recomputeFeather)
   }, [game?.record_id, game?.banner_url])
+
+  // Detect when the sticky ActionBar has stuck: a zero-height sentinel sits just
+  // above the bar; once it scrolls out of the top of the scroll viewport, the
+  // bar is pinned and we move the Back button into it.
+  useEffect(() => {
+    const sentinel = stickySentinelRef.current
+    if (!sentinel || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(
+      ([entry]) => setBarStuck(!entry.isIntersecting),
+      { threshold: 0 },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [game?.record_id])
 
   useEffect(() => {
     if (!game?.record_id) return
@@ -814,6 +832,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         bannerMask={bannerMask}
         onLoad={recomputeFeather}
         onBack={onBack}
+        showBack={!barStuck}
       />
 
       {Number(game?.atlas_removed_from_server) > 0 && (
@@ -825,6 +844,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           </span>
         </div>
       )}
+
+      {/* Sentinel for sticky detection — sits just above the action bar. */}
+      <div ref={stickySentinelRef} style={{ height: 0 }} aria-hidden="true" />
 
       <ActionBar
         game={game}
@@ -855,6 +877,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         onRemoveTitle={removeTitleFromLibrary}
         onDeleteTitle={deleteTitleAndFiles}
         onBack={onBack}
+        showBack={barStuck}
         editingLayout={editingLayout}
         onToggleEditLayout={() => setEditingLayout((v) => !v)}
         showInfo={showInfo}

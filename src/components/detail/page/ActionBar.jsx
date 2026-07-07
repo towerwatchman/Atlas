@@ -9,7 +9,7 @@ export default function ActionBar({
   onLaunch, onOpenFolder, onOpenProperties, onToggleWishlist, onRefreshMedia,
   onOpenWebsite, onOpenSteam, onUninstallSteam, onToggleFavorite, onToggleLocalImport,
   onRemoveTitle, onDeleteTitle, onBack, onToggleEditLayout, editingLayout = false,
-  onToggleInfo, showInfo = false,
+  onToggleInfo, showInfo = false, showBack = false,
 }) {
   const showInstallCta = !canLaunch && canInstallFromDetail
 
@@ -47,23 +47,26 @@ export default function ActionBar({
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px' }}>
 
-        {/* BACK */}
-        <button
-          onClick={onBack}
-          title="Back to Library"
-          style={{
-            ...ACTION_BTN,
-            background: 'var(--color-primary, #19191c)',
-            color: 'var(--color-text)',
-            border: '1px solid var(--color-border)',
-            gap: 7,
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.15)' }}
-          onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
-        >
-          <i className="fas fa-arrow-left" style={{ fontSize: 12 }}></i>
-          <span>Back</span>
-        </button>
+        {/* BACK — shown only once the bar is stuck (scrolled); before that the
+            hero shows its own top-left Back button. */}
+        {showBack && (
+          <button
+            onClick={onBack}
+            title="Back to Library"
+            style={{
+              ...ACTION_BTN,
+              background: 'var(--color-primary, #19191c)',
+              color: 'var(--color-text)',
+              border: '1px solid var(--color-border)',
+              gap: 7,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.15)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
+          >
+            <i className="fas fa-arrow-left" style={{ fontSize: 12 }}></i>
+            <span>Back</span>
+          </button>
+        )}
 
         {/* PLAY */}
         <button
