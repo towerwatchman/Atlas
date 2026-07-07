@@ -41,8 +41,10 @@ const colWidthToTrack = (col, isLeftmost) => {
   if (isLeftmost) return 'minmax(0, 1fr)'
   if (!col || col.mode === 'flex') return 'minmax(0, 1fr)'
   if (col.mode === 'fixed') {
-    const px = Number.isFinite(Number(col.px)) ? Math.max(0, Number(col.px)) : DEFAULT_FIXED_PX
-    return `${px}px`
+    // The typed value is stored raw so the input stays fully editable, but the
+    // applied column width is floored at 200px -- values <= 200 render as 200.
+    const raw = Number.isFinite(Number(col.px)) ? Number(col.px) : DEFAULT_FIXED_PX
+    return `${Math.max(200, raw)}px`
   }
   return 'auto'
 }
@@ -245,7 +247,7 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
   )
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-3">
       {editing && drag && dropZone('Drop here for a full-width row (top)', () => dropIntoNewFull('top'))}
 
       {norm.rows.map((row, rowIndex) => {
@@ -258,7 +260,7 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
               className={editing ? 'rounded outline-dashed outline-1 outline-border p-2' : ''}
             >
               {editing && <div className="text-[11px] uppercase tracking-wide text-muted mb-2">Full-width row</div>}
-              <div className="flex flex-col gap-6">
+              <div className="flex flex-col gap-3">
                 {row.panels.length === 0 && editing
                   ? <div className="text-xs text-muted h-10 flex items-center justify-center">Drop a panel here</div>
                   : row.panels.map(renderPanel)}
@@ -320,11 +322,11 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
               </div>
             )}
 
-            <div className="grid gap-6 items-start" style={{ gridTemplateColumns: template }}>
+            <div className="grid gap-3 items-start" style={{ gridTemplateColumns: template }}>
               {row.cells.map((cell, colIndex) => (
                 <div
                   key={colIndex}
-                  className="flex flex-col gap-6 min-w-0"
+                  className="flex flex-col gap-3 min-w-0"
                   style={{ minHeight: editing ? 60 : undefined }}
                   onDragOver={editing ? (e) => e.preventDefault() : undefined}
                   onDrop={editing ? (e) => { e.preventDefault(); dropIntoCell(rowIndex, colIndex) } : undefined}

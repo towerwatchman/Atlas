@@ -1081,7 +1081,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       {/* Body — customizable 3-column panel grid (task: drag & drop). The
           previews/versions/rating/details/links/tags sections are panels;
           each is only included when it has content. */}
-      <div className="p-6">
+      <div className="p-3">
         {editingLayout && (
           <div className="mb-4 flex items-center gap-2 rounded border border-accent/50 bg-accent/10 px-3 py-2 text-sm">
             <i className="fas fa-up-down-left-right text-accent" aria-hidden="true"></i>
@@ -1096,7 +1096,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           onLayoutChange={handleLayoutChange}
           panels={{
             previews: (
-              <section className="border border-border bg-secondary" style={{ padding: 12 }}>
+              <section className="border border-border bg-secondary" style={{ padding: 6 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                   <h2 className="text-lg font-semibold">Previews</h2>
                   <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>{previews.length} available</span>
@@ -1139,7 +1139,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               </section>
             ),
             versions: (
-              <section className="bg-secondary border border-border p-4">
+              <section className="bg-secondary border border-border p-2">
                 <h2 className="text-lg font-semibold mb-3">Versions</h2>
                 {versionOptions.length > 0 ? (
                   <div className="space-y-2">
@@ -1171,7 +1171,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               </section>
             ),
             rating: canManagePersonalRatings ? (
-              <section className="bg-secondary border border-border p-4">
+              <section className="bg-secondary border border-border p-2">
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
                   <h2 className="text-lg font-semibold">Personal Rating</h2>
                   <span style={{ color: personalRatingsOverall === null ? 'var(--color-muted)' : 'var(--color-warning)', fontWeight: 700 }}>
@@ -1209,7 +1209,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               </section>
             ) : null,
             details: (
-              <section className="bg-secondary border border-border p-4">
+              <section className="bg-secondary border border-border p-2">
                 <h2 className="text-lg font-semibold mb-3">Details</h2>
                 <div className="space-y-2 text-sm">
                   {metadataRows.map(([label, value]) => (
@@ -1240,7 +1240,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               </section>
             ),
             links: externalLinks.length > 0 ? (
-              <section className="bg-secondary border border-border p-4">
+              <section className="bg-secondary border border-border p-2">
                 <h2 className="text-lg font-semibold mb-3">External Links</h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {externalLinks.map((link) => (
@@ -1265,7 +1265,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               </section>
             ) : null,
             tags: detailTags.length > 0 ? (
-              <section className="bg-secondary border border-border p-4">
+              <section className="bg-secondary border border-border p-2">
                 <h2 className="text-lg font-semibold mb-3">Tags</h2>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {detailTags.slice(0, 32).map((tag) => (
