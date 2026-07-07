@@ -10,6 +10,7 @@ const { getEmulatorByExtension } = require('../db/settings')
 const { getSteamIDbyRecord } = require('../db/steam')
 const { applyMediaSources } = require('../db/mediaSources')
 const { calculatePathSize } = require('../pathSize')
+const { runDatabaseAudit, getInvalidMappingCount } = require('../db/audit')
 
 function emitGameUpdated(recordId) {
   if (!recordId) return
@@ -436,6 +437,24 @@ function registerGamesHandlers(ctx) {
   ipcMain.handle('open-directory', async (event, dirPath) => {
     await shell.openPath(dirPath)
     return { success: true }
+  })
+
+  ipcMain.handle('run-db-audit', async () => {
+    try {
+      return { success: true, ...(await runDatabaseAudit()) }
+    } catch (err) {
+      console.error('run-db-audit error:', err)
+      return { success: false, error: err.message, items: [], summary: { removed: 0, orphaned: 0, unmapped: 0 }, total: 0 }
+    }
+  })
+
+  ipcMain.handle('get-invalid-mapping-count', async () => {
+    try {
+      return { success: true, count: await getInvalidMappingCount() }
+    } catch (err) {
+      console.error('get-invalid-mapping-count error:', err)
+      return { success: false, error: err.message, count: 0 }
+    }
   })
 
   ipcMain.handle('get-manual-mappings', async (event, recordId) => {

@@ -97,6 +97,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("add-atlas-mapping", { recordId, atlasId }),
   getManualMappings: (recordId) =>
     ipcRenderer.invoke("get-manual-mappings", recordId),
+  runDbAudit: () => ipcRenderer.invoke("run-db-audit"),
+  getInvalidMappingCount: () => ipcRenderer.invoke("get-invalid-mapping-count"),
   setManualMappings: (recordId, mappings) =>
     ipcRenderer.invoke("set-manual-mappings", { recordId, mappings }),
   findF95Id: (atlasId) => ipcRenderer.invoke("find-f95-id", atlasId),

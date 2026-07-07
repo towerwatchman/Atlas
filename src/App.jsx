@@ -159,6 +159,10 @@ const App = () => {
   // once (persisted in localStorage under WELCOME_TOUR_SEEN_KEY) and can be
   // re-launched from the About modal.
   const [aboutOpen, setAboutOpen] = useState(false)
+  // Passive audit banner: shows when the remote has removed catalog entries
+  // that local games were mapped to (count > 0). Dismissable for the session.
+  const [invalidMappingCount, setInvalidMappingCount] = useState(0)
+  const [mappingBannerDismissed, setMappingBannerDismissed] = useState(false)
   const [showWelcomeTour, setShowWelcomeTour] = useState(false)
   // First-run welcome page (own flag, checked separately from the age
   // prompt). The refs coordinate the first-run sequence: welcome ->
@@ -870,6 +874,16 @@ const App = () => {
   // issue-reporting info, and a way to replay the welcome tour).
   const openAbout = () => setAboutOpen(true)
 
+  // Passively check for remote-removed mappings on mount so we can surface a
+  // banner prompting the user to run a full audit in Settings → Database.
+  useEffect(() => {
+    let cancelled = false
+    window.electronAPI.getInvalidMappingCount?.()
+      .then((res) => { if (!cancelled && res?.success !== false) setInvalidMappingCount(res?.count || 0) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
   // Replay the welcome tour from the About modal.
   const replayWelcomeTour = () => {
     setAboutOpen(false)
@@ -1487,6 +1501,28 @@ const App = () => {
           ref={gameGridRef}
           style={{ overflowX: 'hidden' }}
         >
+          {!selectedGame && invalidMappingCount > 0 && !mappingBannerDismissed && (
+            <div className="mx-3 mt-3 mb-1 flex items-center gap-3 rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-text">
+              <i className="fas fa-triangle-exclamation text-amber-400" aria-hidden="true"></i>
+              <span className="flex-1">
+                {invalidMappingCount} game{invalidMappingCount === 1 ? '' : 's'} {invalidMappingCount === 1 ? 'has' : 'have'} a mapping that was removed from the remote catalog. Run a database audit to review and remap.
+              </span>
+              <button
+                onClick={() => window.electronAPI.openSettings?.()}
+                className="px-3 py-1 bg-button hover:bg-buttonHover rounded flex-shrink-0"
+              >
+                Open Settings
+              </button>
+              <button
+                onClick={() => setMappingBannerDismissed(true)}
+                title="Dismiss"
+                aria-label="Dismiss"
+                className="w-7 h-7 flex items-center justify-center rounded hover:bg-tertiary flex-shrink-0"
+              >
+                <i className="fas fa-times" aria-hidden="true"></i>
+              </button>
+            </div>
+          )}
           {selectedGame ? (
             <GameDetailPage
               game={selectedGame}
