@@ -1,12 +1,14 @@
+import { useState } from 'react'
 import useImageFallback from '../../../hooks/useImageFallback.js'
 import SafeImage from '../../ui/SafeImage.jsx'
 import { isSteamGame, htmlToText } from './gameDetailUtils.js'
 
-// Overview card shown directly beneath the action bar. For Steam games it shows
-// the portrait box art (library_600x900) on the left and the game description
-// (+ changelog, when present) on the right. Deliberately minimal — every other
-// field lives in the Details card.
+// About / description panel shown directly beneath the action bar. Hidden by
+// default; toggled by the info button in the action bar. Steam-style: the
+// description is clamped to a few lines with an inline "Read More" that expands
+// it in place. For Steam games it also shows the portrait box art on the left.
 export default function InfoPanel({ game, latestVersion, isUpdateAvailable }) {
+  const [expanded, setExpanded] = useState(false)
   const appid = game.steam_appid || game.steam_id
   const steam = isSteamGame(game)
 
@@ -20,39 +22,65 @@ export default function InfoPanel({ game, latestVersion, isUpdateAvailable }) {
   const description = htmlToText(game.overview)
   const changelog = htmlToText(game.changelog)
 
-  // Nothing to show → render nothing (keeps the page tight for sparse records).
+  // Nothing to show -> render nothing (keeps the page tight for sparse records).
   if (!showCapsule && !description && !changelog && !isUpdateAvailable) return null
 
+  // Steam-style clamp: show ~6 lines collapsed, with a fade + Read More.
+  const COLLAPSED_MAX = 140 // px
+
   return (
-    <div className="bg-secondary border-b border-border" style={{ padding: '20px 24px' }}>
+    <div className="mx-6 mt-4 bg-secondary border border-border" style={{ padding: '20px 24px' }}>
       {isUpdateAvailable && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginBottom: 16, padding: '8px 12px', background: 'color-mix(in srgb, var(--color-detail-accent) 15%, transparent)', border: '1px solid color-mix(in srgb, var(--color-detail-accent) 30%, transparent)', borderRadius: 2 }}>
           <i className="fas fa-arrow-circle-up" style={{ color: 'var(--color-detail-accent)' }}></i>
-          <span style={{ color: 'var(--color-detail-accent-text)' }}>Update available — {latestVersion}</span>
+          <span style={{ color: 'var(--color-detail-accent-text)' }}>Update available &mdash; {latestVersion}</span>
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 24, alignItems: 'stretch', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         {showCapsule && (
           <div style={{ flexShrink: 0, width: 200, maxWidth: '100%' }}>
             <SafeImage
               src={capsuleUrl}
               alt={`${game.title || 'Game'} box art`}
               fallbackLabel="Box art unavailable"
-              style={{ width: '100%', height: '100%', maxHeight: 300, objectFit: 'contain', objectPosition: 'top', display: 'block', borderRadius: 4 }}
+              style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'contain', objectPosition: 'top', display: 'block', borderRadius: 4 }}
             />
           </div>
         )}
 
         <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+            About
+          </div>
           {description ? (
             <>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--color-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
-                About
-              </div>
-              <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-text)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 320, overflowY: 'auto' }}>
+              <div
+                style={{
+                  position: 'relative',
+                  fontSize: 13,
+                  lineHeight: 1.55,
+                  color: 'var(--color-text)',
+                  whiteSpace: 'pre-wrap',
+                  overflowWrap: 'anywhere',
+                  maxHeight: expanded ? 'none' : COLLAPSED_MAX,
+                  overflow: 'hidden',
+                }}
+              >
                 {description}
+                {!expanded && (
+                  // Bottom fade hint, Steam-style.
+                  <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 48, background: 'linear-gradient(to bottom, transparent, var(--color-secondary))', pointerEvents: 'none' }} />
+                )}
               </div>
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="mt-2 text-accent hover:underline"
+                style={{ fontSize: 12, fontWeight: 600 }}
+              >
+                {expanded ? 'Read Less' : 'Read More'}
+              </button>
             </>
           ) : (
             <div style={{ color: 'var(--color-muted)', fontSize: 13 }}>No description available</div>

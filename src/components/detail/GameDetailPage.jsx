@@ -3,6 +3,7 @@ import HeroBanner from './page/HeroBanner.jsx'
 import ActionBar from './page/ActionBar.jsx'
 import InfoPanel from './page/InfoPanel.jsx'
 import PreviewLightbox from './page/PreviewLightbox.jsx'
+import DetailPanelGrid, { normalizeDetailLayout } from './page/DetailPanelGrid.jsx'
 import SafeImage from '../ui/SafeImage.jsx'
 import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
@@ -153,7 +154,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [selectedVersion, setSelectedVersion] = useState(null)
   const [isRefreshingMedia, setIsRefreshingMedia] = useState(false)
   const [launchState, setLaunchState] = useState(LAUNCH_STATE.IDLE)
-  const [showInfo, setShowInfo] = useState(true)
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const [bannerMask, setBannerMask] = useState({ image: 'none', composite: null })
   const [catalogImportPath, setCatalogImportPath] = useState('')
@@ -179,6 +179,13 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [personalRatingsSaved, setPersonalRatingsSaved] = useState(() => buildPersonalRatingsDraft(game))
   const [personalRatingsBusy, setPersonalRatingsBusy] = useState(false)
   const [personalRatingsError, setPersonalRatingsError] = useState('')
+  // Customizable 3-column panel layout (shared across all games, saved to config
+  // under Appearance.detailLayout). editingLayout toggles drag-and-drop.
+  const [detailLayout, setDetailLayout] = useState({ items: [{ id: 'previews', span: 2 }, { id: 'versions', span: 1 }, { id: 'rating', span: 1 }, { id: 'details', span: 1 }, { id: 'links', span: 1 }, { id: 'tags', span: 1 }] })
+  const [editingLayout, setEditingLayout] = useState(false)
+  // The About/description panel is hidden by default; toggled by the info
+  // button in the action bar. Its Read More expansion is internal to the panel.
+  const [showInfo, setShowInfo] = useState(false)
   const isRunningRef  = useRef(false)
   const rootRef       = useRef(null)
   const bannerRef     = useRef(null)
@@ -260,7 +267,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
 
   useEffect(() => {
     setLaunchState(LAUNCH_STATE.IDLE)
-    setShowInfo(true)
+    setShowInfo(false)
     setLightboxIndex(null)
     setIsWishlisted(game?.isWishlisted === true || game?.isWishlistEntry === true)
     setIsFavorite(game?.isFavorite === true || game?.is_favorite === 1)
@@ -307,6 +314,16 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           .map((ext) => ext.trim().toLowerCase().replace(/^\./, ''))
           .filter(Boolean)
         if (!canceled && extensions.length > 0) setLocalArchiveExtensions(extensions)
+        // Load the shared detail-panel layout.
+        try {
+          const raw = config?.Appearance?.detailLayout
+          if (raw && !canceled) {
+            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+            if (parsed && (Array.isArray(parsed.items) || Array.isArray(parsed.columns))) setDetailLayout(parsed)
+          }
+        } catch (err) {
+          console.warn('Failed to parse detail layout:', err)
+        }
       } catch (err) {
         console.warn('Failed to load archive extensions:', err)
       }
@@ -770,6 +787,22 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     }
   }
 
+  // Persist the shared detail-panel layout to config (Appearance.detailLayout).
+  const handleLayoutChange = async (nextLayout) => {
+    setDetailLayout(nextLayout)
+    try {
+      const config = await window.electronAPI.getConfig()
+      const newConfig = {
+        ...config,
+        Appearance: { ...config.Appearance, detailLayout: JSON.stringify(nextLayout) },
+      }
+      const result = await window.electronAPI.saveSettings(newConfig)
+      if (result?.success === false) console.error('Failed to save detail layout:', result.error)
+    } catch (err) {
+      console.error('Failed to save detail layout:', err)
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div ref={rootRef} className="min-h-full bg-tertiary text-text flex flex-col">
@@ -808,7 +841,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         favoriteBusy={favoriteBusy}
         launchState={launchState}
         isRefreshingMedia={isRefreshingMedia}
-        showInfo={showInfo}
         canManageLocalTitle={canManageLocalTitle}
         onLaunch={launchSelectedGame}
         onOpenFolder={openSelectedFolder}
@@ -822,6 +854,10 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         onToggleLocalImport={() => setShowLocalImportPanel((value) => !value)}
         onRemoveTitle={removeTitleFromLibrary}
         onDeleteTitle={deleteTitleAndFiles}
+        onBack={onBack}
+        editingLayout={editingLayout}
+        onToggleEditLayout={() => setEditingLayout((v) => !v)}
+        showInfo={showInfo}
         onToggleInfo={() => setShowInfo((s) => !s)}
       />
 
@@ -1019,191 +1055,203 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         />
       )}
 
-      {/* Body */}
-      <div className="p-6 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-6">
-
-        {/* Previews */}
-        <section className="border border-border bg-secondary" style={{ padding: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <h2 className="text-lg font-semibold">Previews</h2>
-            <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>{previews.length} available</span>
+      {/* Body — customizable 3-column panel grid (task: drag & drop). The
+          previews/versions/rating/details/links/tags sections are panels;
+          each is only included when it has content. */}
+      <div className="p-6">
+        {editingLayout && (
+          <div className="mb-4 flex items-center gap-2 rounded border border-accent/50 bg-accent/10 px-3 py-2 text-sm">
+            <i className="fas fa-up-down-left-right text-accent" aria-hidden="true"></i>
+            <span className="flex-1">Editing layout — drag panels between the three columns. Changes save automatically.</span>
+            <button onClick={() => setEditingLayout(false)} className="px-3 py-1 rounded bg-accent text-white hover:bg-accentHover">Done</button>
           </div>
-          {previews.length > 0 ? (
-            <div
-              className="grid gap-3"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}
-            >
-              {previews.map((preview, index) => (
-                <div
-                  key={`${preview}-${index}`}
-                  className="border border-border overflow-hidden aspect-video cursor-pointer hover:border-accent transition-colors relative"
-                  onClick={() => setLightboxIndex(index)}
-                  title={isVideoUrl(preview) ? 'Play trailer' : 'Click to view'}
-                >
-                  {isVideoUrl(preview) ? (
-                    <>
-                      <video src={toMediaSrc(preview)} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#000' }} />
-                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)', pointerEvents: 'none' }}>
-                        <i className="fas fa-play-circle" style={{ fontSize: 44, color: 'rgba(255,255,255,0.92)', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.6))' }}></i>
-                      </div>
-                    </>
-                  ) : (
-                    <SafeImage
-                      src={preview}
-                      alt={`Preview ${index + 1}`}
-                      fallbackLabel="Preview unavailable"
-                      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                    />
-                  )}
+        )}
+        <DetailPanelGrid
+          layout={detailLayout}
+          editing={editingLayout}
+          onLayoutChange={handleLayoutChange}
+          panels={{
+            previews: (
+              <section className="border border-border bg-secondary" style={{ padding: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <h2 className="text-lg font-semibold">Previews</h2>
+                  <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>{previews.length} available</span>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ minHeight: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-muted)' }}>
-              {previewsLoading ? 'Loading previews...' : 'No previews available'}
-            </div>
-          )}
-        </section>
-
-        {/* Sidebar */}
-        <aside className="space-y-5">
-          <section className="bg-secondary border border-border p-4">
-            <h2 className="text-lg font-semibold mb-3">Versions</h2>
-            {versionOptions.length > 0 ? (
-              <div className="space-y-2">
-                {versionOptions.map((version) => {
-                  const isSelected = selectedVersion?.version === version.version && selectedVersion?.game_path === version.game_path
-                  const installed = version.isInstalled !== false
-                  return (
-                    <button
-                      key={`${version.version}-${version.game_path}`}
-                      onClick={() => selectVersion(version)}
-                      className={`w-full text-left border p-3 transition-colors ${isSelected ? 'border-accent bg-selected' : 'border-border bg-primary hover:bg-selected'}`}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                        <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
-                          {isSelected && <i className="fas fa-play" style={{ fontSize: 9, color: 'var(--color-accent,#86a8e7)' }}></i>}
-                          {version.version || 'Unknown version'}
-                        </span>
-                        <span style={{ fontSize: 11, color: installed ? 'var(--color-success)' : 'var(--color-danger)' }}>{installed ? 'Installed' : 'Missing'}</span>
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--color-text)', marginTop: 3 }}>{formatPlaytime(version.version_playtime)}</div>
-                      <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{version.game_path || 'No path set'}</div>
-                    </button>
-                  )
-                })}
-              </div>
-            ) : (
-              <div style={{ color: 'var(--color-muted)' }}>No versions recorded</div>
-            )}
-          </section>
-
-          {canManagePersonalRatings && (
-            <section className="bg-secondary border border-border p-4">
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
-                <h2 className="text-lg font-semibold">Personal Rating</h2>
-                <span style={{ color: personalRatingsOverall === null ? 'var(--color-muted)' : 'var(--color-warning)', fontWeight: 700 }}>
-                  {personalRatingsOverall === null ? 'Unrated' : `${personalRatingsOverall}/10`}
-                </span>
-              </div>
-              <div className="space-y-2">
-                {personalRatingFields.map(([key, label]) => (
-                  <label key={key} className="text-sm" style={{ display: 'grid', gridTemplateColumns: '1fr 72px', gap: 10, alignItems: 'center' }}>
-                    <span style={{ color: 'var(--color-text)' }}>{label}</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="10"
-                      step="1"
-                      value={personalRatingsDraft[key]}
-                      onChange={(event) => updatePersonalRatingDraft(key, event.target.value)}
-                      placeholder="-"
-                      className="bg-primary border border-border px-2 py-1 text-sm text-right"
-                    />
-                  </label>
-                ))}
-              </div>
-              {personalRatingsError && (
-                <div className="text-xs text-danger mt-3">{personalRatingsError}</div>
-              )}
-              <button
-                type="button"
-                onClick={savePersonalRatings}
-                disabled={!personalRatingsDirty || personalRatingsBusy}
-                className="mt-3 w-full px-3 py-2 rounded text-sm bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:hover:bg-accent"
-              >
-                {personalRatingsBusy ? 'Saving...' : personalRatingsDirty ? 'Save ratings' : 'Ratings saved'}
-              </button>
-            </section>
-          )}
-
-          <section className="bg-secondary border border-border p-4">
-            <h2 className="text-lg font-semibold mb-3">Details</h2>
-            <div className="space-y-2 text-sm">
-              {metadataRows.map(([label, value]) => (
-                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 6 }}>
-                  <span style={{ color: 'var(--color-muted)', flexShrink: 0 }}>{label}</span>
-                  <span style={{ textAlign: 'right', minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{String(value)}</span>
-                </div>
-              ))}
-
-              {steam && categories.length > 0 && (
-                <div style={{ paddingTop: 4 }}>
-                  <div style={{ color: 'var(--color-muted)', marginBottom: 6 }}>Category</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {categories.map((cat) => (
-                      <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                        <i className={getCategoryIcon(cat)} style={{ width: 16, textAlign: 'center', color: 'var(--color-muted)', flexShrink: 0, fontSize: 13 }} aria-hidden="true"></i>
-                        <span style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{cat}</span>
+                {previews.length > 0 ? (
+                  <div
+                    className="grid gap-3"
+                    style={{ gridTemplateColumns: `repeat(${Math.min(5, Math.max(1, previews.length))}, minmax(0, 1fr))` }}
+                  >
+                    {previews.map((preview, index) => (
+                      <div
+                        key={`${preview}-${index}`}
+                        className="border border-border overflow-hidden aspect-video cursor-pointer hover:border-accent transition-colors relative"
+                        onClick={() => setLightboxIndex(index)}
+                        title={isVideoUrl(preview) ? 'Play trailer' : 'Click to view'}
+                      >
+                        {isVideoUrl(preview) ? (
+                          <>
+                            <video src={toMediaSrc(preview)} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#000' }} />
+                            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)', pointerEvents: 'none' }}>
+                              <i className="fas fa-play-circle" style={{ fontSize: 44, color: 'rgba(255,255,255,0.92)', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.6))' }}></i>
+                            </div>
+                          </>
+                        ) : (
+                          <SafeImage
+                            src={preview}
+                            alt={`Preview ${index + 1}`}
+                            fallbackLabel="Preview unavailable"
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                          />
+                        )}
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-
-              {metadataRows.length === 0 && !(steam && categories.length > 0) && (
-                <div style={{ color: 'var(--color-muted)' }}>No metadata available</div>
-              )}
-            </div>
-          </section>
-
-          {externalLinks.length > 0 && (
-            <section className="bg-secondary border border-border p-4">
-              <h2 className="text-lg font-semibold mb-3">External Links</h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {externalLinks.map((link) => (
-                  <div key={link.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                    <i className={link.icon} style={{ width: 18, textAlign: 'center', color: 'var(--color-muted)' }} aria-hidden="true"></i>
-                    <span style={{ color: 'var(--color-muted)', minWidth: 92 }}>{link.label}</span>
-                    {link.url ? (
-                      <a
-                        href={link.url}
-                        onClick={(e) => { e.preventDefault(); window.electronAPI.openExternalUrl(link.url) }}
-                        className="text-accent hover:underline"
-                        style={{ cursor: 'pointer', wordBreak: 'break-all' }}
-                      >
-                        {link.value}
-                      </a>
-                    ) : (
-                      <span style={{ wordBreak: 'break-all' }}>{link.value}</span>
-                    )}
+                ) : (
+                  <div style={{ minHeight: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-muted)' }}>
+                    {previewsLoading ? 'Loading previews...' : 'No previews available'}
                   </div>
-                ))}
-              </div>
-            </section>
-          )}
+                )}
+              </section>
+            ),
+            versions: (
+              <section className="bg-secondary border border-border p-4">
+                <h2 className="text-lg font-semibold mb-3">Versions</h2>
+                {versionOptions.length > 0 ? (
+                  <div className="space-y-2">
+                    {versionOptions.map((version) => {
+                      const isSelected = selectedVersion?.version === version.version && selectedVersion?.game_path === version.game_path
+                      const installed = version.isInstalled !== false
+                      return (
+                        <button
+                          key={`${version.version}-${version.game_path}`}
+                          onClick={() => selectVersion(version)}
+                          className={`w-full text-left border p-3 transition-colors ${isSelected ? 'border-accent bg-selected' : 'border-border bg-primary hover:bg-selected'}`}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                            <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
+                              {isSelected && <i className="fas fa-play" style={{ fontSize: 9, color: 'var(--color-accent,#86a8e7)' }}></i>}
+                              {version.version || 'Unknown version'}
+                            </span>
+                            <span style={{ fontSize: 11, color: installed ? 'var(--color-success)' : 'var(--color-danger)' }}>{installed ? 'Installed' : 'Missing'}</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--color-text)', marginTop: 3 }}>{formatPlaytime(version.version_playtime)}</div>
+                          <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{version.game_path || 'No path set'}</div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ color: 'var(--color-muted)' }}>No versions recorded</div>
+                )}
+              </section>
+            ),
+            rating: canManagePersonalRatings ? (
+              <section className="bg-secondary border border-border p-4">
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+                  <h2 className="text-lg font-semibold">Personal Rating</h2>
+                  <span style={{ color: personalRatingsOverall === null ? 'var(--color-muted)' : 'var(--color-warning)', fontWeight: 700 }}>
+                    {personalRatingsOverall === null ? 'Unrated' : `${personalRatingsOverall}/10`}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {personalRatingFields.map(([key, label]) => (
+                    <label key={key} className="text-sm" style={{ display: 'grid', gridTemplateColumns: '1fr 72px', gap: 10, alignItems: 'center' }}>
+                      <span style={{ color: 'var(--color-text)' }}>{label}</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="10"
+                        step="1"
+                        value={personalRatingsDraft[key]}
+                        onChange={(event) => updatePersonalRatingDraft(key, event.target.value)}
+                        placeholder="-"
+                        className="bg-primary border border-border px-2 py-1 text-sm text-right"
+                      />
+                    </label>
+                  ))}
+                </div>
+                {personalRatingsError && (
+                  <div className="text-xs text-danger mt-3">{personalRatingsError}</div>
+                )}
+                <button
+                  type="button"
+                  onClick={savePersonalRatings}
+                  disabled={!personalRatingsDirty || personalRatingsBusy}
+                  className="mt-3 w-full px-3 py-2 rounded text-sm bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:hover:bg-accent"
+                >
+                  {personalRatingsBusy ? 'Saving...' : personalRatingsDirty ? 'Save ratings' : 'Ratings saved'}
+                </button>
+              </section>
+            ) : null,
+            details: (
+              <section className="bg-secondary border border-border p-4">
+                <h2 className="text-lg font-semibold mb-3">Details</h2>
+                <div className="space-y-2 text-sm">
+                  {metadataRows.map(([label, value]) => (
+                    <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 6 }}>
+                      <span style={{ color: 'var(--color-muted)', flexShrink: 0 }}>{label}</span>
+                      <span style={{ textAlign: 'right', minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{String(value)}</span>
+                    </div>
+                  ))}
 
-          {detailTags.length > 0 && (
-            <section className="bg-secondary border border-border p-4">
-              <h2 className="text-lg font-semibold mb-3">Tags</h2>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {detailTags.slice(0, 32).map((tag) => (
-                  <span key={tag} className="bg-primary border border-border px-2 py-1 text-xs">{tag}</span>
-                ))}
-              </div>
-            </section>
-          )}
-        </aside>
+                  {steam && categories.length > 0 && (
+                    <div style={{ paddingTop: 4 }}>
+                      <div style={{ color: 'var(--color-muted)', marginBottom: 6 }}>Category</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {categories.map((cat) => (
+                          <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                            <i className={getCategoryIcon(cat)} style={{ width: 16, textAlign: 'center', color: 'var(--color-muted)', flexShrink: 0, fontSize: 13 }} aria-hidden="true"></i>
+                            <span style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{cat}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {metadataRows.length === 0 && !(steam && categories.length > 0) && (
+                    <div style={{ color: 'var(--color-muted)' }}>No metadata available</div>
+                  )}
+                </div>
+              </section>
+            ),
+            links: externalLinks.length > 0 ? (
+              <section className="bg-secondary border border-border p-4">
+                <h2 className="text-lg font-semibold mb-3">External Links</h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {externalLinks.map((link) => (
+                    <div key={link.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                      <i className={link.icon} style={{ width: 18, textAlign: 'center', color: 'var(--color-muted)' }} aria-hidden="true"></i>
+                      <span style={{ color: 'var(--color-muted)', minWidth: 92 }}>{link.label}</span>
+                      {link.url ? (
+                        <a
+                          href={link.url}
+                          onClick={(e) => { e.preventDefault(); window.electronAPI.openExternalUrl(link.url) }}
+                          className="text-accent hover:underline"
+                          style={{ cursor: 'pointer', wordBreak: 'break-all' }}
+                        >
+                          {link.value}
+                        </a>
+                      ) : (
+                        <span style={{ wordBreak: 'break-all' }}>{link.value}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null,
+            tags: detailTags.length > 0 ? (
+              <section className="bg-secondary border border-border p-4">
+                <h2 className="text-lg font-semibold mb-3">Tags</h2>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {detailTags.slice(0, 32).map((tag) => (
+                    <span key={tag} className="bg-primary border border-border px-2 py-1 text-xs">{tag}</span>
+                  ))}
+                </div>
+              </section>
+            ) : null,
+          }}
+        />
       </div>
 
       <PreviewLightbox

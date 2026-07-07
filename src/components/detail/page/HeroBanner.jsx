@@ -55,15 +55,6 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
       {/* Bottom fade */}
       <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, transparent 30%, var(--color-tertiary,#12161f) 100%)' }} />
 
-      {/* Back button */}
-      <div style={{ position: 'absolute', top: 14, left: 14 }}>
-        <button onClick={onBack}
-          className="text-xs text-text hover:text-highlight bg-primary/80 border border-border px-3 py-2"
-          style={{ backdropFilter: 'blur(4px)' }}>
-          <i className="fas fa-arrow-left" style={{ marginRight: 6 }}></i>Back to Library
-        </button>
-      </div>
-
       {/* Title / logo (bottom-left, steam-style). Bottom padding clears the
           action bar, which now overlaps the lower edge of the hero. */}
       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 24px 70px' }}>

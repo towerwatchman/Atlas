@@ -5,10 +5,11 @@ export default function ActionBar({
   canInstallFromDetail = false,
   canManageWishlist = false, isWishlisted = false, wishlistBusy = false,
   canManageFavorite = false, isFavorite = false, favoriteBusy = false,
-  launchState, isRefreshingMedia, showInfo, canManageLocalTitle = true,
+  launchState, isRefreshingMedia, canManageLocalTitle = true,
   onLaunch, onOpenFolder, onOpenProperties, onToggleWishlist, onRefreshMedia,
   onOpenWebsite, onOpenSteam, onUninstallSteam, onToggleFavorite, onToggleLocalImport,
-  onRemoveTitle, onDeleteTitle, onToggleInfo,
+  onRemoveTitle, onDeleteTitle, onBack, onToggleEditLayout, editingLayout = false,
+  onToggleInfo, showInfo = false,
 }) {
   const showInstallCta = !canLaunch && canInstallFromDetail
 
@@ -45,6 +46,24 @@ export default function ActionBar({
       WebkitBackdropFilter: 'blur(6px)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px' }}>
+
+        {/* BACK */}
+        <button
+          onClick={onBack}
+          title="Back to Library"
+          style={{
+            ...ACTION_BTN,
+            background: 'var(--color-primary, #19191c)',
+            color: 'var(--color-text)',
+            border: '1px solid var(--color-border)',
+            gap: 7,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.15)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
+        >
+          <i className="fas fa-arrow-left" style={{ fontSize: 12 }}></i>
+          <span>Back</span>
+        </button>
 
         {/* PLAY */}
         <button
@@ -180,8 +199,16 @@ export default function ActionBar({
           )}
           <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.15)', margin: '0 4px' }} />
           <button
+            onClick={onToggleEditLayout}
+            title={editingLayout ? 'Done editing layout' : 'Edit panel layout'}
+            style={{ ...iconBtn(false), background: editingLayout ? 'var(--color-accent)' : 'transparent', color: editingLayout ? 'var(--color-detail-accent-text, #fff)' : 'inherit' }}
+            className="hover:bg-secondary hover:border-border"
+          >
+            <i className="fas fa-table-cells-large" style={{ fontSize: 13 }}></i>
+          </button>
+          <button
             onClick={onToggleInfo}
-            title="Game Info"
+            title="About & Description"
             style={{ ...iconBtn(false), background: showInfo ? 'rgba(255,255,255,0.08)' : 'transparent' }}
             className="hover:bg-secondary hover:border-border"
           >
