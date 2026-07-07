@@ -916,9 +916,14 @@ function createWindow() {
   return mainWindow
 }
 
-function createSettingsWindow() {
+function createSettingsWindow(options = {}) {
+  const wantTour = options && options.tour === true
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     focusWindow(settingsWindow)
+    // If the window already exists and a tour was requested, tell it to start.
+    if (wantTour) {
+      try { settingsWindow.webContents.send('start-settings-tour') } catch { /* ignore */ }
+    }
     return
   }
   const windowState = applySavedWindowBounds('settings', {
@@ -947,10 +952,11 @@ function createSettingsWindow() {
   }, { centerOnMain: true })
   settingsWindow = new BrowserWindow(windowState.options)
   registerWindowBoundsPersistence('settings', settingsWindow, windowState)
+  const tourQuery = wantTour ? '?tour=1' : ''
   if (VITE_DEV_SERVER_URL) {
-    settingsWindow.loadURL(VITE_DEV_SERVER_URL + '/settings.html')
+    settingsWindow.loadURL(VITE_DEV_SERVER_URL + '/settings.html' + tourQuery)
   } else {
-    settingsWindow.loadFile(path.join(__dirname, '../dist/renderer/settings.html'))
+    settingsWindow.loadFile(path.join(__dirname, '../dist/renderer/settings.html'), tourQuery ? { search: tourQuery } : undefined)
   }
   if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
     settingsWindow.webContents.openDevTools()

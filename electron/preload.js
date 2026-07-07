@@ -60,7 +60,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return ipcRenderer.invoke("select-directory", options);
   },
   getVersion: () => ipcRenderer.invoke("get-version"),
-  openSettings: () => ipcRenderer.invoke("open-settings"),
+  openSettings: (options) => ipcRenderer.invoke("open-settings", options),
+  onStartSettingsTour: (cb) => {
+    const handler = () => cb()
+    ipcRenderer.on("start-settings-tour", handler)
+    return () => ipcRenderer.removeListener("start-settings-tour", handler)
+  },
   openImporter: (source) => {
     console.log(`Invoking openImporter with source: ${source}`);
     return ipcRenderer.invoke("open-importer", source);

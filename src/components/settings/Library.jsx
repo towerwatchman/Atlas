@@ -158,7 +158,7 @@ const Library = () => {
       </div>
 
       {/* Default Game Folder */}
-      <div>
+      <div data-tour="LibraryFolder">
         <label className="block mb-1">Default Game Folder</label>
         <div className="flex gap-3">
           <input

@@ -1,11 +1,33 @@
 {
   "name": "atlas",
-  "version": "0.9.0",
+  "version": "0.1.0",
   "author": {
     "name": "towerwatchman",
     "email": "towerwatchman@atlas.com"
   },
   "description": "Atlas: Open-source game and visual novel manager",
+  "license": "SEE LICENSE IN LICENSE",
+  "thirdPartyNotices": {
+    "note": "Atlas bundles the third-party open-source components listed below. Each remains the property of its respective authors and is used under its stated license. Full license texts are distributed with each package under node_modules. Components with redistribution requirements (LGPL, unRAR, Font Awesome fonts/icons) are called out explicitly.",
+    "components": [
+      { "name": "electron", "license": "MIT" },
+      { "name": "react", "license": "MIT" },
+      { "name": "react-dom", "license": "MIT" },
+      { "name": "react-virtualized", "license": "MIT" },
+      { "name": "vite", "license": "MIT" },
+      { "name": "tailwindcss", "license": "MIT" },
+      { "name": "axios", "license": "MIT" },
+      { "name": "electron-updater", "license": "MIT" },
+      { "name": "font-list", "license": "MIT" },
+      { "name": "ini", "license": "ISC" },
+      { "name": "lz4js", "license": "MIT/ISC" },
+      { "name": "sqlite3", "license": "BSD-3-Clause" },
+      { "name": "sharp", "license": "Apache-2.0", "notice": "Bundles libvips (LGPL-3.0). libvips is dynamically linked; its source is available at https://github.com/libvips/libvips." },
+      { "name": "7zip-bin", "license": "LGPL-2.1-or-later", "notice": "Bundles 7-Zip binaries. 7-Zip is licensed under the GNU LGPL with an additional unRAR restriction; see https://www.7-zip.org/license.txt." },
+      { "name": "node-unrar-js", "license": "MIT", "notice": "Wraps UnRAR. The UnRAR license forbids using the code to reverse-engineer the RAR compression algorithm; see https://www.rarlab.com/license.htm." },
+      { "name": "font-awesome-free", "license": "CC-BY-4.0 (icons), SIL-OFL-1.1 (fonts), MIT (code)", "notice": "Font Awesome Free by Fonticons, Inc.; see https://fontawesome.com/license/free." }
+    ]
+  },
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently --kill-others \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",

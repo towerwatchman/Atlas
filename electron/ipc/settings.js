@@ -297,8 +297,8 @@ module.exports = function registerSettingsHandlers(ctx) {
     )
   }
 
-  ipcMain.handle('open-settings', () => {
-    createSettingsWindow()
+  ipcMain.handle('open-settings', (event, options) => {
+    createSettingsWindow(options || {})
   })
 
   ipcMain.handle('get-settings', async () => {

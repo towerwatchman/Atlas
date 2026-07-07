@@ -10,7 +10,37 @@
 // open in the user's real browser rather than inside an Electron window
 // (same pattern used by the game-details external links).
 
+import { useState } from 'react'
 import atlasLogoUrl from '../../assets/images/atlas_logo.svg'
+
+// Third-party components bundled with Atlas and their licenses. Kept here so
+// the About screen can surface attribution/notices for the open-source
+// projects Atlas depends on.
+const THIRD_PARTY = [
+  { name: 'Electron', license: 'MIT', use: 'Desktop app runtime' },
+  { name: 'React & React DOM', license: 'MIT', use: 'User interface' },
+  { name: 'Vite', license: 'MIT', use: 'Build tooling' },
+  { name: 'Tailwind CSS', license: 'MIT', use: 'Styling' },
+  { name: 'react-virtualized', license: 'MIT', use: 'Virtualized library grid' },
+  { name: 'axios', license: 'MIT', use: 'HTTP requests' },
+  { name: 'electron-updater', license: 'MIT', use: 'Auto-updates' },
+  { name: 'font-list', license: 'MIT', use: 'System font enumeration' },
+  { name: 'ini', license: 'ISC', use: 'Config parsing' },
+  { name: 'lz4js', license: 'MIT / ISC', use: 'Save-file decompression' },
+  { name: 'sqlite3', license: 'BSD-3-Clause', use: 'Local database' },
+  { name: 'sharp', license: 'Apache-2.0 (bundles libvips, LGPL-3.0)', use: 'Image processing' },
+  { name: '7zip-bin / 7-Zip', license: 'LGPL-2.1+ & unRAR restriction', use: 'Archive extraction' },
+  { name: 'node-unrar-js (UnRAR)', license: 'MIT wrapper; UnRAR license', use: 'RAR extraction' },
+  { name: 'Font Awesome Free', license: 'CC BY 4.0 / SIL OFL 1.1 / MIT', use: 'Icons' },
+]
+
+const TECH_STACK = [
+  ['Language', 'JavaScript (React) + Node.js'],
+  ['Runtime', 'Electron (Chromium + Node.js)'],
+  ['UI', 'React 19, Tailwind CSS, Vite'],
+  ['Data', 'SQLite (local), HTTP catalog sync'],
+  ['Platforms', 'Windows & Linux'],
+]
 
 const LINKS = {
   steamCurator:
@@ -52,6 +82,7 @@ const LinkRow = ({ label, description, onClick, icon }) => (
 )
 
 const AboutModal = ({ open, onClose, version, onReplayTour }) => {
+  const [showLicenses, setShowLicenses] = useState(false)
   if (!open) return null
 
   return (
@@ -104,6 +135,63 @@ const AboutModal = ({ open, onClose, version, onReplayTour }) => {
             personal collection or hundreds of titles from multiple sources,
             Atlas keeps everything organized, searchable, and easy to launch.
           </p>
+        </div>
+
+        {/* Catalog update note */}
+        <div className="px-5 pb-4">
+          <div className="flex items-start gap-2 rounded-buttonTheme border border-border bg-primary px-3 py-2">
+            <i className="fas fa-clock-rotate-left text-accent mt-0.5" aria-hidden="true"></i>
+            <p className="text-xs text-muted leading-relaxed">
+              The online catalog updates frequently — new metadata and updates typically arrive every{' '}
+              <span className="text-text font-medium">1–3 hours</span>. Use Check for Updates to pull the latest,
+              and run a Database Audit (Settings → Database) to find mappings removed upstream.
+            </p>
+          </div>
+        </div>
+
+        {/* Tech / build details */}
+        <div className="px-5 pb-4">
+          <h3 className="text-sm font-semibold mb-2">Built with</h3>
+          <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-1 text-xs">
+            {TECH_STACK.map(([label, value]) => (
+              <div key={label} className="contents">
+                <dt className="text-muted">{label}</dt>
+                <dd className="text-text">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        {/* Third-party licenses */}
+        <div className="px-5 pb-4">
+          <button
+            type="button"
+            onClick={() => setShowLicenses((v) => !v)}
+            className="flex items-center gap-2 text-sm font-semibold hover:text-accent transition-colors"
+          >
+            <i className={`fas fa-chevron-${showLicenses ? 'down' : 'right'} text-xs`} aria-hidden="true"></i>
+            Third-party licenses &amp; notices
+          </button>
+          {showLicenses && (
+            <div className="mt-2 border border-border rounded-buttonTheme overflow-hidden">
+              <p className="text-xs text-muted px-3 py-2 border-b border-border">
+                Atlas is built on the open-source projects below. Each is the property of its
+                respective authors and used under its stated license. Full license texts ship with
+                each package in the application's <code className="text-text">node_modules</code>.
+              </p>
+              <ul className="max-h-52 overflow-y-auto divide-y divide-border">
+                {THIRD_PARTY.map((item) => (
+                  <li key={item.name} className="px-3 py-2">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-sm text-text">{item.name}</span>
+                      <span className="text-[11px] text-muted flex-shrink-0">{item.license}</span>
+                    </div>
+                    <span className="block text-[11px] text-muted">{item.use}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* Links */}

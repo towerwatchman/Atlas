@@ -164,6 +164,9 @@ const App = () => {
   const [invalidMappingCount, setInvalidMappingCount] = useState(0)
   const [mappingBannerDismissed, setMappingBannerDismissed] = useState(false)
   const [showWelcomeTour, setShowWelcomeTour] = useState(false)
+  // True while the tour is running as part of the first-run flow (not a replay
+  // from About). When such a tour ends, we chain into the settings tour.
+  const firstRunTourRef = useRef(false)
   // First-run welcome page (own flag, checked separately from the age
   // prompt). The refs coordinate the first-run sequence: welcome ->
   // (age confirmation if needed) -> interactive tour.
@@ -532,6 +535,7 @@ const App = () => {
     // welcome page, launch the interactive tour now that it's been answered.
     if (startTourAfterAgeRef.current) {
       startTourAfterAgeRef.current = false
+      firstRunTourRef.current = true
       setShowWelcomeTour(true)
     }
     window.electronAPI.setNsfwEnabled?.(enabled)
@@ -886,8 +890,20 @@ const App = () => {
 
   // Replay the welcome tour from the About modal.
   const replayWelcomeTour = () => {
+    firstRunTourRef.current = false
     setAboutOpen(false)
     setShowWelcomeTour(true)
+  }
+
+  // Called when the main welcome tour closes. On first run, chain into the
+  // settings window and auto-run its tour (tasks: open settings tour after the
+  // main tour, and still do so if the user skipped/closed the welcome).
+  const handleWelcomeTourClose = () => {
+    setShowWelcomeTour(false)
+    if (firstRunTourRef.current) {
+      firstRunTourRef.current = false
+      try { window.electronAPI.openSettings?.({ tour: true }) } catch { /* ignore */ }
+    }
   }
 
   // First-run sequence step 1 -> 2: user pressed "Get Started" on the
@@ -906,6 +922,7 @@ const App = () => {
       startTourAfterAgeRef.current = true
       setNsfwPromptOpen(true)
     } else {
+      firstRunTourRef.current = true
       setShowWelcomeTour(true)
     }
   }
@@ -1800,7 +1817,7 @@ const App = () => {
 
       <WelcomeTour
         open={showWelcomeTour}
-        onClose={() => setShowWelcomeTour(false)}
+        onClose={handleWelcomeTourClose}
       />
     </div>
   )

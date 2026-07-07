@@ -69,7 +69,7 @@ const GAP = 14 // gap between target and tooltip
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 
-const WelcomeTour = ({ open, onClose, steps = DEFAULT_STEPS }) => {
+const WelcomeTour = ({ open, onClose, steps = DEFAULT_STEPS, onStepChange }) => {
   const [activeSteps, setActiveSteps] = useState([])
   const [index, setIndex] = useState(0)
   const [rect, setRect] = useState(null)
@@ -79,14 +79,23 @@ const WelcomeTour = ({ open, onClose, steps = DEFAULT_STEPS }) => {
   const tooltipRef = useRef(null)
 
   // Resolve which steps have a present target, whenever the tour opens.
+  // Steps that declare a `tab` are kept even if their target isn't in the DOM
+  // yet — the host switches tabs (via onStepChange) which mounts the target.
   useEffect(() => {
     if (!open) return
     const resolved = steps.filter((step) =>
-      document.querySelector(`[data-tour="${step.target}"]`),
+      step.tab || document.querySelector(`[data-tour="${step.target}"]`),
     )
     setActiveSteps(resolved)
     setIndex(0)
   }, [open, steps])
+
+  // Notify the host when the active step changes so it can switch tabs, etc.
+  useEffect(() => {
+    if (!open) return
+    const step = activeSteps[index]
+    if (step) onStepChange?.(step, index)
+  }, [open, index, activeSteps, onStepChange])
 
   const finish = useCallback(() => {
     try {
@@ -97,15 +106,20 @@ const WelcomeTour = ({ open, onClose, steps = DEFAULT_STEPS }) => {
     onClose?.()
   }, [onClose])
 
-  // Recompute the spotlight + tooltip position for the current step.
-  const recompute = useCallback(() => {
+  // Recompute the spotlight + tooltip position for the current step. If the
+  // target isn't in the DOM yet (e.g. a tab-gated step whose tab is still
+  // switching), retry on the next few frames rather than giving up.
+  const recompute = useCallback((attempt = 0) => {
     const step = activeSteps[index]
     if (!step) return
     const el = document.querySelector(`[data-tour="${step.target}"]`)
     if (!el) {
       setRect(null)
+      if (attempt < 20) requestAnimationFrame(() => recompute(attempt + 1))
       return
     }
+    // Bring the target into view (settings content scrolls).
+    try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) } catch { /* ignore */ }
     const r = el.getBoundingClientRect()
     setRect({
       top: r.top - TARGET_PAD,

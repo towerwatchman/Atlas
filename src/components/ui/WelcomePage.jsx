@@ -83,6 +83,17 @@ const WelcomePage = ({ open, onGetStarted, version }) => {
           />
         </div>
 
+        {/* Catalog update note */}
+        <div className="px-6 pb-2">
+          <div className="flex items-start gap-2 rounded-buttonTheme border border-border bg-primary px-3 py-2">
+            <i className="fas fa-clock-rotate-left text-accent mt-0.5" aria-hidden="true"></i>
+            <p className="text-xs text-muted leading-relaxed">
+              The online catalog refreshes frequently — new metadata and updates typically arrive
+              every <span className="text-text font-medium">1–3 hours</span>. Check for updates periodically to stay current.
+            </p>
+          </div>
+        </div>
+
         {/* CTA */}
         <div className="px-6 pb-8 pt-2">
           <button
