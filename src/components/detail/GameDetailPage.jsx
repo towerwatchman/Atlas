@@ -184,19 +184,46 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const bannerRef     = useRef(null)
   const bannerDimsRef = useRef(null)
   const browsePreviewCacheRef = useRef(new Map())
+  // Tracks the record_id we've already applied the persisted selected version
+  // for, so opening a different game (or the same game freshly) always restores
+  // its own selected_version_id, while an in-session manual pick is preserved.
+  const restoredSelectionForRecordRef = useRef(null)
 
   // ── Effects ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!game?.record_id) return
-    setSelectedVersion((current) => {
-      const versions = game.versions || []
-      if (!current) {
-        return versions.find((version) =>
-          Number(version.version_id) === Number(game.selected_version_id)
-        ) || getDefaultVersion(versions)
+    const versions = game.versions || []
+    const persisted = versions.find(
+      (version) => Number(version.version_id) === Number(game.selected_version_id)
+    )
+    // When we haven't yet restored this record's selection (a freshly opened
+    // game), apply the persisted selected_version_id. This runs again when the
+    // fresh getGame data arrives (record_id unchanged but selected_version_id
+    // now populated), so the correct version is restored even though the first
+    // render used a stale library object.
+    if (restoredSelectionForRecordRef.current !== game.record_id) {
+      if (persisted) {
+        restoredSelectionForRecordRef.current = game.record_id
+        setSelectedVersion(persisted)
+      } else if (Number(game.selected_version_id) > 0) {
+        // selected_version_id is set but the fresh versions list hasn't arrived
+        // yet — wait for it (don't mark restored, don't fall back to default).
+        setSelectedVersion((current) => current || getDefaultVersion(versions))
+      } else {
+        // No persisted selection for this game — use the default.
+        restoredSelectionForRecordRef.current = game.record_id
+        setSelectedVersion((current) => current || getDefaultVersion(versions))
       }
-      return versions.find((v) => v.version === current.version && v.game_path === current.game_path) || getDefaultVersion(versions)
-    })
+    } else {
+      // Same record, already restored: keep the user's current pick, just
+      // re-resolve it against the latest versions array (e.g. after a refresh).
+      setSelectedVersion((current) => {
+        if (!current) return persisted || getDefaultVersion(versions)
+        return versions.find(
+          (v) => v.version === current.version && v.game_path === current.game_path
+        ) || persisted || getDefaultVersion(versions)
+      })
+    }
     const loadPreviews = async () => {
       setPreviewsLoading(true)
       try {
@@ -730,6 +757,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
 
   const selectVersion = async (version) => {
     setSelectedVersion(version)
+    // A manual pick counts as this record's restored selection so the restore
+    // effect preserves it on subsequent re-renders.
+    if (game?.record_id) restoredSelectionForRecordRef.current = game.record_id
     if (!canManageLocalTitle || !game?.record_id || !version?.version_id) return
     const result = await window.electronAPI.setSelectedGameVersion(
       game.record_id,
