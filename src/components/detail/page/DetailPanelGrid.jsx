@@ -226,11 +226,11 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
       className={`relative ${editing ? 'cursor-move' : ''} ${drag?.id === id ? 'opacity-40' : ''}`}
     >
       {editing && (
-        <div className="absolute top-2 right-2 z-10 bg-accent text-white text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1 pointer-events-none">
-          <i className="fas fa-up-down-left-right" aria-hidden="true"></i> Drag
+        <div className="absolute top-3 right-3 z-10 bg-accent text-white text-sm font-semibold px-3 py-2 rounded-md shadow-lg flex items-center gap-2 pointer-events-none select-none">
+          <i className="fas fa-up-down-left-right text-base" aria-hidden="true"></i> Drag
         </div>
       )}
-      <div className={editing ? 'pointer-events-none outline-dashed outline-1 outline-accent/40 rounded' : ''}>
+      <div className={editing ? 'pointer-events-none outline-dashed outline-2 outline-accent/50 rounded' : ''}>
         {panels[id]}
       </div>
     </div>
@@ -240,9 +240,9 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
     <div
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => { e.preventDefault(); onDropFn() }}
-      className="border border-dashed border-accent/50 rounded text-xs text-muted flex items-center justify-center h-12 my-2"
+      className="border-2 border-dashed border-accent/60 rounded-md text-sm font-medium text-accent bg-accent/5 flex items-center justify-center h-20 my-2"
     >
-      {label}
+      <i className="fas fa-arrows-up-to-line mr-2" aria-hidden="true"></i>{label}
     </div>
   )
 
@@ -262,7 +262,7 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
               {editing && <div className="text-[11px] uppercase tracking-wide text-muted mb-2">Full-width row</div>}
               <div className="flex flex-col gap-3">
                 {row.panels.length === 0 && editing
-                  ? <div className="text-xs text-muted h-10 flex items-center justify-center">Drop a panel here</div>
+                  ? <div className="text-sm text-muted h-20 border-2 border-dashed border-border rounded flex items-center justify-center">Drop a panel here</div>
                   : row.panels.map(renderPanel)}
               </div>
             </div>
@@ -288,30 +288,30 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
                 {row.columns.map((col, colIndex) => {
                   const isLeft = colIndex === 0
                   return (
-                    <div key={colIndex} className="border border-border rounded bg-primary/60 p-2 text-xs">
-                      <div className="font-semibold mb-1">Col {colIndex + 1}{isLeft && ' (fills space)'}</div>
+                    <div key={colIndex} className="border border-border rounded bg-primary/60 p-3 text-sm">
+                      <div className="font-semibold mb-2">Col {colIndex + 1}{isLeft && ' (fills space)'}</div>
                       {isLeft ? (
                         <div className="text-muted">Flexible &mdash; locked</div>
                       ) : (
-                        <div className="flex flex-col gap-1">
-                          <div className="flex gap-1">
+                        <div className="flex flex-col gap-2">
+                          <div className="flex gap-1.5">
                             {['auto', 'flex', 'fixed'].map((m) => (
                               <button key={m} onClick={() => setColMode(rowIndex, colIndex, m)}
-                                className={`px-2 py-0.5 rounded capitalize ${col.mode === m ? 'bg-accent text-white' : 'bg-secondary hover:bg-selected'}`}>
+                                className={`px-3 py-1.5 rounded capitalize ${col.mode === m ? 'bg-accent text-white' : 'bg-secondary hover:bg-selected'}`}>
                                 {m}
                               </button>
                             ))}
                           </div>
                           {col.mode === 'fixed' && (
-                            <label className="flex items-center gap-1 mt-1">
+                            <label className="flex items-center gap-2 mt-1">
                               <input type="number" min="0" max="1200" step="20" value={col.px ?? DEFAULT_FIXED_PX}
                                 onChange={(e) => setColPx(rowIndex, colIndex, e.target.value)}
-                                className="w-20 bg-secondary border border-border rounded px-1 py-0.5" />
+                                className="w-24 bg-secondary border border-border rounded px-2 py-1.5" />
                               <span className="text-muted">px</span>
                             </label>
                           )}
                           <button onClick={() => removeColumn(rowIndex, colIndex)} disabled={row.columns.length <= MIN_COLS}
-                            className="mt-1 px-2 py-0.5 rounded bg-danger/80 text-white hover:bg-danger disabled:opacity-40">
+                            className="mt-1 px-3 py-1.5 rounded bg-danger/80 text-white hover:bg-danger disabled:opacity-40">
                             Remove
                           </button>
                         </div>
@@ -332,7 +332,7 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
                   onDrop={editing ? (e) => { e.preventDefault(); dropIntoCell(rowIndex, colIndex) } : undefined}
                 >
                   {cell.length === 0 && editing && (
-                    <div className="border border-dashed border-border rounded text-xs text-muted flex items-center justify-center h-16">
+                    <div className="border-2 border-dashed border-border rounded-md text-sm text-muted flex items-center justify-center h-24">
                       Drop a panel here
                     </div>
                   )}
