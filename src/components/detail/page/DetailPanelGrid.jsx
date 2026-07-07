@@ -153,7 +153,10 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
                   position: 'relative',
                   zIndex: 1,
                 }
-              : undefined
+              // Single-column panels cap their width so they don't stretch
+              // absurdly wide on large (2K+) displays. Spanning panels keep
+              // growing with the window.
+              : (isWide ? { maxWidth: 600 } : undefined)
             return (
               <div
                 key={entry.id}
