@@ -17,7 +17,7 @@ export default function SettingsStep({
   downloadBannerImages, downloadPreviewImages, previewLimit,
   moveFoldersToLibrary, deleteSourceArchiveAfterImport, autoSelectLatestReplaceVersion,
   defaultLibraryPath, askingForLibraryFolder,
-  onSelectFolder, onStartScan,
+  onSelectFolder, onStartScan, onOpenHelp, livePreview,
   setCustomFormat, setUseUnstructured, setGameExt, setArchiveExt,
   setIncludeArchives, setUseCustomRegex, setCustomRegex,
   setDownloadBannerImages, setDownloadPreviewImages, setMoveFoldersToLibrary,
@@ -121,67 +121,81 @@ export default function SettingsStep({
         </div>
       )}
 
-      <p className="text-sm text-text leading-relaxed">
-        Pick a scheme that matches how your game folders are named. Custom schemes support <span className="font-semibold">Title</span>, <span className="font-semibold">Creator</span>,{' '}
-        <span className="font-semibold">Engine</span>, <span className="font-semibold">Version</span>, <span className="font-semibold">F95 ID</span>, and <span className="font-semibold">LC ID</span>.<br />
-        - Enclose each option in braces, e.g., <span className="font-mono">{'{Title}'}</span>. Use <span className="font-mono">/</span> for folder separators.<br />
-        - The <span className="font-semibold">Folder Regex</span> field shows the pattern derived from your scheme. Enable <span className="font-semibold">Edit regex</span> to supply your own, using named groups such as <span className="font-mono">{'(?<title>.+?)'}</span>.<br /><br />
-        Examples:<br />
-        <span className="font-mono">{'{engine}/{creator}/{title}/{version}'}</span><br />
-        <span className="font-mono">{'[{engine}] [{title}] [{version}]'}</span><br />
-        <span className="font-mono">{'{title-version}'}</span><br />
-        Atlas Library Structure also supports <span className="font-mono">{'{f95Id}'}</span>, for example{' '}
-        <span className="font-mono">{'{f95Id}/{creator}/{title}/{version}'}</span>.
-      </p>
+      {/* Live parse preview — shows how the first folder parses under the
+          current scheme so the user can confirm before scanning. */}
+      <div className="border border-border rounded-buttonTheme bg-primary p-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted">Live Preview</span>
+          {onOpenHelp && (
+            <button type="button" onClick={onOpenHelp} className="text-xs text-accent hover:underline">
+              <i className="fas fa-circle-question mr-1" aria-hidden="true"></i>Scheme help &amp; examples
+            </button>
+          )}
+        </div>
+        {!folder ? (
+          <p className="text-sm text-muted">Set a game path to preview how your folders will be parsed.</p>
+        ) : !livePreview ? (
+          <p className="text-sm text-muted">Reading first folder…</p>
+        ) : (
+          <div className="space-y-2">
+            {livePreview.sample && (
+              <div className="text-xs text-muted break-all">
+                Sample: <span className="font-mono text-text">{livePreview.sample}</span>
+              </div>
+            )}
+            {livePreview.note && <div className="text-sm text-warning">{livePreview.note}</div>}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
+              {[
+                ['Title', livePreview.fields.title, true],
+                ['Creator', livePreview.fields.creator, true],
+                ['Version', livePreview.fields.version, true],
+                ['Engine', livePreview.fields.engine, false],
+                ['F95 ID', livePreview.fields.f95Id, false],
+                ['LC ID', livePreview.fields.lcId, false],
+              ].filter(([, value, always]) => always || value).map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
+                  <div className="truncate">{value || <span className="text-muted">—</span>}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
       <div>
-        <div className={sectionHeader}>Media</div>
-        <div className="space-y-2">
+        <div className={sectionHeader}>Options</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
           <Check checked={downloadBannerImages} onChange={(e) => setDownloadBannerImages(e.target.checked)}>
-            Download banner images to local storage
+            <span className="font-medium">Download banner images</span>
+            <span className="block text-sm text-muted">Save banners to local storage.</span>
           </Check>
           <Check checked={downloadPreviewImages} onChange={(e) => setDownloadPreviewImages(e.target.checked)}>
-            Download preview images to local storage {previewLimit === 'Unlimited' ? '(all available)' : `(limit: ${previewLimit})`}
+            <span className="font-medium">Download preview images</span>
+            <span className="block text-sm text-muted">{previewLimit === 'Unlimited' ? 'All available previews.' : `Up to ${previewLimit} previews.`}</span>
           </Check>
-        </div>
-      </div>
-
-      <div>
-        <div className={sectionHeader}>Import behavior</div>
-        <div className="space-y-3">
           <Check checked={moveFoldersToLibrary} onChange={(e) => setMoveFoldersToLibrary(e.target.checked)}>
             <span className="font-medium">Move folder imports to the library</span>
-            <span className="block text-sm text-muted">When disabled, folder imports are added in place. Archive imports still extract to the library.</span>
+            <span className="block text-sm text-muted">When off, folder imports are added in place. Archives still extract to the library.</span>
           </Check>
           <Check checked={deleteSourceArchiveAfterImport} onChange={(e) => setDeleteSourceArchiveAfterImport(e.target.checked)}>
-            <span className="font-medium">Delete source archive after successful extraction</span>
+            <span className="font-medium">Delete source archive after extraction</span>
             <span className="block text-sm text-muted">Applies only to archive files.</span>
           </Check>
-          <div className="text-sm">
-            {defaultLibraryPath ? (
-              <span className="text-success">Library destination: <strong>{defaultLibraryPath}</strong></span>
-            ) : askingForLibraryFolder ? (
-              <span className="text-warning">Waiting for library folder selection...</span>
-            ) : (
-              <span className="text-warning">No default library folder set. You will be asked to choose one before import.</span>
-            )}
-          </div>
+          <Check checked={autoSelectLatestReplaceVersion} onChange={onAutoSelectChange}>
+            <span className="font-medium">Auto-select latest version for replacement</span>
+            <span className="block text-sm text-muted">Preselects the newest installed version in Replace Version dropdowns.</span>
+          </Check>
         </div>
-      </div>
-
-      <div>
-        <div className={sectionHeader}>Replacement</div>
-        <Check checked={autoSelectLatestReplaceVersion} onChange={onAutoSelectChange}>
-          <span className="font-medium">Auto-select latest installed version for replacement</span>
-          <span className="block text-sm text-muted">
-            Preselects the newest installed version in Replace Version dropdowns and shows the Replace Version column. You can still change it to None before importing.
-          </span>
-        </Check>
-      </div>
-
-      <div className="flex justify-end space-x-2">
-        <button onClick={onStartScan} className="bg-accent hover:bg-accentHover text-white rounded-buttonTheme px-4 py-2 transition-colors" style={{ pointerEvents: 'auto', zIndex: 1000 }}>Next</button>
-        <button onClick={() => window.electronAPI.closeWindow()} className="bg-danger hover:bg-dangerHover text-white rounded-buttonTheme px-4 py-2 transition-colors" style={{ pointerEvents: 'auto', zIndex: 1000 }}>Cancel</button>
+        <div className="text-sm mt-3">
+          {defaultLibraryPath ? (
+            <span className="text-success">Library destination: <strong>{defaultLibraryPath}</strong></span>
+          ) : askingForLibraryFolder ? (
+            <span className="text-warning">Waiting for library folder selection...</span>
+          ) : (
+            <span className="text-warning">No default library folder set. You will be asked to choose one before import.</span>
+          )}
+        </div>
       </div>
     </div>
   )

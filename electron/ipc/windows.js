@@ -184,6 +184,26 @@ module.exports = function registerWindowsHandlers(ctx) {
     ctx.createBannerEditorWindow()
   })
 
+  ipcMain.handle('open-importer-help', () => {
+    ctx.createImporterHelpWindow?.()
+  })
+
+  ipcMain.handle('list-subfolders', async (event, dirPath) => {
+    // Returns the immediate subfolder names of dirPath (up to a small cap),
+    // used by the importer's live parse-preview. Read-only, best-effort.
+    try {
+      if (!dirPath || typeof dirPath !== 'string') return { success: true, folders: [] }
+      const entries = await fs.promises.readdir(dirPath, { withFileTypes: true })
+      const folders = entries
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name)
+        .slice(0, 25)
+      return { success: true, folders }
+    } catch (err) {
+      return { success: false, error: String(err?.message || err), folders: [] }
+    }
+  })
+
   // Cross-screen color picker support. Captures every display at full
   // resolution and returns each as a PNG data URL along with its logical
   // bounds and scale factor. The renderer overlays these captures fullscreen

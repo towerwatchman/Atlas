@@ -14,6 +14,7 @@ export default defineConfig({
         main:        resolve(__dirname, 'src/index.html'),
         settings:    resolve(__dirname, 'src/settings.html'),
         importer:    resolve(__dirname, 'src/importer.html'),
+        importerhelp: resolve(__dirname, 'src/importerhelp.html'),
         gamedetails: resolve(__dirname, 'src/gamedetails.html'),
         themebuilder: resolve(__dirname, 'src/themebuilder.html'),
         bannereditor: resolve(__dirname, 'src/bannereditor.html'),

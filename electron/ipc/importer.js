@@ -1607,18 +1607,24 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
     if (!gamePath) throw new Error("Import did not produce a game folder");
 
     if (!recordId) {
+      // Blank fields are kept blank on the scan rows (task: don't show
+      // "Unknown" in the table); the "Unknown"/"Untitled" fallbacks are applied
+      // here, at import time, so the DB never stores an empty title/creator.
+      const importEngine = (importGame.engine && String(importGame.engine).trim()) || "Unknown";
+      const importCreator = (importGame.creator && String(importGame.creator).trim()) || "Unknown";
+      const importTitle = (importGame.title && String(importGame.title).trim()) || "Untitled";
       recordId = await addGame({
-        title: importGame.title,
-        creator: importGame.creator,
-        engine: importGame.engine,
+        title: importTitle,
+        creator: importCreator,
+        engine: importEngine,
         description: importGame.description,
       });
       if (importGame.description) {
         await updateGame({
           record_id: recordId,
-          title: importGame.title,
-          creator: importGame.creator,
-          engine: importGame.engine,
+          title: importTitle,
+          creator: importCreator,
+          engine: importEngine,
           description: importGame.description,
         });
       }
@@ -3567,38 +3573,44 @@ ipcMain.handle("import-games", async (event, params) => {
     }
   }
 
-  if (!session.cancelRequested && deferredSizeJobs.length > 0) {
-    const sizeTotal = deferredSizeJobs.length;
-    let sizeProgress = 0;
-    mainWindow.webContents.send("import-progress", {
-      text: `Calculating folder sizes for ${sizeTotal} imported version(s)...`,
-      progress: sizeProgress,
-      total: sizeTotal,
-      canCancel: false,
-    });
-
-    for (const job of deferredSizeJobs) {
+  // Folder-size calculation is deferred and run in the BACKGROUND so the
+  // importer window can close as soon as the DB records exist. We intentionally
+  // do NOT await this loop before returning — sizes fill in afterwards, each
+  // emitting a 'game-updated' so the library refreshes that row. All sends are
+  // guarded because the importer window is likely already closed by now.
+  const runDeferredSizeJobs = async () => {
+    if (session.cancelRequested || deferredSizeJobs.length === 0) return
+    const safeSend = (channel, payload) => {
       try {
-        const folderSize = await calculatePathSizeSafe(job.gamePath);
-        if (folderSize !== null) {
-          await updateFolderSize(job.recordId, job.version, folderSize);
-          mainWindow.webContents.send("game-updated", job.recordId);
+        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send(channel, payload)
         }
       } catch (err) {
-        console.warn(`Deferred size calculation failed for ${job.gamePath}:`, err.message || err);
-      } finally {
-        sizeProgress++;
-        mainWindow.webContents.send("import-progress", {
-          text: `Calculated folder size for '${job.title}' ${sizeProgress}/${sizeTotal}`,
-          progress: sizeProgress,
-          total: sizeTotal,
-          canCancel: false,
-        });
+        console.warn(`Deferred size job: failed to send ${channel}:`, err.message || err)
       }
-    };
+    }
+    for (const job of deferredSizeJobs) {
+      try {
+        const folderSize = await calculatePathSizeSafe(job.gamePath)
+        if (folderSize !== null) {
+          await updateFolderSize(job.recordId, job.version, folderSize)
+          safeSend("game-updated", job.recordId)
+        }
+      } catch (err) {
+        console.warn(`Deferred size calculation failed for ${job.gamePath}:`, err.message || err)
+      }
+    }
   }
+  // Fire-and-forget; don't block the handler's return on size calculation.
+  runDeferredSizeJobs()
 
-  mainWindow.webContents.send("import-complete");
+  try {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("import-complete");
+    }
+  } catch (err) {
+    console.warn("Failed to send import-complete:", err.message || err)
+  }
   ctx.activeImportSession = null;
   return results;
 });

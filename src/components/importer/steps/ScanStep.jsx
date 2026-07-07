@@ -78,86 +78,47 @@ export default function ScanStep({
         />
       </div>
 
-      <div className="flex justify-between items-center space-x-4 mt-4">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <span className="text-sm text-text">Selected: {selectedRowCount}</span>
-          <button
-            onClick={onDeleteSelectedRows}
-            disabled={selectedRowCount === 0}
-            className={`px-3 py-1 rounded-buttonTheme text-sm text-text ${selectedRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-danger hover:bg-dangerHover'}`}
-            title="Remove selected rows from this scan only"
-            style={{ pointerEvents: 'auto' }}
-          >
-            Remove selected{selectedRowCount > 0 ? ` (${selectedRowCount})` : ''}
-          </button>
-          <button
-            onClick={onDeleteBadRows}
-            disabled={badRowCount === 0}
-            className={`px-3 py-1 rounded-buttonTheme text-sm text-text ${badRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-danger hover:bg-dangerHover'}`}
-            title="Remove incomplete rows from this scan only"
-            style={{ pointerEvents: 'auto' }}
-          >
-            Remove incomplete{badRowCount > 0 ? ` (${badRowCount})` : ''}
-          </button>
-          <button
-            onClick={onClearRowSelection}
-            disabled={selectedRowCount === 0}
-            className={`px-3 py-1 rounded-buttonTheme text-sm text-text ${selectedRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-tertiary hover:bg-selected'}`}
-            title="Clear selected scan rows"
-            style={{ pointerEvents: 'auto' }}
-          >
-            Clear selection
-          </button>
-          <div className="flex items-center space-x-2">
-            <input type="checkbox" id="include-unmatched" checked={includeUnmatched} onChange={(e) => setIncludeUnmatched(e.target.checked)} className="h-4 w-4 accent-accent" />
-            <label htmlFor="include-unmatched" className="text-sm text-text">Import unmatched games</label>
-          </div>
-          {!isRenpyMode && (
-            <>
-              <div className="flex items-center space-x-2">
-                <input type="checkbox" id="force-reimport" checked={forceReimport} onChange={(e) => setForceReimport(e.target.checked)} className="h-4 w-4 accent-accent" />
-                <label htmlFor="force-reimport" className="text-sm text-text" title="Safely repairs existing rows and refreshes selected media without creating duplicate game records.">
-                  Force re-import existing games
-                </label>
-              </div>
-            </>
-          )}
-        </div>
+      <div className="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-2 mt-3">
+        <span className="text-sm text-text">Selected: {selectedRowCount}</span>
+        <button
+          onClick={onDeleteSelectedRows}
+          disabled={selectedRowCount === 0}
+          className={`px-3 py-1 rounded-buttonTheme text-sm text-text ${selectedRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-danger hover:bg-dangerHover'}`}
+          title="Remove selected rows from this scan only"
+          style={{ pointerEvents: 'auto' }}
+        >
+          Remove selected{selectedRowCount > 0 ? ` (${selectedRowCount})` : ''}
+        </button>
+        <button
+          onClick={onDeleteBadRows}
+          disabled={badRowCount === 0}
+          className={`px-3 py-1 rounded-buttonTheme text-sm text-text ${badRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-danger hover:bg-dangerHover'}`}
+          title="Remove incomplete rows from this scan only"
+          style={{ pointerEvents: 'auto' }}
+        >
+          Remove incomplete{badRowCount > 0 ? ` (${badRowCount})` : ''}
+        </button>
+        <button
+          onClick={onClearRowSelection}
+          disabled={selectedRowCount === 0}
+          className={`px-3 py-1 rounded-buttonTheme text-sm text-text ${selectedRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-tertiary hover:bg-selected'}`}
+          title="Clear selected scan rows"
+          style={{ pointerEvents: 'auto' }}
+        >
+          Clear selection
+        </button>
 
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={onUpdateMatches}
-            disabled={isResolvingMatches || isScanActive || isCancelingScan}
-            className={`px-4 py-2 rounded-buttonTheme text-text ${(isResolvingMatches || isScanActive || isCancelingScan) ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-accent hover:bg-accentHover'}`}
-            style={{ pointerEvents: 'auto', zIndex: 1000 }}
-          >
-            {isResolvingMatches ? 'Resolving...' : 'Update Matches'}
-          </button>
-          {(isResolvingMatches || isScanActive || isCancelingScan) && (
-            <button
-              onClick={onCancelMatch}
-              disabled={isCancelingScan}
-              className={`px-4 py-2 rounded-buttonTheme text-white ${isCancelingScan ? 'bg-danger cursor-not-allowed opacity-70' : 'bg-danger hover:bg-dangerHover'}`}
-              style={{ pointerEvents: 'auto', zIndex: 1000 }}
-            >
-              {isScanActive || isCancelingScan ? (isCancelingScan ? 'Canceling...' : 'Cancel Scan') : 'Stop Matching'}
-            </button>
+        <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2">
+          <label className="flex items-center gap-2 text-sm text-text cursor-pointer">
+            <input type="checkbox" checked={includeUnmatched} onChange={(e) => setIncludeUnmatched(e.target.checked)} className="h-4 w-4 accent-accent" />
+            Import unmatched games
+          </label>
+          {!isRenpyMode && (
+            <label className="flex items-center gap-2 text-sm text-text cursor-pointer" title="Safely repairs existing rows and refreshes selected media without creating duplicate game records.">
+              <input type="checkbox" checked={forceReimport} onChange={(e) => setForceReimport(e.target.checked)} className="h-4 w-4 accent-accent" />
+              Force re-import existing games
+            </label>
           )}
-          <button onClick={() => setHideMatches(!hideMatches)} className="bg-tertiary hover:bg-selected px-4 py-2 rounded-buttonTheme text-text" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
-            {hideMatches ? 'Show All' : 'Hide Matches'}
-          </button>
-          <button
-            onClick={onImport}
-            disabled={!canImport || isScanActive || isCancelingScan}
-            className={`px-6 py-2 rounded-buttonTheme font-medium transition-colors ${(canImport && !isScanActive && !isCancelingScan) ? 'bg-success hover:bg-successHover text-white' : 'bg-tertiary cursor-not-allowed opacity-70 text-muted'}`}
-            title={getImportDisabledReason()}
-            style={{ pointerEvents: 'auto' }}
-          >
-            Import
-          </button>
-          <button onClick={() => window.electronAPI.closeWindow()} className="bg-danger hover:bg-dangerHover px-6 py-2 rounded-buttonTheme text-white" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
-            Cancel
-          </button>
         </div>
       </div>
     </div>

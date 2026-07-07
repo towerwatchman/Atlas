@@ -1086,6 +1086,38 @@ function createBannerEditorWindow() {
   bannerEditorWindow.on('closed', () => { bannerEditorWindow = null })
 }
 
+let importerHelpWindow = null
+function createImporterHelpWindow() {
+  if (importerHelpWindow && !importerHelpWindow.isDestroyed()) {
+    focusWindow(importerHelpWindow)
+    return
+  }
+  const windowState = applySavedWindowBounds('importerHelp', {
+    width: 820,
+    height: 800,
+    minWidth: 560,
+    minHeight: 480,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  }, { centerOnMain: true })
+  importerHelpWindow = new BrowserWindow(windowState.options)
+  registerWindowBoundsPersistence('importerHelp', importerHelpWindow, windowState)
+  if (VITE_DEV_SERVER_URL) {
+    importerHelpWindow.loadURL(VITE_DEV_SERVER_URL + '/importerhelp.html')
+  } else {
+    importerHelpWindow.loadFile(path.join(__dirname, '../dist/renderer/importerhelp.html'))
+  }
+  importerHelpWindow.on('maximize', () => importerHelpWindow.webContents.send('window-state-changed', 'maximized'))
+  importerHelpWindow.on('unmaximize', () => importerHelpWindow.webContents.send('window-state-changed', 'normal'))
+  importerHelpWindow.on('closed', () => { importerHelpWindow = null })
+}
+
 function sendImporterSource(source) {
   if (importerWindow && !importerWindow.isDestroyed()) {
     importerWindow.webContents.send('import-source', normalizeImporterSource(source))
@@ -1243,7 +1275,7 @@ function buildCtx() {
     // windows
     mainWindow, settingsWindow, importerWindow, executableChooserWindow, themeBuilderWindow, bannerEditorWindow,
     createSettingsWindow, createImporterWindow, createGameDetailsWindow, showExecutableChooser,
-    createThemeBuilderWindow, createBannerEditorWindow,
+    createThemeBuilderWindow, createBannerEditorWindow, createImporterHelpWindow,
     quitFromMainWindow,
     // state
     appConfig, configPath, dataDir, launcherDir, templatesDir, themeTemplatesDir,

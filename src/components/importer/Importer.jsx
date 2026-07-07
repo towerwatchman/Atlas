@@ -112,6 +112,15 @@ const Importer = () => {
   const [isScanActive, setIsScanActive] = useState(false)
   const [isCancelingScan, setIsCancelingScan] = useState(false)
 
+  // Live parse preview: after a folder is chosen, we read its first subfolder
+  // and parse it with the current scheme so the user can confirm the scheme
+  // works before scanning. null while none/loading.
+  const [livePreview, setLivePreview] = useState(null)
+
+  const openImporterHelp = useCallback(() => {
+    window.electronAPI.openImporterHelp?.()
+  }, [])
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   const getScanGameKey = (game) => {
     if (game?.sourceType === 'renpySave') return `renpy:${game.savePath || game.saveId || game.title}`
@@ -548,7 +557,7 @@ const Importer = () => {
     siteUrl: match.siteUrl || match.site_url || game.siteUrl || '',
     title: match.title || game.title,
     creator: match.creator || game.creator,
-    engine: match.engine || game.engine || 'Unknown',
+    engine: match.engine || game.engine || '',
     latestVersion: match.latestVersion || game.latestVersion || '',
   })
 
@@ -574,7 +583,7 @@ const Importer = () => {
         const atlasData = await window.electronAPI.getAtlasData(updatedGame.atlasId)
         updatedGame = {
           ...updatedGame,
-          engine: atlasData.engine || 'Unknown',
+          engine: atlasData.engine || '',
           f95Id: atlasData.f95_id || '',
           lcId: atlasData.lc_id || atlasData.lcId || atlasData.lewdCornerId || '',
           lewdCornerId: atlasData.lc_id || atlasData.lcId || atlasData.lewdCornerId || '',
@@ -795,6 +804,70 @@ const Importer = () => {
   useEffect(() => {
     if (view === 'settings') loadConfig()
   }, [view, loadConfig])
+
+  // Live parse preview: when a folder is set (and we're on settings), walk down
+  // the first entry at each scheme level to build a sample relative path, then
+  // parse it with the active regex so the user sees how Title/Creator/Version
+  // will be extracted before committing to a full scan.
+  useEffect(() => {
+    if (view !== 'settings' || !folder) {
+      setLivePreview(null)
+      return
+    }
+    let cancelled = false
+    const run = async () => {
+      try {
+        const pattern = useCustomRegex ? customRegex : buildFolderRegex(customFormat)
+        if (!pattern) { if (!cancelled) setLivePreview(null); return }
+        // Number of path segments the scheme expects (count of '/').
+        const template = String(customFormat || '').replace(/\\/g, '/')
+        const depth = useCustomRegex
+          ? Math.max(1, (pattern.match(/\)\\\/\(\?</g) || []).length + 1)
+          : Math.max(1, template.split('/').filter(Boolean).length)
+
+        // Walk down the first subfolder at each level up to `depth`.
+        const segments = []
+        let currentPath = folder
+        for (let i = 0; i < depth; i++) {
+          const res = await window.electronAPI.listSubfolders?.(currentPath)
+          if (cancelled) return
+          const first = res?.folders?.[0]
+          if (!first) break
+          segments.push(first)
+          currentPath = `${currentPath}/${first}`
+        }
+        if (segments.length === 0) {
+          if (!cancelled) setLivePreview({ sample: '', matched: false, fields: {}, note: 'No subfolders found to preview.' })
+          return
+        }
+        const relPath = segments.join('/')
+        let regex = null
+        try { regex = new RegExp(pattern) } catch { regex = null }
+        const m = regex ? relPath.match(regex) : null
+        const groups = (m && m.groups) || {}
+        const fields = {
+          title: groups.title || '',
+          creator: groups.creator || '',
+          version: groups.version || '',
+          engine: groups.engine || '',
+          f95Id: groups.f95id || '',
+          lcId: groups.lcid || '',
+        }
+        if (!cancelled) {
+          setLivePreview({
+            sample: relPath,
+            matched: Boolean(m),
+            fields,
+            note: m ? '' : "This folder didn't match the scheme. Adjust the scheme or regex.",
+          })
+        }
+      } catch {
+        if (!cancelled) setLivePreview(null)
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [view, folder, customFormat, customRegex, useCustomRegex])
 
   const selectFolder = async () => {
     const path = await window.electronAPI.selectDirectory({
@@ -1092,7 +1165,7 @@ const Importer = () => {
         siteUrl: data[0].siteUrl || data[0].site_url || sourceGame.siteUrl || '',
         title: data[0].title,
         creator: data[0].creator,
-        engine: data[0].engine || sourceGame.engine || 'Unknown',
+        engine: data[0].engine || sourceGame.engine || '',
         latestVersion: data[0].latestVersion || '',
         results: [{ key: 'match', value: 'Match Found' }],
         resultSelectedValue: 'match',
@@ -1438,65 +1511,127 @@ const Importer = () => {
           (absolutely positioned title/controls), which is what didn't
           fully match the rest. */}
       <WindowTitleBar title="Import Games Wizard" isMaximized={isMaximized} />
-      {/* Main Content — a separate flex child below the header row. */}
-      <div className="flex-1 min-h-0 p-4 overflow-y-auto scroll-window-inset">
-        {view === 'settings' && (
-          <SettingsStep
-            folder={folder} customFormat={customFormat} useUnstructured={useUnstructured}
-            gameExt={gameExt} archiveExt={archiveExt}
-            includeArchives={includeArchives}
-            useCustomRegex={useCustomRegex} customRegex={customRegex}
-            downloadBannerImages={downloadBannerImages} downloadPreviewImages={downloadPreviewImages}
-            previewLimit={previewLimit} deleteSourceArchiveAfterImport={deleteSourceArchiveAfterImport}
-            moveFoldersToLibrary={moveFoldersToLibrary}
-            autoSelectLatestReplaceVersion={autoSelectLatestReplaceVersion}
-            defaultLibraryPath={defaultLibraryPath} askingForLibraryFolder={askingForLibraryFolder}
-            onSelectFolder={selectFolder} onStartScan={startScan}
-            setCustomFormat={handleCustomFormatChange} setUseUnstructured={handleUseUnstructuredChange}
-            setGameExt={handleGameExtChange} setArchiveExt={handleArchiveExtChange}
-            setIncludeArchives={handleIncludeArchivesChange}
-            setUseCustomRegex={handleUseCustomRegexChange} setCustomRegex={handleCustomRegexChange}
-            setDownloadBannerImages={handleDownloadBannerImagesChange}
-            setDownloadPreviewImages={handleDownloadPreviewImagesChange}
-            setMoveFoldersToLibrary={handleMoveFoldersToLibraryChange}
-            setDeleteSourceArchiveAfterImport={handleDeleteSourceArchiveAfterImportChange}
-            onAutoSelectChange={handleAutoSelectChange}
-          />
-        )}
+      {/* Main Content — scrolls; the action buttons live in a fixed footer
+          below (same pattern as the game properties window). */}
+      <div className="flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 min-h-0 p-4 overflow-y-auto scroll-window-inset">
+          {view === 'settings' && (
+            <SettingsStep
+              folder={folder} customFormat={customFormat} useUnstructured={useUnstructured}
+              gameExt={gameExt} archiveExt={archiveExt}
+              includeArchives={includeArchives}
+              useCustomRegex={useCustomRegex} customRegex={customRegex}
+              downloadBannerImages={downloadBannerImages} downloadPreviewImages={downloadPreviewImages}
+              previewLimit={previewLimit} deleteSourceArchiveAfterImport={deleteSourceArchiveAfterImport}
+              moveFoldersToLibrary={moveFoldersToLibrary}
+              autoSelectLatestReplaceVersion={autoSelectLatestReplaceVersion}
+              defaultLibraryPath={defaultLibraryPath} askingForLibraryFolder={askingForLibraryFolder}
+              onSelectFolder={selectFolder} onStartScan={startScan}
+              onOpenHelp={openImporterHelp}
+              livePreview={livePreview}
+              setCustomFormat={handleCustomFormatChange} setUseUnstructured={handleUseUnstructuredChange}
+              setGameExt={handleGameExtChange} setArchiveExt={handleArchiveExtChange}
+              setIncludeArchives={handleIncludeArchivesChange}
+              setUseCustomRegex={handleUseCustomRegexChange} setCustomRegex={handleCustomRegexChange}
+              setDownloadBannerImages={handleDownloadBannerImagesChange}
+              setDownloadPreviewImages={handleDownloadPreviewImagesChange}
+              setMoveFoldersToLibrary={handleMoveFoldersToLibraryChange}
+              setDeleteSourceArchiveAfterImport={handleDeleteSourceArchiveAfterImportChange}
+              onAutoSelectChange={handleAutoSelectChange}
+            />
+          )}
 
-        {view === 'scan' && (
-          <ScanStep
-            progress={progress} progressLabel={progressLabel}
-            visibleStats={visibleStats}
-            sortedRows={sortedRows} isNewScanRow={isNewScanRow} sortConfig={sortConfig}
-            hideMatches={hideMatches} includeUnmatched={includeUnmatched}
-            forceReimport={forceReimport}
-            autoSelectLatestReplaceVersion={autoSelectLatestReplaceVersion}
-            selectedRowKeys={selectedScanRowKeys}
-            selectedRowCount={selectedScanRowCount}
-            badRowCount={badScanRowCount}
-            lastSelectedRowKey={lastSelectedScanRowKey}
-            canImport={canImport} isResolvingMatches={isResolvingMatches}
-            isScanActive={isScanActive} isCancelingScan={isCancelingScan}
-            getImportDisabledReason={getImportDisabledReason}
-            importMode={importMode} scanPath={scanPath} scanMessage={scanMessage}
-            onSort={handleSort} onUpdateGame={updateGame} onDeleteGame={deleteGame}
-            onToggleRowSelection={toggleScanRowSelection}
-            onSelectRowRange={selectScanRowRange}
-            onSetVisibleRowSelection={setVisibleScanRowSelection}
-            onClearRowSelection={clearScanRowSelection}
-            onDeleteSelectedRows={deleteSelectedGames}
-            onDeleteBadRows={deleteBadRows}
-            onResultChange={handleResultChange} onUpdateMatches={updateMatches}
-            onHydrateManualF95Id={hydrateManualF95Id}
-            onHydrateManualLcId={hydrateManualLcId}
-            onCancelMatch={cancelScanOrMatch} onImport={importGamesFunc}
-            onSelectRenpyFolder={selectRenpySaveFolder}
-            getGameKey={getScanGameKey} getRowImportStatus={getRowImportStatus}
-            setHideMatches={setHideMatches} setIncludeUnmatched={setIncludeUnmatched}
-            setForceReimport={setForceReimport}
-          />
-        )}
+          {view === 'scan' && (
+            <ScanStep
+              progress={progress} progressLabel={progressLabel}
+              visibleStats={visibleStats}
+              sortedRows={sortedRows} isNewScanRow={isNewScanRow} sortConfig={sortConfig}
+              hideMatches={hideMatches} includeUnmatched={includeUnmatched}
+              forceReimport={forceReimport}
+              autoSelectLatestReplaceVersion={autoSelectLatestReplaceVersion}
+              selectedRowKeys={selectedScanRowKeys}
+              selectedRowCount={selectedScanRowCount}
+              badRowCount={badScanRowCount}
+              lastSelectedRowKey={lastSelectedScanRowKey}
+              canImport={canImport} isResolvingMatches={isResolvingMatches}
+              isScanActive={isScanActive} isCancelingScan={isCancelingScan}
+              getImportDisabledReason={getImportDisabledReason}
+              importMode={importMode} scanPath={scanPath} scanMessage={scanMessage}
+              onSort={handleSort} onUpdateGame={updateGame} onDeleteGame={deleteGame}
+              onToggleRowSelection={toggleScanRowSelection}
+              onSelectRowRange={selectScanRowRange}
+              onSetVisibleRowSelection={setVisibleScanRowSelection}
+              onClearRowSelection={clearScanRowSelection}
+              onDeleteSelectedRows={deleteSelectedGames}
+              onDeleteBadRows={deleteBadRows}
+              onResultChange={handleResultChange} onUpdateMatches={updateMatches}
+              onHydrateManualF95Id={hydrateManualF95Id}
+              onHydrateManualLcId={hydrateManualLcId}
+              onCancelMatch={cancelScanOrMatch} onImport={importGamesFunc}
+              onSelectRenpyFolder={selectRenpySaveFolder}
+              getGameKey={getScanGameKey} getRowImportStatus={getRowImportStatus}
+              setHideMatches={setHideMatches} setIncludeUnmatched={setIncludeUnmatched}
+              setForceReimport={setForceReimport}
+            />
+          )}
+        </div>
+
+        {/* Fixed footer action bar. Buttons share one height (h-9) and stay put
+            regardless of content scroll. Left side is contextual; right side is
+            the primary/secondary actions. */}
+        <div className="shrink-0 border-t border-border bg-primary px-4 py-3 flex items-center justify-between gap-3">
+          {view === 'settings' ? (
+            <>
+              <button
+                onClick={openImporterHelp}
+                className="h-9 px-4 inline-flex items-center bg-tertiary hover:bg-selected text-text rounded-buttonTheme transition-colors"
+              >
+                <i className="fas fa-circle-question mr-2" aria-hidden="true"></i> Help &amp; Examples
+              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={startScan} className="h-9 px-4 inline-flex items-center bg-accent hover:bg-accentHover text-white rounded-buttonTheme transition-colors">Next</button>
+                <button onClick={() => window.electronAPI.closeWindow()} className="h-9 px-4 inline-flex items-center bg-danger hover:bg-dangerHover text-white rounded-buttonTheme transition-colors">Cancel</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={updateMatches}
+                  disabled={isResolvingMatches || isScanActive || isCancelingScan}
+                  className={`h-9 px-4 inline-flex items-center rounded-buttonTheme text-text ${(isResolvingMatches || isScanActive || isCancelingScan) ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-accent hover:bg-accentHover'}`}
+                >
+                  {isResolvingMatches ? 'Resolving...' : 'Update Matches'}
+                </button>
+                {(isResolvingMatches || isScanActive || isCancelingScan) && (
+                  <button
+                    onClick={cancelScanOrMatch}
+                    disabled={isCancelingScan}
+                    className={`h-9 px-4 inline-flex items-center rounded-buttonTheme text-white ${isCancelingScan ? 'bg-danger cursor-not-allowed opacity-70' : 'bg-danger hover:bg-dangerHover'}`}
+                  >
+                    {isScanActive || isCancelingScan ? (isCancelingScan ? 'Canceling...' : 'Cancel Scan') : 'Stop Matching'}
+                  </button>
+                )}
+                <button onClick={() => setHideMatches(!hideMatches)} className="h-9 px-4 inline-flex items-center bg-tertiary hover:bg-selected text-text rounded-buttonTheme">
+                  {hideMatches ? 'Show All' : 'Hide Matches'}
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={importGamesFunc}
+                  disabled={!canImport || isScanActive || isCancelingScan}
+                  className={`h-9 px-6 inline-flex items-center rounded-buttonTheme font-medium transition-colors ${(canImport && !isScanActive && !isCancelingScan) ? 'bg-success hover:bg-successHover text-white' : 'bg-tertiary cursor-not-allowed opacity-70 text-muted'}`}
+                  title={getImportDisabledReason()}
+                >
+                  Import
+                </button>
+                <button onClick={() => window.electronAPI.closeWindow()} className="h-9 px-6 inline-flex items-center bg-danger hover:bg-dangerHover text-white rounded-buttonTheme">
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
