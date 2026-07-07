@@ -1412,14 +1412,17 @@ const Importer = () => {
       return
     }
     let finalLibraryPath = defaultLibraryPath
-    const importNeedsLibrary = gamesToImport.some((game) => game.isArchive || (moveFoldersToLibrary && !isSteamImportRow(game)))
-    if (importNeedsLibrary && !finalLibraryPath) {
+    // The games (library) folder must always be set before importing. Some
+    // imports strictly need it for extraction/move, but even in-place folder
+    // imports rely on a configured library location, so prompt whenever it's
+    // missing rather than only for archive/move imports.
+    if (!finalLibraryPath) {
       setAskingForLibraryFolder(true)
       let selected
       try {
         selected = await window.electronAPI.selectDirectory({
-          title: 'Select your games library folder',
-          message: 'Choose where imported games are stored. Archives are extracted here, and this becomes your default library folder.',
+          title: 'Set your games folder',
+          message: 'Atlas needs a games folder before importing. Imported and extracted games are stored here, and it becomes your default library folder.',
           buttonLabel: 'Use this folder',
         })
       } finally {
@@ -1427,19 +1430,17 @@ const Importer = () => {
         // call rejects, so the UI can't get stuck on "Waiting for selection".
         setAskingForLibraryFolder(false)
       }
-      if (!selected) return alert('A library folder is required to import. Import canceled.')
-      else {
-        try {
-          const saveResult = await window.electronAPI.setDefaultGameFolder(selected)
-          if (saveResult.success) { finalLibraryPath = selected; setDefaultLibraryPath(selected) }
-          else {
-            alert('Failed to save default library folder.')
-            return
-          }
-        } catch {
-          alert('Error saving library path.')
+      if (!selected) return alert('A games folder is required to import. Import canceled.')
+      try {
+        const saveResult = await window.electronAPI.setDefaultGameFolder(selected)
+        if (saveResult.success) { finalLibraryPath = selected; setDefaultLibraryPath(selected) }
+        else {
+          alert('Failed to save games folder.')
           return
         }
+      } catch {
+        alert('Error saving games folder.')
+        return
       }
     }
     const gamesForImport = gamesToImport.map((game) => {
