@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import useImageFallback from '../../../hooks/useImageFallback.js'
 import SafeImage from '../../ui/SafeImage.jsx'
 import { isSteamGame, htmlToText } from './gameDetailUtils.js'
@@ -8,7 +7,6 @@ import { isSteamGame, htmlToText } from './gameDetailUtils.js'
 // description is clamped to a few lines with an inline "Read More" that expands
 // it in place. For Steam games it also shows the portrait box art on the left.
 export default function InfoPanel({ game, latestVersion, isUpdateAvailable }) {
-  const [expanded, setExpanded] = useState(false)
   const appid = game.steam_appid || game.steam_id
   const steam = isSteamGame(game)
 
@@ -24,9 +22,6 @@ export default function InfoPanel({ game, latestVersion, isUpdateAvailable }) {
 
   // Nothing to show -> render nothing (keeps the page tight for sparse records).
   if (!showCapsule && !description && !changelog && !isUpdateAvailable) return null
-
-  // Steam-style clamp: show ~6 lines collapsed, with a fade + Read More.
-  const COLLAPSED_MAX = 140 // px
 
   return (
     <div className="mx-6 mt-4 bg-secondary border border-border" style={{ padding: '20px 24px' }}>
@@ -54,34 +49,17 @@ export default function InfoPanel({ game, latestVersion, isUpdateAvailable }) {
             About
           </div>
           {description ? (
-            <>
-              <div
-                style={{
-                  position: 'relative',
-                  fontSize: 13,
-                  lineHeight: 1.55,
-                  color: 'var(--color-text)',
-                  whiteSpace: 'pre-wrap',
-                  overflowWrap: 'anywhere',
-                  maxHeight: expanded ? 'none' : COLLAPSED_MAX,
-                  overflow: 'hidden',
-                }}
-              >
-                {description}
-                {!expanded && (
-                  // Bottom fade hint, Steam-style.
-                  <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 48, background: 'linear-gradient(to bottom, transparent, var(--color-secondary))', pointerEvents: 'none' }} />
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                className="mt-2 text-accent hover:underline"
-                style={{ fontSize: 12, fontWeight: 600 }}
-              >
-                {expanded ? 'Read Less' : 'Read More'}
-              </button>
-            </>
+            <div
+              style={{
+                fontSize: 13,
+                lineHeight: 1.55,
+                color: 'var(--color-text)',
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {description}
+            </div>
           ) : (
             <div style={{ color: 'var(--color-muted)', fontSize: 13 }}>No description available</div>
           )}

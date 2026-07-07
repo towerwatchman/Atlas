@@ -421,7 +421,7 @@ const defaultConfig = {
     // Game detail page panel layout (3 columns). Stored as a JSON string so it
     // round-trips cleanly through INI. Shared across all games. Panels not
     // listed here (or newly added) are appended to the shortest column.
-    detailLayout: '{"items":[{"id":"previews","span":2},{"id":"versions","span":1},{"id":"rating","span":1},{"id":"details","span":1},{"id":"links","span":1},{"id":"tags","span":1}]}',
+    detailLayout: '{"columns":[[{"id":"previews","span":2}],[],[{"id":"versions","span":1},{"id":"rating","span":1},{"id":"details","span":1},{"id":"links","span":1},{"id":"tags","span":1}]]}',
     // Nav button presentation ('icons' | 'iconsAndText' | 'text') and
     // whether the header's accent-bar notch strip is shown — both
     // independent of theme/layout, same pattern as layout above. See

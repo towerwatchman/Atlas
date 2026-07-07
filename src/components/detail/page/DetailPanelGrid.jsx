@@ -1,138 +1,196 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
-// A 3-column-wide panel grid for the game detail page. Panels flow left-to-right
-// and wrap into rows; each panel can span 1, 2, or 3 columns. Panels are
-// identified by string ids; `panels` maps id -> rendered node (ids without a
-// node are skipped, so conditional panels just omit their node).
+// A 3-column panel grid for the game detail page. Each column stacks its panels
+// vertically (top-to-bottom). A panel can span 1-3 columns wide; a spanning
+// panel occupies its home column plus the next column(s) on that row.
 //
 // Layout model (backwards compatible):
-//   { items: [ { id, span }, ... ] }          <- current
-//   { columns: [[id,...],[id,...],[id,...]] }  <- legacy (migrated on read)
+//   { columns: [ [ {id,span}, ... ], [...], [...] ] }   <- current
+//   { items: [ {id,span}, ... ] }                        <- prior flat (migrated)
+//   { columns: [ [id,...], ... ] }                       <- legacy strings (migrated)
 //
-// In edit mode panels can be dragged to reorder and their span set via 1/2/3
-// buttons. Persistence is the caller's responsibility (onLayoutChange).
+// Rendering uses an explicit CSS grid with per-panel column placement so that
+// spans cross columns while each column still stacks independently.
 
 const COLUMN_COUNT = 3
 const clampSpan = (n) => Math.min(COLUMN_COUNT, Math.max(1, Number(n) || 1))
 
-// Default order + spans when nothing is stored.
-const DEFAULT_ITEMS = [
-  { id: 'previews', span: 2 },
-  { id: 'versions', span: 1 },
-  { id: 'rating', span: 1 },
-  { id: 'details', span: 1 },
-  { id: 'links', span: 1 },
-  { id: 'tags', span: 1 },
+// Default: previews (span 2) in the left column; everything else stacked in the
+// right column.
+const DEFAULT_COLUMNS = [
+  [{ id: 'previews', span: 2 }],
+  [],
+  [
+    { id: 'versions', span: 1 },
+    { id: 'rating', span: 1 },
+    { id: 'details', span: 1 },
+    { id: 'links', span: 1 },
+    { id: 'tags', span: 1 },
+  ],
 ]
 
-// Normalize any layout shape into an ordered items list, keeping only ids that
-// have a node, dropping duplicates, and appending any available id not present
-// so nothing silently disappears.
+const DEFAULT_SPAN = { previews: 2 }
+
+// Normalize any stored layout to exactly COLUMN_COUNT columns of {id,span},
+// keeping only ids that have a node, dropping duplicates, and appending any
+// available-but-unplaced id to the shortest column so nothing disappears.
 export function normalizeDetailLayout(layout, availableIds) {
   const available = new Set(availableIds)
   const seen = new Set()
-  const items = []
+  const columns = Array.from({ length: COLUMN_COUNT }, () => [])
 
-  const pushItem = (id, span) => {
+  const place = (colIndex, id, span) => {
     if (!available.has(id) || seen.has(id)) return
-    items.push({ id, span: clampSpan(span) })
+    columns[Math.min(colIndex, COLUMN_COUNT - 1)].push({ id, span: clampSpan(span) })
     seen.add(id)
   }
 
-  if (Array.isArray(layout?.items)) {
-    for (const it of layout.items) {
-      if (typeof it === 'string') pushItem(it, 1)
-      else if (it && typeof it === 'object') pushItem(it.id, it.span)
-    }
-  } else if (Array.isArray(layout?.columns)) {
-    // Legacy migration: flatten columns in order, default span 1 (previews 2).
-    for (const col of layout.columns) {
-      if (!Array.isArray(col)) continue
-      for (const id of col) pushItem(id, id === 'previews' ? 2 : 1)
+  if (Array.isArray(layout?.columns)) {
+    layout.columns.slice(0, COLUMN_COUNT).forEach((col, i) => {
+      if (!Array.isArray(col)) return
+      for (const entry of col) {
+        if (typeof entry === 'string') place(i, entry, DEFAULT_SPAN[entry] || 1)
+        else if (entry && typeof entry === 'object') place(i, entry.id, entry.span)
+      }
+    })
+  } else if (Array.isArray(layout?.items)) {
+    // Prior flat model: put everything in the appropriate default column.
+    for (const entry of layout.items) {
+      const id = typeof entry === 'string' ? entry : entry?.id
+      const span = typeof entry === 'string' ? (DEFAULT_SPAN[entry] || 1) : entry?.span
+      if (id === 'previews') place(0, id, span)
+      else place(2, id, span)
     }
   }
 
-  // Append anything not yet placed, using the default span if we know one.
+  // Append any available id not yet placed to the shortest column.
   for (const id of availableIds) {
     if (seen.has(id)) continue
-    const def = DEFAULT_ITEMS.find((d) => d.id === id)
-    pushItem(id, def ? def.span : 1)
+    let shortest = 0
+    for (let i = 1; i < COLUMN_COUNT; i++) {
+      if (columns[i].length < columns[shortest].length) shortest = i
+    }
+    place(shortest, id, DEFAULT_SPAN[id] || 1)
   }
 
-  return { items }
+  return { columns }
 }
 
 export default function DetailPanelGrid({ layout, panels, editing, onLayoutChange }) {
-  const [dragId, setDragId] = useState(null)
-  const [dropId, setDropId] = useState(null)
+  const [drag, setDrag] = useState(null) // { id }
+  const [dropTarget, setDropTarget] = useState(null) // { col, index }
+  // Spans only widen a panel when the grid is actually 3-up (Tailwind `lg`,
+  // 1024px). Below that the grid is a single stacked column and every panel is
+  // full width, so a calc(200%) width would overflow the viewport.
+  const [isWide, setIsWide] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 1024 : true))
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia('(min-width: 1024px)')
+    const handle = () => setIsWide(mq.matches)
+    handle()
+    mq.addEventListener?.('change', handle)
+    return () => mq.removeEventListener?.('change', handle)
+  }, [])
 
   const availableIds = Object.keys(panels).filter((id) => panels[id] != null)
   const norm = normalizeDetailLayout(layout, availableIds)
 
-  const commit = (items) => onLayoutChange?.({ items })
+  const commit = (columns) => onLayoutChange?.({ columns })
 
-  const moveBefore = (targetId) => {
-    if (!dragId || dragId === targetId) return
-    const items = norm.items.filter((it) => it.id !== dragId)
-    const dragged = norm.items.find((it) => it.id === dragId)
-    if (!dragged) return
-    const at = items.findIndex((it) => it.id === targetId)
-    if (at === -1) items.push(dragged)
-    else items.splice(at, 0, dragged)
-    commit(items)
-    setDragId(null)
-    setDropId(null)
+  const handleDrop = (col, index) => {
+    if (!drag) return
+    const next = norm.columns.map((c) => c.map((e) => ({ ...e })))
+    let moved = null
+    for (const c of next) {
+      const at = c.findIndex((e) => e.id === drag.id)
+      if (at !== -1) { moved = c.splice(at, 1)[0]; break }
+    }
+    if (!moved) return
+    let insertAt = index
+    if (insertAt < 0 || insertAt > next[col].length) insertAt = next[col].length
+    next[col].splice(insertAt, 0, moved)
+    commit(next)
+    setDrag(null)
+    setDropTarget(null)
   }
 
   const setSpan = (id, span) => {
-    commit(norm.items.map((it) => (it.id === id ? { ...it, span: clampSpan(span) } : it)))
+    commit(norm.columns.map((c) => c.map((e) => (e.id === id ? { ...e, span: clampSpan(span) } : e))))
   }
 
   return (
-    <div
-      className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start"
-      onDragOver={editing ? (e) => e.preventDefault() : undefined}
-    >
-      {norm.items.map(({ id, span }) => {
-        const colClass = span >= 3 ? 'lg:col-span-3' : span === 2 ? 'lg:col-span-2' : 'lg:col-span-1'
-        return (
-          <div
-            key={id}
-            className={`relative ${colClass} ${dragId === id ? 'opacity-40' : ''}`}
-            draggable={editing}
-            onDragStart={editing ? () => setDragId(id) : undefined}
-            onDragEnd={editing ? () => { setDragId(null); setDropId(null) } : undefined}
-            onDragOver={editing ? (e) => { e.preventDefault(); setDropId(id) } : undefined}
-            onDrop={editing ? (e) => { e.preventDefault(); moveBefore(id) } : undefined}
-          >
-            {editing && dropId === id && dragId !== id && (
-              <div className="absolute -left-3 top-0 bottom-0 w-0.5 bg-accent rounded" />
-            )}
-
-            {editing && (
-              <div className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-primary/95 border border-border rounded px-1 py-0.5 shadow">
-                <span className="cursor-move text-muted px-1" title="Drag to reorder">
-                  <i className="fas fa-up-down-left-right" aria-hidden="true"></i>
-                </span>
-                {[1, 2, 3].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setSpan(id, n)}
-                    title={`Span ${n} column${n > 1 ? 's' : ''}`}
-                    className={`w-6 h-6 text-xs rounded ${span === n ? 'bg-accent text-white' : 'bg-secondary text-text hover:bg-selected'}`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className={editing ? 'pointer-events-none outline-dashed outline-1 outline-accent/40 rounded' : ''}>
-              {panels[id]}
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+      {norm.columns.map((col, colIndex) => (
+        <div
+          key={colIndex}
+          className="flex flex-col gap-6 min-h-[60px]"
+          // A spanning panel widens beyond its own column; allow it to overflow
+          // visually to the right without affecting the sibling column widths.
+          style={{ position: 'relative' }}
+          onDragOver={editing ? (e) => { e.preventDefault(); setDropTarget({ col: colIndex, index: col.length }) } : undefined}
+          onDrop={editing ? (e) => { e.preventDefault(); handleDrop(colIndex, dropTarget?.col === colIndex ? dropTarget.index : col.length) } : undefined}
+        >
+          {col.length === 0 && editing && (
+            <div className="border border-dashed border-border rounded text-xs text-muted flex items-center justify-center h-16">
+              Drop a panel here
             </div>
-          </div>
-        )
-      })}
+          )}
+          {col.map((entry, index) => {
+            const span = clampSpan(entry.span)
+            // Widen a spanning panel to cover `span` columns. Each column is
+            // ~1/3 of the grid; gap is 1.5rem (gap-6). width = span cols + gaps.
+            const spanStyle = span > 1 && isWide
+              ? { width: `calc(${span * 100}% + ${(span - 1) * 1.5}rem)`, position: 'relative', zIndex: 1 }
+              : undefined
+            return (
+              <div
+                key={entry.id}
+                draggable={editing}
+                onDragStart={editing ? (e) => { e.stopPropagation(); setDrag({ id: entry.id }) } : undefined}
+                onDragEnd={editing ? () => { setDrag(null); setDropTarget(null) } : undefined}
+                onDragOver={editing ? (e) => {
+                  e.preventDefault(); e.stopPropagation()
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  const before = e.clientY < rect.top + rect.height / 2
+                  setDropTarget({ col: colIndex, index: before ? index : index + 1 })
+                } : undefined}
+                onDrop={editing ? (e) => {
+                  e.preventDefault(); e.stopPropagation()
+                  handleDrop(colIndex, dropTarget?.col === colIndex ? dropTarget.index : index)
+                } : undefined}
+                className={`relative ${editing ? 'cursor-move' : ''} ${drag?.id === entry.id ? 'opacity-40' : ''}`}
+                style={spanStyle}
+              >
+                {editing && dropTarget?.col === colIndex && dropTarget?.index === index && (
+                  <div className="absolute -top-3 left-0 right-0 h-0.5 bg-accent rounded" />
+                )}
+
+                {editing && (
+                  <div className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-primary/95 border border-border rounded px-1 py-0.5 shadow">
+                    <span className="cursor-move text-muted px-1" title="Drag to reorder">
+                      <i className="fas fa-up-down-left-right" aria-hidden="true"></i>
+                    </span>
+                    {[1, 2, 3].map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => setSpan(entry.id, n)}
+                        title={`Span ${n} column${n > 1 ? 's' : ''}`}
+                        className={`w-6 h-6 text-xs rounded ${span === n ? 'bg-accent text-white' : 'bg-secondary text-text hover:bg-selected'}`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className={editing ? 'pointer-events-none outline-dashed outline-1 outline-accent/40 rounded' : ''}>
+                  {panels[entry.id]}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ))}
     </div>
   )
 }

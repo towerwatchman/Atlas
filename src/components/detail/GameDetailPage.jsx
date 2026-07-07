@@ -181,7 +181,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [personalRatingsError, setPersonalRatingsError] = useState('')
   // Customizable 3-column panel layout (shared across all games, saved to config
   // under Appearance.detailLayout). editingLayout toggles drag-and-drop.
-  const [detailLayout, setDetailLayout] = useState({ items: [{ id: 'previews', span: 2 }, { id: 'versions', span: 1 }, { id: 'rating', span: 1 }, { id: 'details', span: 1 }, { id: 'links', span: 1 }, { id: 'tags', span: 1 }] })
+  const [detailLayout, setDetailLayout] = useState({ columns: [[{ id: 'previews', span: 2 }], [], [{ id: 'versions', span: 1 }, { id: 'rating', span: 1 }, { id: 'details', span: 1 }, { id: 'links', span: 1 }, { id: 'tags', span: 1 }]] })
   const [editingLayout, setEditingLayout] = useState(false)
   // The About/description panel is hidden by default; toggled by the info
   // button in the action bar. Its Read More expansion is internal to the panel.
@@ -1080,7 +1080,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                 {previews.length > 0 ? (
                   <div
                     className="grid gap-3"
-                    style={{ gridTemplateColumns: `repeat(${Math.min(5, Math.max(1, previews.length))}, minmax(0, 1fr))` }}
+                    style={{ gridTemplateColumns: `repeat(${Math.min(4, Math.max(1, previews.length))}, minmax(0, 1fr))` }}
                   >
                     {previews.map((preview, index) => (
                       <div
