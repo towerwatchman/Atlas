@@ -1223,8 +1223,8 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                     <div style={{ paddingTop: 4 }}>
                       <div style={{ color: 'var(--color-muted)', marginBottom: 6 }}>Category</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {categories.map((cat) => (
-                          <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                        {[...new Set(categories)].map((cat, i) => (
+                          <div key={`${cat}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
                             <i className={getCategoryIcon(cat)} style={{ width: 16, textAlign: 'center', color: 'var(--color-muted)', flexShrink: 0, fontSize: 13 }} aria-hidden="true"></i>
                             <span style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{cat}</span>
                           </div>
@@ -1268,8 +1268,8 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
               <section className="bg-secondary border border-border p-2">
                 <h2 className="text-lg font-semibold mb-3">Tags</h2>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {detailTags.slice(0, 32).map((tag) => (
-                    <span key={tag} className="bg-primary border border-border px-2 py-1 text-xs">{tag}</span>
+                  {[...new Set(detailTags)].slice(0, 32).map((tag, i) => (
+                    <span key={`${tag}-${i}`} className="bg-primary border border-border px-2 py-1 text-xs">{tag}</span>
                   ))}
                 </div>
               </section>

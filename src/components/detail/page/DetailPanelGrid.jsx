@@ -123,6 +123,10 @@ export function normalizeDetailLayout(layout, availableIds) {
 
 export default function DetailPanelGrid({ layout, panels, editing, onLayoutChange }) {
   const [drag, setDrag] = useState(null) // { id }
+  // Where the dragged panel would land. For a column cell:
+  //   { kind:'cell', rowIndex, colIndex, index }
+  // For a full-width row: { kind:'full', rowIndex, index }
+  const [dropTarget, setDropTarget] = useState(null)
 
   const availableIds = Object.keys(panels).filter((id) => panels[id] != null)
   const norm = normalizeDetailLayout(layout, availableIds)
@@ -150,22 +154,37 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
       : { type: 'columns', columns: r.columns.map((c) => ({ ...c })), cells: r.cells.map((c) => c.slice()) },
   )
 
-  const dropIntoCell = (rowIndex, colIndex) => {
+  // Insert the dragged id at a specific position within a column cell.
+  const dropIntoCell = (rowIndex, colIndex, index = null) => {
     if (!drag) return
     const rows = clone()
+    const row = rows[rowIndex]
+    if (!row || row.type !== 'columns' || !row.cells[colIndex]) { setDrag(null); setDropTarget(null); return }
     removeFrom(rows, drag.id)
-    rows[rowIndex].cells[colIndex].push(drag.id)
+    const cell = rows[rowIndex].cells[colIndex]
+    let at = index == null ? cell.length : index
+    if (at < 0) at = 0
+    if (at > cell.length) at = cell.length
+    cell.splice(at, 0, drag.id)
     commit(rows)
     setDrag(null)
+    setDropTarget(null)
   }
 
-  const dropIntoFull = (rowIndex) => {
+  const dropIntoFull = (rowIndex, index = null) => {
     if (!drag) return
     const rows = clone()
+    const row = rows[rowIndex]
+    if (!row || row.type !== 'full') { setDrag(null); setDropTarget(null); return }
     removeFrom(rows, drag.id)
-    rows[rowIndex].panels.push(drag.id)
+    const arr = rows[rowIndex].panels
+    let at = index == null ? arr.length : index
+    if (at < 0) at = 0
+    if (at > arr.length) at = arr.length
+    arr.splice(at, 0, drag.id)
     commit(rows)
     setDrag(null)
+    setDropTarget(null)
   }
 
   const dropIntoNewFull = (position) => {
@@ -177,6 +196,7 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
     else rows.push(row)
     commit(rows)
     setDrag(null)
+    setDropTarget(null)
   }
 
   const addColumn = (rowIndex) => {
@@ -217,24 +237,68 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
     commit(rows)
   }
 
-  const renderPanel = (id) => (
-    <div
-      key={id}
-      draggable={editing}
-      onDragStart={editing ? (e) => { e.stopPropagation(); setDrag({ id }) } : undefined}
-      onDragEnd={editing ? () => setDrag(null) : undefined}
-      className={`relative ${editing ? 'cursor-move' : ''} ${drag?.id === id ? 'opacity-40' : ''}`}
-    >
-      {editing && (
-        <div className="absolute top-3 right-3 z-10 bg-accent text-white text-sm font-semibold px-3 py-2 rounded-md shadow-lg flex items-center gap-2 pointer-events-none select-none">
-          <i className="fas fa-up-down-left-right text-base" aria-hidden="true"></i> Drag
+  // ctx describes where this panel lives so we can compute insertion order:
+  //   { kind:'cell', rowIndex, colIndex, index } | { kind:'full', rowIndex, index }
+  const renderPanel = (id, ctx) => {
+    const showBarBefore = editing && drag && dropTarget &&
+      ((ctx.kind === 'cell' && dropTarget.kind === 'cell' && dropTarget.rowIndex === ctx.rowIndex && dropTarget.colIndex === ctx.colIndex && dropTarget.index === ctx.index) ||
+       (ctx.kind === 'full' && dropTarget.kind === 'full' && dropTarget.rowIndex === ctx.rowIndex && dropTarget.index === ctx.index))
+
+    const handleOverlayDragOver = (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const rect = e.currentTarget.getBoundingClientRect()
+      const before = e.clientY < rect.top + rect.height / 2
+      const index = before ? ctx.index : ctx.index + 1
+      if (ctx.kind === 'cell') setDropTarget({ kind: 'cell', rowIndex: ctx.rowIndex, colIndex: ctx.colIndex, index })
+      else setDropTarget({ kind: 'full', rowIndex: ctx.rowIndex, index })
+    }
+
+    const handleOverlayDrop = (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (ctx.kind === 'cell') {
+        // Use the computed before/after index only if it targets THIS cell;
+        // otherwise fall back to this panel's own index.
+        const idx = (dropTarget?.kind === 'cell' && dropTarget.rowIndex === ctx.rowIndex && dropTarget.colIndex === ctx.colIndex)
+          ? dropTarget.index
+          : ctx.index
+        dropIntoCell(ctx.rowIndex, ctx.colIndex, idx)
+      } else {
+        const idx = (dropTarget?.kind === 'full' && dropTarget.rowIndex === ctx.rowIndex)
+          ? dropTarget.index
+          : ctx.index
+        dropIntoFull(ctx.rowIndex, idx)
+      }
+    }
+
+    return (
+      <div key={id} className={`relative ${drag?.id === id ? 'opacity-40' : ''}`}>
+        {/* Accent insertion indicator (shows where the panel will drop). */}
+        {showBarBefore && <div className="absolute -top-2 left-0 right-0 h-1 bg-accent rounded z-30 pointer-events-none" />}
+
+        {/* Full-panel drag source + drop target overlay (edit mode only). */}
+        {editing && (
+          <div
+            draggable
+            onDragStart={(e) => { e.stopPropagation(); setDrag({ id }) }}
+            onDragEnd={() => { setDrag(null); setDropTarget(null) }}
+            onDragOver={drag ? handleOverlayDragOver : undefined}
+            onDrop={drag ? handleOverlayDrop : undefined}
+            className="absolute inset-0 z-20 cursor-move bg-accent/5 hover:bg-accent/10 rounded"
+            title="Drag to move this panel"
+          >
+            <div className="absolute top-3 right-3 bg-accent text-white text-sm font-semibold px-3 py-2 rounded-md shadow-lg flex items-center gap-2 select-none pointer-events-none">
+              <i className="fas fa-up-down-left-right text-base" aria-hidden="true"></i> Drag
+            </div>
+          </div>
+        )}
+        <div className={editing ? 'outline-dashed outline-2 outline-accent/50 rounded' : ''}>
+          {panels[id]}
         </div>
-      )}
-      <div className={editing ? 'pointer-events-none outline-dashed outline-2 outline-accent/50 rounded' : ''}>
-        {panels[id]}
       </div>
-    </div>
-  )
+    )
+  }
 
   const dropZone = (label, onDropFn) => (
     <div
@@ -255,15 +319,15 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
           return (
             <div
               key={`full-${rowIndex}`}
-              onDragOver={editing ? (e) => e.preventDefault() : undefined}
-              onDrop={editing ? (e) => { e.preventDefault(); dropIntoFull(rowIndex) } : undefined}
+              onDragOver={editing && drag ? (e) => { e.preventDefault(); setDropTarget({ kind: 'full', rowIndex, index: row.panels.length }) } : undefined}
+              onDrop={editing && drag ? (e) => { e.preventDefault(); dropIntoFull(rowIndex, dropTarget?.kind === 'full' && dropTarget.rowIndex === rowIndex ? dropTarget.index : row.panels.length) } : undefined}
               className={editing ? 'rounded outline-dashed outline-1 outline-border p-2' : ''}
             >
               {editing && <div className="text-[11px] uppercase tracking-wide text-muted mb-2">Full-width row</div>}
               <div className="flex flex-col gap-3">
                 {row.panels.length === 0 && editing
                   ? <div className="text-sm text-muted h-20 border-2 border-dashed border-border rounded flex items-center justify-center">Drop a panel here</div>
-                  : row.panels.map(renderPanel)}
+                  : row.panels.map((id, index) => renderPanel(id, { kind: 'full', rowIndex, index }))}
               </div>
             </div>
           )
@@ -328,15 +392,19 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
                   key={colIndex}
                   className="flex flex-col gap-3 min-w-0"
                   style={{ minHeight: editing ? 60 : undefined }}
-                  onDragOver={editing ? (e) => e.preventDefault() : undefined}
-                  onDrop={editing ? (e) => { e.preventDefault(); dropIntoCell(rowIndex, colIndex) } : undefined}
+                  onDragOver={editing && drag ? (e) => { e.preventDefault(); setDropTarget({ kind: 'cell', rowIndex, colIndex, index: cell.length }) } : undefined}
+                  onDrop={editing && drag ? (e) => { e.preventDefault(); dropIntoCell(rowIndex, colIndex, dropTarget?.kind === 'cell' && dropTarget.rowIndex === rowIndex && dropTarget.colIndex === colIndex ? dropTarget.index : cell.length) } : undefined}
                 >
                   {cell.length === 0 && editing && (
                     <div className="border-2 border-dashed border-border rounded-md text-sm text-muted flex items-center justify-center h-24">
                       Drop a panel here
                     </div>
                   )}
-                  {cell.map(renderPanel)}
+                  {cell.map((id, index) => renderPanel(id, { kind: 'cell', rowIndex, colIndex, index }))}
+                  {/* End-of-column insertion indicator. */}
+                  {editing && drag && dropTarget?.kind === 'cell' && dropTarget.rowIndex === rowIndex && dropTarget.colIndex === colIndex && dropTarget.index >= cell.length && cell.length > 0 && (
+                    <div className="h-1 bg-accent rounded pointer-events-none" />
+                  )}
                 </div>
               ))}
             </div>
