@@ -3,7 +3,7 @@ import HeroBanner from './page/HeroBanner.jsx'
 import ActionBar from './page/ActionBar.jsx'
 import InfoPanel from './page/InfoPanel.jsx'
 import PreviewLightbox from './page/PreviewLightbox.jsx'
-import DetailPanelGrid, { normalizeDetailLayout } from './page/DetailPanelGrid.jsx'
+import DetailPanelGrid, { normalizeDetailLayout, DEFAULT_DETAIL_LAYOUT } from './page/DetailPanelGrid.jsx'
 import SafeImage from '../ui/SafeImage.jsx'
 import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
@@ -181,7 +181,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [personalRatingsError, setPersonalRatingsError] = useState('')
   // Customizable 3-column panel layout (shared across all games, saved to config
   // under Appearance.detailLayout). editingLayout toggles drag-and-drop.
-  const [detailLayout, setDetailLayout] = useState({ columns: [[{ id: 'previews', span: 2 }], [], [{ id: 'versions', span: 1 }, { id: 'rating', span: 1 }, { id: 'details', span: 1 }, { id: 'links', span: 1 }, { id: 'tags', span: 1 }]] })
+  const [detailLayout, setDetailLayout] = useState(DEFAULT_DETAIL_LAYOUT)
   const [editingLayout, setEditingLayout] = useState(false)
   // The About/description panel is hidden by default; toggled by the info
   // button in the action bar. Its Read More expansion is internal to the panel.
@@ -1085,7 +1085,8 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         {editingLayout && (
           <div className="mb-4 flex items-center gap-2 rounded border border-accent/50 bg-accent/10 px-3 py-2 text-sm">
             <i className="fas fa-up-down-left-right text-accent" aria-hidden="true"></i>
-            <span className="flex-1">Editing layout — drag panels between the three columns. Changes save automatically.</span>
+            <span className="flex-1">Editing layout — drag panels between the three columns, and use the 1/2/3 buttons to set width. Changes save automatically.</span>
+            <button onClick={() => handleLayoutChange(DEFAULT_DETAIL_LAYOUT)} className="px-3 py-1 rounded border border-border bg-secondary hover:bg-selected">Reset to defaults</button>
             <button onClick={() => setEditingLayout(false)} className="px-3 py-1 rounded bg-accent text-white hover:bg-accentHover">Done</button>
           </div>
         )}

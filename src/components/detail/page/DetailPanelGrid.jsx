@@ -16,18 +16,21 @@ const COLUMN_COUNT = 3
 const clampSpan = (n) => Math.min(COLUMN_COUNT, Math.max(1, Number(n) || 1))
 
 // Default: previews (span 2) in the left column; everything else stacked in the
-// right column.
-const DEFAULT_COLUMNS = [
-  [{ id: 'previews', span: 2 }],
-  [],
-  [
-    { id: 'versions', span: 1 },
-    { id: 'rating', span: 1 },
-    { id: 'details', span: 1 },
-    { id: 'links', span: 1 },
-    { id: 'tags', span: 1 },
+// right column. Exported so callers can offer a "reset to defaults".
+export const DEFAULT_DETAIL_LAYOUT = {
+  columns: [
+    [{ id: 'previews', span: 2 }],
+    [],
+    [
+      { id: 'versions', span: 1 },
+      { id: 'rating', span: 1 },
+      { id: 'details', span: 1 },
+      { id: 'links', span: 1 },
+      { id: 'tags', span: 1 },
+    ],
   ],
-]
+}
+const DEFAULT_COLUMNS = DEFAULT_DETAIL_LAYOUT.columns
 
 const DEFAULT_SPAN = { previews: 2 }
 
