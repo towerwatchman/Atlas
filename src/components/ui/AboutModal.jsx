@@ -91,7 +91,7 @@ const AboutModal = ({ open, onClose, version, onReplayTour }) => {
       onClick={onClose}
     >
       <div
-        className="bg-secondary rounded-cardTheme w-full max-w-lg max-h-[85vh] overflow-y-auto text-text shadow-lg border border-border"
+        className="bg-secondary rounded-cardTheme w-full max-w-xl max-h-[92vh] overflow-y-auto text-text shadow-lg border border-border"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -135,18 +135,6 @@ const AboutModal = ({ open, onClose, version, onReplayTour }) => {
             personal collection or hundreds of titles from multiple sources,
             Atlas keeps everything organized, searchable, and easy to launch.
           </p>
-        </div>
-
-        {/* Catalog update note */}
-        <div className="px-5 pb-4">
-          <div className="flex items-start gap-2 rounded-buttonTheme border border-border bg-primary px-3 py-2">
-            <i className="fas fa-clock-rotate-left text-accent mt-0.5" aria-hidden="true"></i>
-            <p className="text-xs text-muted leading-relaxed">
-              The online catalog updates frequently — new metadata and updates typically arrive every{' '}
-              <span className="text-text font-medium">1–3 hours</span>. Use Check for Updates to pull the latest,
-              and run a Database Audit (Settings → Database) to find mappings removed upstream.
-            </p>
-          </div>
         </div>
 
         {/* Tech / build details */}
