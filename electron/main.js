@@ -922,7 +922,7 @@ function createSettingsWindow() {
     return
   }
   const windowState = applySavedWindowBounds('settings', {
-    width: 900,
+    width: 950,
     height: 650,
     frame: false,
     // Windows draws a native DWM resize border (often tinted with the
