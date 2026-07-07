@@ -139,8 +139,20 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
             const span = clampSpan(entry.span)
             // Widen a spanning panel to cover `span` columns. Each column is
             // ~1/3 of the grid; gap is 1.5rem (gap-6). width = span cols + gaps.
+            // Columns to the right of this one (0-based colIndex, COLUMN_COUNT
+            // total). If the span would extend past the last column, grow the
+            // panel LEFTWARD (negative left margin) so it never runs off the
+            // right edge — e.g. a span-2 panel in the rightmost column covers
+            // the middle+right columns instead of overflowing the viewport.
+            const colsToRight = COLUMN_COUNT - 1 - colIndex
+            const overflowCols = Math.max(0, span - 1 - colsToRight)
             const spanStyle = span > 1 && isWide
-              ? { width: `calc(${span * 100}% + ${(span - 1) * 1.5}rem)`, position: 'relative', zIndex: 1 }
+              ? {
+                  width: `calc(${span * 100}% + ${(span - 1) * 1.5}rem)`,
+                  marginLeft: overflowCols > 0 ? `calc(-${overflowCols * 100}% - ${overflowCols * 1.5}rem)` : undefined,
+                  position: 'relative',
+                  zIndex: 1,
+                }
               : undefined
             return (
               <div
@@ -166,14 +178,19 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
                 )}
 
                 {editing && (
-                  <div className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-primary/95 border border-border rounded px-1 py-0.5 shadow">
+                  <div
+                    className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-primary/95 border border-border rounded px-1 py-0.5 shadow"
+                    draggable={false}
+                    onDragStart={(e) => { e.preventDefault(); e.stopPropagation() }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
                     <span className="cursor-move text-muted px-1" title="Drag to reorder">
                       <i className="fas fa-up-down-left-right" aria-hidden="true"></i>
                     </span>
                     {[1, 2, 3].map((n) => (
                       <button
                         key={n}
-                        onClick={() => setSpan(entry.id, n)}
+                        onClick={(e) => { e.stopPropagation(); setSpan(entry.id, n) }}
                         title={`Span ${n} column${n > 1 ? 's' : ''}`}
                         className={`w-6 h-6 text-xs rounded ${span === n ? 'bg-accent text-white' : 'bg-secondary text-text hover:bg-selected'}`}
                       >
