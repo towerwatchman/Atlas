@@ -20,6 +20,18 @@ export const getNewestVersion = (game = {}) => {
     return catalogVersion || 'Missing'
   }
 
+  // If the user has an explicitly selected version (persisted as
+  // games.selected_version_id, set from the game detail page), the card should
+  // reflect THAT version rather than the newest — as long as it's still
+  // installed. This keeps the library card in sync with the last selection.
+  const selectedId = Number(game.selected_version_id)
+  if (Number.isInteger(selectedId) && selectedId > 0) {
+    const selected = installedVersions.find(
+      (version) => Number(version?.version_id) === selectedId,
+    )
+    if (selected?.version) return selected.version
+  }
+
   let maxVersion = installedVersions[0]?.version
   let maxValue = 0
 

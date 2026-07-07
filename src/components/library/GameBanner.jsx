@@ -34,6 +34,15 @@ const GameBanner = ({ game, onSelect }) => {
     const isMetadataOnly = game.isMetadataOnly === true
     const template = []
 
+    // Resolve the user's last selected version (persisted as
+    // selected_version_id) so Play / Open Game Folder default to it when
+    // multiple versions are installed. Falls back to the first installed one.
+    const selectedId = Number(game.selected_version_id)
+    const selectedVersion =
+      (Number.isInteger(selectedId) && selectedId > 0
+        ? installedVersions.find((v) => Number(v.version_id) === selectedId)
+        : null) || installedVersions[0]
+
     if (installedVersions.length === 1) {
       const version = installedVersions[0]
       template.push({
@@ -41,8 +50,17 @@ const GameBanner = ({ game, onSelect }) => {
         data: { action: 'launch', recordId: game.record_id, version: version.version },
       })
     } else if (installedVersions.length > 1) {
+      // Top-level Play launches the selected version directly. Electron ignores
+      // a click on an item that also has a submenu, so the other versions live
+      // in a separate "Play Version" submenu.
+      if (selectedVersion) {
+        template.push({
+          label: `Play (${selectedVersion.version})`,
+          data: { action: 'launch', recordId: game.record_id, version: selectedVersion.version },
+        })
+      }
       template.push({
-        label: 'Play',
+        label: 'Play Version',
         submenu: installedVersions.map((version) => ({
           label: version.version,
           data: { action: 'launch', recordId: game.record_id, version: version.version },
@@ -57,8 +75,14 @@ const GameBanner = ({ game, onSelect }) => {
         data: { action: 'openFolder', recordId: game.record_id, version: version.version },
       })
     } else if (installedVersions.length > 1) {
+      if (selectedVersion) {
+        template.push({
+          label: 'Open Game Folder',
+          data: { action: 'openFolder', recordId: game.record_id, version: selectedVersion.version },
+        })
+      }
       template.push({
-        label: 'Open Game Folder',
+        label: 'Open Folder for Version',
         submenu: installedVersions.map((version) => ({
           label: version.version,
           data: { action: 'openFolder', recordId: game.record_id, version: version.version },
