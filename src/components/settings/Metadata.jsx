@@ -123,11 +123,13 @@ const Metadata = () => {
   const [mediaDownloadConcurrency, setMediaDownloadConcurrency] = useState(3)
   const [mediaPerHostConcurrency, setMediaPerHostConcurrency] = useState(2)
   const [mediaRequestDelayMs, setMediaRequestDelayMs] = useState(100)
+  const [imageCacheSizeMB, setImageCacheSizeMB] = useState(1024)
 
   useEffect(() => {
     window.electronAPI.getConfig().then((config) => {
       const metadataSettings = config.Metadata || {}
       setMediaStorageMode(metadataSettings.mediaStorageMode || 'stream')
+      setImageCacheSizeMB(clampInteger(metadataSettings.imageCacheSizeMB, 1024, 128, 16384))
       setDownloadPreviews(toBoolean(metadataSettings.downloadPreviews, false))
       const parsed = parseOrder(metadataSettings.sourceOrder)
       setSourceOrder(metadataSettings.sourceOrder === undefined || metadataSettings.sourceOrder === null
@@ -177,6 +179,12 @@ const Metadata = () => {
   const handleMediaStorageModeChange = (e) => {
     setMediaStorageMode(e.target.value)
     saveSettings({ mediaStorageMode: e.target.value })
+  }
+
+  const handleImageCacheSizeChange = (e) => {
+    const mb = clampInteger(e.target.value, 1024, 128, 16384)
+    setImageCacheSizeMB(mb)
+    saveSettings({ imageCacheSizeMB: mb })
   }
 
   const handleDownloadPreviewsChange = (e) => {
@@ -252,6 +260,26 @@ const Metadata = () => {
         Streaming uses less disk space. Downloading saves durable banner and
         preview files in Atlas data storage.
       </p>
+
+      <div className="flex items-center mb-2">
+        <label className="flex-1">
+          Image cache size (MB)
+          <span className="block text-xs opacity-50">
+            Max disk cache for streamed banner/preview images. Larger keeps more art cached between sessions. Applied on restart.
+          </span>
+        </label>
+        <input
+          type="number"
+          min="128"
+          max="16384"
+          step="128"
+          className="w-64 bg-secondary border border-border text-text rounded p-1 disabled:opacity-50"
+          value={imageCacheSizeMB}
+          onChange={handleImageCacheSizeChange}
+          disabled={mediaStorageMode !== 'stream'}
+          title={mediaStorageMode !== 'stream' ? 'Only applies when streaming media' : undefined}
+        />
+      </div>
 
       <div className="flex items-center mb-2">
         <label className="flex-1">Download Image Previews</label>

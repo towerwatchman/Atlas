@@ -261,10 +261,33 @@ function copyDirectoryIfMissing(source, target) {
 
 const firstMediaPath = (value) => Array.isArray(value) ? value[0] || '' : value || ''
 
-// In production: try install dir first (portable), fall back to AppData if not writable
+// In production: try install dir first (portable), fall back to AppData if not writable.
+// A `portable.txt` marker beside the executable forces portable mode — data is
+// ALWAYS stored in `data/` next to the exe and AppData is never used, even if
+// the install dir looks unwritable (we still create it). This is the explicit
+// opt-in portable switch.
+function portableMarkerPath() {
+  // In production the exe lives at <installDir>/Atlas.exe and getLegacyResourcesPath()
+  // resolves to <installDir>; in dev it resolves to the electron project dir.
+  return path.join(getLegacyResourcesPath(), 'portable.txt')
+}
+
+function isPortableForced() {
+  try {
+    return fs.existsSync(portableMarkerPath())
+  } catch {
+    return false
+  }
+}
+
 function resolveAppDataRoot() {
   if (process.defaultApp) return __dirname
   const installDir = getLegacyResourcesPath()
+  // Forced portable mode: always use data beside the exe, no AppData fallback.
+  if (isPortableForced()) {
+    try { fs.mkdirSync(path.join(installDir, 'data'), { recursive: true }) } catch { /* best effort */ }
+    return installDir
+  }
   try {
     fs.mkdirSync(path.join(installDir, 'data'), { recursive: true })
     // Write test to confirm we have write access
@@ -284,6 +307,50 @@ var dataDir = path.join(appDataRoot, 'data')
 var launcherDir = path.join(appDataRoot, 'launchers')
 
 fs.mkdirSync(appDataRoot, { recursive: true })
+fs.mkdirSync(dataDir, { recursive: true })
+
+// Point Electron/Chromium's own storage (userData, session data, HTTP cache,
+// GPUCache, cookies, logs) at our data folder instead of the OS default
+// (%APPDATA%\Atlas on Windows). Without this, Electron ALWAYS creates that
+// AppData folder for its cache/cookies even though our own data lives beside
+// the exe — which is exactly the stray folder that broke portability. Must run
+// before app is ready. In dev we leave the defaults alone.
+if (!process.defaultApp) {
+  try {
+    const chromeDataDir = path.join(dataDir, 'chrome')
+    fs.mkdirSync(chromeDataDir, { recursive: true })
+    app.setPath('userData', chromeDataDir)
+    app.setPath('sessionData', chromeDataDir)
+    try { app.setPath('cache', path.join(chromeDataDir, 'cache')) } catch { /* some platforms disallow */ }
+    try { app.setPath('logs', path.join(dataDir, 'logs')) } catch { /* best effort */ }
+  } catch (err) {
+    console.warn('Failed to redirect Electron storage into data dir:', err?.message || err)
+  }
+}
+
+// Streamed banner/preview images rely on Chromium's HTTP disk cache. Its
+// default is small and evicts aggressively, so streamed art appears to "reset".
+// Size it explicitly (configurable; see Metadata.imageCacheSizeMB) and keep it
+// in our portable data dir via the userData redirect above.
+function readConfiguredCacheBytes() {
+  const DEFAULT_MB = 1024 // 1 GB default — plenty for banner/preview streaming
+  const MIN_MB = 128
+  const MAX_MB = 16384
+  try {
+    if (fs.existsSync(path.join(dataDir, 'config.ini'))) {
+      const parsed = ini.parse(fs.readFileSync(path.join(dataDir, 'config.ini'), 'utf-8'))
+      const raw = parsed?.Metadata?.imageCacheSizeMB
+      const mb = Number.parseInt(raw, 10)
+      if (Number.isFinite(mb)) return Math.min(MAX_MB, Math.max(MIN_MB, mb)) * 1024 * 1024
+    }
+  } catch { /* fall through to default */ }
+  return DEFAULT_MB * 1024 * 1024
+}
+try {
+  app.commandLine.appendSwitch('disk-cache-size', String(readConfiguredCacheBytes()))
+} catch (err) {
+  console.warn('Failed to set disk-cache-size:', err?.message || err)
+}
 
 if (process.defaultApp) {
   console.log('Running in development')
@@ -291,7 +358,6 @@ if (process.defaultApp) {
   console.log('Running in release, data root:', appDataRoot)
 }
 
-fs.mkdirSync(dataDir, { recursive: true })
 fs.mkdirSync(launcherDir, { recursive: true })
 
 const updatesDir = path.join(dataDir, 'updates')
@@ -339,6 +405,9 @@ const defaultConfig = {
     downloadPreviews: false,
     mediaStorageMode: 'stream',
     sourceOrder: 'f95,lewdcorner,steam',
+    // Max size (MB) of Chromium's disk cache used for streamed banner/preview
+    // images. Applied at startup via --disk-cache-size (see readConfiguredCacheBytes).
+    imageCacheSizeMB: 1024,
   },
   Performance: {
     maxHeapSize: 4096,
