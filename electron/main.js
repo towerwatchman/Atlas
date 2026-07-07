@@ -59,7 +59,7 @@ const {
   getGameRecordIds, countVersions, deleteVersion,
   getUniqueFilterOptions, recordGameLaunchStarted, recordGamePlaytime,
   setGameFavorite, setGamePersonalRatings,
-  getManualMappings, setManualMappings,
+  getManualMappings, setManualMappings, setSelectedGameVersion,
 } = require('./db/games')
 
 const {
@@ -1277,7 +1277,7 @@ function buildCtx() {
     countVersions, deleteVersion, deleteGameCompletely,
     getUniqueFilterOptions, getVersionForRecord, getInstalledVersionsForRecord,
     getVersionPathsForRecord, db: dbIndex.db,
-    getManualMappings, setManualMappings,
+    getManualMappings, setManualMappings, setSelectedGameVersion,
     // scanners
     startSteamScan, startScan,
   }

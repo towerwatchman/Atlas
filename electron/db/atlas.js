@@ -279,17 +279,56 @@ const addAtlasMapping = (recordId, atlasId) => {
               return reject(error);
             }
 
-            // Insert or ignore mapping
-            getDb().run(
-              `INSERT OR REPLACE INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)`,
-              [recordId, atlasId],
-              (err) => {
-                if (err) {
-                  console.error("Error inserting into atlas_mappings:", err);
-                  reject(err);
-                } else {
-                  resolve();
+            // Determine whether this remaps to a DIFFERENT atlas_id than
+            // before. If so, any explicit per-record source mappings
+            // (lewdcorner/f95/steam) from the PREVIOUS mapping are now stale
+            // and must be cleared — otherwise banner/screen/metadata joins keep
+            // resolving old source rows (e.g. the old LewdCorner banner) that
+            // override the new atlas_id's natural joins. See getRemoteBannerUrl,
+            // which joins lewdcorner_mappings by record_id.
+            getDb().get(
+              `SELECT atlas_id FROM atlas_mappings WHERE record_id = ?`,
+              [recordId],
+              (prevErr, prevRow) => {
+                if (prevErr) {
+                  console.error("Error reading existing atlas mapping:", prevErr);
+                  return reject(prevErr);
                 }
+                const changed = !prevRow || Number(prevRow.atlas_id) !== Number(atlasId);
+
+                const writeMapping = () => {
+                  getDb().run(
+                    `INSERT OR REPLACE INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)`,
+                    [recordId, atlasId],
+                    (err) => {
+                      if (err) {
+                        console.error("Error inserting into atlas_mappings:", err);
+                        return reject(err);
+                      }
+                      resolve();
+                    },
+                  );
+                };
+
+                if (!changed) {
+                  writeMapping();
+                  return;
+                }
+
+                // Clear stale per-record source overrides tied to the old
+                // mapping, then write the new atlas mapping.
+                getDb().serialize(() => {
+                  getDb().run(`DELETE FROM lewdcorner_mappings WHERE record_id = ?`, [recordId], (e) => {
+                    if (e) console.warn("Failed clearing stale lewdcorner_mappings:", e.message);
+                  });
+                  getDb().run(`DELETE FROM f95_zone_mappings WHERE record_id = ?`, [recordId], (e) => {
+                    if (e) console.warn("Failed clearing stale f95_zone_mappings:", e.message);
+                  });
+                  getDb().run(`DELETE FROM steam_mappings WHERE record_id = ?`, [recordId], (e) => {
+                    if (e) console.warn("Failed clearing stale steam_mappings:", e.message);
+                  });
+                  writeMapping();
+                });
               },
             );
           },
