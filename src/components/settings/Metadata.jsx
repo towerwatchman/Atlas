@@ -237,7 +237,7 @@ const Metadata = () => {
 
   return (
     <div className="p-5 text-text">
-      <div className="flex items-center mb-2">
+      <div className="flex items-center mb-2" data-tour="MediaStorage">
         <label className="flex-1">Media Storage</label>
         <select
           className="w-64 bg-secondary border border-border text-text rounded p-1"
@@ -309,7 +309,7 @@ const Metadata = () => {
 
       <div className="border-t border-text opacity-25 my-3"></div>
 
-      <label className="block mb-1">Metadata Sources</label>
+      <label className="block mb-1" data-tour="MetadataSources">Metadata Sources</label>
       <p className="text-xs opacity-50 mb-3">
         The order below sets which source provides banner images and previews —
         the topmost available source wins. Steam additionally supplies the

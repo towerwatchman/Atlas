@@ -20,8 +20,11 @@ const defaultSettingsTab = visibleSettingsTabs[0]?.name || "Interface"
 const SETTINGS_TOUR_STEPS = [
   { target: 'settings-Interface', title: 'Settings Sections', body: 'Each section here controls a part of Atlas. Let\u2019s hit the important ones.' },
   { target: 'LibraryFolder', tab: 'Library', title: 'Set your games folder', body: 'This is the most important setting: choose where your games live. Imports and extractions go here. You can skip it, but Atlas won\u2019t work as expected until it\u2019s set.' },
+  { target: 'settings-Emulators', tab: 'Emulators', title: 'Emulators', body: 'Add emulators here and map file types to them, so games that need an emulator launch with the right one automatically.' },
   { target: 'settings-Appearance', tab: 'Appearance', title: 'Make it yours', body: 'Themes, banner layouts, and the look of your library live here.' },
-  { target: 'settings-Metadata', tab: 'Metadata', title: 'Metadata sources', body: 'Configure where Atlas pulls game info, art, and updates from.' },
+  { target: 'MetadataSources', tab: 'Metadata', title: 'Supported sites', body: 'Atlas currently pulls metadata and art from F95Zone, LewdCorner, and Steam. Drag the sources to set which one wins when a game is found on more than one.' },
+  { target: 'MediaStorage', tab: 'Metadata', title: 'Download vs. stream', body: 'Streaming pulls banners and previews from the web on demand and caches them \u2014 lighter on disk, but the cache isn\u2019t portable, so moving your library to another machine means re-fetching. Downloading saves durable local copies that travel with your library.' },
+  { target: 'settings-Accounts', tab: 'Accounts', title: 'Accounts & login', body: 'Sign in to supported sites here. Logging in lets Atlas fetch data that requires an account and improves matching for those sources.' },
   { target: 'settings-Database', tab: 'Database', title: 'Database & updates', body: 'The catalog updates frequently \u2014 typically every 1\u20133 hours. Run a Database Audit here to find games whose mapping was removed upstream and needs remapping.' },
 ]
 
