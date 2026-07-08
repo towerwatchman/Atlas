@@ -468,6 +468,99 @@ async function extractArchive(
   });
 }
 
+// Wraps extractArchive with a one-time recovery path. If a RAR fails to
+// extract with the bundled node-unrar-js engine (the source of the
+// "cannot read properties of null" / "no end of archive" issues on some
+// archives), prompt the user to locate a 7-Zip executable and retry the
+// extraction through the (hardened) 7-Zip spawn path instead. The chosen
+// 7-Zip path is persisted to config by resolveSevenZipExecutablePath, so
+// subsequent imports reuse it automatically.
+async function extractArchiveWithFallback({
+  archivePath,
+  finalPath,
+  sevenZipBin,
+  session,
+  progressWindow,
+  useBundledRarExtractor,
+  currentConfig,
+  currentConfigPath,
+  ownerWindow,
+  notify,
+}) {
+  try {
+    return await extractArchive(
+      archivePath,
+      finalPath,
+      sevenZipBin,
+      session,
+      progressWindow,
+      useBundledRarExtractor,
+    );
+  } catch (err) {
+    // Never interfere with cancellation, and only offer the fallback for the
+    // case it actually helps: a RAR that failed via the bundled extractor.
+    if (
+      isImportCancelledError(err) ||
+      session?.cancelRequested ||
+      !isRarArchivePath(archivePath) ||
+      !useBundledRarExtractor
+    ) {
+      throw err;
+    }
+
+    console.warn(
+      `[Importer] Bundled RAR extraction failed for ${archivePath}: ${
+        err?.message || err
+      }. Offering 7-Zip fallback.`,
+    );
+
+    const choice = await showMessageBox(ownerWindow, {
+      type: "warning",
+      buttons: ["Locate 7-Zip and retry", "Cancel"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "Extraction failed",
+      message: `Atlas could not extract this RAR archive with its built-in extractor.`,
+      detail:
+        `${path.basename(archivePath)}\n\n` +
+        `You can point Atlas at a 7-Zip executable (7z, 7za, or 7zz) to ` +
+        `retry. This path will be saved for future imports.\n\n` +
+        `Error: ${err?.message || err}`,
+    });
+
+    if (choice.response !== 0) {
+      throw err;
+    }
+
+    const resolved = await resolveSevenZipExecutablePath({
+      configuredPath: currentConfig?.Library?.sevenZipPath,
+      currentConfig,
+      currentConfigPath,
+      ownerWindow,
+      notify,
+      allowManualSelection: true,
+    });
+
+    if (!resolved?.path) {
+      // User dismissed the picker or chose an invalid binary; surface the
+      // original extraction error rather than a confusing secondary one.
+      throw err;
+    }
+
+    notify?.(`Retrying extraction with ${getSevenZipDisplayName(resolved.path)}...`);
+    // Force the 7-Zip spawn path (useBundledRarExtractor = false) regardless
+    // of the resolved source, since the bundled engine already failed.
+    return await extractArchive(
+      archivePath,
+      finalPath,
+      resolved.path,
+      session,
+      progressWindow,
+      false,
+    );
+  }
+}
+
 function resolvePackagedModulePath(modulePath) {
   if (app.isPackaged && modulePath.includes(`${path.sep}app.asar${path.sep}`)) {
     return modulePath.replace(
@@ -1569,14 +1662,19 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
       });
       if (!resolvedSevenZip?.path) throw new Error("7-Zip is required for archive import");
       notify(`Extracting ${importGame.title}...`, 15);
-      const extraction = await extractArchive(
-        sourcePath,
-        targetBase,
-        resolvedSevenZip.path,
+      const extraction = await extractArchiveWithFallback({
+        archivePath: sourcePath,
+        finalPath: targetBase,
+        sevenZipBin: resolvedSevenZip.path,
         session,
+        progressWindow: ownerWindow,
+        useBundledRarExtractor:
+          isRarArchivePath(sourcePath) && resolvedSevenZip.source === "bundled",
+        currentConfig,
+        currentConfigPath: configPath,
         ownerWindow,
-        isRarArchivePath(sourcePath) && resolvedSevenZip.source === "bundled",
-      );
+        notify: (text) => notify(text, 15),
+      });
       gamePath = extraction.finalPath || targetBase;
 
       const items = await fsp.readdir(gamePath, { withFileTypes: true }).catch(() => []);
@@ -1845,14 +1943,19 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
         notify: () => {},
       });
       if (!resolvedSevenZip?.path) throw new Error("7-Zip is required for archive import");
-      const extraction = await extractArchive(
-        sourcePath,
-        targetBase,
-        resolvedSevenZip.path,
+      const extraction = await extractArchiveWithFallback({
+        archivePath: sourcePath,
+        finalPath: targetBase,
+        sevenZipBin: resolvedSevenZip.path,
         session,
+        progressWindow: ownerWindow,
+        useBundledRarExtractor:
+          isRarArchivePath(sourcePath) && resolvedSevenZip.source === "bundled",
+        currentConfig,
+        currentConfigPath: configPath,
         ownerWindow,
-        isRarArchivePath(sourcePath) && resolvedSevenZip.source === "bundled",
-      );
+        notify: () => {},
+      });
       gamePath = extraction.finalPath || targetBase;
       console.log("[LocalImport] Archive extracted", { sourcePath, gamePath });
       const items = await fsp.readdir(gamePath, { withFileTypes: true }).catch(() => []);
@@ -2756,14 +2859,24 @@ ipcMain.handle("import-games", async (event, params) => {
         });
 
         try {
-          const extraction = await extractArchive(
-            zipPath,
-            extractPath,
-            sevenZipPath,
+          const extraction = await extractArchiveWithFallback({
+            archivePath: zipPath,
+            finalPath: extractPath,
+            sevenZipBin: sevenZipPath,
             session,
-            mainWindow,
-            isRarArchivePath(zipPath) && sevenZipSource === "bundled",
-          );
+            progressWindow: mainWindow,
+            useBundledRarExtractor:
+              isRarArchivePath(zipPath) && sevenZipSource === "bundled",
+            currentConfig: appConfig,
+            currentConfigPath: configPath,
+            ownerWindow: mainWindow,
+            notify: (text) =>
+              mainWindow.webContents.send("import-progress", {
+                text,
+                progress: 0,
+                total: 0,
+              }),
+          });
           extractPath = extraction.finalPath || extractPath;
           session.cleanupPaths = [extractPath];
           archiveToDeleteAfterImport = shouldDeleteSourceArchive ? zipPath : null;
