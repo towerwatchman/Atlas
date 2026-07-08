@@ -286,23 +286,36 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
           {showBarBefore && <div className="absolute -top-2 left-0 right-0 h-1 bg-accent rounded z-30 pointer-events-none" />}
 
           <div
-            draggable
-            onDragStart={(e) => { e.stopPropagation(); setDrag({ id }) }}
-            onDragEnd={() => { setDrag(null); setDropTarget(null) }}
-            onDragOver={drag ? handleOverlayDragOver : undefined}
-            onDrop={drag ? handleOverlayDrop : undefined}
-            className="relative cursor-move bg-accent/5 hover:bg-accent/10 rounded outline-dashed outline-2 outline-accent/50"
-            title="Drag to move this panel"
+            className="relative rounded outline-dashed outline-2 outline-accent/50"
           >
-            {/* Drag affordance badge. pointer-events-none so it never steals
-                the drag from the wrapper underneath. */}
-            <div className="absolute top-3 right-3 z-20 bg-accent text-white text-sm font-semibold px-3 py-2 rounded-md shadow-lg flex items-center gap-2 select-none pointer-events-none">
-              <i className="fas fa-up-down-left-right text-base" aria-hidden="true"></i> Drag
-            </div>
-            {/* Panel content is inert while editing so its own interactive
-                elements don't intercept the drag. */}
-            <div className="pointer-events-none">
+            {/* Panel content, rendered in normal flow so it defines the box
+                height. Made inert for both pointer and native drag so its
+                own images/videos/buttons can't hijack the panel drag. */}
+            <div
+              className="pointer-events-none select-none"
+              style={{ WebkitUserDrag: 'none', userSelect: 'none' }}
+            >
               {panels[id]}
+            </div>
+
+            {/* Transparent capture layer covering the WHOLE panel. This is the
+                actual drag source + drop target. Because it sits above the
+                content via inset-0 and owns all pointer/drag events, the entire
+                panel is grabbable regardless of what's underneath (images and
+                videos are natively draggable and previously stole the drag in
+                the lower half of a panel — that's what made it inconsistent). */}
+            <div
+              draggable
+              onDragStart={(e) => { e.stopPropagation(); setDrag({ id }) }}
+              onDragEnd={() => { setDrag(null); setDropTarget(null) }}
+              onDragOver={drag ? handleOverlayDragOver : undefined}
+              onDrop={drag ? handleOverlayDrop : undefined}
+              className="absolute inset-0 z-10 cursor-move bg-accent/5 hover:bg-accent/10 rounded"
+              title="Drag to move this panel"
+            >
+              <div className="absolute top-3 right-3 bg-accent text-white text-sm font-semibold px-3 py-2 rounded-md shadow-lg flex items-center gap-2 select-none pointer-events-none">
+                <i className="fas fa-up-down-left-right text-base" aria-hidden="true"></i> Drag
+              </div>
             </div>
           </div>
         </div>
