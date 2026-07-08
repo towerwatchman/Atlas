@@ -272,30 +272,46 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
       }
     }
 
-    return (
-      <div key={id} className={`relative ${drag?.id === id ? 'opacity-40' : ''}`}>
-        {/* Accent insertion indicator (shows where the panel will drop). */}
-        {showBarBefore && <div className="absolute -top-2 left-0 right-0 h-1 bg-accent rounded z-30 pointer-events-none" />}
+    // In edit mode the drag source/target wraps the panel content directly
+    // (rather than sitting as an `absolute inset-0` overlay). An absolute
+    // overlay only fills its positioned ancestor, whose height collapses to
+    // the panel's content height at first paint — before images/async content
+    // settle — so only a thin top strip was draggable until a window resize
+    // forced a reflow. Wrapping the content means the draggable element always
+    // matches the real panel box, so the whole panel is grabbable immediately.
+    if (editing) {
+      return (
+        <div key={id} className={`relative ${drag?.id === id ? 'opacity-40' : ''}`}>
+          {/* Accent insertion indicator (shows where the panel will drop). */}
+          {showBarBefore && <div className="absolute -top-2 left-0 right-0 h-1 bg-accent rounded z-30 pointer-events-none" />}
 
-        {/* Full-panel drag source + drop target overlay (edit mode only). */}
-        {editing && (
           <div
             draggable
             onDragStart={(e) => { e.stopPropagation(); setDrag({ id }) }}
             onDragEnd={() => { setDrag(null); setDropTarget(null) }}
             onDragOver={drag ? handleOverlayDragOver : undefined}
             onDrop={drag ? handleOverlayDrop : undefined}
-            className="absolute inset-0 z-20 cursor-move bg-accent/5 hover:bg-accent/10 rounded"
+            className="relative cursor-move bg-accent/5 hover:bg-accent/10 rounded outline-dashed outline-2 outline-accent/50"
             title="Drag to move this panel"
           >
-            <div className="absolute top-3 right-3 bg-accent text-white text-sm font-semibold px-3 py-2 rounded-md shadow-lg flex items-center gap-2 select-none pointer-events-none">
+            {/* Drag affordance badge. pointer-events-none so it never steals
+                the drag from the wrapper underneath. */}
+            <div className="absolute top-3 right-3 z-20 bg-accent text-white text-sm font-semibold px-3 py-2 rounded-md shadow-lg flex items-center gap-2 select-none pointer-events-none">
               <i className="fas fa-up-down-left-right text-base" aria-hidden="true"></i> Drag
             </div>
+            {/* Panel content is inert while editing so its own interactive
+                elements don't intercept the drag. */}
+            <div className="pointer-events-none">
+              {panels[id]}
+            </div>
           </div>
-        )}
-        <div className={editing ? 'outline-dashed outline-2 outline-accent/50 rounded' : ''}>
-          {panels[id]}
         </div>
+      )
+    }
+
+    return (
+      <div key={id} className="relative">
+        {panels[id]}
       </div>
     )
   }
