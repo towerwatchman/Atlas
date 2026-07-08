@@ -82,14 +82,42 @@ async function extractRarInWorker() {
   const extracted = extractor.extract();
   let extractedCount = 0;
 
-  for (const file of extracted.files) {
-    if (canceled) throw createCanceledError();
-    if (file.fileHeader.flags.directory) continue;
-    extractedCount += 1;
-    const percent = totalFiles > 0
-      ? Math.min(99, Math.floor((extractedCount / totalFiles) * 100))
-      : undefined;
-    postProgress(percent, `Extracting RAR... ${extractedCount}/${totalFiles || "?"}`);
+  // node-unrar-js yields files lazily; iterating can throw on archives with a
+  // missing/truncated end-of-archive record even though every file already
+  // extracted to disk correctly. Swallow that specific case so the import can
+  // continue (matches 7-Zip's behavior of extracting these successfully).
+  const isRecoverableRarError = (err) => {
+    const msg = String(err?.reason || err?.message || err || "").toUpperCase();
+    return (
+      msg.includes("ERAR_END_ARCHIVE") ||
+      msg.includes("ERAR_EOPEN") ||
+      msg.includes("END OF ARCHIVE") ||
+      msg.includes("ERAR_UNKNOWN")
+    );
+  };
+
+  try {
+    for (const file of extracted.files) {
+      if (canceled) throw createCanceledError();
+      if (file.fileHeader.flags.directory) continue;
+      extractedCount += 1;
+      const percent = totalFiles > 0
+        ? Math.min(99, Math.floor((extractedCount / totalFiles) * 100))
+        : undefined;
+      postProgress(percent, `Extracting RAR... ${extractedCount}/${totalFiles || "?"}`);
+    }
+  } catch (err) {
+    if (err?.code === "IMPORT_CANCELED") throw err;
+    // Only tolerate the error if some files actually made it out; otherwise
+    // it's a genuine failure and should propagate.
+    if (!(extractedCount > 0 && isRecoverableRarError(err))) {
+      throw err;
+    }
+    postProgress(
+      undefined,
+      "RAR extracted with warnings (incomplete end-of-archive marker)",
+      "extracting",
+    );
   }
 
   if (extractedCount === 0) {
@@ -109,36 +137,69 @@ function extractInWorker() {
   return new Promise((resolve, reject) => {
     postProgress(0, "Starting archive extraction...", "starting");
 
-    child = spawn(
-      sevenZipBin,
-      ["x", archivePath, `-o${extractPath}`, "-y", "-bb0", "-bsp1"],
-      { windowsHide: true },
-    );
+    try {
+      child = spawn(
+        sevenZipBin,
+        ["x", archivePath, `-o${extractPath}`, "-y", "-bb0", "-bsp1"],
+        { windowsHide: true },
+      );
+    } catch (spawnErr) {
+      child = null;
+      reject(
+        new Error(
+          `Failed to launch 7-Zip (${sevenZipBin}): ${
+            spawnErr?.message || spawnErr
+          }`,
+        ),
+      );
+      return;
+    }
+
+    if (!child) {
+      reject(new Error(`Failed to launch 7-Zip (${sevenZipBin})`));
+      return;
+    }
 
     let output = "";
-    child.stdout.on("data", (data) => {
+    const collect = (data) => {
       output += data.toString();
       if (output.length > 12000) output = output.slice(-12000);
       parseSevenZipProgress(data);
-    });
-    child.stderr.on("data", (data) => {
-      output += data.toString();
-      if (output.length > 12000) output = output.slice(-12000);
-      parseSevenZipProgress(data);
-    });
+    };
 
-    child.on("error", reject);
+    // stdout/stderr can be null if the process failed to attach its stdio
+    // streams (observed on Windows with certain spawn conditions). Guard so
+    // we don't crash with "Cannot read properties of null (reading 'on')".
+    if (child.stdout) child.stdout.on("data", collect);
+    if (child.stderr) child.stderr.on("data", collect);
+
+    child.on("error", (err) => {
+      child = null;
+      reject(err);
+    });
     child.on("close", (code) => {
       child = null;
       if (canceled) {
         reject(createCanceledError());
         return;
       }
-      if (code === 0) {
+
+      // 7-Zip exit codes:
+      //   0 = success
+      //   1 = warning (non-fatal; e.g. missing end-of-archive marker,
+      //       could not open a locked file). Data is still extracted.
+      //   2 = fatal error
+      //   7 = command-line error, 8 = out of memory, 255 = user stopped
+      // Treat code 1 as success-with-warning so recoverable archives (such
+      // as RARs reporting "no end of archive found") don't halt the import.
+      if (code === 0 || code === 1) {
         parentPort.postMessage({
           type: "progress",
           percent: 100,
-          text: "Extraction complete - 100%",
+          text:
+            code === 1
+              ? "Extraction complete (with warnings) - 100%"
+              : "Extraction complete - 100%",
           phase: "complete",
         });
         resolve();
