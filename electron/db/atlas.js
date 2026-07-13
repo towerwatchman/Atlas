@@ -394,6 +394,9 @@ const updateTableColumns = {
     "previews",
     "external_ids",
     "last_record_update",
+    "edited",
+    "edited_at",
+    "edited_by",
   ]),
   f95_zone_data: new Set([
     "f95_id",
@@ -415,6 +418,7 @@ const updateTableColumns = {
     "translations",
     "replies",
     "f95_latest_order",
+    "floating",
   ]),
   lewdcorner_data: new Set([
     "lc_id",
@@ -432,6 +436,7 @@ const updateTableColumns = {
     "rating",
     "screens",
     "downloads",
+    "floating",
   ]),
 };
 
