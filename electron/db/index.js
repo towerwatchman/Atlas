@@ -7,6 +7,7 @@ const fs = require('fs')
 let db
 let cachedFilterOptions = null
 let atlasIdNameMigrationRan = false
+let f95AtlasIdUniqueMigrationRan = false
 
 function migrateDropAtlasIdNameUnique() {
   // initializeDatabase is re-invoked by several IPC handlers; only run this
@@ -77,6 +78,78 @@ function rebuildAtlasDataWithoutUnique() {
           db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_creator ON atlas_data(creator);`);
           db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_normalized_title ON atlas_data(normalized_title);`);
           console.log("atlas_data rebuilt without id_name UNIQUE constraint");
+        });
+      });
+    });
+  });
+}
+
+function migrateDropF95AtlasIdUnique() {
+  // Migration 002 on the server dropped UNIQUE(atlas_id) on f95_zone so many
+  // f95 rows can share one atlas_id. The client's f95_zone_data still has the
+  // old inline UNIQUE(atlas_id); left in place, INSERT OR REPLACE would delete
+  // a sibling row on conflict and silently lose data. Rebuild without it.
+  if (f95AtlasIdUniqueMigrationRan) return;
+  f95AtlasIdUniqueMigrationRan = true;
+
+  db.all(`PRAGMA index_list(f95_zone_data)`, (err, indexes) => {
+    if (err || !Array.isArray(indexes)) return;
+    // The atlas_id UNIQUE is an auto-index; the f95_id PK auto-index is fine.
+    let pending = 0;
+    let target = false;
+    const autoUnique = indexes.filter(
+      (i) => i.unique && /^sqlite_autoindex_f95_zone_data/.test(i.name),
+    );
+    if (autoUnique.length === 0) return;
+    pending = autoUnique.length;
+    autoUnique.forEach((idx) => {
+      db.all(`PRAGMA index_info(${idx.name})`, (e2, cols) => {
+        // Only the atlas_id unique needs dropping; leave the f95_id PK alone.
+        if (!e2 && Array.isArray(cols) && cols.length === 1 && cols[0].name === "atlas_id") {
+          target = true;
+        }
+        if (--pending === 0 && target) rebuildF95WithoutAtlasIdUnique();
+      });
+    });
+  });
+}
+
+function rebuildF95WithoutAtlasIdUnique() {
+  db.all(`PRAGMA table_info(f95_zone_data)`, (err, cols) => {
+    if (err || !Array.isArray(cols) || cols.length === 0) return;
+    // Re-emit column defs from table_info, which does NOT carry inline UNIQUE,
+    // so the atlas_id UNIQUE is dropped. Keep the f95_id PRIMARY KEY.
+    const colDefs = cols
+      .map((c) => {
+        let def = `${c.name} ${c.type || "STRING"}`;
+        if (c.pk) def += " PRIMARY KEY";
+        if (c.notnull) def += " NOT NULL";
+        if (c.dflt_value !== null && c.dflt_value !== undefined)
+          def += ` DEFAULT ${c.dflt_value}`;
+        return def;
+      })
+      .join(", ");
+    const colNames = cols.map((c) => c.name).join(", ");
+
+    db.serialize(() => {
+      db.run("BEGIN TRANSACTION");
+      db.run(`CREATE TABLE f95_zone_data_rebuild (${colDefs});`);
+      db.run(
+        `INSERT INTO f95_zone_data_rebuild (${colNames}) SELECT ${colNames} FROM f95_zone_data;`,
+      );
+      db.run(`DROP TABLE f95_zone_data;`);
+      db.run(`ALTER TABLE f95_zone_data_rebuild RENAME TO f95_zone_data;`, (e) => {
+        if (e) {
+          db.run("ROLLBACK");
+          console.error("f95_zone_data rebuild failed, rolled back:", e);
+          return;
+        }
+        db.run("COMMIT", (commitErr) => {
+          if (commitErr) {
+            console.error("f95_zone_data rebuild commit failed:", commitErr);
+            return;
+          }
+          console.log("f95_zone_data rebuilt without atlas_id UNIQUE constraint");
         });
       });
     });
@@ -168,6 +241,9 @@ const initializeDatabase = (dataDir) => {
         previews STRING,
         external_ids STRING,
         last_record_update STRING,
+        edited INTEGER NOT NULL DEFAULT 0,
+        edited_at INTEGER,
+        edited_by STRING,
         removed_from_server INTEGER NOT NULL DEFAULT 0
       );
     `);
@@ -191,7 +267,7 @@ const initializeDatabase = (dataDir) => {
       CREATE TABLE IF NOT EXISTS f95_zone_data
       (
         f95_id INTEGER UNIQUE PRIMARY KEY,
-        atlas_id INTEGER REFERENCES atlas_data (atlas_id) UNIQUE,
+        atlas_id INTEGER REFERENCES atlas_data (atlas_id),
         banner_url STRING,
         site_url STRING,
         last_thread_comment STRING,
@@ -208,7 +284,8 @@ const initializeDatabase = (dataDir) => {
         extras STRING,
         translations STRING,
         replies STRING,
-        f95_latest_order STRING
+        f95_latest_order STRING,
+        floating INTEGER NOT NULL DEFAULT 0
       );
     `);
     db.run(`
@@ -235,7 +312,8 @@ const initializeDatabase = (dataDir) => {
         tags STRING,
         rating STRING,
         screens STRING,
-        downloads STRING
+        downloads STRING,
+        floating INTEGER NOT NULL DEFAULT 0
       );
     `);
     db.run(`
@@ -515,12 +593,17 @@ const initializeDatabase = (dataDir) => {
     // the callback swallows the "duplicate column" error on DBs that already
     // have them (same pattern as normalized_title above).
     db.run(`ALTER TABLE atlas_data ADD COLUMN external_ids STRING;`, () => {});
+    // Human-edit tracking columns the admin tool + scraper now emit.
+    db.run(`ALTER TABLE atlas_data ADD COLUMN edited INTEGER NOT NULL DEFAULT 0;`, () => {});
+    db.run(`ALTER TABLE atlas_data ADD COLUMN edited_at INTEGER;`, () => {});
+    db.run(`ALTER TABLE atlas_data ADD COLUMN edited_by STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN downloads STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN patches STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN extras STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN translations STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN thread_updated STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN f95_latest_order STRING;`, () => {});
+    db.run(`ALTER TABLE f95_zone_data ADD COLUMN floating INTEGER NOT NULL DEFAULT 0;`, () => {});
     db.run(`ALTER TABLE lewdcorner_data ADD COLUMN atlas_id INTEGER REFERENCES atlas_data(atlas_id);`, () => {});
     db.run(`ALTER TABLE lewdcorner_data ADD COLUMN banner_url STRING;`, () => {});
     db.run(`ALTER TABLE lewdcorner_data ADD COLUMN site_url STRING;`, () => {});
@@ -535,6 +618,7 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE lewdcorner_data ADD COLUMN rating STRING;`, () => {});
     db.run(`ALTER TABLE lewdcorner_data ADD COLUMN screens STRING;`, () => {});
     db.run(`ALTER TABLE lewdcorner_data ADD COLUMN downloads STRING;`, () => {});
+    db.run(`ALTER TABLE lewdcorner_data ADD COLUMN floating INTEGER NOT NULL DEFAULT 0;`, () => {});
     db.run(`ALTER TABLE steam_data ADD COLUMN type STRING;`, () => {});
     db.run(`ALTER TABLE steam_data ADD COLUMN library_capsule TEXT;`, () => {});
 
@@ -545,6 +629,7 @@ const initializeDatabase = (dataDir) => {
     // constraint via ALTER, so rebuild the table without it — but only if the
     // old unique index is actually present.
     migrateDropAtlasIdNameUnique();
+    migrateDropF95AtlasIdUnique();
     sweepOrphanedRecords();
   });
 };

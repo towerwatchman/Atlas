@@ -272,30 +272,59 @@ export default function DetailPanelGrid({ layout, panels, editing, onLayoutChang
       }
     }
 
-    return (
-      <div key={id} className={`relative ${drag?.id === id ? 'opacity-40' : ''}`}>
-        {/* Accent insertion indicator (shows where the panel will drop). */}
-        {showBarBefore && <div className="absolute -top-2 left-0 right-0 h-1 bg-accent rounded z-30 pointer-events-none" />}
+    // In edit mode the drag source/target wraps the panel content directly
+    // (rather than sitting as an `absolute inset-0` overlay). An absolute
+    // overlay only fills its positioned ancestor, whose height collapses to
+    // the panel's content height at first paint — before images/async content
+    // settle — so only a thin top strip was draggable until a window resize
+    // forced a reflow. Wrapping the content means the draggable element always
+    // matches the real panel box, so the whole panel is grabbable immediately.
+    if (editing) {
+      return (
+        <div key={id} className={`relative ${drag?.id === id ? 'opacity-40' : ''}`}>
+          {/* Accent insertion indicator (shows where the panel will drop). */}
+          {showBarBefore && <div className="absolute -top-2 left-0 right-0 h-1 bg-accent rounded z-30 pointer-events-none" />}
 
-        {/* Full-panel drag source + drop target overlay (edit mode only). */}
-        {editing && (
           <div
-            draggable
-            onDragStart={(e) => { e.stopPropagation(); setDrag({ id }) }}
-            onDragEnd={() => { setDrag(null); setDropTarget(null) }}
-            onDragOver={drag ? handleOverlayDragOver : undefined}
-            onDrop={drag ? handleOverlayDrop : undefined}
-            className="absolute inset-0 z-20 cursor-move bg-accent/5 hover:bg-accent/10 rounded"
-            title="Drag to move this panel"
+            className="relative rounded outline-dashed outline-2 outline-accent/50"
           >
-            <div className="absolute top-3 right-3 bg-accent text-white text-sm font-semibold px-3 py-2 rounded-md shadow-lg flex items-center gap-2 select-none pointer-events-none">
-              <i className="fas fa-up-down-left-right text-base" aria-hidden="true"></i> Drag
+            {/* Panel content, rendered in normal flow so it defines the box
+                height. Made inert for both pointer and native drag so its
+                own images/videos/buttons can't hijack the panel drag. */}
+            <div
+              className="pointer-events-none select-none"
+              style={{ WebkitUserDrag: 'none', userSelect: 'none' }}
+            >
+              {panels[id]}
+            </div>
+
+            {/* Transparent capture layer covering the WHOLE panel. This is the
+                actual drag source + drop target. Because it sits above the
+                content via inset-0 and owns all pointer/drag events, the entire
+                panel is grabbable regardless of what's underneath (images and
+                videos are natively draggable and previously stole the drag in
+                the lower half of a panel — that's what made it inconsistent). */}
+            <div
+              draggable
+              onDragStart={(e) => { e.stopPropagation(); setDrag({ id }) }}
+              onDragEnd={() => { setDrag(null); setDropTarget(null) }}
+              onDragOver={drag ? handleOverlayDragOver : undefined}
+              onDrop={drag ? handleOverlayDrop : undefined}
+              className="absolute inset-0 z-10 cursor-move bg-accent/5 hover:bg-accent/10 rounded"
+              title="Drag to move this panel"
+            >
+              <div className="absolute top-3 right-3 bg-accent text-white text-sm font-semibold px-3 py-2 rounded-md shadow-lg flex items-center gap-2 select-none pointer-events-none">
+                <i className="fas fa-up-down-left-right text-base" aria-hidden="true"></i> Drag
+              </div>
             </div>
           </div>
-        )}
-        <div className={editing ? 'outline-dashed outline-2 outline-accent/50 rounded' : ''}>
-          {panels[id]}
         </div>
+      )
+    }
+
+    return (
+      <div key={id} className="relative">
+        {panels[id]}
       </div>
     )
   }
