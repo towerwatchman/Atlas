@@ -291,6 +291,15 @@ async function getGogGameData(gogId) {
       (v1 && v1.in_development && v1.in_development.active) ||
       false;
 
+    // Real store page URL (slug-based). GOG does NOT resolve /game/{numericId};
+    // it needs the slug, which v2 provides under _links.store, or v1 under
+    // purchase_link / links.product_card.
+    const storeUrl =
+      (v2Links.store && v2Links.store.href) ||
+      (v1 && v1.links && (v1.links.product_card || v1.links.purchase_link)) ||
+      (v1 && v1.purchase_link) ||
+      "";
+
     // Censored: infer from ESRB/USK adult ratings when present.
     const esrbAge = emb.esrbRating && emb.esrbRating.ageRating;
     const uskAge = emb.uskRating && emb.uskRating.ageRating;
@@ -327,6 +336,7 @@ async function getGogGameData(gogId) {
       library_hero: heroBg || banner || "",
       library_capsule: boxArt || heroBg || logo || "",
       logo: logo || "",
+      store_url: storeUrl || "",
       last_record_update: new Date().toISOString(),
     };
 
@@ -341,8 +351,8 @@ async function insertGogData(db, data) {
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT OR REPLACE INTO gog_data (
-        gog_id, atlas_id, title, category, engine, developer, publisher, overview, censored, language, translations, genre, tags, voice, os, release_state, release_date, header, library_hero, library_capsule, logo, last_record_update, type
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        gog_id, atlas_id, title, category, engine, developer, publisher, overview, censored, language, translations, genre, tags, voice, os, release_state, release_date, header, library_hero, library_capsule, logo, last_record_update, type, store_url
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.gog_id,
         data.atlas_id || null,
@@ -367,6 +377,7 @@ async function insertGogData(db, data) {
         data.logo,
         data.last_record_update,
         data.type || "",
+        data.store_url || null,
       ],
       (err) => {
         if (err) reject(err);

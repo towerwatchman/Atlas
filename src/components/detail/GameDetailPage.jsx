@@ -5,6 +5,7 @@ import InfoPanel from './page/InfoPanel.jsx'
 import PreviewLightbox from './page/PreviewLightbox.jsx'
 import DetailPanelGrid, { DEFAULT_DETAIL_LAYOUT } from './page/DetailPanelGrid.jsx'
 import SafeImage from '../ui/SafeImage.jsx'
+import RefreshMediaModal from '../ui/RefreshMediaModal.jsx'
 import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
   sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl, formatReleaseDate,
@@ -75,10 +76,11 @@ const buildDetailExternalLinks = (game = {}, { hasSteamMapping = false, hasGogMa
     })
   }
   // A mapped GOG game (no atlas record) carries its id in gog_mappings, not
-  // external_ids, so inject the store link explicitly like Steam does.
+  // external_ids, so inject the store link explicitly like Steam does. Prefer
+  // the real slug-based store URL (GOG does not resolve /game/{numericId}).
   if (hasGogMapping && gogId) {
-    const gogUrl = `https://www.gog.com/game/${gogId}`
-    if (!links.some((existing) => existing.url === gogUrl)) {
+    const gogUrl = String(game.gog_store_url || '').trim() || `https://www.gog.com/game/${gogId}`
+    if (isValidHttpUrl(gogUrl) && !links.some((existing) => existing.url === gogUrl)) {
       links.push({ key: 'gog_id', label: 'GOG', value: String(gogId), url: gogUrl, icon: 'fab fa-gg' })
     }
   }
@@ -162,6 +164,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [favoriteBusy, setFavoriteBusy] = useState(false)
   const [selectedVersion, setSelectedVersion] = useState(null)
   const [isRefreshingMedia, setIsRefreshingMedia] = useState(false)
+  const [refreshModalOpen, setRefreshModalOpen] = useState(false)
   const [launchState, setLaunchState] = useState(LAUNCH_STATE.IDLE)
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const [bannerMask, setBannerMask] = useState({ image: 'none', composite: null })
@@ -520,6 +523,12 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     await window.electronAPI.openGameProperties(game.record_id)
   }
   const openWebsite = async () => { if (game.siteUrl) await window.electronAPI.openExternalUrl(game.siteUrl) }
+  const openGog = gogId
+    ? async () => {
+        const url = String(game.gog_store_url || '').trim() || `https://www.gog.com/game/${gogId}`
+        await window.electronAPI.openExternalUrl(url)
+      }
+    : null
   const openSteam = steamAppId
     ? async () => { await window.electronAPI.openExternalUrl(`steam://nav/games/details/${steamAppId}`) }
     : null
@@ -786,16 +795,22 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     onBack?.()
   }
 
-  const refreshMetadataAndImages = async () => {
+  const refreshMetadataAndImages = () => {
     if (!game?.record_id || !canManageLocalTitle || isRefreshingMedia) return
+    setRefreshModalOpen(true)
+  }
+
+  const doRefreshMedia = async (mode) => {
+    if (!game?.record_id || !canManageLocalTitle) return
     setIsRefreshingMedia(true)
     try {
-      const result = await window.electronAPI.refreshGameMedia(game.record_id)
+      const result = await window.electronAPI.refreshGameMedia(game.record_id, { mode })
       if (result?.success === false) throw new Error(result.error || 'Refresh failed')
       if (Array.isArray(result?.previewUrls)) setPreviews(filterOutBanner(result.previewUrls, game.banner_url))
       onRefresh?.(game.record_id)
+      setRefreshModalOpen(false)
     } catch (error) {
-      alert(`Failed to refresh media links: ${error.message}`)
+      alert(`Failed to refresh media: ${error.message}`)
     } finally {
       setIsRefreshingMedia(false)
     }
@@ -883,6 +898,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         onRefreshMedia={refreshMetadataAndImages}
         onOpenWebsite={openWebsite}
         onOpenSteam={openSteam}
+        onOpenGog={openGog}
         onUninstallSteam={uninstallSteam}
         onToggleLocalImport={() => setShowLocalImportPanel((value) => !value)}
         onRemoveTitle={removeTitleFromLibrary}
@@ -1295,6 +1311,14 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         onClose={() => setLightboxIndex(null)}
         onPrev={() => setLightboxIndex((i) => (i === null ? i : (i - 1 + previews.length) % previews.length))}
         onNext={() => setLightboxIndex((i) => (i === null ? i : (i + 1) % previews.length))}
+      />
+
+      <RefreshMediaModal
+        open={refreshModalOpen}
+        scope="game"
+        busy={isRefreshingMedia}
+        onConfirm={doRefreshMedia}
+        onClose={() => { if (!isRefreshingMedia) setRefreshModalOpen(false) }}
       />
     </div>
   )

@@ -7,7 +7,7 @@ export default function ActionBar({
   canManageFavorite = false, isFavorite = false, favoriteBusy = false,
   launchState, isRefreshingMedia, canManageLocalTitle = true,
   onLaunch, onOpenFolder, onOpenProperties, onToggleWishlist, onRefreshMedia,
-  onOpenWebsite, onOpenSteam, onUninstallSteam, onToggleFavorite, onToggleLocalImport,
+  onOpenWebsite, onOpenSteam, onOpenGog, onUninstallSteam, onToggleFavorite, onToggleLocalImport,
   onRemoveTitle, onDeleteTitle, onBack, onToggleEditLayout, editingLayout = false,
   onToggleInfo, showInfo = false, showBack = false,
 }) {
@@ -183,6 +183,11 @@ export default function ActionBar({
           {onOpenSteam && (
             <button onClick={onOpenSteam} title="Open in Steam" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
               <i className="fab fa-steam" style={{ fontSize: 14 }}></i>
+            </button>
+          )}
+          {onOpenGog && (
+            <button onClick={onOpenGog} title="Open on GOG" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
+              <i className="fab fa-gg" style={{ fontSize: 14 }}></i>
             </button>
           )}
           {onUninstallSteam && (

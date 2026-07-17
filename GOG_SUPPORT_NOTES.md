@@ -98,3 +98,36 @@ only a fallback), verified against a real v2 response:
 - os <- v2 _embedded.supportedOperatingSystems
 - release_date <- product.globalReleaseDate / gogReleaseDate
 - censored <- inferred from esrbRating/uskRating age
+
+## Fix round 6 (store link, info panel, manual mapping, banner metadata)
+1. Store link: capture v2 _links.store.href (slug URL) into new gog_data.store_url
+   column (+ migration). GameDetailPage/ActionBar now open the real store page
+   (fa-gg "Open on GOG" button + GOG external link) instead of /game/{numericId},
+   which GOG does not resolve.
+2. Info panel: InfoPanel now shows GOG box art (gog_library_capsule) + the
+   description (overview) for GOG games, mirroring Steam.
+3. Manual mapping: added a "GOG ID" field to the Mappings modal. set-manual-
+   mappings now writes a gog_mappings row and fetches metadata so art/desc/
+   developer fill in immediately. Any game can now be given a GOG id.
+4. Banner metadata: getGame/getGames COALESCE now fold gog_data into category,
+   censored, genre, language, os, overview, translations, voice, publisher,
+   release_date. Banner creator resolver falls back to gog_developer, so the
+   developer/creator shows on the banner.
+
+## Fix round 7 (refresh modal: missing vs all + stream/download setting)
+- New src/components/ui/RefreshMediaModal.jsx: choose "missing only" vs "all",
+  with a read-only note showing whether images download or stream (per the saved
+  Settings > Metadata media-storage mode).
+- electron/ipc/media.js: refactored refresh into a shared refreshOneGame(recordId,
+  {mode, download}) that re-fetches BOTH Steam and GOG metadata and only calls
+  downloadImages when the setting is 'download' (otherwise streams). 'missing'
+  mode skips metadata re-fetch when *_data already looks populated and skips
+  image download when banner+previews already exist on disk.
+  - refresh-game-media now accepts { recordId, mode } (back-compat: bare id ok).
+  - NEW refresh-media-library handler iterates all games with progress
+    (refresh-media-progress event).
+- preload.js: refreshGameMedia(recordId,{mode}); refreshMediaLibrary({mode});
+  onRefreshMediaProgress.
+- Detail page: the Refresh Media button opens the modal (per-game).
+- Nav "Updates" button: now opens the library refresh modal; confirming runs the
+  online DB catalog sync AND a library-wide media refresh, then reloads lists.

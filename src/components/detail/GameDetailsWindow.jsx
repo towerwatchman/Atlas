@@ -123,7 +123,7 @@ const GameDetailWindow = () => {
   // Manual (custom) source-id mapping modal — lets the user set F95 / Steam /
   // LewdCorner ids directly (see Mappings tab / set-manual-mappings IPC).
   const [mappingModalOpen, setMappingModalOpen] = useState(false)
-  const [mappingDraft, setMappingDraft] = useState({ f95: '', steam: '', lewdcorner: '' })
+  const [mappingDraft, setMappingDraft] = useState({ f95: '', steam: '', gog: '', lewdcorner: '' })
   const [mappingBusy, setMappingBusy] = useState(false)
   const [dataReceived, setDataReceived] = useState(false)
   const [loadError, setLoadError] = useState(false)
@@ -687,6 +687,7 @@ const GameDetailWindow = () => {
     setMappingDraft({
       f95: String(existing.f95_id ?? existing.f95 ?? ''),
       steam: String(existing.steam_appid ?? existing.steam_id ?? existing.steam ?? ''),
+      gog: String(existing.gog_id ?? existing.gog_appid ?? existing.gog ?? ''),
       lewdcorner: String(existing.lc_id ?? existing.lewdcorner_id ?? existing.lewdcorner ?? ''),
     })
     setMappingModalOpen(true)
@@ -698,6 +699,7 @@ const GameDetailWindow = () => {
       const mappings = {
         f95_id: mappingDraft.f95,
         steam_appid: mappingDraft.steam,
+        gog_id: mappingDraft.gog,
         lc_id: mappingDraft.lewdcorner,
       }
       const result = await window.electronAPI.setManualMappings?.(game.record_id, mappings)
@@ -964,6 +966,16 @@ const GameDetailWindow = () => {
                   onChange={(e) => setMappingDraft((d) => ({ ...d, steam: e.target.value }))}
                   disabled={mappingBusy}
                   placeholder="e.g. 730"
+                  className="w-full bg-primary border border-border p-2 rounded"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="block mb-1">GOG ID</span>
+                <input
+                  value={mappingDraft.gog}
+                  onChange={(e) => setMappingDraft((d) => ({ ...d, gog: e.target.value }))}
+                  disabled={mappingBusy}
+                  placeholder="e.g. 1435829353"
                   className="w-full bg-primary border border-border p-2 rounded"
                 />
               </label>

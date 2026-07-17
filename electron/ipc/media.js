@@ -9,6 +9,10 @@ const {
 const { orderPreviewsBySource } = require('../db/mediaSources')
 const { getSteamIDbyRecord } = require('../db/steam')
 const { fetchAndStoreSteamData } = require('../scanners/steamscanner')
+const { getGogIDbyRecord } = require('../db/gog')
+const { fetchAndStoreGogData } = require('../scanners/gogscanner')
+const dbIndexForMedia = require('../db/index')
+const liveMediaDb = () => dbIndexForMedia.db
 
 const isVideoUrl = (url) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ''))
 
@@ -389,31 +393,126 @@ module.exports = function registerMediaHandlers(ctx) {
     }
   })
 
-  ipcMain.handle('refresh-game-media', async (event, recordId) => {
-    try {
-      // For Steam-mapped games, re-fetch live metadata so steam_data,
-      // steam_screens and steam_movies (trailers) are repopulated — this is the
-      // only way games imported before a given enrichment get refreshed.
-      const steamId = await getSteamIDbyRecord(recordId)
-      if (steamId) {
-        await fetchAndStoreSteamData(null, steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder)
-      }
-      const atlasId = await GetAtlasIDbyRecord(recordId)
-      const sourceOrder = getMetadataSourceOrder()
-      const bannerUrl = await getRemoteBannerUrl(recordId, { sourceOrder })
-      const rawPreviewUrls = await getRemotePreviewUrls(recordId, { sourceOrder })
-      const screenUrls = rawPreviewUrls
-        .map((url) => String(url || '').trim())
-        .filter(Boolean)
-        .filter((url) => !isVideoUrl(url))
-        .map((url) => ({ url, source: inferMediaSource(url) }))
-      const additionalAssets = (await getAllDownloadableAssetUrlsForRecord(recordId, { downloadVideos: false, sourceOrder }))
-        .filter((asset) => asset.targetKind !== 'preview' && asset.url !== bannerUrl)
+  // Shared media-refresh core, used by both the per-game refresh (detail page)
+  // and the library-wide refresh (nav "Updates"). Options:
+  //   mode: 'missing' -> only fetch/download what's absent; 'all' -> overwrite.
+  //   download: whether to pull images to disk (true) or leave them streamed
+  //             (false). Determined by the mediaStorageMode setting.
+  const refreshOneGame = async (recordId, { mode = 'all', download = false, onProgress } = {}) => {
+    const missingOnly = mode === 'missing'
 
-      const downloadResult = await downloadImages(
-        recordId,
-        atlasId || steamId || recordId,
-        (current, totalImages) => {
+    // 1) Re-fetch source metadata (Steam + GOG) so *_data rows repopulate. In
+    //    'missing' mode we still re-fetch metadata when the game has a mapping
+    //    but no cached row; a cheap way to approximate that is to always re-fetch
+    //    (the store call is idempotent) unless the row already looks populated.
+    const steamId = await getSteamIDbyRecord(recordId)
+    if (steamId) {
+      let needsSteam = true
+      if (missingOnly) {
+        const row = await dbGetSafe(`SELECT title, header FROM steam_data WHERE steam_id = ?`, [steamId])
+        needsSteam = !row || !row.title || !row.header
+      }
+      if (needsSteam) {
+        try { await fetchAndStoreSteamData(null, steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder) }
+        catch (e) { console.warn(`refresh: steam fetch failed for ${steamId}:`, e.message) }
+      }
+    }
+    const gogId = await getGogIDbyRecord(recordId)
+    if (gogId) {
+      let needsGog = true
+      if (missingOnly) {
+        const row = await dbGetSafe(`SELECT title, header, overview FROM gog_data WHERE gog_id = ?`, [gogId])
+        needsGog = !row || !row.title || !row.header || !row.overview
+      }
+      if (needsGog) {
+        try { await fetchAndStoreGogData(null, gogId) }
+        catch (e) { console.warn(`refresh: gog fetch failed for ${gogId}:`, e.message) }
+      }
+    }
+
+    const atlasId = await GetAtlasIDbyRecord(recordId)
+    const sourceOrder = getMetadataSourceOrder()
+    const bannerUrl = await getRemoteBannerUrl(recordId, { sourceOrder })
+    const rawPreviewUrls = await getRemotePreviewUrls(recordId, { sourceOrder })
+    const screenUrls = rawPreviewUrls
+      .map((url) => String(url || '').trim())
+      .filter(Boolean)
+      .filter((url) => !isVideoUrl(url))
+      .map((url) => ({ url, source: inferMediaSource(url) }))
+
+    // 2) Images: only pull to disk when the setting says 'download'. When
+    //    streaming, we skip downloadImages entirely and let the *_data URLs be
+    //    served directly (previews still come back via getPreviews below).
+    if (download) {
+      // In 'missing' mode, skip the download when the banner + previews are
+      // already present on disk for this record.
+      let doDownload = true
+      if (missingOnly) {
+        const hasBanner = await hasLocalBanner(recordId)
+        const hasPreviews = await hasLocalPreviews(recordId)
+        doDownload = !hasBanner || !hasPreviews
+      }
+      if (doDownload) {
+        const additionalAssets = (await getAllDownloadableAssetUrlsForRecord(recordId, { downloadVideos: false, sourceOrder }))
+          .filter((asset) => asset.targetKind !== 'preview' && asset.url !== bannerUrl)
+        await downloadImages(
+          recordId,
+          atlasId || steamId || gogId || recordId,
+          (current, totalImages) => { if (onProgress) onProgress(current, totalImages) },
+          Boolean(bannerUrl),
+          screenUrls.length > 0,
+          'Unlimited',
+          false,
+          dataDir,
+          async () => bannerUrl,
+          async () => screenUrls,
+          updateBanners,
+          updatePreviews,
+          { source: inferMediaSource(bannerUrl), additionalAssets, upsertMediaAsset },
+        )
+      }
+    }
+
+    const previewUrls = orderPreviewsBySource(
+      await getPreviews(recordId, getAssetBasePath(), process.defaultApp, { mode: getMediaStorageMode(), sourceOrder }),
+      sourceOrder,
+    )
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) win.webContents.send('game-updated', recordId)
+    })
+    return { success: true, previewUrls }
+  }
+
+  // Small promise helpers scoped to this handler set.
+  const dbGetSafe = (sql, params) => new Promise((resolve) => {
+    try {
+      liveMediaDb().get(sql, params, (err, row) => resolve(err ? null : row || null))
+    } catch { resolve(null) }
+  })
+  const hasLocalBanner = async (recordId) => {
+    const row = await dbGetSafe(
+      `SELECT 1 FROM media_assets WHERE record_id = ? AND asset_type LIKE '%banner%' LIMIT 1`, [recordId])
+    return !!row
+  }
+  const hasLocalPreviews = async (recordId) => {
+    const row = await dbGetSafe(
+      `SELECT 1 FROM media_assets WHERE record_id = ? AND asset_type LIKE '%preview%' LIMIT 1`, [recordId])
+    return !!row
+  }
+
+  // Whether the user's saved setting wants images downloaded to disk.
+  const shouldDownloadImages = () => getMediaStorageMode() === 'download'
+
+  ipcMain.handle('refresh-game-media', async (event, arg) => {
+    // Back-compat: old callers pass a bare recordId; new callers pass
+    // { recordId, mode }.
+    const recordId = (arg && typeof arg === 'object') ? arg.recordId : arg
+    const mode = (arg && typeof arg === 'object' && arg.mode) ? arg.mode : 'all'
+    try {
+      const result = await refreshOneGame(recordId, {
+        mode,
+        download: shouldDownloadImages(),
+        onProgress: (current, totalImages) => {
           if (!event.sender.isDestroyed()) {
             event.sender.send('game-details-import-progress', {
               text: `Downloading media assets ${current}/${totalImages}`,
@@ -422,31 +521,48 @@ module.exports = function registerMediaHandlers(ctx) {
             })
           }
         },
-        Boolean(bannerUrl),
-        screenUrls.length > 0,
-        'Unlimited',
-        false,
-        dataDir,
-        async () => bannerUrl,
-        async () => screenUrls,
-        updateBanners,
-        updatePreviews,
-        {
-          source: inferMediaSource(bannerUrl),
-          additionalAssets,
-          upsertMediaAsset,
-        },
-      )
-      const previewUrls = orderPreviewsBySource(
-        await getPreviews(recordId, getAssetBasePath(), process.defaultApp, { mode: getMediaStorageMode(), sourceOrder }),
-        sourceOrder,
-      )
-      BrowserWindow.getAllWindows().forEach((win) => {
-        if (!win.isDestroyed()) win.webContents.send('game-updated', recordId)
       })
-      return { success: downloadResult.success, previewUrls, downloadResult }
+      return { success: result.success, previewUrls: result.previewUrls }
     } catch (err) {
       console.error('refresh-game-media error:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Library-wide media refresh (nav "Updates" flow). Iterates every record id,
+  // applying the same per-game refresh with the chosen mode + the saved
+  // download setting, and emits progress so the UI can show a bar.
+  ipcMain.handle('refresh-media-library', async (event, arg = {}) => {
+    const mode = arg.mode === 'missing' ? 'missing' : 'all'
+    try {
+      const recordIds = await new Promise((resolve, reject) => {
+        liveMediaDb().all(`SELECT record_id FROM games`, [], (err, rows) =>
+          err ? reject(err) : resolve((rows || []).map((r) => r.record_id)))
+      })
+      const download = shouldDownloadImages()
+      const total = recordIds.length
+      let processed = 0
+      const emit = (text) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('refresh-media-progress', { text, processed, total })
+        }
+      }
+      emit(`Refreshing media for ${total} games…`)
+      for (const recordId of recordIds) {
+        try {
+          await refreshOneGame(recordId, { mode, download })
+        } catch (e) {
+          console.warn(`refresh-media-library: game ${recordId} failed:`, e.message)
+        }
+        processed++
+        if (processed % 3 === 0 || processed === total) {
+          emit(`Refreshed ${processed}/${total} games…`)
+        }
+      }
+      emit(`Media refresh complete (${processed}/${total}).`)
+      return { success: true, processed, total }
+    } catch (err) {
+      console.error('refresh-media-library error:', err)
       return { success: false, error: err.message }
     }
   })

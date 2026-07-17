@@ -14,6 +14,7 @@ import GameBanner from './components/library/GameBanner.jsx'
 import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
+import RefreshMediaModal from './components/ui/RefreshMediaModal.jsx'
 import { useGames } from './hooks/useGames.js'
 import { builtInSavedFilters, defaultFilters, filterGamesWithState, normalizeFilterState, useFilters } from './hooks/useFilters.js'
 import { useAppUpdate } from './hooks/useAppUpdate.js'
@@ -148,6 +149,9 @@ const App = () => {
   const [importStatus, setImportStatus] = useState({ text: '', progress: 0, total: 0 })
   const [importProgress, setImportProgress] = useState({ text: '', progress: 0, total: 0 })
   const [dbUpdateStatus, setDbUpdateStatus] = useState({ text: '', progress: 0, total: 0 })
+  const [refreshLibraryModalOpen, setRefreshLibraryModalOpen] = useState(false)
+  const [refreshLibraryBusy, setRefreshLibraryBusy] = useState(false)
+  const [refreshLibraryProgress, setRefreshLibraryProgress] = useState(null)
   // NSFW / adult-content ("Browse mode") opt-in — see electron/ipc/settings.js
   // get-nsfw-status / set-nsfw-enabled. nsfwPromptOpen drives the first-run
   // confirmation modal below; it only opens once getNsfwStatus() reports the
@@ -871,6 +875,42 @@ const App = () => {
     }
   }, [clearDbUpdateStatusSoon])
 
+  // The nav "Updates" button now opens a modal so the user can choose to refresh
+  // missing-only vs all data. Confirming runs the online DB catalog sync AND a
+  // library-wide media (metadata + artwork) refresh. Images are downloaded vs
+  // streamed per the saved Settings > Metadata media-storage mode.
+  const openLibraryRefreshModal = useCallback(() => {
+    setRefreshLibraryProgress(null)
+    setRefreshLibraryModalOpen(true)
+  }, [])
+
+  const confirmLibraryRefresh = useCallback(async (mode) => {
+    if (refreshLibraryBusy) return
+    setRefreshLibraryBusy(true)
+    setRefreshLibraryProgress({ text: 'Checking database updates…', processed: 0, total: 0 })
+    try {
+      // 1) Online catalog DB sync (unchanged behavior).
+      try {
+        await window.electronAPI.checkDbUpdates()
+      } catch (e) {
+        console.error('DB update during library refresh failed:', e)
+      }
+      // 2) Library-wide media metadata + artwork refresh.
+      setRefreshLibraryProgress({ text: 'Refreshing media…', processed: 0, total: 0 })
+      const result = await window.electronAPI.refreshMediaLibrary({ mode })
+      if (result?.success === false) throw new Error(result.error || 'Media refresh failed')
+      setRefreshLibraryProgress({ text: 'Complete.', processed: result?.processed || 0, total: result?.total || 0 })
+      // Refresh the visible lists so new art/metadata shows.
+      if (typeof fetchGames === 'function') fetchGames()
+      setTimeout(() => setRefreshLibraryModalOpen(false), 800)
+    } catch (error) {
+      console.error('Library refresh failed:', error)
+      setRefreshLibraryProgress({ text: `Error: ${error.message}`, processed: 0, total: 0 })
+    } finally {
+      setRefreshLibraryBusy(false)
+    }
+  }, [refreshLibraryBusy, fetchGames])
+
   // ── Actions ────────────────────────────────────────────────────────────────
   const addGame = (source = 'atlas') => window.electronAPI.openImporter(source)
 
@@ -1130,6 +1170,13 @@ const App = () => {
     window.electronAPI.onLibraryValidationProgress?.(handleLibraryValidationProgress)
     window.electronAPI.onImportComplete(handleImportComplete)
     window.electronAPI.onUpdateStatus(handleUpdateStatus)
+    window.electronAPI.onRefreshMediaProgress?.((data) => {
+      setRefreshLibraryProgress({
+        text: data?.text || 'Refreshing…',
+        processed: data?.processed || 0,
+        total: data?.total || 0,
+      })
+    })
     const removeMetadataListener = window.electronAPI.onMetadataChanged?.(handleMetadataChanged)
     const removeNsfwListener = window.electronAPI.onNsfwChanged?.((data) => {
       // Keeps this window's Browse availability in sync when the NSFW
@@ -1326,7 +1373,7 @@ const App = () => {
                   <TopNav
                     group="left"
                     onToggleGameList={toggleGameList}
-                    onCheckDbUpdates={runDbUpdateCheck}
+                    onCheckDbUpdates={openLibraryRefreshModal}
                     onGoHome={goHome}
                     onBrowseCatalog={browseCatalog}
                     onOpenWishlist={openFavorites}
@@ -1354,7 +1401,7 @@ const App = () => {
                     group="right"
                     forceIconsOnly
                     onToggleGameList={toggleGameList}
-                    onCheckDbUpdates={runDbUpdateCheck}
+                    onCheckDbUpdates={openLibraryRefreshModal}
                     onGoHome={goHome}
                     onBrowseCatalog={browseCatalog}
                     onOpenWishlist={openFavorites}
@@ -1420,7 +1467,7 @@ const App = () => {
         {!isTopNav && (
           <Sidebar
             onToggleGameList={toggleGameList}
-            onCheckDbUpdates={runDbUpdateCheck}
+            onCheckDbUpdates={openLibraryRefreshModal}
             onGoHome={goHome}
             onBrowseCatalog={browseCatalog}
             onOpenWishlist={openFavorites}
@@ -1818,6 +1865,15 @@ const App = () => {
       <WelcomeTour
         open={showWelcomeTour}
         onClose={handleWelcomeTourClose}
+      />
+
+      <RefreshMediaModal
+        open={refreshLibraryModalOpen}
+        scope="library"
+        busy={refreshLibraryBusy}
+        progress={refreshLibraryProgress}
+        onConfirm={confirmLibraryRefresh}
+        onClose={() => { if (!refreshLibraryBusy) setRefreshLibraryModalOpen(false) }}
       />
     </div>
   )

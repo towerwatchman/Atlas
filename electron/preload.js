@@ -202,9 +202,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking updatePreviews for recordId:", recordId);
     return ipcRenderer.invoke("update-previews", recordId);
   },
-  refreshGameMedia: (recordId) => {
-    console.log("Invoking refreshGameMedia for recordId:", recordId);
-    return ipcRenderer.invoke("refresh-game-media", recordId);
+  refreshGameMedia: (recordId, options = {}) => {
+    console.log("Invoking refreshGameMedia for recordId:", recordId, options);
+    return ipcRenderer.invoke("refresh-game-media", { recordId, mode: options.mode || "all" });
+  },
+  refreshMediaLibrary: (options = {}) => {
+    console.log("Invoking refreshMediaLibrary", options);
+    return ipcRenderer.invoke("refresh-media-library", { mode: options.mode || "all" });
+  },
+  onRefreshMediaProgress: (callback) => {
+    ipcRenderer.on("refresh-media-progress", (event, data) => callback(data));
+  },
+  removeRefreshMediaProgressListener: () => {
+    ipcRenderer.removeAllListeners("refresh-media-progress");
   },
   convertAndSaveBanner: (recordId, filePath) => {
     console.log(

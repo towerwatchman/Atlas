@@ -8,7 +8,8 @@ const cp = require('child_process')
 const { recordGameLaunchStarted, recordGamePlaytime } = require('../db/games')
 const { getEmulatorByExtension } = require('../db/settings')
 const { getSteamIDbyRecord } = require('../db/steam')
-const { getGogIDbyRecord } = require('../db/gog')
+const { getGogIDbyRecord, addGogMapping } = require('../db/gog')
+const { fetchAndStoreGogData } = require('../scanners/gogscanner')
 const { applyMediaSources } = require('../db/mediaSources')
 const { calculatePathSize } = require('../pathSize')
 const { runDatabaseAudit, getInvalidMappingCount } = require('../db/audit')
@@ -486,6 +487,14 @@ function registerGamesHandlers(ctx) {
       const steamId = Number.parseInt(saved.steam_appid ?? saved.steam_id, 10)
       if (Number.isInteger(steamId) && steamId > 0 && typeof addSteamMapping === 'function') {
         try { await addSteamMapping(recordId, steamId) } catch (e) { console.warn('addSteamMapping (manual) failed:', e.message) }
+      }
+      // GOG: same pattern — persist the mapping so art/metadata joins through
+      // gog_mappings, then fetch metadata so the details page fills in the box
+      // art, description, developer, etc. right away.
+      const gogId = Number.parseInt(saved.gog_id ?? saved.gog_appid, 10)
+      if (Number.isInteger(gogId) && gogId > 0) {
+        try { await addGogMapping(recordId, gogId) } catch (e) { console.warn('addGogMapping (manual) failed:', e.message) }
+        try { await fetchAndStoreGogData(null, gogId) } catch (e) { console.warn('fetchAndStoreGogData (manual) failed:', e.message) }
       }
       return { success: true, mappings: saved }
     } catch (err) {

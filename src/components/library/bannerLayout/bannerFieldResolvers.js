@@ -196,7 +196,7 @@ export const resolveBannerField = (fieldId, game = {}) => {
       // refreshed afterward even once richer metadata is fetched. That
       // richer data (publisher / developer) is already joined into this
       // same row though, so prefer it before falling back to "Unknown".
-      const fallback = firstValue(game.publisher, game.steam_developer)
+      const fallback = firstValue(game.publisher, game.steam_developer, game.gog_developer, game.developer)
       return { value: fallback || ownCreator || 'Unknown', visible: true }
     }
     case 'engine':
