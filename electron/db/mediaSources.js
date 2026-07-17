@@ -10,7 +10,7 @@
 // the db layer and the ipc layer without circular-require headaches.
 
 // Initial order used before a user has saved Metadata source settings.
-const DEFAULT_SOURCE_ORDER = ['f95', 'lewdcorner', 'steam']
+const DEFAULT_SOURCE_ORDER = ['f95', 'lewdcorner', 'steam', 'gog']
 
 // Steam serves the same per-app art from two different systems:
 //
@@ -74,6 +74,27 @@ const resolveSteamAppId = (game = {}, externalIds = null) => {
   return String(candidate)
 }
 
+// GOG product id: from a real gog_mapping (game.gog_id) or the external_ids blob.
+const resolveGogId = (game = {}, externalIds = null) => {
+  const ext = externalIds || parseExternalIds(game.external_ids)
+  const candidate =
+    game.gog_id || game.gog_appid || ext.gog_id || ext.gog_appid || null
+  if (candidate === null || candidate === undefined || candidate === '') return null
+  return String(candidate)
+}
+
+// Best-fit GOG images. GOG has no hero/logo split like Steam, so we map:
+//   library_hero (gog_data.library_hero <- API background) -> hero
+//   header       (gog_data.header <- logo|background)      -> banner
+//   logo         (gog_data.logo)                           -> logo
+// All URLs are already concrete https (resolved at scan time by gogscanner),
+// so unlike Steam there is no buildable convention fallback from the id alone.
+const gogImages = (game = {}) => ({
+  banner: (game && game.gog_header) || null,
+  hero: (game && game.gog_library_hero) || (game && game.gog_header) || null,
+  logo: (game && game.gog_logo) || null,
+})
+
 // Accepts either a comma string ("f95,steam") or an array and returns exactly
 // the enabled source order. Only a missing value falls back to the initial
 // default; an explicitly empty saved value means "no sources enabled".
@@ -112,6 +133,10 @@ const bannerCandidatesForSource = (source, game, appid) => {
   if (source === 'steam') {
     // Exact API header (hashed, guaranteed) first; buildable convention second.
     return [resolvedSteamAsset(game.steam_header), steamAsset(appid, 'header.jpg')]
+  }
+  if (source === 'gog') {
+    // Concrete https urls resolved at scan time; header first, then hero.
+    return [game.gog_header, game.gog_library_hero]
   }
   if (source === 'f95') {
     return [game.f95_banner]
@@ -152,9 +177,12 @@ const applyMediaSources = (game, options = {}) => {
   const order = normalizeSourceOrder(options.sourceOrder)
   const ext = parseExternalIds(game.external_ids)
   const appid = resolveSteamAppId(game, ext)
+  const gogId = resolveGogId(game, ext)
   const steamEnabled = order.includes('steam')
+  const gogEnabled = order.includes('gog')
 
   game.steam_appid = appid
+  game.gog_id = game.gog_id || gogId
 
   // Banner: custom/user banners must win, but downloaded source banners still
   // follow metadata source order. Otherwise a cached F95 banner masks a higher
@@ -177,8 +205,10 @@ const applyMediaSources = (game, options = {}) => {
 
   // Hero (details page): steam key-art first when enabled, then fall through to
   // the banner chain so it still honours the source order (e.g. ends on f95).
+  const gogImgs = gogEnabled && gogId ? gogImages(game) : {}
   const heroCandidates = dedupe([
     ...(steamEnabled && appid ? steamHeroCandidates(game, appid) : []),
+    ...(gogImgs.hero ? [gogImgs.hero] : []),
     ...bannerCandidates,
   ])
   game.hero_candidates = heroCandidates
@@ -200,7 +230,7 @@ const applyMediaSources = (game, options = {}) => {
           .filter(Boolean)
           .filter((u) => !isCapsuleLike(u)),
       )
-    : []
+    : (gogImgs.logo ? [gogImgs.logo] : [])
   game.logo_candidates = logoCandidates
   game.logo_url = logoCandidates[0] || null
 
@@ -223,6 +253,8 @@ const ensureScheme = (value) => {
 const EXTERNAL_LINK_DEFS = {
   steam_appid: { label: 'Steam', url: (v) => `https://store.steampowered.com/app/${v}` },
   steam_id: { label: 'Steam', url: (v) => `https://store.steampowered.com/app/${v}` },
+  gog_id: { label: 'GOG', url: (v) => `https://www.gog.com/game/${v}` },
+  gog_appid: { label: 'GOG', url: (v) => `https://www.gog.com/game/${v}` },
   lc_id: { label: 'LewdCorner', url: (v) => `https://lewdcorner.com/threads/${v}/` },
   lewdcorner_id: { label: 'LewdCorner', url: (v) => `https://lewdcorner.com/threads/${v}/` },
   lewdcorner_url: { label: 'LewdCorner', url: (v) => ensureScheme(v) },
@@ -268,6 +300,8 @@ const detectPreviewSource = (url) => {
   if (!/^https?:\/\//.test(u)) return null // local file path — leave in place
   if (u.includes('steamstatic') || u.includes('steamcdn') || u.includes('akamaihd') || u.includes('/steam/'))
     return 'steam'
+  if (u.includes('gog-statics') || u.includes('gog.com') || u.includes('youtube.com') || u.includes('youtu.be') || u.includes('ytimg.com'))
+    return 'gog'
   if (u.includes('lewdcorner.com'))
     return 'lewdcorner'
   if (u.includes('f95zone'))
@@ -307,8 +341,10 @@ module.exports = {
   DEFAULT_SOURCE_ORDER,
   parseExternalIds,
   resolveSteamAppId,
+  resolveGogId,
   normalizeSourceOrder,
   steamImages,
+  gogImages,
   applyMediaSources,
   buildExternalLinks,
   orderPreviewsBySource,

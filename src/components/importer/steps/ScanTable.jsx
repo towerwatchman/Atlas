@@ -47,10 +47,13 @@ const getSourceUrls = (game = {}) => {
   const f95Id = getCleanId(game.f95Id || game.f95_id)
   const lcId = getCleanId(game.lcId || game.lc_id || game.lewdCornerId || game.lewdcornerId)
   const steamId = getCleanId(game.steamId || game.steam_id || game.appid)
+  const gogId = getCleanId(game.gogId || game.gog_id)
   const f95Url = [game.siteUrl, game.site_url, game.f95Url]
     .find(isValidHttpUrl) || (f95Id ? `https://f95zone.to/threads/${f95Id}/` : '')
   const steamUrl = [game.steamUrl, game.storeUrl]
     .find(isValidHttpUrl) || (steamId ? `https://store.steampowered.com/app/${steamId}/` : '')
+  const gogUrl = [game.gogUrl]
+    .find(isValidHttpUrl) || (gogId ? `https://www.gog.com/game/${gogId}` : '')
   const lewdCornerUrl = [game.lewdCornerSiteUrl, game.lewdcornerSiteUrl]
     .find(isValidHttpUrl) || (lcId ? `https://lewdcorner.com/threads/${lcId}/` : '')
   const atlasUrl = [game.atlasUrl, game.sourceUrl]
@@ -60,6 +63,7 @@ const getSourceUrls = (game = {}) => {
     f95: isValidHttpUrl(f95Url) ? f95Url : '',
     lewdcorner: isValidHttpUrl(lewdCornerUrl) ? lewdCornerUrl : '',
     steam: isValidHttpUrl(steamUrl) ? steamUrl : '',
+    gog: isValidHttpUrl(gogUrl) ? gogUrl : '',
     atlas: isValidHttpUrl(atlasUrl) ? atlasUrl : '',
   }
 }
@@ -451,6 +455,16 @@ export default function ScanTable({
                       style={{ pointerEvents: 'auto' }}
                     >
                       Steam
+                    </button>
+                  )}
+                  {sourceUrls.gog && (
+                    <button
+                      onClick={() => openSourceUrl(sourceUrls.gog)}
+                      title="Open GOG store page"
+                      className="bg-button hover:bg-buttonHover text-text text-xs p-1 rounded-buttonTheme whitespace-nowrap"
+                      style={{ pointerEvents: 'auto' }}
+                    >
+                      GOG
                     </button>
                   )}
                   {sourceUrls.atlas && (

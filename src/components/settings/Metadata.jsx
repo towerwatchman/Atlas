@@ -7,6 +7,7 @@ const AVAILABLE_SOURCES = [
   { id: 'f95', label: 'F95Zone' },
   { id: 'lewdcorner', label: 'LewdCorner' },
   { id: 'steam', label: 'Steam' },
+  { id: 'gog', label: 'GOG' },
 ]
 
 const SOURCE_LABELS = Object.fromEntries(AVAILABLE_SOURCES.map((s) => [s.id, s.label]))
@@ -118,7 +119,7 @@ const SourceOrderList = ({ order, availableSources, labelFor, onMove, onRemove, 
 const Metadata = () => {
   const [mediaStorageMode, setMediaStorageMode] = useState('stream')
   const [downloadPreviews, setDownloadPreviews] = useState(false)
-  const [sourceOrder, setSourceOrder] = useState(['f95', 'lewdcorner', 'steam'])
+  const [sourceOrder, setSourceOrder] = useState(['f95', 'lewdcorner', 'steam', 'gog'])
   const [steamAssetSourceOrder, setSteamAssetSourceOrder] = useState(['fastly', 'akamaihd', 'getitems'])
   const [mediaDownloadConcurrency, setMediaDownloadConcurrency] = useState(3)
   const [mediaPerHostConcurrency, setMediaPerHostConcurrency] = useState(2)
@@ -133,7 +134,7 @@ const Metadata = () => {
       setDownloadPreviews(toBoolean(metadataSettings.downloadPreviews, false))
       const parsed = parseOrder(metadataSettings.sourceOrder)
       setSourceOrder(metadataSettings.sourceOrder === undefined || metadataSettings.sourceOrder === null
-        ? ['f95', 'lewdcorner', 'steam']
+        ? ['f95', 'lewdcorner', 'steam', 'gog']
         : parsed)
       const parsedSteamAssetOrder = parseOrder(metadataSettings.steamAssetSourceOrder)
       setSteamAssetSourceOrder(

@@ -861,6 +861,13 @@ ${lewdCornerSelectFields}
         ${localMediaAssetSelect(baseImagePath, "steam_hero", "steam_data.library_hero")} as steam_library_hero,
         ${localMediaAssetSelect(baseImagePath, "steam_cover", "steam_data.library_capsule")} as steam_library_capsule,
         ${localMediaAssetSelect(baseImagePath, "steam_logo", "steam_data.logo")} as steam_logo,
+        ${localMediaAssetSelect(baseImagePath, "gog_header", "gog_data.header")} as gog_header,
+        ${localMediaAssetSelect(baseImagePath, "gog_hero", "gog_data.library_hero")} as gog_library_hero,
+        ${localMediaAssetSelect(baseImagePath, "gog_cover", "gog_data.library_capsule")} as gog_library_capsule,
+        ${localMediaAssetSelect(baseImagePath, "gog_logo", "gog_data.logo")} as gog_logo,
+        gog_mappings.gog_id as gog_id,
+        gog_data.release_date AS gog_release_date,
+        gog_data.developer AS gog_developer,
         GROUP_CONCAT(tags.tag) AS tags
       FROM
         games
@@ -874,6 +881,9 @@ ${bannerJoinClauses}
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
       LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
         OR (steam_mappings.steam_id IS NULL AND atlas_mappings.atlas_id IS NOT NULL AND steam_data.atlas_id = atlas_mappings.atlas_id)
+      LEFT JOIN gog_mappings ON games.record_id = gog_mappings.record_id
+      LEFT JOIN gog_data ON gog_mappings.gog_id = gog_data.gog_id
+        OR (gog_mappings.gog_id IS NULL AND atlas_mappings.atlas_id IS NOT NULL AND gog_data.atlas_id = atlas_mappings.atlas_id)
       LEFT JOIN tag_mappings ON games.record_id = tag_mappings.record_id
       LEFT JOIN tags ON tag_mappings.tag_id = tags.tag_id
       WHERE games.record_id = ?
@@ -1000,6 +1010,13 @@ ${lewdCornerSelectFields}
         ${localMediaAssetSelect(baseImagePath, "steam_hero", "steam_data.library_hero")} as steam_library_hero,
         ${localMediaAssetSelect(baseImagePath, "steam_cover", "steam_data.library_capsule")} as steam_library_capsule,
         ${localMediaAssetSelect(baseImagePath, "steam_logo", "steam_data.logo")} as steam_logo,
+        ${localMediaAssetSelect(baseImagePath, "gog_header", "gog_data.header")} as gog_header,
+        ${localMediaAssetSelect(baseImagePath, "gog_hero", "gog_data.library_hero")} as gog_library_hero,
+        ${localMediaAssetSelect(baseImagePath, "gog_cover", "gog_data.library_capsule")} as gog_library_capsule,
+        ${localMediaAssetSelect(baseImagePath, "gog_logo", "gog_data.logo")} as gog_logo,
+        gog_mappings.gog_id as gog_id,
+        gog_data.release_date AS gog_release_date,
+        gog_data.developer AS gog_developer,
         GROUP_CONCAT(tags.tag) AS tags
       FROM
         games
@@ -1013,6 +1030,9 @@ ${bannerJoinClauses}
       LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
       LEFT JOIN steam_data ON steam_mappings.steam_id = steam_data.steam_id
         OR (steam_mappings.steam_id IS NULL AND atlas_mappings.atlas_id IS NOT NULL AND steam_data.atlas_id = atlas_mappings.atlas_id)
+      LEFT JOIN gog_mappings ON games.record_id = gog_mappings.record_id
+      LEFT JOIN gog_data ON gog_mappings.gog_id = gog_data.gog_id
+        OR (gog_mappings.gog_id IS NULL AND atlas_mappings.atlas_id IS NOT NULL AND gog_data.atlas_id = atlas_mappings.atlas_id)
       LEFT JOIN tag_mappings ON games.record_id = tag_mappings.record_id
       LEFT JOIN tags ON tag_mappings.tag_id = tags.tag_id
       GROUP BY games.record_id
@@ -1488,11 +1508,19 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           MIN(steam_data.library_hero) as steam_library_hero,
           MIN(steam_data.library_capsule) as steam_library_capsule,
           MIN(steam_data.logo) as steam_logo,
+          MIN(gog_data.header) as gog_header,
+          MIN(gog_data.library_hero) as gog_library_hero,
+          MIN(gog_data.library_capsule) as gog_library_capsule,
+          MIN(gog_data.logo) as gog_logo,
+          MIN(gog_data.gog_id) as gog_id,
+          MIN(gog_data.release_date) AS gog_release_date,
+          MIN(gog_data.developer) AS gog_developer,
           '' AS tags
         FROM atlas_data
         LEFT JOIN f95_zone_data ON atlas_data.atlas_id = f95_zone_data.atlas_id
         LEFT JOIN lewdcorner_data ON atlas_data.atlas_id = lewdcorner_data.atlas_id
         LEFT JOIN steam_data ON atlas_data.atlas_id = steam_data.atlas_id
+        LEFT JOIN gog_data ON atlas_data.atlas_id = gog_data.atlas_id
         GROUP BY atlas_data.atlas_id
       ),
       atlas_branch AS (
@@ -1573,6 +1601,13 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           steam_data.library_hero as steam_library_hero,
           steam_data.library_capsule as steam_library_capsule,
           steam_data.logo as steam_logo,
+          NULL as gog_header,
+          NULL as gog_library_hero,
+          NULL as gog_library_capsule,
+          NULL as gog_logo,
+          NULL as gog_id,
+          NULL AS gog_release_date,
+          NULL AS gog_developer,
           steam_data.tags AS tags
         FROM steam_data
         LEFT JOIN atlas_data ON steam_data.atlas_id = atlas_data.atlas_id
@@ -1585,6 +1620,96 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           local_record_id AS installedRecordId,
           CASE WHEN local_record_id IS NOT NULL THEN 1 ELSE 0 END AS is_installed
         FROM steam_branch_base
+      ),
+      gog_branch_base AS (
+        SELECT
+          'catalog:gog:' || gog_data.gog_id as record_id,
+          'gog:' || gog_data.gog_id as catalogKey,
+          COALESCE(
+            (SELECT MIN(gm.record_id) FROM gog_mappings gm WHERE gm.gog_id = gog_data.gog_id),
+            (SELECT MIN(am.record_id) FROM atlas_mappings am WHERE gog_data.atlas_id IS NOT NULL AND am.atlas_id = gog_data.atlas_id)
+          ) AS local_record_id,
+          'gog' as source,
+          NULL as atlas_id,
+          NULL as steam_id,
+          NULL as lc_id,
+          NULL as lcId,
+          NULL as lewdCornerId,
+          gog_data.title as title,
+          COALESCE(NULLIF(gog_data.developer, ''), gog_data.publisher) as creator,
+          gog_data.engine as engine,
+          gog_data.overview as description,
+          0 as total_playtime,
+          0 as last_played_r,
+          '' as last_played_version,
+          COALESCE(gog_data.header, gog_data.library_hero) AS banner_url,
+          CASE WHEN COALESCE(gog_data.header, gog_data.library_hero) IS NOT NULL THEN 'stream' ELSE '' END AS banner_source,
+          0 AS has_downloaded_banner,
+          NULL as f95_id,
+          CASE WHEN gog_data.gog_id IS NOT NULL THEN 'https://www.gog.com/game/' || gog_data.gog_id ELSE NULL END as siteUrl,
+          NULL as views,
+          NULL as likes,
+          gog_data.tags as f95_tags,
+          NULL as rating,
+          NULL as lewdCornerSiteUrl,
+          NULL as lewdCornerBannerUrl,
+          NULL as lewdcornerTags,
+          NULL as lewdcornerRating,
+          NULL as lewdcornerViews,
+          NULL as lewdcornerLikes,
+          NULL as lewdcornerTier,
+          NULL as lewdcornerPrefixes,
+          NULL as lewdcornerThreadUpdated,
+          NULL as lewdcornerRegisterDate,
+          gog_data.release_state as status,
+          NULL as latestVersion,
+          gog_data.category AS category,
+          gog_data.censored AS censored,
+          gog_data.genre AS genre,
+          gog_data.language AS language,
+          gog_data.os AS os,
+          gog_data.overview AS overview,
+          gog_data.translations AS translations,
+          gog_data.release_date AS release_date,
+          NULL AS atlas_last_record_update,
+          NULL AS steam_release_date,
+          NULL AS thread_updated,
+          gog_data.release_date AS thread_publish_date,
+          NULL AS f95_latest_order,
+          NULL AS f95_last_record_update,
+          gog_data.voice AS voice,
+          gog_data.publisher AS publisher,
+          NULL AS steam_developer,
+          gog_data.title AS short_name,
+          '{"gog_id":"' || gog_data.gog_id || '"}' as external_ids,
+          NULL as atlas_banner_wide,
+          NULL as atlas_banner,
+          NULL as atlas_logo,
+          NULL as f95_banner,
+          NULL as lewdcorner_banner,
+          NULL as steam_header,
+          NULL as steam_library_hero,
+          NULL as steam_library_capsule,
+          NULL as steam_logo,
+          gog_data.header as gog_header,
+          gog_data.library_hero as gog_library_hero,
+          gog_data.library_capsule as gog_library_capsule,
+          gog_data.logo as gog_logo,
+          gog_data.gog_id as gog_id,
+          gog_data.release_date AS gog_release_date,
+          gog_data.developer AS gog_developer,
+          gog_data.tags AS tags
+        FROM gog_data
+        LEFT JOIN atlas_data ON gog_data.atlas_id = atlas_data.atlas_id
+        WHERE gog_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL
+      ),
+      gog_branch AS (
+        SELECT
+          *,
+          local_record_id AS localRecordId,
+          local_record_id AS installedRecordId,
+          CASE WHEN local_record_id IS NOT NULL THEN 1 ELSE 0 END AS is_installed
+        FROM gog_branch_base
       ),
       lewdcorner_branch_base AS (
         SELECT
@@ -1653,6 +1778,13 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           NULL as steam_library_hero,
           NULL as steam_library_capsule,
           NULL as steam_logo,
+          NULL as gog_header,
+          NULL as gog_library_hero,
+          NULL as gog_library_capsule,
+          NULL as gog_logo,
+          NULL as gog_id,
+          NULL AS gog_release_date,
+          NULL AS gog_developer,
           lewdcorner_data.tags AS tags
         FROM lewdcorner_data
         LEFT JOIN atlas_data ON lewdcorner_data.atlas_id = atlas_data.atlas_id
@@ -1669,6 +1801,8 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       SELECT * FROM atlas_branch
       UNION ALL
       SELECT * FROM steam_branch
+      UNION ALL
+      SELECT * FROM gog_branch
       UNION ALL
       SELECT * FROM lewdcorner_branch
     `;

@@ -425,11 +425,12 @@ const upsertMediaAsset = ({ recordId, source, assetType, path: assetPath, origin
   });
 };
 
-const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId, sourceOrder } = {}) => {
+const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, gogId, lcId, sourceOrder } = {}) => {
   return new Promise((resolve, reject) => {
     const atlasParam = atlasId || null;
     const f95Param = f95Id || null;
     const steamParam = steamId || null;
+    const gogParam = gogId || null;
     const lcParam = lcId || null;
     const query = `
       SELECT source, url_blob, sort_order FROM (
@@ -453,6 +454,12 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId, sourceOrder } = {
         JOIN steam_data ON steam_screens.steam_id = steam_data.steam_id
         WHERE (? IS NOT NULL AND steam_screens.steam_id = ?)
            OR (? IS NOT NULL AND steam_data.atlas_id = ?)
+        UNION ALL
+        SELECT 'gog_screens' AS source, gog_screens.screen_url AS url_blob, 4 AS sort_order
+        FROM gog_screens
+        JOIN gog_data ON gog_screens.gog_id = gog_data.gog_id
+        WHERE (? IS NOT NULL AND gog_screens.gog_id = ?)
+           OR (? IS NOT NULL AND gog_data.atlas_id = ?)
       )
       WHERE url_blob IS NOT NULL AND TRIM(url_blob) != ''
       ORDER BY sort_order
@@ -467,6 +474,8 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId, sourceOrder } = {
         atlasParam, atlasParam,
         atlasParam, atlasParam,
         steamParam, steamParam,
+        atlasParam, atlasParam,
+        gogParam, gogParam,
         atlasParam, atlasParam,
       ],
       (err, rows) => {
@@ -494,11 +503,13 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId, sourceOrder } = {
         const lewdCornerRows = (rows || []).filter((row) => row.source === "lewdcorner_screens");
         const atlasRows = (rows || []).filter((row) => row.source === "atlas_previews");
         const steamRows = (rows || []).filter((row) => row.source === "steam_screens");
+        const gogRows = (rows || []).filter((row) => row.source === "gog_screens");
 
         f95Rows.forEach((row) => addUrl("f95", row.url_blob));
         lewdCornerRows.forEach((row) => parsePreviewList(row.url_blob).forEach((url) => addUrl("lewdcorner", url)));
         atlasRows.forEach((row) => addUrl("atlas", row.url_blob));
         steamRows.forEach((row) => addUrl("steam", row.url_blob));
+        gogRows.forEach((row) => addUrl("gog", row.url_blob));
 
         getDb().get(
           `SELECT f95_zone_data.screens, lewdcorner_data.screens AS lewdcorner_screens, atlas_data.previews
@@ -522,7 +533,7 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, lcId, sourceOrder } = {
 
             console.log(
               `Browse preview URLs resolved: atlasId=${atlasId || "none"} ` +
-              `f95Id=${f95Id || "none"} lcId=${lcId || "none"} steamId=${steamId || "none"} ` +
+              `f95Id=${f95Id || "none"} lcId=${lcId || "none"} steamId=${steamId || "none"} gogId=${gogId || "none"} ` +
               `count=${entries.length} invalid=${invalidCount}`,
             );
             resolve(selectPreviewUrlsBySource(entries, sourceOrder));
@@ -579,12 +590,36 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
            OR atlas_data.external_ids LIKE '%"steam_appid": "' || steam_screens.steam_id || '"%'
            OR atlas_data.external_ids LIKE '%"steam_id":"' || steam_screens.steam_id || '"%'
            OR atlas_data.external_ids LIKE '%"steam_id": "' || steam_screens.steam_id || '"%'
+        UNION
+        SELECT 'gog' AS source, gog_movies.movie_url AS url, 1 AS sort_order
+        FROM gog_movies
+        JOIN gog_data movie_gog_data ON gog_movies.gog_id = movie_gog_data.gog_id
+        JOIN games ON games.record_id = ?
+        LEFT JOIN gog_mappings ON games.record_id = gog_mappings.record_id
+        LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+        LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+        WHERE gog_movies.gog_id = gog_mappings.gog_id
+           OR movie_gog_data.atlas_id = atlas_mappings.atlas_id
+           OR atlas_data.external_ids LIKE '%"gog_id":"' || gog_movies.gog_id || '"%'
+           OR atlas_data.external_ids LIKE '%"gog_id": "' || gog_movies.gog_id || '"%'
+        UNION
+        SELECT 'gog' AS source, gog_screens.screen_url AS url, 1 AS sort_order
+        FROM gog_screens
+        JOIN gog_data screen_gog_data ON gog_screens.gog_id = screen_gog_data.gog_id
+        JOIN games ON games.record_id = ?
+        LEFT JOIN gog_mappings ON games.record_id = gog_mappings.record_id
+        LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+        LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+        WHERE gog_screens.gog_id = gog_mappings.gog_id
+           OR screen_gog_data.atlas_id = atlas_mappings.atlas_id
+           OR atlas_data.external_ids LIKE '%"gog_id":"' || gog_screens.gog_id || '"%'
+           OR atlas_data.external_ids LIKE '%"gog_id": "' || gog_screens.gog_id || '"%'
       )
       WHERE url IS NOT NULL AND TRIM(url) != ''
       ORDER BY sort_order
     `;
 
-    getDb().all(query, [recordId, recordId, recordId, recordId, recordId], (err, rows) => {
+    getDb().all(query, [recordId, recordId, recordId, recordId, recordId, recordId, recordId], (err, rows) => {
       if (err) {
         reject(err);
         return;

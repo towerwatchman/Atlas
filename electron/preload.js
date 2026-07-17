@@ -377,6 +377,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSteamGameData: (steamId) =>
     ipcRenderer.invoke("get-steam-game-data", steamId),
 
+  startGogScan: (params) => ipcRenderer.invoke("start-gog-scan", params),
+  selectGogDirectory: () => {
+    console.log("Invoking selectGogDirectory");
+    return ipcRenderer.invoke("select-gog-directory");
+  },
+  onPromptGogDirectory: (callback) => {
+    console.log("Registering onPromptGogDirectory listener");
+    ipcRenderer.on("prompt-gog-directory", (event) => callback());
+  },
+  getGogGameData: (gogId) =>
+    ipcRenderer.invoke("get-gog-game-data", gogId),
+
   // ── Site accounts (F95 / LewdCorner auth for gated media) ────────────────
   listAccounts: () => ipcRenderer.invoke("accounts-list"),
   verifyAccount: (payload) => ipcRenderer.invoke("accounts-verify", payload),

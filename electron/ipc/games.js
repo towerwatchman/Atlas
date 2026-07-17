@@ -8,6 +8,7 @@ const cp = require('child_process')
 const { recordGameLaunchStarted, recordGamePlaytime } = require('../db/games')
 const { getEmulatorByExtension } = require('../db/settings')
 const { getSteamIDbyRecord } = require('../db/steam')
+const { getGogIDbyRecord } = require('../db/gog')
 const { applyMediaSources } = require('../db/mediaSources')
 const { calculatePathSize } = require('../pathSize')
 const { runDatabaseAudit, getInvalidMappingCount } = require('../db/audit')
@@ -65,6 +66,16 @@ async function launchGame({ execPath, gamePath, extension, recordId, version }) 
     if (steamId) {
       await startPlaySession(recordId, version, false)
       shell.openExternal(`steam://run/${steamId}`)
+      return
+    }
+  }
+  // GOG launch: when there's no local executable, hand off to GOG Galaxy via its
+  // protocol handler so installed GOG games launch the same way Steam ones do.
+  if (!hasExecutable && recordId) {
+    const gogId = await getGogIDbyRecord(recordId)
+    if (gogId) {
+      await startPlaySession(recordId, version, false)
+      shell.openExternal(`goggalaxy://openGameView/${gogId}`)
       return
     }
   }

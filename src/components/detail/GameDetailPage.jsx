@@ -249,6 +249,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             f95_id: game.f95_id,
             lc_id: game.lc_id || game.lcId,
             steam_id: game.steam_id || game.steam_appid,
+            gog_id: game.gog_id || game.gog_appid,
           })
           const safeUrls = Array.isArray(urls) ? urls : []
           const snapshotPreviews = splitPreviewUrls(game.preview_urls || game.previewUrls)
