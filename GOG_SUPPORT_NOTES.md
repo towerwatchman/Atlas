@@ -67,3 +67,34 @@ integration.
   boxart use concrete size suffixes.
 - scripts/gog-api-probe.js: NEW helper to dump a real GOG product response so
   image URL building can be verified against ground truth.
+
+## Fix round 4 (images verified against real GOG API)
+Confirmed via scripts/gog-api-probe.js against a live product:
+- v1 data.images gives CONCRETE .jpg/.png urls (background, logo, logo2x, icon).
+  No {formatter}/resize token needed for these — removed bogus size suffixes.
+- v1 has NO boxArtImage/galaxyBackground. Those live in v2 _links
+  (galaxyBackgroundImage, boxArtImage, logo) as concrete hrefs.
+- Screenshots carry a formatted_images[] array of concrete urls at named sizes;
+  now pick the largest (ggvgl_2x -> ... -> ggvgt) instead of substituting the
+  template.
+Result mapping:
+- header/logo   <- images.logo2x (or v2 _links.logo)
+- library_hero  <- v2 galaxyBackgroundImage/backgroundImage, else v1 background
+- library_capsule <- v2 boxArtImage (portrait), else hero/logo fallback
+- screenshots   <- formatted_images ggvgl_2x
+
+## Fix round 5 (v2-primary, full metadata)
+Rewrote getGogGameData to use the v2 endpoint as the PRIMARY source (v1 is now
+only a fallback), verified against a real v2 response:
+- logo    <- v2 _links.logo.href (real logo)
+- hero    <- v2 _links.galaxyBackgroundImage.href (then backgroundImage, then v1)
+- capsule <- v2 _links.boxArtImage.href (portrait)
+- header/banner <- v2 _embedded.product._links.image (templated) formatter "800"
+- screenshots <- v2 _embedded.screenshots[]._links.self (templated), first *_2x
+- description/overview <- v2 top-level description/overview (HTML)
+- developer/publisher <- v2 _embedded.developers / publishers
+- genre <- v2 _embedded.properties (curated), tags <- _embedded.tags
+- languages (text/voice) <- v2 _embedded.localizations scopes
+- os <- v2 _embedded.supportedOperatingSystems
+- release_date <- product.globalReleaseDate / gogReleaseDate
+- censored <- inferred from esrbRating/uskRating age
