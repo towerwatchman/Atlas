@@ -112,13 +112,49 @@ export const getMappedSteamAppId = (game = {}) => {
 // or an external id.
 export const isSteamGame = (game = {}) => !!getSteamAppId(game)
 
+const cleanGogId = (value) => {
+  const match = String(value || '').trim().match(/^\d+$/)
+  return match ? match[0] : ''
+}
+
+export const getGogId = (game = {}) => {
+  const externalIds = parseExternalIds(game.external_ids ?? game.externalIds)
+  const candidates = [
+    game.gog_id,
+    game.gog_appid,
+    game.gogId,
+    game.gogAppId,
+    externalIds.gog_id,
+    externalIds.gog_appid,
+    externalIds.gogId,
+  ]
+  for (const candidate of candidates) {
+    const id = cleanGogId(candidate)
+    if (id) return id
+  }
+  return ''
+}
+
+export const getMappedGogId = (game = {}) => {
+  if (game.isCatalogEntry === true || game.isWishlistEntry === true || game.isMetadataOnly === true) return ''
+  const candidates = [game.gog_id, game.gog_appid, game.gogId, game.gogAppId]
+  for (const candidate of candidates) {
+    const id = cleanGogId(candidate)
+    if (id) return id
+  }
+  return ''
+}
+
+// True when the record has GOG metadata available.
+export const isGogGame = (game = {}) => !!getGogId(game)
+
 // Developer should prefer the real developer. games.creator is sometimes a
 // placeholder ("Unknown") or the publisher captured at import time, so fall back
 // to the enriched steam_data.developer when creator is missing/placeholder.
 export const resolveDeveloper = (game = {}) => {
   const creator = String(game.creator || '').trim()
   if (creator && creator.toLowerCase() !== 'unknown') return creator
-  return String(game.steam_developer || '').trim()
+  return String(game.steam_developer || game.gog_developer || '').trim()
 }
 
 // Language lists from Steam can be enormous. Collapse anything over the cap to a
@@ -205,7 +241,9 @@ export const formatReleaseDate = (game = {}) => {
     }
   }
   const steam = String(game.steam_release_date || '').trim()
-  return steam || null
+  if (steam) return steam
+  const gog = String(game.gog_release_date || '').trim()
+  return gog || null
 }
 
 export const LAUNCH_STATE = { IDLE: 'idle', LAUNCHING: 'launching', RUNNING: 'running' }

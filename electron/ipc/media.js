@@ -285,6 +285,7 @@ module.exports = function registerMediaHandlers(ctx) {
         f95Id: record.f95Id ?? record.f95_id,
         lcId: record.lcId ?? record.lc_id ?? record.lewdCornerId ?? record.lewdcornerId,
         steamId: record.steamId ?? record.steam_id ?? record.steam_appid,
+        gogId: record.gogId ?? record.gog_id ?? record.gog_appid,
         sourceOrder: getMetadataSourceOrder(),
       })
       return orderPreviewsBySource(Array.isArray(urls) ? urls : [], getMetadataSourceOrder())

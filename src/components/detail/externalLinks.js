@@ -27,6 +27,8 @@ const ensureScheme = (value) => {
 const LINK_DEFS = {
   steam_appid: { label: 'Steam', url: (v) => `https://store.steampowered.com/app/${v}` },
   steam_id: { label: 'Steam', url: (v) => `https://store.steampowered.com/app/${v}` },
+  gog_id: { label: 'GOG', url: (v) => `https://www.gog.com/game/${v}` },
+  gog_appid: { label: 'GOG', url: (v) => `https://www.gog.com/game/${v}` },
   lc_id: { label: 'LewdCorner', url: (v) => `https://lewdcorner.com/threads/${v}/` },
   lewdcorner_id: { label: 'LewdCorner', url: (v) => `https://lewdcorner.com/threads/${v}/` },
   lewdcorner_url: { label: 'LewdCorner', url: (v) => ensureScheme(v) },
@@ -43,6 +45,8 @@ const LINK_DEFS = {
 const ICONS = {
   steam_appid: 'fab fa-steam',
   steam_id: 'fab fa-steam',
+  gog_id: 'fab fa-gg',
+  gog_appid: 'fab fa-gg',
   lc_id: 'fas fa-link',
   lewdcorner_id: 'fas fa-link',
   lewdcorner_url: 'fas fa-link',

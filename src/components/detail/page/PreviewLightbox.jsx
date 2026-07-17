@@ -46,6 +46,18 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
 
   const current = previews[lightboxIndex]
   const isVideo = /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(current || ''))
+  // GOG trailers are stored as YouTube embed URLs (no file extension); play them
+  // inline via an <iframe> rather than the <video> element.
+  const youTubeEmbed = (() => {
+    const u = String(current || '')
+    let id = ''
+    const embed = u.match(/youtube\.com\/embed\/([A-Za-z0-9_-]{6,})/i)
+    const watch = u.match(/[?&]v=([A-Za-z0-9_-]{6,})/i)
+    const short = u.match(/youtu\.be\/([A-Za-z0-9_-]{6,})/i)
+    id = (embed && embed[1]) || (watch && watch[1]) || (short && short[1]) || ''
+    return id ? `https://www.youtube.com/embed/${id}?autoplay=1&rel=0` : ''
+  })()
+  const isYouTube = !!youTubeEmbed
   const fit = fitSize(natural, vp)
 
   // Once measured, lock to the exact fitted rectangle; before measuring, cap at
@@ -95,7 +107,19 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
 
       {/* Media — sized to the fitted rectangle so empty space around it is the
           backdrop, which closes the viewer on click. */}
-      {isVideo ? (
+      {isYouTube ? (
+        <iframe
+          src={youTubeEmbed}
+          title={`Trailer ${lightboxIndex + 1}`}
+          allow="accelerated-download; autoplay; encrypted-media; picture-in-picture"
+          allowFullScreen
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            ...(fit ? { width: fit.width, height: fit.height, margin: 'auto' } : { width: 'min(90vw, 960px)', height: 'min(90vh, 540px)', margin: 'auto' }),
+            display: 'block', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)', background: '#000',
+          }}
+        />
+      ) : isVideo ? (
         <video
           src={toMediaSrc(current)}
           controls

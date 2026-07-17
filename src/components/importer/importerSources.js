@@ -3,6 +3,7 @@ import atlasLogo from '../../assets/icons/atlas_logo.svg'
 export const IMPORTER_SOURCE_IDS = {
   ATLAS: 'atlas',
   STEAM: 'steam',
+  GOG: 'gog',
   RENPY: 'renpy',
 }
 
@@ -20,6 +21,13 @@ export const importerSources = [
     description: 'Scan installed Steam games',
     iconType: 'font',
     icon: 'fab fa-steam',
+  },
+  {
+    id: IMPORTER_SOURCE_IDS.GOG,
+    label: 'GOG Library',
+    description: 'Scan installed GOG / Galaxy games',
+    iconType: 'font',
+    icon: 'fab fa-gg',
   },
   {
     id: IMPORTER_SOURCE_IDS.RENPY,

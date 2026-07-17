@@ -540,6 +540,63 @@ const initializeDatabase = (dataDir) => {
     UNIQUE (record_id, steam_id)
   );
 `);
+    db.run(`
+  CREATE TABLE IF NOT EXISTS gog_data
+  (
+    gog_id INTEGER PRIMARY KEY,
+    atlas_id INTEGER REFERENCES atlas_data (atlas_id),
+    title TEXT,
+    category TEXT,
+    engine TEXT,
+    developer TEXT,
+    publisher TEXT,
+    overview TEXT,
+    censored TEXT,
+    language TEXT,
+    translations TEXT,
+    genre TEXT,
+    tags TEXT,
+    voice TEXT,
+    os TEXT,
+    release_state TEXT,
+    release_date TEXT,
+    header TEXT,
+    library_hero TEXT,
+    library_capsule TEXT,
+    logo TEXT,
+    last_record_update TEXT,
+    type STRING
+  );
+`);
+    db.run(`
+  CREATE TABLE IF NOT EXISTS gog_screens
+  (
+    gog_id INTEGER REFERENCES gog_data (gog_id),
+    screen_url TEXT NOT NULL,
+    UNIQUE (gog_id, screen_url)
+  );
+`);
+    db.run(`
+  CREATE TABLE IF NOT EXISTS gog_movies
+  (
+    gog_id INTEGER REFERENCES gog_data (gog_id),
+    movie_url TEXT NOT NULL,
+    thumbnail TEXT,
+    name TEXT,
+    provider TEXT,
+    UNIQUE (gog_id, movie_url)
+  );
+`);
+    db.run(`
+  CREATE TABLE IF NOT EXISTS gog_mappings
+  (
+    record_id INTEGER REFERENCES games (record_id) PRIMARY KEY,
+    gog_id INTEGER REFERENCES gog_data (gog_id),
+    UNIQUE (record_id, gog_id)
+  );
+`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_gog_data_atlas_id ON gog_data(atlas_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_gog_mappings_gog_id ON gog_mappings(gog_id);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_versions_game_path ON versions(game_path);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_versions_record_version ON versions(record_id, version);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_mappings_atlas_id ON atlas_mappings(atlas_id);`);
@@ -651,6 +708,7 @@ function sweepOrphanedRecords() {
     "f95_zone_mappings",
     "lewdcorner_mappings",
     "steam_mappings",
+    "gog_mappings",
     "game_personal_ratings",
   ];
   for (const tbl of childTables) {

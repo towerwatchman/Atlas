@@ -107,6 +107,7 @@ const Importer = () => {
   const deletedScanGameKeysRef = useRef(new Set())
   const matchCancelRef = useRef(false)
   const steamScanActiveRef = useRef(false)
+  const gogScanActiveRef = useRef(false)
   const currentScanIdRef = useRef(null)
   const lastSourceSelectionRef = useRef({ source: null, at: 0 })
   const [isScanActive, setIsScanActive] = useState(false)
@@ -139,6 +140,11 @@ const Importer = () => {
     game.sourceType === 'steam' ||
     game.scanStatus === 'steamVersion' ||
     /^\d+$/.test(String(game.steamId || game.steam_id || game.steam_appid || game.appid || '').trim())
+  )
+  const isGogImportRow = (game = {}) => (
+    game.sourceType === 'gog' ||
+    game.scanStatus === 'gogVersion' ||
+    Boolean(game.gogId || game.gog_id || game.gog_appid)
   )
 
   const normalizeMatchState = (game = {}) => {
@@ -753,6 +759,20 @@ const Importer = () => {
       }
     })
 
+    // GOG equivalent: when no installed GOG games are found, ask the user to
+    // point us at their GOG Games folder or Galaxy storage folder.
+    window.electronAPI.onPromptGogDirectory?.(async () => {
+      if (!gogScanActiveRef.current) return
+      gogScanActiveRef.current = false
+      const selected = await window.electronAPI.selectGogDirectory()
+      if (selected) {
+        startGogScan(selected)
+      } else {
+        alert('No GOG games found and no GOG directory selected.')
+        setView('source')
+      }
+    })
+
     window.electronAPI.onUpdateProgress((prog) => {
       console.log(`Update progress: ${JSON.stringify(prog)}`)
       setUpdateProgress(prog)
@@ -761,7 +781,7 @@ const Importer = () => {
     loadConfig()
 
     return () => {
-      ;['window-state-changed', 'scan-progress', 'scan-complete', 'scan-complete-final', 'update-progress', 'prompt-steam-directory']
+      ;['window-state-changed', 'scan-progress', 'scan-complete', 'scan-complete-final', 'update-progress', 'prompt-steam-directory', 'prompt-gog-directory']
         .forEach((ch) => window.electronAPI.removeAllListeners(ch))
     }
   }, [])
@@ -1031,6 +1051,29 @@ const Importer = () => {
     }
   }
 
+  // Kick off a scan of the local GOG library (Galaxy DB + goggame-*.info files),
+  // emitted through the same scan channels as Steam so rows flow into ScanStep.
+  const startGogScan = async (gogPath = null) => {
+    currentScanIdRef.current = null
+    setImportMode('gog')
+    setScanPath(gogPath || 'GOG library')
+    setScanMessage('')
+    setProgressLabel('Scanning GOG')
+    setProgress(initialScanProgress)
+    setView('scan')
+    setIsScanActive(false)
+    setIsCancelingScan(false)
+    matchCancelRef.current = false
+    deletedScanGameKeysRef.current.clear()
+    clearScanRowSelection()
+    setGamesList([])
+    gogScanActiveRef.current = true
+    const result = await window.electronAPI.startGogScan(gogPath ? { gogPath } : {})
+    if (result && result.success === false && result.error) {
+      console.error(`GOG scan error: ${result.error}`)
+    }
+  }
+
   const startRenpyScan = async (renpyRoot = null) => {
     currentScanIdRef.current = null
     setImportMode('renpySaves')
@@ -1094,6 +1137,10 @@ const Importer = () => {
 
       if (safeSource === 'steam') {
         startSteamScan()
+        return
+      }
+      if (safeSource === 'gog') {
+        startGogScan()
         return
       }
       if (safeSource === 'renpy') {

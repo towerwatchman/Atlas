@@ -13,9 +13,11 @@ const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
         checkRecordExist, checkPathExist } = require('../db/atlas')
 const { getGame } = require('../db/versions')
 const { fetchAndStoreSteamData } = require('../scanners/steamscanner')
+const { fetchAndStoreGogData, startGogScan } = require('../scanners/gogscanner')
 const { findExecutables } = require("../scanners/executableScanner");
 const { getDefaultRenpySaveRoot, scanRenpySaveFolders } = require("../scanners/renpySaveScanner");
 const { findRecordBySteamId } = require('../db/steam')
+const { findRecordByGogId, addGogMapping, getGogIDbyRecord } = require('../db/gog')
 const {
   addLewdCornerMapping,
   findRecordByLewdCornerId,
@@ -208,6 +210,17 @@ function isSteamImportRow(game = {}) {
 
 const getSteamIdFromGame = (game = {}) =>
   toPositiveInteger(game.steamId || game.steam_id || game.steam_appid);
+
+function isGogImportRow(game = {}) {
+  return (
+    game.sourceType === "gog" ||
+    game.scanStatus === "gogVersion" ||
+    Boolean(game.gogId || game.gog_id || game.gog_appid)
+  );
+}
+
+const getGogIdFromGame = (game = {}) =>
+  toPositiveInteger(game.gogId || game.gog_id || game.gog_appid);
 
 const inferCatalogImportVersion = (sourcePath, catalog = {}) => {
   const candidates = [
@@ -1503,6 +1516,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
   const f95Id = toPositiveInteger(catalog.f95_id ?? catalog.f95Id);
   const lcId = getLewdCornerIdFromGame(catalog);
   const steamId = toPositiveInteger(catalog.steam_id ?? catalog.steamId ?? catalog.steam_appid);
+  const gogId = toPositiveInteger(catalog.gog_id ?? catalog.gogId ?? catalog.gog_appid);
 
   try {
     if (!rawSourcePath) {
@@ -1566,12 +1580,15 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
        SELECT record_id FROM f95_zone_mappings WHERE ? IS NOT NULL AND f95_id = ?
        UNION
        SELECT record_id FROM steam_mappings WHERE ? IS NOT NULL AND steam_id = ?
+       UNION
+       SELECT record_id FROM gog_mappings WHERE ? IS NOT NULL AND gog_id = ?
        LIMIT 1`,
-      [atlasId, atlasId, lcId, lcId, f95Id, f95Id, steamId, steamId],
+      [atlasId, atlasId, lcId, lcId, f95Id, f95Id, steamId, steamId, gogId, gogId],
     );
     if (mappingRow?.record_id) recordId = mappingRow.record_id;
     if (!recordId && lcId) recordId = await findRecordByLewdCornerId(lcId);
     if (!recordId && steamId) recordId = await findRecordBySteamId(steamId);
+    if (!recordId && gogId) recordId = await findRecordByGogId(gogId);
     if (!recordId) {
       const titleRow = await dbGet(
         db,
@@ -1732,6 +1749,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
     if (lcId) await addLewdCornerMapping(recordId, lcId);
     if (f95Id) await dbRun(db, `INSERT OR IGNORE INTO f95_zone_mappings (record_id, f95_id) VALUES (?, ?)`, [recordId, f95Id]);
     if (steamId) await addSteamMapping(recordId, steamId);
+    if (gogId) await addGogMapping(recordId, gogId);
 
     notify(`Saving ${importGame.title} ${version}...`, 85);
     await upsertVersion(
@@ -2215,6 +2233,7 @@ const makeRenpyImportRow = async (saveRow, searchAtlas, db) => {
     atlasId: "",
     f95Id: "",
     steamId: "",
+    gogId: "",
   };
 
   let matches = [];
@@ -2260,11 +2279,12 @@ const findExistingRenpyRecord = async (game, db) => {
   const f95Id = toPositiveInteger(game.f95Id || game.f95_id);
   const lcId = getLewdCornerIdFromGame(game);
   const steamId = toPositiveInteger(game.steamId || game.steam_id);
+  const gogId = toPositiveInteger(game.gogId || game.gog_id);
   const title = String(game.title || "").trim();
   const creator = String(game.creator || "Unknown").trim() || "Unknown";
   const engine = String(game.engine || "Ren'Py").trim() || "Ren'Py";
 
-  if (atlasId || f95Id || lcId || steamId) {
+  if (atlasId || f95Id || lcId || steamId || gogId) {
     const row = await dbGet(
       db,
       `SELECT record_id FROM atlas_mappings WHERE ? IS NOT NULL AND atlas_id = ?
@@ -2274,8 +2294,10 @@ const findExistingRenpyRecord = async (game, db) => {
        SELECT record_id FROM f95_zone_mappings WHERE ? IS NOT NULL AND f95_id = ?
        UNION
        SELECT record_id FROM steam_mappings WHERE ? IS NOT NULL AND steam_id = ?
+       UNION
+       SELECT record_id FROM gog_mappings WHERE ? IS NOT NULL AND gog_id = ?
        LIMIT 1`,
-      [atlasId, atlasId, lcId, lcId, f95Id, f95Id, steamId, steamId],
+      [atlasId, atlasId, lcId, lcId, f95Id, f95Id, steamId, steamId, gogId, gogId],
     );
     if (row?.record_id) return row;
     if (lcId) {
@@ -2405,6 +2427,7 @@ ipcMain.handle("import-renpy-save-games", async (event, games = []) => {
         );
       }
       if (row.steamId) await addSteamMapping(recordId, parseInt(row.steamId, 10));
+      if (row.gogId) await addGogMapping(recordId, parseInt(row.gogId, 10));
 
       const refreshedGame = await getGame(recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode()).catch(() => null);
       BrowserWindow.getAllWindows().forEach((win) => {
@@ -2429,6 +2452,10 @@ ipcMain.handle("cancel-scan", async () => {
 
 ipcMain.handle("get-steam-game-data", async (event, steamId) => {
   return await fetchAndStoreSteamData(db, steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder);
+});
+
+ipcMain.handle("get-gog-game-data", async (event, gogId) => {
+  return await fetchAndStoreGogData(db, gogId);
 });
 
 ipcMain.handle("search-atlas", async (event, params) => {
@@ -2760,8 +2787,10 @@ ipcMain.handle("import-games", async (event, params) => {
       game.version = normalizeVersionName(game.version);
       const steamImport = isSteamImportRow(game);
       const steamId = getSteamIdFromGame(game);
+      const gogImport = isGogImportRow(game);
+      const gogId = getGogIdFromGame(game);
       let gamePath = game.folder;
-      let execPath = steamImport
+      let execPath = (steamImport || gogImport)
         ? game.execPath || game.exec_path || ""
         : game.selectedValue
         ? path.join(game.folder, game.selectedValue)
@@ -2771,7 +2800,7 @@ ipcMain.handle("import-games", async (event, params) => {
       let archiveToDeleteAfterImport = null;
 
       // ── Structured move (non-archive) ───────────────────────────────────────
-      if (moveFoldersToLibrary && targetLibrary && !game.isArchive && !steamImport) {
+      if (moveFoldersToLibrary && targetLibrary && !game.isArchive && !steamImport && !gogImport) {
         let destinationPath = buildStructuredImportPath(
           targetLibrary,
           destinationFormat,
@@ -3047,6 +3076,16 @@ ipcMain.handle("import-games", async (event, params) => {
         if (steamMergeRecordId) recordId = steamMergeRecordId;
       }
 
+      // GOG merge: mirror the Steam behavior above for GOG product ids.
+      if (!recordId && gogId) {
+        const gogMergeRecordId =
+          (game.existingRecordId &&
+          ["gogVersion", "repairPath"].includes(String(game.scanStatus || ""))
+            ? game.existingRecordId
+            : null) || (await findRecordByGogId(gogId));
+        if (gogMergeRecordId) recordId = gogMergeRecordId;
+      }
+
       // Safety net: a replace whose existing record can't be resolved must NOT
       // fall through to addGame() (that is exactly what produced duplicate
       // titles). Skip it with a clear message instead.
@@ -3098,10 +3137,11 @@ ipcMain.handle("import-games", async (event, params) => {
         execPath,
         folderSize: game.folderSize || game.folder_size || null,
         deferFolderSizeCalculation: true,
-        in_place: steamImport ? 1 : game.in_place,
-        inPlace: steamImport ? true : game.inPlace || (!game.isArchive && !moveFoldersToLibrary),
-        sourceType: steamImport ? "steam" : game.sourceType,
+        in_place: (steamImport || gogImport) ? 1 : game.in_place,
+        inPlace: (steamImport || gogImport) ? true : game.inPlace || (!game.isArchive && !moveFoldersToLibrary),
+        sourceType: steamImport ? "steam" : gogImport ? "gog" : game.sourceType,
         steamId: steamId || game.steamId,
+        gogId: gogId || game.gogId,
       };
       let bulkReplaceRow = null;
       let bulkReplacePathAllowed = null;
@@ -3208,6 +3248,18 @@ ipcMain.handle("import-games", async (event, params) => {
         }
       }
 
+      // GOG-sourced rows carry a numeric product id. The mapping wires up
+      // launch, CDN art (mediaSources gogImages), and browse/detail rendering.
+      if (gogId) {
+        try {
+          await addGogMapping(recordId, gogId);
+          console.log("gog mapping added");
+        } catch (err) {
+          console.error("Failed to add gog mapping:", err);
+          throw err;
+        }
+      }
+
       if (game.replaceVersion) {
         const replacementResult = await replaceInstalledVersionAfterImport({
           recordId,
@@ -3288,6 +3340,7 @@ ipcMain.handle("import-games", async (event, params) => {
         recordId,
         atlasId: game.atlasId,
         steamId: steamId || game.steamId,
+        gogId: gogId || game.gogId,
         version: savedVersion,
       });
       session.cleanupPaths = [];
@@ -3365,6 +3418,22 @@ ipcMain.handle("import-games", async (event, params) => {
     })();
   }
 
+  // GOG equivalent of the Steam background enrichment above.
+  const gogToEnrich = results.filter((r) => r.success && r.gogId);
+  if (gogToEnrich.length > 0 && !shouldDownloadImportImages) {
+    ;(async () => {
+      for (const r of gogToEnrich) {
+        try {
+          await fetchAndStoreGogData(null, r.gogId);
+          mainWindow?.webContents?.send("game-updated", r.recordId);
+        } catch (err) {
+          console.error(`Background gog enrichment failed for ${r.gogId}:`, err);
+        }
+        await new Promise((res) => setTimeout(res, 800));
+      }
+    })();
+  }
+
   // Phase 2: Image downloads
   if (shouldDownloadImportImages) {
     progress = 0;
@@ -3388,6 +3457,7 @@ ipcMain.handle("import-games", async (event, params) => {
     const resolveImportMediaIdentifiers = async (recordId, importResult) => {
       const dbAtlasId = await GetAtlasIDbyRecord(recordId);
       const steamId = await getSteamIDbyRecord(recordId);
+      const gogId = await getGogIDbyRecord(recordId);
       let f95Id = null;
       if (dbAtlasId) {
         try {
@@ -3402,6 +3472,7 @@ ipcMain.handle("import-games", async (event, params) => {
         dbAtlasId,
         f95Id,
         steamId,
+        gogId,
       };
     };
     const sendImageTrace = (trace) => {
@@ -3474,7 +3545,7 @@ ipcMain.handle("import-games", async (event, params) => {
 
         const recordId = importedGame.recordId;
         const ids = await resolveImportMediaIdentifiers(recordId, importedGame);
-        const { dbAtlasId, f95Id, steamId } = ids;
+        const { dbAtlasId, f95Id, steamId, gogId } = ids;
 
         if (steamId) {
           try {
@@ -3484,7 +3555,15 @@ ipcMain.handle("import-games", async (event, params) => {
           }
         }
 
-        if (!dbAtlasId && !steamId) {
+        if (gogId) {
+          try {
+            await fetchAndStoreGogData(null, gogId);
+          } catch (gogErr) {
+            console.warn(`Import media trace: GOG metadata refresh failed for ${gogId}:`, gogErr);
+          }
+        }
+
+        if (!dbAtlasId && !steamId && !gogId) {
           progress++;
           imageSummary.processed++;
           imageSummary.skipped++;
@@ -3730,6 +3809,31 @@ ipcMain.handle("import-games", async (event, params) => {
 
 ipcMain.handle("start-steam-scan", async (event, params) => {
   return await startSteamScan(db, params, event);
+});
+
+ipcMain.handle("start-gog-scan", async (event, params) => {
+  return await startGogScan(db, params, event);
+});
+
+ipcMain.handle("select-gog-directory", async () => {
+  console.log("IPC select-gog-directory called");
+  try {
+    const result = await dialog.showOpenDialog({
+      properties: ["openDirectory"],
+      title: "Select GOG Games or Galaxy storage folder",
+      defaultPath: process.platform === "win32" ? "C:\\GOG Games" : undefined,
+    });
+    if (result.canceled) {
+      console.log("User canceled GOG directory selection");
+      return null;
+    }
+    const selectedPath = result.filePaths[0];
+    console.log(`User selected GOG directory: ${selectedPath}`);
+    return selectedPath;
+  } catch (err) {
+    console.error("Error selecting GOG directory:", err);
+    return null;
+  }
 });
 
 ipcMain.handle("select-steam-directory", async () => {
