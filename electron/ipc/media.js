@@ -421,8 +421,8 @@ module.exports = function registerMediaHandlers(ctx) {
     if (gogId) {
       let needsGog = true
       if (missingOnly) {
-        const row = await dbGetSafe(`SELECT title, header, overview FROM gog_data WHERE gog_id = ?`, [gogId])
-        needsGog = !row || !row.title || !row.header || !row.overview
+        const row = await dbGetSafe(`SELECT title, header, overview, store_url FROM gog_data WHERE gog_id = ?`, [gogId])
+        needsGog = !row || !row.title || !row.header || !row.overview || !row.store_url
       }
       if (needsGog) {
         try { await fetchAndStoreGogData(null, gogId) }

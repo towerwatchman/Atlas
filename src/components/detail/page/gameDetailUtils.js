@@ -234,10 +234,21 @@ export const splitCsv = (raw) =>
 export const formatReleaseDate = (game = {}) => {
   const atlas = game.release_date
   if (atlas !== null && atlas !== undefined && String(atlas).trim() !== '') {
-    const ts = parseInt(atlas, 10)
-    if (Number.isFinite(ts) && ts > 0) {
-      const d = new Date(ts * 1000)
-      if (!Number.isNaN(d.getTime())) return d.toISOString().split('T')[0]
+    const raw = String(atlas).trim()
+    // A YYYY-MM-DD (or YYYY-MM-DDThh...) string — e.g. GOG's release_date, or an
+    // atlas override entered as text. Return the date part verbatim; do NOT run
+    // it through parseInt (parseInt("1996-08-31") === 1996, which as a unix
+    // timestamp renders 1970-01-01 — the exact bug this guards against).
+    const isoMatch = raw.match(/^(\d{4}-\d{2}-\d{2})/)
+    if (isoMatch) return isoMatch[1]
+    // Otherwise treat it as a Unix timestamp in seconds (atlas' native form),
+    // but only when the value is purely numeric.
+    if (/^\d+$/.test(raw)) {
+      const ts = parseInt(raw, 10)
+      if (Number.isFinite(ts) && ts > 0) {
+        const d = new Date(ts * 1000)
+        if (!Number.isNaN(d.getTime())) return d.toISOString().split('T')[0]
+      }
     }
   }
   const steam = String(game.steam_release_date || '').trim()

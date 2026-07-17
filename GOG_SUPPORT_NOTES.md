@@ -131,3 +131,15 @@ only a fallback), verified against a real v2 response:
 - Detail page: the Refresh Media button opens the modal (per-game).
 - Nav "Updates" button: now opens the library refresh modal; confirming runs the
   online DB catalog sync AND a library-wide media refresh, then reloads lists.
+
+## Fix round 8 (release date + store link refresh)
+1. formatReleaseDate: GOG stores release_date as "YYYY-MM-DD" (folded into
+   release_date via COALESCE). The old code ran parseInt on it
+   (parseInt("1996-08-31")===1996 -> 1970-01-01). Now detects ISO date strings
+   and returns them verbatim; only purely-numeric values are treated as unix
+   timestamps. Fixes Daggerfall showing 1970-01-01.
+2. Store link: store_url is captured from v2 _links.store.href and persisted;
+   the detail-bar GOG button + external link both use it. Existing games have a
+   null store_url until refreshed. media.js 'missing' mode now also re-fetches
+   GOG when store_url is empty, so "Refresh missing" (not just "Refresh all")
+   repairs the stale /game/{numericId} links.
