@@ -8,6 +8,8 @@ const os = require("os");
 const dbIndex = require("../db/index");
 const liveDb = () => dbIndex.db;
 
+const { findExecutables } = require("./executableScanner");
+
 // ── GOG image CDN ────────────────────────────────────────────────────────────
 //
 // GOG serves per-product art from images.gog-statics.com as protocol-relative
@@ -24,23 +26,48 @@ const GOG_IMAGE_BASE = "https://images.gog-statics.com/";
 // Normalize a GOG image template/url into a concrete https url at the given
 // size suffix. GOG templates arrive as either a bare hash, a protocol-relative
 // "//images..." url, or a full url; and may or may not already carry a suffix.
-function gogImageUrl(template, suffix = "") {
+// Normalize any GOG image reference into a concrete, loadable https URL.
+// GOG hands back images in several shapes across its endpoints:
+//   1. Protocol-relative concrete file:  //images.gog-statics.com/<hash>.jpg
+//   2. Protocol-relative with size stub:  //images.gog-statics.com/<hash>_glx_logo_2x.jpg
+//   3. Bare hash (no scheme, no ext):     <hash>
+//   4. Formatter template:                //images.gog.com/<hash>_{formatter}.jpg
+//      or with .{ext}:                    //images.gog.com/<hash>.{formatter}
+// `formatter` is the concrete size token to substitute into {formatter} for
+// template URLs (screenshots use this); `suffix` is appended to a bare hash.
+function gogImageUrl(template, { suffix = "", formatter = "" } = {}) {
   if (!template) return "";
   let value = String(template).trim();
   if (!value) return "";
+
   // Protocol-relative -> https
   if (value.startsWith("//")) value = "https:" + value;
-  // Bare hash (no slash, no dot) -> build a CDN url
-  if (!/^https?:\/\//i.test(value) && !value.startsWith("//")) {
+  // Bare hash (no scheme, no slash) -> build a CDN url and append the size suffix
+  else if (!/^https?:\/\//i.test(value)) {
     value = GOG_IMAGE_BASE + value.replace(/^\/+/, "");
+    if (suffix && !/\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(value)) {
+      value = value.replace(/(_\d+)?$/, "") + suffix;
+    }
   }
+
   // Force https for mixed-content safety in the packaged renderer.
   value = value.replace(/^http:\/\//i, "https://");
-  // Apply a size suffix only when the template still ends at the hash (no
-  // extension yet). e.g. ".../<hash>" + "_glx_logo_2x.webp".
-  if (suffix && !/\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(value)) {
-    value = value.replace(/(_\d+)?$/, "") + suffix;
+
+  // Substitute the {formatter} / .{formatter} / {ext} placeholders GOG uses in
+  // its screenshot/formatter_template_url form. Without this the raw literal
+  // "{formatter}" ends up in the URL and the image 404s.
+  if (formatter) {
+    value = value
+      .replace(/\{formatter\}/gi, formatter)
+      .replace(/\{ext\}/gi, "jpg");
+  } else {
+    // No formatter given but the template still has a placeholder — pick a sane
+    // default so the URL at least resolves rather than shipping "{formatter}".
+    value = value
+      .replace(/\{formatter\}/gi, "ggvgm_2x")
+      .replace(/\{ext\}/gi, "jpg");
   }
+
   return value;
 }
 
@@ -52,132 +79,260 @@ function gogImageUrl(template, suffix = "") {
 async function getGogGameData(gogId) {
   const id = parseInt(gogId, 10);
   if (!id) return null;
+
+  // Fetch both endpoints. v2 is the richer, authoritative source (real logo,
+  // galaxy background, box art, templated banner + screenshots, dev/publisher,
+  // tags, OS, ratings); v1 is a fallback for anything v2 lacks.
+  let v1 = null;
+  let v2 = null;
   try {
-    const res = await fetch(
+    const v1res = await fetch(
       `https://api.gog.com/products/${id}?expand=description,screenshots,videos,downloads&locale=en-US`,
     );
-    if (!res.ok) {
-      console.log(`No valid GOG data for product ${id} (HTTP ${res.status})`);
-      return null;
-    }
-    const data = await res.json();
-    if (!data || !data.id) {
-      console.log(`No valid GOG data for product ${id}`);
-      return null;
-    }
+    if (v1res.ok) v1 = await v1res.json();
+  } catch (e) {
+    /* v1 optional */
+  }
+  try {
+    const v2res = await fetch(`https://api.gog.com/v2/games/${id}?locale=en-US`);
+    if (v2res.ok) v2 = await v2res.json();
+  } catch (e) {
+    /* v2 optional */
+  }
 
-    // Description: GOG returns HTML in description.full / description.lead.
+  if ((!v1 || !v1.id) && !v2) {
+    console.log(`No valid GOG data for product ${id}`);
+    return null;
+  }
+
+  try {
+    const v2Links = (v2 && v2._links) || {};
+    const emb = (v2 && v2._embedded) || {};
+    const product = emb.product || {};
+    const productLinks = product._links || {};
+
+    // Resolve a concrete URL from a v2 templated _links entry (href + formatters
+    // list). `pick` chooses the first matching formatter from the preference
+    // list, else the first formatter offered, and substitutes it into {formatter}.
+    const resolveTemplated = (linkObj, preferred = []) => {
+      if (!linkObj || !linkObj.href) return "";
+      const href = linkObj.href;
+      if (!/\{formatter\}/i.test(href)) return gogImageUrl(href);
+      const formatters = Array.isArray(linkObj.formatters) ? linkObj.formatters : [];
+      let chosen = preferred.find((p) => formatters.includes(p));
+      if (!chosen) chosen = formatters[0];
+      if (!chosen) return "";
+      return gogImageUrl(href, { formatter: chosen });
+    };
+    // Concrete (non-templated) v2 link href.
+    const linkHref = (obj) => gogImageUrl(obj && obj.href);
+
+    // ── Description / overview (HTML) ──────────────────────────────────────
+    // v2 carries description + overview at the top level; v1 nests it under
+    // description.full. Prefer the richer v2 text.
     const overview =
-      (data.description && (data.description.full || data.description.lead)) || "";
+      (v2 && (v2.description || v2.overview)) ||
+      (v1 && v1.description && (v1.description.full || v1.description.lead)) ||
+      "";
 
-    // OS support from content_system_compatibility.
-    const compat = data.content_system_compatibility || {};
-    const osArr = [];
-    if (compat.windows) osArr.push("Windows");
-    if (compat.osx) osArr.push("Mac");
-    if (compat.linux) osArr.push("Linux");
+    // ── OS support ─────────────────────────────────────────────────────────
+    let osArr = [];
+    if (Array.isArray(emb.supportedOperatingSystems) && emb.supportedOperatingSystems.length) {
+      osArr = emb.supportedOperatingSystems
+        .map((o) => {
+          const name = o && o.operatingSystem && (o.operatingSystem.versions || o.operatingSystem.name);
+          return name ? String(name) : "";
+        })
+        .filter(Boolean);
+    } else if (v1 && v1.content_system_compatibility) {
+      const compat = v1.content_system_compatibility;
+      if (compat.windows) osArr.push("Windows");
+      if (compat.osx) osArr.push("Mac");
+      if (compat.linux) osArr.push("Linux");
+    }
 
-    // Screenshots: array of { image_id, formatter_template_url } or template
-    // strings depending on API shape. Normalize to concrete urls.
-    const screenshots = Array.isArray(data.screenshots)
-      ? data.screenshots
-          .map((s) => {
-            const tpl =
-              (s && (s.formatter_template_url || s.image_id || s.url)) || s;
-            return gogImageUrl(
-              typeof tpl === "string"
-                ? tpl.replace(/\{formatter\}/g, "ggvgm_2x").replace(/\{ext\}/g, "jpg")
-                : tpl,
-              "_ggvgm_2x.jpg",
-            );
-          })
-          .filter(Boolean)
+    // ── Images ─────────────────────────────────────────────────────────────
+    // Logo + background come from v2 _links when present (the "real" ones), with
+    // v1 images as fallback. Header/banner is the templated product image at a
+    // wide size (formatter "800"). Box art (portrait) is v2 boxArtImage.
+    const v1images = (v1 && v1.images) || {};
+    const v1logo = gogImageUrl(v1images.logo2x || v1images.logo);
+    const v1bg = gogImageUrl(v1images.background);
+
+    const logo = linkHref(v2Links.logo) || v1logo || "";
+    const heroBg =
+      linkHref(v2Links.galaxyBackgroundImage) ||
+      linkHref(v2Links.backgroundImage) ||
+      v1bg ||
+      "";
+    const boxArt = linkHref(v2Links.boxArtImage) || "";
+    // Banner/header: the templated product image (wide). Use formatter "800"
+    // (or the first offered) per real API shape.
+    const banner =
+      resolveTemplated(productLinks.image, ["800", "1600", "product_630_2x", "product_630"]) ||
+      logo ||
+      heroBg ||
+      "";
+
+    // ── Screenshots ────────────────────────────────────────────────────────
+    // v2: _embedded.screenshots[]._links.self is templated; use the first *_2x
+    // formatter (largest retina). v1 fallback: formatted_images[] concrete urls.
+    let screenshots = [];
+    if (Array.isArray(emb.screenshots) && emb.screenshots.length) {
+      screenshots = emb.screenshots
+        .map((s) => {
+          const self = s && s._links && s._links.self;
+          if (!self || !self.href) return "";
+          const formatters = Array.isArray(self.formatters) ? self.formatters : [];
+          // Prefer the first formatter whose name ends in _2x, else the largest
+          // numeric, else the first.
+          const twoX = formatters.find((f) => /_2x$/i.test(f));
+          const numeric = formatters
+            .filter((f) => /^\d+$/.test(f))
+            .sort((a, b) => parseInt(b, 10) - parseInt(a, 10))[0];
+          const chosen = twoX || numeric || formatters[0];
+          if (!chosen) return "";
+          return gogImageUrl(self.href, { formatter: chosen });
+        })
+        .filter(Boolean);
+    }
+    if (screenshots.length === 0 && v1 && Array.isArray(v1.screenshots)) {
+      const SIZE_PREF = ["ggvgl_2x", "ggvgl", "ggvgm_2x", "ggvgm", "ggvgt_2x", "ggvgt"];
+      screenshots = v1.screenshots
+        .map((s) => {
+          if (s && Array.isArray(s.formatted_images) && s.formatted_images.length) {
+            for (const size of SIZE_PREF) {
+              const hit = s.formatted_images.find((fi) => fi.formatter_name === size && fi.image_url);
+              if (hit) return gogImageUrl(hit.image_url);
+            }
+            const first = s.formatted_images.find((fi) => fi.image_url);
+            if (first) return gogImageUrl(first.image_url);
+          }
+          const tpl = s && (s.formatter_template_url || s.url);
+          if (typeof tpl === "string") return gogImageUrl(tpl, { formatter: "ggvgl_2x" });
+          return "";
+        })
+        .filter(Boolean);
+    }
+
+    // ── Videos / trailers (YouTube) ───────────────────────────────────────
+    const rawVideos =
+      (Array.isArray(emb.videos) && emb.videos.length ? emb.videos : null) ||
+      (v1 && Array.isArray(v1.videos) ? v1.videos : []);
+    const movies = rawVideos
+      .map((v) => {
+        // v2 video entries expose provider + videoId (or an external url); v1
+        // uses video_id/provider.
+        const vid =
+          v && (v.videoId || v.video_id || v.id || (v.href && (v.href.match(/[?&]v=([\w-]+)/) || [])[1]));
+        if (!vid) return null;
+        const provider = String(v.provider || "youtube").toLowerCase();
+        if (provider !== "youtube") return null;
+        return {
+          url: `https://www.youtube.com/embed/${vid}`,
+          thumbnail: `https://img.youtube.com/vi/${vid}/hqdefault.jpg`,
+          name: v.title || v.name || "",
+          provider: "youtube",
+          video_id: vid,
+        };
+      })
+      .filter(Boolean);
+
+    // ── Scalar metadata ────────────────────────────────────────────────────
+    const title = (v1 && v1.title) || product.title || (v2 && v2.title) || "";
+    const type =
+      (v2 && (v2.productType || product.category)) || (v1 && v1.game_type) || "game";
+
+    const developers = Array.isArray(emb.developers)
+      ? emb.developers.map((d) => d && (d.name || d.title)).filter(Boolean)
       : [];
-
-    // Videos: GOG returns YouTube video ids under videos[].video_id (provider
-    // "youtube"). Store the embed url + thumbnail so the lightbox can play them
-    // inline via an <iframe>.
-    const movies = Array.isArray(data.videos)
-      ? data.videos
-          .map((v) => {
-            const vid = v && (v.video_id || v.id);
-            if (!vid) return null;
-            const provider = String(v.provider || "youtube").toLowerCase();
-            if (provider !== "youtube") return null;
-            return {
-              url: `https://www.youtube.com/embed/${vid}`,
-              thumbnail: `https://img.youtube.com/vi/${vid}/hqdefault.jpg`,
-              name: v.title || "",
-              provider: "youtube",
-              video_id: vid,
-            };
-          })
-          .filter(Boolean)
+    const publishers = Array.isArray(emb.publishers)
+      ? emb.publishers.map((p) => p && (p.name || p.title)).filter(Boolean)
+      : emb.publisher && (emb.publisher.name || emb.publisher.title)
+        ? [emb.publisher.name || emb.publisher.title]
+        : [];
+    const tags = Array.isArray(emb.tags)
+      ? emb.tags.map((t) => t && (t.name || t.title)).filter(Boolean)
       : [];
+    // GOG has no explicit "genre" list; its top-level tags/properties are the
+    // closest. Prefer properties (curated) for genre, tags for the tag column.
+    const properties = Array.isArray(emb.properties)
+      ? emb.properties.map((p) => p && (p.name || p.title)).filter(Boolean)
+      : [];
+    const genre = (properties.length ? properties : tags).join(",");
 
-    // Images: v1 products has data.images { background, logo, logo2x, icon,
-    // sidebarIcon, ... } as protocol-relative urls.
-    const images = data.images || {};
-    const background = gogImageUrl(images.background, "");
-    const logo = gogImageUrl(images.logo2x || images.logo, "");
-    const boxArt = gogImageUrl(images.boxArtImage || images.logo2x || images.logo, "");
+    // Languages from v2 localizations (audio vs text scopes).
+    let textLangs = [];
+    let voiceLangs = [];
+    if (Array.isArray(emb.localizations)) {
+      for (const loc of emb.localizations) {
+        const le = loc && loc._embedded;
+        const name = le && le.language && le.language.name;
+        const scope = le && le.localizationScope && le.localizationScope.type;
+        if (!name) continue;
+        if (scope === "audio" && !voiceLangs.includes(name)) voiceLangs.push(name);
+        if (scope === "text" && !textLangs.includes(name)) textLangs.push(name);
+      }
+    }
+    if (textLangs.length === 0 && v1 && v1.languages && typeof v1.languages === "object") {
+      textLangs = Object.values(v1.languages);
+    }
+
+    // Release date: v2 product globalReleaseDate/gogReleaseDate, else v1.
+    const releaseRaw =
+      product.globalReleaseDate ||
+      product.gogReleaseDate ||
+      (v1 && v1.release_date) ||
+      "";
+    const release_date = String(releaseRaw).slice(0, 10);
+
+    const inDev =
+      (v2 && v2.inDevelopment && v2.inDevelopment.active) ||
+      (v1 && v1.in_development && v1.in_development.active) ||
+      false;
+
+    // Censored: infer from ESRB/USK adult ratings when present.
+    const esrbAge = emb.esrbRating && emb.esrbRating.ageRating;
+    const uskAge = emb.uskRating && emb.uskRating.ageRating;
+    const censored = (esrbAge && esrbAge >= 17) || (uskAge && uskAge >= 16) ? "yes" : "no";
 
     console.log(
-      `GOG ${id}: ${movies.length} trailer(s), ${screenshots.length} screenshot(s)`,
+      `GOG ${id}: ${movies.length} trailer(s), ${screenshots.length} screenshot(s), banner=${banner ? "y" : "n"} hero=${heroBg ? "y" : "n"} box=${boxArt ? "y" : "n"} logo=${logo ? "y" : "n"}`,
     );
 
     const game = {
       gog_id: id,
-      title: data.title || "",
-      type: data.game_type || data.product_type || "game",
-      category: "",
+      title,
+      type,
+      category: genre,
       engine: "",
-      developer: "", // v1 products omits dev/pub; enriched via v2 below if present
-      publisher: "",
+      developer: developers.join(","),
+      publisher: publishers.join(","),
       overview,
-      censored: "no",
-      language: "",
-      translations: "",
-      genre: "",
-      tags: "",
-      voice: "",
+      censored,
+      language: textLangs.join(","),
+      translations: textLangs.join(","),
+      genre,
+      tags: tags.join(","),
+      voice: voiceLangs.join(","),
       os: osArr.join(","),
-      release_state: data.in_development && data.in_development.active ? "upcoming" : "released",
-      release_date: (data.release_date || "").slice(0, 10) || "",
-      // Best-fit image mapping (see header comment).
-      header: logo || background || "",
-      library_hero: background || "",
-      library_capsule: boxArt || "",
+      release_state: inDev ? "upcoming" : "released",
+      release_date,
+      // Best-fit mapping onto the Steam-shaped columns:
+      //   header  = wide banner (templated product image)
+      //   hero    = galaxy background (full-bleed key art)
+      //   capsule = portrait box art
+      //   logo    = transparent logo treatment
+      header: banner || "",
+      library_hero: heroBg || banner || "",
+      library_capsule: boxArt || heroBg || logo || "",
       logo: logo || "",
       last_record_update: new Date().toISOString(),
     };
 
-    // Best-effort enrichment from the v2 games endpoint (developers/publishers).
-    try {
-      const v2res = await fetch(`https://api.gog.com/v2/games/${id}?locale=en-US`);
-      if (v2res.ok) {
-        const v2 = await v2res.json();
-        const emb = v2._embedded || {};
-        if (Array.isArray(emb.developers))
-          game.developer = emb.developers.map((d) => d.name).filter(Boolean).join(",");
-        if (Array.isArray(emb.publisher ? [emb.publisher] : emb.publishers))
-          game.publisher = (emb.publisher ? [emb.publisher] : emb.publishers)
-            .map((p) => p.name).filter(Boolean).join(",");
-        if (Array.isArray(emb.genres))
-          game.genre = emb.genres.map((g) => g.name).filter(Boolean).join(",");
-        if (Array.isArray(emb.tags))
-          game.tags = emb.tags.map((t) => t.name).filter(Boolean).join(",");
-        if (Array.isArray(emb.supportedOperatingSystems) && !game.os)
-          game.os = emb.supportedOperatingSystems
-            .map((o) => o.operatingSystem && o.operatingSystem.name).filter(Boolean).join(",");
-      }
-    } catch (e) {
-      /* v2 enrichment is optional */
-    }
-
     return { game, screenshots, movies };
   } catch (error) {
-    console.error(`Error fetching GOG data for product ${gogId}:`, error);
+    console.error(`Error building GOG data for product ${gogId}:`, error);
     return null;
   }
 }
@@ -387,10 +542,21 @@ async function getInfoFileGames(overridePath = null) {
         const raw = await fsPromises.readFile(path.join(gameDir, info), "utf8");
         const parsed = JSON.parse(raw.replace(/^\uFEFF/, ""));
         const gogId = String(parsed.gameId || info.match(/goggame-(\d+)\.info/i)[1]);
+        // The .info file lists launch tasks; the primary one (isPrimary) carries
+        // the relative path to the game's main executable. Prefer it so imported
+        // GOG games get a real, runnable exe rather than only the Galaxy handoff.
+        let primaryExe = "";
+        if (Array.isArray(parsed.playTasks)) {
+          const primary =
+            parsed.playTasks.find((t) => t && t.isPrimary && t.path) ||
+            parsed.playTasks.find((t) => t && t.path);
+          if (primary && primary.path) primaryExe = String(primary.path);
+        }
         games.push({
           gogId,
           name: parsed.name || entry.name,
           installDir: gameDir,
+          primaryExe,
           size: 0,
           source: "info",
         });
@@ -418,6 +584,7 @@ async function getInstalledGogGames(overridePath = null) {
       byId.set(g.gogId, g);
     } else {
       if (!existing.installDir && g.installDir) existing.installDir = g.installDir;
+      if (!existing.primaryExe && g.primaryExe) existing.primaryExe = g.primaryExe;
     }
   }
   const merged = [...byId.values()];
@@ -507,6 +674,40 @@ async function startGogScan(db, params, event) {
       // Cache-only during scan; enrichment happens at import time.
       const meta = await getCachedGogData(db, gogId);
 
+      // Resolve a real executable so the imported game runs directly (falling
+      // back to the Galaxy protocol handoff at launch time if none is found).
+      // Prefer the primary play-task path from goggame-*.info; otherwise scan
+      // the install dir for a .exe.
+      let relativeExec = "";
+      let execPath = "";
+      const installDir = gogGame.installDir || "";
+      if (installDir) {
+        if (gogGame.primaryExe) {
+          const candidate = path.isAbsolute(gogGame.primaryExe)
+            ? gogGame.primaryExe
+            : path.join(installDir, gogGame.primaryExe);
+          if (fs.existsSync(candidate)) {
+            execPath = candidate;
+            relativeExec = path.relative(installDir, candidate);
+          }
+        }
+        if (!execPath) {
+          try {
+            const found = findExecutables(installDir, ["exe"]);
+            if (found && found.length > 0) {
+              relativeExec = found[0];
+              execPath = path.join(installDir, found[0]);
+            }
+          } catch (e) {
+            /* dir may be unreadable; fall back to Galaxy launch */
+          }
+        }
+      }
+
+      const executables = execPath
+        ? [{ key: relativeExec, value: relativeExec }]
+        : [{ key: "gog", value: "Launch via GOG" }];
+
       const game = {
         title: (meta && meta.title) || gogGame.name,
         creator: (meta && meta.developer) || (meta && meta.publisher) || "Unknown",
@@ -514,11 +715,13 @@ async function startGogScan(db, params, event) {
         version: "GOG",
         gogType: (meta && meta.type) || "game",
         sourceType: "gog",
-        folder: gogGame.installDir || "",
-        executables: [{ key: "gog", value: "Launch via GOG" }],
-        selectedValue: "gog",
+        folder: installDir,
+        execPath,
+        exec_path: execPath,
+        executables,
+        selectedValue: execPath ? relativeExec : "gog",
         multipleVisible: "hidden",
-        singleExecutable: "Launch via GOG",
+        singleExecutable: execPath ? relativeExec : "Launch via GOG",
         atlasId: "",
         f95Id: "",
         gogId,

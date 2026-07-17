@@ -865,7 +865,7 @@ ${lewdCornerSelectFields}
         ${localMediaAssetSelect(baseImagePath, "gog_hero", "gog_data.library_hero")} as gog_library_hero,
         ${localMediaAssetSelect(baseImagePath, "gog_cover", "gog_data.library_capsule")} as gog_library_capsule,
         ${localMediaAssetSelect(baseImagePath, "gog_logo", "gog_data.logo")} as gog_logo,
-        gog_mappings.gog_id as gog_id,
+        COALESCE(gog_mappings.gog_id, gog_data.gog_id) as gog_id,
         gog_data.release_date AS gog_release_date,
         gog_data.developer AS gog_developer,
         GROUP_CONCAT(tags.tag) AS tags
@@ -1014,7 +1014,7 @@ ${lewdCornerSelectFields}
         ${localMediaAssetSelect(baseImagePath, "gog_hero", "gog_data.library_hero")} as gog_library_hero,
         ${localMediaAssetSelect(baseImagePath, "gog_cover", "gog_data.library_capsule")} as gog_library_capsule,
         ${localMediaAssetSelect(baseImagePath, "gog_logo", "gog_data.logo")} as gog_logo,
-        gog_mappings.gog_id as gog_id,
+        COALESCE(gog_mappings.gog_id, gog_data.gog_id) as gog_id,
         gog_data.release_date AS gog_release_date,
         gog_data.developer AS gog_developer,
         GROUP_CONCAT(tags.tag) AS tags
@@ -1083,7 +1083,15 @@ ${bannerJoinClauses}
           .map((row) => {
             const allVersions = (versionsByRecordId[row.record_id] || []).map(
               (version) =>
-                mapVersionRow(version, !!row.steam_id && isSteamInstallPath(version.game_path), { skipPathValidation }),
+                mapVersionRow(
+                  version,
+                  (!!row.steam_id && isSteamInstallPath(version.game_path)) ||
+                    // GOG installs launch via Galaxy or a resolved exe; treat a
+                    // GOG-mapped version as installed the same way Steam is so it
+                    // shows in the banner/library view without an Atlas mapping.
+                    (!!row.gog_id && (version.in_place === 1 || !!version.game_path)),
+                  { skipPathValidation },
+                ),
             );
             const installedVersions = allVersions.filter(
               (version) => version.isInstalled,

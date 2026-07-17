@@ -40,3 +40,61 @@ integration.
   (per scope). GOG art currently streams from the CDN like the other sources.
 - GOG API field names were mapped from live response shapes; if GOG changes
   their response schema, adjust `getGogGameData` in gogscanner.js.
+
+## Fix round 2 (import visibility, executable, window routing)
+- electron/main.js: added 'gog' to the main-process importer source whitelist
+  (normalizeImporterSource). Previously clicking GOG fell back to the Atlas
+  importer window because the main process had its own copy of the whitelist.
+- electron/scanners/gogscanner.js: resolve a real executable at scan time - read
+  the primary play-task path from goggame-*.info, else scan the install dir for
+  a .exe. Scan rows now carry execPath/exec_path + a real executables list +
+  gogUrl so the game runs directly and the GOG store button populates.
+- electron/ipc/importer.js: treat GOG imports as in_place (like Steam) so the
+  version persists; carry gogId + sourceType 'gog' on the version.
+- electron/db/versions.js: getGames force-marks GOG-mapped versions installed
+  (like Steam) so imported GOG titles show in banner/library view without an
+  Atlas mapping; gog_id selected via COALESCE(mapping, data).
+
+## Fix round 3 (mappings + image URLs)
+- MappingsTab.jsx: show GOG id row (game properties) mirroring Steam.
+- externalLinks.js: GOG link def + fa-gg icon so gog_id renders as a link.
+- GameDetailPage.jsx: buildDetailExternalLinks is GOG-aware and injects the
+  GOG store link for mapped GOG games (id lives in gog_mappings, not
+  external_ids), mirroring the Steam special-case.
+- gogscanner.js: rewrote gogImageUrl to handle all known GOG URL forms
+  (protocol-relative concrete, bare hash + size suffix, and {formatter}/
+  {ext} templates). Screenshots use formatter=ggvgm_2x; header/hero/logo/
+  boxart use concrete size suffixes.
+- scripts/gog-api-probe.js: NEW helper to dump a real GOG product response so
+  image URL building can be verified against ground truth.
+
+## Fix round 4 (images verified against real GOG API)
+Confirmed via scripts/gog-api-probe.js against a live product:
+- v1 data.images gives CONCRETE .jpg/.png urls (background, logo, logo2x, icon).
+  No {formatter}/resize token needed for these — removed bogus size suffixes.
+- v1 has NO boxArtImage/galaxyBackground. Those live in v2 _links
+  (galaxyBackgroundImage, boxArtImage, logo) as concrete hrefs.
+- Screenshots carry a formatted_images[] array of concrete urls at named sizes;
+  now pick the largest (ggvgl_2x -> ... -> ggvgt) instead of substituting the
+  template.
+Result mapping:
+- header/logo   <- images.logo2x (or v2 _links.logo)
+- library_hero  <- v2 galaxyBackgroundImage/backgroundImage, else v1 background
+- library_capsule <- v2 boxArtImage (portrait), else hero/logo fallback
+- screenshots   <- formatted_images ggvgl_2x
+
+## Fix round 5 (v2-primary, full metadata)
+Rewrote getGogGameData to use the v2 endpoint as the PRIMARY source (v1 is now
+only a fallback), verified against a real v2 response:
+- logo    <- v2 _links.logo.href (real logo)
+- hero    <- v2 _links.galaxyBackgroundImage.href (then backgroundImage, then v1)
+- capsule <- v2 _links.boxArtImage.href (portrait)
+- header/banner <- v2 _embedded.product._links.image (templated) formatter "800"
+- screenshots <- v2 _embedded.screenshots[]._links.self (templated), first *_2x
+- description/overview <- v2 top-level description/overview (HTML)
+- developer/publisher <- v2 _embedded.developers / publishers
+- genre <- v2 _embedded.properties (curated), tags <- _embedded.tags
+- languages (text/voice) <- v2 _embedded.localizations scopes
+- os <- v2 _embedded.supportedOperatingSystems
+- release_date <- product.globalReleaseDate / gogReleaseDate
+- censored <- inferred from esrbRating/uskRating age

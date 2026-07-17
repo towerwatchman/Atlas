@@ -8,7 +8,7 @@ import SafeImage from '../ui/SafeImage.jsx'
 import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
   sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl, formatReleaseDate,
-  isSteamGame, getMappedSteamAppId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
+  isSteamGame, getMappedSteamAppId, isGogGame, getMappedGogId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
 } from './page/gameDetailUtils.js'
 import { buildExternalLinks } from './externalLinks.js'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
@@ -52,7 +52,7 @@ const getPersonalRatingsOverall = (draft = {}) => {
   return Math.round(average * 10) / 10
 }
 
-const buildDetailExternalLinks = (game = {}, { hasSteamMapping = false } = {}) => {
+const buildDetailExternalLinks = (game = {}, { hasSteamMapping = false, hasGogMapping = false, gogId = '' } = {}) => {
   const links = []
   const siteUrl = String(game.siteUrl || game.site_url || '').trim()
   if (isValidHttpUrl(siteUrl)) {
@@ -74,8 +74,17 @@ const buildDetailExternalLinks = (game = {}, { hasSteamMapping = false } = {}) =
       icon: 'fas fa-link',
     })
   }
+  // A mapped GOG game (no atlas record) carries its id in gog_mappings, not
+  // external_ids, so inject the store link explicitly like Steam does.
+  if (hasGogMapping && gogId) {
+    const gogUrl = `https://www.gog.com/game/${gogId}`
+    if (!links.some((existing) => existing.url === gogUrl)) {
+      links.push({ key: 'gog_id', label: 'GOG', value: String(gogId), url: gogUrl, icon: 'fab fa-gg' })
+    }
+  }
   for (const link of buildExternalLinks(game.external_ids)) {
     if (!hasSteamMapping && ['steam_appid', 'steam_id'].includes(String(link.key || '').toLowerCase())) continue
+    if (!hasGogMapping && ['gog_id', 'gog_appid'].includes(String(link.key || '').toLowerCase())) continue
     if (link.url && !isValidHttpUrl(link.url)) continue
     if (link.url && links.some((existing) => existing.url === link.url)) continue
     links.push(link)
@@ -447,6 +456,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const versionOptions = sortVersionsDesc(game.versions || [])
 
   const steamAppId = getMappedSteamAppId(game)
+  const gogId = getMappedGogId(game)
   const steam = isSteamGame(game)
   const developer = resolveDeveloper(game)
   const categories = splitCsv(game.category)
@@ -481,7 +491,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const localVersion = actionVersion?.version || selectedVersion?.version || game.versions?.[0]?.version || game.version || ''
   const localImportIsArchive = isArchiveSourcePath(localImportPath, localArchiveExtensions)
 
-  const externalLinks = buildDetailExternalLinks(game, { hasSteamMapping: Boolean(steamAppId) })
+  const externalLinks = buildDetailExternalLinks(game, { hasSteamMapping: Boolean(steamAppId), hasGogMapping: Boolean(gogId), gogId })
   const personalRatingsDirty = JSON.stringify(personalRatingsDraft) !== JSON.stringify(personalRatingsSaved)
   const personalRatingsOverall = getPersonalRatingsOverall(personalRatingsDraft)
 

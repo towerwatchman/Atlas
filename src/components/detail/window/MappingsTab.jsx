@@ -1,7 +1,7 @@
 import f95Logo from '../../../assets/images/f95_full.png'
 import atlasLogo from '../../../assets/images/atlas_logo.svg'
 import { parseExternalIds, buildExternalLinks } from '../externalLinks.js'
-import { getMappedSteamAppId } from '../page/gameDetailUtils.js'
+import { getMappedSteamAppId, getMappedGogId } from '../page/gameDetailUtils.js'
 
 const normalizeF95DisplayId = (value) => {
   const normalized = String(value ?? '').trim()
@@ -18,6 +18,7 @@ export default function MappingsTab({ game, onAddMapping }) {
   // as a JSON blob on the game (see set-manual-mappings / getGame).
   const manualIds = parseExternalIds(game.manual_external_ids)
   const steamAppId = manualIds.steam_appid || manualIds.steam_id || getMappedSteamAppId(game)
+  const gogId = manualIds.gog_id || manualIds.gog_appid || getMappedGogId(game)
   const f95DisplayId = normalizeF95DisplayId(manualIds.f95_id || game.f95_id)
   const lewdCornerId = manualIds.lc_id || manualIds.lewdcorner_id || game.lc_id || game.lcId || game.lewdCornerId || externalIds.lc_id || externalIds.lewdcorner_id || null
   const iconCellClass = 'p-2 w-24 align-middle'
@@ -27,10 +28,10 @@ export default function MappingsTab({ game, onAddMapping }) {
   // the mappings table alongside Atlas/F95. Everything else in external_ids is a
   // plain link (patreon, twitter, itch, …).
   const otherLinks = buildExternalLinks(externalIds).filter(
-    (link) => !['steam_appid', 'steam_id', 'lc_id', 'lewdcorner_id'].includes(link.key.toLowerCase()),
+    (link) => !['steam_appid', 'steam_id', 'gog_id', 'gog_appid', 'lc_id', 'lewdcorner_id'].includes(link.key.toLowerCase()),
   )
 
-  const hasAnyMapping = f95DisplayId || game.atlas_id || steamAppId || lewdCornerId
+  const hasAnyMapping = f95DisplayId || game.atlas_id || steamAppId || gogId || lewdCornerId
 
   return (
     <>
@@ -80,6 +81,17 @@ export default function MappingsTab({ game, onAddMapping }) {
                 </td>
                 <td className="p-2">Steam</td>
                 <td className="p-2">{steamAppId}</td>
+              </tr>
+            )}
+            {gogId && (
+              <tr className="border-b border-border">
+                <td className={iconCellClass}>
+                  <div className={iconFrameClass}>
+                    <i className="fab fa-gg block text-[28px] leading-none" aria-hidden="true"></i>
+                  </div>
+                </td>
+                <td className="p-2">GOG</td>
+                <td className="p-2">{gogId}</td>
               </tr>
             )}
             {lewdCornerId && (

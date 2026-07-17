@@ -3137,10 +3137,11 @@ ipcMain.handle("import-games", async (event, params) => {
         execPath,
         folderSize: game.folderSize || game.folder_size || null,
         deferFolderSizeCalculation: true,
-        in_place: steamImport ? 1 : game.in_place,
-        inPlace: steamImport ? true : game.inPlace || (!game.isArchive && !moveFoldersToLibrary),
-        sourceType: steamImport ? "steam" : game.sourceType,
+        in_place: (steamImport || gogImport) ? 1 : game.in_place,
+        inPlace: (steamImport || gogImport) ? true : game.inPlace || (!game.isArchive && !moveFoldersToLibrary),
+        sourceType: steamImport ? "steam" : gogImport ? "gog" : game.sourceType,
         steamId: steamId || game.steamId,
+        gogId: gogId || game.gogId,
       };
       let bulkReplaceRow = null;
       let bulkReplacePathAllowed = null;
