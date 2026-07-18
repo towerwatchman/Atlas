@@ -131,3 +131,80 @@ jobs:
             release/*.AppImage
             release/*.pacman
           if-no-files-found: error
+
+  virus-scan:
+    name: ClamAV scan of nightly artifacts
+    needs: build-and-prerelease
+    runs-on: ubuntu-latest
+    # Report-only by default (see main.yml). Flip to 'true' to fail on hits.
+    env:
+      FAIL_ON_DETECTION: 'false'
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-nightly-installer
+          path: scan/windows
+        continue-on-error: true
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-nightly-installer
+          path: scan/linux
+        continue-on-error: true
+
+      - name: Install ClamAV
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clamav
+          sudo systemctl stop clamav-freshclam || true
+
+      - name: Update virus definitions
+        run: sudo freshclam || echo "freshclam returned non-zero (definitions may already be current); continuing."
+
+      - name: Scan artifacts
+        id: scan
+        run: |
+          set +e
+          shopt -s nullglob globstar
+          files=(scan/**/*.exe scan/**/*.AppImage scan/**/*.deb scan/**/*.pacman)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No nightly artifacts were downloaded to scan." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "detections=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "## ClamAV scan results (nightly)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Artifact | SHA-256 | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+
+          total_infected=0
+          for f in "${files[@]}"; do
+            sha=$(sha256sum "$f" | awk '{print $1}')
+            out=$(clamscan --no-summary --stdout "$f" 2>&1)
+            code=$?
+            name=$(basename "$f")
+            if [ $code -eq 0 ]; then
+              result="✅ Clean"
+            elif [ $code -eq 1 ]; then
+              sig=$(echo "$out" | grep -o ': .* FOUND' | sed 's/^: //; s/ FOUND$//' | paste -sd '; ' -)
+              result="🚨 INFECTED — ${sig:-detection}"
+              total_infected=$((total_infected + 1))
+            else
+              result="⚠️ Scan error (exit $code)"
+            fi
+            echo "| \`$name\` | \`$sha\` | $result |" >> "$GITHUB_STEP_SUMMARY"
+            echo "$name  $sha  $result"
+          done
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "_Report-only. For a multi-engine view, submit an artifact's SHA-256 at https://www.virustotal.com/gui/search_ ." >> "$GITHUB_STEP_SUMMARY"
+          echo "detections=$total_infected" >> "$GITHUB_OUTPUT"
+
+      - name: Enforce detection policy
+        if: steps.scan.outputs.detections != '0' && env.FAIL_ON_DETECTION == 'true'
+        run: |
+          echo "ClamAV reported ${{ steps.scan.outputs.detections }} infected artifact(s) and FAIL_ON_DETECTION is true."
+          exit 1
