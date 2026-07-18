@@ -917,6 +917,11 @@ const Importer = () => {
     saveImporterDefaults({}, { Library: { gameExtensions: value } })
   }
 
+  const handleLibraryFormatChange = (value) => {
+    setLibraryFormat(value)
+    saveImporterDefaults({}, { Library: { libraryFolderStructure: value } })
+  }
+
   const handleArchiveExtChange = (value) => {
     setArchiveExt(value)
     saveImporterDefaults({}, { Library: { extractionExtensions: value } })
@@ -1574,6 +1579,7 @@ const Importer = () => {
               moveFoldersToLibrary={moveFoldersToLibrary}
               autoSelectLatestReplaceVersion={autoSelectLatestReplaceVersion}
               defaultLibraryPath={defaultLibraryPath} askingForLibraryFolder={askingForLibraryFolder}
+              libraryFormat={libraryFormat} setLibraryFormat={handleLibraryFormatChange}
               onSelectFolder={selectFolder} onStartScan={startScan}
               onOpenHelp={openImporterHelp}
               livePreview={livePreview}
