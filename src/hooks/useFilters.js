@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import { getGameTitle, safeText } from '../utils/gameDisplay.js'
+import { effectiveTitlePlaystate } from '../utils/playstates.js'
 
 export const defaultFilters = {
   text: '',
@@ -937,6 +938,21 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
   }
   if (activeFilters.excludedStatuses.length > 0) {
     result = result.filter((game) => !includesExact(activeFilters.excludedStatuses, game.status))
+  }
+
+  if (activeFilters.playstates.length > 0) {
+    result = result.filter((game) => {
+      const ps = game.effectivePlaystate || effectiveTitlePlaystate(game.playstate, game.versions || [])
+      return ps ? activeFilters.playstates.includes(ps) : false
+    })
+  }
+  if (activeFilters.excludedPlaystates.length > 0) {
+    result = result.filter((game) => {
+      const ps = game.effectivePlaystate || effectiveTitlePlaystate(game.playstate, game.versions || [])
+      // Match excludedStatuses semantics: only remove games that positively
+      // match an excluded state; unset/derived-null games are kept.
+      return ps ? !includesExact(activeFilters.excludedPlaystates, ps) : true
+    })
   }
 
   if (activeFilters.censored.length > 0) {
