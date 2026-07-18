@@ -1068,7 +1068,7 @@ ${bannerJoinClauses}
 
     // Query to aggregate versions for each game
     const versionsQuery = `
-      SELECT rowid AS version_id, record_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added
+      SELECT rowid AS version_id, record_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added, playstate
       FROM versions
     `;
 
@@ -1326,6 +1326,35 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
     // same as in the local library.
     if (filters.favoritesOnly === true) {
       filterWhereParts.push('COALESCE(local_games.is_favorite, 0) = 1');
+    }
+    // Effective playstate: an explicit title override wins; otherwise it's
+    // derived from the versions, but only when EVERY version shares the same
+    // playstate (matching the per-title rollup rule — "all versions flagged").
+    // Mixed or partially-unset versions yield NULL (no derived title state).
+    const effectivePlaystateExpr = `COALESCE(
+      local_games.playstate,
+      (SELECT CASE
+                WHEN COUNT(*) > 0
+                 AND SUM(CASE WHEN v.playstate IS NULL OR v.playstate = '' THEN 1 ELSE 0 END) = 0
+                 AND COUNT(DISTINCT v.playstate) = 1
+                THEN MAX(v.playstate)
+                ELSE NULL
+              END
+       FROM versions v
+       WHERE v.record_id = local_games.record_id)
+    )`;
+    {
+      const includePlaystates = toArray(filters.playstates);
+      if (includePlaystates.length > 0) {
+        filterWhereParts.push(`(${effectivePlaystateExpr}) COLLATE NOCASE IN (${includePlaystates.map(() => '?').join(', ')})`);
+        filterParams.push(...includePlaystates);
+      }
+      const excludePlaystates = toArray(filters.excludedPlaystates);
+      if (excludePlaystates.length > 0) {
+        filterWhereParts.push(`((${effectivePlaystateExpr}) IS NULL OR (${effectivePlaystateExpr}) COLLATE NOCASE NOT IN (${excludePlaystates.map(() => '?').join(', ')}))`);
+        // expression is inlined twice, so bind the exclude values twice
+        filterParams.push(...excludePlaystates, ...excludePlaystates);
+      }
     }
     if (filters.wishlistOnly === true) {
       filterWhereParts.push(`EXISTS (

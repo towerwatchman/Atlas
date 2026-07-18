@@ -1,4 +1,5 @@
 import { getGameTitle } from '../../../utils/gameDisplay.js'
+import { playstateMeta } from '../../../utils/playstates.js'
 
 const visibleText = (value) => (value === undefined || value === null ? '' : String(value))
 
@@ -211,6 +212,19 @@ export const resolveBannerField = (fieldId, game = {}) => {
       return { value: 'Update Available!', visible: game.isUpdateAvailable === true, variant: 'warning' }
     case 'favorite':
       return { value: 'Favorite', visible: game.isFavorite === true, variant: 'favorite' }
+    case 'playstate': {
+      const ps = game.effectivePlaystate || game.playstate || null
+      const meta = playstateMeta(ps)
+      if (!meta) return { value: '', visible: false }
+      const variantByState = {
+        finished: 'success',
+        dropped: 'danger',
+        on_hold: 'warning',
+        played: 'source',
+        planned: 'neutral',
+      }
+      return { value: meta.label, visible: true, variant: variantByState[ps] || 'neutral', icon: meta.icon }
+    }
     case 'wishlist':
       return {
         value: 'Wishlist',

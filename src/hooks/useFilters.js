@@ -15,6 +15,8 @@ export const defaultFilters = {
   excludedEngines: [],
   excludedStatuses: [],
   excludedTags: [],
+  playstates: [],
+  excludedPlaystates: [],
   sort: 'name',
   sortDirection: 'asc',
   dateLimit: 0,
@@ -55,6 +57,8 @@ const arrayFilterKeys = [
   'excludedEngines',
   'excludedStatuses',
   'excludedTags',
+  'playstates',
+  'excludedPlaystates',
 ]
 const searchTypes = ['all', 'title', 'creator', 'atlasId', 'f95Id', 'lewdcornerId', 'steamId', 'anyId']
 const sourceTypes = ['all', 'f95', 'lewdcorner', 'steam', 'atlas']
@@ -129,6 +133,7 @@ export const normalizeFilterState = (filters = {}) => {
   merged.excludedEngines = merged.excludedEngines.filter((value) => !includesExact(merged.engine, value))
   merged.excludedStatuses = merged.excludedStatuses.filter((value) => !includesExact(merged.status, value))
   merged.excludedTags = merged.excludedTags.filter((value) => !includesTag(merged.tags, value))
+  merged.excludedPlaystates = merged.excludedPlaystates.filter((value) => !includesExact(merged.playstates, value))
   merged.text = String(merged.text || '').trim()
   merged.type = normalizeSearchType(merged.type)
   merged.source = normalizeSourceType(merged.source)
