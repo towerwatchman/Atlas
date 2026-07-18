@@ -490,19 +490,26 @@ function getConfiguredAppUpdateBranch(config = appConfig) {
 function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
   const normalizedBranch = normalizeAppUpdateBranch(branch) || getDefaultAppUpdateBranch()
   const previousBranch = activeAppUpdateBranch
+  const branchChanged = Boolean(previousBranch && previousBranch !== normalizedBranch)
   activeAppUpdateBranch = normalizedBranch
   autoUpdater.setFeedURL({ provider: 'github', owner: 'towerwatchman', repo: 'Atlas', channel: 'latest' })
   autoUpdater.allowPrerelease = normalizedBranch === 'nightly'
-  autoUpdater.allowDowngrade = false
+  // Nightly versions are semver prereleases of the SAME base (e.g. 0.9.2 stable
+  // vs 0.9.2-nightly.5), so a nightly build sorts LOWER than the stable release.
+  // With allowDowngrade=false that made stable -> nightly refuse the "older"
+  // nightly build. Allow downgrade when on the nightly branch, and also whenever
+  // the branch is actively switching (so stable <-> nightly both resolve), while
+  // keeping strict no-downgrade for steady-state stable.
+  autoUpdater.allowDowngrade = normalizedBranch === 'nightly' || branchChanged
 
-  if (resetStatus && previousBranch && previousBranch !== normalizedBranch) {
+  if (resetStatus && branchChanged) {
     updateInfo = null
     updateDownloaded = false
     installAfterDownload = false
     sendUpdateStatus({ status: 'idle' }, 'update-branch-changed')
   }
 
-  console.log(`Configured app update branch: ${normalizedBranch}`)
+  console.log(`Configured app update branch: ${normalizedBranch} (allowDowngrade=${autoUpdater.allowDowngrade})`)
   return normalizedBranch
 }
 
