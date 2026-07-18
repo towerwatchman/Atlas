@@ -192,6 +192,54 @@ async function encodeToWebp(imageBytes, destPath, targetWidth) {
   return { reencoded: true };
 }
 
+// Encode the SAME source into multiple sizes while decoding it only once.
+// `targets` is an array of { destPath, targetWidth, skip }. Sharp lets us reuse
+// one decoded instance for many .resize().toFile() calls (via .clone()), so a
+// banner's _mc (1260) and _sc (600) no longer pay for two full decodes.
+// `skip:true` targets are left untouched (already-on-disk case). Falls back to
+// per-size encodeToWebp when the shared decode can't read the image.
+async function encodeToWebpSizes(imageBytes, targets, sharedMeta = null) {
+  const pending = targets.filter((t) => t && !t.skip);
+  if (pending.length === 0) return;
+
+  let format = null;
+  let width = null;
+  try {
+    const meta = sharedMeta || (await getImageMetadata(imageBytes));
+    format = String(meta?.format || "").toLowerCase();
+    width = Number(meta?.width) || null;
+  } catch {
+    /* fall through */
+  }
+  const alreadyCompressed = ALREADY_COMPRESSED_FORMATS.has(format);
+
+  // One decoded pipeline, cloned per output size.
+  let base;
+  try {
+    base = sharp(imageBytes);
+  } catch (err) {
+    // Decode failed up front — fall back to independent encodes so each target
+    // gets its own error handling.
+    for (const t of pending) await encodeToWebp(imageBytes, t.destPath, t.targetWidth);
+    return;
+  }
+
+  for (const t of pending) {
+    // Verbatim fast path per-size: already-compressed source within this
+    // target's width doesn't need a re-encode.
+    if (alreadyCompressed && width != null && width <= t.targetWidth) {
+      await fs.promises.writeFile(t.destPath, imageBytes);
+      continue;
+    }
+    const clone = base.clone().resize({ width: t.targetWidth, withoutEnlargement: true });
+    if (format === "webp") {
+      await clone.webp({ nearLossless: true, quality: 90 }).toFile(t.destPath);
+    } else {
+      await clone.webp({ quality: 90 }).toFile(t.destPath);
+    }
+  }
+}
+
 
 async function downloadImages(
   recordId,
@@ -381,39 +429,44 @@ async function downloadImages(
 
       if (isPotentialAnimatedImage(ext)) {
         try {
-          await loadImageBytes();
-          const animatedMetadata = await getImageMetadata(imageBytes, {
-            animated: true,
-          });
-
-          if (hasMultiplePages(animatedMetadata)) {
-            const animatedWebpPath = `${imagePath}_animated.webp`;
-            const existedBefore = fs.existsSync(animatedWebpPath);
-            if (!existedBefore) {
-              await sharp(imageBytes, { animated: true })
-                .resize({ width: 1260, withoutEnlargement: true })
-                .webp({
-                  // Matches every other webp() call in this file (90) —
-                  // this one was previously 80, which is noticeably
-                  // lossier on the kind of flat-color, sharp-edged, often
-                  // text-heavy content typical of screen-capture GIFs
-                  // than the same setting would be on a photo.
-                  quality: 90,
-                  effort: 6,
-                  loop: 0,
-                })
-                .toFile(animatedWebpPath);
-            }
-            await verifyTrackedFile(animatedWebpPath, existedBefore);
-            await updateBanners(
-              recordId,
-              `${relativePath}_animated.webp`,
-              "animated",
-            );
+          const animatedWebpPath = `${imagePath}_animated.webp`;
+          const existedBefore = fs.existsSync(animatedWebpPath);
+          if (existedBefore) {
+            // Already have the animated derivative — don't decode every frame
+            // just to re-confirm it's animated. Register the existing file.
+            await verifyTrackedFile(animatedWebpPath, true);
+            await updateBanners(recordId, `${relativePath}_animated.webp`, "animated");
             result.bannerRowsWritten++;
             result.downloaded++;
             imageProgress++;
             reportProgress();
+          } else {
+            await loadImageBytes();
+            // Single animated decode here decides frame count AND is reused by
+            // the encode below (sharp re-reads from bytes, but we avoid the
+            // earlier separate metadata pass on already-existing files).
+            const animatedMetadata = await getImageMetadata(imageBytes, {
+              animated: true,
+            });
+            if (hasMultiplePages(animatedMetadata)) {
+              await sharp(imageBytes, { animated: true })
+                .resize({ width: 1260, withoutEnlargement: true })
+                .webp({
+                  quality: 90,
+                  // effort 4 (was 6): 6 is sharp's slowest webp setting and is
+                  // the dominant cost for animated GIFs with many frames. 4 is
+                  // substantially faster with negligible size/quality change.
+                  effort: 4,
+                  loop: 0,
+                })
+                .toFile(animatedWebpPath);
+              await verifyTrackedFile(animatedWebpPath, false);
+              await updateBanners(recordId, `${relativePath}_animated.webp`, "animated");
+              result.bannerRowsWritten++;
+              result.downloaded++;
+              imageProgress++;
+              reportProgress();
+            }
           }
         } catch (animatedErr) {
           console.warn(
@@ -426,9 +479,15 @@ async function downloadImages(
 
       const highResPath = `${imagePath}_mc.webp`;
       const highResExisted = fs.existsSync(highResPath);
-      if (!highResExisted) {
+      const lowResPath = `${imagePath}_sc.webp`;
+      const lowResExisted = fs.existsSync(lowResPath);
+      if (!highResExisted || !lowResExisted) {
         await loadImageBytes();
-        await encodeToWebp(imageBytes, highResPath, 1260);
+        // Decode the source once, emit both banner sizes from it.
+        await encodeToWebpSizes(imageBytes, [
+          { destPath: highResPath, targetWidth: 1260, skip: highResExisted },
+          { destPath: lowResPath, targetWidth: 600, skip: lowResExisted },
+        ]);
       }
       await verifyTrackedFile(highResPath, highResExisted);
       await updateBanners(recordId, `${relativePath}_mc.webp`, "small");
@@ -438,12 +497,6 @@ async function downloadImages(
       imageProgress++;
       reportProgress();
 
-      const lowResPath = `${imagePath}_sc.webp`;
-      const lowResExisted = fs.existsSync(lowResPath);
-      if (!lowResExisted) {
-        await loadImageBytes();
-        await encodeToWebp(imageBytes, lowResPath, 600);
-      }
       await verifyTrackedFile(lowResPath, lowResExisted);
       await updateBanners(recordId, `${relativePath}_sc.webp`, "large");
       result.bannerRowsWritten++;
@@ -543,35 +596,38 @@ async function downloadImages(
 
       if (isPotentialAnimatedImage(ext)) {
         try {
-          await loadImageBytes();
-          const animatedMetadata = await getImageMetadata(imageBytes, {
-            animated: true,
-          });
-
-          if (hasMultiplePages(animatedMetadata)) {
-            const animatedPreviewPath = `${imagePath}_animated.webp`;
-            const existedBefore = fs.existsSync(animatedPreviewPath);
-            if (!existedBefore) {
-              await sharp(imageBytes, { animated: true })
-                .resize({ width: 1260, withoutEnlargement: true })
-                .webp({
-                  // See the matching comment on the animated banner
-                  // conversion above — was 80, noticeably lossier on
-                  // GIF-typical content than that setting reads on a
-                  // photo. Now matches every other webp() call here.
-                  quality: 90,
-                  effort: 6,
-                  loop: 0,
-                })
-                .toFile(animatedPreviewPath);
-            }
-            await verifyTrackedFile(animatedPreviewPath, existedBefore);
-
+          const animatedPreviewPath = `${imagePath}_animated.webp`;
+          const existedBefore = fs.existsSync(animatedPreviewPath);
+          if (existedBefore) {
+            // Already have it — skip the full animated frame decode.
+            await verifyTrackedFile(animatedPreviewPath, true);
             await updatePreviews(recordId, `${relativePath}_animated.webp`);
             result.previewRowsWritten++;
             result.localPreviewPaths.push(`${relativePath}_animated.webp`);
             animatedPreviewSaved = true;
             result.downloaded++;
+          } else {
+            await loadImageBytes();
+            const animatedMetadata = await getImageMetadata(imageBytes, {
+              animated: true,
+            });
+            if (hasMultiplePages(animatedMetadata)) {
+              await sharp(imageBytes, { animated: true })
+                .resize({ width: 1260, withoutEnlargement: true })
+                .webp({
+                  quality: 90,
+                  // effort 4 (was 6) — see the animated banner note above.
+                  effort: 4,
+                  loop: 0,
+                })
+                .toFile(animatedPreviewPath);
+              await verifyTrackedFile(animatedPreviewPath, false);
+              await updatePreviews(recordId, `${relativePath}_animated.webp`);
+              result.previewRowsWritten++;
+              result.localPreviewPaths.push(`${relativePath}_animated.webp`);
+              animatedPreviewSaved = true;
+              result.downloaded++;
+            }
           }
         } catch (animatedErr) {
           console.warn(

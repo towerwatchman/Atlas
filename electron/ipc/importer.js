@@ -3435,6 +3435,12 @@ ipcMain.handle("import-games", async (event, params) => {
   }
 
   // Phase 2: Image downloads
+  // Image downloads run in the BACKGROUND so the importer window can close as
+  // soon as the DB records exist (matching the deferred-size and Steam/GOG
+  // enrichment pattern). We intentionally do NOT await this before returning —
+  // banners/previews fill in afterwards, each emitting 'game-updated' so the
+  // library refreshes that row. The importer window is likely already closed.
+  const runImageDownloads = async () => {
   if (shouldDownloadImportImages) {
     progress = 0;
     const successfulImports = results.filter((r) => r.success && r.recordId);
@@ -3764,6 +3770,22 @@ ipcMain.handle("import-games", async (event, params) => {
       });
     }
   }
+  };
+  // Fire-and-forget; don't block the handler's return on image downloads. When
+  // the background image work finishes it emits a final import-complete so any
+  // late listeners settle, but the importer window has already closed via the
+  // handler returning results below.
+  runImageDownloads()
+    .catch((err) => console.warn("Background image downloads failed:", err?.message || err))
+    .finally(() => {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send("import-images-complete");
+        }
+      } catch (err) {
+        console.warn("Failed to send import-images-complete:", err.message || err);
+      }
+    });
 
   // Folder-size calculation is deferred and run in the BACKGROUND so the
   // importer window can close as soon as the DB records exist. We intentionally
