@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { importerSources } from './importerSources.js'
+import GogIcon from '../ui/GogIcon.jsx'
 
 const placementClasses = {
   sidebar: {
@@ -78,7 +79,9 @@ export default function ImporterSourceMenu({
               <span className="w-7 h-7 flex items-center justify-center shrink-0 text-accent">
                 {source.iconType === 'image'
                   ? <img src={source.icon} alt="" className="w-5 h-5 object-contain" />
-                  : <i className={`${source.icon} text-lg`}></i>}
+                  : source.iconType === 'gog'
+                    ? <GogIcon size={20} />
+                    : <i className={`${source.icon} text-lg`}></i>}
               </span>
               <span className="min-w-0">
                 <span className="block text-sm leading-tight">{source.label}</span>

@@ -13,6 +13,7 @@ import {
 } from './page/gameDetailUtils.js'
 import { buildExternalLinks } from './externalLinks.js'
 import gogLogo from '../../assets/icons/gog_logo.svg'
+import GogIcon from '../ui/GogIcon.jsx'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
 
 const isValidHttpUrl = (url) => /^https?:\/\//i.test(String(url || '').trim())
@@ -56,22 +57,38 @@ const getPersonalRatingsOverall = (draft = {}) => {
 
 const buildDetailExternalLinks = (game = {}, { hasSteamMapping = false, hasGogMapping = false, gogId = '' } = {}) => {
   const links = []
+  // For F95/LewdCorner we want the details page to show just the numeric thread
+  // id (like Steam/GOG show their id), while the click target stays the full
+  // thread URL. Prefer an explicit id field on the game; otherwise pull the
+  // trailing numeric segment out of a /threads/slug.<id>/ url.
+  const threadIdFromUrl = (value) => {
+    const normalized = String(value ?? '').trim()
+    if (!normalized) return ''
+    if (/^\d+$/.test(normalized)) return normalized
+    const m = normalized.match(/\/threads\/(?:[^/\s.]+\.)?(\d+)(?:[/?#]|$)/i)
+    return m ? m[1] : ''
+  }
   const siteUrl = String(game.siteUrl || game.site_url || '').trim()
   if (isValidHttpUrl(siteUrl)) {
+    const isLc = siteUrl.includes('lewdcorner.com')
+    const displayId = threadIdFromUrl(
+      isLc ? (game.lc_id || game.lcId || siteUrl) : (game.f95_id || siteUrl),
+    )
     links.push({
       key: 'f95_thread',
-      label: siteUrl.includes('lewdcorner.com') ? 'LewdCorner' : 'F95 Thread',
-      value: siteUrl,
+      label: isLc ? 'LewdCorner' : 'F95 Thread',
+      value: displayId || siteUrl,
       url: siteUrl,
       icon: 'fas fa-comments',
     })
   }
   const lewdCornerUrl = String(game.lewdCornerSiteUrl || game.lewdcornerSiteUrl || '').trim()
   if (isValidHttpUrl(lewdCornerUrl) && !links.some((existing) => existing.url === lewdCornerUrl)) {
+    const displayId = threadIdFromUrl(game.lc_id || game.lcId || lewdCornerUrl)
     links.push({
       key: 'lewdcorner',
       label: 'LewdCorner',
-      value: lewdCornerUrl,
+      value: displayId || lewdCornerUrl,
       url: lewdCornerUrl,
       icon: 'fas fa-link',
     })
@@ -1274,7 +1291,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                   {externalLinks.map((link) => (
                     <div key={link.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
                       {link.iconImage ? (
-                        <img src={link.iconImage} alt="" style={{ width: 18, height: 18, objectFit: 'contain', color: 'var(--color-muted)' }} />
+                        <GogIcon size={16} style={{ width: 18, color: 'var(--color-muted)' }} />
                       ) : (
                         <i className={link.icon} style={{ width: 18, textAlign: 'center', color: 'var(--color-muted)' }} aria-hidden="true"></i>
                       )}

@@ -1,5 +1,5 @@
 import { LAUNCH_STATE, ACTION_BTN, STEAM_GREEN, STEAM_BLUE, STEAM_YELLOW, STEAM_GRAY, iconBtn } from './gameDetailUtils.js'
-import gogLogo from '../../../assets/icons/gog_logo.svg'
+import GogIcon from '../../ui/GogIcon.jsx'
 
 export default function ActionBar({
   game, actionVersion, latestVersion, canLaunch, canOpenFolder,
@@ -188,7 +188,7 @@ export default function ActionBar({
           )}
           {onOpenGog && (
             <button onClick={onOpenGog} title="Open on GOG" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
-              <img src={gogLogo} alt="GOG" style={{ width: 16, height: 16, objectFit: 'contain' }} />
+              <GogIcon size={16} />
             </button>
           )}
           {onUninstallSteam && (
