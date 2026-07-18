@@ -120,7 +120,7 @@ function registerGamesHandlers(ctx) {
     upsertVersion, updateVersion, deleteGameCompletely, getUniqueFilterOptions,
     updateFolderSize, countVersions, deleteVersion, getVersionForRecord,
     getVersionPathsForRecord, getInstalledVersionsForRecord,
-    recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePersonalRatings, setSelectedGameVersion, getEmulatorByExtension,
+    recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePlaystate, setVersionPlaystate, setGamePersonalRatings, setSelectedGameVersion, getEmulatorByExtension,
     getManualMappings, setManualMappings, addSteamMapping,
     // helpers
     deleteTitleRecord, isAllowedDeletionPath, getTrustedVersion,
@@ -181,6 +181,18 @@ function registerGamesHandlers(ctx) {
 
   ipcMain.handle('set-game-favorite', async (_, { recordId, isFavorite } = {}) => {
     const result = await setGameFavorite(recordId, isFavorite === true)
+    if (result?.success) emitGameUpdated(result.recordId)
+    return result
+  })
+
+  ipcMain.handle('set-game-playstate', async (_, { recordId, playstate } = {}) => {
+    const result = await setGamePlaystate(recordId, playstate)
+    if (result?.success) emitGameUpdated(result.recordId)
+    return result
+  })
+
+  ipcMain.handle('set-version-playstate', async (_, { recordId, versionId, playstate } = {}) => {
+    const result = await setVersionPlaystate(recordId, versionId, playstate)
     if (result?.success) emitGameUpdated(result.recordId)
     return result
   })

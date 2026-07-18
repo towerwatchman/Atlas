@@ -638,6 +638,11 @@ const initializeDatabase = (dataDir) => {
     db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_mappings_record_id ON f95_zone_mappings(record_id);`);
     db.run(`ALTER TABLE games ADD COLUMN is_favorite INTEGER DEFAULT 0;`, () => {});
     db.run(`ALTER TABLE games ADD COLUMN selected_version_id INTEGER;`, () => {});
+    // User playstate (finished/played/dropped/on_hold/planned). Per-version on
+    // the versions table; per-title override on games (null = derive from
+    // versions). Separate from atlas_data.status (developer/thread status).
+    db.run(`ALTER TABLE games ADD COLUMN playstate TEXT;`, () => {});
+    db.run(`ALTER TABLE versions ADD COLUMN playstate TEXT;`, () => {});
     db.run(`
       CREATE TABLE IF NOT EXISTS game_personal_ratings
       (

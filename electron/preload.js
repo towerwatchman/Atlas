@@ -180,6 +180,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("open-game-properties", recordId),
   setGameFavorite: (recordId, isFavorite) =>
     ipcRenderer.invoke("set-game-favorite", { recordId, isFavorite }),
+  setGamePlaystate: (recordId, playstate) =>
+    ipcRenderer.invoke("set-game-playstate", { recordId, playstate }),
+  setVersionPlaystate: (recordId, versionId, playstate) =>
+    ipcRenderer.invoke("set-version-playstate", { recordId, versionId, playstate }),
   setGamePersonalRatings: (recordId, ratings) =>
     ipcRenderer.invoke("set-game-personal-ratings", { recordId, ratings }),
 

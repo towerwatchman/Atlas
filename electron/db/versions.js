@@ -8,6 +8,7 @@ const getDb = () => dbModule.db
 const { toLocalAssetPath, normalizeMediaStorageMode, remoteBannerExpression,
         buildBannerJoinClauses, buildBannerSelectFields, getAssetBasePath } = require('./helpers')
 const { calculatePathSize } = require('../pathSize')
+const { effectiveTitlePlaystate } = require('./playstates')
 
 const localMediaAssetSelect = (baseImagePath, assetType, fallbackExpression) => {
   const safeBaseImagePath = String(baseImagePath || '').replace(/'/g, "''");
@@ -261,7 +262,17 @@ const upsertVersion = async (game, recordId) => {
            game_path = excluded.game_path,
            exec_path = excluded.exec_path,
            in_place = excluded.in_place,
-           folder_size = COALESCE(excluded.folder_size, versions.folder_size)`,
+           folder_size = COALESCE(excluded.folder_size, versions.folder_size),
+           -- New content replacing a finished version reverts it to "played"
+           -- (per issue #245). Only demote when the actual build path/exe
+           -- changes — a plain re-scan of the same paths keeps "finished".
+           playstate = CASE
+             WHEN versions.playstate = 'finished'
+               AND (versions.game_path IS NOT excluded.game_path
+                    OR versions.exec_path IS NOT excluded.exec_path)
+             THEN 'played'
+             ELSE versions.playstate
+           END`,
         [recordId, version, folder, executable, true, dateAdded, folderSize],
         (err) => {
           if (err) {
@@ -648,6 +659,7 @@ function mapVersionRow(row, forceInstalled = false, options = {}) {
     version_playtime: row.version_playtime,
     folder_size: row.folder_size,
     date_added: row.date_added,
+    playstate: row.playstate ?? null,
     isInstalled,
     installState: skipPathValidation && hasPathValue && !forceInstalled
       ? "pending"
@@ -715,6 +727,7 @@ const getVersionForRecord = (recordId, version) => {
          v.version_playtime,
          v.folder_size,
          v.date_added,
+         v.playstate,
          sm.steam_id
        FROM versions v
        LEFT JOIN steam_mappings sm ON v.record_id = sm.record_id
@@ -815,6 +828,7 @@ const getGame = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
         games.engine as engine,
         games.description,
         COALESCE(games.is_favorite, 0) as is_favorite,
+        games.playstate as playstate,
         game_personal_ratings.story as personal_rating_story,
         game_personal_ratings.graphics as personal_rating_graphics,
         game_personal_ratings.gameplay as personal_rating_gameplay,
@@ -902,7 +916,7 @@ ${bannerJoinClauses}
       }
       // Fetch versions separately
       getDb().all(
-        `SELECT rowid AS version_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added
+        `SELECT rowid AS version_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added, playstate
          FROM versions
          WHERE record_id = ?`,
         [recordId],
@@ -917,6 +931,8 @@ ${bannerJoinClauses}
           const game = applyLocalSortAggregates(applyPersonalRatings({
             ...row,
             isFavorite: row.is_favorite === 1,
+            playstate: row.playstate ?? null,
+            effectivePlaystate: effectiveTitlePlaystate(row.playstate, allVersions),
             engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
             versions: allVersions,
             versionCount: versionRows.length,
@@ -965,6 +981,7 @@ const getGames = (
         games.engine as engine,
         games.description,
         COALESCE(games.is_favorite, 0) as is_favorite,
+        games.playstate as playstate,
         game_personal_ratings.story as personal_rating_story,
         game_personal_ratings.graphics as personal_rating_graphics,
         game_personal_ratings.gameplay as personal_rating_gameplay,
@@ -1105,6 +1122,8 @@ ${bannerJoinClauses}
             return applyLocalSortAggregates(applyPersonalRatings({
               ...row,
               isFavorite: row.is_favorite === 1,
+              playstate: row.playstate ?? null,
+              effectivePlaystate: effectiveTitlePlaystate(row.playstate, allVersions),
               // Unescape engine to fix 'Ren''Py' issue
               engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
               versions,

@@ -9,6 +9,7 @@ const { toLocalAssetPath, normalizeMediaStorageMode,
         buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
 const { mapVersionRow, getVersionPathsForRecord } = require('./versions')
 const { deleteBanner, deletePreviews, deleteMediaAssets } = require('./media')
+const { normalizePlaystate } = require('./playstates')
 
 let cachedFilterOptions = null
 const resetCachedFilterOptions = () => { cachedFilterOptions = null }
@@ -268,6 +269,64 @@ const setGameFavorite = (recordId, isFavorite) => {
           return;
         }
         resolve({ success: true, recordId: id, isFavorite: nextFavorite === 1 });
+      },
+    );
+  });
+};
+
+// Set (or clear, with null) the per-TITLE playstate override. A null/invalid
+// value clears the override, causing the title to fall back to a playstate
+// derived from its versions.
+const setGamePlaystate = (recordId, playstate) => {
+  const id = Number.parseInt(recordId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    return Promise.resolve({ success: false, error: "Invalid recordId" });
+  }
+  const next = normalizePlaystate(playstate); // null clears the override
+  return new Promise((resolve) => {
+    getDb().run(
+      `UPDATE games SET playstate = ? WHERE record_id = ?`,
+      [next, id],
+      function onRun(err) {
+        if (err) {
+          console.error("Error updating game playstate:", err);
+          resolve({ success: false, error: err.message });
+          return;
+        }
+        if (!this.changes) {
+          resolve({ success: false, error: "Game record not found" });
+          return;
+        }
+        resolve({ success: true, recordId: id, playstate: next });
+      },
+    );
+  });
+};
+
+// Set (or clear, with null) the playstate for a single version, identified by
+// its rowid (version_id). Scoped to record_id as a safety check.
+const setVersionPlaystate = (recordId, versionId, playstate) => {
+  const rid = Number.parseInt(recordId, 10);
+  const vid = Number.parseInt(versionId, 10);
+  if (!Number.isInteger(rid) || rid <= 0 || !Number.isInteger(vid) || vid <= 0) {
+    return Promise.resolve({ success: false, error: "Invalid recordId or versionId" });
+  }
+  const next = normalizePlaystate(playstate);
+  return new Promise((resolve) => {
+    getDb().run(
+      `UPDATE versions SET playstate = ? WHERE rowid = ? AND record_id = ?`,
+      [next, vid, rid],
+      function onRun(err) {
+        if (err) {
+          console.error("Error updating version playstate:", err);
+          resolve({ success: false, error: err.message });
+          return;
+        }
+        if (!this.changes) {
+          resolve({ success: false, error: "Version not found" });
+          return;
+        }
+        resolve({ success: true, recordId: rid, versionId: vid, playstate: next });
       },
     );
   });
@@ -625,6 +684,8 @@ module.exports = {
   recordGameLaunchStarted,
   recordGamePlaytime,
   setGameFavorite,
+  setGamePlaystate,
+  setVersionPlaystate,
   setGamePersonalRatings,
   setSelectedGameVersion,
   getUniqueFilterOptions,

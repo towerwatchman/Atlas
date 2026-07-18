@@ -6,6 +6,7 @@ import MediaTab from './window/MediaTab.jsx'
 import MappingsTab from './window/MappingsTab.jsx'
 import ConfirmModal from './window/ConfirmModal.jsx'
 import { sanitizePercentText } from '../../utils/formatPercent.js'
+import { effectiveTitlePlaystate } from '../../utils/playstates.js'
 import { formatVersionDate } from '../../utils/formatVersionDate.js'
 import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
@@ -411,6 +412,26 @@ const GameDetailWindow = () => {
     }
   }
 
+  const handleSetTitlePlaystate = async (nextPlaystate) => {
+    if (!game?.record_id) return
+    try {
+      const result = await window.electronAPI.setGamePlaystate?.(game.record_id, nextPlaystate)
+      if (result?.success === false) throw new Error(result.error || 'Playstate update failed')
+    } catch (err) {
+      console.error('Failed to update title playstate:', err)
+    }
+  }
+
+  const handleSetVersionPlaystate = async (versionId, nextPlaystate) => {
+    if (!game?.record_id || !versionId) return
+    try {
+      const result = await window.electronAPI.setVersionPlaystate?.(game.record_id, versionId, nextPlaystate)
+      if (result?.success === false) throw new Error(result.error || 'Version playstate update failed')
+    } catch (err) {
+      console.error('Failed to update version playstate:', err)
+    }
+  }
+
   const handleSetPath = async () => {
     try {
       const selectedPath = await window.electronAPI.selectDirectory()
@@ -793,6 +814,10 @@ const GameDetailWindow = () => {
                 onAddVersion={handleAddVersion}
                 onRemoveVersion={handleRemoveVersion}
                 onDeleteVersionFiles={handleDeleteVersionFiles}
+                titlePlaystate={effectiveTitlePlaystate(game?.playstate, versions)}
+                titlePlaystateIsDerived={!game?.playstate}
+                onSetTitlePlaystate={handleSetTitlePlaystate}
+                onSetVersionPlaystate={handleSetVersionPlaystate}
               />
             )}
             {activeTab === 'Media' && (

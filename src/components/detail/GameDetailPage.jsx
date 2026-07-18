@@ -14,6 +14,8 @@ import {
 import { buildExternalLinks } from './externalLinks.js'
 import gogLogo from '../../assets/icons/gog_logo.svg'
 import GogIcon from '../ui/GogIcon.jsx'
+import PlaystatePicker from '../ui/PlaystatePicker.jsx'
+import { effectiveTitlePlaystate } from '../../utils/playstates.js'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
 
 const isValidHttpUrl = (url) => /^https?:\/\//i.test(String(url || '').trim())
@@ -464,6 +466,11 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const canManageLocalTitle = game.isMetadataOnly !== true && game.isCatalogEntry !== true
   const canManageFavorite = canManageLocalTitle && Boolean(Number.parseInt(game.record_id, 10) > 0)
   const canManagePersonalRatings = canManageFavorite
+  // Title playstate: explicit override on the game wins; otherwise derived from
+  // the versions. `game.playstate` is the raw override; effectivePlaystate is
+  // provided by the backend but recomputed here so optimistic UI stays correct.
+  const titlePlaystate = effectiveTitlePlaystate(game.playstate, game.versions || [])
+  const titlePlaystateIsDerived = !game.playstate && !!titlePlaystate
   const canManageWishlist = game.isCatalogEntry === true || game.isWishlistEntry === true
   const canLaunch = Boolean(
     actionVersion &&
@@ -759,6 +766,30 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       alert(`Failed to update Favorite: ${err.message || err}`)
     } finally {
       setFavoriteBusy(false)
+    }
+  }
+
+  const handleSetTitlePlaystate = async (nextPlaystate) => {
+    if (!canManageLocalTitle || !game?.record_id) return
+    try {
+      const result = await window.electronAPI.setGamePlaystate?.(game.record_id, nextPlaystate)
+      if (!result?.success) throw new Error(result?.error || 'Playstate update failed')
+      onRefresh?.(game.record_id)
+    } catch (err) {
+      console.error('Failed to update title playstate:', err)
+      alert(`Failed to update playstate: ${err.message || err}`)
+    }
+  }
+
+  const handleSetVersionPlaystate = async (versionId, nextPlaystate) => {
+    if (!canManageLocalTitle || !game?.record_id || !versionId) return
+    try {
+      const result = await window.electronAPI.setVersionPlaystate?.(game.record_id, versionId, nextPlaystate)
+      if (!result?.success) throw new Error(result?.error || 'Version playstate update failed')
+      onRefresh?.(game.record_id)
+    } catch (err) {
+      console.error('Failed to update version playstate:', err)
+      alert(`Failed to update version playstate: ${err.message || err}`)
     }
   }
 
@@ -1185,28 +1216,61 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             ),
             versions: (
               <section className="bg-secondary border border-border p-2">
-                <h2 className="text-lg font-semibold mb-3">Versions</h2>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <h2 className="text-lg font-semibold">Versions</h2>
+                  {canManageLocalTitle && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <PlaystatePicker
+                        value={titlePlaystate}
+                        onChange={handleSetTitlePlaystate}
+                        size="sm"
+                        label="Title"
+                      />
+                      {titlePlaystateIsDerived && (
+                        <span
+                          title="Derived from this title's versions. Choosing a state here sets an explicit title override."
+                          style={{ fontSize: 10, color: 'var(--color-muted)', fontStyle: 'italic' }}
+                        >
+                          (from versions)
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
                 {versionOptions.length > 0 ? (
                   <div className="space-y-2">
                     {versionOptions.map((version) => {
                       const isSelected = selectedVersion?.version === version.version && selectedVersion?.game_path === version.game_path
                       const installed = version.isInstalled !== false
                       return (
-                        <button
+                        <div
                           key={`${version.version}-${version.game_path}`}
-                          onClick={() => selectVersion(version)}
-                          className={`w-full text-left border p-3 transition-colors ${isSelected ? 'border-accent bg-selected' : 'border-border bg-primary hover:bg-selected'}`}
+                          className={`border transition-colors ${isSelected ? 'border-accent bg-selected' : 'border-border bg-primary'}`}
                         >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                            <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
-                              {isSelected && <i className="fas fa-play" style={{ fontSize: 9, color: 'var(--color-accent,#86a8e7)' }}></i>}
-                              {version.version || 'Unknown version'}
-                            </span>
-                            <span style={{ fontSize: 11, color: installed ? 'var(--color-success)' : 'var(--color-danger)' }}>{installed ? 'Installed' : 'Missing'}</span>
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--color-text)', marginTop: 3 }}>{formatPlaytime(version.version_playtime)}</div>
-                          <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{version.game_path || 'No path set'}</div>
-                        </button>
+                          <button
+                            onClick={() => selectVersion(version)}
+                            className={`w-full text-left p-3 transition-colors ${isSelected ? 'bg-selected' : 'bg-primary hover:bg-selected'}`}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                              <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
+                                {isSelected && <i className="fas fa-play" style={{ fontSize: 9, color: 'var(--color-accent,#86a8e7)' }}></i>}
+                                {version.version || 'Unknown version'}
+                              </span>
+                              <span style={{ fontSize: 11, color: installed ? 'var(--color-success)' : 'var(--color-danger)' }}>{installed ? 'Installed' : 'Missing'}</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--color-text)', marginTop: 3 }}>{formatPlaytime(version.version_playtime)}</div>
+                            <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{version.game_path || 'No path set'}</div>
+                          </button>
+                          {canManageLocalTitle && version.version_id ? (
+                            <div style={{ padding: '6px 12px 10px', borderTop: '1px solid var(--color-border)' }}>
+                              <PlaystatePicker
+                                value={version.playstate}
+                                onChange={(next) => handleSetVersionPlaystate(version.version_id, next)}
+                                size="sm"
+                              />
+                            </div>
+                          ) : null}
+                        </div>
                       )
                     })}
                   </div>
