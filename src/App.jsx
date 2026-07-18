@@ -15,6 +15,7 @@ import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
 import RefreshMediaModal from './components/ui/RefreshMediaModal.jsx'
+import { useToast } from './components/ui/toast/ToastContext.jsx'
 import { useGames } from './hooks/useGames.js'
 import { builtInSavedFilters, defaultFilters, filterGamesWithState, normalizeFilterState, useFilters } from './hooks/useFilters.js'
 import { useAppUpdate } from './hooks/useAppUpdate.js'
@@ -311,6 +312,7 @@ const App = () => {
   // library too, and made the button look permanently active).
   const favoritesActive = activeSavedFilterId === 'builtin-favorites' && libraryMode === 'local'
 
+  const toast = useToast()
   const {
     appUpdateNotice, setAppUpdateNotice, appUpdateActionBusy,
     handleUpdateStatus, handleAppUpdateAction,
@@ -337,6 +339,71 @@ const App = () => {
   const isAppUpdateActionDisabled =
     (appUpdateActionBusy && appUpdateNotice.status !== 'downloaded') ||
     ['downloading', 'checking', 'installing'].includes(appUpdateNotice.status)
+
+  // Bridge the app-update notice into the toast system (replaces the old
+  // full-width bottom bar). One toast, updated in place by id as the update
+  // transitions checking -> downloading -> downloaded -> installing. It stays
+  // sticky (no auto-dismiss) because it carries the install/restart action;
+  // dismissing hides it and syncs the underlying notice state.
+  useEffect(() => {
+    if (!appUpdateNotice.visible) {
+      toast.dismiss('app-update')
+      return
+    }
+    const variant =
+      ['error', 'package_not_ready'].includes(appUpdateNotice.status) ? 'error'
+        : appUpdateNotice.status === 'not-available' ? 'success'
+        : appUpdateNotice.status === 'downloaded' ? 'success'
+        : 'info'
+    // Show the action button only for states where it does something useful.
+    const actionableStatuses = ['available', 'downloaded', 'error', 'package_not_ready', 'not-available']
+    const showAction = actionableStatuses.includes(appUpdateNotice.status)
+    toast.notify({
+      id: 'app-update',
+      variant,
+      title: 'Atlas Update',
+      message: appUpdateNoticeText,
+      progress: appUpdateNotice.status === 'downloading' && appUpdateNotice.percent != null
+        ? Number(appUpdateNotice.percent)
+        : null,
+      action: showAction ? {
+        label: appUpdateActionLabel,
+        onClick: handleAppUpdateAction,
+        busy: isAppUpdateActionDisabled,
+        disabled: isAppUpdateActionDisabled,
+      } : null,
+      dismissible: true,
+      // When the user closes the toast, hide the underlying notice too so the
+      // effect doesn't immediately recreate it.
+      onDismiss: () => setAppUpdateNotice((n) => ({ ...n, visible: false })),
+      // Transient informational states auto-dismiss; actionable/progress ones stay.
+      duration: ['not-available'].includes(appUpdateNotice.status) ? 8000 : 0,
+    })
+  }, [
+    appUpdateNotice.visible, appUpdateNotice.status, appUpdateNotice.percent,
+    appUpdateNoticeText, appUpdateActionLabel, isAppUpdateActionDisabled,
+    handleAppUpdateAction, toast,
+  ])
+
+  // Show a dismissible warning toast when an image source gets rate-limited
+  // during import/refresh. Downloads from that source pause for the rest of the
+  // run; other sources keep going. De-duplicated per source via a stable id.
+  useEffect(() => {
+    const off = window.electronAPI.onMediaRateLimited?.((data) => {
+      const source = data?.source || 'a source'
+      const pretty = { f95: 'F95zone', steam: 'Steam', gog: 'GOG', lewdcorner: 'LewdCorner', lc: 'LewdCorner' }[source] || source
+      const retryMs = Number(data?.retryAfterMs)
+      const retryNote = Number.isFinite(retryMs) && retryMs > 0
+        ? ` Try again in ~${Math.ceil(retryMs / 1000)}s.`
+        : ''
+      toast.warning('Image downloads paused', {
+        id: `rate-limit-${source}`,
+        message: `${pretty} is rate-limiting image downloads, so they've been paused for this run. Other sources continue.${retryNote}`,
+        duration: 0,
+      })
+    })
+    return () => { if (typeof off === 'function') off() }
+  }, [toast])
 
   // ── Scroll restore ─────────────────────────────────────────────────────────
   const restoreLibraryScrollIfNeeded = useCallback(() => {
@@ -886,29 +953,48 @@ const App = () => {
 
   const confirmLibraryRefresh = useCallback(async (mode) => {
     if (refreshLibraryBusy) return
+    // Close the mode-picker modal immediately — the actual work streams into the
+    // bottom import progress bar so the user keeps full use of the app.
+    setRefreshLibraryModalOpen(false)
     setRefreshLibraryBusy(true)
-    setRefreshLibraryProgress({ text: 'Checking database updates…', processed: 0, total: 0 })
-    try {
-      // 1) Online catalog DB sync (unchanged behavior).
-      try {
-        await window.electronAPI.checkDbUpdates()
-      } catch (e) {
-        console.error('DB update during library refresh failed:', e)
-      }
-      // 2) Library-wide media metadata + artwork refresh.
-      setRefreshLibraryProgress({ text: 'Refreshing media…', processed: 0, total: 0 })
-      const result = await window.electronAPI.refreshMediaLibrary({ mode })
-      if (result?.success === false) throw new Error(result.error || 'Media refresh failed')
-      setRefreshLibraryProgress({ text: 'Complete.', processed: result?.processed || 0, total: result?.total || 0 })
-      // Refresh the visible lists so new art/metadata shows.
-      if (typeof fetchGames === 'function') fetchGames()
-      setTimeout(() => setRefreshLibraryModalOpen(false), 800)
-    } catch (error) {
-      console.error('Library refresh failed:', error)
-      setRefreshLibraryProgress({ text: `Error: ${error.message}`, processed: 0, total: 0 })
-    } finally {
-      setRefreshLibraryBusy(false)
+    setImportProgress({ text: 'Checking database updates…', progress: 0, total: 0 })
+
+    // Pump refresh-media-progress into the bottom bar.
+    const onProgress = (data) => {
+      setImportProgress({
+        text: data?.text || 'Refreshing media…',
+        progress: data?.processed || 0,
+        total: data?.total || 0,
+      })
     }
+    window.electronAPI.onRefreshMediaProgress?.(onProgress)
+
+    ;(async () => {
+      try {
+        try {
+          await window.electronAPI.checkDbUpdates()
+        } catch (e) {
+          console.error('DB update during library refresh failed:', e)
+        }
+        setImportProgress({ text: 'Refreshing media…', progress: 0, total: 0 })
+        const result = await window.electronAPI.refreshMediaLibrary({ mode })
+        if (result?.success === false) throw new Error(result.error || 'Media refresh failed')
+        setImportProgress({
+          text: `Media refresh complete (${result?.processed || 0}/${result?.total || 0}).`,
+          progress: result?.processed || 0,
+          total: result?.total || 0,
+        })
+        if (typeof fetchGames === 'function') fetchGames()
+        setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 2500)
+      } catch (error) {
+        console.error('Library refresh failed:', error)
+        setImportProgress({ text: `Refresh error: ${error.message}`, progress: 0, total: 0 })
+        setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 4000)
+      } finally {
+        window.electronAPI.removeRefreshMediaProgressListener?.()
+        setRefreshLibraryBusy(false)
+      }
+    })()
   }, [refreshLibraryBusy, fetchGames])
 
   // ── Actions ────────────────────────────────────────────────────────────────
@@ -1762,26 +1848,9 @@ const App = () => {
         </div>
       )}
 
-      {appUpdateNotice.visible && (
-        <div className="fixed bottom-[40px] left-0 right-0 z-50 bg-primary border-t border-accent px-4 py-2 text-text flex items-center justify-between gap-3">
-          <div className="flex items-center min-w-0">
-            <i className="fas fa-arrow-circle-up mr-2 text-highlight"></i>
-            <span className="truncate">{appUpdateNoticeText}</span>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={handleAppUpdateAction}
-              disabled={isAppUpdateActionDisabled}
-              className={`bg-accent px-3 py-1 hover:bg-accentHover ${isAppUpdateActionDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
-            >
-              {appUpdateActionLabel}
-            </button>
-            <button onClick={() => setAppUpdateNotice((n) => ({ ...n, visible: false }))} className="bg-transparent px-2 py-1 hover:text-highlight" aria-label="Dismiss update notice">
-              <i className="fas fa-times"></i>
-            </button>
-          </div>
-        </div>
-      )}
+      {/* App-update notice is now shown via the toast system (see the
+          appUpdateNotice -> toast bridge effect above), replacing the old
+          full-width bottom bar. */}
 
       {/* Footer — position:fixed, same reasoning as the header above: it
           escapes the root div's own rounded clip, so it needs its own

@@ -124,12 +124,30 @@ async function conditionalFetchImage(url, { cache, extraHeaders } = {}) {
   const response = await axios.get(url, {
     responseType: "arraybuffer",
     maxRedirects: 5,
-    // Treat 304 as a normal, non-throwing response.
-    validateStatus: (status) => (status >= 200 && status < 300) || status === 304,
+    // Treat 304 (not modified) and 429/503 (rate limited) as non-throwing so we
+    // can detect and report them rather than swallowing a generic axios error.
+    validateStatus: (status) =>
+      (status >= 200 && status < 300) || status === 304 || status === 429 || status === 503,
     headers,
   });
 
   if (response.status === 304) return { status: 304, notModified: NOT_MODIFIED };
+
+  // Rate limited (or service unavailable with a Retry-After). Surface it so the
+  // caller can stop hitting THIS source for the rest of the run and notify.
+  if (response.status === 429 || response.status === 503) {
+    const retryAfterRaw = response.headers?.["retry-after"] || null;
+    let retryAfterMs = null;
+    if (retryAfterRaw != null) {
+      const asSeconds = Number(retryAfterRaw);
+      if (Number.isFinite(asSeconds)) retryAfterMs = asSeconds * 1000;
+      else {
+        const asDate = Date.parse(retryAfterRaw);
+        if (!Number.isNaN(asDate)) retryAfterMs = Math.max(0, asDate - Date.now());
+      }
+    }
+    return { status: response.status, rateLimited: true, retryAfterMs };
+  }
 
   const bytes = Buffer.from(response.data);
   const etag = response.headers?.etag || response.headers?.ETag || null;
@@ -280,6 +298,31 @@ async function downloadImages(
   const upsertMediaSourceCache = typeof options.upsertMediaSourceCache === "function"
     ? options.upsertMediaSourceCache
     : null;
+  // Shared across a whole import/refresh run: once a source (f95/steam/gog/lc)
+  // returns 429/503, it's added here and all remaining downloads from that
+  // source are skipped for the rest of the run while other sources continue.
+  const blockedSources = options.blockedSources instanceof Set ? options.blockedSources : null;
+  const onRateLimited = typeof options.onRateLimited === "function" ? options.onRateLimited : null;
+  const isSourceBlocked = (src) => Boolean(blockedSources && src && blockedSources.has(String(src)));
+  const markSourceRateLimited = (src, retryAfterMs) => {
+    if (!src) return;
+    const key = String(src);
+    const firstTime = blockedSources && !blockedSources.has(key);
+    if (blockedSources) blockedSources.add(key);
+    if (firstTime && onRateLimited) {
+      try { onRateLimited(key, retryAfterMs ?? null); } catch { /* ignore */ }
+    }
+  };
+  // Raised inside a fetch when a rate-limit is detected, so the surrounding
+  // try/catch can record the source and skip cleanly.
+  class RateLimitError extends Error {
+    constructor(source, retryAfterMs) {
+      super(`Rate limited by source: ${source}`);
+      this.name = "RateLimitError";
+      this.source = source;
+      this.retryAfterMs = retryAfterMs ?? null;
+    }
+  }
   const result = {
     success: true,
     recordId,
@@ -359,12 +402,15 @@ async function downloadImages(
     console.warn(`Skipped preview download for record ${recordId}: no preview URLs found`);
   }
 
-  if (bannerUrl) {
+  const bannerSource = options.bannerSource || options.source || "f95";
+  if (bannerUrl && isSourceBlocked(bannerSource)) {
+    result.skipped = true;
+    result.skipReasons.push(`banner skipped: ${bannerSource} rate-limited`);
+  } else if (bannerUrl) {
     console.log(`Downloading banner from URL: ${bannerUrl}`);
     try {
       result.attempted++;
       const ext = path.extname(new URL(bannerUrl).pathname).toLowerCase();
-      const bannerSource = options.bannerSource || options.source || "f95";
       const baseName = buildBannerBaseName(bannerSource);
       const imagePath = path.join(imgDir, baseName);
       const relativePath = path.join(
@@ -392,6 +438,10 @@ async function downloadImages(
             cache,
             extraHeaders: withAuthCookie(bannerUrl, {}),
           });
+          if (res.rateLimited) {
+            markSourceRateLimited(bannerSource, res.retryAfterMs);
+            throw new RateLimitError(bannerSource, res.retryAfterMs);
+          }
           if (res.notModified || res.unchangedByHash) {
             bannerNotModified = true;
             return null;
@@ -515,8 +565,13 @@ async function downloadImages(
         if (requestDelayMs > 0) await delay(requestDelayMs);
       }
     } catch (err) {
-      console.error("Error downloading or converting banner:", err);
-      addError("Banner", err);
+      if (err instanceof RateLimitError) {
+        result.skipped = true;
+        result.skipReasons.push(`banner skipped: ${err.source} rate-limited`);
+      } else {
+        console.error("Error downloading or converting banner:", err);
+        addError("Banner", err);
+      }
     }
   }
 
@@ -527,13 +582,19 @@ async function downloadImages(
       : String(previewEntry?.url || "").trim();
     if (!url) continue;
 
+    const previewSource = typeof previewEntry === "object"
+      ? previewEntry.source
+      : defaultPreviewSource;
+    if (isSourceBlocked(previewSource)) {
+      result.skipped = true;
+      result.skipReasons.push(`preview ${i + 1} skipped: ${previewSource} rate-limited`);
+      continue;
+    }
+
     console.log(`Downloading screen ${i + 1} from URL: ${url}`);
     try {
       result.attempted++;
       const ext = path.extname(new URL(url).pathname).toLowerCase();
-      const previewSource = typeof previewEntry === "object"
-        ? previewEntry.source
-        : defaultPreviewSource;
       const baseName = buildPreviewBaseName(previewSource, i);
       const imagePath = path.join(imgDir, baseName);
       const relativePath = path.join(
@@ -558,6 +619,10 @@ async function downloadImages(
             cache,
             extraHeaders: withAuthCookie(url, {}),
           });
+          if (res.rateLimited) {
+            markSourceRateLimited(previewSource, res.retryAfterMs);
+            throw new RateLimitError(previewSource, res.retryAfterMs);
+          }
           if (res.notModified || res.unchangedByHash) {
             previewNotModified = true;
             return null;
@@ -664,14 +729,25 @@ async function downloadImages(
         if (requestDelayMs > 0) await delay(requestDelayMs);
       }
     } catch (err) {
-      console.error(`Error downloading or converting screen ${i + 1}:`, err);
-      addError(`Preview ${i + 1}`, err);
+      if (err instanceof RateLimitError) {
+        result.skipped = true;
+        result.skipReasons.push(`preview ${i + 1} skipped: ${err.source} rate-limited`);
+      } else {
+        console.error(`Error downloading or converting screen ${i + 1}:`, err);
+        addError(`Preview ${i + 1}`, err);
+      }
     }
   }
 
   for (let i = 0; i < additionalAssets.length; i++) {
     const asset = additionalAssets[i];
     const url = asset.url;
+    const assetSource = asset.source || "remote";
+    if (isSourceBlocked(assetSource)) {
+      result.skipped = true;
+      result.skipReasons.push(`asset ${asset.assetType || i + 1} skipped: ${assetSource} rate-limited`);
+      continue;
+    }
     console.log(`Downloading media asset ${asset.assetType || i + 1} from URL: ${url}`);
     try {
       result.attempted++;
@@ -717,6 +793,10 @@ async function downloadImages(
           const res = await conditionalFetchImage(url, {
             extraHeaders: withAuthCookie(url, {}),
           });
+          if (res.rateLimited) {
+            markSourceRateLimited(assetSource, res.retryAfterMs);
+            throw new RateLimitError(assetSource, res.retryAfterMs);
+          }
           await encodeToWebp(Buffer.from(res.bytes), localPath, getMediaAssetMaxWidth(asset.assetType));
           if (upsertMediaSourceCache && res.validators) {
             await upsertMediaSourceCache({
@@ -768,6 +848,13 @@ async function downloadImages(
       });
       if (requestDelayMs > 0) await delay(requestDelayMs);
     } catch (err) {
+      if (err instanceof RateLimitError) {
+        result.skipped = true;
+        result.skipReasons.push(`asset ${asset.assetType || i + 1} skipped: ${err.source} rate-limited`);
+        imageProgress++;
+        reportProgress();
+        continue;
+      }
       const host = (() => {
         try { return new URL(url).host; } catch { return "unknown host"; }
       })();

@@ -3443,6 +3443,16 @@ ipcMain.handle("import-games", async (event, params) => {
   const runImageDownloads = async () => {
   if (shouldDownloadImportImages) {
     progress = 0;
+    // Shared across the whole import's image phase: once a source is rate-
+    // limited we stop pulling from it and notify, continuing with others.
+    const blockedSources = new Set();
+    const onRateLimited = (source, retryAfterMs) => {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send("media-rate-limited", { source, retryAfterMs });
+        }
+      } catch { /* window may be closed already */ }
+    };
     const successfulImports = results.filter((r) => r.success && r.recordId);
     const imageTotal = successfulImports.length;
     const imageSummary = {
@@ -3672,6 +3682,8 @@ ipcMain.handle("import-games", async (event, params) => {
               additionalAssets,
               upsertMediaAsset,
               requestDelayMs: currentMediaSettings.mediaRequestDelayMs,
+              blockedSources,
+              onRateLimited,
             },
           );
         } finally {

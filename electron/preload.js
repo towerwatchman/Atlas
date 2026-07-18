@@ -220,6 +220,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   removeRefreshMediaProgressListener: () => {
     ipcRenderer.removeAllListeners("refresh-media-progress");
   },
+  onMediaRateLimited: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on("media-rate-limited", handler);
+    return () => ipcRenderer.removeListener("media-rate-limited", handler);
+  },
   convertAndSaveBanner: (recordId, filePath) => {
     console.log(
       "Invoking convertAndSaveBanner for recordId:",

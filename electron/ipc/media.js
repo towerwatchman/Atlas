@@ -402,7 +402,7 @@ module.exports = function registerMediaHandlers(ctx) {
   //   mode: 'missing' -> only fetch/download what's absent; 'all' -> overwrite.
   //   download: whether to pull images to disk (true) or leave them streamed
   //             (false). Determined by the mediaStorageMode setting.
-  const refreshOneGame = async (recordId, { mode = 'all', download = false, onProgress } = {}) => {
+  const refreshOneGame = async (recordId, { mode = 'all', download = false, onProgress, blockedSources, onRateLimited } = {}) => {
     const missingOnly = mode === 'missing'
 
     // 0) Resolve every source's id up front (cheap DB reads, run in parallel).
@@ -492,6 +492,8 @@ module.exports = function registerMediaHandlers(ctx) {
             upsertMediaAsset,
             getMediaSourceCache,
             upsertMediaSourceCache,
+            blockedSources,
+            onRateLimited,
           },
         )
       }
@@ -572,9 +574,17 @@ module.exports = function registerMediaHandlers(ctx) {
         }
       }
       emit(`Refreshing media for ${total} games…`)
+      // Shared across the whole refresh run: once a source is rate-limited we
+      // stop pulling from it and notify the user, but keep going with the rest.
+      const blockedSources = new Set()
+      const onRateLimited = (source, retryAfterMs) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('media-rate-limited', { source, retryAfterMs })
+        }
+      }
       for (const recordId of recordIds) {
         try {
-          await refreshOneGame(recordId, { mode, download })
+          await refreshOneGame(recordId, { mode, download, blockedSources, onRateLimited })
         } catch (e) {
           console.warn(`refresh-media-library: game ${recordId} failed:`, e.message)
         }
