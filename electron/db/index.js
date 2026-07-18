@@ -406,6 +406,23 @@ const initializeDatabase = (dataDir) => {
         UNIQUE (record_id, source, asset_type, original_url)
       );
     `);
+    // Per-URL HTTP validators so a media refresh can ask the origin "has this
+    // changed?" (If-None-Match / If-Modified-Since) and skip re-downloading +
+    // re-encoding when the answer is 304. When the origin sends no validators we
+    // fall back to comparing content_length, then content_hash of the bytes.
+    db.run(`
+      CREATE TABLE IF NOT EXISTS media_source_cache
+      (
+        record_id INTEGER REFERENCES games (record_id),
+        original_url TEXT NOT NULL,
+        etag TEXT,
+        last_modified TEXT,
+        content_length INTEGER,
+        content_hash TEXT,
+        checked_at INTEGER,
+        UNIQUE (record_id, original_url)
+      );
+    `);
     db.run(`CREATE INDEX IF NOT EXISTS idx_media_assets_record_type ON media_assets(record_id, asset_type);`);
     db.run(`
       CREATE TABLE IF NOT EXISTS wishlist_entries

@@ -11,6 +11,10 @@ const { getSteamIDbyRecord } = require('../db/steam')
 const { fetchAndStoreSteamData } = require('../scanners/steamscanner')
 const { getGogIDbyRecord } = require('../db/gog')
 const { fetchAndStoreGogData } = require('../scanners/gogscanner')
+const { getLewdCornerIDbyRecord } = require('../db/lewdcorner')
+const {
+  getF95IDbyRecord, getMediaSourceCache, upsertMediaSourceCache,
+} = require('../db/media')
 const dbIndexForMedia = require('../db/index')
 const liveMediaDb = () => dbIndexForMedia.db
 
@@ -401,36 +405,50 @@ module.exports = function registerMediaHandlers(ctx) {
   const refreshOneGame = async (recordId, { mode = 'all', download = false, onProgress } = {}) => {
     const missingOnly = mode === 'missing'
 
-    // 1) Re-fetch source metadata (Steam + GOG) so *_data rows repopulate. In
-    //    'missing' mode we still re-fetch metadata when the game has a mapping
-    //    but no cached row; a cheap way to approximate that is to always re-fetch
-    //    (the store call is idempotent) unless the row already looks populated.
-    const steamId = await getSteamIDbyRecord(recordId)
-    if (steamId) {
-      let needsSteam = true
-      if (missingOnly) {
-        const row = await dbGetSafe(`SELECT title, header FROM steam_data WHERE steam_id = ?`, [steamId])
-        needsSteam = !row || !row.title || !row.header
-      }
-      if (needsSteam) {
-        try { await fetchAndStoreSteamData(null, steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder) }
-        catch (e) { console.warn(`refresh: steam fetch failed for ${steamId}:`, e.message) }
-      }
-    }
-    const gogId = await getGogIDbyRecord(recordId)
-    if (gogId) {
-      let needsGog = true
-      if (missingOnly) {
-        const row = await dbGetSafe(`SELECT title, header, overview, store_url FROM gog_data WHERE gog_id = ?`, [gogId])
-        needsGog = !row || !row.title || !row.header || !row.overview || !row.store_url
-      }
-      if (needsGog) {
-        try { await fetchAndStoreGogData(null, gogId) }
-        catch (e) { console.warn(`refresh: gog fetch failed for ${gogId}:`, e.message) }
-      }
-    }
+    // 0) Resolve every source's id up front (cheap DB reads, run in parallel).
+    //    A source with no id gets skipped entirely below — we never fetch its
+    //    metadata and never try to pull its images. Existing local images for a
+    //    source that has since gone away are left untouched (nothing here
+    //    deletes rows or files), so they keep displaying.
+    const [steamId, gogId, f95Id, lcId, atlasId] = await Promise.all([
+      getSteamIDbyRecord(recordId).catch(() => null),
+      getGogIDbyRecord(recordId).catch(() => null),
+      getF95IDbyRecord(recordId).catch(() => null),
+      getLewdCornerIDbyRecord(recordId).catch(() => null),
+      GetAtlasIDbyRecord(recordId).catch(() => null),
+    ])
 
-    const atlasId = await GetAtlasIDbyRecord(recordId)
+    // 1) Re-fetch source metadata so *_data rows repopulate — but ONLY for
+    //    sources that actually have an id, and (in 'missing' mode) only when the
+    //    cached row looks incomplete. In 'all' mode we still skip the re-fetch
+    //    when the row is already fully populated, so a plain refresh only pulls
+    //    what's genuinely new instead of re-hitting every origin every time.
+    //    Only Steam + GOG have live metadata scanners here; F95/LC image URLs
+    //    come from their cached rows and are gated purely by id presence.
+    const metadataJobs = []
+    if (steamId) {
+      metadataJobs.push((async () => {
+        const row = await dbGetSafe(`SELECT title, header FROM steam_data WHERE steam_id = ?`, [steamId])
+        const needsSteam = !row || !row.title || !row.header
+        if (needsSteam) {
+          try { await fetchAndStoreSteamData(null, steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder) }
+          catch (e) { console.warn(`refresh: steam fetch failed for ${steamId}:`, e.message) }
+        }
+      })())
+    }
+    if (gogId) {
+      metadataJobs.push((async () => {
+        const row = await dbGetSafe(`SELECT title, header, overview, store_url FROM gog_data WHERE gog_id = ?`, [gogId])
+        const needsGog = !row || !row.title || !row.header || !row.overview || !row.store_url
+        if (needsGog) {
+          try { await fetchAndStoreGogData(null, gogId) }
+          catch (e) { console.warn(`refresh: gog fetch failed for ${gogId}:`, e.message) }
+        }
+      })())
+    }
+    // Steam + GOG metadata fetches are independent origins — run concurrently.
+    if (metadataJobs.length) await Promise.all(metadataJobs)
+
     const sourceOrder = getMetadataSourceOrder()
     const bannerUrl = await getRemoteBannerUrl(recordId, { sourceOrder })
     const rawPreviewUrls = await getRemotePreviewUrls(recordId, { sourceOrder })
@@ -468,7 +486,13 @@ module.exports = function registerMediaHandlers(ctx) {
           async () => screenUrls,
           updateBanners,
           updatePreviews,
-          { source: inferMediaSource(bannerUrl), additionalAssets, upsertMediaAsset },
+          {
+            source: inferMediaSource(bannerUrl),
+            additionalAssets,
+            upsertMediaAsset,
+            getMediaSourceCache,
+            upsertMediaSourceCache,
+          },
         )
       }
     }

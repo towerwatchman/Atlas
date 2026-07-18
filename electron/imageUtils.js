@@ -2,6 +2,7 @@
 
 const path = require('path')
 const fs = require('fs')
+const crypto = require('crypto')
 const axios = require('axios')
 const sharp = require('sharp')
 
@@ -96,6 +97,102 @@ function hasMultiplePages(metadata) {
 }
 
 
+// Formats that are already efficiently compressed. When a source is one of
+// these AND already within our target width, we copy the bytes straight to disk
+// instead of decoding + re-encoding through sharp (which wastes CPU and, for
+// webp->webp, drops a second generation of lossy quality).
+const ALREADY_COMPRESSED_FORMATS = new Set(["webp", "avif"]);
+
+// Sentinel returned by conditionalFetchImage when the origin says 304 Not
+// Modified, so callers can skip all work for that asset.
+const NOT_MODIFIED = Symbol("not-modified");
+
+// Fetch an image with HTTP validators. If we hold a cached etag/last-modified
+// for this (record,url), send them as If-None-Match / If-Modified-Since; a 304
+// short-circuits to NOT_MODIFIED. Otherwise we return the bytes plus the
+// validators + a sha256 the caller can persist. When the origin sends no
+// validators, the caller can still compare content_length / content_hash.
+async function conditionalFetchImage(url, { cache, extraHeaders } = {}) {
+  const headers = {
+    "User-Agent": "Atlas/1.0 (+https://github.com/towerwatchman/Atlas)",
+    Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+    ...(extraHeaders || {}),
+  };
+  if (cache?.etag) headers["If-None-Match"] = cache.etag;
+  if (cache?.last_modified) headers["If-Modified-Since"] = cache.last_modified;
+
+  const response = await axios.get(url, {
+    responseType: "arraybuffer",
+    maxRedirects: 5,
+    // Treat 304 as a normal, non-throwing response.
+    validateStatus: (status) => (status >= 200 && status < 300) || status === 304,
+    headers,
+  });
+
+  if (response.status === 304) return { status: 304, notModified: NOT_MODIFIED };
+
+  const bytes = Buffer.from(response.data);
+  const etag = response.headers?.etag || response.headers?.ETag || null;
+  const lastModified = response.headers?.["last-modified"] || null;
+  const contentLength = Number(response.headers?.["content-length"]) || bytes.length || null;
+  const contentHash = crypto.createHash("sha256").update(bytes).digest("hex");
+
+  // Fallback identity check for origins that send no validators: if the byte
+  // length AND hash match what we stored, it's the same image we already have.
+  const unchangedByHash = Boolean(
+    cache &&
+      !cache.etag &&
+      !cache.last_modified &&
+      cache.content_hash &&
+      cache.content_hash === contentHash,
+  );
+
+  return {
+    status: response.status,
+    bytes,
+    validators: { etag, lastModified, contentLength, contentHash },
+    unchangedByHash,
+  };
+}
+
+// Decide how to get the source bytes onto disk as `destPath`. If the source is
+// already webp/avif and no wider than targetWidth, we write the original bytes
+// unchanged (no re-encode). Otherwise we resize (and, for already-webp sources,
+// re-encode near-losslessly to avoid a visible second-generation quality hit).
+async function encodeToWebp(imageBytes, destPath, targetWidth) {
+  let format = null;
+  let width = null;
+  try {
+    const meta = await getImageMetadata(imageBytes);
+    format = String(meta?.format || "").toLowerCase();
+    width = Number(meta?.width) || null;
+  } catch {
+    /* fall through to a normal encode if metadata can't be read */
+  }
+
+  const alreadyCompressed = ALREADY_COMPRESSED_FORMATS.has(format);
+  const withinTarget = width != null && width <= targetWidth;
+
+  // Best case: already an efficiently-compressed format at an acceptable size,
+  // so persist the bytes verbatim. Note the on-disk name still ends in .webp
+  // for avif sources, but the bytes are the original avif; sharp/renderer read
+  // by content, not extension, so this is safe and avoids a needless transcode.
+  if (alreadyCompressed && withinTarget) {
+    await fs.promises.writeFile(destPath, imageBytes);
+    return { reencoded: false };
+  }
+
+  const pipeline = sharp(imageBytes).resize({ width: targetWidth, withoutEnlargement: true });
+  if (format === "webp") {
+    // webp -> webp: near-lossless keeps the recompression from stacking loss.
+    await pipeline.webp({ nearLossless: true, quality: 90 }).toFile(destPath);
+  } else {
+    await pipeline.webp({ quality: 90 }).toFile(destPath);
+  }
+  return { reencoded: true };
+}
+
+
 async function downloadImages(
   recordId,
   atlasId,
@@ -126,6 +223,15 @@ async function downloadImages(
     ? options.upsertMediaAsset
     : null;
   const requestDelayMs = Math.max(0, Number.parseInt(options.requestDelayMs, 10) || 0);
+  // Optional persistence for HTTP validators so refreshes can skip unchanged
+  // remote images. When absent (older callers), we simply fall back to the old
+  // "exists on disk?" behavior with no conditional requests.
+  const getMediaSourceCache = typeof options.getMediaSourceCache === "function"
+    ? options.getMediaSourceCache
+    : null;
+  const upsertMediaSourceCache = typeof options.upsertMediaSourceCache === "function"
+    ? options.upsertMediaSourceCache
+    : null;
   const result = {
     success: true,
     recordId,
@@ -220,20 +326,40 @@ async function downloadImages(
         baseName,
       );
 
+      // If both derivatives already exist we can ask the origin (via validators)
+      // whether the source changed; a 304 lets us skip the whole asset. If a
+      // derivative is missing we must fetch bytes regardless, so we don't send
+      // validators in that case (they could yield a bodyless 304).
+      const bannerDerivativesPresent =
+        fs.existsSync(`${imagePath}_mc.webp`) && fs.existsSync(`${imagePath}_sc.webp`);
       let imageBytes;
       let downloaded = false;
+      let bannerNotModified = false;
       const loadImageBytes = async () => {
-        if (!imageBytes) {
-          const response = await axios.get(bannerUrl, {
-            responseType: "arraybuffer",
-            maxRedirects: 5,
-            headers: withAuthCookie(bannerUrl, {
-              "User-Agent": "Atlas/1.0 (+https://github.com/towerwatchman/Atlas)",
-              Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            }),
+        if (!imageBytes && !bannerNotModified) {
+          const cache = (getMediaSourceCache && bannerDerivativesPresent)
+            ? await getMediaSourceCache(recordId, bannerUrl)
+            : null;
+          const res = await conditionalFetchImage(bannerUrl, {
+            cache,
+            extraHeaders: withAuthCookie(bannerUrl, {}),
           });
-          imageBytes = Buffer.from(response.data);
+          if (res.notModified || res.unchangedByHash) {
+            bannerNotModified = true;
+            return null;
+          }
+          imageBytes = res.bytes;
           downloaded = true;
+          if (upsertMediaSourceCache) {
+            await upsertMediaSourceCache({
+              recordId,
+              originalUrl: bannerUrl,
+              etag: res.validators.etag,
+              lastModified: res.validators.lastModified,
+              contentLength: res.validators.contentLength,
+              contentHash: res.validators.contentHash,
+            });
+          }
         }
         return imageBytes;
       };
@@ -302,10 +428,7 @@ async function downloadImages(
       const highResExisted = fs.existsSync(highResPath);
       if (!highResExisted) {
         await loadImageBytes();
-        await sharp(imageBytes)
-          .webp({ quality: 90 })
-          .resize({ width: 1260, withoutEnlargement: true })
-          .toFile(highResPath);
+        await encodeToWebp(imageBytes, highResPath, 1260);
       }
       await verifyTrackedFile(highResPath, highResExisted);
       await updateBanners(recordId, `${relativePath}_mc.webp`, "small");
@@ -319,10 +442,7 @@ async function downloadImages(
       const lowResExisted = fs.existsSync(lowResPath);
       if (!lowResExisted) {
         await loadImageBytes();
-        await sharp(imageBytes)
-          .webp({ quality: 90 })
-          .resize({ width: 600, withoutEnlargement: true })
-          .toFile(lowResPath);
+        await encodeToWebp(imageBytes, lowResPath, 600);
       }
       await verifyTrackedFile(lowResPath, lowResExisted);
       await updateBanners(recordId, `${relativePath}_sc.webp`, "large");
@@ -370,20 +490,37 @@ async function downloadImages(
         baseName,
       );
 
+      // Only send validators when the plain preview derivative already exists;
+      // a missing derivative must fetch bytes unconditionally.
+      const previewDerivativePresent = fs.existsSync(`${imagePath}_pr.webp`);
       let imageBytes;
       let downloaded = false;
+      let previewNotModified = false;
       const loadImageBytes = async () => {
-        if (!imageBytes) {
-          const response = await axios.get(url, {
-            responseType: "arraybuffer",
-            maxRedirects: 5,
-            headers: withAuthCookie(url, {
-              "User-Agent": "Atlas/1.0 (+https://github.com/towerwatchman/Atlas)",
-              Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            }),
+        if (!imageBytes && !previewNotModified) {
+          const cache = (getMediaSourceCache && previewDerivativePresent)
+            ? await getMediaSourceCache(recordId, url)
+            : null;
+          const res = await conditionalFetchImage(url, {
+            cache,
+            extraHeaders: withAuthCookie(url, {}),
           });
-          imageBytes = Buffer.from(response.data);
+          if (res.notModified || res.unchangedByHash) {
+            previewNotModified = true;
+            return null;
+          }
+          imageBytes = res.bytes;
           downloaded = true;
+          if (upsertMediaSourceCache) {
+            await upsertMediaSourceCache({
+              recordId,
+              originalUrl: url,
+              etag: res.validators.etag,
+              lastModified: res.validators.lastModified,
+              contentLength: res.validators.contentLength,
+              contentHash: res.validators.contentHash,
+            });
+          }
         }
         return imageBytes;
       };
@@ -449,10 +586,7 @@ async function downloadImages(
       const targetExisted = fs.existsSync(targetPath);
       if (!targetExisted) {
         await loadImageBytes();
-        await sharp(imageBytes)
-          .webp({ quality: 90 })
-          .resize({ width: 1260, withoutEnlargement: true })
-          .toFile(targetPath);
+        await encodeToWebp(imageBytes, targetPath, 1260);
       }
       await verifyTrackedFile(targetPath, targetExisted);
       if (!animatedPreviewSaved) {
@@ -522,14 +656,22 @@ async function downloadImages(
         relativeAssetPath = `${relativePath}.webp`;
         const existedBefore = fs.existsSync(localPath);
         if (!existedBefore) {
-          const imageResponse = await response();
-          await sharp(Buffer.from(imageResponse.data))
-            .webp({ quality: 90 })
-            .resize({
-              width: getMediaAssetMaxWidth(asset.assetType),
-              withoutEnlargement: true,
-            })
-            .toFile(localPath);
+          // Derivative is absent, so fetch unconditionally (no validators) and
+          // record fresh validators for next time.
+          const res = await conditionalFetchImage(url, {
+            extraHeaders: withAuthCookie(url, {}),
+          });
+          await encodeToWebp(Buffer.from(res.bytes), localPath, getMediaAssetMaxWidth(asset.assetType));
+          if (upsertMediaSourceCache && res.validators) {
+            await upsertMediaSourceCache({
+              recordId,
+              originalUrl: url,
+              etag: res.validators.etag,
+              lastModified: res.validators.lastModified,
+              contentLength: res.validators.contentLength,
+              contentHash: res.validators.contentHash,
+            });
+          }
         }
         await verifyTrackedFile(localPath, existedBefore);
         try {

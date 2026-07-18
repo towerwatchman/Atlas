@@ -151,6 +151,68 @@ const updatePreviews = (recordId, previewPath) => {
   });
 };
 
+// Resolve an F95 id for a record, either from a direct f95_zone_mappings row or
+// via the record's atlas mapping. Mirrors getLewdCornerIDbyRecord so the media
+// refresh can gate F95 work on "does this source even have an id?".
+const getF95IDbyRecord = (recordId) => {
+  return new Promise((resolve, reject) => {
+    getDb().get(
+      `SELECT COALESCE(direct_f95.f95_id, atlas_f95.f95_id) AS f95_id
+       FROM games
+       LEFT JOIN f95_zone_mappings fzm ON games.record_id = fzm.record_id
+       LEFT JOIN f95_zone_data direct_f95 ON fzm.f95_id = direct_f95.f95_id
+       LEFT JOIN atlas_mappings am ON games.record_id = am.record_id
+       LEFT JOIN f95_zone_data atlas_f95 ON direct_f95.f95_id IS NULL AND am.atlas_id = atlas_f95.atlas_id
+       WHERE games.record_id = ?
+       LIMIT 1`,
+      [recordId],
+      (err, row) => {
+        if (err) reject(err);
+        else resolve(row?.f95_id || null);
+      },
+    );
+  });
+};
+
+// Read cached HTTP validators for a (record, url) pair, or null if never seen.
+const getMediaSourceCache = (recordId, originalUrl) => {
+  return new Promise((resolve) => {
+    try {
+      getDb().get(
+        `SELECT etag, last_modified, content_length, content_hash
+         FROM media_source_cache WHERE record_id = ? AND original_url = ? LIMIT 1`,
+        [recordId, String(originalUrl || "")],
+        (err, row) => resolve(err ? null : row || null),
+      );
+    } catch {
+      resolve(null);
+    }
+  });
+};
+
+// Store/refresh the validators we learned for a (record, url) pair.
+const upsertMediaSourceCache = ({ recordId, originalUrl, etag = null, lastModified = null, contentLength = null, contentHash = null }) => {
+  return new Promise((resolve) => {
+    try {
+      getDb().run(
+        `INSERT INTO media_source_cache
+           (record_id, original_url, etag, last_modified, content_length, content_hash, checked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(record_id, original_url) DO UPDATE SET
+           etag = excluded.etag,
+           last_modified = excluded.last_modified,
+           content_length = excluded.content_length,
+           content_hash = excluded.content_hash,
+           checked_at = excluded.checked_at`,
+        [recordId, String(originalUrl || ""), etag, lastModified, contentLength, contentHash, Date.now()],
+        () => resolve(true),
+      );
+    } catch {
+      resolve(false);
+    }
+  });
+};
+
 const isRemoteHttpUrl = (value) => /^https?:\/\//i.test(String(value || "").trim());
 
 const addRemotePreviewUrl = (target, seen, value) => {
@@ -343,7 +405,8 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
         add("atlas", "atlas_wallpaper", row.atlas_wallpaper, "atlas_wallpaper");
 
         const steamId = row.steam_id || resolveSteamAppId(row, parseExternalIds(row.external_ids));
-        const steamAssets = await fetchSteamStoreAssetUrls(steamId);
+        // No steam id -> no network round-trip to the Steam store API at all.
+        const steamAssets = steamId ? await fetchSteamStoreAssetUrls(steamId) : {};
         const rowSteamHeader = isResolvedSteamAssetUrl(row.steam_header) ? row.steam_header : "";
         const rowSteamHero = isResolvedSteamAssetUrl(row.steam_hero) ? row.steam_hero : "";
         const rowSteamCover = isResolvedSteamAssetUrl(row.steam_cover) ? row.steam_cover : "";
@@ -1056,4 +1119,7 @@ module.exports = {
   deleteBanner,
   deletePreviews,
   deleteMediaAssets,
+  getF95IDbyRecord,
+  getMediaSourceCache,
+  upsertMediaSourceCache,
 }
