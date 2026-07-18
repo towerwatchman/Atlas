@@ -12,6 +12,7 @@ import {
   isSteamGame, getMappedSteamAppId, isGogGame, getMappedGogId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
 } from './page/gameDetailUtils.js'
 import { buildExternalLinks } from './externalLinks.js'
+import gogLogo from '../../assets/icons/gog_logo.svg'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
 
 const isValidHttpUrl = (url) => /^https?:\/\//i.test(String(url || '').trim())
@@ -81,7 +82,7 @@ const buildDetailExternalLinks = (game = {}, { hasSteamMapping = false, hasGogMa
   if (hasGogMapping && gogId) {
     const gogUrl = String(game.gog_store_url || '').trim() || `https://www.gog.com/game/${gogId}`
     if (isValidHttpUrl(gogUrl) && !links.some((existing) => existing.url === gogUrl)) {
-      links.push({ key: 'gog_id', label: 'GOG', value: String(gogId), url: gogUrl, icon: 'fab fa-gg' })
+      links.push({ key: 'gog_id', label: 'GOG', value: String(gogId), url: gogUrl, icon: 'fab fa-gg', iconImage: gogLogo })
     }
   }
   for (const link of buildExternalLinks(game.external_ids)) {
@@ -1272,7 +1273,11 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {externalLinks.map((link) => (
                     <div key={link.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                      <i className={link.icon} style={{ width: 18, textAlign: 'center', color: 'var(--color-muted)' }} aria-hidden="true"></i>
+                      {link.iconImage ? (
+                        <img src={link.iconImage} alt="" style={{ width: 18, height: 18, objectFit: 'contain', color: 'var(--color-muted)' }} />
+                      ) : (
+                        <i className={link.icon} style={{ width: 18, textAlign: 'center', color: 'var(--color-muted)' }} aria-hidden="true"></i>
+                      )}
                       <span style={{ color: 'var(--color-muted)', minWidth: 92 }}>{link.label}</span>
                       {link.url ? (
                         <a

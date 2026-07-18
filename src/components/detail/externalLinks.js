@@ -2,6 +2,8 @@
 // Mappings tab and the game-details page can render links even when a game
 // object predates the backend's media-source enrichment.
 
+import gogLogo from '../../assets/icons/gog_logo.svg'
+
 export const parseExternalIds = (raw) => {
   if (!raw) return {}
   if (typeof raw === 'object') return raw
@@ -60,6 +62,14 @@ const ICONS = {
   url: 'fas fa-globe',
 }
 
+// Sources whose icon is a bundled image asset rather than a Font Awesome glyph.
+// When a key is present here, links carry `iconImage` and consumers render an
+// <img> instead of an <i className={icon}>.
+const IMAGE_ICONS = {
+  gog_id: gogLogo,
+  gog_appid: gogLogo,
+}
+
 const prettifyKey = (key) =>
   String(key || '')
     .replace(/_(url|id|appid)$/i, '')
@@ -83,6 +93,7 @@ export const buildExternalLinks = (rawExternalIds) => {
       value,
       url: def ? def.url(value) : ensureScheme(value),
       icon: ICONS[lower] || 'fas fa-link',
+      iconImage: IMAGE_ICONS[lower] || null,
     })
   }
   return links

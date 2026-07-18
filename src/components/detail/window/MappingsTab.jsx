@@ -1,5 +1,6 @@
 import f95Logo from '../../../assets/images/f95_full.png'
 import atlasLogo from '../../../assets/images/atlas_logo.svg'
+import gogLogo from '../../../assets/icons/gog_logo.svg'
 import { parseExternalIds, buildExternalLinks } from '../externalLinks.js'
 import { getMappedSteamAppId, getMappedGogId } from '../page/gameDetailUtils.js'
 
@@ -87,7 +88,7 @@ export default function MappingsTab({ game, onAddMapping }) {
               <tr className="border-b border-border">
                 <td className={iconCellClass}>
                   <div className={iconFrameClass}>
-                    <i className="fab fa-gg block text-[28px] leading-none" aria-hidden="true"></i>
+                    <img src={gogLogo} alt="GOG Logo" className="block h-9 w-9 object-contain" />
                   </div>
                 </td>
                 <td className="p-2">GOG</td>
@@ -119,7 +120,11 @@ export default function MappingsTab({ game, onAddMapping }) {
                 {otherLinks.map((link) => (
                   <tr key={link.key} className="border-b border-border">
                     <td className="p-2 w-10 text-center">
-                      <i className={link.icon} aria-hidden="true"></i>
+                      {link.iconImage ? (
+                        <img src={link.iconImage} alt="" className="inline-block h-5 w-5 object-contain" />
+                      ) : (
+                        <i className={link.icon} aria-hidden="true"></i>
+                      )}
                     </td>
                     <td className="p-2">{link.label}</td>
                     <td className="p-2">

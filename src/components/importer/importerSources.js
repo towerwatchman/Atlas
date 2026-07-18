@@ -1,4 +1,5 @@
 import atlasLogo from '../../assets/icons/atlas_logo.svg'
+import gogLogo from '../../assets/icons/gog_logo.svg'
 
 export const IMPORTER_SOURCE_IDS = {
   ATLAS: 'atlas',
@@ -26,8 +27,8 @@ export const importerSources = [
     id: IMPORTER_SOURCE_IDS.GOG,
     label: 'GOG Library',
     description: 'Scan installed GOG / Galaxy games',
-    iconType: 'font',
-    icon: 'fab fa-gg',
+    iconType: 'image',
+    icon: gogLogo,
   },
   {
     id: IMPORTER_SOURCE_IDS.RENPY,
