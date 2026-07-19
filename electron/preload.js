@@ -421,6 +421,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   steamSetKey: (payload) => ipcRenderer.invoke("steam-set-key", payload),
   steamDisconnect: () => ipcRenderer.invoke("steam-disconnect"),
   steamOwnedGames: (payload) => ipcRenderer.invoke("steam-owned-games", payload),
+  steamAddOwnedGame: (payload) => ipcRenderer.invoke("steam-add-owned-game", payload),
+  steamAddOwnedBulk: (payload) => ipcRenderer.invoke("steam-add-owned-bulk", payload),
+  onSteamBulkProgress: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on("steam-bulk-progress", handler)
+    return () => ipcRenderer.removeListener("steam-bulk-progress", handler)
+  },
 
   // ────────────────────────────────────────────────────────────────
   //     METHODS FOR MOVE-TO-LIBRARY FEATURE (already added)

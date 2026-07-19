@@ -1472,6 +1472,107 @@ module.exports = function registerImporterHandlers(ctx) {
   } = ctx
   ownerMainWindow = mainWindow
 
+  // ── Phase 3: import owned Steam games (incl. not installed) ────────────────
+  //
+  // Creates a metadata-only library record for an owned Steam game the user
+  // hasn't installed. Reuses the existing Steam Store metadata pipeline
+  // (fetchAndStoreSteamData) and the same games/steam_mappings/versions helpers
+  // the installed-scan uses. The key difference: the version row is written with
+  // an empty game_path, which the version reader already maps to
+  // isInstalled:false / installState:"missing" — so the record shows up as
+  // not-installed everywhere and the detail page's Steam INSTALL button targets
+  // it. Installing later (via steam://install) fills in the real path on rescan.
+  //
+  // Idempotent: if a record already owns this appid, we return it untouched
+  // rather than duplicating.
+  const importOwnedSteamGame = async (appid, name) => {
+    const steamId = String(appid || '').trim()
+    if (!/^\d+$/.test(steamId)) {
+      return { ok: false, appid, error: 'Invalid Steam appid.' }
+    }
+
+    // Dedup: already in the library?
+    const existing = await findRecordBySteamId(steamId)
+    if (existing) {
+      return { ok: true, appid: steamId, recordId: existing, alreadyPresent: true }
+    }
+
+    // Pull Store metadata + art. Non-fatal if it fails — we can still create a
+    // minimal record from the name we already have from the owned-games list.
+    let meta = null
+    try {
+      meta = await fetchAndStoreSteamData(
+        db,
+        steamId,
+        ctx.appConfig?.Metadata?.steamAssetSourceOrder,
+      )
+    } catch (err) {
+      console.warn(`Phase3: metadata fetch failed for ${steamId}:`, err.message)
+    }
+
+    const title = String(meta?.title || name || `Steam App ${steamId}`).trim()
+    const creator = String(meta?.developer || 'Unknown').trim()
+    const engine = String(meta?.engine || '').trim()
+
+    // Create (or find by title/creator) the games record, link the appid, and
+    // add a not-installed version (empty path → isInstalled:false).
+    const recordId = await addGame({ title, creator, engine })
+    await addSteamMapping(recordId, steamId)
+    await addVersion({ version: 'Steam', folder: '', execPath: '', folderSize: 0 }, recordId)
+
+    return { ok: true, appid: steamId, recordId, title }
+  }
+
+  // Single add.
+  ipcMain.handle('steam-add-owned-game', async (event, { appid, name } = {}) => {
+    try {
+      return await importOwnedSteamGame(appid, name)
+    } catch (err) {
+      console.error('steam-add-owned-game error:', err)
+      return { ok: false, appid, error: err.message || 'Could not add game.' }
+    }
+  })
+
+  // Bulk add. `games` is [{ appid, name }]. Runs sequentially to stay gentle on
+  // the Steam Store API (which rate-limits) and emits progress to the importer
+  // window. Returns a per-game summary.
+  ipcMain.handle('steam-add-owned-bulk', async (event, { games = [] } = {}) => {
+    const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+    const list = Array.isArray(games) ? games : []
+    const results = { added: 0, skipped: 0, failed: 0, total: list.length, errors: [] }
+
+    const emit = (text, done) => {
+      ownerWindow?.webContents?.send('steam-bulk-progress', {
+        text,
+        done,
+        total: list.length,
+      })
+    }
+
+    for (let i = 0; i < list.length; i++) {
+      const g = list[i]
+      emit(`Adding ${g?.name || g?.appid} (${i + 1}/${list.length})`, i)
+      try {
+        const r = await importOwnedSteamGame(g?.appid, g?.name)
+        if (r.ok && r.alreadyPresent) results.skipped++
+        else if (r.ok) results.added++
+        else {
+          results.failed++
+          results.errors.push({ appid: g?.appid, error: r.error })
+        }
+      } catch (err) {
+        results.failed++
+        results.errors.push({ appid: g?.appid, error: err.message })
+      }
+      // Small courtesy delay between Store API hits.
+      await new Promise((res) => setTimeout(res, 250))
+    }
+
+    emit('Done', list.length)
+    return { ok: true, ...results }
+  })
+
+
 ipcMain.handle("select-catalog-import-source", async (event) => {
   const ownerWindow = BrowserWindow.fromWebContents(event.sender);
   const currentConfig = ctx.appConfig || appConfig || {};

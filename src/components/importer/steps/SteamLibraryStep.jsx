@@ -37,6 +37,72 @@ const SteamLibraryStep = ({ onBack }) => {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all') // all | installed | notInstalled
   const [refreshing, setRefreshing] = useState(false)
+  const [added, setAdded] = useState(() => new Set()) // appids added to Atlas this session
+  const [addingIds, setAddingIds] = useState(() => new Set()) // in-flight single adds
+  const [bulk, setBulk] = useState(null) // { done, total, text } while bulk running
+  const [bulkMenuOpen, setBulkMenuOpen] = useState(false)
+
+  const markAdded = useCallback((appids) => {
+    setAdded((prev) => {
+      const next = new Set(prev)
+      for (const id of appids) next.add(String(id))
+      return next
+    })
+  }, [])
+
+  const addOne = useCallback(async (game) => {
+    const id = String(game.appid)
+    setAddingIds((prev) => new Set(prev).add(id))
+    try {
+      const r = await window.electronAPI.steamAddOwnedGame({ appid: id, name: game.name })
+      if (r?.ok) markAdded([id])
+    } catch (err) {
+      console.error('Add to Atlas failed:', err)
+    } finally {
+      setAddingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }, [markAdded])
+
+  // Bulk-add games in the current view (respects search + filter), scoped to
+  // 'all' | 'installed' | 'notInstalled'. Already-added games are skipped.
+  const bulkAdd = useCallback(async (candidates, scope = 'all') => {
+    let pool = candidates
+    if (scope === 'installed') pool = candidates.filter((g) => g.installed)
+    else if (scope === 'notInstalled') pool = candidates.filter((g) => !g.installed)
+    const targets = pool.filter((g) => !added.has(String(g.appid)))
+    if (targets.length === 0) return
+    const scopeLabel =
+      scope === 'installed' ? 'installed' : scope === 'notInstalled' ? 'not-installed' : ''
+    const ok = window.confirm(
+      `Add ${targets.length} ${scopeLabel ? scopeLabel + ' ' : ''}game${targets.length === 1 ? '' : 's'} to Atlas?\n\n` +
+      'This creates library records with Steam artwork and details. No files are downloaded — ' +
+      'you can install any not-installed game later from its detail page.',
+    )
+    if (!ok) return
+    setBulk({ done: 0, total: targets.length, text: 'Starting…' })
+    try {
+      const r = await window.electronAPI.steamAddOwnedBulk({
+        games: targets.map((g) => ({ appid: g.appid, name: g.name })),
+      })
+      if (r?.ok) markAdded(targets.map((g) => g.appid))
+    } catch (err) {
+      console.error('Bulk add failed:', err)
+    } finally {
+      setBulk(null)
+    }
+  }, [added, markAdded])
+
+  useEffect(() => {
+    if (!window.electronAPI.onSteamBulkProgress) return undefined
+    const unsub = window.electronAPI.onSteamBulkProgress((data) => {
+      setBulk((cur) => (cur ? { ...cur, done: data.done, total: data.total, text: data.text } : cur))
+    })
+    return unsub
+  }, [])
 
   const load = useCallback(async (forceRefresh = false) => {
     if (forceRefresh) setRefreshing(true)
@@ -156,9 +222,46 @@ const SteamLibraryStep = ({ onBack }) => {
             {games.length} owned · {installedCount} installed
           </span>
           <div className="flex-1" />
+          <div className="relative">
+            <button
+              onClick={() => setBulkMenuOpen((v) => !v)}
+              disabled={Boolean(bulk) || refreshing}
+              className="px-3 py-1 text-sm rounded bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-40 inline-flex items-center gap-1"
+              title="Add games to Atlas in bulk"
+            >
+              {bulk ? (
+                <><i className="fas fa-spinner fa-spin mr-1" /> Adding {bulk.done}/{bulk.total}</>
+              ) : (
+                <><i className="fas fa-plus mr-1" /> Add to Atlas <i className="fas fa-caret-down ml-0.5" /></>
+              )}
+            </button>
+            {bulkMenuOpen && !bulk && (
+              <>
+                <div className="fixed inset-0 z-[1590]" onClick={() => setBulkMenuOpen(false)} />
+                <div className="absolute right-0 top-[calc(100%+6px)] z-[1600] w-52 border border-border bg-primary shadow-lg rounded p-1 text-text">
+                  {[
+                    { scope: 'all', label: 'Add all games', icon: 'fa-layer-group', n: visible.filter((g) => !added.has(String(g.appid))).length },
+                    { scope: 'installed', label: 'Add all installed', icon: 'fa-check', n: visible.filter((g) => g.installed && !added.has(String(g.appid))).length },
+                    { scope: 'notInstalled', label: 'Add all not-installed', icon: 'fa-cloud', n: visible.filter((g) => !g.installed && !added.has(String(g.appid))).length },
+                  ].map((opt) => (
+                    <button
+                      key={opt.scope}
+                      onClick={() => { setBulkMenuOpen(false); bulkAdd(visible, opt.scope) }}
+                      disabled={opt.n === 0}
+                      className="w-full flex items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-tertiary disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <i className={`fas ${opt.icon} w-4 text-center text-text/60`} />
+                      <span className="flex-1">{opt.label}</span>
+                      <span className="text-[11px] text-text/40">{opt.n}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <button
             onClick={() => load(true)}
-            disabled={refreshing}
+            disabled={refreshing || Boolean(bulk)}
             className="px-3 py-1 text-sm rounded bg-secondary border border-border hover:bg-highlight transition-colors disabled:opacity-40"
             title="Fetch the latest library from Steam"
           >
@@ -166,6 +269,10 @@ const SteamLibraryStep = ({ onBack }) => {
             Refresh
           </button>
         </div>
+
+        {bulk && (
+          <div className="text-[11px] text-text/50">{bulk.text}</div>
+        )}
 
         <div className="flex flex-col sm:flex-row gap-2">
           <div className="relative flex-1">
@@ -245,15 +352,33 @@ const SteamLibraryStep = ({ onBack }) => {
                   <div className="text-sm truncate" title={g.name}>{g.name}</div>
                   <div className="text-[11px] text-text/50">{fmtPlaytime(g.playtimeForever)}</div>
                 </div>
-                {g.installed ? (
-                  <span className="shrink-0 inline-flex items-center gap-1 text-[10px] text-green-500 border border-green-500/40 rounded px-1.5 py-0.5">
-                    <i className="fas fa-check" /> Installed
-                  </span>
-                ) : (
-                  <span className="shrink-0 text-[10px] text-text/40 border border-border rounded px-1.5 py-0.5">
-                    Not installed
-                  </span>
-                )}
+                <div className="shrink-0 flex items-center gap-1.5">
+                  {g.installed ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-green-500 border border-green-500/40 rounded px-1.5 py-0.5">
+                      <i className="fas fa-check" /> Installed
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-text/40 border border-border rounded px-1.5 py-0.5">
+                      Not installed
+                    </span>
+                  )}
+                  {added.has(String(g.appid)) ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-accent border border-accent/40 rounded px-1.5 py-0.5">
+                      <i className="fas fa-check" /> Added
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => addOne(g)}
+                      disabled={addingIds.has(String(g.appid)) || Boolean(bulk)}
+                      className="inline-flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 bg-secondary border border-border hover:bg-accent hover:text-white transition-colors disabled:opacity-40"
+                      title="Create an Atlas library record for this game"
+                    >
+                      {addingIds.has(String(g.appid))
+                        ? <><i className="fas fa-spinner fa-spin" /> Adding</>
+                        : <><i className="fas fa-plus" /> Add</>}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
