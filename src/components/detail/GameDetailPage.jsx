@@ -523,6 +523,35 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const personalRatingsDirty = JSON.stringify(personalRatingsDraft) !== JSON.stringify(personalRatingsSaved)
   const personalRatingsOverall = getPersonalRatingsOverall(personalRatingsDraft)
 
+  // While viewing an uninstalled Steam game, poll every 15s to see if Steam has
+  // finished installing it (e.g. after the Install button handed off to Steam).
+  // When the state flips, the backend heals the version path and we refresh the
+  // page so the Play button and installed UI appear without a manual reload.
+  // Only runs for Steam-mapped, not-currently-launchable titles.
+  useEffect(() => {
+    if (!steamAppId || canLaunch || !game?.record_id) return undefined
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const res = await window.electronAPI.steamCheckInstalled?.({
+          recordId: game.record_id,
+          appid: steamAppId,
+        })
+        if (!cancelled && res?.changed) {
+          onRefresh?.(game.record_id)
+        }
+      } catch (err) {
+        // Non-fatal — just try again next tick.
+        console.warn('Steam install check failed:', err?.message)
+      }
+    }
+    const id = setInterval(tick, 15000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [steamAppId, canLaunch, game?.record_id, onRefresh])
+
   // ── Handlers ──────────────────────────────────────────────────────────────
   const launchSelectedGame = async () => {
     if (!canLaunch || launchState !== LAUNCH_STATE.IDLE) return

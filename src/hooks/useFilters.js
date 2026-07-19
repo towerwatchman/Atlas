@@ -1162,14 +1162,19 @@ export function useFilters(games, includeUninstalledRef, fetchGames, setSelected
 
   const handleResetFilters = useCallback(() => {
     const nextFilters = normalizeFilterState(defaultFilters)
-    const wasIncludingUninstalled = includeUninstalledRef.current === true
-    includeUninstalledRef.current = false
+    const nextIncludeUninstalled =
+      nextFilters.includeUninstalled === true ||
+      ['all', 'uninstalled'].includes(nextFilters.installState)
+    const prev = includeUninstalledRef.current
+    includeUninstalledRef.current = nextIncludeUninstalled
     setActiveFilters(nextFilters)
-    if (wasIncludingUninstalled) {
-      fetchGames(false).then(() => {
-        setSelectedGame((current) =>
-          current?.hasInstalledVersion === false ? null : current
-        )
+    if (prev !== nextIncludeUninstalled) {
+      fetchGames(nextIncludeUninstalled).then(() => {
+        if (!nextIncludeUninstalled) {
+          setSelectedGame((current) =>
+            current?.hasInstalledVersion === false ? null : current
+          )
+        }
       })
     }
   }, [includeUninstalledRef, fetchGames, setSelectedGame])

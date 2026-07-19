@@ -423,6 +423,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   steamOwnedGames: (payload) => ipcRenderer.invoke("steam-owned-games", payload),
   steamAddOwnedGame: (payload) => ipcRenderer.invoke("steam-add-owned-game", payload),
   steamOwnedExisting: (payload) => ipcRenderer.invoke("steam-owned-existing", payload),
+  steamCheckInstalled: (payload) => ipcRenderer.invoke("steam-check-installed", payload),
   steamAddOwnedBulk: (payload) => ipcRenderer.invoke("steam-add-owned-bulk", payload),
   onSteamBulkProgress: (cb) => {
     const handler = (_e, data) => cb(data)

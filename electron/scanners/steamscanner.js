@@ -753,6 +753,23 @@ async function startSteamScan(db, params, event) {
   }
 }
 
+// Lightweight single-appid install check. Returns { installed, installDir } by
+// scanning the Steam libraries for that appid's appmanifest. Non-throwing: if
+// Steam isn't installed or libraries can't be read, returns not-installed.
+async function isSteamAppInstalled(appid) {
+  const wanted = String(appid || '').trim()
+  if (!/^\d+$/.test(wanted)) return { installed: false, installDir: null }
+  try {
+    const installed = await getInstalledSteamGames()
+    const match = installed.find((g) => String(g.appid) === wanted)
+    return match
+      ? { installed: true, installDir: match.installDir }
+      : { installed: false, installDir: null }
+  } catch {
+    return { installed: false, installDir: null }
+  }
+}
+
 module.exports = {
   getSteamGameData,
   fetchAndStoreSteamData,
@@ -766,5 +783,6 @@ module.exports = {
   insertSteamMovies,
   getSteamLibraryFolders,
   getInstalledSteamGames,
+  isSteamAppInstalled,
   startSteamScan,
 };

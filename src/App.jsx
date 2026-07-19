@@ -1127,7 +1127,7 @@ const App = () => {
       })
       .catch(() => setSidebarMode(SIDE_PANEL_MODES.GAMES))
 
-    fetchGames(false, { skipPathValidation: true }).then(() => {
+    fetchGames(true, { skipPathValidation: true }).then(() => {
       window.electronAPI.getConfig()
         .then((config) => {
           const shouldValidate = config?.Library?.validatePathsOnStartup === true ||

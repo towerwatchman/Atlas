@@ -12,7 +12,7 @@ const { calculatePathSize } = require('../pathSize')
 const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
         checkRecordExist, checkPathExist } = require('../db/atlas')
 const { getGame } = require('../db/versions')
-const { fetchAndStoreSteamData } = require('../scanners/steamscanner')
+const { fetchAndStoreSteamData, isSteamAppInstalled } = require('../scanners/steamscanner')
 const { fetchAndStoreGogData, startGogScan } = require('../scanners/gogscanner')
 const { findExecutables } = require("../scanners/executableScanner");
 const { getDefaultRenpySaveRoot, scanRenpySaveFolders } = require("../scanners/renpySaveScanner");
@@ -1569,6 +1569,53 @@ module.exports = function registerImporterHandlers(ctx) {
     } catch (err) {
       console.error('steam-owned-existing error:', err)
       return { ok: false, present: [], error: err.message }
+    }
+  })
+
+  // Detail-page install poll. Given a record_id (or appid), check whether its
+  // Steam game is now installed on disk. If it just became installed, heal the
+  // version path so the record reads as installed, and return the refreshed
+  // game. Cheap enough to call on a timer. Returns:
+  //   { ok, installed, changed, game? }
+  ipcMain.handle('steam-check-installed', async (event, { recordId, appid } = {}) => {
+    try {
+      let steamId = String(appid || '').trim()
+      if (!steamId && recordId != null) {
+        steamId = String((await getSteamIDbyRecord(recordId)) || '').trim()
+      }
+      if (!/^\d+$/.test(steamId)) {
+        return { ok: false, installed: false, changed: false, error: 'No Steam appid for this game.' }
+      }
+
+      const { installed, installDir } = await isSteamAppInstalled(steamId)
+
+      // Resolve the record if we only got an appid.
+      let rid = recordId
+      if (rid == null) rid = await findRecordBySteamId(steamId)
+
+      let changed = false
+      let game = null
+      if (rid != null) {
+        // Read current install state from the DB record.
+        const current = await getGame(rid, getAssetBasePath(), process.defaultApp, getMediaStorageMode()).catch(() => null)
+        const wasInstalled = current?.hasInstalledVersion === true
+        if (installed && !wasInstalled) {
+          // Heal: write the real install dir onto the Steam version so it reads
+          // as installed everywhere.
+          await upsertVersion({ version: 'Steam', folder: installDir || '', execPath: '', folderSize: 0 }, rid)
+          changed = true
+          // Notify all windows so the library refreshes too.
+          BrowserWindow.getAllWindows().forEach((win) => {
+            if (!win.isDestroyed()) win.webContents.send('import-complete')
+          })
+        }
+        game = await getGame(rid, getAssetBasePath(), process.defaultApp, getMediaStorageMode()).catch(() => null)
+      }
+
+      return { ok: true, installed, changed, game }
+    } catch (err) {
+      console.error('steam-check-installed error:', err)
+      return { ok: false, installed: false, changed: false, error: err.message }
     }
   })
 
