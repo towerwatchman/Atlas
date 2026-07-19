@@ -415,6 +415,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveAccount: (payload) => ipcRenderer.invoke("accounts-save", payload),
   removeAccount: (payload) => ipcRenderer.invoke("accounts-remove", payload),
 
+  // ── Steam (owned library) ───────────────────────────────────────────────
+  steamStatus: () => ipcRenderer.invoke("steam-status"),
+  steamSignIn: () => ipcRenderer.invoke("steam-signin"),
+  steamSetKey: (payload) => ipcRenderer.invoke("steam-set-key", payload),
+  steamDisconnect: () => ipcRenderer.invoke("steam-disconnect"),
+  steamOwnedGames: (payload) => ipcRenderer.invoke("steam-owned-games", payload),
+
   // ────────────────────────────────────────────────────────────────
   //     METHODS FOR MOVE-TO-LIBRARY FEATURE (already added)
   // ────────────────────────────────────────────────────────────────

@@ -1494,6 +1494,13 @@ app.whenReady().then(async () => {
     console.warn('Account store init failed:', err.message)
   }
 
+  // Steam owned-library store (separate from the cookie-based accountStore).
+  try {
+    require('./accounts/steamStore').init(dataDir)
+  } catch (err) {
+    console.warn('Steam store init failed:', err.message)
+  }
+
   createWindow()
 
   const ctx = buildCtx()

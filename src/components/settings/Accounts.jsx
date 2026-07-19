@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
+import SteamConnect from './SteamConnect.jsx'
 
-// Sites Atlas can authenticate against for login-gated media. Steam is shown
-// but disabled — its artwork comes from public CDNs and needs no login, so an
-// account buys nothing yet (kept as a slot for future owned-library features).
+// Sites Atlas can authenticate against for login-gated media. Steam is handled
+// separately below (OpenID + Web API key, not username/password), so it isn't
+// part of this list or the AddAccountModal flow.
 const ACCOUNT_SITES = [
   { id: 'f95', label: 'F95Zone', hint: 'f95zone.to', enabled: true },
   { id: 'lewdcorner', label: 'LewdCorner', hint: 'lewdcorner.com', enabled: true },
-  { id: 'steam', label: 'Steam', hint: 'Coming soon', enabled: false },
 ]
 
 const Accounts = () => {
@@ -96,6 +96,16 @@ const Accounts = () => {
             </div>
           )
         })}
+      </div>
+
+      <div className="mt-6">
+        <h4 className="text-sm font-semibold text-text mb-1">Steam library</h4>
+        <p className="text-xs text-text/60 mb-2">
+          Connect your Steam account to browse your full owned library in the
+          importer, with installed games marked. Your API key is stored encrypted
+          on this device.
+        </p>
+        <SteamConnect />
       </div>
 
       <div className="mt-4">
