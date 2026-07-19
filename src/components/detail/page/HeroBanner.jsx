@@ -3,7 +3,6 @@ import SafeImage from '../../ui/SafeImage.jsx'
 
 export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask, onLoad, onBack, showBack = true }) {
   const isCatalogEntry = game.isCatalogEntry === true
-  const hasInstalledVersion = isCatalogEntry || game.hasInstalledVersion !== false
   // When the hero is Steam key-art, zoom it slightly so it fills the frame the
   // way Steam presents library_hero (which has built-in padding).
   const isSteamHero = !!(game.steam_appid || game.steam_id)
@@ -24,7 +23,7 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
         <SafeImage src={heroUrl} alt="" fallbackMode="hidden" fallbackContent={false} style={{
           position: 'absolute', inset: 0, width: '100%', height: '100%',
           objectFit: 'cover',
-          filter: `blur(20px) ${hasInstalledVersion ? '' : 'grayscale(1)'}`,
+          filter: 'blur(20px)',
           transform: 'scale(1.1)', opacity: 0.6,
         }} placeholderStyle={{ background: 'transparent' }} />
       )}
@@ -42,7 +41,7 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
             position: 'absolute', inset: 0, width: '100%', height: '100%',
             objectFit: 'contain',
             transform: isSteamHero ? 'scale(1.15)' : undefined,
-            filter: hasInstalledVersion ? 'none' : 'grayscale(1)',
+            filter: 'none',
             WebkitMaskImage: bannerMask.image,
             maskImage: bannerMask.image,
             ...(bannerMask.composite
