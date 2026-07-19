@@ -1526,7 +1526,7 @@ module.exports = function registerImporterHandlers(ctx) {
     // as not-installed and appears in the Library under the All/Uninstalled
     // install-state filter. upsertVersion (keyed on record_id + version) means a
     // re-add updates the same "Steam" version in place rather than duplicating.
-    await upsertVersion({ version: 'Steam', folder: dir, execPath: '', folderSize: 0 }, recordId)
+    await upsertVersion({ version: 'Steam', folder: dir, execPath: '', folderSize: 0, source: 'steam', sourceAppId: steamId }, recordId)
 
     return {
       ok: true,
@@ -1556,14 +1556,21 @@ module.exports = function registerImporterHandlers(ctx) {
     }
   })
 
-  // Which of the given appids already exist as Atlas records. Lets the owned-
-  // library grid show "Added" persistently instead of only for this session.
+  // Which of the given appids already have an actual Steam VERSION in Atlas.
+  // Keyed on a steam-tagged version (source='steam' + matching appid), not just
+  // a title-level mapping or a cross-source external_id — so an F95 title that
+  // merely references the appid still shows as needing its Steam version added.
   ipcMain.handle('steam-owned-existing', async (event, { appids = [] } = {}) => {
     const present = []
     try {
       for (const appid of Array.isArray(appids) ? appids : []) {
-        const rec = await findRecordBySteamId(String(appid))
-        if (rec) present.push(String(appid))
+        const id = String(appid)
+        const row = await dbGet(
+          db,
+          `SELECT 1 FROM versions WHERE source = 'steam' AND source_app_id = ? LIMIT 1`,
+          [id],
+        )
+        if (row) present.push(id)
       }
       return { ok: true, present }
     } catch (err) {
@@ -1577,7 +1584,7 @@ module.exports = function registerImporterHandlers(ctx) {
   // version path so the record reads as installed, and return the refreshed
   // game. Cheap enough to call on a timer. Returns:
   //   { ok, installed, changed, game? }
-  ipcMain.handle('steam-check-installed', async (event, { recordId, appid } = {}) => {
+  ipcMain.handle('steam-check-installed', async (event, { recordId, appid, version } = {}) => {
     try {
       let steamId = String(appid || '').trim()
       if (!steamId && recordId != null) {
@@ -1600,9 +1607,12 @@ module.exports = function registerImporterHandlers(ctx) {
         const current = await getGame(rid, getAssetBasePath(), process.defaultApp, getMediaStorageMode()).catch(() => null)
         const wasInstalled = current?.hasInstalledVersion === true
         if (installed && !wasInstalled) {
-          // Heal: write the real install dir onto the Steam version so it reads
-          // as installed everywhere.
-          await upsertVersion({ version: 'Steam', folder: installDir || '', execPath: '', folderSize: 0 }, rid)
+          // Heal the specific Steam version (by name when known, else 'Steam'),
+          // keeping its source tag so it stays identifiable.
+          await upsertVersion(
+            { version: version || 'Steam', folder: installDir || '', execPath: '', folderSize: 0, source: 'steam', sourceAppId: steamId },
+            rid,
+          )
           changed = true
           // Notify all windows so the library refreshes too.
           BrowserWindow.getAllWindows().forEach((win) => {

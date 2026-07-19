@@ -60,10 +60,14 @@ function trackChildPlaySession(child, session, recordId) {
 const isSteamInstallPath = (value) =>
   /(?:^|[\\/])steamapps[\\/]common(?:[\\/]|$)/i.test(String(value || ''))
 
-async function launchGame({ execPath, gamePath, extension, recordId, version }) {
+async function launchGame({ execPath, gamePath, extension, recordId, version, source, sourceAppId }) {
   const hasExecutable = !!execPath && fs.existsSync(execPath)
-  if (!hasExecutable && recordId && isSteamInstallPath(gamePath)) {
-    const steamId = await getSteamIDbyRecord(recordId)
+  // Source-aware Steam launch: a version tagged source='steam' (or one sitting
+  // in a steamapps/common path) launches via the Steam client. Prefer the
+  // version's own appid so the right title launches even when the record holds
+  // multiple sources.
+  if (!hasExecutable && recordId && (source === 'steam' || isSteamInstallPath(gamePath))) {
+    const steamId = String(sourceAppId || '').trim() || await getSteamIDbyRecord(recordId)
     if (steamId) {
       await startPlaySession(recordId, version, false)
       shell.openExternal(`steam://run/${steamId}`)
@@ -411,7 +415,13 @@ function registerGamesHandlers(ctx) {
       const extension = execPath.includes('.')
         ? execPath.split('.').pop().toLowerCase()
         : ''
-      await launchGame({ execPath, gamePath, extension, recordId: data.recordId, version: selectedVersion.version })
+      await launchGame({
+        execPath, gamePath, extension,
+        recordId: data.recordId,
+        version: selectedVersion.version,
+        source: selectedVersion.source || null,
+        sourceAppId: selectedVersion.source_app_id || null,
+      })
       return { success: true }
     } catch (err) {
       console.error('Error launching game:', err)

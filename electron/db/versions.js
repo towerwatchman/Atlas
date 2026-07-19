@@ -216,11 +216,13 @@ const addVersion = async (game, recordId) => {
   const execPath = executable || "";
   const dateAdded = Math.floor(Date.now() / 1000);
   const calculatedSize = folderSize > 0 ? folderSize : await resolveVersionSize(game, gamePath);
+  const source = game.source ? String(game.source) : null;
+  const sourceAppId = game.sourceAppId != null ? String(game.sourceAppId) : (game.source_app_id != null ? String(game.source_app_id) : null);
 
   console.log("adding version");
   return new Promise((resolve, reject) => {
     getDb().run(
-      `INSERT INTO versions (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)`,
+      `INSERT INTO versions (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size, source, source_app_id) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`,
       [
         recordId,
         version,
@@ -229,6 +231,8 @@ const addVersion = async (game, recordId) => {
         true,
         dateAdded,
         calculatedSize,
+        source,
+        sourceAppId,
       ],
       (err) => {
         if (err) {
@@ -251,18 +255,24 @@ const upsertVersion = async (game, recordId) => {
     (game.selectedValue ? path.join(folder, game.selectedValue) : "");
   const folderSize = await resolveVersionSize(game, folder);
   const dateAdded = Math.floor(Date.now() / 1000);
+  const source = game.source ? String(game.source) : null;
+  const sourceAppId = game.sourceAppId != null ? String(game.sourceAppId) : (game.source_app_id != null ? String(game.source_app_id) : null);
 
   return new Promise((resolve, reject) => {
     const writeVersion = () => {
       getDb().run(
         `INSERT INTO versions
-         (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size)
-         VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)
+         (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size, source, source_app_id)
+         VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
          ON CONFLICT(record_id, version) DO UPDATE SET
            game_path = excluded.game_path,
            exec_path = excluded.exec_path,
            in_place = excluded.in_place,
            folder_size = COALESCE(excluded.folder_size, versions.folder_size),
+           -- Keep the existing source tag if this upsert didn't supply one, so a
+           -- plain path re-sync doesn't wipe a version's provider identity.
+           source = COALESCE(excluded.source, versions.source),
+           source_app_id = COALESCE(excluded.source_app_id, versions.source_app_id),
            -- New content replacing a finished version reverts it to "played"
            -- (per issue #245). Only demote when the actual build path/exe
            -- changes — a plain re-scan of the same paths keeps "finished".
@@ -273,7 +283,7 @@ const upsertVersion = async (game, recordId) => {
              THEN 'played'
              ELSE versions.playstate
            END`,
-        [recordId, version, folder, executable, true, dateAdded, folderSize],
+        [recordId, version, folder, executable, true, dateAdded, folderSize, source, sourceAppId],
         (err) => {
           if (err) {
             console.error("Error upserting version:", err);
@@ -660,6 +670,8 @@ function mapVersionRow(row, forceInstalled = false, options = {}) {
     folder_size: row.folder_size,
     date_added: row.date_added,
     playstate: row.playstate ?? null,
+    source: row.source ?? null,
+    source_app_id: row.source_app_id ?? null,
     isInstalled,
     installState: skipPathValidation && hasPathValue && !forceInstalled
       ? "pending"
@@ -728,6 +740,8 @@ const getVersionForRecord = (recordId, version) => {
          v.folder_size,
          v.date_added,
          v.playstate,
+         v.source,
+         v.source_app_id,
          sm.steam_id
        FROM versions v
        LEFT JOIN steam_mappings sm ON v.record_id = sm.record_id
@@ -744,7 +758,7 @@ const getVersionForRecord = (recordId, version) => {
           resolve(null);
           return;
         }
-        resolve(mapVersionRow(row, !!row.steam_id && isSteamInstallPath(row.game_path)));
+        resolve(mapVersionRow(row, (row.source === 'steam' || !!row.steam_id) && (isSteamInstallPath(row.game_path) || (row.source === 'steam' && !!row.game_path))));
       },
     );
   });
@@ -753,7 +767,7 @@ const getVersionForRecord = (recordId, version) => {
 const getInstalledVersionsForRecord = (recordId) => {
   return new Promise((resolve, reject) => {
     getDb().all(
-      `SELECT rowid AS version_id, version, game_path, exec_path, folder_size, date_added
+      `SELECT rowid AS version_id, version, game_path, exec_path, folder_size, date_added, source, source_app_id
        FROM versions
        WHERE record_id = ?
        ORDER BY COALESCE(date_added, 0) DESC, version DESC`,
@@ -916,7 +930,7 @@ ${bannerJoinClauses}
       }
       // Fetch versions separately
       getDb().all(
-        `SELECT rowid AS version_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added, playstate
+        `SELECT rowid AS version_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added, playstate, source, source_app_id
          FROM versions
          WHERE record_id = ?`,
         [recordId],
@@ -1068,7 +1082,7 @@ ${bannerJoinClauses}
 
     // Query to aggregate versions for each game
     const versionsQuery = `
-      SELECT rowid AS version_id, record_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added, playstate
+      SELECT rowid AS version_id, record_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added, playstate, source, source_app_id
       FROM versions
     `;
 

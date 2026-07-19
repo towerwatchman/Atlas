@@ -643,6 +643,15 @@ const initializeDatabase = (dataDir) => {
     // versions). Separate from atlas_data.status (developer/thread status).
     db.run(`ALTER TABLE games ADD COLUMN playstate TEXT;`, () => {});
     db.run(`ALTER TABLE versions ADD COLUMN playstate TEXT;`, () => {});
+    // Per-version source identity. A single title can hold versions from
+    // different providers (an F95 build alongside a Steam build, etc.). `source`
+    // tags where the version came from ('steam' | 'gog' | 'f95' | 'lewdcorner' |
+    // 'local' | null=legacy/unknown); `source_app_id` holds the provider's id
+    // for that version (the Steam appid for a steam version). This lets
+    // install/launch/uninstall act on the SELECTED version's provider rather
+    // than a single title-level id.
+    db.run(`ALTER TABLE versions ADD COLUMN source TEXT;`, () => {});
+    db.run(`ALTER TABLE versions ADD COLUMN source_app_id TEXT;`, () => {});
     db.run(`
       CREATE TABLE IF NOT EXISTS game_personal_ratings
       (

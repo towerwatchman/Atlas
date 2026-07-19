@@ -475,7 +475,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const canLaunch = Boolean(
     actionVersion &&
     actionVersion.isInstalled !== false &&
-    (actionVersion.exec_path || isSteamInstallPath(actionVersion.game_path)),
+    (actionVersion.exec_path ||
+      isSteamInstallPath(actionVersion.game_path) ||
+      (actionVersion.source === 'steam' && actionVersion.game_path)),
   )
   const canInstallFromDetail = !canLaunch && (canManageWishlist || canManageLocalTitle || game.hasInstalledVersion === false)
   const importPanelMode = canManageWishlist ? 'catalog' : 'local'
@@ -484,6 +486,19 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const versionOptions = sortVersionsDesc(game.versions || [])
 
   const steamAppId = getMappedSteamAppId(game)
+  // Version-aware Steam identity: when the selected/acted-on version is itself a
+  // Steam version, its source_app_id is the appid to install/launch/uninstall —
+  // not the title-level mapping. This lets a title hold an F95 version and a
+  // Steam version side by side, with the buttons acting on whichever is
+  // selected. Falls back to the title mapping for legacy Steam records that
+  // predate per-version source tagging.
+  const actionVersionIsSteam =
+    actionVersion?.source === 'steam' ||
+    (!actionVersion?.source && isSteamInstallPath(actionVersion?.game_path))
+  const activeSteamAppId =
+    (actionVersion?.source === 'steam' && actionVersion?.source_app_id)
+      ? String(actionVersion.source_app_id)
+      : steamAppId
   const gogId = getMappedGogId(game)
   const steam = isSteamGame(game)
   const developer = resolveDeveloper(game)
@@ -529,13 +544,15 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   // page so the Play button and installed UI appear without a manual reload.
   // Only runs for Steam-mapped, not-currently-launchable titles.
   useEffect(() => {
-    if (!steamAppId || canLaunch || !game?.record_id) return undefined
+    if (!activeSteamAppId || canLaunch || !game?.record_id) return undefined
     let cancelled = false
+    const versionName = actionVersion?.version
     const tick = async () => {
       try {
         const res = await window.electronAPI.steamCheckInstalled?.({
           recordId: game.record_id,
-          appid: steamAppId,
+          appid: activeSteamAppId,
+          version: versionName,
         })
         if (!cancelled && res?.changed) {
           onRefresh?.(game.record_id)
@@ -550,7 +567,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       cancelled = true
       clearInterval(id)
     }
-  }, [steamAppId, canLaunch, game?.record_id, onRefresh])
+  }, [activeSteamAppId, canLaunch, game?.record_id, actionVersion?.version, onRefresh])
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const launchSelectedGame = async () => {
@@ -583,8 +600,8 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         await window.electronAPI.openExternalUrl(url)
       }
     : null
-  const openSteam = steamAppId
-    ? async () => { await window.electronAPI.openExternalUrl(`steam://nav/games/details/${steamAppId}`) }
+  const openSteam = activeSteamAppId
+    ? async () => { await window.electronAPI.openExternalUrl(`steam://nav/games/details/${activeSteamAppId}`) }
     : null
   // After handing an install/uninstall to the Steam client, its work happens
   // asynchronously and out of our control. Best-effort: re-pull the record a few
@@ -597,19 +614,19 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       setTimeout(() => onRefresh(game.record_id), delay)
     })
   }
-  const steamInstall = steamAppId
+  const steamInstall = activeSteamAppId
     ? async () => {
-        await window.electronAPI.openExternalUrl(`steam://install/${steamAppId}`)
+        await window.electronAPI.openExternalUrl(`steam://install/${activeSteamAppId}`)
         scheduleInstalledStateRefresh()
       }
     : null
-  const uninstallSteam = steamAppId && canManageLocalTitle
+  const uninstallSteam = activeSteamAppId && canManageLocalTitle
     ? async () => {
         const confirmed = window.confirm(
           `Ask Steam to uninstall "${game.title}"?\n\nAtlas will keep this title and its metadata. Atlas local files are not deleted by this action.`,
         )
         if (!confirmed) return
-        await window.electronAPI.openExternalUrl(`steam://uninstall/${steamAppId}`)
+        await window.electronAPI.openExternalUrl(`steam://uninstall/${activeSteamAppId}`)
         scheduleInstalledStateRefresh()
       }
     : null
@@ -1303,6 +1320,14 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                               <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
                                 {isSelected && <i className="fas fa-play" style={{ fontSize: 9, color: 'var(--color-accent,#86a8e7)' }}></i>}
                                 {version.version || 'Unknown version'}
+                                {version.source === 'steam' && (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px' }}>
+                                    <i className="fab fa-steam" style={{ fontSize: 10 }}></i> Steam
+                                  </span>
+                                )}
+                                {version.source === 'gog' && (
+                                  <span style={{ fontSize: 10, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px' }}>GOG</span>
+                                )}
                               </span>
                               <span style={{ fontSize: 11, color: installed ? 'var(--color-success)' : 'var(--color-danger)' }}>{installed ? 'Installed' : 'Missing'}</span>
                             </div>
