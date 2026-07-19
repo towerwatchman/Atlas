@@ -13,6 +13,7 @@ const Accounts = () => {
   const [accounts, setAccounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
+  const [modalSite, setModalSite] = useState(null)
 
   const loadAccounts = useCallback(async () => {
     try {
@@ -85,14 +86,22 @@ const Accounts = () => {
                 </div>
               </div>
 
-              {site.enabled && account && (
+              {site.enabled && (account ? (
                 <button
                   onClick={() => handleRemove(site.id)}
                   className="self-start sm:self-auto px-3 py-1 text-sm rounded bg-secondary border border-border hover:bg-danger hover:text-white transition-colors"
                 >
                   Remove
                 </button>
-              )}
+              ) : (
+                <button
+                  onClick={() => { setModalSite(site.id); setModalOpen(true) }}
+                  className="self-start sm:self-auto px-3 py-1 text-sm rounded bg-accent text-white hover:opacity-90 transition-opacity"
+                >
+                  <i className="fas fa-plus mr-2" />
+                  Connect
+                </button>
+              ))}
             </div>
           )
         })}
@@ -108,25 +117,10 @@ const Accounts = () => {
         <SteamConnect />
       </div>
 
-      <div className="mt-4">
-        <button
-          onClick={() => setModalOpen(true)}
-          disabled={addableSites.length === 0}
-          className="px-4 py-2 text-sm rounded bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <i className="fas fa-plus mr-2" />
-          Add account
-        </button>
-        {addableSites.length === 0 && !loading && (
-          <span className="ml-3 text-xs text-text/50">
-            All available sites are connected.
-          </span>
-        )}
-      </div>
-
       {modalOpen && (
         <AddAccountModal
           sites={addableSites}
+          initialSite={modalSite}
           onClose={() => setModalOpen(false)}
           onSaved={async () => {
             setModalOpen(false)
@@ -138,8 +132,10 @@ const Accounts = () => {
   )
 }
 
-const AddAccountModal = ({ sites, onClose, onSaved }) => {
-  const [site, setSite] = useState(sites[0]?.id || '')
+const AddAccountModal = ({ sites, initialSite = null, onClose, onSaved }) => {
+  const [site, setSite] = useState(
+    (initialSite && sites.some((s) => s.id === initialSite) ? initialSite : sites[0]?.id) || '',
+  )
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [verified, setVerified] = useState(false)
