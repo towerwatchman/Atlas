@@ -557,6 +557,23 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const openSteam = steamAppId
     ? async () => { await window.electronAPI.openExternalUrl(`steam://nav/games/details/${steamAppId}`) }
     : null
+  // After handing an install/uninstall to the Steam client, its work happens
+  // asynchronously and out of our control. Best-effort: re-pull the record a few
+  // seconds later so the installed state / Play button updates without the user
+  // having to manually refresh. This is a nudge, not a guarantee — a large
+  // install won't be done in seconds, so the manual refresh still matters.
+  const scheduleInstalledStateRefresh = () => {
+    if (!onRefresh || !game?.record_id) return
+    ;[4000, 12000].forEach((delay) => {
+      setTimeout(() => onRefresh(game.record_id), delay)
+    })
+  }
+  const steamInstall = steamAppId
+    ? async () => {
+        await window.electronAPI.openExternalUrl(`steam://install/${steamAppId}`)
+        scheduleInstalledStateRefresh()
+      }
+    : null
   const uninstallSteam = steamAppId && canManageLocalTitle
     ? async () => {
         const confirmed = window.confirm(
@@ -564,6 +581,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         )
         if (!confirmed) return
         await window.electronAPI.openExternalUrl(`steam://uninstall/${steamAppId}`)
+        scheduleInstalledStateRefresh()
       }
     : null
 
@@ -930,6 +948,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         canLaunch={canLaunch}
         canOpenFolder={canOpenFolder}
         canInstallFromDetail={canInstallFromDetail}
+        onSteamInstall={steamInstall}
         canManageWishlist={canManageWishlist}
         isWishlisted={isWishlisted}
         wishlistBusy={wishlistBusy}

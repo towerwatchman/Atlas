@@ -1660,7 +1660,7 @@ const Importer = () => {
           {view === 'steamLibrary' ? (
             <>
               <div className="text-xs text-text/50">
-                Browsing your Steam library. Install &amp; launch actions are coming soon.
+                Browsing your Steam library. Open a game in your library to install, launch, or uninstall it.
               </div>
               <button onClick={() => window.electronAPI.closeWindow()} className="h-9 px-4 inline-flex items-center bg-danger hover:bg-dangerHover text-white rounded-buttonTheme transition-colors">Close</button>
             </>
