@@ -1485,17 +1485,17 @@ module.exports = function registerImporterHandlers(ctx) {
   //
   // Idempotent: if a record already owns this appid, we return it untouched
   // rather than duplicating.
-  const importOwnedSteamGame = async (appid, name) => {
+  const importOwnedSteamGame = async (appid, name, installDir = '') => {
     const steamId = String(appid || '').trim()
     if (!/^\d+$/.test(steamId)) {
       return { ok: false, appid, error: 'Invalid Steam appid.' }
     }
+    const dir = String(installDir || '').trim()
 
-    // Dedup: already in the library?
+    // Is this appid already an Atlas record? If so we still (re)sync its version
+    // path below rather than dead-ending — this heals records created before the
+    // install-path fix and reflects install/uninstall changes on re-add.
     const existing = await findRecordBySteamId(steamId)
-    if (existing) {
-      return { ok: true, appid: steamId, recordId: existing, alreadyPresent: true }
-    }
 
     // Pull Store metadata + art. Non-fatal if it fails — we can still create a
     // minimal record from the name we already have from the owned-games list.
@@ -1514,22 +1514,61 @@ module.exports = function registerImporterHandlers(ctx) {
     const creator = String(meta?.developer || 'Unknown').trim()
     const engine = String(meta?.engine || '').trim()
 
-    // Create (or find by title/creator) the games record, link the appid, and
-    // add a not-installed version (empty path → isInstalled:false).
-    const recordId = await addGame({ title, creator, engine })
+    // Reuse the existing record if we have one, else create it. addGame also
+    // dedups by title/creator.
+    const recordId = existing || (await addGame({ title, creator, engine }))
     await addSteamMapping(recordId, steamId)
-    await addVersion({ version: 'Steam', folder: '', execPath: '', folderSize: 0 }, recordId)
 
-    return { ok: true, appid: steamId, recordId, title }
+    // Version path: if the game is locally installed, use its real Steam install
+    // directory (…/steamapps/common/<game>) so the version reader recognizes it
+    // as installed and it shows in the banner/library view + launches via
+    // steam://run. If not installed, keep the path empty — the record then reads
+    // as not-installed and appears in the Library under the All/Uninstalled
+    // install-state filter. upsertVersion (keyed on record_id + version) means a
+    // re-add updates the same "Steam" version in place rather than duplicating.
+    await upsertVersion({ version: 'Steam', folder: dir, execPath: '', folderSize: 0 }, recordId)
+
+    return {
+      ok: true,
+      appid: steamId,
+      recordId,
+      title,
+      installed: Boolean(dir),
+      alreadyPresent: Boolean(existing),
+    }
   }
 
   // Single add.
-  ipcMain.handle('steam-add-owned-game', async (event, { appid, name } = {}) => {
+  ipcMain.handle('steam-add-owned-game', async (event, { appid, name, installDir } = {}) => {
     try {
-      return await importOwnedSteamGame(appid, name)
+      const result = await importOwnedSteamGame(appid, name, installDir)
+      // Tell every window to refresh its library so the new/updated record shows
+      // up immediately (reuses the same signal a normal import emits).
+      if (result?.ok) {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) win.webContents.send('import-complete')
+        })
+      }
+      return result
     } catch (err) {
       console.error('steam-add-owned-game error:', err)
       return { ok: false, appid, error: err.message || 'Could not add game.' }
+    }
+  })
+
+  // Which of the given appids already exist as Atlas records. Lets the owned-
+  // library grid show "Added" persistently instead of only for this session.
+  ipcMain.handle('steam-owned-existing', async (event, { appids = [] } = {}) => {
+    const present = []
+    try {
+      for (const appid of Array.isArray(appids) ? appids : []) {
+        const rec = await findRecordBySteamId(String(appid))
+        if (rec) present.push(String(appid))
+      }
+      return { ok: true, present }
+    } catch (err) {
+      console.error('steam-owned-existing error:', err)
+      return { ok: false, present: [], error: err.message }
     }
   })
 
@@ -1553,7 +1592,7 @@ module.exports = function registerImporterHandlers(ctx) {
       const g = list[i]
       emit(`Adding ${g?.name || g?.appid} (${i + 1}/${list.length})`, i)
       try {
-        const r = await importOwnedSteamGame(g?.appid, g?.name)
+        const r = await importOwnedSteamGame(g?.appid, g?.name, g?.installDir)
         if (r.ok && r.alreadyPresent) results.skipped++
         else if (r.ok) results.added++
         else {
@@ -1569,6 +1608,12 @@ module.exports = function registerImporterHandlers(ctx) {
     }
 
     emit('Done', list.length)
+    // Refresh every window's library once the batch finishes.
+    if (results.added > 0 || results.skipped > 0) {
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send('import-complete')
+      })
+    }
     return { ok: true, ...results }
   })
 

@@ -41,7 +41,7 @@ export function useGames() {
   const [catalogLoadError, setCatalogLoadError] = useState('')
   const [wishlistGames, setWishlistGames] = useState([])
   const [totalVersions, setTotalVersions] = useState(0)
-  const includeUninstalledRef = useRef(false)
+  const includeUninstalledRef = useRef(true)
   // Bumped on every reset; any page fetch already in flight from a
   // previous "generation" checks this and discards its result instead of
   // writing stale data into the current catalogGames array.

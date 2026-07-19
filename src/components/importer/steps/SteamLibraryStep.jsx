@@ -54,7 +54,7 @@ const SteamLibraryStep = ({ onBack }) => {
     const id = String(game.appid)
     setAddingIds((prev) => new Set(prev).add(id))
     try {
-      const r = await window.electronAPI.steamAddOwnedGame({ appid: id, name: game.name })
+      const r = await window.electronAPI.steamAddOwnedGame({ appid: id, name: game.name, installDir: game.installDir })
       if (r?.ok) markAdded([id])
     } catch (err) {
       console.error('Add to Atlas failed:', err)
@@ -86,7 +86,7 @@ const SteamLibraryStep = ({ onBack }) => {
     setBulk({ done: 0, total: targets.length, text: 'Starting…' })
     try {
       const r = await window.electronAPI.steamAddOwnedBulk({
-        games: targets.map((g) => ({ appid: g.appid, name: g.name })),
+        games: targets.map((g) => ({ appid: g.appid, name: g.name, installDir: g.installDir })),
       })
       if (r?.ok) markAdded(targets.map((g) => g.appid))
     } catch (err) {
@@ -95,6 +95,32 @@ const SteamLibraryStep = ({ onBack }) => {
       setBulk(null)
     }
   }, [added, markAdded])
+
+  // Re-sync install paths for games already in Atlas (and add any missing).
+  // The backend upserts, so this repairs records whose install-state changed or
+  // that were created before install-path tracking existed. Operates on the
+  // current view; does not skip already-added games (that's the point).
+  const resyncInView = useCallback(async (candidates) => {
+    const targets = candidates
+    if (targets.length === 0) return
+    const ok = window.confirm(
+      `Re-sync ${targets.length} game${targets.length === 1 ? '' : 's'} with Steam?\n\n` +
+      'Updates install status and artwork for games already in Atlas, and adds any missing. ' +
+      'Safe to run repeatedly — nothing is duplicated.',
+    )
+    if (!ok) return
+    setBulk({ done: 0, total: targets.length, text: 'Starting…' })
+    try {
+      const r = await window.electronAPI.steamAddOwnedBulk({
+        games: targets.map((g) => ({ appid: g.appid, name: g.name, installDir: g.installDir })),
+      })
+      if (r?.ok) markAdded(targets.map((g) => g.appid))
+    } catch (err) {
+      console.error('Re-sync failed:', err)
+    } finally {
+      setBulk(null)
+    }
+  }, [markAdded])
 
   useEffect(() => {
     if (!window.electronAPI.onSteamBulkProgress) return undefined
@@ -115,13 +141,26 @@ const SteamLibraryStep = ({ onBack }) => {
       }
       const result = await window.electronAPI.steamOwnedGames({ forceRefresh })
       if (result?.ok) {
-        setGames(Array.isArray(result.games) ? result.games : [])
+        const list = Array.isArray(result.games) ? result.games : []
+        setGames(list)
         setMeta({
           fetchedAt: result.fetchedAt || null,
           fromCache: Boolean(result.fromCache),
           stale: Boolean(result.stale),
         })
         setState({ status: 'ready' })
+        // Reconcile which owned games are already in Atlas so "Added" persists
+        // across sessions (not just games added in this one). Best-effort.
+        try {
+          const existing = await window.electronAPI.steamOwnedExisting?.({
+            appids: list.map((g) => g.appid),
+          })
+          if (existing?.ok && Array.isArray(existing.present)) {
+            markAdded(existing.present)
+          }
+        } catch (err) {
+          console.warn('Existing-record check failed:', err?.message)
+        }
       } else {
         setState({ status: 'error', error: result?.error || 'Could not load your Steam library.', code: result?.code })
       }
@@ -130,7 +169,7 @@ const SteamLibraryStep = ({ onBack }) => {
     } finally {
       setRefreshing(false)
     }
-  }, [])
+  }, [markAdded])
 
   useEffect(() => {
     load(false)
@@ -255,6 +294,17 @@ const SteamLibraryStep = ({ onBack }) => {
                       <span className="text-[11px] text-text/40">{opt.n}</span>
                     </button>
                   ))}
+                  <div className="my-1 border-t border-border" />
+                  <button
+                    onClick={() => { setBulkMenuOpen(false); resyncInView(visible) }}
+                    disabled={visible.length === 0}
+                    className="w-full flex items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-tertiary disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Update install status & artwork for games already in Atlas (repairs older imports)"
+                  >
+                    <i className="fas fa-rotate w-4 text-center text-text/60" />
+                    <span className="flex-1">Re-sync all in view</span>
+                    <span className="text-[11px] text-text/40">{visible.length}</span>
+                  </button>
                 </div>
               </>
             )}

@@ -42,8 +42,8 @@ export const defaultFilters = {
   // 0-10 rating above) — works across the whole catalog regardless of
   // install status, since it comes from the source site itself.
   communityRatingMin: 0,
-  includeUninstalled: false,
-  installState: 'installed',
+  includeUninstalled: true,
+  installState: 'all',
   multipleInstalledVersions: false,
 }
 
