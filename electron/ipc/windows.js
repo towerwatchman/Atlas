@@ -323,7 +323,7 @@ module.exports = function registerWindowsHandlers(ctx) {
 
   const isAllowedExternalUrl = (value) =>
     /^https?:\/\//i.test(value) ||
-    /^steam:\/\/(?:nav\/games\/details|uninstall|rungameid)\/\d+$/i.test(value)
+    /^steam:\/\/(?:nav\/games\/details|install|uninstall|run|rungameid)\/\d+$/i.test(value)
 
   ipcMain.handle('open-external-url', async (event, url) => {
     const value = String(url || '').trim()
