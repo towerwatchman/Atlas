@@ -99,6 +99,7 @@
   "dependencies": {
     "7zip-bin": "^5.2.0",
     "axios": "^1.7.2",
+    "dashjs": "^5.2.0",
     "electron-updater": "^6.8.3",
     "font-list": "^1.5.1",
     "ini": "^5.0.0",

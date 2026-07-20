@@ -345,15 +345,32 @@ async function getSteamGameData(steamId, steamAssetSourceOrder) {
     const forceHttps = (u) =>
       typeof u === "string" ? u.replace(/^http:\/\//i, "https://") : u;
 
-    // Trailers: prefer the highest-quality mp4 (broadly supported), fall back
-    // to webm. Each movie carries a thumbnail and name.
+    // Trailers: prefer mp4 (broadly supported), fall back to webm. Steam's
+    // mp4/webm objects are keyed by quality ("480","max", sometimes others), so
+    // rather than hard-code key names we take the best available: prefer "max",
+    // else the highest numeric key, else any value.
+    // (movie format debug logging removed — DASH handling is in place)
+    const bestFrom = (obj) => {
+      if (!obj || typeof obj !== "object") return "";
+      if (obj.max) return obj.max;
+      const numeric = Object.keys(obj)
+        .filter((k) => /^\d+$/.test(k))
+        .sort((a, b) => Number(b) - Number(a));
+      if (numeric.length > 0 && obj[numeric[0]]) return obj[numeric[0]];
+      const anyVal = Object.values(obj).find((v) => typeof v === "string" && v);
+      return anyVal || "";
+    };
+    // Steam movie formats:
+    //  - Legacy: m.mp4 / m.webm objects keyed by quality — directly playable.
+    //  - Current: DASH manifests (m.dash_h264 / m.dash_av1, *.mpd). We store the
+    //    manifest and play it via dash.js in the renderer. Prefer H.264 for the
+    //    broadest decoder support (Electron/Chromium always has it); AV1 as
+    //    fallback.
     const movies = (data.movies || [])
       .map((m) => {
-        const url = forceHttps(
-          (m.mp4 && (m.mp4.max || m.mp4["480"])) ||
-            (m.webm && (m.webm.max || m.webm["480"])) ||
-            "",
-        );
+        let url = bestFrom(m.mp4) || bestFrom(m.webm) || "";
+        if (!url) url = m.dash_h264 || m.dash_av1 || "";
+        url = forceHttps(url);
         return url
           ? { url, thumbnail: forceHttps(m.thumbnail || ""), name: m.name || "" }
           : null;

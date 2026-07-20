@@ -18,7 +18,7 @@ const {
 const dbIndexForMedia = require('../db/index')
 const liveMediaDb = () => dbIndexForMedia.db
 
-const isVideoUrl = (url) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ''))
+const isVideoUrl = (url) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(url || ''))
 
 const broadcastBannerLayoutUpdated = () => {
   BrowserWindow.getAllWindows().forEach((win) => {

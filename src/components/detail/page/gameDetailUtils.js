@@ -56,7 +56,12 @@ export const formatPlaytime = (minutes) => {
 }
 
 export const isVideoUrl = (url) =>
-  /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ''))
+  /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(url || ''))
+
+// True specifically for DASH manifests, which need dash.js rather than a plain
+// <video> src.
+export const isDashUrl = (url) =>
+  /\.mpd(\?|#|$)/i.test(String(url || ''))
 
 const parseExternalIds = (raw) => {
   if (!raw) return {}

@@ -3679,7 +3679,7 @@ ipcMain.handle("import-games", async (event, params) => {
       filesWritten: 0,
       dbRowsWritten: 0,
     };
-    const isVideoUrl = (url) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ""));
+    const isVideoUrl = (url) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(url || ""));
     const inferMediaSource = (url) => {
       const value = String(url || "").toLowerCase();
       if (value.includes("steamstatic") || value.includes("akamaihd") || value.includes("steam")) return "steam";

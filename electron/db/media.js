@@ -347,7 +347,7 @@ const isResolvedSteamAssetUrl = (url) => {
 const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
   return new Promise((resolve, reject) => {
     const includeVideos = options.downloadVideos === true;
-    const isVideo = (url) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ""));
+    const isVideo = (url) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(url || ""));
     getDb().get(
       `SELECT
         games.record_id,
@@ -757,7 +757,7 @@ const getPreviews = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
               // could otherwise suppress the remote fallback entirely). So always
               // surface remote *video* URLs that aren't already present, prepended
               // so the trailer leads the grid. Screenshots stay local.
-              const isVideo = (u) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(u || ""));
+              const isVideo = (u) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(u || ""));
               const have = new Set(localPreviews);
               const remoteTrailers = remotePreviews.filter(
                 (u) => isVideo(u) && !have.has(u),

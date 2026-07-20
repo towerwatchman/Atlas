@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
+import DashVideo from './DashVideo.jsx'
 
 // A video thumbnail that plays on hover (muted, looping) and stops/resets on
-// leave. Click bubbles up to open the shared lightbox fullscreen — same as
-// clicking an image preview. Keeps a play-icon overlay while idle so it reads
-// as a video at a glance.
+// leave. Works for both direct files and DASH (.mpd) via DashVideo. Click
+// bubbles up to open the shared lightbox fullscreen.
 export default function HoverVideo({ src, onClick }) {
   const videoRef = useRef(null)
   const [playing, setPlaying] = useState(false)
@@ -11,7 +11,6 @@ export default function HoverVideo({ src, onClick }) {
   const handleEnter = () => {
     const v = videoRef.current
     if (!v) return
-    // play() returns a promise that rejects if interrupted — swallow it.
     const p = v.play()
     if (p && typeof p.catch === 'function') p.catch(() => {})
     setPlaying(true)
@@ -33,13 +32,11 @@ export default function HoverVideo({ src, onClick }) {
       onMouseLeave={handleLeave}
       title="Hover to preview · click to play fullscreen"
     >
-      <video
-        ref={videoRef}
+      <DashVideo
+        videoRef={videoRef}
         src={src}
         muted
         loop
-        playsInline
-        preload="metadata"
         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#000' }}
       />
       {!playing && (
