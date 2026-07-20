@@ -282,8 +282,14 @@ async function getSteamGameData(steamId, steamAssetSourceOrder) {
     // from) for some games. The other two Steam endpoints this file calls
     // (fetchStoreItemAssets below, findSteamId further down) already pin
     // this explicitly — this was the one inconsistent call.
+    // The `birthtime`/`mature_content` cookie bypasses Steam's age gate. Without
+    // it, appdetails silently OMITS `movies` (and sometimes screenshots) for
+    // age-restricted / mature titles — which is most of this app's catalog — so
+    // trailers never get stored. birthtime is a unix ts for an adult DOB.
+    const ageGateCookie = 'birthtime=568022401; mature_content=1; wants_mature_content=1'
     const steamResponse = await fetch(
       `https://store.steampowered.com/api/appdetails?appids=${steamId}&l=english&cc=us`,
+      { headers: { Cookie: ageGateCookie } },
     );
     const steamJson = await steamResponse.json();
     if (!steamJson[steamId] || !steamJson[steamId].success) {
@@ -291,6 +297,9 @@ async function getSteamGameData(steamId, steamAssetSourceOrder) {
       return null;
     }
     const data = steamJson[steamId].data;
+    console.log(
+      `Steam ${steamId} appdetails: ${(data.movies || []).length} movie(s), ${(data.screenshots || []).length} screenshot(s) from API`,
+    );
 
     const spyResponse = await fetch(
       `https://steamspy.com/api.php?request=appdetails&appid=${steamId}`,

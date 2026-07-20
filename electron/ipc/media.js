@@ -429,7 +429,13 @@ module.exports = function registerMediaHandlers(ctx) {
     if (steamId) {
       metadataJobs.push((async () => {
         const row = await dbGetSafe(`SELECT title, header FROM steam_data WHERE steam_id = ?`, [steamId])
-        const needsSteam = !row || !row.title || !row.header
+        // Also re-fetch when trailers are absent: older scans (and the age-gated
+        // appdetails bug) left steam_movies empty even for games that have
+        // title+header, so a completeness check on those two alone would never
+        // repopulate trailers. Treat "no movies stored" as needing a refresh.
+        const movieRow = await dbGetSafe(`SELECT COUNT(*) AS n FROM steam_movies WHERE steam_id = ?`, [steamId])
+        const hasMovies = movieRow && movieRow.n > 0
+        const needsSteam = !row || !row.title || !row.header || !hasMovies || mode === 'all'
         if (needsSteam) {
           try { await fetchAndStoreSteamData(null, steamId, ctx.appConfig?.Metadata?.steamAssetSourceOrder) }
           catch (e) { console.warn(`refresh: steam fetch failed for ${steamId}:`, e.message) }
