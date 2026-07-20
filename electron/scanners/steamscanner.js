@@ -467,6 +467,28 @@ async function insertSteamData(db, data) {
   });
 }
 
+// Steam screenshot/asset URLs embed a content hash in the filename, e.g.
+//   .../apps/1091500/ss_0002f18563d313bdd1d82c725d411408ebf762b0.1920x1080.jpg?t=...
+// The 40-hex `ss_<hash>` (or any long hex filename token) IS Steam's own content
+// identifier — same image => same hash, regardless of the ?t= cache-buster or
+// which CDN host served it. So we can dedupe by this hash without downloading a
+// single byte. Falls back to the path-without-query when no hex token is found.
+function steamImageContentKey(url) {
+  const s = String(url || "");
+  if (!s) return "";
+  // Longest hex run of >=16 chars in the path (covers ss_<40hex> and library
+  // asset hashes). Ignore the query string entirely.
+  const path = s.split(/[?#]/)[0];
+  const hexes = path.match(/[0-9a-f]{16,}/gi);
+  if (hexes && hexes.length > 0) {
+    // Use the longest hex token — that's the content hash, not an appid.
+    return hexes.sort((a, b) => b.length - a.length)[0].toLowerCase();
+  }
+  // No hash token: dedupe by the base path (host-agnostic: last two segments).
+  const segs = path.split("/").filter(Boolean);
+  return segs.slice(-2).join("/").toLowerCase();
+}
+
 async function insertSteamScreens(db, steamId, screens) {
   return new Promise((resolve, reject) => {
     db.serialize(() => {
@@ -474,7 +496,13 @@ async function insertSteamScreens(db, steamId, screens) {
       const stmt = db.prepare(
         `INSERT OR IGNORE INTO steam_screens (steam_id, screen_url) VALUES (?, ?)`,
       );
+      // Dedupe within this batch by content hash so the same image at different
+      // ?t= timestamps or CDN hosts is only stored once.
+      const seen = new Set();
       for (const url of screens) {
+        const key = steamImageContentKey(url);
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
         stmt.run([steamId, url]);
       }
       stmt.finalize();
@@ -483,6 +511,49 @@ async function insertSteamScreens(db, steamId, screens) {
         else resolve();
       });
     });
+  });
+}
+
+// Remove duplicate steam_screens rows that point at the same image (same content
+// hash) but differ only by ?t= timestamp or CDN host. Keeps the first-seen row
+// per hash. Scope to one steam_id when provided, else clean the whole table.
+async function dedupeSteamScreens(db, steamId = null) {
+  return new Promise((resolve) => {
+    const where = steamId != null ? `WHERE steam_id = ?` : ``;
+    const params = steamId != null ? [steamId] : [];
+    db.all(
+      `SELECT rowid, steam_id, screen_url FROM steam_screens ${where}`,
+      params,
+      (err, rows) => {
+        if (err) {
+          console.error("dedupeSteamScreens read failed:", err.message);
+          resolve(0);
+          return;
+        }
+        const keepByKey = new Map(); // `${steam_id}:${hash}` -> rowid kept
+        const toDelete = [];
+        for (const r of rows || []) {
+          const key = `${r.steam_id}:${steamImageContentKey(r.screen_url)}`;
+          if (keepByKey.has(key)) toDelete.push(r.rowid);
+          else keepByKey.set(key, r.rowid);
+        }
+        if (toDelete.length === 0) {
+          resolve(0);
+          return;
+        }
+        db.serialize(() => {
+          db.run("BEGIN TRANSACTION");
+          const stmt = db.prepare(`DELETE FROM steam_screens WHERE rowid = ?`);
+          for (const id of toDelete) stmt.run([id]);
+          stmt.finalize();
+          db.run("COMMIT", (e) => {
+            if (e) console.error("dedupeSteamScreens delete failed:", e.message);
+            else console.log(`Deduped steam_screens: removed ${toDelete.length} duplicate row(s)`);
+            resolve(toDelete.length);
+          });
+        });
+      },
+    );
   });
 }
 
@@ -723,6 +794,10 @@ async function fetchAndStoreSteamData(db, steamId, steamAssetSourceOrder) {
           result.screenshots,
         );
       }
+      // Clean up any pre-existing duplicate screenshot rows for this game (same
+      // image at different ?t= timestamps / CDN hosts). Runs on every refresh so
+      // already-stored dupes get removed, not just prevented going forward.
+      await dedupeSteamScreens(database, parseInt(steamId, 10));
       if (result.movies && result.movies.length > 0) {
         await insertSteamMovies(
           database,
@@ -857,6 +932,8 @@ module.exports = {
   insertSteamData,
   insertSteamScreens,
   insertSteamMovies,
+  dedupeSteamScreens,
+  steamImageContentKey,
   getSteamLibraryFolders,
   getInstalledSteamGames,
   isSteamAppInstalled,

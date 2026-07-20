@@ -512,13 +512,28 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
 
   // Split previews into videos (trailers) and images, keeping each item's index
   // in the original `previews` array so the lightbox (which indexes into that
-  // array) opens the right item from either section.
-  const videoPreviews = previews
+  // array) opens the right item from either section. Also dedupe by content key
+  // (Steam embeds a content hash in the filename) so the same image at different
+  // ?t= timestamps / CDN hosts isn't shown twice, even before a DB refresh
+  // cleans the stored dupes.
+  const previewContentKey = (url) => {
+    const s = String(url || '')
+    const p = s.split(/[?#]/)[0]
+    const hexes = p.match(/[0-9a-f]{16,}/gi)
+    if (hexes && hexes.length > 0) return hexes.sort((a, b) => b.length - a.length)[0].toLowerCase()
+    return p.split('/').filter(Boolean).slice(-2).join('/').toLowerCase()
+  }
+  const seenPreviewKeys = new Set()
+  const dedupedPreviews = previews
     .map((url, index) => ({ url, index }))
-    .filter((p) => isVideoUrl(p.url))
-  const imagePreviews = previews
-    .map((url, index) => ({ url, index }))
-    .filter((p) => !isVideoUrl(p.url))
+    .filter((p) => {
+      const k = previewContentKey(p.url)
+      if (seenPreviewKeys.has(k)) return false
+      seenPreviewKeys.add(k)
+      return true
+    })
+  const videoPreviews = dedupedPreviews.filter((p) => isVideoUrl(p.url))
+  const imagePreviews = dedupedPreviews.filter((p) => !isVideoUrl(p.url))
 
   const steamAppId = getMappedSteamAppId(game)
   // Version-aware Steam identity: when the selected/acted-on version is itself a

@@ -3,6 +3,7 @@
 const { ipcMain, BrowserWindow, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const crypto = require('crypto')
 const {
   downloadImages, buildBannerBaseName,
 } = require('../imageUtils')
@@ -514,6 +515,16 @@ module.exports = function registerMediaHandlers(ctx) {
       }
     }
 
+    // Remove duplicate DOWNLOADED preview files (same image saved under
+    // different sequential filenames). Uses on-disk MD5 — bounded, local, no
+    // network. Upstream steam_screens dedup prevents new dupes; this cleans up
+    // ones already downloaded. Keeps the first file per hash.
+    try {
+      await dedupeLocalPreviews(recordId)
+    } catch (e) {
+      console.warn('local preview dedupe failed:', e.message)
+    }
+
     const previewUrls = orderPreviewsBySource(
       await getPreviews(recordId, getAssetBasePath(), process.defaultApp, { mode: getMediaStorageMode(), sourceOrder }),
       sourceOrder,
@@ -530,6 +541,55 @@ module.exports = function registerMediaHandlers(ctx) {
       liveMediaDb().get(sql, params, (err, row) => resolve(err ? null : row || null))
     } catch { resolve(null) }
   })
+
+  // Content-dedupe downloaded preview files for a record: hash each existing
+  // local preview file, and for any hash seen more than once delete the extra
+  // DB rows (and their files). Keeps the first occurrence.
+  const dedupeLocalPreviews = (recordId) => new Promise((resolve) => {
+    const db = liveMediaDb()
+    if (!db) { resolve(0); return }
+    db.all(`SELECT rowid, path FROM previews WHERE record_id = ?`, [recordId], (err, rows) => {
+      if (err || !Array.isArray(rows) || rows.length === 0) { resolve(0); return }
+      const base = getAssetBasePath()
+      const seen = new Map() // hash -> rowid kept
+      const dupRowids = []
+      const dupFiles = []
+      for (const r of rows) {
+        if (!r.path) continue
+        // Resolve to an absolute file path (previews store a relative asset path).
+        let abs = r.path
+        try { abs = path.isAbsolute(r.path) ? r.path : path.join(base, r.path) } catch { /* keep */ }
+        let hash = ''
+        try {
+          const buf = fs.readFileSync(abs)
+          hash = crypto.createHash('md5').update(buf).digest('hex')
+        } catch {
+          // File missing/unreadable — leave the row alone.
+          continue
+        }
+        if (seen.has(hash)) {
+          dupRowids.push(r.rowid)
+          dupFiles.push(abs)
+        } else {
+          seen.set(hash, r.rowid)
+        }
+      }
+      if (dupRowids.length === 0) { resolve(0); return }
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION')
+        const stmt = db.prepare(`DELETE FROM previews WHERE rowid = ?`)
+        for (const id of dupRowids) stmt.run([id])
+        stmt.finalize()
+        db.run('COMMIT', () => {
+          // Best-effort file cleanup after the rows are gone.
+          for (const f of dupFiles) { try { fs.unlinkSync(f) } catch { /* ignore */ } }
+          console.log(`Deduped local previews for record ${recordId}: removed ${dupRowids.length}`)
+          resolve(dupRowids.length)
+        })
+      })
+    })
+  })
+
   const hasLocalBanner = async (recordId) => {
     const row = await dbGetSafe(
       `SELECT 1 FROM media_assets WHERE record_id = ? AND asset_type LIKE '%banner%' LIMIT 1`, [recordId])
