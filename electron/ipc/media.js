@@ -57,7 +57,7 @@ module.exports = function registerMediaHandlers(ctx) {
     getAssetBasePath, getMediaStorageMode, templatesDir, dataDir,
     getPreviews, getBanner, deleteBanner, deletePreviews,
     updateBanners, updatePreviews, getBannerUrl, getScreensUrlList,
-    getRemoteBannerUrl, getRemotePreviewUrls,
+    getRemoteBannerUrl, getRemotePreviewUrls, getSteamMovieThumbnails,
     GetAtlasIDbyRecord, firstMediaPath, getBrowsePreviewUrls,
     getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
     configPath,
@@ -284,6 +284,15 @@ module.exports = function registerMediaHandlers(ctx) {
   ipcMain.handle('get-previews', async (event, recordId) => {
     const previews = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, { mode: getMediaStorageMode(), sourceOrder: getMetadataSourceOrder() })
     return orderPreviewsBySource(previews, getMetadataSourceOrder())
+  })
+
+  ipcMain.handle('get-steam-movie-thumbnails', async (event, recordId) => {
+    try {
+      return await getSteamMovieThumbnails(recordId)
+    } catch (err) {
+      console.error('get-steam-movie-thumbnails error:', err)
+      return []
+    }
   })
 
   ipcMain.handle('get-browse-preview-urls', async (event, record = {}) => {

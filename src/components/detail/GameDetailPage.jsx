@@ -178,6 +178,7 @@ const isArchiveSourcePath = (sourcePath = '', archiveExtensions = ['zip', '7z', 
 
 const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [previews, setPreviews] = useState([])
+  const [movieThumbs, setMovieThumbs] = useState({}) // video url -> steam thumbnail url
   const [previewsLoading, setPreviewsLoading] = useState(false)
   const [isWishlisted, setIsWishlisted] = useState(game?.isWishlisted === true || game?.isWishlistEntry === true)
   const [wishlistBusy, setWishlistBusy] = useState(false)
@@ -302,6 +303,29 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     }
     loadPreviews()
   }, [game?.record_id, game?.versions, game?.selected_version_id, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.lc_id, game?.lcId, game?.steam_id])
+
+  // Steam provides a poster thumbnail per trailer; fetch a url->thumbnail map so
+  // the Videos section can show it instead of a video first-frame. Real records
+  // only (catalog entries have no record_id to query).
+  useEffect(() => {
+    let cancelled = false
+    if (!game?.record_id || game.isCatalogEntry === true) {
+      setMovieThumbs({})
+      return undefined
+    }
+    ;(async () => {
+      try {
+        const pairs = await window.electronAPI.getSteamMovieThumbnails?.(game.record_id)
+        if (cancelled || !Array.isArray(pairs)) return
+        const map = {}
+        for (const p of pairs) if (p?.url && p?.thumbnail) map[p.url] = p.thumbnail
+        setMovieThumbs(map)
+      } catch (err) {
+        console.warn('Failed to load movie thumbnails:', err?.message)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [game?.record_id, game?.isCatalogEntry])
 
   useEffect(() => {
     setLaunchState(LAUNCH_STATE.IDLE)
@@ -1253,16 +1277,25 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                   <h2 className="text-lg font-semibold">Videos</h2>
                   <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>{videoPreviews.length} available</span>
                 </div>
+                {/* Single row, scrolls horizontally. Each tile is a fixed height
+                    (10% shorter than the previous ~180px row) with 16:9 width. */}
                 <div
-                  className="grid gap-3"
-                  style={{ gridTemplateColumns: `repeat(${Math.min(3, Math.max(1, videoPreviews.length))}, minmax(0, 1fr))` }}
+                  style={{
+                    display: 'flex',
+                    gap: 12,
+                    overflowX: 'auto',
+                    overflowY: 'hidden',
+                    paddingBottom: 4,
+                  }}
                 >
                   {videoPreviews.map(({ url, index }) => (
-                    <HoverVideo
-                      key={`video-${url}-${index}`}
-                      src={toMediaSrc(url)}
-                      onClick={() => setLightboxIndex(index)}
-                    />
+                    <div key={`video-${url}-${index}`} style={{ flex: '0 0 auto', height: 162, aspectRatio: '16 / 9' }}>
+                      <HoverVideo
+                        src={toMediaSrc(url)}
+                        poster={movieThumbs[url] || ''}
+                        onClick={() => setLightboxIndex(index)}
+                      />
+                    </div>
                   ))}
                 </div>
               </section>

@@ -196,6 +196,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking getPreviews for recordId:", recordId);
     return ipcRenderer.invoke("get-previews", recordId);
   },
+  getSteamMovieThumbnails: (recordId) =>
+    ipcRenderer.invoke("get-steam-movie-thumbnails", recordId),
   getBrowsePreviewUrls: (record) =>
     ipcRenderer.invoke("get-browse-preview-urls", record),
   updateBanners: (recordId) => {

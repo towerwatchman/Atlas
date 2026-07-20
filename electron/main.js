@@ -64,7 +64,7 @@ const {
 
 const {
   updateFolderSize, getBannerUrl, getScreensUrlList,
-  updateBanners, updatePreviews, getRemotePreviewUrls,
+  updateBanners, updatePreviews, getRemotePreviewUrls, getSteamMovieThumbnails,
   getPreviews, getBanners, getBanner, getRemoteBannerUrl, getBrowsePreviewUrls,
   getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
   deleteBanner, deletePreviews,
@@ -1384,7 +1384,7 @@ function buildCtx() {
     removeGame, checkDbUpdates, updateFolderSize,
     addWishlistEntry, removeWishlistEntry, toggleWishlistEntry,
     getWishlistEntries, getWishlistEntryIdentities,
-    getBannerUrl, getScreensUrlList, getRemoteBannerUrl, getRemotePreviewUrls,
+    getBannerUrl, getScreensUrlList, getRemoteBannerUrl, getRemotePreviewUrls, getSteamMovieThumbnails,
     getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
     getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension,
     GetAtlasIDbyRecord, getPreviews, getBanner, deleteBanner, deletePreviews,

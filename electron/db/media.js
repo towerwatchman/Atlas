@@ -1102,6 +1102,42 @@ const deleteMediaAssets = (recordId, appPath, isDev) => {
   });
 };
 
+// Returns [{ url, thumbnail }] for a record's Steam trailers, so the Videos
+// section can show Steam's own movie thumbnail as the poster (much cleaner than
+// a first-frame grab, and CORS-safe since it's just an <img>). Matches steam_id
+// via the mapping or cross-source external_ids, same as the preview query.
+const getSteamMovieThumbnails = (recordId) => {
+  return new Promise((resolve) => {
+    const query = `
+      SELECT steam_movies.movie_url AS url, steam_movies.thumbnail AS thumbnail
+      FROM steam_movies
+      JOIN steam_data movie_steam_data ON steam_movies.steam_id = movie_steam_data.steam_id
+      JOIN games ON games.record_id = ?
+      LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
+      LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+      LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+      WHERE steam_movies.steam_id = steam_mappings.steam_id
+         OR movie_steam_data.atlas_id = atlas_mappings.atlas_id
+         OR atlas_data.external_ids LIKE '%"steam_appid":"' || steam_movies.steam_id || '"%'
+         OR atlas_data.external_ids LIKE '%"steam_appid": "' || steam_movies.steam_id || '"%'
+         OR atlas_data.external_ids LIKE '%"steam_id":"' || steam_movies.steam_id || '"%'
+         OR atlas_data.external_ids LIKE '%"steam_id": "' || steam_movies.steam_id || '"%'
+    `;
+    getDb().all(query, [recordId], (err, rows) => {
+      if (err) {
+        console.error('getSteamMovieThumbnails error:', err.message);
+        resolve([]);
+        return;
+      }
+      resolve(
+        (rows || [])
+          .filter((r) => r && r.url)
+          .map((r) => ({ url: String(r.url), thumbnail: r.thumbnail ? String(r.thumbnail) : '' })),
+      );
+    });
+  });
+};
+
 module.exports = {
   updateFolderSize,
   getBannerUrl,
@@ -1113,6 +1149,7 @@ module.exports = {
   getBrowsePreviewUrls,
   getRemotePreviewUrls,
   getPreviews,
+  getSteamMovieThumbnails,
   getBanners,
   getRemoteBannerUrl,
   getBanner,
