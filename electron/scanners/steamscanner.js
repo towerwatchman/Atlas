@@ -114,6 +114,13 @@ async function fetchStoreItemAssets(appid) {
     const assets = item && item.assets;
     if (!assets || !assets.asset_url_format) return {};
 
+    // One-time visibility into what asset keys Steam actually returns — the
+    // logo field name has changed before (and movies moved to DASH), so log the
+    // keys to catch renames rather than silently storing an empty logo.
+    try {
+      console.log(`Steam ${id} GetItems asset keys:`, Object.keys(assets).join(", "));
+    } catch { /* ignore */ }
+
     // asset_url_format looks like "steam/apps/440/${FILENAME}". Each asset field
     // (library_hero, logo, …) is just the filename (with its ?t= cache-buster).
     const build = (filename) =>
@@ -132,10 +139,6 @@ async function fetchStoreItemAssets(appid) {
       // Prefer the 2x (higher-res) variants when present.
       hero: pick("library_hero_2x", "library_hero"),
       capsule: pick("library_capsule_2x", "library_capsule"),
-      // Steam's logo_position describes where the developer wants the logo placed
-      // over the hero: pinned_position (e.g. "BottomLeft", "CenterCenter") plus
-      // width_pct/height_pct (percent of the hero the logo should occupy). We
-      // normalize it to a small JSON blob the hero can apply directly.
       logoPosition: (() => {
         const lp = assets.logo_position
         if (!lp || !lp.pinned_position) return null
@@ -145,9 +148,9 @@ async function fetchStoreItemAssets(appid) {
           heightPct: Number(lp.height_pct) || null,
         }
       })(),
-      // The genuine transparent title treatment — fixes the long-standing bug of
-      // storing the portrait capsule in the logo slot.
-      logo: pick("logo_2x", "logo"),
+      // The transparent title logo. Steam has used several key names over time:
+      // library_logo(_2x) is the current one; logo(_2x) the older. Try all.
+      logo: pick("library_logo_2x", "library_logo", "logo_2x", "logo"),
     };
   } catch (err) {
     if (err && err.code === "rate_limited") throw err;
