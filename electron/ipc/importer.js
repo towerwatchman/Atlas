@@ -1485,7 +1485,7 @@ module.exports = function registerImporterHandlers(ctx) {
   //
   // Idempotent: if a record already owns this appid, we return it untouched
   // rather than duplicating.
-  const importOwnedSteamGame = async (appid, name, installDir = '') => {
+  const importOwnedSteamGame = async (appid, name, installDir = '', assetSourceOrder = null) => {
     const steamId = String(appid || '').trim()
     if (!/^\d+$/.test(steamId)) {
       return { ok: false, appid, error: 'Invalid Steam appid.' }
@@ -1499,12 +1499,14 @@ module.exports = function registerImporterHandlers(ctx) {
 
     // Pull Store metadata + art. Non-fatal if it fails — we can still create a
     // minimal record from the name we already have from the owned-games list.
+    // assetSourceOrder, when provided, overrides the configured default (used by
+    // the UI's "retry with CDN" fallback after a GetItems rate-limit).
     let meta = null
     try {
       meta = await fetchAndStoreSteamData(
         db,
         steamId,
-        ctx.appConfig?.Metadata?.steamAssetSourceOrder,
+        assetSourceOrder || ctx.appConfig?.Metadata?.steamAssetSourceOrder,
       )
     } catch (err) {
       console.warn(`Phase3: metadata fetch failed for ${steamId}:`, err.message)
@@ -1533,15 +1535,16 @@ module.exports = function registerImporterHandlers(ctx) {
       appid: steamId,
       recordId,
       title,
+      rateLimited: meta?.__rateLimited === true,
       installed: Boolean(dir),
       alreadyPresent: Boolean(existing),
     }
   }
 
   // Single add.
-  ipcMain.handle('steam-add-owned-game', async (event, { appid, name, installDir } = {}) => {
+  ipcMain.handle('steam-add-owned-game', async (event, { appid, name, installDir, assetSourceOrder } = {}) => {
     try {
-      const result = await importOwnedSteamGame(appid, name, installDir)
+      const result = await importOwnedSteamGame(appid, name, installDir, assetSourceOrder)
       // Tell every window to refresh its library so the new/updated record shows
       // up immediately (reuses the same signal a normal import emits).
       if (result?.ok) {
@@ -1632,10 +1635,10 @@ module.exports = function registerImporterHandlers(ctx) {
   // Bulk add. `games` is [{ appid, name }]. Runs sequentially to stay gentle on
   // the Steam Store API (which rate-limits) and emits progress to the importer
   // window. Returns a per-game summary.
-  ipcMain.handle('steam-add-owned-bulk', async (event, { games = [] } = {}) => {
+  ipcMain.handle('steam-add-owned-bulk', async (event, { games = [], assetSourceOrder = null } = {}) => {
     const ownerWindow = BrowserWindow.fromWebContents(event.sender)
     const list = Array.isArray(games) ? games : []
-    const results = { added: 0, skipped: 0, failed: 0, total: list.length, errors: [] }
+    const results = { added: 0, skipped: 0, failed: 0, total: list.length, errors: [], rateLimited: false, processed: 0 }
 
     const emit = (text, done) => {
       ownerWindow?.webContents?.send('steam-bulk-progress', {
@@ -1649,22 +1652,32 @@ module.exports = function registerImporterHandlers(ctx) {
       const g = list[i]
       emit(`Adding ${g?.name || g?.appid} (${i + 1}/${list.length})`, i)
       try {
-        const r = await importOwnedSteamGame(g?.appid, g?.name, g?.installDir)
+        const r = await importOwnedSteamGame(g?.appid, g?.name, g?.installDir, assetSourceOrder)
         if (r.ok && r.alreadyPresent) results.skipped++
         else if (r.ok) results.added++
         else {
           results.failed++
           results.errors.push({ appid: g?.appid, error: r.error })
         }
+        // If Steam started rate-limiting the image API, stop early rather than
+        // hammering it — the records added past this point would get poor art
+        // anyway. Report it so the UI can offer a fallback source.
+        if (r.rateLimited) {
+          results.rateLimited = true
+          results.processed = i + 1
+          emit(`Stopped: Steam rate-limited image requests`, i + 1)
+          break
+        }
       } catch (err) {
         results.failed++
         results.errors.push({ appid: g?.appid, error: err.message })
       }
+      results.processed = i + 1
       // Small courtesy delay between Store API hits.
       await new Promise((res) => setTimeout(res, 250))
     }
 
-    emit('Done', list.length)
+    if (!results.rateLimited) emit('Done', list.length)
     // Refresh every window's library once the batch finishes.
     if (results.added > 0 || results.skipped > 0) {
       BrowserWindow.getAllWindows().forEach((win) => {

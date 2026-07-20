@@ -97,6 +97,14 @@ async function fetchStoreItemAssets(appid) {
         JSON.stringify(input),
       )}`,
     );
+    // Surface rate-limiting distinctly from "no assets" so callers can tell the
+    // user and offer a fallback source rather than silently serving nothing.
+    if (res.status === 429 || res.status === 403) {
+      const err = new Error("steam_getitems_rate_limited");
+      err.code = "rate_limited";
+      err.status = res.status;
+      throw err;
+    }
     const json = await res.json();
     const item =
       json &&
@@ -129,6 +137,7 @@ async function fetchStoreItemAssets(appid) {
       logo: pick("logo_2x", "logo"),
     };
   } catch (err) {
+    if (err && err.code === "rate_limited") throw err;
     console.error(`fetchStoreItemAssets failed for ${appid}:`, err);
     return {};
   }
@@ -150,7 +159,14 @@ const CONVENTION_FILES = {
   capsule: "library_600x900.jpg",
   logo: "logo.png",
 };
-const DEFAULT_STEAM_ASSET_SOURCE_ORDER = ["fastly", "akamaihd", "getitems"];
+// GetItems (the IStoreBrowseService API) is authoritative: it returns the
+// CURRENT, versioned asset filenames with ?t= cache-busters and prefers 2x
+// hi-res variants, so it reflects exactly what the store shows right now. The
+// flat CDN convention paths (fastly/akamaihd) are un-versioned and aggressively
+// cached — for many apps they still serve the LEGACY asset even after the store
+// art was updated — so they're now gap-fillers only, not the priority. This
+// ordering is the fix for the "stale / wrong image" reports.
+const DEFAULT_STEAM_ASSET_SOURCE_ORDER = ["getitems", "fastly", "akamaihd"];
 const STEAM_ASSET_SOURCE_IDS = new Set([...Object.keys(STEAM_CDN_HOSTS), "getitems"]);
 
 // Accepts the raw Metadata.steamAssetSourceOrder setting (a comma string,
@@ -188,9 +204,18 @@ async function resolveLibraryAssets(steamId, sourceOrderSetting) {
   // hits the network once per resolve, regardless of how many fields it
   // ends up being asked to fill.
   let apiAssetsPromise = null;
-  const getApiAssets = () => {
+  let rateLimited = false;
+  const getApiAssets = async () => {
     if (!apiAssetsPromise) apiAssetsPromise = fetchStoreItemAssets(steamId);
-    return apiAssetsPromise;
+    try {
+      return await apiAssetsPromise;
+    } catch (err) {
+      if (err && err.code === "rate_limited") {
+        rateLimited = true;
+        return {};
+      }
+      throw err;
+    }
   };
 
   for (const source of sourceOrder) {
@@ -225,6 +250,9 @@ async function resolveLibraryAssets(steamId, sourceOrderSetting) {
     );
   }
 
+  // Non-enumerable so it rides along without polluting the {header,hero,...}
+  // shape that callers spread into records.
+  Object.defineProperty(resolved, "__rateLimited", { value: rateLimited, enumerable: false });
   return resolved;
 }
 
@@ -348,7 +376,7 @@ async function getSteamGameData(steamId, steamAssetSourceOrder) {
     };
 
 
-    return { game, screenshots, movies };
+    return { game, screenshots, movies, rateLimited: assets.__rateLimited === true };
   } catch (error) {
     console.error(`Error fetching game data for appid ${steamId}:`, error);
     return null;
@@ -660,6 +688,9 @@ async function fetchAndStoreSteamData(db, steamId, steamAssetSourceOrder) {
     }
   } catch (err) {
     console.error(`Failed to persist steam_data for ${steamId}:`, err);
+  }
+  if (result.game && result.rateLimited) {
+    Object.defineProperty(result.game, "__rateLimited", { value: true, enumerable: false });
   }
   return result.game;
 }

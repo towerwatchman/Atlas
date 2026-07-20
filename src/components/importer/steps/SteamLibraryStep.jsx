@@ -41,6 +41,7 @@ const SteamLibraryStep = ({ onBack }) => {
   const [addingIds, setAddingIds] = useState(() => new Set()) // in-flight single adds
   const [bulk, setBulk] = useState(null) // { done, total, text } while bulk running
   const [bulkMenuOpen, setBulkMenuOpen] = useState(false)
+  const [rateNotice, setRateNotice] = useState(null) // { remaining: [...] } after a GetItems rate-limit
 
   const markAdded = useCallback((appids) => {
     setAdded((prev) => {
@@ -69,6 +70,34 @@ const SteamLibraryStep = ({ onBack }) => {
 
   // Bulk-add games in the current view (respects search + filter), scoped to
   // 'all' | 'installed' | 'notInstalled'. Already-added games are skipped.
+  // Shared bulk runner. Handles the GetItems rate-limit result by surfacing a
+  // notice card that offers to continue with the CDN fallback source order.
+  const runBulk = useCallback(async (targets, { assetSourceOrder = null } = {}) => {
+    if (targets.length === 0) return
+    setBulk({ done: 0, total: targets.length, text: 'Starting…' })
+    try {
+      const r = await window.electronAPI.steamAddOwnedBulk({
+        games: targets.map((g) => ({ appid: g.appid, name: g.name, installDir: g.installDir })),
+        assetSourceOrder,
+      })
+      if (r?.ok) {
+        // Mark whatever actually processed before any early stop.
+        const processed = typeof r.processed === 'number' ? targets.slice(0, r.processed) : targets
+        markAdded(processed.map((g) => g.appid))
+        if (r.rateLimited) {
+          // Remember the not-yet-processed remainder so the user can retry them
+          // via the CDN source without GetItems.
+          const remaining = typeof r.processed === 'number' ? targets.slice(r.processed) : []
+          setRateNotice({ remaining })
+        }
+      }
+    } catch (err) {
+      console.error('Bulk add failed:', err)
+    } finally {
+      setBulk(null)
+    }
+  }, [markAdded])
+
   const bulkAdd = useCallback(async (candidates, scope = 'all') => {
     let pool = candidates
     if (scope === 'installed') pool = candidates.filter((g) => g.installed)
@@ -83,18 +112,9 @@ const SteamLibraryStep = ({ onBack }) => {
       'you can install any not-installed game later from its detail page.',
     )
     if (!ok) return
-    setBulk({ done: 0, total: targets.length, text: 'Starting…' })
-    try {
-      const r = await window.electronAPI.steamAddOwnedBulk({
-        games: targets.map((g) => ({ appid: g.appid, name: g.name, installDir: g.installDir })),
-      })
-      if (r?.ok) markAdded(targets.map((g) => g.appid))
-    } catch (err) {
-      console.error('Bulk add failed:', err)
-    } finally {
-      setBulk(null)
-    }
-  }, [added, markAdded])
+    setRateNotice(null)
+    await runBulk(targets)
+  }, [added, runBulk])
 
   // Re-sync install paths for games already in Atlas (and add any missing).
   // The backend upserts, so this repairs records whose install-state changed or
@@ -109,18 +129,18 @@ const SteamLibraryStep = ({ onBack }) => {
       'Safe to run repeatedly — nothing is duplicated.',
     )
     if (!ok) return
-    setBulk({ done: 0, total: targets.length, text: 'Starting…' })
-    try {
-      const r = await window.electronAPI.steamAddOwnedBulk({
-        games: targets.map((g) => ({ appid: g.appid, name: g.name, installDir: g.installDir })),
-      })
-      if (r?.ok) markAdded(targets.map((g) => g.appid))
-    } catch (err) {
-      console.error('Re-sync failed:', err)
-    } finally {
-      setBulk(null)
-    }
-  }, [markAdded])
+    setRateNotice(null)
+    await runBulk(targets)
+  }, [runBulk])
+
+  // Retry the games skipped by a rate-limit, using the CDN source order so we
+  // don't hit GetItems again.
+  const retryWithCdn = useCallback(async () => {
+    const remaining = rateNotice?.remaining || []
+    setRateNotice(null)
+    if (remaining.length === 0) return
+    await runBulk(remaining, { assetSourceOrder: 'fastly,akamaihd' })
+  }, [rateNotice, runBulk])
 
   useEffect(() => {
     if (!window.electronAPI.onSteamBulkProgress) return undefined
@@ -367,6 +387,41 @@ const SteamLibraryStep = ({ onBack }) => {
           </div>
         )}
       </div>
+
+      {/* Rate-limit notice */}
+      {rateNotice && (
+        <div className="mx-3 mt-3 rounded border border-yellow-500/50 bg-yellow-500/10 p-3 text-sm">
+          <div className="flex items-start gap-2">
+            <i className="fas fa-triangle-exclamation text-yellow-500 mt-0.5" />
+            <div className="flex-1">
+              <div className="font-semibold text-text">Steam rate-limited image requests</div>
+              <div className="text-text/70 mt-1">
+                Steam temporarily limited high-quality artwork lookups, so adding was paused
+                {rateNotice.remaining?.length ? ` with ${rateNotice.remaining.length} game${rateNotice.remaining.length === 1 ? '' : 's'} left` : ''}.
+                You can continue now using Steam's CDN images (still correct, occasionally lower-res),
+                or wait a few minutes and retry for the highest-quality art.
+              </div>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {rateNotice.remaining?.length > 0 && (
+                  <button
+                    onClick={retryWithCdn}
+                    disabled={Boolean(bulk)}
+                    className="px-3 py-1 rounded bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+                  >
+                    Continue with CDN images
+                  </button>
+                )}
+                <button
+                  onClick={() => setRateNotice(null)}
+                  className="px-3 py-1 rounded bg-secondary border border-border hover:bg-highlight transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Grid */}
       <div className="flex-1 overflow-y-auto p-3">
