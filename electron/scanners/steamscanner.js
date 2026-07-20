@@ -132,6 +132,19 @@ async function fetchStoreItemAssets(appid) {
       // Prefer the 2x (higher-res) variants when present.
       hero: pick("library_hero_2x", "library_hero"),
       capsule: pick("library_capsule_2x", "library_capsule"),
+      // Steam's logo_position describes where the developer wants the logo placed
+      // over the hero: pinned_position (e.g. "BottomLeft", "CenterCenter") plus
+      // width_pct/height_pct (percent of the hero the logo should occupy). We
+      // normalize it to a small JSON blob the hero can apply directly.
+      logoPosition: (() => {
+        const lp = assets.logo_position
+        if (!lp || !lp.pinned_position) return null
+        return {
+          pinned: String(lp.pinned_position),
+          widthPct: Number(lp.width_pct) || null,
+          heightPct: Number(lp.height_pct) || null,
+        }
+      })(),
       // The genuine transparent title treatment — fixes the long-standing bug of
       // storing the portrait capsule in the logo slot.
       logo: pick("logo_2x", "logo"),
@@ -226,6 +239,10 @@ async function resolveLibraryAssets(steamId, sourceOrderSetting) {
       const apiAssets = await getApiAssets();
       for (const field of stillNeeded) {
         if (apiAssets[field]) resolved[field] = apiAssets[field];
+      }
+      // logo_position only comes from GetItems; capture it once when available.
+      if (apiAssets.logoPosition && !resolved.logoPosition) {
+        resolved.logoPosition = apiAssets.logoPosition;
       }
       continue;
     }
@@ -372,6 +389,7 @@ async function getSteamGameData(steamId, steamAssetSourceOrder) {
       // The transparent logo — the real one from GetItems, with a convention
       // fallback. (Previously this column wrongly held the portrait capsule.)
       logo: assets.logo || conventionAsset("logo.png"),
+      logo_position: assets.logoPosition ? JSON.stringify(assets.logoPosition) : null,
       last_record_update: new Date().toISOString(),
     };
 
@@ -387,8 +405,8 @@ async function insertSteamData(db, data) {
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT OR REPLACE INTO steam_data (
-        steam_id, atlas_id, title, category, engine, developer, publisher, overview, censored, language, translations, genre, tags, voice, os, release_state, release_date, header, library_hero, library_capsule, logo, last_record_update, type
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        steam_id, atlas_id, title, category, engine, developer, publisher, overview, censored, language, translations, genre, tags, voice, os, release_state, release_date, header, library_hero, library_capsule, logo, logo_position, last_record_update, type
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.steam_id,
         data.atlas_id || null,
@@ -411,6 +429,7 @@ async function insertSteamData(db, data) {
         data.library_hero,
         data.library_capsule || null,
         data.logo,
+        data.logo_position || null,
         data.last_record_update,
         data.type || "",
       ],

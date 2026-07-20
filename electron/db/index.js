@@ -710,6 +710,8 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE lewdcorner_data ADD COLUMN floating INTEGER NOT NULL DEFAULT 0;`, () => {});
     db.run(`ALTER TABLE steam_data ADD COLUMN type STRING;`, () => {});
     db.run(`ALTER TABLE steam_data ADD COLUMN library_capsule TEXT;`, () => {});
+    // Steam's logo placement over the hero (JSON: {pinned,widthPct,heightPct}).
+    db.run(`ALTER TABLE steam_data ADD COLUMN logo_position TEXT;`, () => {});
     db.run(`ALTER TABLE gog_data ADD COLUMN store_url TEXT;`, () => {});
 
     // Drop the legacy UNIQUE constraint on atlas_data.id_name. id_name is no

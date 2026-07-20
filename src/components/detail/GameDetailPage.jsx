@@ -3,6 +3,7 @@ import HeroBanner from './page/HeroBanner.jsx'
 import ActionBar from './page/ActionBar.jsx'
 import InfoPanel from './page/InfoPanel.jsx'
 import PreviewLightbox from './page/PreviewLightbox.jsx'
+import HoverVideo from './page/HoverVideo.jsx'
 import DetailPanelGrid, { DEFAULT_DETAIL_LAYOUT } from './page/DetailPanelGrid.jsx'
 import SafeImage from '../ui/SafeImage.jsx'
 import RefreshMediaModal from '../ui/RefreshMediaModal.jsx'
@@ -485,6 +486,16 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const latestVersion = game.latestVersion || game.latest_version || ''
   const versionOptions = sortVersionsDesc(game.versions || [])
 
+  // Split previews into videos (trailers) and images, keeping each item's index
+  // in the original `previews` array so the lightbox (which indexes into that
+  // array) opens the right item from either section.
+  const videoPreviews = previews
+    .map((url, index) => ({ url, index }))
+    .filter((p) => isVideoUrl(p.url))
+  const imagePreviews = previews
+    .map((url, index) => ({ url, index }))
+    .filter((p) => !isVideoUrl(p.url))
+
   const steamAppId = getMappedSteamAppId(game)
   // Version-aware Steam identity: when the selected/acted-on version is itself a
   // Steam version, its source_app_id is the appid to install/launch/uninstall —
@@ -620,7 +631,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         scheduleInstalledStateRefresh()
       }
     : null
-  const uninstallSteam = activeSteamAppId && canManageLocalTitle
+  const uninstallSteam = activeSteamAppId && canManageLocalTitle && canLaunch
     ? async () => {
         const confirmed = window.confirm(
           `Ask Steam to uninstall "${game.title}"?\n\nAtlas will keep this title and its metadata. Atlas local files are not deleted by this action.`,
@@ -1236,39 +1247,50 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           editing={editingLayout}
           onLayoutChange={handleLayoutChange}
           panels={{
+            videos: videoPreviews.length > 0 ? (
+              <section className="border border-border bg-secondary" style={{ padding: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <h2 className="text-lg font-semibold">Videos</h2>
+                  <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>{videoPreviews.length} available</span>
+                </div>
+                <div
+                  className="grid gap-3"
+                  style={{ gridTemplateColumns: `repeat(${Math.min(3, Math.max(1, videoPreviews.length))}, minmax(0, 1fr))` }}
+                >
+                  {videoPreviews.map(({ url, index }) => (
+                    <HoverVideo
+                      key={`video-${url}-${index}`}
+                      src={toMediaSrc(url)}
+                      onClick={() => setLightboxIndex(index)}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null,
             previews: (
               <section className="border border-border bg-secondary" style={{ padding: 6 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                   <h2 className="text-lg font-semibold">Previews</h2>
-                  <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>{previews.length} available</span>
+                  <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>{imagePreviews.length} available</span>
                 </div>
-                {previews.length > 0 ? (
+                {imagePreviews.length > 0 ? (
                   <div
                     className="grid gap-3"
-                    style={{ gridTemplateColumns: `repeat(${Math.min(4, Math.max(1, previews.length))}, minmax(0, 1fr))` }}
+                    style={{ gridTemplateColumns: `repeat(${Math.min(4, Math.max(1, imagePreviews.length))}, minmax(0, 1fr))` }}
                   >
-                    {previews.map((preview, index) => (
+                    {imagePreviews.map(({ url: preview, index }) => (
                       <div
                         key={`${preview}-${index}`}
                         className="border border-border overflow-hidden aspect-video cursor-pointer hover:border-accent transition-colors relative"
                         onClick={() => setLightboxIndex(index)}
-                        title={isVideoUrl(preview) ? 'Play trailer' : 'Click to view'}
+                        title="Click to view"
                       >
-                        {isVideoUrl(preview) ? (
-                          <>
-                            <video src={toMediaSrc(preview)} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#000' }} />
-                            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)', pointerEvents: 'none' }}>
-                              <i className="fas fa-play-circle" style={{ fontSize: 44, color: 'rgba(255,255,255,0.92)', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.6))' }}></i>
-                            </div>
-                          </>
-                        ) : (
-                          <SafeImage
-                            src={preview}
-                            alt={`Preview ${index + 1}`}
-                            fallbackLabel="Preview unavailable"
-                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                          />
-                        )}
+                        <SafeImage
+                          src={preview}
+                          alt={`Preview ${index + 1}`}
+                          fallbackLabel="Preview unavailable"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                        />
                       </div>
                     ))}
                   </div>

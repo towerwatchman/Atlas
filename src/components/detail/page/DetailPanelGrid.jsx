@@ -29,7 +29,7 @@ export const DEFAULT_DETAIL_LAYOUT = {
       type: 'columns',
       columns: [{ mode: 'flex' }, { mode: 'fixed', px: 360 }],
       cells: [
-        ['previews'],
+        ['videos', 'previews'],
         ['versions', 'rating', 'details', 'links', 'tags'],
       ],
     },

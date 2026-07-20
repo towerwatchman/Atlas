@@ -19,13 +19,6 @@ const labelFor = (id) => SOURCE_LABELS[id] || id
 // two different CDN providers Valve uses; "getitems" is the Steam store's
 // IStoreBrowseService API, which can occasionally lag behind what the CDNs
 // are currently serving (e.g. right after a major content update).
-const AVAILABLE_STEAM_ASSET_SOURCES = [
-  { id: 'fastly', label: 'Fastly CDN' },
-  { id: 'akamaihd', label: 'Akamai CDN' },
-  { id: 'getitems', label: 'Steam GetItems API' },
-]
-const STEAM_ASSET_SOURCE_LABELS = Object.fromEntries(AVAILABLE_STEAM_ASSET_SOURCES.map((s) => [s.id, s.label]))
-const labelForSteamAssetSource = (id) => STEAM_ASSET_SOURCE_LABELS[id] || id
 
 const toBoolean = (value, fallback = false) => {
   if (value === true || value === false) return value
@@ -120,7 +113,7 @@ const Metadata = () => {
   const [mediaStorageMode, setMediaStorageMode] = useState('stream')
   const [downloadPreviews, setDownloadPreviews] = useState(false)
   const [sourceOrder, setSourceOrder] = useState(['f95', 'lewdcorner', 'steam', 'gog'])
-  const [steamAssetSourceOrder, setSteamAssetSourceOrder] = useState(['fastly', 'akamaihd', 'getitems'])
+  const [steamAssetSourceOrder] = useState(['getitems', 'fastly', 'akamaihd']) // fixed default; no longer user-configurable
   const [mediaDownloadConcurrency, setMediaDownloadConcurrency] = useState(3)
   const [mediaPerHostConcurrency, setMediaPerHostConcurrency] = useState(2)
   const [mediaRequestDelayMs, setMediaRequestDelayMs] = useState(100)
@@ -136,12 +129,6 @@ const Metadata = () => {
       setSourceOrder(metadataSettings.sourceOrder === undefined || metadataSettings.sourceOrder === null
         ? ['f95', 'lewdcorner', 'steam', 'gog']
         : parsed)
-      const parsedSteamAssetOrder = parseOrder(metadataSettings.steamAssetSourceOrder)
-      setSteamAssetSourceOrder(
-        metadataSettings.steamAssetSourceOrder === undefined || metadataSettings.steamAssetSourceOrder === null
-          ? ['fastly', 'akamaihd', 'getitems']
-          : parsedSteamAssetOrder
-      )
       const performanceSettings = config.Performance || {}
       setMediaDownloadConcurrency(clampInteger(performanceSettings.mediaDownloadConcurrency, 3, 1, 8))
       setMediaPerHostConcurrency(clampInteger(performanceSettings.mediaPerHostConcurrency, 2, 1, 5))
@@ -215,28 +202,6 @@ const Metadata = () => {
 
   const removeSource = (id) => {
     persistOrder(sourceOrder.filter((s) => s !== id))
-  }
-
-  const persistSteamAssetOrder = (next) => {
-    setSteamAssetSourceOrder(next)
-    saveSettings({ steamAssetSourceOrder: next.join(',') })
-  }
-
-  const moveSteamAssetSource = (index, delta) => {
-    const next = [...steamAssetSourceOrder]
-    const target = index + delta
-    if (target < 0 || target >= next.length) return
-    ;[next[index], next[target]] = [next[target], next[index]]
-    persistSteamAssetOrder(next)
-  }
-
-  const removeSteamAssetSource = (id) => {
-    persistSteamAssetOrder(steamAssetSourceOrder.filter((s) => s !== id))
-  }
-
-  const addSteamAssetSource = (id) => {
-    if (!id || steamAssetSourceOrder.includes(id)) return
-    persistSteamAssetOrder([...steamAssetSourceOrder, id])
   }
 
   const addSource = (id) => {
@@ -353,28 +318,6 @@ const Metadata = () => {
         onRemove={removeSource}
         onAdd={addSource}
         emptyMessage="No sources enabled — add one below."
-      />
-
-      <div className="border-t border-text opacity-25 my-3"></div>
-
-      <label className="block mb-1">Steam Image Sources</label>
-      <p className="text-xs opacity-50 mb-3">
-        The order below sets which source Atlas tries first for a Steam
-        game's header, hero, library capsule, and logo art — the topmost
-        available source wins per image, falling through to the next if
-        that source doesn't have it. The Fastly and Akamai CDNs serve the
-        same images from two different providers; the Steam API can
-        occasionally lag behind both right after a game ships new art.
-      </p>
-
-      <SourceOrderList
-        order={steamAssetSourceOrder}
-        availableSources={AVAILABLE_STEAM_ASSET_SOURCES}
-        labelFor={labelForSteamAssetSource}
-        onMove={moveSteamAssetSource}
-        onRemove={removeSteamAssetSource}
-        onAdd={addSteamAssetSource}
-        emptyMessage="No image sources enabled — Steam art won't load. Add one below."
       />
 
       <div className="border-t border-text opacity-25 my-2"></div>
