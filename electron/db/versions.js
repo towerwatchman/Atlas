@@ -534,102 +534,15 @@ const findExistingRecordForImport = (game) => {
   });
 };
 
-function normalizeVersionForCompare(value) {
-  return (String(value || "").match(/\d+/g) || [])
-    .map((part) => String(Number.parseInt(part, 10) || 0))
-    .join(".");
-}
-
-function getVersionFamily(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (/\b(?:ep|episode)\.?\s*\d/.test(normalized)) return "episode";
-  if (/\b(?:ch|chapter)\.?\s*\d/.test(normalized)) return "chapter";
-  if (/\b(?:s|season)\.?\s*\d/.test(normalized)) return "season";
-  if (/\b(?:build)\s*\d/.test(normalized)) return "build";
-  return "generic";
-}
-
-function compareVersionParts(current, latest) {
-  const currentParts = current.split(".").map((n) => parseInt(n, 10) || 0);
-  const latestParts = latest.split(".").map((n) => parseInt(n, 10) || 0);
-  const maxLen = Math.max(currentParts.length, latestParts.length);
-
-  while (currentParts.length < maxLen) currentParts.push(0);
-  while (latestParts.length < maxLen) latestParts.push(0);
-
-  for (let i = 0; i < maxLen; i++) {
-    if (currentParts[i] < latestParts[i]) return -1;
-    if (currentParts[i] > latestParts[i]) return 1;
-  }
-
-  return 0;
-}
-
-function normalizeTimestampMs(value) {
-  if (value === undefined || value === null || value === "") return 0;
-  const numeric = Number(value);
-  if (Number.isFinite(numeric) && numeric > 0) {
-    return numeric > 100000000000 ? numeric : numeric * 1000;
-  }
-  const parsed = Date.parse(String(value));
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function getIsUpdateAvailable(latestVersion, versions, metadataUpdatedAt = null) {
-  if (!latestVersion || !versions || versions.length === 0) return false;
-
-  if (
-    versions.some((version) =>
-      String(version.version || "")
-        .trim()
-        .toLowerCase()
-        .includes("final"),
-    )
-  ) {
-    return false;
-  }
-
-  const latest = normalizeVersionForCompare(latestVersion);
-  if (!latest) return false;
-  const latestFamily = getVersionFamily(latestVersion);
-  const exactLatest = String(latestVersion).trim().toLowerCase().replace(/\s+/g, "");
-  if (versions.some((version) =>
-    String(version.version || "").trim().toLowerCase().replace(/\s+/g, "") === exactLatest
-  )) {
-    return false;
-  }
-
-  const metadataUpdatedMs = normalizeTimestampMs(metadataUpdatedAt);
-  const newestInstallMs = Math.max(
-    0,
-    ...versions.map((version) => normalizeTimestampMs(version.date_added)),
-  );
-  if (metadataUpdatedMs > 0 && newestInstallMs > 0 && metadataUpdatedMs > newestInstallMs) {
-    return true;
-  }
-
-  // Find the newest local version. An update is only available if even the
-  // newest installed/known version is older than the latest — not if *any*
-  // single version happens to be older.
-  let newest = null;
-  for (const version of versions) {
-    if (latestFamily !== "generic" && getVersionFamily(version.version) !== latestFamily) {
-      continue;
-    }
-    const current = normalizeVersionForCompare(version.version);
-    if (!current) continue;
-    if (newest === null || compareVersionParts(current, newest) > 0) {
-      newest = current;
-    }
-  }
-  // A known latest version using a different progression scheme (for example
-  // Episode 1 Part 2 versus an installed Chapter 3) is not safely comparable.
-  // Since the labels are not equal, surface the update instead of silently
-  // treating the unrelated local number as newer.
-  if (newest === null) return latestFamily !== "generic";
-
-  return compareVersionParts(newest, latest) < 0;
-}
+// Version comparison lives in a standalone, dependency-free module so it can be
+// unit-tested without sqlite. See electron/utils/versionCompare.js for the full
+// rationale and the scheme hierarchy
+// (terminal > season > chapter > episode > part > semver > letter > qualifier).
+//
+// Note: metadataUpdatedAt (thread_updated) is intentionally NO LONGER used.
+// "Thread activity" is not "new version released" and was the primary source of
+// false-positive update badges. The signal is now version-string authoritative.
+const { getIsUpdateAvailable } = require("../utils/versionCompare");
 
 function isExistingPath(value) {
   if (!value) return false;
@@ -959,7 +872,6 @@ ${bannerJoinClauses}
           game.isUpdateAvailable = getIsUpdateAvailable(
             row.latestVersion,
             installedVersions,
-            row.thread_updated,
           );
           resolve(game);
         },
@@ -1150,7 +1062,6 @@ ${bannerJoinClauses}
               isUpdateAvailable: getIsUpdateAvailable(
                 row.latestVersion,
                 installedVersions,
-                row.thread_updated,
               ),
             }, row), allVersions, installedVersions);
           })
@@ -1994,7 +1905,6 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
                 getIsUpdateAvailable(
                   row.latestVersion,
                   versionsByRecord.get(row.local_record_id) || [],
-                  row.thread_updated,
                 ),
               );
               const total = matchingRows.length;
