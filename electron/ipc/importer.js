@@ -4129,3 +4129,25 @@ ipcMain.handle(
 );
 
 }
+
+// Test-only surface: pure, side-effect-free import helpers exposed so the
+// regression suite can assert their behaviour directly. Attached as a property
+// on the exported handler so the default export (registerImporterHandlers) is
+// unchanged. Not for production use.
+module.exports.__testables = {
+  clampInteger,
+  getUrlHost,
+  sanitizePathSegment,
+  normalizeVersionName,
+  buildStructuredImportPath,
+  toPositiveInteger,
+  isSteamImportRow,
+  getSteamIdFromGame,
+  isGogImportRow,
+  getGogIdFromGame,
+  inferCatalogImportVersion,
+  isArchiveFilePath,
+  isRarArchivePath,
+  getConfiguredExtractionExtensions,
+  getConfiguredGameExtensions,
+};

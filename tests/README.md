@@ -35,6 +35,16 @@ test. Mock only the boundaries (`global.fetch`, the DB).
 | `steam-assets.test.js` | GetItems is authoritative; logo resolves `library_logo`→`logo`; **empty (not fabricated) logo when Steam omits it**; 2x variants win; `${FILENAME}` never leaks; source-order defaults; screenshot dedupe by content hash |
 | `steam-movies.test.js` | Trailer extraction from DASH (`dash_h264`/`dash_av1` `.mpd`) and legacy mp4/webm; screenshots → full-size URLs; no-movies is not a crash |
 | `video-url.test.js` | `isVideoUrl` recognises `.mp4/.webm/.m4v/.mpd`; `isDashUrl` true only for `.mpd` |
+| `importer-helpers.test.js` | Import decisions: path sanitization (illegal chars, Windows reserved names), structured-path token expansion, version naming, Steam/GOG source detection + id extraction, catalog version inference, archive detection, clamp/host helpers |
+| `game-properties.test.js` | Detail-page properties: version compare/sort, default-version selection (installed-first), install-state filter, playtime formatting, banner filtering, Steam/GOG id mapping (**empty for catalog/wishlist/metadata-only**), developer/language resolution, release-date formatting (**ISO not parseInt'd**), CSV split, HTML→text |
+| `game-edit.test.js` | **Real in-memory DB round-trip** via the app's own `initializeDatabase`: base field edits persist, metadata overrides store + read back, edits are idempotent (upsert not duplicate), tags update. Catches schema/query drift in the edit path. |
+
+### Note on the DB round-trip tests
+
+`game-edit.test.js` builds a real SQLite DB in a temp dir with the app's actual
+schema, so it exercises real queries — not mocks. Use this same pattern
+(`initializeDatabase(tmpDir)` → seed → act → read back → assert) for other
+mutation paths (version add/rename/replace, source tagging, playstate).
 
 ## Adding a test
 
