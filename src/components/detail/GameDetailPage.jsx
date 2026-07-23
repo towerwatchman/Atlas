@@ -106,10 +106,14 @@ const buildDetailExternalLinks = (game = {}, { hasSteamMapping = false, hasGogMa
     }
   }
   for (const link of buildExternalLinks(game.external_ids)) {
-    if (!hasSteamMapping && ['steam_appid', 'steam_id'].includes(String(link.key || '').toLowerCase())) continue
-    if (!hasGogMapping && ['gog_id', 'gog_appid'].includes(String(link.key || '').toLowerCase())) continue
-    if (link.url && !isValidHttpUrl(link.url)) continue
+    // Only suppress the external_ids Steam/GOG link when a LOCAL mapping already
+    // provides that store's link (installed games) -- otherwise the mapping's id
+    // and the external id would duplicate. In browse/catalog mode there is no
+    // local mapping, so external_ids IS the source of truth and its store links
+    // (incl. multiple Steam appids from admin manual links) must show. Exact-URL
+    // duplicates are still filtered by the check below.
     if (link.url && links.some((existing) => existing.url === link.url)) continue
+    if (link.url && !isValidHttpUrl(link.url)) continue
     links.push(link)
   }
   return links
