@@ -670,6 +670,27 @@ const insertJsonData = async (jsonData, tableName) => {
   // Validate/derive the column set from the payload (throws on malformed data).
   const columns = getValidatedUpdateColumns(jsonData, tableName);
 
+  // For atlas rows, compute normalized_title in JS using the SAME normalizer the
+  // import matcher uses (normalizeSearchKey). The stored column was historically
+  // computed by a SQL expression that only stripped a few ASCII punctuation
+  // chars and did NOT strip accents/diacritics — so for titles with accented or
+  // non-Latin characters (common for non-English-region users) the SQL value
+  // and the JS match key DIVERGED, the import title match silently failed, the
+  // game never linked to its atlas row, and atlas metadata (version, last
+  // update, status, etc.) showed blank. Computing it here in JS keeps the stored
+  // key identical to the match key and also avoids the "NULL until next app
+  // start" gap (the old SQL migration only populated NULLs at startup).
+  const isAtlas = tableName === 'atlas_data';
+  const writeColumns = isAtlas && !columns.includes('normalized_title')
+    ? [...columns, 'normalized_title']
+    : columns;
+  const valueForColumn = (item, column) => {
+    if (isAtlas && column === 'normalized_title') {
+      return normalizeSearchKey(item.short_name || item.title || '');
+    }
+    return item[column];
+  };
+
   // Primary key per update table. The upsert conflict target and the column we
   // must never coalesce-away (it identifies the row).
   const primaryKeyByTable = {
@@ -688,24 +709,29 @@ const insertJsonData = async (jsonData, tableName) => {
   // existing value when the server sends '' or NULL. The primary key and
   // last_record_update always take the incoming value.
   let insertSql;
-  if (pk && columns.includes(pk)) {
-    const updateAssignments = columns
+  if (pk && writeColumns.includes(pk)) {
+    const updateAssignments = writeColumns
       .filter((col) => col !== pk)
       .map((col) => {
         if (col === 'last_record_update') {
           return `${col} = excluded.${col}`;
         }
+        // normalized_title is JS-derived from title/short_name; always refresh it
+        // to the freshly-computed value so it can't drift from those columns.
+        if (col === 'normalized_title') {
+          return `${col} = excluded.${col}`;
+        }
         return `${col} = COALESCE(NULLIF(excluded.${col}, ''), ${tableName}.${col})`;
       })
       .join(', ');
-    insertSql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${columns
+    insertSql = `INSERT INTO ${tableName} (${writeColumns.join(', ')}) VALUES (${writeColumns
       .map(() => '?')
       .join(', ')}) ON CONFLICT(${pk}) DO UPDATE SET ${updateAssignments}`;
   } else {
     // Fallback for tables without a known PK: keep prior behavior.
-    insertSql = `INSERT OR REPLACE INTO ${tableName} (${columns.join(
+    insertSql = `INSERT OR REPLACE INTO ${tableName} (${writeColumns.join(
       ', ',
-    )}) VALUES (${columns.map(() => '?').join(', ')})`;
+    )}) VALUES (${writeColumns.map(() => '?').join(', ')})`;
   }
 
   const writeChunk = (chunk) =>
@@ -717,7 +743,7 @@ const insertJsonData = async (jsonData, tableName) => {
         let failed = null;
         for (const item of chunk) {
           stmt.run(
-            columns.map((column) => item[column]),
+            writeColumns.map((column) => valueForColumn(item, column)),
             (err) => {
               if (err && !failed) failed = err;
             },
@@ -775,6 +801,55 @@ const searchAtlasByF95Id = (f95Id) => {
   });
 };
 
+// One-time (idempotent) repair: recompute normalized_title for ALL atlas rows
+// in JS, so existing rows whose key was computed by the old SQL expression
+// (which didn't strip accents/diacritics and diverged from the import matcher)
+// get corrected. Without this, a user in a non-English region whose titles have
+// accented/non-Latin characters keeps failing to match imports to atlas rows,
+// leaving atlas metadata blank. Safe to run on every startup; it only rewrites
+// rows whose stored key differs from the freshly-computed one.
+const recomputeNormalizedTitles = () =>
+  new Promise((resolve) => {
+    const db = getDb();
+    db.all(
+      `SELECT atlas_id, short_name, title, normalized_title FROM atlas_data`,
+      [],
+      (err, rows) => {
+        if (err) {
+          console.error('recomputeNormalizedTitles: read failed:', err.message);
+          resolve({ checked: 0, fixed: 0 });
+          return;
+        }
+        const toFix = [];
+        for (const row of rows || []) {
+          const correct = normalizeSearchKey(row.short_name || row.title || '');
+          if ((row.normalized_title || '') !== correct) {
+            toFix.push({ atlas_id: row.atlas_id, normalized_title: correct });
+          }
+        }
+        if (toFix.length === 0) {
+          resolve({ checked: (rows || []).length, fixed: 0 });
+          return;
+        }
+        db.serialize(() => {
+          db.run('BEGIN TRANSACTION');
+          const stmt = db.prepare(
+            `UPDATE atlas_data SET normalized_title = ? WHERE atlas_id = ?`,
+          );
+          for (const r of toFix) stmt.run([r.normalized_title, r.atlas_id]);
+          stmt.finalize(() => {
+            db.run('COMMIT', () => {
+              console.log(
+                `recomputeNormalizedTitles: fixed ${toFix.length}/${(rows || []).length} atlas rows`,
+              );
+              resolve({ checked: (rows || []).length, fixed: toFix.length });
+            });
+          });
+        });
+      },
+    );
+  });
+
 module.exports = {
   searchAtlas,
   searchAtlasExact,
@@ -785,4 +860,5 @@ module.exports = {
   getImportRecordStatus,
   insertJsonData,
   searchAtlasByF95Id,
+  recomputeNormalizedTitles,
 }

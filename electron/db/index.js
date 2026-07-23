@@ -664,17 +664,13 @@ const initializeDatabase = (dataDir) => {
       );
     `);
 
-    // Add pre-computed normalized_title column if it doesn't exist, then populate and index it
-    db.run(`ALTER TABLE atlas_data ADD COLUMN normalized_title TEXT;`, () => {
-      // Runs whether or not the column already existed — populate any nulls
-      db.run(`
-        UPDATE atlas_data SET normalized_title =
-          UPPER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-            COALESCE(short_name, title),
-            '-',''),'_',''),'/',''),'\\',''),':',''),';',''),'''',''),' ',''),'.',''))
-        WHERE normalized_title IS NULL;
-      `);
-    });
+    // Add pre-computed normalized_title column if it doesn't exist. It is
+    // populated/corrected in JS (see recomputeNormalizedTitles), NOT here — the
+    // old SQL expression only stripped a few ASCII punctuation chars and did not
+    // strip accents/diacritics, so it diverged from the JS import matcher
+    // (normalizeSearchKey) and broke title matching for accented / non-Latin
+    // titles. Keep the column + index; JS fills the values.
+    db.run(`ALTER TABLE atlas_data ADD COLUMN normalized_title TEXT;`, () => {});
     db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_normalized_title ON atlas_data(normalized_title);`);
 
     // --- Migrations to match the refactored remote schema -----------------

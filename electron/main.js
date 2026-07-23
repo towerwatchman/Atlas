@@ -74,6 +74,7 @@ const {
 const {
   searchAtlas, searchAtlasByF95Id, findF95Id, GetAtlasIDbyRecord,
   addAtlasMapping, getAtlasData, getImportRecordStatus, insertJsonData,
+  recomputeNormalizedTitles,
 } = require('./db/atlas')
 
 const { checkDbUpdates } = require('./db/updates')
@@ -1436,6 +1437,17 @@ app.whenReady().then(async () => {
 
   // Initialize database
   initializeDatabase(dataDir)
+
+  // Correct any normalized_title values computed by the old SQL migration (which
+  // diverged from the JS import matcher on accented/non-Latin titles, breaking
+  // import-to-atlas matching for non-English-region users). Deferred so it runs
+  // after initializeDatabase's async table/migration work has settled; it's
+  // idempotent and only rewrites rows whose key actually differs.
+  setTimeout(() => {
+    recomputeNormalizedTitles()
+      .then((res) => { if (res?.fixed) console.log(`normalized_title repair: fixed ${res.fixed} rows`); })
+      .catch((err) => console.error('normalized_title repair failed:', err?.message))
+  }, 3000)
 
   // Load or create config — merge parsed ini with defaults so missing
   // keys always have a value and boolean strings are coerced correctly
