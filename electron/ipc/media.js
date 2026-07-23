@@ -60,6 +60,7 @@ module.exports = function registerMediaHandlers(ctx) {
     updateBanners, updatePreviews, getBannerUrl, getScreensUrlList,
     getRemoteBannerUrl, getRemotePreviewUrls, getSteamMovieThumbnails,
     GetAtlasIDbyRecord, firstMediaPath, getBrowsePreviewUrls,
+    getSteamBrowseMediaForAppId,
     getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
     configPath,
     getMetadataSourceOrder,
@@ -298,6 +299,33 @@ module.exports = function registerMediaHandlers(ctx) {
     } catch (err) {
       console.error('get-steam-movie-thumbnails error:', err)
       return []
+    }
+  })
+
+  // Lazily fetch a Steam appid's metadata (screens + movies) if not already
+  // cached, then return its previews and trailers. Lets a browse-mode Steam
+  // game (catalog entry, never imported) show previews and trailers exactly like
+  // an installed one, on demand per selected season.
+  ipcMain.handle('ensure-steam-browse-media', async (event, { appId } = {}) => {
+    const id = String(appId || '').trim()
+    if (!/^\d+$/.test(id)) return { previews: [], trailers: [] }
+    try {
+      // Fetch only if we don't already have this appid's screens/movies cached,
+      // so revisiting a game (or re-selecting a season) doesn't re-hit Steam.
+      const db = liveMediaDb()
+      const existing = db ? await getSteamBrowseMediaForAppId(id) : { previews: [], trailers: [] }
+      if ((existing.previews?.length || 0) === 0 && (existing.trailers?.length || 0) === 0) {
+        try {
+          await fetchAndStoreSteamData(db, id, ctx.appConfig?.Metadata?.steamAssetSourceOrder)
+        } catch (fetchErr) {
+          console.warn('ensure-steam-browse-media fetch failed for', id, fetchErr?.message)
+        }
+      }
+      const media = await getSteamBrowseMediaForAppId(id)
+      return { previews: media.previews || [], trailers: media.trailers || [] }
+    } catch (err) {
+      console.error('ensure-steam-browse-media error:', err)
+      return { previews: [], trailers: [] }
     }
   })
 

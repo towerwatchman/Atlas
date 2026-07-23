@@ -16,7 +16,7 @@ const { fetchAndStoreSteamData, isSteamAppInstalled } = require('../scanners/ste
 const { fetchAndStoreGogData, startGogScan } = require('../scanners/gogscanner')
 const { findExecutables } = require("../scanners/executableScanner");
 const { getDefaultRenpySaveRoot, scanRenpySaveFolders } = require("../scanners/renpySaveScanner");
-const { findRecordBySteamId, recordHasSteamMapping, uniqueSteamVersionLabel } = require('../db/steam')
+const { findRecordBySteamId, recordHasSteamMapping, uniqueSteamVersionLabel, findAtlasBySteamId } = require('../db/steam')
 const { findRecordByGogId, addGogMapping, getGogIDbyRecord } = require('../db/gog')
 const {
   addLewdCornerMapping,
@@ -1514,16 +1514,42 @@ module.exports = function registerImporterHandlers(ctx) {
     // Resolve the target record AFTER metadata is stored, so atlas grouping can
     // see this appid's atlas_id. findRecordBySteamId matches, in order: an
     // existing steam_mapping for this appid, an atlas/f95 record listing it in
-    // external_ids, or (new) any record already mapped to this appid's atlas_id.
+    // external_ids, or any record already mapped to this appid's atlas_id.
     const existing = await findRecordBySteamId(steamId)
 
-    const title = String(meta?.title || name || `Steam App ${steamId}`).trim()
+    // Independently resolve which ATLAS this appid belongs to (via
+    // atlas_data.external_ids / steam_appids[]). This is what lets a first-time
+    // import attach to the right catalog game and use the atlas's canonical
+    // title, instead of creating a standalone record from the Steam title that
+    // then has to be mapped by hand.
+    const atlasMatch = await findAtlasBySteamId(steamId)
+
+    // Title preference: the atlas canonical title (so all seasons share one
+    // tile named like the catalog) > the Steam store title > the owned-games
+    // name > a last-resort placeholder.
+    const title = String(
+      (atlasMatch && atlasMatch.title) || meta?.title || name || `Steam App ${steamId}`
+    ).trim()
     const creator = String(meta?.developer || 'Unknown').trim()
     const engine = String(meta?.engine || '').trim()
 
     // Reuse the resolved record if we have one, else create it. addGame also
     // dedups by title/creator.
     const recordId = existing || (await addGame({ title, creator, engine }))
+
+    // Map the record to the atlas so it groups with any other seasons and pulls
+    // atlas metadata. Safe/idempotent: only maps when we found an atlas and the
+    // record isn't already mapped to one.
+    if (atlasMatch && atlasMatch.atlasId != null) {
+      try {
+        const currentAtlas = await GetAtlasIDbyRecord(recordId)
+        if (!currentAtlas) {
+          await addAtlasMapping(recordId, atlasMatch.atlasId)
+        }
+      } catch (mapErr) {
+        console.warn(`Phase3: atlas mapping failed for record ${recordId} -> atlas ${atlasMatch.atlasId}:`, mapErr.message)
+      }
+    }
 
     // steam_mappings.record_id is the PRIMARY KEY, so a record can hold only one
     // title-level appid. Per the season design, versions.source_app_id is the
@@ -1535,12 +1561,12 @@ module.exports = function registerImporterHandlers(ctx) {
       await addSteamMapping(recordId, steamId)
     }
 
-    // Version label = this appid's Steam title (e.g. "Season 1"/"Season 2"), so
-    // each season is a distinct, human-named version under the shared tile.
-    // Guard against two appids colliding on the same title by keying uniqueness
-    // to source_app_id: if a DIFFERENT appid already owns that version name,
-    // suffix this one. upsertVersion keys on (record_id, version).
-    const versionLabel = await uniqueSteamVersionLabel(recordId, title, steamId)
+    // Version label = this appid's own Steam title (e.g. "Lust Theory Season 2"),
+    // so each season is a distinct, human-named version under the shared atlas
+    // tile — even though the record/tile itself is named with the atlas title.
+    // Falls back to the atlas/record title only if Steam gave us nothing.
+    const seasonTitle = String(meta?.title || name || `Steam App ${steamId}`).trim()
+    const versionLabel = await uniqueSteamVersionLabel(recordId, seasonTitle, steamId)
 
     // Version path: if the game is locally installed, use its real Steam install
     // directory (…/steamapps/common/<game>) so the version reader recognizes it

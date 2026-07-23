@@ -193,11 +193,41 @@ const findRecordBySteamId = (steamId) => {
   });
 };
 
+// Resolve the Atlas catalog row (atlas_id + canonical title) that a Steam appid
+// belongs to, by matching the appid inside atlas_data.external_ids — including
+// the steam_appids[] array populated by admin manual links. This is how a Steam
+// import knows which atlas game it is (the Steam store API doesn't carry an
+// atlas_id), so the imported record can be mapped to the right atlas and use the
+// atlas's canonical title instead of the per-appid Steam title. Returns
+// { atlasId, title } or null.
+const findAtlasBySteamId = (steamId) => {
+  return new Promise((resolve, reject) => {
+    const id = String(steamId || '').trim();
+    if (!id) { resolve(null); return; }
+    getDb().get(
+      `SELECT atlas_id, title
+         FROM atlas_data
+        WHERE external_ids LIKE '%"steam_appid":"' || ? || '"%'
+           OR external_ids LIKE '%"steam_appid": "' || ? || '"%'
+           OR external_ids LIKE '%"steam_appid":' || ? || '%'
+           OR external_ids LIKE '%"steam_id":"' || ? || '"%'
+           OR external_ids LIKE '%"steam_appids"%"' || ? || '"%'
+        LIMIT 1`,
+      [id, id, id, id, id],
+      (err, row) => {
+        if (err) { reject(err); return; }
+        resolve(row ? { atlasId: row.atlas_id, title: row.title } : null);
+      },
+    );
+  });
+};
+
 module.exports = {
   getSteamIDbyRecord,
   addSteamMapping,
   recordHasSteamMapping,
   uniqueSteamVersionLabel,
+  findAtlasBySteamId,
   getSteamBannerUrl,
   getSteamScreensUrlList,
   findRecordBySteamId,

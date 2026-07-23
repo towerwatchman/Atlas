@@ -204,6 +204,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("get-steam-movie-thumbnails", { recordId, sourceAppId }),
   getBrowsePreviewUrls: (record) =>
     ipcRenderer.invoke("get-browse-preview-urls", record),
+  ensureSteamBrowseMedia: (appId) =>
+    ipcRenderer.invoke("ensure-steam-browse-media", { appId }),
   updateBanners: (recordId) => {
     console.log("Invoking updateBanners for recordId:", recordId);
     return ipcRenderer.invoke("update-banners", recordId);

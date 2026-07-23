@@ -607,6 +607,42 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, gogId, lcId, sourceOrde
   });
 };
 
+// Screens (previews) + movies (trailers) for a SINGLE Steam appid, read from
+// the local steam_screens/steam_movies tables. Used by browse mode after an
+// on-demand fetchAndStoreSteamData has populated them, so a catalog Steam game
+// shows previews and trailers exactly like an installed one. Returns
+// { previews: [url...], trailers: [{ url, thumbnail }...] }.
+const getSteamBrowseMediaForAppId = (appId) => {
+  return new Promise((resolve, reject) => {
+    const id = String(appId || "").trim();
+    if (!id) { resolve({ previews: [], trailers: [] }); return; }
+    getDb().all(
+      `SELECT screen_url AS url FROM steam_screens WHERE steam_id = ?`,
+      [id],
+      (err, screenRows) => {
+        if (err) { reject(err); return; }
+        const previews = [];
+        const seen = new Set();
+        for (const r of screenRows || []) {
+          const u = String(r.url || "").trim();
+          if (u && isRemoteHttpUrl(u) && !seen.has(u)) { seen.add(u); previews.push(u); }
+        }
+        getDb().all(
+          `SELECT movie_url AS url, thumbnail FROM steam_movies WHERE steam_id = ?`,
+          [id],
+          (mErr, movieRows) => {
+            if (mErr) { reject(mErr); return; }
+            const trailers = (movieRows || [])
+              .filter((r) => r && r.url)
+              .map((r) => ({ url: String(r.url), thumbnail: r.thumbnail ? String(r.thumbnail) : "" }));
+            resolve({ previews, trailers });
+          },
+        );
+      },
+    );
+  });
+};
+
 const getRemotePreviewUrls = (recordId, options = {}) => {
   return new Promise((resolve, reject) => {
     // When sourceAppId is provided (the appid of the currently-selected Steam
@@ -1165,6 +1201,7 @@ module.exports = {
   getAllDownloadableAssetUrlsForRecord,
   upsertMediaAsset,
   getBrowsePreviewUrls,
+  getSteamBrowseMediaForAppId,
   getRemotePreviewUrls,
   getPreviews,
   getSteamMovieThumbnails,
