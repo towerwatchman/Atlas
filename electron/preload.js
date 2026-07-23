@@ -180,6 +180,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("open-game-properties", recordId),
   setGameFavorite: (recordId, isFavorite) =>
     ipcRenderer.invoke("set-game-favorite", { recordId, isFavorite }),
+  setGamePlaystate: (recordId, playstate) =>
+    ipcRenderer.invoke("set-game-playstate", { recordId, playstate }),
+  setVersionPlaystate: (recordId, versionId, playstate) =>
+    ipcRenderer.invoke("set-version-playstate", { recordId, versionId, playstate }),
   setGamePersonalRatings: (recordId, ratings) =>
     ipcRenderer.invoke("set-game-personal-ratings", { recordId, ratings }),
 
@@ -192,6 +196,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking getPreviews for recordId:", recordId);
     return ipcRenderer.invoke("get-previews", recordId);
   },
+  getSteamMovieThumbnails: (recordId) =>
+    ipcRenderer.invoke("get-steam-movie-thumbnails", recordId),
   getBrowsePreviewUrls: (record) =>
     ipcRenderer.invoke("get-browse-preview-urls", record),
   updateBanners: (recordId) => {
@@ -202,9 +208,24 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking updatePreviews for recordId:", recordId);
     return ipcRenderer.invoke("update-previews", recordId);
   },
-  refreshGameMedia: (recordId) => {
-    console.log("Invoking refreshGameMedia for recordId:", recordId);
-    return ipcRenderer.invoke("refresh-game-media", recordId);
+  refreshGameMedia: (recordId, options = {}) => {
+    console.log("Invoking refreshGameMedia for recordId:", recordId, options);
+    return ipcRenderer.invoke("refresh-game-media", { recordId, mode: options.mode || "all" });
+  },
+  refreshMediaLibrary: (options = {}) => {
+    console.log("Invoking refreshMediaLibrary", options);
+    return ipcRenderer.invoke("refresh-media-library", { mode: options.mode || "all" });
+  },
+  onRefreshMediaProgress: (callback) => {
+    ipcRenderer.on("refresh-media-progress", (event, data) => callback(data));
+  },
+  removeRefreshMediaProgressListener: () => {
+    ipcRenderer.removeAllListeners("refresh-media-progress");
+  },
+  onMediaRateLimited: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on("media-rate-limited", handler);
+    return () => ipcRenderer.removeListener("media-rate-limited", handler);
   },
   convertAndSaveBanner: (recordId, filePath) => {
     console.log(
@@ -395,6 +416,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
   verifyAccountBrowser: (payload) => ipcRenderer.invoke("accounts-verify-browser", payload),
   saveAccount: (payload) => ipcRenderer.invoke("accounts-save", payload),
   removeAccount: (payload) => ipcRenderer.invoke("accounts-remove", payload),
+
+  // ── Steam (owned library) ───────────────────────────────────────────────
+  steamStatus: () => ipcRenderer.invoke("steam-status"),
+  steamSignIn: () => ipcRenderer.invoke("steam-signin"),
+  steamSetKey: (payload) => ipcRenderer.invoke("steam-set-key", payload),
+  steamDisconnect: () => ipcRenderer.invoke("steam-disconnect"),
+  steamOwnedGames: (payload) => ipcRenderer.invoke("steam-owned-games", payload),
+  steamAddOwnedGame: (payload) => ipcRenderer.invoke("steam-add-owned-game", payload),
+  steamOwnedExisting: (payload) => ipcRenderer.invoke("steam-owned-existing", payload),
+  steamCheckInstalled: (payload) => ipcRenderer.invoke("steam-check-installed", payload),
+  steamAddOwnedBulk: (payload) => ipcRenderer.invoke("steam-add-owned-bulk", payload),
+  onSteamBulkProgress: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on("steam-bulk-progress", handler)
+    return () => ipcRenderer.removeListener("steam-bulk-progress", handler)
+  },
 
   // ────────────────────────────────────────────────────────────────
   //     METHODS FOR MOVE-TO-LIBRARY FEATURE (already added)

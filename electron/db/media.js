@@ -151,6 +151,68 @@ const updatePreviews = (recordId, previewPath) => {
   });
 };
 
+// Resolve an F95 id for a record, either from a direct f95_zone_mappings row or
+// via the record's atlas mapping. Mirrors getLewdCornerIDbyRecord so the media
+// refresh can gate F95 work on "does this source even have an id?".
+const getF95IDbyRecord = (recordId) => {
+  return new Promise((resolve, reject) => {
+    getDb().get(
+      `SELECT COALESCE(direct_f95.f95_id, atlas_f95.f95_id) AS f95_id
+       FROM games
+       LEFT JOIN f95_zone_mappings fzm ON games.record_id = fzm.record_id
+       LEFT JOIN f95_zone_data direct_f95 ON fzm.f95_id = direct_f95.f95_id
+       LEFT JOIN atlas_mappings am ON games.record_id = am.record_id
+       LEFT JOIN f95_zone_data atlas_f95 ON direct_f95.f95_id IS NULL AND am.atlas_id = atlas_f95.atlas_id
+       WHERE games.record_id = ?
+       LIMIT 1`,
+      [recordId],
+      (err, row) => {
+        if (err) reject(err);
+        else resolve(row?.f95_id || null);
+      },
+    );
+  });
+};
+
+// Read cached HTTP validators for a (record, url) pair, or null if never seen.
+const getMediaSourceCache = (recordId, originalUrl) => {
+  return new Promise((resolve) => {
+    try {
+      getDb().get(
+        `SELECT etag, last_modified, content_length, content_hash
+         FROM media_source_cache WHERE record_id = ? AND original_url = ? LIMIT 1`,
+        [recordId, String(originalUrl || "")],
+        (err, row) => resolve(err ? null : row || null),
+      );
+    } catch {
+      resolve(null);
+    }
+  });
+};
+
+// Store/refresh the validators we learned for a (record, url) pair.
+const upsertMediaSourceCache = ({ recordId, originalUrl, etag = null, lastModified = null, contentLength = null, contentHash = null }) => {
+  return new Promise((resolve) => {
+    try {
+      getDb().run(
+        `INSERT INTO media_source_cache
+           (record_id, original_url, etag, last_modified, content_length, content_hash, checked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(record_id, original_url) DO UPDATE SET
+           etag = excluded.etag,
+           last_modified = excluded.last_modified,
+           content_length = excluded.content_length,
+           content_hash = excluded.content_hash,
+           checked_at = excluded.checked_at`,
+        [recordId, String(originalUrl || ""), etag, lastModified, contentLength, contentHash, Date.now()],
+        () => resolve(true),
+      );
+    } catch {
+      resolve(false);
+    }
+  });
+};
+
 const isRemoteHttpUrl = (value) => /^https?:\/\//i.test(String(value || "").trim());
 
 const addRemotePreviewUrl = (target, seen, value) => {
@@ -285,7 +347,7 @@ const isResolvedSteamAssetUrl = (url) => {
 const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
   return new Promise((resolve, reject) => {
     const includeVideos = options.downloadVideos === true;
-    const isVideo = (url) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ""));
+    const isVideo = (url) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(url || ""));
     getDb().get(
       `SELECT
         games.record_id,
@@ -343,7 +405,8 @@ const getAllDownloadableAssetUrlsForRecord = (recordId, options = {}) => {
         add("atlas", "atlas_wallpaper", row.atlas_wallpaper, "atlas_wallpaper");
 
         const steamId = row.steam_id || resolveSteamAppId(row, parseExternalIds(row.external_ids));
-        const steamAssets = await fetchSteamStoreAssetUrls(steamId);
+        // No steam id -> no network round-trip to the Steam store API at all.
+        const steamAssets = steamId ? await fetchSteamStoreAssetUrls(steamId) : {};
         const rowSteamHeader = isResolvedSteamAssetUrl(row.steam_header) ? row.steam_header : "";
         const rowSteamHero = isResolvedSteamAssetUrl(row.steam_hero) ? row.steam_hero : "";
         const rowSteamCover = isResolvedSteamAssetUrl(row.steam_cover) ? row.steam_cover : "";
@@ -694,7 +757,7 @@ const getPreviews = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
               // could otherwise suppress the remote fallback entirely). So always
               // surface remote *video* URLs that aren't already present, prepended
               // so the trailer leads the grid. Screenshots stay local.
-              const isVideo = (u) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(u || ""));
+              const isVideo = (u) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(u || ""));
               const have = new Set(localPreviews);
               const remoteTrailers = remotePreviews.filter(
                 (u) => isVideo(u) && !have.has(u),
@@ -1039,6 +1102,42 @@ const deleteMediaAssets = (recordId, appPath, isDev) => {
   });
 };
 
+// Returns [{ url, thumbnail }] for a record's Steam trailers, so the Videos
+// section can show Steam's own movie thumbnail as the poster (much cleaner than
+// a first-frame grab, and CORS-safe since it's just an <img>). Matches steam_id
+// via the mapping or cross-source external_ids, same as the preview query.
+const getSteamMovieThumbnails = (recordId) => {
+  return new Promise((resolve) => {
+    const query = `
+      SELECT steam_movies.movie_url AS url, steam_movies.thumbnail AS thumbnail
+      FROM steam_movies
+      JOIN steam_data movie_steam_data ON steam_movies.steam_id = movie_steam_data.steam_id
+      JOIN games ON games.record_id = ?
+      LEFT JOIN steam_mappings ON games.record_id = steam_mappings.record_id
+      LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
+      LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
+      WHERE steam_movies.steam_id = steam_mappings.steam_id
+         OR movie_steam_data.atlas_id = atlas_mappings.atlas_id
+         OR atlas_data.external_ids LIKE '%"steam_appid":"' || steam_movies.steam_id || '"%'
+         OR atlas_data.external_ids LIKE '%"steam_appid": "' || steam_movies.steam_id || '"%'
+         OR atlas_data.external_ids LIKE '%"steam_id":"' || steam_movies.steam_id || '"%'
+         OR atlas_data.external_ids LIKE '%"steam_id": "' || steam_movies.steam_id || '"%'
+    `;
+    getDb().all(query, [recordId], (err, rows) => {
+      if (err) {
+        console.error('getSteamMovieThumbnails error:', err.message);
+        resolve([]);
+        return;
+      }
+      resolve(
+        (rows || [])
+          .filter((r) => r && r.url)
+          .map((r) => ({ url: String(r.url), thumbnail: r.thumbnail ? String(r.thumbnail) : '' })),
+      );
+    });
+  });
+};
+
 module.exports = {
   updateFolderSize,
   getBannerUrl,
@@ -1050,10 +1149,14 @@ module.exports = {
   getBrowsePreviewUrls,
   getRemotePreviewUrls,
   getPreviews,
+  getSteamMovieThumbnails,
   getBanners,
   getRemoteBannerUrl,
   getBanner,
   deleteBanner,
   deletePreviews,
   deleteMediaAssets,
+  getF95IDbyRecord,
+  getMediaSourceCache,
+  upsertMediaSourceCache,
 }

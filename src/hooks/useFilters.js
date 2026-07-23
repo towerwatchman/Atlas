@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import { getGameTitle, safeText } from '../utils/gameDisplay.js'
+import { effectiveTitlePlaystate } from '../utils/playstates.js'
 
 export const defaultFilters = {
   text: '',
@@ -15,6 +16,8 @@ export const defaultFilters = {
   excludedEngines: [],
   excludedStatuses: [],
   excludedTags: [],
+  playstates: [],
+  excludedPlaystates: [],
   sort: 'name',
   sortDirection: 'asc',
   dateLimit: 0,
@@ -39,8 +42,8 @@ export const defaultFilters = {
   // 0-10 rating above) — works across the whole catalog regardless of
   // install status, since it comes from the source site itself.
   communityRatingMin: 0,
-  includeUninstalled: false,
-  installState: 'installed',
+  includeUninstalled: true,
+  installState: 'all',
   multipleInstalledVersions: false,
 }
 
@@ -55,6 +58,8 @@ const arrayFilterKeys = [
   'excludedEngines',
   'excludedStatuses',
   'excludedTags',
+  'playstates',
+  'excludedPlaystates',
 ]
 const searchTypes = ['all', 'title', 'creator', 'atlasId', 'f95Id', 'lewdcornerId', 'steamId', 'anyId']
 const sourceTypes = ['all', 'f95', 'lewdcorner', 'steam', 'atlas']
@@ -129,6 +134,7 @@ export const normalizeFilterState = (filters = {}) => {
   merged.excludedEngines = merged.excludedEngines.filter((value) => !includesExact(merged.engine, value))
   merged.excludedStatuses = merged.excludedStatuses.filter((value) => !includesExact(merged.status, value))
   merged.excludedTags = merged.excludedTags.filter((value) => !includesTag(merged.tags, value))
+  merged.excludedPlaystates = merged.excludedPlaystates.filter((value) => !includesExact(merged.playstates, value))
   merged.text = String(merged.text || '').trim()
   merged.type = normalizeSearchType(merged.type)
   merged.source = normalizeSourceType(merged.source)
@@ -266,16 +272,27 @@ const normalizeDateValueMs = (value) => {
   }
   const normalized = String(value).trim()
   if (!normalized) return null
+  // Compact calendar dates (YYYYMMDD) must be checked BEFORE the generic
+  // pure-digit epoch branch below: an 8-digit string like "20260713" is all
+  // digits, so the epoch branch would otherwise multiply it by 1000 and map it
+  // to 1970, silently dropping the game from every date-range filter. A real
+  // Unix-seconds timestamp with a plausible modern date is 10 digits, so an
+  // 8-digit value whose parts form a valid calendar date is unambiguously a
+  // compact date. The year guard keeps this from swallowing short epoch values.
+  const compactDate = normalized.match(/^(\d{4})(\d{2})(\d{2})$/)
+  if (compactDate) {
+    const year = Number(compactDate[1])
+    const parsedCompact = parseDateParts(compactDate[1], compactDate[2], compactDate[3])
+    if (parsedCompact !== null && year >= 1970 && year <= 2100) {
+      return parsedCompact
+    }
+  }
   if (/^\d+$/.test(normalized)) {
     const numericValue = Number(normalized)
     if (Number.isFinite(numericValue)) {
       if (numericValue <= 0) return null
       return numericValue > 100000000000 ? numericValue : numericValue * 1000
     }
-  }
-  const compactDate = normalized.match(/^(\d{4})(\d{2})(\d{2})$/)
-  if (compactDate) {
-    return parseDateParts(compactDate[1], compactDate[2], compactDate[3])
   }
   const parsed = Date.parse(normalized)
   return Number.isFinite(parsed) ? parsed : null
@@ -934,6 +951,21 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
     result = result.filter((game) => !includesExact(activeFilters.excludedStatuses, game.status))
   }
 
+  if (activeFilters.playstates.length > 0) {
+    result = result.filter((game) => {
+      const ps = game.effectivePlaystate || effectiveTitlePlaystate(game.playstate, game.versions || [])
+      return ps ? activeFilters.playstates.includes(ps) : false
+    })
+  }
+  if (activeFilters.excludedPlaystates.length > 0) {
+    result = result.filter((game) => {
+      const ps = game.effectivePlaystate || effectiveTitlePlaystate(game.playstate, game.versions || [])
+      // Match excludedStatuses semantics: only remove games that positively
+      // match an excluded state; unset/derived-null games are kept.
+      return ps ? !includesExact(activeFilters.excludedPlaystates, ps) : true
+    })
+  }
+
   if (activeFilters.censored.length > 0) {
     result = result.filter((game) => activeFilters.censored.includes(game.censored))
   }
@@ -1141,14 +1173,19 @@ export function useFilters(games, includeUninstalledRef, fetchGames, setSelected
 
   const handleResetFilters = useCallback(() => {
     const nextFilters = normalizeFilterState(defaultFilters)
-    const wasIncludingUninstalled = includeUninstalledRef.current === true
-    includeUninstalledRef.current = false
+    const nextIncludeUninstalled =
+      nextFilters.includeUninstalled === true ||
+      ['all', 'uninstalled'].includes(nextFilters.installState)
+    const prev = includeUninstalledRef.current
+    includeUninstalledRef.current = nextIncludeUninstalled
     setActiveFilters(nextFilters)
-    if (wasIncludingUninstalled) {
-      fetchGames(false).then(() => {
-        setSelectedGame((current) =>
-          current?.hasInstalledVersion === false ? null : current
-        )
+    if (prev !== nextIncludeUninstalled) {
+      fetchGames(nextIncludeUninstalled).then(() => {
+        if (!nextIncludeUninstalled) {
+          setSelectedGame((current) =>
+            current?.hasInstalledVersion === false ? null : current
+          )
+        }
       })
     }
   }, [includeUninstalledRef, fetchGames, setSelectedGame])

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { builtInSavedFilters, getDefaultSortDirectionForSort, normalizeFilterState } from '../../hooks/useFilters.js'
 import SavedFiltersPanel from './SavedFiltersPanel.jsx'
+import { PLAYSTATE_OPTIONS } from '../../utils/playstates.js'
 
 // Collapsible accordion section — keeps the long filter list scannable so
 // the panel isn't one endless scroll (matches the grouped/accordion layout
@@ -764,6 +765,31 @@ const SearchSidebar = ({
               )}
             </div>
           </Collapsible>
+
+          {/* Playstate (user play progress) */}
+          {!isCatalogMode && (
+            <Collapsible
+              title="Playstate"
+              badge={
+                (selectedFilters.playstates.length || selectedFilters.excludedPlaystates.length)
+                  ? String(selectedFilters.playstates.length + selectedFilters.excludedPlaystates.length)
+                  : ""
+              }
+            >
+              <div className="border border-border p-2 rounded bg-tertiary">
+                {PLAYSTATE_OPTIONS.map((opt) => (
+                  <div
+                    key={opt.value}
+                    className="flex items-center gap-2 py-1 text-sm hover:bg-highlight px-1 rounded"
+                  >
+                    <i className={opt.icon} style={{ width: 16, textAlign: "center", color: opt.color }} aria-hidden="true"></i>
+                    <span className="flex-1">{opt.label}</span>
+                    {renderIncludeExcludeButtons("playstates", "excludedPlaystates", opt.value)}
+                  </div>
+                ))}
+              </div>
+            </Collapsible>
+          )}
 
           {/* Ratings */}
           {!isCatalogMode && (

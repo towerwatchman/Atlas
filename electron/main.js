@@ -58,13 +58,13 @@ const {
   addGame, updateGame, removeGame, deleteGameCompletely,
   getGameRecordIds, countVersions, deleteVersion,
   getUniqueFilterOptions, recordGameLaunchStarted, recordGamePlaytime,
-  setGameFavorite, setGamePersonalRatings,
+  setGameFavorite, setGamePersonalRatings, setGamePlaystate, setVersionPlaystate,
   getManualMappings, setManualMappings, setSelectedGameVersion,
 } = require('./db/games')
 
 const {
   updateFolderSize, getBannerUrl, getScreensUrlList,
-  updateBanners, updatePreviews, getRemotePreviewUrls,
+  updateBanners, updatePreviews, getRemotePreviewUrls, getSteamMovieThumbnails,
   getPreviews, getBanners, getBanner, getRemoteBannerUrl, getBrowsePreviewUrls,
   getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
   deleteBanner, deletePreviews,
@@ -490,19 +490,26 @@ function getConfiguredAppUpdateBranch(config = appConfig) {
 function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
   const normalizedBranch = normalizeAppUpdateBranch(branch) || getDefaultAppUpdateBranch()
   const previousBranch = activeAppUpdateBranch
+  const branchChanged = Boolean(previousBranch && previousBranch !== normalizedBranch)
   activeAppUpdateBranch = normalizedBranch
   autoUpdater.setFeedURL({ provider: 'github', owner: 'towerwatchman', repo: 'Atlas', channel: 'latest' })
   autoUpdater.allowPrerelease = normalizedBranch === 'nightly'
-  autoUpdater.allowDowngrade = false
+  // Nightly versions are semver prereleases of the SAME base (e.g. 0.9.2 stable
+  // vs 0.9.2-nightly.5), so a nightly build sorts LOWER than the stable release.
+  // With allowDowngrade=false that made stable -> nightly refuse the "older"
+  // nightly build. Allow downgrade when on the nightly branch, and also whenever
+  // the branch is actively switching (so stable <-> nightly both resolve), while
+  // keeping strict no-downgrade for steady-state stable.
+  autoUpdater.allowDowngrade = normalizedBranch === 'nightly' || branchChanged
 
-  if (resetStatus && previousBranch && previousBranch !== normalizedBranch) {
+  if (resetStatus && branchChanged) {
     updateInfo = null
     updateDownloaded = false
     installAfterDownload = false
     sendUpdateStatus({ status: 'idle' }, 'update-branch-changed')
   }
 
-  console.log(`Configured app update branch: ${normalizedBranch}`)
+  console.log(`Configured app update branch: ${normalizedBranch} (allowDowngrade=${autoUpdater.allowDowngrade})`)
   return normalizedBranch
 }
 
@@ -1372,12 +1379,12 @@ function buildCtx() {
     isAllowedDeletionPath, getTrustedVersion, deleteTitleRecord,
     // db functions
     addGame, updateGame, addVersion, upsertVersion, updateVersion,
-    recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePersonalRatings,
+    recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePersonalRatings, setGamePlaystate, setVersionPlaystate,
     addAtlasMapping, getGame, getGames, getCatalogGames, getGameRecordIds,
     removeGame, checkDbUpdates, updateFolderSize,
     addWishlistEntry, removeWishlistEntry, toggleWishlistEntry,
     getWishlistEntries, getWishlistEntryIdentities,
-    getBannerUrl, getScreensUrlList, getRemoteBannerUrl, getRemotePreviewUrls,
+    getBannerUrl, getScreensUrlList, getRemoteBannerUrl, getRemotePreviewUrls, getSteamMovieThumbnails,
     getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
     getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension,
     GetAtlasIDbyRecord, getPreviews, getBanner, deleteBanner, deletePreviews,
@@ -1485,6 +1492,13 @@ app.whenReady().then(async () => {
     )
   } catch (err) {
     console.warn('Account store init failed:', err.message)
+  }
+
+  // Steam owned-library store (separate from the cookie-based accountStore).
+  try {
+    require('./accounts/steamStore').init(dataDir)
+  } catch (err) {
+    console.warn('Steam store init failed:', err.message)
   }
 
   createWindow()

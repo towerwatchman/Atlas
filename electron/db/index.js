@@ -406,6 +406,23 @@ const initializeDatabase = (dataDir) => {
         UNIQUE (record_id, source, asset_type, original_url)
       );
     `);
+    // Per-URL HTTP validators so a media refresh can ask the origin "has this
+    // changed?" (If-None-Match / If-Modified-Since) and skip re-downloading +
+    // re-encoding when the answer is 304. When the origin sends no validators we
+    // fall back to comparing content_length, then content_hash of the bytes.
+    db.run(`
+      CREATE TABLE IF NOT EXISTS media_source_cache
+      (
+        record_id INTEGER REFERENCES games (record_id),
+        original_url TEXT NOT NULL,
+        etag TEXT,
+        last_modified TEXT,
+        content_length INTEGER,
+        content_hash TEXT,
+        checked_at INTEGER,
+        UNIQUE (record_id, original_url)
+      );
+    `);
     db.run(`CREATE INDEX IF NOT EXISTS idx_media_assets_record_type ON media_assets(record_id, asset_type);`);
     db.run(`
       CREATE TABLE IF NOT EXISTS wishlist_entries
@@ -565,7 +582,8 @@ const initializeDatabase = (dataDir) => {
     library_capsule TEXT,
     logo TEXT,
     last_record_update TEXT,
-    type STRING
+    type STRING,
+    store_url TEXT
   );
 `);
     db.run(`
@@ -620,6 +638,20 @@ const initializeDatabase = (dataDir) => {
     db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_mappings_record_id ON f95_zone_mappings(record_id);`);
     db.run(`ALTER TABLE games ADD COLUMN is_favorite INTEGER DEFAULT 0;`, () => {});
     db.run(`ALTER TABLE games ADD COLUMN selected_version_id INTEGER;`, () => {});
+    // User playstate (finished/played/dropped/on_hold/planned). Per-version on
+    // the versions table; per-title override on games (null = derive from
+    // versions). Separate from atlas_data.status (developer/thread status).
+    db.run(`ALTER TABLE games ADD COLUMN playstate TEXT;`, () => {});
+    db.run(`ALTER TABLE versions ADD COLUMN playstate TEXT;`, () => {});
+    // Per-version source identity. A single title can hold versions from
+    // different providers (an F95 build alongside a Steam build, etc.). `source`
+    // tags where the version came from ('steam' | 'gog' | 'f95' | 'lewdcorner' |
+    // 'local' | null=legacy/unknown); `source_app_id` holds the provider's id
+    // for that version (the Steam appid for a steam version). This lets
+    // install/launch/uninstall act on the SELECTED version's provider rather
+    // than a single title-level id.
+    db.run(`ALTER TABLE versions ADD COLUMN source TEXT;`, () => {});
+    db.run(`ALTER TABLE versions ADD COLUMN source_app_id TEXT;`, () => {});
     db.run(`
       CREATE TABLE IF NOT EXISTS game_personal_ratings
       (
@@ -678,6 +710,9 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE lewdcorner_data ADD COLUMN floating INTEGER NOT NULL DEFAULT 0;`, () => {});
     db.run(`ALTER TABLE steam_data ADD COLUMN type STRING;`, () => {});
     db.run(`ALTER TABLE steam_data ADD COLUMN library_capsule TEXT;`, () => {});
+    // Steam's logo placement over the hero (JSON: {pinned,widthPct,heightPct}).
+    db.run(`ALTER TABLE steam_data ADD COLUMN logo_position TEXT;`, () => {});
+    db.run(`ALTER TABLE gog_data ADD COLUMN store_url TEXT;`, () => {});
 
     // Drop the legacy UNIQUE constraint on atlas_data.id_name. id_name is no
     // longer a key (the remote anchors on f95_id/atlas_id), and leaving it

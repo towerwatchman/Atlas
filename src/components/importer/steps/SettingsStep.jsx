@@ -17,6 +17,7 @@ export default function SettingsStep({
   downloadBannerImages, downloadPreviewImages, previewLimit,
   moveFoldersToLibrary, deleteSourceArchiveAfterImport, autoSelectLatestReplaceVersion,
   defaultLibraryPath, askingForLibraryFolder,
+  libraryFormat, setLibraryFormat,
   onSelectFolder, onStartScan, onOpenHelp, livePreview,
   setCustomFormat, setUseUnstructured, setGameExt, setArchiveExt,
   setIncludeArchives, setUseCustomRegex, setCustomRegex,
@@ -37,6 +38,15 @@ export default function SettingsStep({
   const presetValue = formatPresets.some((preset) => preset.value === customFormat)
     ? customFormat
     : 'custom'
+
+  // Destination (library) folder structure — reuses the same presets as the
+  // scan scheme. Only relevant when files are actually placed into the library
+  // (moving folder imports, or extracting archives); in-place imports don't
+  // move anything, so the picker is hidden then.
+  const libraryPresetValue = formatPresets.some((preset) => preset.value === libraryFormat)
+    ? libraryFormat
+    : 'custom'
+  const showLibraryStructure = Boolean(moveFoldersToLibrary || includeArchives)
 
   // The regex the scanner will actually use. When the user is not editing a
   // custom pattern, this is generated from the format template above.
@@ -186,6 +196,32 @@ export default function SettingsStep({
             <span className="font-medium">Auto-select latest version for replacement</span>
             <span className="block text-sm text-muted">Preselects the newest installed version in Replace Version dropdowns.</span>
           </Check>
+          {showLibraryStructure && setLibraryFormat && (
+            <div className={fieldRow}>
+              <label className={fieldLabel} title="How imported/extracted games are organized inside the library folder.">Library Folder Structure:</label>
+              <div className="flex flex-1 min-w-0 flex-col sm:flex-row gap-1 sm:gap-0">
+                <select
+                  value={libraryPresetValue}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    if (value !== 'custom') setLibraryFormat(value)
+                  }}
+                  className="sm:ml-2 bg-secondary text-text border border-border rounded-buttonTheme p-1 focus:outline-none focus:ring-1 focus:ring-accent"
+                >
+                  {formatPresets.map((preset) => <option key={preset.value} value={preset.value}>{preset.label}</option>)}
+                  <option value="custom">Custom</option>
+                </select>
+                <input
+                  type="text" value={libraryFormat}
+                  onChange={(e) => setLibraryFormat(e.target.value)}
+                  spellCheck={false}
+                  placeholder="{creator}/{title}/{version}"
+                  title="Destination path template. Tokens: {creator} {title} {version} {f95Id} {lcId}"
+                  className="sm:ml-2 flex-1 min-w-0 bg-secondary text-text border border-border rounded-buttonTheme p-1 focus:outline-none focus:ring-1 focus:ring-accent font-mono text-xs"
+                />
+              </div>
+            </div>
+          )}
         </div>
         <div className="text-sm mt-3">
           {defaultLibraryPath ? (

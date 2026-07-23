@@ -12,7 +12,7 @@ const { calculatePathSize } = require('../pathSize')
 const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
         checkRecordExist, checkPathExist } = require('../db/atlas')
 const { getGame } = require('../db/versions')
-const { fetchAndStoreSteamData } = require('../scanners/steamscanner')
+const { fetchAndStoreSteamData, isSteamAppInstalled } = require('../scanners/steamscanner')
 const { fetchAndStoreGogData, startGogScan } = require('../scanners/gogscanner')
 const { findExecutables } = require("../scanners/executableScanner");
 const { getDefaultRenpySaveRoot, scanRenpySaveFolders } = require("../scanners/renpySaveScanner");
@@ -1471,6 +1471,222 @@ module.exports = function registerImporterHandlers(ctx) {
     recentlyDeletedGamePaths, db,
   } = ctx
   ownerMainWindow = mainWindow
+
+  // ── Phase 3: import owned Steam games (incl. not installed) ────────────────
+  //
+  // Creates a metadata-only library record for an owned Steam game the user
+  // hasn't installed. Reuses the existing Steam Store metadata pipeline
+  // (fetchAndStoreSteamData) and the same games/steam_mappings/versions helpers
+  // the installed-scan uses. The key difference: the version row is written with
+  // an empty game_path, which the version reader already maps to
+  // isInstalled:false / installState:"missing" — so the record shows up as
+  // not-installed everywhere and the detail page's Steam INSTALL button targets
+  // it. Installing later (via steam://install) fills in the real path on rescan.
+  //
+  // Idempotent: if a record already owns this appid, we return it untouched
+  // rather than duplicating.
+  const importOwnedSteamGame = async (appid, name, installDir = '', assetSourceOrder = null) => {
+    const steamId = String(appid || '').trim()
+    if (!/^\d+$/.test(steamId)) {
+      return { ok: false, appid, error: 'Invalid Steam appid.' }
+    }
+    const dir = String(installDir || '').trim()
+
+    // Is this appid already an Atlas record? If so we still (re)sync its version
+    // path below rather than dead-ending — this heals records created before the
+    // install-path fix and reflects install/uninstall changes on re-add.
+    const existing = await findRecordBySteamId(steamId)
+
+    // Pull Store metadata + art. Non-fatal if it fails — we can still create a
+    // minimal record from the name we already have from the owned-games list.
+    // assetSourceOrder, when provided, overrides the configured default (used by
+    // the UI's "retry with CDN" fallback after a GetItems rate-limit).
+    let meta = null
+    try {
+      meta = await fetchAndStoreSteamData(
+        db,
+        steamId,
+        assetSourceOrder || ctx.appConfig?.Metadata?.steamAssetSourceOrder,
+      )
+    } catch (err) {
+      console.warn(`Phase3: metadata fetch failed for ${steamId}:`, err.message)
+    }
+
+    const title = String(meta?.title || name || `Steam App ${steamId}`).trim()
+    const creator = String(meta?.developer || 'Unknown').trim()
+    const engine = String(meta?.engine || '').trim()
+
+    // Reuse the existing record if we have one, else create it. addGame also
+    // dedups by title/creator.
+    const recordId = existing || (await addGame({ title, creator, engine }))
+    await addSteamMapping(recordId, steamId)
+
+    // Version path: if the game is locally installed, use its real Steam install
+    // directory (…/steamapps/common/<game>) so the version reader recognizes it
+    // as installed and it shows in the banner/library view + launches via
+    // steam://run. If not installed, keep the path empty — the record then reads
+    // as not-installed and appears in the Library under the All/Uninstalled
+    // install-state filter. upsertVersion (keyed on record_id + version) means a
+    // re-add updates the same "Steam" version in place rather than duplicating.
+    await upsertVersion({ version: 'Steam', folder: dir, execPath: '', folderSize: 0, source: 'steam', sourceAppId: steamId }, recordId)
+
+    return {
+      ok: true,
+      appid: steamId,
+      recordId,
+      title,
+      rateLimited: meta?.__rateLimited === true,
+      installed: Boolean(dir),
+      alreadyPresent: Boolean(existing),
+    }
+  }
+
+  // Single add.
+  ipcMain.handle('steam-add-owned-game', async (event, { appid, name, installDir, assetSourceOrder } = {}) => {
+    try {
+      const result = await importOwnedSteamGame(appid, name, installDir, assetSourceOrder)
+      // Tell every window to refresh its library so the new/updated record shows
+      // up immediately (reuses the same signal a normal import emits).
+      if (result?.ok) {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) win.webContents.send('import-complete')
+        })
+      }
+      return result
+    } catch (err) {
+      console.error('steam-add-owned-game error:', err)
+      return { ok: false, appid, error: err.message || 'Could not add game.' }
+    }
+  })
+
+  // Which of the given appids already have an actual Steam VERSION in Atlas.
+  // Keyed on a steam-tagged version (source='steam' + matching appid), not just
+  // a title-level mapping or a cross-source external_id — so an F95 title that
+  // merely references the appid still shows as needing its Steam version added.
+  ipcMain.handle('steam-owned-existing', async (event, { appids = [] } = {}) => {
+    const present = []
+    try {
+      for (const appid of Array.isArray(appids) ? appids : []) {
+        const id = String(appid)
+        const row = await dbGet(
+          db,
+          `SELECT 1 FROM versions WHERE source = 'steam' AND source_app_id = ? LIMIT 1`,
+          [id],
+        )
+        if (row) present.push(id)
+      }
+      return { ok: true, present }
+    } catch (err) {
+      console.error('steam-owned-existing error:', err)
+      return { ok: false, present: [], error: err.message }
+    }
+  })
+
+  // Detail-page install poll. Given a record_id (or appid), check whether its
+  // Steam game is now installed on disk. If it just became installed, heal the
+  // version path so the record reads as installed, and return the refreshed
+  // game. Cheap enough to call on a timer. Returns:
+  //   { ok, installed, changed, game? }
+  ipcMain.handle('steam-check-installed', async (event, { recordId, appid, version } = {}) => {
+    try {
+      let steamId = String(appid || '').trim()
+      if (!steamId && recordId != null) {
+        steamId = String((await getSteamIDbyRecord(recordId)) || '').trim()
+      }
+      if (!/^\d+$/.test(steamId)) {
+        return { ok: false, installed: false, changed: false, error: 'No Steam appid for this game.' }
+      }
+
+      const { installed, installDir } = await isSteamAppInstalled(steamId)
+
+      // Resolve the record if we only got an appid.
+      let rid = recordId
+      if (rid == null) rid = await findRecordBySteamId(steamId)
+
+      let changed = false
+      let game = null
+      if (rid != null) {
+        // Read current install state from the DB record.
+        const current = await getGame(rid, getAssetBasePath(), process.defaultApp, getMediaStorageMode()).catch(() => null)
+        const wasInstalled = current?.hasInstalledVersion === true
+        if (installed && !wasInstalled) {
+          // Heal the specific Steam version (by name when known, else 'Steam'),
+          // keeping its source tag so it stays identifiable.
+          await upsertVersion(
+            { version: version || 'Steam', folder: installDir || '', execPath: '', folderSize: 0, source: 'steam', sourceAppId: steamId },
+            rid,
+          )
+          changed = true
+          // Notify all windows so the library refreshes too.
+          BrowserWindow.getAllWindows().forEach((win) => {
+            if (!win.isDestroyed()) win.webContents.send('import-complete')
+          })
+        }
+        game = await getGame(rid, getAssetBasePath(), process.defaultApp, getMediaStorageMode()).catch(() => null)
+      }
+
+      return { ok: true, installed, changed, game }
+    } catch (err) {
+      console.error('steam-check-installed error:', err)
+      return { ok: false, installed: false, changed: false, error: err.message }
+    }
+  })
+
+  // Bulk add. `games` is [{ appid, name }]. Runs sequentially to stay gentle on
+  // the Steam Store API (which rate-limits) and emits progress to the importer
+  // window. Returns a per-game summary.
+  ipcMain.handle('steam-add-owned-bulk', async (event, { games = [], assetSourceOrder = null } = {}) => {
+    const ownerWindow = BrowserWindow.fromWebContents(event.sender)
+    const list = Array.isArray(games) ? games : []
+    const results = { added: 0, skipped: 0, failed: 0, total: list.length, errors: [], rateLimited: false, processed: 0 }
+
+    const emit = (text, done) => {
+      ownerWindow?.webContents?.send('steam-bulk-progress', {
+        text,
+        done,
+        total: list.length,
+      })
+    }
+
+    for (let i = 0; i < list.length; i++) {
+      const g = list[i]
+      emit(`Adding ${g?.name || g?.appid} (${i + 1}/${list.length})`, i)
+      try {
+        const r = await importOwnedSteamGame(g?.appid, g?.name, g?.installDir, assetSourceOrder)
+        if (r.ok && r.alreadyPresent) results.skipped++
+        else if (r.ok) results.added++
+        else {
+          results.failed++
+          results.errors.push({ appid: g?.appid, error: r.error })
+        }
+        // If Steam started rate-limiting the image API, stop early rather than
+        // hammering it — the records added past this point would get poor art
+        // anyway. Report it so the UI can offer a fallback source.
+        if (r.rateLimited) {
+          results.rateLimited = true
+          results.processed = i + 1
+          emit(`Stopped: Steam rate-limited image requests`, i + 1)
+          break
+        }
+      } catch (err) {
+        results.failed++
+        results.errors.push({ appid: g?.appid, error: err.message })
+      }
+      results.processed = i + 1
+      // Small courtesy delay between Store API hits.
+      await new Promise((res) => setTimeout(res, 250))
+    }
+
+    if (!results.rateLimited) emit('Done', list.length)
+    // Refresh every window's library once the batch finishes.
+    if (results.added > 0 || results.skipped > 0) {
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send('import-complete')
+      })
+    }
+    return { ok: true, ...results }
+  })
+
 
 ipcMain.handle("select-catalog-import-source", async (event) => {
   const ownerWindow = BrowserWindow.fromWebContents(event.sender);
@@ -3435,8 +3651,24 @@ ipcMain.handle("import-games", async (event, params) => {
   }
 
   // Phase 2: Image downloads
+  // Image downloads run in the BACKGROUND so the importer window can close as
+  // soon as the DB records exist (matching the deferred-size and Steam/GOG
+  // enrichment pattern). We intentionally do NOT await this before returning —
+  // banners/previews fill in afterwards, each emitting 'game-updated' so the
+  // library refreshes that row. The importer window is likely already closed.
+  const runImageDownloads = async () => {
   if (shouldDownloadImportImages) {
     progress = 0;
+    // Shared across the whole import's image phase: once a source is rate-
+    // limited we stop pulling from it and notify, continuing with others.
+    const blockedSources = new Set();
+    const onRateLimited = (source, retryAfterMs) => {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send("media-rate-limited", { source, retryAfterMs });
+        }
+      } catch { /* window may be closed already */ }
+    };
     const successfulImports = results.filter((r) => r.success && r.recordId);
     const imageTotal = successfulImports.length;
     const imageSummary = {
@@ -3447,7 +3679,7 @@ ipcMain.handle("import-games", async (event, params) => {
       filesWritten: 0,
       dbRowsWritten: 0,
     };
-    const isVideoUrl = (url) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(url || ""));
+    const isVideoUrl = (url) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(url || ""));
     const inferMediaSource = (url) => {
       const value = String(url || "").toLowerCase();
       if (value.includes("steamstatic") || value.includes("akamaihd") || value.includes("steam")) return "steam";
@@ -3666,6 +3898,8 @@ ipcMain.handle("import-games", async (event, params) => {
               additionalAssets,
               upsertMediaAsset,
               requestDelayMs: currentMediaSettings.mediaRequestDelayMs,
+              blockedSources,
+              onRateLimited,
             },
           );
         } finally {
@@ -3764,6 +3998,22 @@ ipcMain.handle("import-games", async (event, params) => {
       });
     }
   }
+  };
+  // Fire-and-forget; don't block the handler's return on image downloads. When
+  // the background image work finishes it emits a final import-complete so any
+  // late listeners settle, but the importer window has already closed via the
+  // handler returning results below.
+  runImageDownloads()
+    .catch((err) => console.warn("Background image downloads failed:", err?.message || err))
+    .finally(() => {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send("import-images-complete");
+        }
+      } catch (err) {
+        console.warn("Failed to send import-images-complete:", err.message || err);
+      }
+    });
 
   // Folder-size calculation is deferred and run in the BACKGROUND so the
   // importer window can close as soon as the DB records exist. We intentionally
@@ -3879,3 +4129,25 @@ ipcMain.handle(
 );
 
 }
+
+// Test-only surface: pure, side-effect-free import helpers exposed so the
+// regression suite can assert their behaviour directly. Attached as a property
+// on the exported handler so the default export (registerImporterHandlers) is
+// unchanged. Not for production use.
+module.exports.__testables = {
+  clampInteger,
+  getUrlHost,
+  sanitizePathSegment,
+  normalizeVersionName,
+  buildStructuredImportPath,
+  toPositiveInteger,
+  isSteamImportRow,
+  getSteamIdFromGame,
+  isGogImportRow,
+  getGogIdFromGame,
+  inferCatalogImportVersion,
+  isArchiveFilePath,
+  isRarArchivePath,
+  getConfiguredExtractionExtensions,
+  getConfiguredGameExtensions,
+};

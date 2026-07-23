@@ -1,18 +1,19 @@
 import { useState, useEffect, useCallback } from 'react'
+import SteamConnect from './SteamConnect.jsx'
 
-// Sites Atlas can authenticate against for login-gated media. Steam is shown
-// but disabled — its artwork comes from public CDNs and needs no login, so an
-// account buys nothing yet (kept as a slot for future owned-library features).
+// Sites Atlas can authenticate against for login-gated media. Steam is handled
+// separately below (OpenID + Web API key, not username/password), so it isn't
+// part of this list or the AddAccountModal flow.
 const ACCOUNT_SITES = [
   { id: 'f95', label: 'F95Zone', hint: 'f95zone.to', enabled: true },
   { id: 'lewdcorner', label: 'LewdCorner', hint: 'lewdcorner.com', enabled: true },
-  { id: 'steam', label: 'Steam', hint: 'Coming soon', enabled: false },
 ]
 
 const Accounts = () => {
   const [accounts, setAccounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
+  const [modalSite, setModalSite] = useState(null)
 
   const loadAccounts = useCallback(async () => {
     try {
@@ -85,38 +86,41 @@ const Accounts = () => {
                 </div>
               </div>
 
-              {site.enabled && account && (
+              {site.enabled && (account ? (
                 <button
                   onClick={() => handleRemove(site.id)}
                   className="self-start sm:self-auto px-3 py-1 text-sm rounded bg-secondary border border-border hover:bg-danger hover:text-white transition-colors"
                 >
                   Remove
                 </button>
-              )}
+              ) : (
+                <button
+                  onClick={() => { setModalSite(site.id); setModalOpen(true) }}
+                  className="self-start sm:self-auto px-3 py-1 text-sm rounded bg-accent text-white hover:opacity-90 transition-opacity"
+                >
+                  <i className="fas fa-plus mr-2" />
+                  Connect
+                </button>
+              ))}
             </div>
           )
         })}
       </div>
 
-      <div className="mt-4">
-        <button
-          onClick={() => setModalOpen(true)}
-          disabled={addableSites.length === 0}
-          className="px-4 py-2 text-sm rounded bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <i className="fas fa-plus mr-2" />
-          Add account
-        </button>
-        {addableSites.length === 0 && !loading && (
-          <span className="ml-3 text-xs text-text/50">
-            All available sites are connected.
-          </span>
-        )}
+      <div className="mt-6">
+        <h4 className="text-sm font-semibold text-text mb-1">Steam library</h4>
+        <p className="text-xs text-text/60 mb-2">
+          Connect your Steam account to browse your full owned library in the
+          importer, with installed games marked. Your API key is stored encrypted
+          on this device.
+        </p>
+        <SteamConnect />
       </div>
 
       {modalOpen && (
         <AddAccountModal
           sites={addableSites}
+          initialSite={modalSite}
           onClose={() => setModalOpen(false)}
           onSaved={async () => {
             setModalOpen(false)
@@ -128,8 +132,10 @@ const Accounts = () => {
   )
 }
 
-const AddAccountModal = ({ sites, onClose, onSaved }) => {
-  const [site, setSite] = useState(sites[0]?.id || '')
+const AddAccountModal = ({ sites, initialSite = null, onClose, onSaved }) => {
+  const [site, setSite] = useState(
+    (initialSite && sites.some((s) => s.id === initialSite) ? initialSite : sites[0]?.id) || '',
+  )
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [verified, setVerified] = useState(false)

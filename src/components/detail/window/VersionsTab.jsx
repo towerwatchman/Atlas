@@ -1,12 +1,29 @@
+import PlaystatePicker from '../../ui/PlaystatePicker.jsx'
+
 export default function VersionsTab({
   versions, selectedVersion, versionData,
   onVersionSelect, onVersionInputChange,
   onSetPath, onOpenGamePath, onRefreshVersionSize, onChangeExecutable,
   onAddVersion, onRemoveVersion, onDeleteVersionFiles,
+  titlePlaystate = null, titlePlaystateIsDerived = false,
+  onSetTitlePlaystate, onSetVersionPlaystate,
 }) {
   return (
     <div className="flex h-full">
       <div className="w-40 bg-primary border-r border-border">
+        {onSetTitlePlaystate && (
+          <div className="px-2 py-2 border-b border-border">
+            <div className="text-xs text-muted mb-1">Title playstate</div>
+            <PlaystatePicker
+              value={titlePlaystate}
+              onChange={onSetTitlePlaystate}
+              size="sm"
+            />
+            {titlePlaystateIsDerived && titlePlaystate && (
+              <div className="text-[10px] text-muted italic mt-1">from versions</div>
+            )}
+          </div>
+        )}
         <ul className="space-y-1">
           {versions.map((version, index) => (
             <li
@@ -36,6 +53,16 @@ export default function VersionsTab({
           <label className="w-24">Version</label>
           <input name="game_version" value={versionData.game_version || ''} onChange={onVersionInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />
         </div>
+        {onSetVersionPlaystate && selectedVersion?.version_id && (
+          <div className="flex items-center">
+            <label className="w-24">Playstate</label>
+            <PlaystatePicker
+              value={selectedVersion.playstate}
+              onChange={(next) => onSetVersionPlaystate(selectedVersion.version_id, next)}
+              size="sm"
+            />
+          </div>
+        )}
         <div className="flex items-center">
           <label className="w-24">Game Path</label>
           <input name="game_path" value={versionData.game_path || ''} onChange={onVersionInputChange} className="flex-grow bg-tertiary border border-border p-1 rounded" />

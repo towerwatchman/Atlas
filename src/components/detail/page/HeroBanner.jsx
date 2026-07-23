@@ -3,7 +3,6 @@ import SafeImage from '../../ui/SafeImage.jsx'
 
 export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask, onLoad, onBack, showBack = true }) {
   const isCatalogEntry = game.isCatalogEntry === true
-  const hasInstalledVersion = isCatalogEntry || game.hasInstalledVersion !== false
   // When the hero is Steam key-art, zoom it slightly so it fills the frame the
   // way Steam presents library_hero (which has built-in padding).
   const isSteamHero = !!(game.steam_appid || game.steam_id)
@@ -24,7 +23,7 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
         <SafeImage src={heroUrl} alt="" fallbackMode="hidden" fallbackContent={false} style={{
           position: 'absolute', inset: 0, width: '100%', height: '100%',
           objectFit: 'cover',
-          filter: `blur(20px) ${hasInstalledVersion ? '' : 'grayscale(1)'}`,
+          filter: 'blur(20px)',
           transform: 'scale(1.1)', opacity: 0.6,
         }} placeholderStyle={{ background: 'transparent' }} />
       )}
@@ -42,7 +41,7 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
             position: 'absolute', inset: 0, width: '100%', height: '100%',
             objectFit: 'contain',
             transform: isSteamHero ? 'scale(1.15)' : undefined,
-            filter: hasInstalledVersion ? 'none' : 'grayscale(1)',
+            filter: 'none',
             WebkitMaskImage: bannerMask.image,
             maskImage: bannerMask.image,
             ...(bannerMask.composite
@@ -73,27 +72,51 @@ export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask,
         </button>
       </div>
 
-      {/* Title / logo (bottom-left, steam-style). Bottom padding clears the
-          action bar, which now overlaps the lower edge of the hero. */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 24px 70px' }}>
-        {showLogo ? (
-          <SafeImage
-            src={logoUrl}
-            alt={game.title || 'Game logo'}
-            fallbackMode="hidden"
-            style={{ maxHeight: 220, maxWidth: '80%', objectFit: 'contain', filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.8))' }}
-          />
-        ) : (
-          <>
-            <div className="text-sm text-highlight" style={{ marginBottom: 2, opacity: 0.9 }}>
-              {game.creator || 'Unknown creator'}
+      {/* Title / logo. Steam provides a logo_placement (pinned corner + size %);
+          when present we honor it, otherwise fall back to bottom-left. Bottom
+          padding clears the action bar overlapping the hero's lower edge. */}
+      {showLogo ? (
+        (() => {
+          const placement = game.logo_placement || null
+          // Map Steam's pinned_position to flexbox alignment.
+          const pin = String(placement?.pinned || 'BottomLeft')
+          const vertical = pin.startsWith('Top') ? 'flex-start' : pin.startsWith('Center') ? 'center' : 'flex-end'
+          const horizontal = pin.endsWith('Left') ? 'flex-start' : pin.endsWith('Center') ? 'center' : pin.endsWith('Right') ? 'flex-end' : 'flex-start'
+          // Steam's width_pct/height_pct are percentages of the hero the logo
+          // should occupy. Fall back to the previous sizing when absent.
+          const widthPct = placement?.widthPct ? `${Math.min(100, placement.widthPct)}%` : '80%'
+          const maxH = placement?.heightPct ? `${Math.min(100, placement.heightPct)}%` : undefined
+          return (
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex',
+              alignItems: vertical, justifyContent: horizontal,
+              padding: '48px 40px 80px', pointerEvents: 'none',
+            }}>
+              <SafeImage
+                src={logoUrl}
+                alt={game.title || 'Game logo'}
+                fallbackMode="hidden"
+                style={{
+                  width: widthPct,
+                  maxWidth: '80%',
+                  maxHeight: maxH || 220,
+                  objectFit: 'contain',
+                  filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.8))',
+                }}
+              />
             </div>
-            <h1 style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2, textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-              {game.title || 'Untitled Game'}
-            </h1>
-          </>
-        )}
-      </div>
+          )
+        })()
+      ) : (
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 24px 70px' }}>
+          <div className="text-sm text-highlight" style={{ marginBottom: 2, opacity: 0.9 }}>
+            {game.creator || 'Unknown creator'}
+          </div>
+          <h1 style={{ fontSize: 32, fontWeight: 700, lineHeight: 1.2, textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+            {game.title || 'Untitled Game'}
+          </h1>
+        </div>
+      )}
     </div>
   )
 }

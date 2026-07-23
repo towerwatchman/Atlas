@@ -1,21 +1,24 @@
 import useImageFallback from '../../../hooks/useImageFallback.js'
 import SafeImage from '../../ui/SafeImage.jsx'
-import { isSteamGame, htmlToText } from './gameDetailUtils.js'
+import { isSteamGame, isGogGame, htmlToText } from './gameDetailUtils.js'
 
 // About / description panel shown directly beneath the action bar. Hidden by
 // default; toggled by the info button in the action bar. Steam-style: the
 // description is clamped to a few lines with an inline "Read More" that expands
-// it in place. For Steam games it also shows the portrait box art on the left.
+// it in place. For Steam/GOG games it also shows the portrait box art on the left.
 export default function InfoPanel({ game, latestVersion, isUpdateAvailable }) {
   const appid = game.steam_appid || game.steam_id
   const steam = isSteamGame(game)
+  const gog = isGogGame(game)
 
   const capsuleChain = [
     game.steam_library_capsule,
     appid && `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appid}/library_600x900.jpg`,
+    // GOG box art (portrait) lives in gog_library_capsule.
+    game.gog_library_capsule,
   ].filter(Boolean)
   const { src: capsuleUrl, failed: capsuleFailed } = useImageFallback(capsuleChain)
-  const showCapsule = steam && capsuleUrl && !capsuleFailed
+  const showCapsule = (steam || gog) && capsuleUrl && !capsuleFailed
 
   const description = htmlToText(game.overview)
   const changelog = htmlToText(game.changelog)

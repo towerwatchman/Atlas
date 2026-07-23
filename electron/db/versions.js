@@ -8,6 +8,7 @@ const getDb = () => dbModule.db
 const { toLocalAssetPath, normalizeMediaStorageMode, remoteBannerExpression,
         buildBannerJoinClauses, buildBannerSelectFields, getAssetBasePath } = require('./helpers')
 const { calculatePathSize } = require('../pathSize')
+const { effectiveTitlePlaystate } = require('./playstates')
 
 const localMediaAssetSelect = (baseImagePath, assetType, fallbackExpression) => {
   const safeBaseImagePath = String(baseImagePath || '').replace(/'/g, "''");
@@ -215,11 +216,13 @@ const addVersion = async (game, recordId) => {
   const execPath = executable || "";
   const dateAdded = Math.floor(Date.now() / 1000);
   const calculatedSize = folderSize > 0 ? folderSize : await resolveVersionSize(game, gamePath);
+  const source = game.source ? String(game.source) : null;
+  const sourceAppId = game.sourceAppId != null ? String(game.sourceAppId) : (game.source_app_id != null ? String(game.source_app_id) : null);
 
   console.log("adding version");
   return new Promise((resolve, reject) => {
     getDb().run(
-      `INSERT INTO versions (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)`,
+      `INSERT INTO versions (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size, source, source_app_id) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`,
       [
         recordId,
         version,
@@ -228,6 +231,8 @@ const addVersion = async (game, recordId) => {
         true,
         dateAdded,
         calculatedSize,
+        source,
+        sourceAppId,
       ],
       (err) => {
         if (err) {
@@ -250,19 +255,35 @@ const upsertVersion = async (game, recordId) => {
     (game.selectedValue ? path.join(folder, game.selectedValue) : "");
   const folderSize = await resolveVersionSize(game, folder);
   const dateAdded = Math.floor(Date.now() / 1000);
+  const source = game.source ? String(game.source) : null;
+  const sourceAppId = game.sourceAppId != null ? String(game.sourceAppId) : (game.source_app_id != null ? String(game.source_app_id) : null);
 
   return new Promise((resolve, reject) => {
     const writeVersion = () => {
       getDb().run(
         `INSERT INTO versions
-         (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size)
-         VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)
+         (record_id, version, game_path, exec_path, in_place, date_added, last_played, version_playtime, folder_size, source, source_app_id)
+         VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
          ON CONFLICT(record_id, version) DO UPDATE SET
            game_path = excluded.game_path,
            exec_path = excluded.exec_path,
            in_place = excluded.in_place,
-           folder_size = COALESCE(excluded.folder_size, versions.folder_size)`,
-        [recordId, version, folder, executable, true, dateAdded, folderSize],
+           folder_size = COALESCE(excluded.folder_size, versions.folder_size),
+           -- Keep the existing source tag if this upsert didn't supply one, so a
+           -- plain path re-sync doesn't wipe a version's provider identity.
+           source = COALESCE(excluded.source, versions.source),
+           source_app_id = COALESCE(excluded.source_app_id, versions.source_app_id),
+           -- New content replacing a finished version reverts it to "played"
+           -- (per issue #245). Only demote when the actual build path/exe
+           -- changes — a plain re-scan of the same paths keeps "finished".
+           playstate = CASE
+             WHEN versions.playstate = 'finished'
+               AND (versions.game_path IS NOT excluded.game_path
+                    OR versions.exec_path IS NOT excluded.exec_path)
+             THEN 'played'
+             ELSE versions.playstate
+           END`,
+        [recordId, version, folder, executable, true, dateAdded, folderSize, source, sourceAppId],
         (err) => {
           if (err) {
             console.error("Error upserting version:", err);
@@ -513,102 +534,15 @@ const findExistingRecordForImport = (game) => {
   });
 };
 
-function normalizeVersionForCompare(value) {
-  return (String(value || "").match(/\d+/g) || [])
-    .map((part) => String(Number.parseInt(part, 10) || 0))
-    .join(".");
-}
-
-function getVersionFamily(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (/\b(?:ep|episode)\.?\s*\d/.test(normalized)) return "episode";
-  if (/\b(?:ch|chapter)\.?\s*\d/.test(normalized)) return "chapter";
-  if (/\b(?:s|season)\.?\s*\d/.test(normalized)) return "season";
-  if (/\b(?:build)\s*\d/.test(normalized)) return "build";
-  return "generic";
-}
-
-function compareVersionParts(current, latest) {
-  const currentParts = current.split(".").map((n) => parseInt(n, 10) || 0);
-  const latestParts = latest.split(".").map((n) => parseInt(n, 10) || 0);
-  const maxLen = Math.max(currentParts.length, latestParts.length);
-
-  while (currentParts.length < maxLen) currentParts.push(0);
-  while (latestParts.length < maxLen) latestParts.push(0);
-
-  for (let i = 0; i < maxLen; i++) {
-    if (currentParts[i] < latestParts[i]) return -1;
-    if (currentParts[i] > latestParts[i]) return 1;
-  }
-
-  return 0;
-}
-
-function normalizeTimestampMs(value) {
-  if (value === undefined || value === null || value === "") return 0;
-  const numeric = Number(value);
-  if (Number.isFinite(numeric) && numeric > 0) {
-    return numeric > 100000000000 ? numeric : numeric * 1000;
-  }
-  const parsed = Date.parse(String(value));
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function getIsUpdateAvailable(latestVersion, versions, metadataUpdatedAt = null) {
-  if (!latestVersion || !versions || versions.length === 0) return false;
-
-  if (
-    versions.some((version) =>
-      String(version.version || "")
-        .trim()
-        .toLowerCase()
-        .includes("final"),
-    )
-  ) {
-    return false;
-  }
-
-  const latest = normalizeVersionForCompare(latestVersion);
-  if (!latest) return false;
-  const latestFamily = getVersionFamily(latestVersion);
-  const exactLatest = String(latestVersion).trim().toLowerCase().replace(/\s+/g, "");
-  if (versions.some((version) =>
-    String(version.version || "").trim().toLowerCase().replace(/\s+/g, "") === exactLatest
-  )) {
-    return false;
-  }
-
-  const metadataUpdatedMs = normalizeTimestampMs(metadataUpdatedAt);
-  const newestInstallMs = Math.max(
-    0,
-    ...versions.map((version) => normalizeTimestampMs(version.date_added)),
-  );
-  if (metadataUpdatedMs > 0 && newestInstallMs > 0 && metadataUpdatedMs > newestInstallMs) {
-    return true;
-  }
-
-  // Find the newest local version. An update is only available if even the
-  // newest installed/known version is older than the latest — not if *any*
-  // single version happens to be older.
-  let newest = null;
-  for (const version of versions) {
-    if (latestFamily !== "generic" && getVersionFamily(version.version) !== latestFamily) {
-      continue;
-    }
-    const current = normalizeVersionForCompare(version.version);
-    if (!current) continue;
-    if (newest === null || compareVersionParts(current, newest) > 0) {
-      newest = current;
-    }
-  }
-  // A known latest version using a different progression scheme (for example
-  // Episode 1 Part 2 versus an installed Chapter 3) is not safely comparable.
-  // Since the labels are not equal, surface the update instead of silently
-  // treating the unrelated local number as newer.
-  if (newest === null) return latestFamily !== "generic";
-
-  return compareVersionParts(newest, latest) < 0;
-}
+// Version comparison lives in a standalone, dependency-free module so it can be
+// unit-tested without sqlite. See electron/utils/versionCompare.js for the full
+// rationale and the scheme hierarchy
+// (terminal > season > chapter > episode > part > semver > letter > qualifier).
+//
+// Note: metadataUpdatedAt (thread_updated) is intentionally NO LONGER used.
+// "Thread activity" is not "new version released" and was the primary source of
+// false-positive update badges. The signal is now version-string authoritative.
+const { getIsUpdateAvailable } = require("../utils/versionCompare");
 
 function isExistingPath(value) {
   if (!value) return false;
@@ -648,6 +582,9 @@ function mapVersionRow(row, forceInstalled = false, options = {}) {
     version_playtime: row.version_playtime,
     folder_size: row.folder_size,
     date_added: row.date_added,
+    playstate: row.playstate ?? null,
+    source: row.source ?? null,
+    source_app_id: row.source_app_id ?? null,
     isInstalled,
     installState: skipPathValidation && hasPathValue && !forceInstalled
       ? "pending"
@@ -715,6 +652,9 @@ const getVersionForRecord = (recordId, version) => {
          v.version_playtime,
          v.folder_size,
          v.date_added,
+         v.playstate,
+         v.source,
+         v.source_app_id,
          sm.steam_id
        FROM versions v
        LEFT JOIN steam_mappings sm ON v.record_id = sm.record_id
@@ -731,7 +671,7 @@ const getVersionForRecord = (recordId, version) => {
           resolve(null);
           return;
         }
-        resolve(mapVersionRow(row, !!row.steam_id && isSteamInstallPath(row.game_path)));
+        resolve(mapVersionRow(row, (row.source === 'steam' || !!row.steam_id) && (isSteamInstallPath(row.game_path) || (row.source === 'steam' && !!row.game_path))));
       },
     );
   });
@@ -740,7 +680,7 @@ const getVersionForRecord = (recordId, version) => {
 const getInstalledVersionsForRecord = (recordId) => {
   return new Promise((resolve, reject) => {
     getDb().all(
-      `SELECT rowid AS version_id, version, game_path, exec_path, folder_size, date_added
+      `SELECT rowid AS version_id, version, game_path, exec_path, folder_size, date_added, source, source_app_id
        FROM versions
        WHERE record_id = ?
        ORDER BY COALESCE(date_added, 0) DESC, version DESC`,
@@ -815,6 +755,7 @@ const getGame = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
         games.engine as engine,
         games.description,
         COALESCE(games.is_favorite, 0) as is_favorite,
+        games.playstate as playstate,
         game_personal_ratings.story as personal_rating_story,
         game_personal_ratings.graphics as personal_rating_graphics,
         game_personal_ratings.gameplay as personal_rating_gameplay,
@@ -835,17 +776,17 @@ ${bannerSelectFields},
 ${lewdCornerSelectFields}
         COALESCE(game_metadata_overrides.status, atlas_data.status) AS status,
         COALESCE(game_metadata_overrides.latest_version, atlas_data.version) as latestVersion,
-        COALESCE(game_metadata_overrides.category, NULLIF(atlas_data.category, ''), steam_data.category) AS category,
-        COALESCE(game_metadata_overrides.censored, NULLIF(atlas_data.censored, ''), steam_data.censored) AS censored,
-        COALESCE(game_metadata_overrides.genre, NULLIF(atlas_data.genre, ''), steam_data.genre) AS genre,
-        COALESCE(game_metadata_overrides.language, NULLIF(atlas_data.language, ''), steam_data.language) AS language,
-        COALESCE(game_metadata_overrides.os, NULLIF(atlas_data.os, ''), steam_data.os) AS os,
-        COALESCE(game_metadata_overrides.overview, NULLIF(games.description, ''), NULLIF(atlas_data.overview, ''), steam_data.overview) AS overview,
-        COALESCE(game_metadata_overrides.translations, NULLIF(atlas_data.translations, ''), steam_data.translations) AS translations,
-        COALESCE(game_metadata_overrides.release_date, atlas_data.release_date) AS release_date,
+        COALESCE(game_metadata_overrides.category, NULLIF(atlas_data.category, ''), NULLIF(steam_data.category, ''), gog_data.category) AS category,
+        COALESCE(game_metadata_overrides.censored, NULLIF(atlas_data.censored, ''), NULLIF(steam_data.censored, ''), gog_data.censored) AS censored,
+        COALESCE(game_metadata_overrides.genre, NULLIF(atlas_data.genre, ''), NULLIF(steam_data.genre, ''), gog_data.genre) AS genre,
+        COALESCE(game_metadata_overrides.language, NULLIF(atlas_data.language, ''), NULLIF(steam_data.language, ''), gog_data.language) AS language,
+        COALESCE(game_metadata_overrides.os, NULLIF(atlas_data.os, ''), NULLIF(steam_data.os, ''), gog_data.os) AS os,
+        COALESCE(game_metadata_overrides.overview, NULLIF(games.description, ''), NULLIF(atlas_data.overview, ''), NULLIF(steam_data.overview, ''), gog_data.overview) AS overview,
+        COALESCE(game_metadata_overrides.translations, NULLIF(atlas_data.translations, ''), NULLIF(steam_data.translations, ''), gog_data.translations) AS translations,
+        COALESCE(game_metadata_overrides.release_date, atlas_data.release_date, NULLIF(gog_data.release_date,'')) AS release_date,
         steam_data.release_date AS steam_release_date,
-        COALESCE(game_metadata_overrides.voice, NULLIF(atlas_data.voice, ''), steam_data.voice) AS voice,
-        COALESCE(game_metadata_overrides.publisher, steam_data.publisher) AS publisher,
+        COALESCE(game_metadata_overrides.voice, NULLIF(atlas_data.voice, ''), NULLIF(steam_data.voice, ''), gog_data.voice) AS voice,
+        COALESCE(game_metadata_overrides.publisher, NULLIF(steam_data.publisher, ''), gog_data.publisher) AS publisher,
         steam_data.developer AS steam_developer,
         atlas_data.short_name,
         atlas_data.external_ids as external_ids,
@@ -861,6 +802,7 @@ ${lewdCornerSelectFields}
         ${localMediaAssetSelect(baseImagePath, "steam_hero", "steam_data.library_hero")} as steam_library_hero,
         ${localMediaAssetSelect(baseImagePath, "steam_cover", "steam_data.library_capsule")} as steam_library_capsule,
         ${localMediaAssetSelect(baseImagePath, "steam_logo", "steam_data.logo")} as steam_logo,
+        steam_data.logo_position as logo_position,
         ${localMediaAssetSelect(baseImagePath, "gog_header", "gog_data.header")} as gog_header,
         ${localMediaAssetSelect(baseImagePath, "gog_hero", "gog_data.library_hero")} as gog_library_hero,
         ${localMediaAssetSelect(baseImagePath, "gog_cover", "gog_data.library_capsule")} as gog_library_capsule,
@@ -868,6 +810,7 @@ ${lewdCornerSelectFields}
         COALESCE(gog_mappings.gog_id, gog_data.gog_id) as gog_id,
         gog_data.release_date AS gog_release_date,
         gog_data.developer AS gog_developer,
+        gog_data.store_url AS gog_store_url,
         GROUP_CONCAT(tags.tag) AS tags
       FROM
         games
@@ -901,7 +844,7 @@ ${bannerJoinClauses}
       }
       // Fetch versions separately
       getDb().all(
-        `SELECT rowid AS version_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added
+        `SELECT rowid AS version_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added, playstate, source, source_app_id
          FROM versions
          WHERE record_id = ?`,
         [recordId],
@@ -916,6 +859,8 @@ ${bannerJoinClauses}
           const game = applyLocalSortAggregates(applyPersonalRatings({
             ...row,
             isFavorite: row.is_favorite === 1,
+            playstate: row.playstate ?? null,
+            effectivePlaystate: effectiveTitlePlaystate(row.playstate, allVersions),
             engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
             versions: allVersions,
             versionCount: versionRows.length,
@@ -927,7 +872,6 @@ ${bannerJoinClauses}
           game.isUpdateAvailable = getIsUpdateAvailable(
             row.latestVersion,
             installedVersions,
-            row.thread_updated,
           );
           resolve(game);
         },
@@ -964,6 +908,7 @@ const getGames = (
         games.engine as engine,
         games.description,
         COALESCE(games.is_favorite, 0) as is_favorite,
+        games.playstate as playstate,
         game_personal_ratings.story as personal_rating_story,
         game_personal_ratings.graphics as personal_rating_graphics,
         game_personal_ratings.gameplay as personal_rating_gameplay,
@@ -984,17 +929,17 @@ ${bannerSelectFields},
 ${lewdCornerSelectFields}
         COALESCE(game_metadata_overrides.status, atlas_data.status) AS status,
         COALESCE(game_metadata_overrides.latest_version, atlas_data.version) as latestVersion,
-        COALESCE(game_metadata_overrides.category, NULLIF(atlas_data.category, ''), steam_data.category) AS category,
-        COALESCE(game_metadata_overrides.censored, NULLIF(atlas_data.censored, ''), steam_data.censored) AS censored,
-        COALESCE(game_metadata_overrides.genre, NULLIF(atlas_data.genre, ''), steam_data.genre) AS genre,
-        COALESCE(game_metadata_overrides.language, NULLIF(atlas_data.language, ''), steam_data.language) AS language,
-        COALESCE(game_metadata_overrides.os, NULLIF(atlas_data.os, ''), steam_data.os) AS os,
-        COALESCE(game_metadata_overrides.overview, NULLIF(games.description, ''), NULLIF(atlas_data.overview, ''), steam_data.overview) AS overview,
-        COALESCE(game_metadata_overrides.translations, NULLIF(atlas_data.translations, ''), steam_data.translations) AS translations,
-        COALESCE(game_metadata_overrides.release_date, atlas_data.release_date) AS release_date,
+        COALESCE(game_metadata_overrides.category, NULLIF(atlas_data.category, ''), NULLIF(steam_data.category, ''), gog_data.category) AS category,
+        COALESCE(game_metadata_overrides.censored, NULLIF(atlas_data.censored, ''), NULLIF(steam_data.censored, ''), gog_data.censored) AS censored,
+        COALESCE(game_metadata_overrides.genre, NULLIF(atlas_data.genre, ''), NULLIF(steam_data.genre, ''), gog_data.genre) AS genre,
+        COALESCE(game_metadata_overrides.language, NULLIF(atlas_data.language, ''), NULLIF(steam_data.language, ''), gog_data.language) AS language,
+        COALESCE(game_metadata_overrides.os, NULLIF(atlas_data.os, ''), NULLIF(steam_data.os, ''), gog_data.os) AS os,
+        COALESCE(game_metadata_overrides.overview, NULLIF(games.description, ''), NULLIF(atlas_data.overview, ''), NULLIF(steam_data.overview, ''), gog_data.overview) AS overview,
+        COALESCE(game_metadata_overrides.translations, NULLIF(atlas_data.translations, ''), NULLIF(steam_data.translations, ''), gog_data.translations) AS translations,
+        COALESCE(game_metadata_overrides.release_date, atlas_data.release_date, NULLIF(gog_data.release_date,'')) AS release_date,
         steam_data.release_date AS steam_release_date,
-        COALESCE(game_metadata_overrides.voice, NULLIF(atlas_data.voice, ''), steam_data.voice) AS voice,
-        COALESCE(game_metadata_overrides.publisher, steam_data.publisher) AS publisher,
+        COALESCE(game_metadata_overrides.voice, NULLIF(atlas_data.voice, ''), NULLIF(steam_data.voice, ''), gog_data.voice) AS voice,
+        COALESCE(game_metadata_overrides.publisher, NULLIF(steam_data.publisher, ''), gog_data.publisher) AS publisher,
         steam_data.developer AS steam_developer,
         atlas_data.short_name,
         atlas_data.external_ids as external_ids,
@@ -1010,6 +955,7 @@ ${lewdCornerSelectFields}
         ${localMediaAssetSelect(baseImagePath, "steam_hero", "steam_data.library_hero")} as steam_library_hero,
         ${localMediaAssetSelect(baseImagePath, "steam_cover", "steam_data.library_capsule")} as steam_library_capsule,
         ${localMediaAssetSelect(baseImagePath, "steam_logo", "steam_data.logo")} as steam_logo,
+        steam_data.logo_position as logo_position,
         ${localMediaAssetSelect(baseImagePath, "gog_header", "gog_data.header")} as gog_header,
         ${localMediaAssetSelect(baseImagePath, "gog_hero", "gog_data.library_hero")} as gog_library_hero,
         ${localMediaAssetSelect(baseImagePath, "gog_cover", "gog_data.library_capsule")} as gog_library_capsule,
@@ -1017,6 +963,7 @@ ${lewdCornerSelectFields}
         COALESCE(gog_mappings.gog_id, gog_data.gog_id) as gog_id,
         gog_data.release_date AS gog_release_date,
         gog_data.developer AS gog_developer,
+        gog_data.store_url AS gog_store_url,
         GROUP_CONCAT(tags.tag) AS tags
       FROM
         games
@@ -1049,7 +996,7 @@ ${bannerJoinClauses}
 
     // Query to aggregate versions for each game
     const versionsQuery = `
-      SELECT rowid AS version_id, record_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added
+      SELECT rowid AS version_id, record_id, version, game_path, exec_path, in_place, last_played, version_playtime, folder_size, date_added, playstate, source, source_app_id
       FROM versions
     `;
 
@@ -1103,6 +1050,8 @@ ${bannerJoinClauses}
             return applyLocalSortAggregates(applyPersonalRatings({
               ...row,
               isFavorite: row.is_favorite === 1,
+              playstate: row.playstate ?? null,
+              effectivePlaystate: effectiveTitlePlaystate(row.playstate, allVersions),
               // Unescape engine to fix 'Ren''Py' issue
               engine: row.engine ? row.engine.replace(/''/g, "'") : row.engine,
               versions,
@@ -1113,7 +1062,6 @@ ${bannerJoinClauses}
               isUpdateAvailable: getIsUpdateAvailable(
                 row.latestVersion,
                 installedVersions,
-                row.thread_updated,
               ),
             }, row), allVersions, installedVersions);
           })
@@ -1305,6 +1253,35 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
     // same as in the local library.
     if (filters.favoritesOnly === true) {
       filterWhereParts.push('COALESCE(local_games.is_favorite, 0) = 1');
+    }
+    // Effective playstate: an explicit title override wins; otherwise it's
+    // derived from the versions, but only when EVERY version shares the same
+    // playstate (matching the per-title rollup rule — "all versions flagged").
+    // Mixed or partially-unset versions yield NULL (no derived title state).
+    const effectivePlaystateExpr = `COALESCE(
+      local_games.playstate,
+      (SELECT CASE
+                WHEN COUNT(*) > 0
+                 AND SUM(CASE WHEN v.playstate IS NULL OR v.playstate = '' THEN 1 ELSE 0 END) = 0
+                 AND COUNT(DISTINCT v.playstate) = 1
+                THEN MAX(v.playstate)
+                ELSE NULL
+              END
+       FROM versions v
+       WHERE v.record_id = local_games.record_id)
+    )`;
+    {
+      const includePlaystates = toArray(filters.playstates);
+      if (includePlaystates.length > 0) {
+        filterWhereParts.push(`(${effectivePlaystateExpr}) COLLATE NOCASE IN (${includePlaystates.map(() => '?').join(', ')})`);
+        filterParams.push(...includePlaystates);
+      }
+      const excludePlaystates = toArray(filters.excludedPlaystates);
+      if (excludePlaystates.length > 0) {
+        filterWhereParts.push(`((${effectivePlaystateExpr}) IS NULL OR (${effectivePlaystateExpr}) COLLATE NOCASE NOT IN (${excludePlaystates.map(() => '?').join(', ')}))`);
+        // expression is inlined twice, so bind the exclude values twice
+        filterParams.push(...excludePlaystates, ...excludePlaystates);
+      }
     }
     if (filters.wishlistOnly === true) {
       filterWhereParts.push(`EXISTS (
@@ -1516,6 +1493,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           MIN(steam_data.library_hero) as steam_library_hero,
           MIN(steam_data.library_capsule) as steam_library_capsule,
           MIN(steam_data.logo) as steam_logo,
+          MIN(steam_data.logo_position) as logo_position,
           MIN(gog_data.header) as gog_header,
           MIN(gog_data.library_hero) as gog_library_hero,
           MIN(gog_data.library_capsule) as gog_library_capsule,
@@ -1609,6 +1587,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           steam_data.library_hero as steam_library_hero,
           steam_data.library_capsule as steam_library_capsule,
           steam_data.logo as steam_logo,
+          steam_data.logo_position as logo_position,
           NULL as gog_header,
           NULL as gog_library_hero,
           NULL as gog_library_capsule,
@@ -1699,6 +1678,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           NULL as steam_library_hero,
           NULL as steam_library_capsule,
           NULL as steam_logo,
+          NULL as logo_position,
           gog_data.header as gog_header,
           gog_data.library_hero as gog_library_hero,
           gog_data.library_capsule as gog_library_capsule,
@@ -1786,6 +1766,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           NULL as steam_library_hero,
           NULL as steam_library_capsule,
           NULL as steam_logo,
+          NULL as logo_position,
           NULL as gog_header,
           NULL as gog_library_hero,
           NULL as gog_library_capsule,
@@ -1924,7 +1905,6 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
                 getIsUpdateAvailable(
                   row.latestVersion,
                   versionsByRecord.get(row.local_record_id) || [],
-                  row.thread_updated,
                 ),
               );
               const total = matchingRows.length;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import SafeImage from '../../ui/SafeImage.jsx'
+import DashVideo from './DashVideo.jsx'
 import { toMediaSrc } from '../../../utils/mediaSrc.js'
 
 // Navigation buttons scale with the viewport so they stay comfortably sized
@@ -45,7 +46,7 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
   if (lightboxIndex === null || !previews[lightboxIndex]) return null
 
   const current = previews[lightboxIndex]
-  const isVideo = /\.(mp4|webm|m4v)(\?|#|$)/i.test(String(current || ''))
+  const isVideo = /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(current || ''))
   // GOG trailers are stored as YouTube embed URLs (no file extension); play them
   // inline via an <iframe> rather than the <video> element.
   const youTubeEmbed = (() => {
@@ -120,10 +121,11 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
           }}
         />
       ) : isVideo ? (
-        <video
+        <DashVideo
           src={toMediaSrc(current)}
           controls
           autoPlay
+          muted={false}
           onLoadedMetadata={(e) => setNatural({ w: e.target.videoWidth, h: e.target.videoHeight })}
           onClick={(e) => e.stopPropagation()}
           style={{ ...sizeStyle, display: 'block', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)', background: '#000' }}

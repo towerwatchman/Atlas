@@ -8,7 +8,8 @@ const cp = require('child_process')
 const { recordGameLaunchStarted, recordGamePlaytime } = require('../db/games')
 const { getEmulatorByExtension } = require('../db/settings')
 const { getSteamIDbyRecord } = require('../db/steam')
-const { getGogIDbyRecord } = require('../db/gog')
+const { getGogIDbyRecord, addGogMapping } = require('../db/gog')
+const { fetchAndStoreGogData } = require('../scanners/gogscanner')
 const { applyMediaSources } = require('../db/mediaSources')
 const { calculatePathSize } = require('../pathSize')
 const { runDatabaseAudit, getInvalidMappingCount } = require('../db/audit')
@@ -59,10 +60,14 @@ function trackChildPlaySession(child, session, recordId) {
 const isSteamInstallPath = (value) =>
   /(?:^|[\\/])steamapps[\\/]common(?:[\\/]|$)/i.test(String(value || ''))
 
-async function launchGame({ execPath, gamePath, extension, recordId, version }) {
+async function launchGame({ execPath, gamePath, extension, recordId, version, source, sourceAppId }) {
   const hasExecutable = !!execPath && fs.existsSync(execPath)
-  if (!hasExecutable && recordId && isSteamInstallPath(gamePath)) {
-    const steamId = await getSteamIDbyRecord(recordId)
+  // Source-aware Steam launch: a version tagged source='steam' (or one sitting
+  // in a steamapps/common path) launches via the Steam client. Prefer the
+  // version's own appid so the right title launches even when the record holds
+  // multiple sources.
+  if (!hasExecutable && recordId && (source === 'steam' || isSteamInstallPath(gamePath))) {
+    const steamId = String(sourceAppId || '').trim() || await getSteamIDbyRecord(recordId)
     if (steamId) {
       await startPlaySession(recordId, version, false)
       shell.openExternal(`steam://run/${steamId}`)
@@ -119,7 +124,7 @@ function registerGamesHandlers(ctx) {
     upsertVersion, updateVersion, deleteGameCompletely, getUniqueFilterOptions,
     updateFolderSize, countVersions, deleteVersion, getVersionForRecord,
     getVersionPathsForRecord, getInstalledVersionsForRecord,
-    recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePersonalRatings, setSelectedGameVersion, getEmulatorByExtension,
+    recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePlaystate, setVersionPlaystate, setGamePersonalRatings, setSelectedGameVersion, getEmulatorByExtension,
     getManualMappings, setManualMappings, addSteamMapping,
     // helpers
     deleteTitleRecord, isAllowedDeletionPath, getTrustedVersion,
@@ -180,6 +185,18 @@ function registerGamesHandlers(ctx) {
 
   ipcMain.handle('set-game-favorite', async (_, { recordId, isFavorite } = {}) => {
     const result = await setGameFavorite(recordId, isFavorite === true)
+    if (result?.success) emitGameUpdated(result.recordId)
+    return result
+  })
+
+  ipcMain.handle('set-game-playstate', async (_, { recordId, playstate } = {}) => {
+    const result = await setGamePlaystate(recordId, playstate)
+    if (result?.success) emitGameUpdated(result.recordId)
+    return result
+  })
+
+  ipcMain.handle('set-version-playstate', async (_, { recordId, versionId, playstate } = {}) => {
+    const result = await setVersionPlaystate(recordId, versionId, playstate)
     if (result?.success) emitGameUpdated(result.recordId)
     return result
   })
@@ -398,7 +415,13 @@ function registerGamesHandlers(ctx) {
       const extension = execPath.includes('.')
         ? execPath.split('.').pop().toLowerCase()
         : ''
-      await launchGame({ execPath, gamePath, extension, recordId: data.recordId, version: selectedVersion.version })
+      await launchGame({
+        execPath, gamePath, extension,
+        recordId: data.recordId,
+        version: selectedVersion.version,
+        source: selectedVersion.source || null,
+        sourceAppId: selectedVersion.source_app_id || null,
+      })
       return { success: true }
     } catch (err) {
       console.error('Error launching game:', err)
@@ -486,6 +509,14 @@ function registerGamesHandlers(ctx) {
       const steamId = Number.parseInt(saved.steam_appid ?? saved.steam_id, 10)
       if (Number.isInteger(steamId) && steamId > 0 && typeof addSteamMapping === 'function') {
         try { await addSteamMapping(recordId, steamId) } catch (e) { console.warn('addSteamMapping (manual) failed:', e.message) }
+      }
+      // GOG: same pattern — persist the mapping so art/metadata joins through
+      // gog_mappings, then fetch metadata so the details page fills in the box
+      // art, description, developer, etc. right away.
+      const gogId = Number.parseInt(saved.gog_id ?? saved.gog_appid, 10)
+      if (Number.isInteger(gogId) && gogId > 0) {
+        try { await addGogMapping(recordId, gogId) } catch (e) { console.warn('addGogMapping (manual) failed:', e.message) }
+        try { await fetchAndStoreGogData(null, gogId) } catch (e) { console.warn('fetchAndStoreGogData (manual) failed:', e.message) }
       }
       return { success: true, mappings: saved }
     } catch (err) {

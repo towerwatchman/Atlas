@@ -234,6 +234,20 @@ const applyMediaSources = (game, options = {}) => {
   game.logo_candidates = logoCandidates
   game.logo_url = logoCandidates[0] || null
 
+  // Steam logo placement over the hero (pinned corner + size %). Only meaningful
+  // when a steam logo is actually shown; parsed from the stored JSON blob.
+  if (steamEnabled && game.logo_position) {
+    try {
+      game.logo_placement = typeof game.logo_position === 'string'
+        ? JSON.parse(game.logo_position)
+        : game.logo_position
+    } catch {
+      game.logo_placement = null
+    }
+  } else {
+    game.logo_placement = game.logo_placement || null
+  }
+
   return game
 }
 

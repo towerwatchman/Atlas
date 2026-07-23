@@ -97,6 +97,14 @@ async function fetchStoreItemAssets(appid) {
         JSON.stringify(input),
       )}`,
     );
+    // Surface rate-limiting distinctly from "no assets" so callers can tell the
+    // user and offer a fallback source rather than silently serving nothing.
+    if (res.status === 429 || res.status === 403) {
+      const err = new Error("steam_getitems_rate_limited");
+      err.code = "rate_limited";
+      err.status = res.status;
+      throw err;
+    }
     const json = await res.json();
     const item =
       json &&
@@ -105,6 +113,13 @@ async function fetchStoreItemAssets(appid) {
       json.response.store_items[0];
     const assets = item && item.assets;
     if (!assets || !assets.asset_url_format) return {};
+
+    // One-time visibility into what asset keys Steam actually returns — the
+    // logo field name has changed before (and movies moved to DASH), so log the
+    // keys to catch renames rather than silently storing an empty logo.
+    try {
+      console.log(`Steam ${id} GetItems asset keys:`, Object.keys(assets).join(", "));
+    } catch { /* ignore */ }
 
     // asset_url_format looks like "steam/apps/440/${FILENAME}". Each asset field
     // (library_hero, logo, …) is just the filename (with its ?t= cache-buster).
@@ -124,11 +139,21 @@ async function fetchStoreItemAssets(appid) {
       // Prefer the 2x (higher-res) variants when present.
       hero: pick("library_hero_2x", "library_hero"),
       capsule: pick("library_capsule_2x", "library_capsule"),
-      // The genuine transparent title treatment — fixes the long-standing bug of
-      // storing the portrait capsule in the logo slot.
-      logo: pick("logo_2x", "logo"),
+      logoPosition: (() => {
+        const lp = assets.logo_position
+        if (!lp || !lp.pinned_position) return null
+        return {
+          pinned: String(lp.pinned_position),
+          widthPct: Number(lp.width_pct) || null,
+          heightPct: Number(lp.height_pct) || null,
+        }
+      })(),
+      // The transparent title logo. Steam has used several key names over time:
+      // library_logo(_2x) is the current one; logo(_2x) the older. Try all.
+      logo: pick("library_logo_2x", "library_logo", "logo_2x", "logo"),
     };
   } catch (err) {
+    if (err && err.code === "rate_limited") throw err;
     console.error(`fetchStoreItemAssets failed for ${appid}:`, err);
     return {};
   }
@@ -150,7 +175,14 @@ const CONVENTION_FILES = {
   capsule: "library_600x900.jpg",
   logo: "logo.png",
 };
-const DEFAULT_STEAM_ASSET_SOURCE_ORDER = ["fastly", "akamaihd", "getitems"];
+// GetItems (the IStoreBrowseService API) is authoritative: it returns the
+// CURRENT, versioned asset filenames with ?t= cache-busters and prefers 2x
+// hi-res variants, so it reflects exactly what the store shows right now. The
+// flat CDN convention paths (fastly/akamaihd) are un-versioned and aggressively
+// cached — for many apps they still serve the LEGACY asset even after the store
+// art was updated — so they're now gap-fillers only, not the priority. This
+// ordering is the fix for the "stale / wrong image" reports.
+const DEFAULT_STEAM_ASSET_SOURCE_ORDER = ["getitems", "fastly", "akamaihd"];
 const STEAM_ASSET_SOURCE_IDS = new Set([...Object.keys(STEAM_CDN_HOSTS), "getitems"]);
 
 // Accepts the raw Metadata.steamAssetSourceOrder setting (a comma string,
@@ -188,9 +220,18 @@ async function resolveLibraryAssets(steamId, sourceOrderSetting) {
   // hits the network once per resolve, regardless of how many fields it
   // ends up being asked to fill.
   let apiAssetsPromise = null;
-  const getApiAssets = () => {
+  let rateLimited = false;
+  const getApiAssets = async () => {
     if (!apiAssetsPromise) apiAssetsPromise = fetchStoreItemAssets(steamId);
-    return apiAssetsPromise;
+    try {
+      return await apiAssetsPromise;
+    } catch (err) {
+      if (err && err.code === "rate_limited") {
+        rateLimited = true;
+        return {};
+      }
+      throw err;
+    }
   };
 
   for (const source of sourceOrder) {
@@ -201,6 +242,10 @@ async function resolveLibraryAssets(steamId, sourceOrderSetting) {
       const apiAssets = await getApiAssets();
       for (const field of stillNeeded) {
         if (apiAssets[field]) resolved[field] = apiAssets[field];
+      }
+      // logo_position only comes from GetItems; capture it once when available.
+      if (apiAssets.logoPosition && !resolved.logoPosition) {
+        resolved.logoPosition = apiAssets.logoPosition;
       }
       continue;
     }
@@ -225,6 +270,9 @@ async function resolveLibraryAssets(steamId, sourceOrderSetting) {
     );
   }
 
+  // Non-enumerable so it rides along without polluting the {header,hero,...}
+  // shape that callers spread into records.
+  Object.defineProperty(resolved, "__rateLimited", { value: rateLimited, enumerable: false });
   return resolved;
 }
 
@@ -237,8 +285,14 @@ async function getSteamGameData(steamId, steamAssetSourceOrder) {
     // from) for some games. The other two Steam endpoints this file calls
     // (fetchStoreItemAssets below, findSteamId further down) already pin
     // this explicitly — this was the one inconsistent call.
+    // The `birthtime`/`mature_content` cookie bypasses Steam's age gate. Without
+    // it, appdetails silently OMITS `movies` (and sometimes screenshots) for
+    // age-restricted / mature titles — which is most of this app's catalog — so
+    // trailers never get stored. birthtime is a unix ts for an adult DOB.
+    const ageGateCookie = 'birthtime=568022401; mature_content=1; wants_mature_content=1'
     const steamResponse = await fetch(
       `https://store.steampowered.com/api/appdetails?appids=${steamId}&l=english&cc=us`,
+      { headers: { Cookie: ageGateCookie } },
     );
     const steamJson = await steamResponse.json();
     if (!steamJson[steamId] || !steamJson[steamId].success) {
@@ -246,6 +300,9 @@ async function getSteamGameData(steamId, steamAssetSourceOrder) {
       return null;
     }
     const data = steamJson[steamId].data;
+    console.log(
+      `Steam ${steamId} appdetails: ${(data.movies || []).length} movie(s), ${(data.screenshots || []).length} screenshot(s) from API`,
+    );
 
     const spyResponse = await fetch(
       `https://steamspy.com/api.php?request=appdetails&appid=${steamId}`,
@@ -291,15 +348,32 @@ async function getSteamGameData(steamId, steamAssetSourceOrder) {
     const forceHttps = (u) =>
       typeof u === "string" ? u.replace(/^http:\/\//i, "https://") : u;
 
-    // Trailers: prefer the highest-quality mp4 (broadly supported), fall back
-    // to webm. Each movie carries a thumbnail and name.
+    // Trailers: prefer mp4 (broadly supported), fall back to webm. Steam's
+    // mp4/webm objects are keyed by quality ("480","max", sometimes others), so
+    // rather than hard-code key names we take the best available: prefer "max",
+    // else the highest numeric key, else any value.
+    // (movie format debug logging removed — DASH handling is in place)
+    const bestFrom = (obj) => {
+      if (!obj || typeof obj !== "object") return "";
+      if (obj.max) return obj.max;
+      const numeric = Object.keys(obj)
+        .filter((k) => /^\d+$/.test(k))
+        .sort((a, b) => Number(b) - Number(a));
+      if (numeric.length > 0 && obj[numeric[0]]) return obj[numeric[0]];
+      const anyVal = Object.values(obj).find((v) => typeof v === "string" && v);
+      return anyVal || "";
+    };
+    // Steam movie formats:
+    //  - Legacy: m.mp4 / m.webm objects keyed by quality — directly playable.
+    //  - Current: DASH manifests (m.dash_h264 / m.dash_av1, *.mpd). We store the
+    //    manifest and play it via dash.js in the renderer. Prefer H.264 for the
+    //    broadest decoder support (Electron/Chromium always has it); AV1 as
+    //    fallback.
     const movies = (data.movies || [])
       .map((m) => {
-        const url = forceHttps(
-          (m.mp4 && (m.mp4.max || m.mp4["480"])) ||
-            (m.webm && (m.webm.max || m.webm["480"])) ||
-            "",
-        );
+        let url = bestFrom(m.mp4) || bestFrom(m.webm) || "";
+        if (!url) url = m.dash_h264 || m.dash_av1 || "";
+        url = forceHttps(url);
         return url
           ? { url, thumbnail: forceHttps(m.thumbnail || ""), name: m.name || "" }
           : null;
@@ -344,11 +418,12 @@ async function getSteamGameData(steamId, steamAssetSourceOrder) {
       // The transparent logo — the real one from GetItems, with a convention
       // fallback. (Previously this column wrongly held the portrait capsule.)
       logo: assets.logo || conventionAsset("logo.png"),
+      logo_position: assets.logoPosition ? JSON.stringify(assets.logoPosition) : null,
       last_record_update: new Date().toISOString(),
     };
 
 
-    return { game, screenshots, movies };
+    return { game, screenshots, movies, rateLimited: assets.__rateLimited === true };
   } catch (error) {
     console.error(`Error fetching game data for appid ${steamId}:`, error);
     return null;
@@ -359,8 +434,8 @@ async function insertSteamData(db, data) {
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT OR REPLACE INTO steam_data (
-        steam_id, atlas_id, title, category, engine, developer, publisher, overview, censored, language, translations, genre, tags, voice, os, release_state, release_date, header, library_hero, library_capsule, logo, last_record_update, type
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        steam_id, atlas_id, title, category, engine, developer, publisher, overview, censored, language, translations, genre, tags, voice, os, release_state, release_date, header, library_hero, library_capsule, logo, logo_position, last_record_update, type
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.steam_id,
         data.atlas_id || null,
@@ -383,6 +458,7 @@ async function insertSteamData(db, data) {
         data.library_hero,
         data.library_capsule || null,
         data.logo,
+        data.logo_position || null,
         data.last_record_update,
         data.type || "",
       ],
@@ -394,6 +470,28 @@ async function insertSteamData(db, data) {
   });
 }
 
+// Steam screenshot/asset URLs embed a content hash in the filename, e.g.
+//   .../apps/1091500/ss_0002f18563d313bdd1d82c725d411408ebf762b0.1920x1080.jpg?t=...
+// The 40-hex `ss_<hash>` (or any long hex filename token) IS Steam's own content
+// identifier — same image => same hash, regardless of the ?t= cache-buster or
+// which CDN host served it. So we can dedupe by this hash without downloading a
+// single byte. Falls back to the path-without-query when no hex token is found.
+function steamImageContentKey(url) {
+  const s = String(url || "");
+  if (!s) return "";
+  // Longest hex run of >=16 chars in the path (covers ss_<40hex> and library
+  // asset hashes). Ignore the query string entirely.
+  const path = s.split(/[?#]/)[0];
+  const hexes = path.match(/[0-9a-f]{16,}/gi);
+  if (hexes && hexes.length > 0) {
+    // Use the longest hex token — that's the content hash, not an appid.
+    return hexes.sort((a, b) => b.length - a.length)[0].toLowerCase();
+  }
+  // No hash token: dedupe by the base path (host-agnostic: last two segments).
+  const segs = path.split("/").filter(Boolean);
+  return segs.slice(-2).join("/").toLowerCase();
+}
+
 async function insertSteamScreens(db, steamId, screens) {
   return new Promise((resolve, reject) => {
     db.serialize(() => {
@@ -401,7 +499,13 @@ async function insertSteamScreens(db, steamId, screens) {
       const stmt = db.prepare(
         `INSERT OR IGNORE INTO steam_screens (steam_id, screen_url) VALUES (?, ?)`,
       );
+      // Dedupe within this batch by content hash so the same image at different
+      // ?t= timestamps or CDN hosts is only stored once.
+      const seen = new Set();
       for (const url of screens) {
+        const key = steamImageContentKey(url);
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
         stmt.run([steamId, url]);
       }
       stmt.finalize();
@@ -410,6 +514,49 @@ async function insertSteamScreens(db, steamId, screens) {
         else resolve();
       });
     });
+  });
+}
+
+// Remove duplicate steam_screens rows that point at the same image (same content
+// hash) but differ only by ?t= timestamp or CDN host. Keeps the first-seen row
+// per hash. Scope to one steam_id when provided, else clean the whole table.
+async function dedupeSteamScreens(db, steamId = null) {
+  return new Promise((resolve) => {
+    const where = steamId != null ? `WHERE steam_id = ?` : ``;
+    const params = steamId != null ? [steamId] : [];
+    db.all(
+      `SELECT rowid, steam_id, screen_url FROM steam_screens ${where}`,
+      params,
+      (err, rows) => {
+        if (err) {
+          console.error("dedupeSteamScreens read failed:", err.message);
+          resolve(0);
+          return;
+        }
+        const keepByKey = new Map(); // `${steam_id}:${hash}` -> rowid kept
+        const toDelete = [];
+        for (const r of rows || []) {
+          const key = `${r.steam_id}:${steamImageContentKey(r.screen_url)}`;
+          if (keepByKey.has(key)) toDelete.push(r.rowid);
+          else keepByKey.set(key, r.rowid);
+        }
+        if (toDelete.length === 0) {
+          resolve(0);
+          return;
+        }
+        db.serialize(() => {
+          db.run("BEGIN TRANSACTION");
+          const stmt = db.prepare(`DELETE FROM steam_screens WHERE rowid = ?`);
+          for (const id of toDelete) stmt.run([id]);
+          stmt.finalize();
+          db.run("COMMIT", (e) => {
+            if (e) console.error("dedupeSteamScreens delete failed:", e.message);
+            else console.log(`Deduped steam_screens: removed ${toDelete.length} duplicate row(s)`);
+            resolve(toDelete.length);
+          });
+        });
+      },
+    );
   });
 }
 
@@ -650,6 +797,10 @@ async function fetchAndStoreSteamData(db, steamId, steamAssetSourceOrder) {
           result.screenshots,
         );
       }
+      // Clean up any pre-existing duplicate screenshot rows for this game (same
+      // image at different ?t= timestamps / CDN hosts). Runs on every refresh so
+      // already-stored dupes get removed, not just prevented going forward.
+      await dedupeSteamScreens(database, parseInt(steamId, 10));
       if (result.movies && result.movies.length > 0) {
         await insertSteamMovies(
           database,
@@ -660,6 +811,9 @@ async function fetchAndStoreSteamData(db, steamId, steamAssetSourceOrder) {
     }
   } catch (err) {
     console.error(`Failed to persist steam_data for ${steamId}:`, err);
+  }
+  if (result.game && result.rateLimited) {
+    Object.defineProperty(result.game, "__rateLimited", { value: true, enumerable: false });
   }
   return result.game;
 }
@@ -753,6 +907,23 @@ async function startSteamScan(db, params, event) {
   }
 }
 
+// Lightweight single-appid install check. Returns { installed, installDir } by
+// scanning the Steam libraries for that appid's appmanifest. Non-throwing: if
+// Steam isn't installed or libraries can't be read, returns not-installed.
+async function isSteamAppInstalled(appid) {
+  const wanted = String(appid || '').trim()
+  if (!/^\d+$/.test(wanted)) return { installed: false, installDir: null }
+  try {
+    const installed = await getInstalledSteamGames()
+    const match = installed.find((g) => String(g.appid) === wanted)
+    return match
+      ? { installed: true, installDir: match.installDir }
+      : { installed: false, installDir: null }
+  } catch {
+    return { installed: false, installDir: null }
+  }
+}
+
 module.exports = {
   getSteamGameData,
   fetchAndStoreSteamData,
@@ -764,7 +935,10 @@ module.exports = {
   insertSteamData,
   insertSteamScreens,
   insertSteamMovies,
+  dedupeSteamScreens,
+  steamImageContentKey,
   getSteamLibraryFolders,
   getInstalledSteamGames,
+  isSteamAppInstalled,
   startSteamScan,
 };

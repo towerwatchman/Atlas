@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import SettingsStep from './steps/SettingsStep.jsx'
 import ScanStep from './steps/ScanStep.jsx'
+import SteamLibraryStep from './steps/SteamLibraryStep.jsx'
 import { normalizeImporterSource } from './importerSources.js'
 import { buildFolderRegex } from './folderRegex.js'
 import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
@@ -917,6 +918,11 @@ const Importer = () => {
     saveImporterDefaults({}, { Library: { gameExtensions: value } })
   }
 
+  const handleLibraryFormatChange = (value) => {
+    setLibraryFormat(value)
+    saveImporterDefaults({}, { Library: { libraryFolderStructure: value } })
+  }
+
   const handleArchiveExtChange = (value) => {
     setArchiveExt(value)
     saveImporterDefaults({}, { Library: { extractionExtensions: value } })
@@ -1136,7 +1142,23 @@ const Importer = () => {
       lastSourceSelectionRef.current = { source: safeSource, at: now }
 
       if (safeSource === 'steam') {
-        startSteamScan()
+        // If a Steam account is connected, browse the full owned library
+        // (installed + not). Otherwise fall back to scanning locally-installed
+        // games only, as before.
+        ;(async () => {
+          try {
+            const status = await window.electronAPI.steamStatus()
+            if (status?.connected) {
+              resetImporterSourceState()
+              setImportMode('steamLibrary')
+              setView('steamLibrary')
+              return
+            }
+          } catch (err) {
+            console.warn('Steam status check failed, falling back to scan:', err?.message)
+          }
+          startSteamScan()
+        })()
         return
       }
       if (safeSource === 'gog') {
@@ -1574,6 +1596,7 @@ const Importer = () => {
               moveFoldersToLibrary={moveFoldersToLibrary}
               autoSelectLatestReplaceVersion={autoSelectLatestReplaceVersion}
               defaultLibraryPath={defaultLibraryPath} askingForLibraryFolder={askingForLibraryFolder}
+              libraryFormat={libraryFormat} setLibraryFormat={handleLibraryFormatChange}
               onSelectFolder={selectFolder} onStartScan={startScan}
               onOpenHelp={openImporterHelp}
               livePreview={livePreview}
@@ -1622,13 +1645,26 @@ const Importer = () => {
               setForceReimport={setForceReimport}
             />
           )}
+
+          {view === 'steamLibrary' && (
+            <div className="h-full -m-4">
+              <SteamLibraryStep onBack={() => { setView('settings'); setImportMode('games') }} />
+            </div>
+          )}
         </div>
 
         {/* Fixed footer action bar. Buttons share one height (h-9) and stay put
             regardless of content scroll. Left side is contextual; right side is
             the primary/secondary actions. */}
         <div className="shrink-0 border-t border-border bg-primary px-4 py-3 flex items-center justify-between gap-3">
-          {view === 'settings' ? (
+          {view === 'steamLibrary' ? (
+            <>
+              <div className="text-xs text-text/50">
+                Browsing your Steam library. Open a game in your library to install, launch, or uninstall it.
+              </div>
+              <button onClick={() => window.electronAPI.closeWindow()} className="h-9 px-4 inline-flex items-center bg-danger hover:bg-dangerHover text-white rounded-buttonTheme transition-colors">Close</button>
+            </>
+          ) : view === 'settings' ? (
             <>
               <button
                 onClick={openImporterHelp}

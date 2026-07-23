@@ -154,7 +154,7 @@ const GameBanner = ({ game, onSelect }) => {
   if (hasInstalledVersion) return renderedBanner
 
   return (
-    <div className="relative grayscale opacity-60" title="Uninstalled">
+    <div className="relative" title="Uninstalled">
       {renderedBanner}
       <div className="absolute top-2 left-2 z-40 bg-primary border border-border text-text text-[10px] px-2 py-1 pointer-events-none">
         Uninstalled

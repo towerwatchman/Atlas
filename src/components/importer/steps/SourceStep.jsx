@@ -1,4 +1,5 @@
 import atlasLogo from '../../../assets/icons/atlas_logo.svg'
+import GogIcon from '../../ui/GogIcon.jsx'
 
 export default function SourceStep({ onSelect, onStartSteam, onStartGog, onStartRenpy }) {
   return (
@@ -23,7 +24,7 @@ export default function SourceStep({ onSelect, onStartSteam, onStartGog, onStart
           onClick={() => onStartGog?.()}
           className="bg-secondary hover:bg-selected text-text p-2 rounded-buttonTheme flex items-center justify-center gap-2"
         >
-          <i className="fab fa-gg"></i>
+          <GogIcon size={18} />
           GOG Library
         </button>
         <button

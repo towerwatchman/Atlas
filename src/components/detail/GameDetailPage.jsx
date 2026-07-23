@@ -3,14 +3,20 @@ import HeroBanner from './page/HeroBanner.jsx'
 import ActionBar from './page/ActionBar.jsx'
 import InfoPanel from './page/InfoPanel.jsx'
 import PreviewLightbox from './page/PreviewLightbox.jsx'
+import HoverVideo from './page/HoverVideo.jsx'
 import DetailPanelGrid, { DEFAULT_DETAIL_LAYOUT } from './page/DetailPanelGrid.jsx'
 import SafeImage from '../ui/SafeImage.jsx'
+import RefreshMediaModal from '../ui/RefreshMediaModal.jsx'
 import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
   sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl, formatReleaseDate,
   isSteamGame, getMappedSteamAppId, isGogGame, getMappedGogId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
 } from './page/gameDetailUtils.js'
 import { buildExternalLinks } from './externalLinks.js'
+import gogLogo from '../../assets/icons/gog_logo.svg'
+import GogIcon from '../ui/GogIcon.jsx'
+import PlaystatePicker from '../ui/PlaystatePicker.jsx'
+import { effectiveTitlePlaystate } from '../../utils/playstates.js'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
 
 const isValidHttpUrl = (url) => /^https?:\/\//i.test(String(url || '').trim())
@@ -54,32 +60,49 @@ const getPersonalRatingsOverall = (draft = {}) => {
 
 const buildDetailExternalLinks = (game = {}, { hasSteamMapping = false, hasGogMapping = false, gogId = '' } = {}) => {
   const links = []
+  // For F95/LewdCorner we want the details page to show just the numeric thread
+  // id (like Steam/GOG show their id), while the click target stays the full
+  // thread URL. Prefer an explicit id field on the game; otherwise pull the
+  // trailing numeric segment out of a /threads/slug.<id>/ url.
+  const threadIdFromUrl = (value) => {
+    const normalized = String(value ?? '').trim()
+    if (!normalized) return ''
+    if (/^\d+$/.test(normalized)) return normalized
+    const m = normalized.match(/\/threads\/(?:[^/\s.]+\.)?(\d+)(?:[/?#]|$)/i)
+    return m ? m[1] : ''
+  }
   const siteUrl = String(game.siteUrl || game.site_url || '').trim()
   if (isValidHttpUrl(siteUrl)) {
+    const isLc = siteUrl.includes('lewdcorner.com')
+    const displayId = threadIdFromUrl(
+      isLc ? (game.lc_id || game.lcId || siteUrl) : (game.f95_id || siteUrl),
+    )
     links.push({
       key: 'f95_thread',
-      label: siteUrl.includes('lewdcorner.com') ? 'LewdCorner' : 'F95 Thread',
-      value: siteUrl,
+      label: isLc ? 'LewdCorner' : 'F95 Thread',
+      value: displayId || siteUrl,
       url: siteUrl,
       icon: 'fas fa-comments',
     })
   }
   const lewdCornerUrl = String(game.lewdCornerSiteUrl || game.lewdcornerSiteUrl || '').trim()
   if (isValidHttpUrl(lewdCornerUrl) && !links.some((existing) => existing.url === lewdCornerUrl)) {
+    const displayId = threadIdFromUrl(game.lc_id || game.lcId || lewdCornerUrl)
     links.push({
       key: 'lewdcorner',
       label: 'LewdCorner',
-      value: lewdCornerUrl,
+      value: displayId || lewdCornerUrl,
       url: lewdCornerUrl,
       icon: 'fas fa-link',
     })
   }
   // A mapped GOG game (no atlas record) carries its id in gog_mappings, not
-  // external_ids, so inject the store link explicitly like Steam does.
+  // external_ids, so inject the store link explicitly like Steam does. Prefer
+  // the real slug-based store URL (GOG does not resolve /game/{numericId}).
   if (hasGogMapping && gogId) {
-    const gogUrl = `https://www.gog.com/game/${gogId}`
-    if (!links.some((existing) => existing.url === gogUrl)) {
-      links.push({ key: 'gog_id', label: 'GOG', value: String(gogId), url: gogUrl, icon: 'fab fa-gg' })
+    const gogUrl = String(game.gog_store_url || '').trim() || `https://www.gog.com/game/${gogId}`
+    if (isValidHttpUrl(gogUrl) && !links.some((existing) => existing.url === gogUrl)) {
+      links.push({ key: 'gog_id', label: 'GOG', value: String(gogId), url: gogUrl, icon: 'fab fa-gg', iconImage: gogLogo })
     }
   }
   for (const link of buildExternalLinks(game.external_ids)) {
@@ -155,6 +178,7 @@ const isArchiveSourcePath = (sourcePath = '', archiveExtensions = ['zip', '7z', 
 
 const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [previews, setPreviews] = useState([])
+  const [movieThumbs, setMovieThumbs] = useState({}) // video url -> steam thumbnail url
   const [previewsLoading, setPreviewsLoading] = useState(false)
   const [isWishlisted, setIsWishlisted] = useState(game?.isWishlisted === true || game?.isWishlistEntry === true)
   const [wishlistBusy, setWishlistBusy] = useState(false)
@@ -162,6 +186,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [favoriteBusy, setFavoriteBusy] = useState(false)
   const [selectedVersion, setSelectedVersion] = useState(null)
   const [isRefreshingMedia, setIsRefreshingMedia] = useState(false)
+  const [refreshModalOpen, setRefreshModalOpen] = useState(false)
   const [launchState, setLaunchState] = useState(LAUNCH_STATE.IDLE)
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const [bannerMask, setBannerMask] = useState({ image: 'none', composite: null })
@@ -278,6 +303,29 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     }
     loadPreviews()
   }, [game?.record_id, game?.versions, game?.selected_version_id, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.lc_id, game?.lcId, game?.steam_id])
+
+  // Steam provides a poster thumbnail per trailer; fetch a url->thumbnail map so
+  // the Videos section can show it instead of a video first-frame. Real records
+  // only (catalog entries have no record_id to query).
+  useEffect(() => {
+    let cancelled = false
+    if (!game?.record_id || game.isCatalogEntry === true) {
+      setMovieThumbs({})
+      return undefined
+    }
+    ;(async () => {
+      try {
+        const pairs = await window.electronAPI.getSteamMovieThumbnails?.(game.record_id)
+        if (cancelled || !Array.isArray(pairs)) return
+        const map = {}
+        for (const p of pairs) if (p?.url && p?.thumbnail) map[p.url] = p.thumbnail
+        setMovieThumbs(map)
+      } catch (err) {
+        console.warn('Failed to load movie thumbnails:', err?.message)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [game?.record_id, game?.isCatalogEntry])
 
   useEffect(() => {
     setLaunchState(LAUNCH_STATE.IDLE)
@@ -443,11 +491,18 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const canManageLocalTitle = game.isMetadataOnly !== true && game.isCatalogEntry !== true
   const canManageFavorite = canManageLocalTitle && Boolean(Number.parseInt(game.record_id, 10) > 0)
   const canManagePersonalRatings = canManageFavorite
+  // Title playstate: explicit override on the game wins; otherwise derived from
+  // the versions. `game.playstate` is the raw override; effectivePlaystate is
+  // provided by the backend but recomputed here so optimistic UI stays correct.
+  const titlePlaystate = effectiveTitlePlaystate(game.playstate, game.versions || [])
+  const titlePlaystateIsDerived = !game.playstate && !!titlePlaystate
   const canManageWishlist = game.isCatalogEntry === true || game.isWishlistEntry === true
   const canLaunch = Boolean(
     actionVersion &&
     actionVersion.isInstalled !== false &&
-    (actionVersion.exec_path || isSteamInstallPath(actionVersion.game_path)),
+    (actionVersion.exec_path ||
+      isSteamInstallPath(actionVersion.game_path) ||
+      (actionVersion.source === 'steam' && actionVersion.game_path)),
   )
   const canInstallFromDetail = !canLaunch && (canManageWishlist || canManageLocalTitle || game.hasInstalledVersion === false)
   const importPanelMode = canManageWishlist ? 'catalog' : 'local'
@@ -455,7 +510,45 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const latestVersion = game.latestVersion || game.latest_version || ''
   const versionOptions = sortVersionsDesc(game.versions || [])
 
+  // Split previews into videos (trailers) and images, keeping each item's index
+  // in the original `previews` array so the lightbox (which indexes into that
+  // array) opens the right item from either section. Also dedupe by content key
+  // (Steam embeds a content hash in the filename) so the same image at different
+  // ?t= timestamps / CDN hosts isn't shown twice, even before a DB refresh
+  // cleans the stored dupes.
+  const previewContentKey = (url) => {
+    const s = String(url || '')
+    const p = s.split(/[?#]/)[0]
+    const hexes = p.match(/[0-9a-f]{16,}/gi)
+    if (hexes && hexes.length > 0) return hexes.sort((a, b) => b.length - a.length)[0].toLowerCase()
+    return p.split('/').filter(Boolean).slice(-2).join('/').toLowerCase()
+  }
+  const seenPreviewKeys = new Set()
+  const dedupedPreviews = previews
+    .map((url, index) => ({ url, index }))
+    .filter((p) => {
+      const k = previewContentKey(p.url)
+      if (seenPreviewKeys.has(k)) return false
+      seenPreviewKeys.add(k)
+      return true
+    })
+  const videoPreviews = dedupedPreviews.filter((p) => isVideoUrl(p.url))
+  const imagePreviews = dedupedPreviews.filter((p) => !isVideoUrl(p.url))
+
   const steamAppId = getMappedSteamAppId(game)
+  // Version-aware Steam identity: when the selected/acted-on version is itself a
+  // Steam version, its source_app_id is the appid to install/launch/uninstall —
+  // not the title-level mapping. This lets a title hold an F95 version and a
+  // Steam version side by side, with the buttons acting on whichever is
+  // selected. Falls back to the title mapping for legacy Steam records that
+  // predate per-version source tagging.
+  const actionVersionIsSteam =
+    actionVersion?.source === 'steam' ||
+    (!actionVersion?.source && isSteamInstallPath(actionVersion?.game_path))
+  const activeSteamAppId =
+    (actionVersion?.source === 'steam' && actionVersion?.source_app_id)
+      ? String(actionVersion.source_app_id)
+      : steamAppId
   const gogId = getMappedGogId(game)
   const steam = isSteamGame(game)
   const developer = resolveDeveloper(game)
@@ -495,6 +588,37 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const personalRatingsDirty = JSON.stringify(personalRatingsDraft) !== JSON.stringify(personalRatingsSaved)
   const personalRatingsOverall = getPersonalRatingsOverall(personalRatingsDraft)
 
+  // While viewing an uninstalled Steam game, poll every 15s to see if Steam has
+  // finished installing it (e.g. after the Install button handed off to Steam).
+  // When the state flips, the backend heals the version path and we refresh the
+  // page so the Play button and installed UI appear without a manual reload.
+  // Only runs for Steam-mapped, not-currently-launchable titles.
+  useEffect(() => {
+    if (!activeSteamAppId || canLaunch || !game?.record_id) return undefined
+    let cancelled = false
+    const versionName = actionVersion?.version
+    const tick = async () => {
+      try {
+        const res = await window.electronAPI.steamCheckInstalled?.({
+          recordId: game.record_id,
+          appid: activeSteamAppId,
+          version: versionName,
+        })
+        if (!cancelled && res?.changed) {
+          onRefresh?.(game.record_id)
+        }
+      } catch (err) {
+        // Non-fatal — just try again next tick.
+        console.warn('Steam install check failed:', err?.message)
+      }
+    }
+    const id = setInterval(tick, 15000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [activeSteamAppId, canLaunch, game?.record_id, actionVersion?.version, onRefresh])
+
   // ── Handlers ──────────────────────────────────────────────────────────────
   const launchSelectedGame = async () => {
     if (!canLaunch || launchState !== LAUNCH_STATE.IDLE) return
@@ -520,16 +644,40 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     await window.electronAPI.openGameProperties(game.record_id)
   }
   const openWebsite = async () => { if (game.siteUrl) await window.electronAPI.openExternalUrl(game.siteUrl) }
-  const openSteam = steamAppId
-    ? async () => { await window.electronAPI.openExternalUrl(`steam://nav/games/details/${steamAppId}`) }
+  const openGog = gogId
+    ? async () => {
+        const url = String(game.gog_store_url || '').trim() || `https://www.gog.com/game/${gogId}`
+        await window.electronAPI.openExternalUrl(url)
+      }
     : null
-  const uninstallSteam = steamAppId && canManageLocalTitle
+  const openSteam = activeSteamAppId
+    ? async () => { await window.electronAPI.openExternalUrl(`steam://nav/games/details/${activeSteamAppId}`) }
+    : null
+  // After handing an install/uninstall to the Steam client, its work happens
+  // asynchronously and out of our control. Best-effort: re-pull the record a few
+  // seconds later so the installed state / Play button updates without the user
+  // having to manually refresh. This is a nudge, not a guarantee — a large
+  // install won't be done in seconds, so the manual refresh still matters.
+  const scheduleInstalledStateRefresh = () => {
+    if (!onRefresh || !game?.record_id) return
+    ;[4000, 12000].forEach((delay) => {
+      setTimeout(() => onRefresh(game.record_id), delay)
+    })
+  }
+  const steamInstall = activeSteamAppId
+    ? async () => {
+        await window.electronAPI.openExternalUrl(`steam://install/${activeSteamAppId}`)
+        scheduleInstalledStateRefresh()
+      }
+    : null
+  const uninstallSteam = activeSteamAppId && canManageLocalTitle && canLaunch
     ? async () => {
         const confirmed = window.confirm(
           `Ask Steam to uninstall "${game.title}"?\n\nAtlas will keep this title and its metadata. Atlas local files are not deleted by this action.`,
         )
         if (!confirmed) return
-        await window.electronAPI.openExternalUrl(`steam://uninstall/${steamAppId}`)
+        await window.electronAPI.openExternalUrl(`steam://uninstall/${activeSteamAppId}`)
+        scheduleInstalledStateRefresh()
       }
     : null
 
@@ -735,6 +883,30 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     }
   }
 
+  const handleSetTitlePlaystate = async (nextPlaystate) => {
+    if (!canManageLocalTitle || !game?.record_id) return
+    try {
+      const result = await window.electronAPI.setGamePlaystate?.(game.record_id, nextPlaystate)
+      if (!result?.success) throw new Error(result?.error || 'Playstate update failed')
+      onRefresh?.(game.record_id)
+    } catch (err) {
+      console.error('Failed to update title playstate:', err)
+      alert(`Failed to update playstate: ${err.message || err}`)
+    }
+  }
+
+  const handleSetVersionPlaystate = async (versionId, nextPlaystate) => {
+    if (!canManageLocalTitle || !game?.record_id || !versionId) return
+    try {
+      const result = await window.electronAPI.setVersionPlaystate?.(game.record_id, versionId, nextPlaystate)
+      if (!result?.success) throw new Error(result?.error || 'Version playstate update failed')
+      onRefresh?.(game.record_id)
+    } catch (err) {
+      console.error('Failed to update version playstate:', err)
+      alert(`Failed to update version playstate: ${err.message || err}`)
+    }
+  }
+
   const updatePersonalRatingDraft = (field, value) => {
     setPersonalRatingsError('')
     setPersonalRatingsDraft((current) => ({
@@ -786,16 +958,22 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     onBack?.()
   }
 
-  const refreshMetadataAndImages = async () => {
+  const refreshMetadataAndImages = () => {
     if (!game?.record_id || !canManageLocalTitle || isRefreshingMedia) return
+    setRefreshModalOpen(true)
+  }
+
+  const doRefreshMedia = async (mode) => {
+    if (!game?.record_id || !canManageLocalTitle) return
     setIsRefreshingMedia(true)
     try {
-      const result = await window.electronAPI.refreshGameMedia(game.record_id)
+      const result = await window.electronAPI.refreshGameMedia(game.record_id, { mode })
       if (result?.success === false) throw new Error(result.error || 'Refresh failed')
       if (Array.isArray(result?.previewUrls)) setPreviews(filterOutBanner(result.previewUrls, game.banner_url))
       onRefresh?.(game.record_id)
+      setRefreshModalOpen(false)
     } catch (error) {
-      alert(`Failed to refresh media links: ${error.message}`)
+      alert(`Failed to refresh media: ${error.message}`)
     } finally {
       setIsRefreshingMedia(false)
     }
@@ -866,6 +1044,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         canLaunch={canLaunch}
         canOpenFolder={canOpenFolder}
         canInstallFromDetail={canInstallFromDetail}
+        onSteamInstall={steamInstall}
         canManageWishlist={canManageWishlist}
         isWishlisted={isWishlisted}
         wishlistBusy={wishlistBusy}
@@ -883,6 +1062,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         onRefreshMedia={refreshMetadataAndImages}
         onOpenWebsite={openWebsite}
         onOpenSteam={openSteam}
+        onOpenGog={openGog}
         onUninstallSteam={uninstallSteam}
         onToggleLocalImport={() => setShowLocalImportPanel((value) => !value)}
         onRemoveTitle={removeTitleFromLibrary}
@@ -1106,39 +1286,59 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           editing={editingLayout}
           onLayoutChange={handleLayoutChange}
           panels={{
+            videos: videoPreviews.length > 0 ? (
+              <section className="border border-border bg-secondary" style={{ padding: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <h2 className="text-lg font-semibold">Videos</h2>
+                  <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>{videoPreviews.length} available</span>
+                </div>
+                {/* Single row, scrolls horizontally. Each tile is a fixed height
+                    (10% shorter than the previous ~180px row) with 16:9 width. */}
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 12,
+                    overflowX: 'auto',
+                    overflowY: 'hidden',
+                    paddingBottom: 4,
+                  }}
+                >
+                  {videoPreviews.map(({ url, index }) => (
+                    <div key={`video-${url}-${index}`} style={{ flex: '0 0 auto', height: 162, aspectRatio: '16 / 9' }}>
+                      <HoverVideo
+                        src={toMediaSrc(url)}
+                        poster={movieThumbs[url] || ''}
+                        onClick={() => setLightboxIndex(index)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null,
             previews: (
               <section className="border border-border bg-secondary" style={{ padding: 6 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                   <h2 className="text-lg font-semibold">Previews</h2>
-                  <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>{previews.length} available</span>
+                  <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>{imagePreviews.length} available</span>
                 </div>
-                {previews.length > 0 ? (
+                {imagePreviews.length > 0 ? (
                   <div
                     className="grid gap-3"
-                    style={{ gridTemplateColumns: `repeat(${Math.min(4, Math.max(1, previews.length))}, minmax(0, 1fr))` }}
+                    style={{ gridTemplateColumns: `repeat(${Math.min(4, Math.max(1, imagePreviews.length))}, minmax(0, 1fr))` }}
                   >
-                    {previews.map((preview, index) => (
+                    {imagePreviews.map(({ url: preview, index }) => (
                       <div
                         key={`${preview}-${index}`}
                         className="border border-border overflow-hidden aspect-video cursor-pointer hover:border-accent transition-colors relative"
                         onClick={() => setLightboxIndex(index)}
-                        title={isVideoUrl(preview) ? 'Play trailer' : 'Click to view'}
+                        title="Click to view"
                       >
-                        {isVideoUrl(preview) ? (
-                          <>
-                            <video src={toMediaSrc(preview)} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: '#000' }} />
-                            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.25)', pointerEvents: 'none' }}>
-                              <i className="fas fa-play-circle" style={{ fontSize: 44, color: 'rgba(255,255,255,0.92)', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.6))' }}></i>
-                            </div>
-                          </>
-                        ) : (
-                          <SafeImage
-                            src={preview}
-                            alt={`Preview ${index + 1}`}
-                            fallbackLabel="Preview unavailable"
-                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                          />
-                        )}
+                        <SafeImage
+                          src={preview}
+                          alt={`Preview ${index + 1}`}
+                          fallbackLabel="Preview unavailable"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                        />
                       </div>
                     ))}
                   </div>
@@ -1151,28 +1351,69 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             ),
             versions: (
               <section className="bg-secondary border border-border p-2">
-                <h2 className="text-lg font-semibold mb-3">Versions</h2>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <h2 className="text-lg font-semibold">Versions</h2>
+                  {canManageLocalTitle && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <PlaystatePicker
+                        value={titlePlaystate}
+                        onChange={handleSetTitlePlaystate}
+                        size="sm"
+                        label="Title"
+                      />
+                      {titlePlaystateIsDerived && (
+                        <span
+                          title="Derived from this title's versions. Choosing a state here sets an explicit title override."
+                          style={{ fontSize: 10, color: 'var(--color-muted)', fontStyle: 'italic' }}
+                        >
+                          (from versions)
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
                 {versionOptions.length > 0 ? (
                   <div className="space-y-2">
                     {versionOptions.map((version) => {
                       const isSelected = selectedVersion?.version === version.version && selectedVersion?.game_path === version.game_path
                       const installed = version.isInstalled !== false
                       return (
-                        <button
+                        <div
                           key={`${version.version}-${version.game_path}`}
-                          onClick={() => selectVersion(version)}
-                          className={`w-full text-left border p-3 transition-colors ${isSelected ? 'border-accent bg-selected' : 'border-border bg-primary hover:bg-selected'}`}
+                          className={`border transition-colors ${isSelected ? 'border-accent bg-selected' : 'border-border bg-primary'}`}
                         >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                            <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
-                              {isSelected && <i className="fas fa-play" style={{ fontSize: 9, color: 'var(--color-accent,#86a8e7)' }}></i>}
-                              {version.version || 'Unknown version'}
-                            </span>
-                            <span style={{ fontSize: 11, color: installed ? 'var(--color-success)' : 'var(--color-danger)' }}>{installed ? 'Installed' : 'Missing'}</span>
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--color-text)', marginTop: 3 }}>{formatPlaytime(version.version_playtime)}</div>
-                          <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{version.game_path || 'No path set'}</div>
-                        </button>
+                          <button
+                            onClick={() => selectVersion(version)}
+                            className={`w-full text-left p-3 transition-colors ${isSelected ? 'bg-selected' : 'bg-primary hover:bg-selected'}`}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                              <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
+                                {isSelected && <i className="fas fa-play" style={{ fontSize: 9, color: 'var(--color-accent,#86a8e7)' }}></i>}
+                                {version.version || 'Unknown version'}
+                                {version.source === 'steam' && (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px' }}>
+                                    <i className="fab fa-steam" style={{ fontSize: 10 }}></i> Steam
+                                  </span>
+                                )}
+                                {version.source === 'gog' && (
+                                  <span style={{ fontSize: 10, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px' }}>GOG</span>
+                                )}
+                              </span>
+                              <span style={{ fontSize: 11, color: installed ? 'var(--color-success)' : 'var(--color-danger)' }}>{installed ? 'Installed' : 'Missing'}</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--color-text)', marginTop: 3 }}>{formatPlaytime(version.version_playtime)}</div>
+                            <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{version.game_path || 'No path set'}</div>
+                          </button>
+                          {canManageLocalTitle && version.version_id ? (
+                            <div style={{ padding: '6px 12px 10px', borderTop: '1px solid var(--color-border)' }}>
+                              <PlaystatePicker
+                                value={version.playstate}
+                                onChange={(next) => handleSetVersionPlaystate(version.version_id, next)}
+                                size="sm"
+                              />
+                            </div>
+                          ) : null}
+                        </div>
                       )
                     })}
                   </div>
@@ -1256,7 +1497,11 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {externalLinks.map((link) => (
                     <div key={link.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                      <i className={link.icon} style={{ width: 18, textAlign: 'center', color: 'var(--color-muted)' }} aria-hidden="true"></i>
+                      {link.iconImage ? (
+                        <GogIcon size={16} style={{ width: 18, color: 'var(--color-muted)' }} />
+                      ) : (
+                        <i className={link.icon} style={{ width: 18, textAlign: 'center', color: 'var(--color-muted)' }} aria-hidden="true"></i>
+                      )}
                       <span style={{ color: 'var(--color-muted)', minWidth: 92 }}>{link.label}</span>
                       {link.url ? (
                         <a
@@ -1295,6 +1540,14 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         onClose={() => setLightboxIndex(null)}
         onPrev={() => setLightboxIndex((i) => (i === null ? i : (i - 1 + previews.length) % previews.length))}
         onNext={() => setLightboxIndex((i) => (i === null ? i : (i + 1) % previews.length))}
+      />
+
+      <RefreshMediaModal
+        open={refreshModalOpen}
+        scope="game"
+        busy={isRefreshingMedia}
+        onConfirm={doRefreshMedia}
+        onClose={() => { if (!isRefreshingMedia) setRefreshModalOpen(false) }}
       />
     </div>
   )

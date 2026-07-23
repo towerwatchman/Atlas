@@ -1,17 +1,23 @@
 import { LAUNCH_STATE, ACTION_BTN, STEAM_GREEN, STEAM_BLUE, STEAM_YELLOW, STEAM_GRAY, iconBtn } from './gameDetailUtils.js'
+import GogIcon from '../../ui/GogIcon.jsx'
 
 export default function ActionBar({
   game, actionVersion, latestVersion, canLaunch, canOpenFolder,
   canInstallFromDetail = false,
+  onSteamInstall = null,
   canManageWishlist = false, isWishlisted = false, wishlistBusy = false,
   canManageFavorite = false, isFavorite = false, favoriteBusy = false,
   launchState, isRefreshingMedia, canManageLocalTitle = true,
   onLaunch, onOpenFolder, onOpenProperties, onToggleWishlist, onRefreshMedia,
-  onOpenWebsite, onOpenSteam, onUninstallSteam, onToggleFavorite, onToggleLocalImport,
+  onOpenWebsite, onOpenSteam, onOpenGog, onUninstallSteam, onToggleFavorite, onToggleLocalImport,
   onRemoveTitle, onDeleteTitle, onBack, onToggleEditLayout, editingLayout = false,
   onToggleInfo, showInfo = false, showBack = false,
 }) {
   const showInstallCta = !canLaunch && canInstallFromDetail
+  // When the title is Steam-owned but not installed, the primary CTA hands off
+  // to the Steam client (steam://install) rather than opening Atlas's local
+  // import panel — mirroring how Steam's own Install button behaves.
+  const steamInstallCta = showInstallCta && typeof onSteamInstall === 'function'
 
   const playBg =
     showInstallCta ? 'var(--color-detail-accent)'
@@ -27,7 +33,9 @@ export default function ActionBar({
     : 'var(--color-detail-play-text)'
 
   const playLabel =
-    showInstallCta
+    steamInstallCta
+      ? <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><i className="fab fa-steam" style={{ fontSize: 12 }}></i>INSTALL</span>
+    : showInstallCta
       ? <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><i className="fas fa-download" style={{ fontSize: 11 }}></i>INSTALL</span>
     : launchState === LAUNCH_STATE.LAUNCHING
       ? <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><i className="fas fa-circle-notch fa-spin" style={{ fontSize: 11 }}></i>LAUNCHING</span>
@@ -70,7 +78,7 @@ export default function ActionBar({
 
         {/* PLAY */}
         <button
-          onClick={showInstallCta ? onToggleLocalImport : onLaunch}
+          onClick={steamInstallCta ? onSteamInstall : showInstallCta ? onToggleLocalImport : onLaunch}
           disabled={!showInstallCta && !canLaunch && launchState === LAUNCH_STATE.IDLE}
           style={{
             ...ACTION_BTN, minWidth: 130, background: playBg, color: playColor,
@@ -183,6 +191,11 @@ export default function ActionBar({
           {onOpenSteam && (
             <button onClick={onOpenSteam} title="Open in Steam" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
               <i className="fab fa-steam" style={{ fontSize: 14 }}></i>
+            </button>
+          )}
+          {onOpenGog && (
+            <button onClick={onOpenGog} title="Open on GOG" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">
+              <GogIcon size={16} />
             </button>
           )}
           {onUninstallSteam && (

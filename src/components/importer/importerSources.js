@@ -26,8 +26,8 @@ export const importerSources = [
     id: IMPORTER_SOURCE_IDS.GOG,
     label: 'GOG Library',
     description: 'Scan installed GOG / Galaxy games',
-    iconType: 'font',
-    icon: 'fab fa-gg',
+    iconType: 'gog',
+    icon: null,
   },
   {
     id: IMPORTER_SOURCE_IDS.RENPY,
