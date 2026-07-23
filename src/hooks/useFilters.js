@@ -272,16 +272,27 @@ const normalizeDateValueMs = (value) => {
   }
   const normalized = String(value).trim()
   if (!normalized) return null
+  // Compact calendar dates (YYYYMMDD) must be checked BEFORE the generic
+  // pure-digit epoch branch below: an 8-digit string like "20260713" is all
+  // digits, so the epoch branch would otherwise multiply it by 1000 and map it
+  // to 1970, silently dropping the game from every date-range filter. A real
+  // Unix-seconds timestamp with a plausible modern date is 10 digits, so an
+  // 8-digit value whose parts form a valid calendar date is unambiguously a
+  // compact date. The year guard keeps this from swallowing short epoch values.
+  const compactDate = normalized.match(/^(\d{4})(\d{2})(\d{2})$/)
+  if (compactDate) {
+    const year = Number(compactDate[1])
+    const parsedCompact = parseDateParts(compactDate[1], compactDate[2], compactDate[3])
+    if (parsedCompact !== null && year >= 1970 && year <= 2100) {
+      return parsedCompact
+    }
+  }
   if (/^\d+$/.test(normalized)) {
     const numericValue = Number(normalized)
     if (Number.isFinite(numericValue)) {
       if (numericValue <= 0) return null
       return numericValue > 100000000000 ? numericValue : numericValue * 1000
     }
-  }
-  const compactDate = normalized.match(/^(\d{4})(\d{2})(\d{2})$/)
-  if (compactDate) {
-    return parseDateParts(compactDate[1], compactDate[2], compactDate[3])
   }
   const parsed = Date.parse(normalized)
   return Number.isFinite(parsed) ? parsed : null
