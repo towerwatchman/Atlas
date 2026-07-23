@@ -1489,11 +1489,15 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           atlas_data.logo as atlas_logo,
           f95_zone_data.banner_url as f95_banner,
           lewdcorner_data.banner_url as lewdcorner_banner,
-          MIN(steam_data.header) as steam_header,
-          MIN(steam_data.library_hero) as steam_library_hero,
-          MIN(steam_data.library_capsule) as steam_library_capsule,
-          MIN(steam_data.logo) as steam_logo,
-          MIN(steam_data.logo_position) as logo_position,
+          -- Tile banner assets come from the PRIMARY (lowest / first) steam
+          -- appid so all art belongs to one season rather than being mixed
+          -- column-by-column across appids via independent MIN(). Matches the
+          -- MIN(steam_data.steam_id) chosen as the tile's steam_id above.
+          (SELECT sd.header FROM steam_data sd WHERE sd.atlas_id = atlas_data.atlas_id ORDER BY sd.steam_id LIMIT 1) as steam_header,
+          (SELECT sd.library_hero FROM steam_data sd WHERE sd.atlas_id = atlas_data.atlas_id ORDER BY sd.steam_id LIMIT 1) as steam_library_hero,
+          (SELECT sd.library_capsule FROM steam_data sd WHERE sd.atlas_id = atlas_data.atlas_id ORDER BY sd.steam_id LIMIT 1) as steam_library_capsule,
+          (SELECT sd.logo FROM steam_data sd WHERE sd.atlas_id = atlas_data.atlas_id ORDER BY sd.steam_id LIMIT 1) as steam_logo,
+          (SELECT sd.logo_position FROM steam_data sd WHERE sd.atlas_id = atlas_data.atlas_id ORDER BY sd.steam_id LIMIT 1) as logo_position,
           MIN(gog_data.header) as gog_header,
           MIN(gog_data.library_hero) as gog_library_hero,
           MIN(gog_data.library_capsule) as gog_library_capsule,

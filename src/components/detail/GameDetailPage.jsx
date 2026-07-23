@@ -292,7 +292,10 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           setPreviews(filterOutBanner(resolvedUrls, game.banner_url))
           return
         }
-        const urls = await window.electronAPI.getPreviews(game.record_id)
+        const selectedSteamAppId = (selectedVersion && selectedVersion.source === 'steam')
+          ? (selectedVersion.source_app_id ?? selectedVersion.sourceAppId ?? null)
+          : null
+        const urls = await window.electronAPI.getPreviews(game.record_id, selectedSteamAppId)
         setPreviews(filterOutBanner(urls, game.banner_url))
       } catch (err) {
         console.error('Failed to load previews:', err)
@@ -302,7 +305,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       }
     }
     loadPreviews()
-  }, [game?.record_id, game?.versions, game?.selected_version_id, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.lc_id, game?.lcId, game?.steam_id])
+  }, [game?.record_id, game?.versions, game?.selected_version_id, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.lc_id, game?.lcId, game?.steam_id, selectedVersion?.version_id, selectedVersion?.source_app_id])
 
   // Steam provides a poster thumbnail per trailer; fetch a url->thumbnail map so
   // the Videos section can show it instead of a video first-frame. Real records
@@ -315,7 +318,10 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     }
     ;(async () => {
       try {
-        const pairs = await window.electronAPI.getSteamMovieThumbnails?.(game.record_id)
+        const selectedSteamAppId = (selectedVersion && selectedVersion.source === 'steam')
+          ? (selectedVersion.source_app_id ?? selectedVersion.sourceAppId ?? null)
+          : null
+        const pairs = await window.electronAPI.getSteamMovieThumbnails?.(game.record_id, selectedSteamAppId)
         if (cancelled || !Array.isArray(pairs)) return
         const map = {}
         for (const p of pairs) if (p?.url && p?.thumbnail) map[p.url] = p.thumbnail
@@ -325,7 +331,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       }
     })()
     return () => { cancelled = true }
-  }, [game?.record_id, game?.isCatalogEntry])
+  }, [game?.record_id, game?.isCatalogEntry, selectedVersion?.version_id, selectedVersion?.source_app_id])
 
   useEffect(() => {
     setLaunchState(LAUNCH_STATE.IDLE)
@@ -1016,6 +1022,16 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
 
       <HeroBanner
         game={game}
+        heroOverride={(() => {
+          const appId = (selectedVersion && selectedVersion.source === 'steam')
+            ? (selectedVersion.source_app_id ?? selectedVersion.sourceAppId ?? null)
+            : null
+          if (!appId) return null
+          // The tile's default hero uses the first steam id; when a different
+          // Steam version is selected, prefer that appid's hero. HeroBanner
+          // falls through its candidate chain if this URL fails to load.
+          return `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/library_hero.jpg`
+        })()}
         bannerRef={bannerRef}
         bannerDimsRef={bannerDimsRef}
         bannerMask={bannerMask}

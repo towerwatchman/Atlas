@@ -282,14 +282,19 @@ module.exports = function registerMediaHandlers(ctx) {
     }
   })
 
-  ipcMain.handle('get-previews', async (event, recordId) => {
-    const previews = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, { mode: getMediaStorageMode(), sourceOrder: getMetadataSourceOrder() })
+  ipcMain.handle('get-previews', async (event, arg) => {
+    // arg may be a bare recordId (legacy) or { recordId, sourceAppId }.
+    const recordId = typeof arg === 'object' && arg !== null ? arg.recordId : arg
+    const sourceAppId = typeof arg === 'object' && arg !== null ? (arg.sourceAppId ?? null) : null
+    const previews = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, { mode: getMediaStorageMode(), sourceOrder: getMetadataSourceOrder(), sourceAppId })
     return orderPreviewsBySource(previews, getMetadataSourceOrder())
   })
 
-  ipcMain.handle('get-steam-movie-thumbnails', async (event, recordId) => {
+  ipcMain.handle('get-steam-movie-thumbnails', async (event, arg) => {
+    const recordId = typeof arg === 'object' && arg !== null ? arg.recordId : arg
+    const sourceAppId = typeof arg === 'object' && arg !== null ? (arg.sourceAppId ?? null) : null
     try {
-      return await getSteamMovieThumbnails(recordId)
+      return await getSteamMovieThumbnails(recordId, sourceAppId)
     } catch (err) {
       console.error('get-steam-movie-thumbnails error:', err)
       return []

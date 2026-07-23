@@ -196,12 +196,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getEmulatorConfig: () => ipcRenderer.invoke("get-emulator-config"),
   removeEmulatorConfig: (extension) =>
     ipcRenderer.invoke("remove-emulator-config", extension),
-  getPreviews: (recordId) => {
-    console.log("Invoking getPreviews for recordId:", recordId);
-    return ipcRenderer.invoke("get-previews", recordId);
+  getPreviews: (recordId, sourceAppId = null) => {
+    console.log("Invoking getPreviews for recordId:", recordId, "appid:", sourceAppId);
+    return ipcRenderer.invoke("get-previews", { recordId, sourceAppId });
   },
-  getSteamMovieThumbnails: (recordId) =>
-    ipcRenderer.invoke("get-steam-movie-thumbnails", recordId),
+  getSteamMovieThumbnails: (recordId, sourceAppId = null) =>
+    ipcRenderer.invoke("get-steam-movie-thumbnails", { recordId, sourceAppId }),
   getBrowsePreviewUrls: (record) =>
     ipcRenderer.invoke("get-browse-preview-urls", record),
   updateBanners: (recordId) => {
