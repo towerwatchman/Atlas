@@ -1853,6 +1853,72 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         isMetadataOnly: true,
       });
 
+      // Given the mapped catalog games for a page, attach a synthesized
+      // `versions` array of the Steam seasons that share each game's atlas_id, so
+      // the detail page's version selector + install button can target a specific
+      // season for an uninstalled grouped game. Only applies to catalog rows that
+      // have an atlas_id and more than one linked Steam appid; single-appid and
+      // non-atlas rows are left with their empty versions array. Best-effort and
+      // read-only.
+      const attachCatalogSteamVersions = (gamesList) => {
+        return new Promise((resolveEnrich, rejectEnrich) => {
+          const atlasIds = Array.from(
+            new Set(
+              (gamesList || [])
+                .filter((g) => g && g.isCatalogEntry && g.atlas_id != null)
+                .map((g) => g.atlas_id),
+            ),
+          );
+          if (atlasIds.length === 0) {
+            resolveEnrich();
+            return;
+          }
+          const placeholders = atlasIds.map(() => '?').join(', ');
+          getDb().all(
+            `SELECT steam_id, atlas_id, title, release_date
+               FROM steam_data
+              WHERE atlas_id IN (${placeholders})
+              ORDER BY atlas_id, steam_id`,
+            atlasIds,
+            (err, steamRows) => {
+              if (err) {
+                rejectEnrich(err);
+                return;
+              }
+              // Group appids by atlas_id.
+              const byAtlas = new Map();
+              for (const sr of steamRows || []) {
+                if (!byAtlas.has(sr.atlas_id)) byAtlas.set(sr.atlas_id, []);
+                byAtlas.get(sr.atlas_id).push(sr);
+              }
+              for (const g of gamesList) {
+                if (!g || !g.isCatalogEntry || g.atlas_id == null) continue;
+                const seasons = byAtlas.get(g.atlas_id) || [];
+                // Only synthesize a version list when there are multiple Steam
+                // seasons; a single appid needs no picker.
+                if (seasons.length <= 1) continue;
+                g.versions = seasons.map((s, index) => ({
+                  version_id: `catalog:steam:${s.steam_id}`,
+                  version: String(s.title || `Season ${index + 1}`),
+                  source: 'steam',
+                  source_app_id: String(s.steam_id),
+                  game_path: '',
+                  exec_path: '',
+                  isInstalled: false,
+                  release_date: s.release_date || null,
+                  isCatalogVersion: true,
+                }));
+                g.versionCount = 0;
+                g.totalVersionCount = seasons.length;
+                g.installedVersionCount = 0;
+                g.hasSteamSeasonVersions = true;
+              }
+              resolveEnrich();
+            },
+          );
+        });
+      };
+
       // Updates-available can't be expressed as a SQL predicate — it needs
       // the exact same version-string comparison logic local mode uses
       // (getIsUpdateAvailable: numeric-aware version comparison, "Final"
@@ -1965,13 +2031,32 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           `thread_updated populated ${threadUpdatedCount}, ` +
           `thread_publish_date populated ${threadPublishDateCount})`,
         );
-          resolve({
-            games,
-            offset,
-            limit,
-            total,
-            hasMore: total === null ? games.length >= limit : offset + games.length < total,
-          });
+          // Attach per-season Steam versions to grouped atlas catalog entries so
+          // an uninstalled multi-appid game (e.g. Steam Season 1 + Season 2 under
+          // one atlas) shows each season as a selectable version to install. One
+          // supplemental query for the whole page (keyed on the atlas_ids present)
+          // rather than an N+1 lookup per row.
+          attachCatalogSteamVersions(games)
+            .then(() => {
+              resolve({
+                games,
+                offset,
+                limit,
+                total,
+                hasMore: total === null ? games.length >= limit : offset + games.length < total,
+              });
+            })
+            .catch((enrichErr) => {
+              // Enrichment is best-effort; never fail the whole catalog fetch.
+              console.warn('Catalog steam-version enrichment failed:', enrichErr?.message);
+              resolve({
+                games,
+                offset,
+                limit,
+                total,
+                hasMore: total === null ? games.length >= limit : offset + games.length < total,
+              });
+            });
         });
       };
 

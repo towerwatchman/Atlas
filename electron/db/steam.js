@@ -50,6 +50,51 @@ const addSteamMapping = (recordId, steamId) => {
   });
 };
 
+// Does this record already have a title-level steam_mapping? Used so adding a
+// second Steam appid (a new season) to an existing record doesn't repoint the
+// legacy title-level mapping away from the first appid.
+const recordHasSteamMapping = (recordId) => {
+  return new Promise((resolve, reject) => {
+    getDb().get(
+      `SELECT 1 AS present FROM steam_mappings WHERE record_id = ? LIMIT 1`,
+      [recordId],
+      (err, row) => {
+        if (err) reject(err);
+        else resolve(!!row);
+      },
+    );
+  });
+};
+
+// Pick a version label for a Steam appid being attached to a record. Prefer the
+// appid's own Steam title (e.g. "Season 1"). If that exact version name already
+// exists on the record for a DIFFERENT appid, suffix with the appid so the two
+// seasons remain distinct rows. If the same appid already owns that version name
+// (a re-add), return it unchanged so upsertVersion updates in place.
+const uniqueSteamVersionLabel = (recordId, desiredTitle, steamId) => {
+  const base = String(desiredTitle || '').trim() || `Steam App ${steamId}`;
+  const appId = String(steamId);
+  return new Promise((resolve, reject) => {
+    getDb().get(
+      `SELECT source_app_id FROM versions WHERE record_id = ? AND version = ? LIMIT 1`,
+      [recordId, base],
+      (err, row) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        // No existing row with this name, or it belongs to this same appid → use base.
+        if (!row || String(row.source_app_id || '') === appId) {
+          resolve(base);
+          return;
+        }
+        // A different appid already holds this name → disambiguate.
+        resolve(`${base} (${appId})`);
+      },
+    );
+  });
+};
+
 const getSteamBannerUrl = (steamId) => {
   return new Promise((resolve, reject) => {
     getDb().get(
@@ -112,8 +157,34 @@ const findRecordBySteamId = (steamId) => {
            LIMIT 1`,
           [id, id, id, id],
           (err2, row2) => {
-            if (err2) reject(err2);
-            else resolve(row2?.record_id || null);
+            if (err2) {
+              reject(err2);
+              return;
+            }
+            if (row2?.record_id) {
+              resolve(row2.record_id);
+              return;
+            }
+            // Season grouping: this appid may belong to an atlas that already
+            // has a local record from ANOTHER appid (e.g. Steam Season 1 is
+            // installed, Season 2 is being added now). The server links several
+            // Steam appids to one atlas_id via steam_data.atlas_id, so resolve
+            // through it: find the atlas for this appid, then any record already
+            // mapped to that atlas. Attaching to that record makes the new appid
+            // a version of the existing game instead of a duplicate tile.
+            getDb().get(
+              `SELECT am.record_id
+               FROM steam_data sd
+               JOIN atlas_mappings am ON am.atlas_id = sd.atlas_id
+               WHERE sd.steam_id = ? AND sd.atlas_id IS NOT NULL
+               ORDER BY am.record_id
+               LIMIT 1`,
+              [steamId],
+              (err3, row3) => {
+                if (err3) reject(err3);
+                else resolve(row3?.record_id || null);
+              },
+            );
           },
         );
       },
@@ -124,6 +195,8 @@ const findRecordBySteamId = (steamId) => {
 module.exports = {
   getSteamIDbyRecord,
   addSteamMapping,
+  recordHasSteamMapping,
+  uniqueSteamVersionLabel,
   getSteamBannerUrl,
   getSteamScreensUrlList,
   findRecordBySteamId,

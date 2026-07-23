@@ -16,7 +16,7 @@ const { fetchAndStoreSteamData, isSteamAppInstalled } = require('../scanners/ste
 const { fetchAndStoreGogData, startGogScan } = require('../scanners/gogscanner')
 const { findExecutables } = require("../scanners/executableScanner");
 const { getDefaultRenpySaveRoot, scanRenpySaveFolders } = require("../scanners/renpySaveScanner");
-const { findRecordBySteamId } = require('../db/steam')
+const { findRecordBySteamId, recordHasSteamMapping, uniqueSteamVersionLabel } = require('../db/steam')
 const { findRecordByGogId, addGogMapping, getGogIDbyRecord } = require('../db/gog')
 const {
   addLewdCornerMapping,
@@ -1492,13 +1492,12 @@ module.exports = function registerImporterHandlers(ctx) {
     }
     const dir = String(installDir || '').trim()
 
-    // Is this appid already an Atlas record? If so we still (re)sync its version
-    // path below rather than dead-ending — this heals records created before the
-    // install-path fix and reflects install/uninstall changes on re-add.
-    const existing = await findRecordBySteamId(steamId)
-
-    // Pull Store metadata + art. Non-fatal if it fails — we can still create a
-    // minimal record from the name we already have from the owned-games list.
+    // Pull Store metadata + art FIRST. This also (re)writes steam_data for this
+    // appid including its server-provided atlas_id, which the record resolution
+    // below relies on to group seasons: several Steam appids can map to one
+    // atlas_id, and we want the new appid to attach to whichever record already
+    // represents that atlas rather than spawning a duplicate tile. Non-fatal if
+    // it fails — we can still create a minimal record from the owned-games name.
     // assetSourceOrder, when provided, overrides the configured default (used by
     // the UI's "retry with CDN" fallback after a GetItems rate-limit).
     let meta = null
@@ -1512,29 +1511,52 @@ module.exports = function registerImporterHandlers(ctx) {
       console.warn(`Phase3: metadata fetch failed for ${steamId}:`, err.message)
     }
 
+    // Resolve the target record AFTER metadata is stored, so atlas grouping can
+    // see this appid's atlas_id. findRecordBySteamId matches, in order: an
+    // existing steam_mapping for this appid, an atlas/f95 record listing it in
+    // external_ids, or (new) any record already mapped to this appid's atlas_id.
+    const existing = await findRecordBySteamId(steamId)
+
     const title = String(meta?.title || name || `Steam App ${steamId}`).trim()
     const creator = String(meta?.developer || 'Unknown').trim()
     const engine = String(meta?.engine || '').trim()
 
-    // Reuse the existing record if we have one, else create it. addGame also
+    // Reuse the resolved record if we have one, else create it. addGame also
     // dedups by title/creator.
     const recordId = existing || (await addGame({ title, creator, engine }))
-    await addSteamMapping(recordId, steamId)
+
+    // steam_mappings.record_id is the PRIMARY KEY, so a record can hold only one
+    // title-level appid. Per the season design, versions.source_app_id is the
+    // source of truth for per-version identity; steam_mappings is kept only as a
+    // legacy title-level pointer. Set it only when the record has none yet (the
+    // first appid wins and stays), so adding Season 2 doesn't repoint the tile.
+    const hasMapping = await recordHasSteamMapping(recordId)
+    if (!hasMapping) {
+      await addSteamMapping(recordId, steamId)
+    }
+
+    // Version label = this appid's Steam title (e.g. "Season 1"/"Season 2"), so
+    // each season is a distinct, human-named version under the shared tile.
+    // Guard against two appids colliding on the same title by keying uniqueness
+    // to source_app_id: if a DIFFERENT appid already owns that version name,
+    // suffix this one. upsertVersion keys on (record_id, version).
+    const versionLabel = await uniqueSteamVersionLabel(recordId, title, steamId)
 
     // Version path: if the game is locally installed, use its real Steam install
     // directory (…/steamapps/common/<game>) so the version reader recognizes it
     // as installed and it shows in the banner/library view + launches via
     // steam://run. If not installed, keep the path empty — the record then reads
-    // as not-installed and appears in the Library under the All/Uninstalled
-    // install-state filter. upsertVersion (keyed on record_id + version) means a
-    // re-add updates the same "Steam" version in place rather than duplicating.
-    await upsertVersion({ version: 'Steam', folder: dir, execPath: '', folderSize: 0, source: 'steam', sourceAppId: steamId }, recordId)
+    // as not-installed and appears under the All/Uninstalled install-state
+    // filter. upsertVersion (keyed on record_id + version) updates the same
+    // version in place on re-add rather than duplicating.
+    await upsertVersion({ version: versionLabel, folder: dir, execPath: '', folderSize: 0, source: 'steam', sourceAppId: steamId }, recordId)
 
     return {
       ok: true,
       appid: steamId,
       recordId,
       title,
+      versionLabel,
       rateLimited: meta?.__rateLimited === true,
       installed: Boolean(dir),
       alreadyPresent: Boolean(existing),
