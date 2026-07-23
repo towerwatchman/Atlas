@@ -1891,9 +1891,32 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
                 if (!byAtlas.has(sr.atlas_id)) byAtlas.set(sr.atlas_id, []);
                 byAtlas.get(sr.atlas_id).push(sr);
               }
+              // Parse steam_appids[] from a game's external_ids (the admin
+              // manual-link overlay). Falls back to the single steam_appid.
+              const manualAppIds = (g) => {
+                let ext = g.external_ids;
+                if (typeof ext === 'string') {
+                  try { ext = JSON.parse(ext); } catch { ext = null; }
+                }
+                if (!ext || typeof ext !== 'object') return [];
+                const list = Array.isArray(ext.steam_appids) ? ext.steam_appids : [];
+                const single = ext.steam_appid || ext.steam_id;
+                const all = [...list, ...(single ? [single] : [])]
+                  .map((v) => String(v).trim())
+                  .filter(Boolean);
+                return Array.from(new Set(all));
+              };
               for (const g of gamesList) {
                 if (!g || !g.isCatalogEntry || g.atlas_id == null) continue;
-                const seasons = byAtlas.get(g.atlas_id) || [];
+                const fetched = byAtlas.get(g.atlas_id) || [];
+                const fetchedIds = new Set(fetched.map((s) => String(s.steam_id)));
+                // Merge in manually-linked appids that have no steam_data row
+                // yet, so all seasons show even before their metadata is fetched
+                // (lazy: title/date fill in once the client fetches that appid).
+                const extra = manualAppIds(g)
+                  .filter((id) => !fetchedIds.has(id))
+                  .map((id) => ({ steam_id: id, atlas_id: g.atlas_id, title: null, release_date: null }));
+                const seasons = [...fetched, ...extra];
                 // Only synthesize a version list when there are multiple Steam
                 // seasons; a single appid needs no picker.
                 if (seasons.length <= 1) continue;

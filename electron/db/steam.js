@@ -154,8 +154,9 @@ const findRecordBySteamId = (steamId) => {
               OR a.external_ids LIKE '%"steam_appid": "' || ? || '"%'
               OR a.external_ids LIKE '%"steam_appid":' || ? || '%'
               OR a.external_ids LIKE '%"steam_id":"' || ? || '"%'
+              OR a.external_ids LIKE '%"steam_appids"%"' || ? || '"%'
            LIMIT 1`,
-          [id, id, id, id],
+          [id, id, id, id, id],
           (err2, row2) => {
             if (err2) {
               reject(err2);
