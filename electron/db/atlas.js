@@ -646,9 +646,16 @@ function getValidatedUpdateColumns(jsonData, tableName) {
     ),
   );
   if (invalidColumns.length > 0) {
-    throw new Error(
-      `Unexpected column(s) for ${tableName}: ${invalidColumns.join(", ")}`,
+    // Previously this threw, which aborted the ENTIRE package ingest (atlas +
+    // f95 + lewdcorner) for that update — so one unexpected column (e.g. a new
+    // server field the client doesn't know yet) could blank all metadata for
+    // the whole batch and, since the package is then skipped, keep failing.
+    // Instead, drop the unknown columns and write the known ones, so a schema
+    // addition on the server degrades gracefully rather than losing data.
+    console.warn(
+      `insertJsonData: ignoring unexpected column(s) for ${tableName}: ${invalidColumns.join(", ")}`,
     );
+    return columns.filter((column) => allowedColumns.has(column));
   }
 
   return columns;
@@ -662,9 +669,44 @@ const insertJsonData = async (jsonData, tableName) => {
 
   // Validate/derive the column set from the payload (throws on malformed data).
   const columns = getValidatedUpdateColumns(jsonData, tableName);
-  const insertSql = `INSERT OR REPLACE INTO ${tableName} (${columns.join(
-    ", ",
-  )}) VALUES (${columns.map(() => "?").join(", ")})`;
+
+  // Primary key per update table. The upsert conflict target and the column we
+  // must never coalesce-away (it identifies the row).
+  const primaryKeyByTable = {
+    atlas_data: 'atlas_id',
+    f95_zone_data: 'f95_id',
+    lewdcorner_data: 'lc_id',
+  };
+  const pk = primaryKeyByTable[tableName];
+
+  // Previously this used INSERT OR REPLACE, which DELETES the existing row and
+  // re-inserts using only the payload's columns — so any column absent from the
+  // payload, or present but NULL/empty, WIPED the locally-stored value. That
+  // silently blanked metadata (e.g. Steam publisher/overview) that was fine
+  // before. Instead upsert and, on conflict, only overwrite when the incoming
+  // value is actually present: COALESCE(NULLIF(excluded.col,''), col) keeps the
+  // existing value when the server sends '' or NULL. The primary key and
+  // last_record_update always take the incoming value.
+  let insertSql;
+  if (pk && columns.includes(pk)) {
+    const updateAssignments = columns
+      .filter((col) => col !== pk)
+      .map((col) => {
+        if (col === 'last_record_update') {
+          return `${col} = excluded.${col}`;
+        }
+        return `${col} = COALESCE(NULLIF(excluded.${col}, ''), ${tableName}.${col})`;
+      })
+      .join(', ');
+    insertSql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${columns
+      .map(() => '?')
+      .join(', ')}) ON CONFLICT(${pk}) DO UPDATE SET ${updateAssignments}`;
+  } else {
+    // Fallback for tables without a known PK: keep prior behavior.
+    insertSql = `INSERT OR REPLACE INTO ${tableName} (${columns.join(
+      ', ',
+    )}) VALUES (${columns.map(() => '?').join(', ')})`;
+  }
 
   const writeChunk = (chunk) =>
     new Promise((resolve, reject) => {
