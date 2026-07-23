@@ -631,9 +631,31 @@ const getF95IdValues = (game = {}) => [
   ...getExternalValues(game, ['f95_id', 'f95Id']),
 ]
 
+// Pull array-valued external id fields (steam_appids[]/gog_ids[] from admin
+// manual links) as individual values. Accepts a real array, a JSON-string
+// array, or a CSV string, mirroring the detail-page link expansion.
+const getExternalArrayValues = (game = {}, keys = []) => {
+  const externalIds = getExternalIds(game)
+  const out = []
+  const coerce = (val) => {
+    if (Array.isArray(val)) return val
+    const s = String(val ?? '').trim()
+    if (!s) return []
+    if (s.startsWith('[')) { try { const p = JSON.parse(s); if (Array.isArray(p)) return p } catch { /* csv */ } }
+    return s.includes(',') ? s.split(',') : [s]
+  }
+  for (const key of keys) {
+    for (const v of coerce(externalIds[key])) {
+      if (hasValue(v)) out.push(v)
+    }
+  }
+  return out
+}
+
 const getSteamIdValues = (game = {}) => [
   ...collectValues(game, ['steam_id', 'steamId', 'steam_appid', 'steamAppId']),
   ...getExternalValues(game, ['steam_id', 'steamId', 'steam_appid', 'steamAppId']),
+  ...getExternalArrayValues(game, ['steam_appids', 'steam_ids']),
 ]
 
 const getLewdCornerIdValues = (game = {}) => [
