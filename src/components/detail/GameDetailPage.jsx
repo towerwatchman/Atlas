@@ -341,7 +341,40 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           ? (selectedVersion.source_app_id ?? selectedVersion.sourceAppId ?? null)
           : null
         const urls = await window.electronAPI.getPreviews(game.record_id, selectedSteamAppId)
-        setPreviews(filterOutBanner(urls, game.banner_url))
+        let localPreviews = Array.isArray(urls) ? urls : []
+        // For a Steam version, the selected season's screens/trailers may not be
+        // in the local DB yet (only the imported appid's media gets fetched at
+        // import time). Lazily fetch this appid's media so switching versions
+        // shows the right previews + trailers, mirroring browse mode. Trailer
+        // urls lead the grid; their thumbnails feed movieThumbs.
+        if (selectedSteamAppId) {
+          try {
+            const media = await window.electronAPI.ensureSteamBrowseMedia?.(selectedSteamAppId)
+            if (media) {
+              const trailerUrls = (media.trailers || []).map((t) => t.url).filter(Boolean)
+              const steamMedia = [...trailerUrls, ...(media.previews || [])]
+              const merged = []
+              const seen = new Set()
+              // Steam media for the selected appid first, then whatever getPreviews
+              // returned (local downloaded art, other-source screens), deduped.
+              for (const u of [...steamMedia, ...localPreviews]) {
+                const s = String(u || '').trim()
+                if (s && !seen.has(s)) { seen.add(s); merged.push(s) }
+              }
+              localPreviews = merged
+              if ((media.trailers || []).length > 0) {
+                setMovieThumbs((prev) => {
+                  const next = { ...prev }
+                  for (const t of media.trailers) if (t?.url && t?.thumbnail) next[t.url] = t.thumbnail
+                  return next
+                })
+              }
+            }
+          } catch (mediaErr) {
+            console.warn('Failed to load selected steam version media:', mediaErr?.message)
+          }
+        }
+        setPreviews(filterOutBanner(localPreviews, game.banner_url))
       } catch (err) {
         console.error('Failed to load previews:', err)
         setPreviews([])
@@ -373,10 +406,15 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
           ? (selectedVersion.source_app_id ?? selectedVersion.sourceAppId ?? null)
           : null
         const pairs = await window.electronAPI.getSteamMovieThumbnails?.(game.record_id, selectedSteamAppId)
-        if (cancelled || !Array.isArray(pairs)) return
-        const map = {}
-        for (const p of pairs) if (p?.url && p?.thumbnail) map[p.url] = p.thumbnail
-        setMovieThumbs(map)
+        if (cancelled || !Array.isArray(pairs) || pairs.length === 0) return
+        // Merge, don't replace: loadPreviews may have already populated thumbs
+        // for the selected Steam version via ensureSteamBrowseMedia (these two
+        // effects run in parallel). Replacing here would race/wipe those.
+        setMovieThumbs((prev) => {
+          const next = { ...prev }
+          for (const p of pairs) if (p?.url && p?.thumbnail) next[p.url] = p.thumbnail
+          return next
+        })
       } catch (err) {
         console.warn('Failed to load movie thumbnails:', err?.message)
       }
