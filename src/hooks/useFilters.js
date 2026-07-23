@@ -633,7 +633,9 @@ const getF95IdValues = (game = {}) => [
 
 // Pull array-valued external id fields (steam_appids[]/gog_ids[] from admin
 // manual links) as individual values. Accepts a real array, a JSON-string
-// array, or a CSV string, mirroring the detail-page link expansion.
+// array, or a CSV string. Needed so an atlas catalog tile whose only Steam
+// linkage is the steam_appids[] array (no scalar steam_appid) is still detected
+// as a Steam source by the browse source filter.
 const getExternalArrayValues = (game = {}, keys = []) => {
   const externalIds = getExternalIds(game)
   const out = []

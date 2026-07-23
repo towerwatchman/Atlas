@@ -1210,7 +1210,23 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       filterParams.push(min, max);
     };
     const browseSource = String(filters.browseSource || filters.source || 'all').toLowerCase();
-    if (['f95', 'lewdcorner', 'steam', 'atlas'].includes(browseSource)) {
+    if (browseSource === 'steam') {
+      // "Steam" in browse means: any catalog tile that HAS a Steam mapping, not
+      // just tiles whose computed source is 'steam'. Atlas tiles carry their
+      // Steam link in external_ids (scalar steam_appid/steam_id or the
+      // steam_appids[] array from admin manual links); their `source` column is
+      // f95/lewdcorner/atlas because the client has no server-side steam_data to
+      // populate a steam_id. Match on either the computed source OR a Steam id
+      // present in external_ids.
+      filterWhereParts.push(`(
+        catalog.source = 'steam'
+        OR catalog.steam_id IS NOT NULL
+        OR catalog.external_ids LIKE '%"steam_appid"%'
+        OR catalog.external_ids LIKE '%"steam_appids"%'
+        OR catalog.external_ids LIKE '%"steam_id"%'
+        OR catalog.siteUrl LIKE '%store.steampowered.com/app/%'
+      )`);
+    } else if (['f95', 'lewdcorner', 'atlas'].includes(browseSource)) {
       filterWhereParts.push('catalog.source = ?');
       filterParams.push(browseSource);
     }
@@ -1602,7 +1618,22 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           steam_data.tags AS tags
         FROM steam_data
         LEFT JOIN atlas_data ON steam_data.atlas_id = atlas_data.atlas_id
-        WHERE steam_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL
+        WHERE (steam_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL)
+          -- Also exclude appids that belong to an atlas via external_ids, even
+          -- when steam_data.atlas_id is NULL. The client fetches Steam metadata
+          -- itself (Steam's API has no atlas id), so steam_data.atlas_id is
+          -- always NULL for lazily-fetched appids; their atlas linkage lives in
+          -- atlas_data.external_ids / steam_appids[]. Without this, each season
+          -- appid would leak into browse as its own tile instead of grouping
+          -- under the one atlas catalog entry.
+          AND NOT EXISTS (
+            SELECT 1 FROM atlas_data ad
+             WHERE ad.external_ids LIKE '%"steam_appid":"' || steam_data.steam_id || '"%'
+                OR ad.external_ids LIKE '%"steam_appid": "' || steam_data.steam_id || '"%'
+                OR ad.external_ids LIKE '%"steam_appid":' || steam_data.steam_id || '%'
+                OR ad.external_ids LIKE '%"steam_id":"' || steam_data.steam_id || '"%'
+                OR ad.external_ids LIKE '%"steam_appids"%"' || steam_data.steam_id || '"%'
+          )
       ),
       steam_branch AS (
         SELECT
