@@ -103,6 +103,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getManualMappings: (recordId) =>
     ipcRenderer.invoke("get-manual-mappings", recordId),
   runDbAudit: () => ipcRenderer.invoke("run-db-audit"),
+  auditSeasonMerges: () => ipcRenderer.invoke("audit-season-merges"),
+  applySeasonMerge: (atlasId, survivorRecordId) =>
+    ipcRenderer.invoke("apply-season-merge", { atlasId, survivorRecordId }),
+  applyAllSeasonMerges: () => ipcRenderer.invoke("apply-all-season-merges"),
   getInvalidMappingCount: () => ipcRenderer.invoke("get-invalid-mapping-count"),
   setManualMappings: (recordId, mappings) =>
     ipcRenderer.invoke("set-manual-mappings", { recordId, mappings }),

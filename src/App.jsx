@@ -168,6 +168,10 @@ const App = () => {
   // that local games were mapped to (count > 0). Dismissable for the session.
   const [invalidMappingCount, setInvalidMappingCount] = useState(0)
   const [mappingBannerDismissed, setMappingBannerDismissed] = useState(false)
+  // Passive banner for duplicate games that can be merged (multiple local
+  // records sharing one atlas_id, e.g. Steam seasons). Dismissable for session.
+  const [mergeableCount, setMergeableCount] = useState(0)
+  const [mergeBannerDismissed, setMergeBannerDismissed] = useState(false)
   const [showWelcomeTour, setShowWelcomeTour] = useState(false)
   // True while the tour is running as part of the first-run flow (not a replay
   // from About). When such a tour ends, we chain into the settings tour.
@@ -1014,6 +1018,22 @@ const App = () => {
     return () => { cancelled = true }
   }, [])
 
+  // Passively scan for mergeable duplicate games (shared atlas_id) so we can
+  // surface a banner prompting the user to merge them in Settings → Database.
+  // Re-runs when the library changes (e.g. after a merge or an import).
+  useEffect(() => {
+    let cancelled = false
+    const scan = () => {
+      window.electronAPI.auditSeasonMerges?.()
+        .then((res) => { if (!cancelled && res?.success !== false) setMergeableCount(res?.total || 0) })
+        .catch(() => {})
+    }
+    scan()
+    const onChanged = () => scan()
+    window.addEventListener('atlas:library-changed', onChanged)
+    return () => { cancelled = true; window.removeEventListener('atlas:library-changed', onChanged) }
+  }, [])
+
   // Replay the welcome tour from the About modal.
   const replayWelcomeTour = () => {
     firstRunTourRef.current = false
@@ -1665,6 +1685,28 @@ const App = () => {
               </button>
               <button
                 onClick={() => setMappingBannerDismissed(true)}
+                title="Dismiss"
+                aria-label="Dismiss"
+                className="w-7 h-7 flex items-center justify-center rounded hover:bg-tertiary flex-shrink-0"
+              >
+                <i className="fas fa-times" aria-hidden="true"></i>
+              </button>
+            </div>
+          )}
+          {!selectedGame && mergeableCount > 0 && !mergeBannerDismissed && (
+            <div className="mx-3 mt-3 mb-1 flex items-center gap-3 rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-text">
+              <i className="fas fa-layer-group text-amber-400" aria-hidden="true"></i>
+              <span className="flex-1">
+                {mergeableCount} game{mergeableCount === 1 ? '' : 's'} in your library appear{mergeableCount === 1 ? 's' : ''} more than once and can be merged into a single game with selectable versions.
+              </span>
+              <button
+                onClick={() => window.electronAPI.openSettings?.()}
+                className="px-3 py-1 bg-button hover:bg-buttonHover rounded flex-shrink-0"
+              >
+                Open Settings
+              </button>
+              <button
+                onClick={() => setMergeBannerDismissed(true)}
                 title="Dismiss"
                 aria-label="Dismiss"
                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-tertiary flex-shrink-0"

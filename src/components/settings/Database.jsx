@@ -56,6 +56,68 @@ export default function Database() {
   const [remapBusy, setRemapBusy] = useState(false)
   const [remapError, setRemapError] = useState('')
 
+  // Season/version merge state
+  const [mergeLoading, setMergeLoading] = useState(false)
+  const [mergeItems, setMergeItems] = useState(null) // array or null (not run)
+  const [mergeError, setMergeError] = useState('')
+  const [mergeBusyId, setMergeBusyId] = useState(null) // atlasId currently merging
+  const [mergeAllBusy, setMergeAllBusy] = useState(false)
+
+  const runMergeAudit = useCallback(async () => {
+    setMergeLoading(true)
+    setMergeError('')
+    try {
+      const res = await window.electronAPI.auditSeasonMerges?.()
+      if (!res || res.success === false) {
+        setMergeError(res?.error || 'Scan failed')
+        setMergeItems([])
+      } else {
+        setMergeItems(res.items || [])
+      }
+    } catch (err) {
+      setMergeError(err.message || 'Scan failed')
+      setMergeItems([])
+    } finally {
+      setMergeLoading(false)
+    }
+  }, [])
+
+  const mergeGroup = async (item) => {
+    setMergeBusyId(item.atlasId)
+    setMergeError('')
+    try {
+      const res = await window.electronAPI.applySeasonMerge?.(item.atlasId, item.survivorRecordId)
+      if (!res || res.success === false) {
+        setMergeError(res?.error || 'Merge failed')
+        return
+      }
+      setMergeItems((prev) => (prev || []).filter((i) => i.atlasId !== item.atlasId))
+      window.dispatchEvent(new CustomEvent('atlas:library-changed'))
+    } catch (err) {
+      setMergeError(err.message || 'Merge failed')
+    } finally {
+      setMergeBusyId(null)
+    }
+  }
+
+  const mergeAll = async () => {
+    setMergeAllBusy(true)
+    setMergeError('')
+    try {
+      const res = await window.electronAPI.applyAllSeasonMerges?.()
+      if (!res || res.success === false) {
+        setMergeError(res?.error || 'Merge failed')
+        return
+      }
+      setMergeItems([])
+      window.dispatchEvent(new CustomEvent('atlas:library-changed'))
+    } catch (err) {
+      setMergeError(err.message || 'Merge failed')
+    } finally {
+      setMergeAllBusy(false)
+    }
+  }
+
   const runAudit = useCallback(async () => {
     setLoading(true)
     setError('')
@@ -202,6 +264,105 @@ export default function Database() {
           </table>
         </div>
       )}
+
+      {/* Season / duplicate-game merge */}
+      <div className="pt-6 mt-2 border-t border-border space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Merge duplicate games</h2>
+          <p className="text-sm text-muted mt-1 max-w-2xl">
+            Some games appear more than once in your library — most often Steam titles whose
+            seasons are separate store entries but map to a single catalog game. Merging folds
+            them into one game with each entry available as a selectable version. Per-version
+            playtime is preserved. Only games linked to the same catalog entry are merged.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={runMergeAudit}
+            disabled={mergeLoading || mergeAllBusy}
+            className="px-4 py-2 bg-accent hover:bg-accentHover text-white rounded disabled:opacity-50"
+          >
+            {mergeLoading ? 'Scanning…' : 'Scan for duplicates'}
+          </button>
+          {Array.isArray(mergeItems) && mergeItems.length > 0 && (
+            <button
+              onClick={mergeAll}
+              disabled={mergeAllBusy || mergeBusyId != null}
+              className="px-4 py-2 bg-button hover:bg-buttonHover rounded disabled:opacity-50"
+            >
+              {mergeAllBusy ? 'Merging…' : `Merge all (${mergeItems.length})`}
+            </button>
+          )}
+        </div>
+
+        {mergeError && <div className="text-sm text-danger">{mergeError}</div>}
+
+        {Array.isArray(mergeItems) && !mergeLoading && mergeItems.length === 0 && (
+          <div className="text-sm text-muted border border-border rounded p-4">
+            No duplicate games found — nothing to merge.
+          </div>
+        )}
+
+        {Array.isArray(mergeItems) && mergeItems.length > 0 && (
+          <div className="border border-border rounded overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-secondary text-muted">
+                <tr>
+                  <th className="text-left font-medium px-3 py-2">Game</th>
+                  <th className="text-left font-medium px-3 py-2">Duplicates</th>
+                  <th className="text-left font-medium px-3 py-2 hidden sm:table-cell">Will merge into</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {mergeItems.map((item) => {
+                  const survivor = item.records?.find((r) => r.isSurvivor)
+                  return (
+                    <tr key={item.atlasId} className="border-t border-border align-top">
+                      <td className="px-3 py-2">
+                        <div>{item.groupTitle}</div>
+                        <div className="text-xs text-muted mt-0.5 sm:hidden">
+                          → {survivor?.title || `record ${item.survivorRecordId}`}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-muted">
+                        <div className="flex flex-col gap-0.5">
+                          {(item.records || []).map((r) => (
+                            <span key={r.recordId} className={r.isSurvivor ? 'text-text' : ''}>
+                              {r.title}
+                              {r.versionCount > 0 && (
+                                <span className="text-xs text-muted"> · {r.versionCount} ver.</span>
+                              )}
+                              {r.isSurvivor && (
+                                <span className="ml-1 text-xs px-1.5 py-0.5 rounded border border-accent/40 text-accent">
+                                  kept
+                                </span>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-muted hidden sm:table-cell">
+                        {survivor?.title || `record ${item.survivorRecordId}`}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          onClick={() => mergeGroup(item)}
+                          disabled={mergeBusyId != null || mergeAllBusy}
+                          className="px-3 py-1 bg-button hover:bg-buttonHover rounded disabled:opacity-50"
+                        >
+                          {mergeBusyId === item.atlasId ? 'Merging…' : 'Merge'}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Inline remap modal */}
       {remapTarget && (
