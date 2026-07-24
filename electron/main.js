@@ -393,6 +393,21 @@ const defaultConfig = {
     showGameList: true,
     sidePanelMode: 'games',
   },
+  // Per-channel record of the app version last INSTALLED from each update
+  // channel. The updater compares the active channel's latest release
+  // against THIS baseline (via autoUpdater.currentVersion) instead of always
+  // using the running build's version. That's what lets a user switch
+  // channels correctly: switching to a channel they've never installed
+  // leaves its baseline empty (treated as 0.0.0 -> always offered the
+  // latest), while switching back to their real channel keeps its true
+  // installed version (so it correctly shows up to date). The channel that
+  // matches the actually-running build is stamped to app.getVersion() on
+  // every launch (see recordRunningBuildVersion). Empty string = never
+  // installed from that channel.
+  Updates: {
+    stableVersion: '',
+    nightlyVersion: '',
+  },
   Library: {
     rootPath: dataDir,
     gameFolder: '',
@@ -485,6 +500,46 @@ function getDefaultAppUpdateBranch() {
   return app.getVersion().includes('-nightly') ? 'nightly' : 'stable'
 }
 
+// The config key under [Updates] that stores the last-installed version for
+// a given branch.
+function versionKeyForBranch(branch) {
+  return branch === 'nightly' ? 'nightlyVersion' : 'stableVersion'
+}
+
+// The version baseline the updater should compare a channel's latest release
+// against. This is the version last INSTALLED from that channel, or 0.0.0 if
+// the user has never installed from it (so its latest is always offered).
+function getInstalledVersionForBranch(branch) {
+  const key = versionKeyForBranch(branch)
+  const stored = String(appConfig?.Updates?.[key] || '').trim()
+  return stored || '0.0.0'
+}
+
+// Persist the version last installed from a branch.
+function setInstalledVersionForBranch(branch, version) {
+  const key = versionKeyForBranch(branch)
+  const value = String(version || '').trim()
+  appConfig = {
+    ...appConfig,
+    Updates: {
+      ...(appConfig?.Updates || {}),
+      [key]: value,
+    },
+  }
+  writeConfigSafely()
+  console.log(`Recorded installed ${branch} version: ${value || '(none)'}`)
+}
+
+// Stamp the currently-running build's version onto whichever channel it
+// actually belongs to. Called on launch: whatever build is running IS, by
+// definition, the installed version for its own channel. The other channel's
+// stored version is left untouched (it reflects what was last installed from
+// there, or nothing).
+function recordRunningBuildVersion() {
+  const runningBranch = getDefaultAppUpdateBranch()
+  setInstalledVersionForBranch(runningBranch, app.getVersion())
+}
+
 function getConfiguredAppUpdateBranch(config = appConfig) {
   return normalizeAppUpdateBranch(config?.Interface?.appUpdateBranch) || getDefaultAppUpdateBranch()
 }
@@ -496,13 +551,23 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
   activeAppUpdateBranch = normalizedBranch
   autoUpdater.setFeedURL({ provider: 'github', owner: 'towerwatchman', repo: 'Atlas', channel: 'latest' })
   autoUpdater.allowPrerelease = normalizedBranch === 'nightly'
-  // Nightly versions are semver prereleases of the SAME base (e.g. 0.9.2 stable
-  // vs 0.9.2-nightly.5), so a nightly build sorts LOWER than the stable release.
-  // With allowDowngrade=false that made stable -> nightly refuse the "older"
-  // nightly build. Allow downgrade when on the nightly branch, and also whenever
-  // the branch is actively switching (so stable <-> nightly both resolve), while
-  // keeping strict no-downgrade for steady-state stable.
-  autoUpdater.allowDowngrade = normalizedBranch === 'nightly' || branchChanged
+
+  // Compare the channel's latest release against the version last INSTALLED
+  // from THAT channel, not against the running build. This is the core of
+  // correct channel switching: electron-updater normally compares the feed
+  // against app.getVersion(), which is the running build and therefore only
+  // ever right for the running build's own channel. By overriding
+  // currentVersion per channel, semver comparison alone resolves every case
+  // and the old allowDowngrade hacks are no longer needed:
+  //   - Switch to a channel never installed -> baseline 0.0.0 -> latest is
+  //     higher -> offered.
+  //   - Switch back to your real channel without updating -> baseline is its
+  //     true installed version -> latest is equal -> up to date.
+  //   - Nightly (0.9.2-nightly.5) vs stable (0.9.2): each channel is judged
+  //     against its own last-installed baseline, so the prerelease-sorts-
+  //     lower problem that previously required allowDowngrade disappears.
+  autoUpdater.currentVersion = getInstalledVersionForBranch(normalizedBranch)
+  autoUpdater.allowDowngrade = false
 
   if (resetStatus && branchChanged) {
     updateInfo = null
@@ -511,7 +576,7 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
     sendUpdateStatus({ status: 'idle' }, 'update-branch-changed')
   }
 
-  console.log(`Configured app update branch: ${normalizedBranch} (allowDowngrade=${autoUpdater.allowDowngrade})`)
+  console.log(`Configured app update branch: ${normalizedBranch} (baseline=${autoUpdater.currentVersion})`)
   return normalizedBranch
 }
 
@@ -1458,6 +1523,12 @@ app.whenReady().then(async () => {
     fs.writeFileSync(configPath, ini.stringify(defaultConfig))
     nsfwConfigured = false
   }
+
+  // Stamp the running build's version onto its own channel BEFORE resolving
+  // the update baseline, so the active channel always reflects the true
+  // on-disk version and only the *other* channel can be a never-installed
+  // 0.0.0. Must run after appConfig is loaded above.
+  recordRunningBuildVersion()
 
   configureAppUpdateBranch(getConfiguredAppUpdateBranch(appConfig))
 
