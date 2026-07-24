@@ -31,6 +31,23 @@ function mediaContentType(filePath) {
   }
 }
 const fs = require('fs')
+// electron-updater compares currentVersion with its OWN nested copy of semver
+// (electron-updater/node_modules/semver). Its comparison functions do
+// `new SemVer(x)`, which rejects a SemVer instance created by any *other* copy
+// of semver with: 'Invalid version. Must be a string. Got type "object".'
+// So the baseline must be parsed with electron-updater's exact semver module,
+// not the top-level one. Resolve that copy specifically; fall back to the
+// hoisted/top-level semver only if the nested path is unavailable.
+let semver
+try {
+  semver = require('electron-updater/node_modules/semver')
+} catch {
+  try {
+    semver = require('semver')
+  } catch {
+    semver = null
+  }
+}
 const fsp = require('fs').promises
 const sharp = require('sharp')
 const axios = require('axios')
@@ -549,8 +566,49 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
   const previousBranch = activeAppUpdateBranch
   const branchChanged = Boolean(previousBranch && previousBranch !== normalizedBranch)
   activeAppUpdateBranch = normalizedBranch
-  autoUpdater.setFeedURL({ provider: 'github', owner: 'towerwatchman', repo: 'Atlas', channel: 'latest' })
-  autoUpdater.allowPrerelease = normalizedBranch === 'nightly'
+  // The feed channel decides WHICH manifest electron-updater fetches from the
+  // GitHub release: stable builds publish `latest.yml`, while nightly builds
+  // carry a prerelease semver (0.9.2-nightly.N) and electron-builder writes
+  // their manifest to `beta.yml`. Hardcoding `latest` here meant every branch
+  // — nightly included — pulled the stable manifest, so the app always tried
+  // to update to the latest stable/main release. allowPrerelease does NOT fix
+  // this: it only governs whether prerelease tags inside the already-fetched
+  // manifest are honored, not which channel file is downloaded. Selecting the
+  // channel per branch is what actually routes nightly to its own releases.
+  // Route the check to the correct release channel. Two things must be set for
+  // electron-updater v6's GitHub provider to resolve the right release:
+  //
+  //  1. autoUpdater.channel — the provider reads `updater.channel` (NOT just the
+  //     channel passed to setFeedURL) both to choose the manifest filename and,
+  //     for prereleases, to match the release tag in the atom feed. In v6's
+  //     GitHubProvider.getLatestVersion, when allowPrerelease is true it walks
+  //     the feed looking for a release whose tag prerelease word equals
+  //     `updater.channel || semver.prerelease(currentVersion)[0]`. If that is
+  //     null it silently grabs the newest release overall — which is why
+  //     nightly was pulling the latest stable/main release.
+  //
+  //  2. currentVersion — the baseline the found release is compared against. We
+  //     keep a per-branch baseline so each channel is judged against its own
+  //     last-installed version. For nightly we ensure the baseline carries a
+  //     `-nightly` prerelease component so the feed matcher has a channel word
+  //     to lock onto even before setting `.channel` takes effect.
+  const isNightly = normalizedBranch === 'nightly'
+  autoUpdater.allowPrerelease = isNightly
+  // Assigning `.channel` also flips allowDowngrade to true internally, so set
+  // allowDowngrade explicitly afterwards.
+  autoUpdater.channel = isNightly ? 'nightly' : 'latest'
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'towerwatchman',
+    repo: 'Atlas',
+    channel: isNightly ? 'nightly' : 'latest',
+  })
+
+  // electron-updater resolves & caches the provider lazily; setFeedURL already
+  // resets clientPromise, but we also clear the check/result caches so a
+  // mid-session branch switch fully re-resolves. Guarded for version drift.
+  try { autoUpdater.checkForUpdatesPromise = null } catch {}
+  try { autoUpdater.updateInfoAndProvider = null } catch {}
 
   // Compare the channel's latest release against the version last INSTALLED
   // from THAT channel, not against the running build. This is the core of
@@ -566,8 +624,53 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
   //   - Nightly (0.9.2-nightly.5) vs stable (0.9.2): each channel is judged
   //     against its own last-installed baseline, so the prerelease-sorts-
   //     lower problem that previously required allowDowngrade disappears.
-  autoUpdater.currentVersion = getInstalledVersionForBranch(normalizedBranch)
+  //
+  // IMPORTANT: electron-updater v6 stores currentVersion as a parsed semver
+  // SemVer object (it calls .format()/gt()/eq() on it in doCheckForUpdates).
+  // Assigning a raw string throws "this.currentVersion.format is not a
+  // function" at check time — which is exactly what surfaced as the generic
+  // "could not check for updates right now" error.
+  //
+  // Even parsing with a require('semver') is not enough: electron-updater's
+  // comparison functions instantiate `new SemVer(x)` from ITS nested semver
+  // copy, and that constructor rejects a SemVer produced by any other copy
+  // ('Invalid version. Must be a string. Got type "object".'). To guarantee
+  // class identity, build the baseline from the SemVer CLASS of the object
+  // electron-updater itself created at construction time
+  // (autoUpdater.currentVersion.constructor) — that is, by definition, its own
+  // semver. Fall back to the resolved `semver` module, then to leaving the
+  // running build's version in place, so a check never crashes.
+  const baselineString = getInstalledVersionForBranch(normalizedBranch)
+  let parsedBaseline = null
+  try {
+    const ExistingSemVer = autoUpdater.currentVersion && autoUpdater.currentVersion.constructor
+    if (typeof ExistingSemVer === 'function') {
+      try {
+        parsedBaseline = new ExistingSemVer(baselineString)
+      } catch {
+        parsedBaseline = new ExistingSemVer('0.0.0')
+      }
+    }
+  } catch {
+    parsedBaseline = null
+  }
+  if (parsedBaseline == null && semver) {
+    parsedBaseline = semver.parse(baselineString) || semver.parse('0.0.0')
+  }
+  if (parsedBaseline != null) {
+    autoUpdater.currentVersion = parsedBaseline
+  }
+  // If parsedBaseline is still null, leave autoUpdater.currentVersion as the
+  // running build's version (set by electron-updater at construction) rather
+  // than assigning a foreign/invalid value — the check will still run.
   autoUpdater.allowDowngrade = false
+  updaterLog(
+    'CONFIGURE',
+    `branch=${normalizedBranch}`,
+    `channel=${autoUpdater.channel}`,
+    `allowPrerelease=${autoUpdater.allowPrerelease}`,
+    `baseline=${(parsedBaseline && typeof parsedBaseline.format === 'function') ? parsedBaseline.format() : String(autoUpdater.currentVersion)}`
+  )
 
   if (resetStatus && branchChanged) {
     updateInfo = null
@@ -582,6 +685,38 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
 
 configureAppUpdateBranch(getDefaultAppUpdateBranch())
 autoUpdater.autoDownload = false
+
+// ── Updater diagnostics ─────────────────────────────────────────────────────
+// electron-updater's console output only appears in the main-process log, which
+// is invisible in packaged builds. Mirror updater diagnostics to a plain-text
+// file in userData so they can be retrieved without launching from a terminal.
+// Path: <userData>/atlas-updater.log (e.g. %AppData%/Atlas/atlas-updater.log).
+function updaterLogPath() {
+  try {
+    return path.join(app.getPath('userData'), 'atlas-updater.log')
+  } catch {
+    return null
+  }
+}
+
+function updaterLog(...parts) {
+  const line = `[${new Date().toISOString()}] ${parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(' ')}`
+  console.log('[updater]', line)
+  const file = updaterLogPath()
+  if (!file) return
+  try {
+    fs.appendFileSync(file, line + '\n')
+  } catch {}
+}
+
+// Route electron-updater's internal logger through our file logger so its full
+// resolution trace (which release/tag/manifest it picked) is captured too.
+autoUpdater.logger = {
+  info: (m) => updaterLog('INFO', m),
+  warn: (m) => updaterLog('WARN', m),
+  error: (m) => updaterLog('ERROR', m),
+  debug: (m) => updaterLog('DEBUG', m),
+}
 
 // Pass the CURRENT install directory to the new installer so it updates
 // in-place. electron-updater appends this as the NSIS /D= switch (the last
@@ -641,7 +776,18 @@ autoUpdater.on('update-downloaded', (info) => {
 })
 autoUpdater.on('error', (err) => {
   const normalizedError = normalizeUpdateError(err)
-  console.error('Updater error:', err)
+  // Full raw diagnostics to the file log so a packaged build can be diagnosed.
+  updaterLog(
+    'RAW-ERROR',
+    `code=${err?.code || '(none)'}`,
+    `status=${err?.statusCode || err?.status || '(none)'}`,
+    `message=${err?.message || String(err)}`,
+    `-> normalized=${normalizedError.code}`
+  )
+  console.error(
+    `[updater] raw error code=${err?.code || '(none)'} status=${err?.statusCode || err?.status || '(none)'} ` +
+    `message=${err?.message || String(err)} -> normalized=${normalizedError.code}`
+  )
   console.error('Updater error normalized:', normalizedError)
   installAfterDownload = false
   updateInfo = null
@@ -1613,6 +1759,16 @@ app.whenReady().then(async () => {
     autoUpdater.checkForUpdates().catch((err) => {
       const normalizedError = normalizeUpdateError(err)
       console.warn('Startup update check failed:', normalizedError.technicalMessage)
+      // The startup check is a background, unsolicited action. Only surface
+      // outcomes the user can actually act on. A benign "no release on this
+      // channel yet" (nothing published for this branch) is not an error and
+      // must not pop a failure notice on every launch — stay silent and let
+      // the footer remain idle. Real, actionable failures (network, package
+      // not ready, genuine check failure) still surface.
+      if (normalizedError.code === 'UPDATE_NO_RELEASE_ON_CHANNEL') {
+        sendUpdateStatus({ status: 'not-available' }, 'startup-no-release-on-channel')
+        return
+      }
       sendUpdateStatus({
         status: 'error',
         error: normalizedError.userMessage,

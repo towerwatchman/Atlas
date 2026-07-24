@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { formatPercent, sanitizePercentText } from '../utils/formatPercent.js'
 
 const PACKAGE_NOT_READY_CODE = 'UPDATE_PACKAGE_NOT_READY'
+const NO_RELEASE_ON_CHANNEL_CODE = 'UPDATE_NO_RELEASE_ON_CHANNEL'
 const AUTO_DISMISS_NOTICE_MS = 15000
 const AUTO_DISMISS_STATUSES = new Set(['available', 'not-available', 'error', 'package_not_ready'])
 
@@ -126,6 +127,23 @@ export function useAppUpdate(setDbUpdateStatus) {
         })
       } else if (status.status === 'error') {
         setAppUpdateActionBusy(false)
+        // "No release on this channel yet" is a normal, expected state (e.g.
+        // right after switching to a branch that has no build). Present it as a
+        // benign, up-to-date-style notice rather than a red failure.
+        if (status.code === NO_RELEASE_ON_CHANNEL_CODE) {
+          setAppUpdateNotice((notice) => {
+            logFooterTransition(notice.status, 'not-available', 'update-status')
+            return {
+              visible: true,
+              status: 'not-available',
+              code: status.code || '',
+              version: '',
+              text: sanitizePercentText(status.error || 'Atlas is up to date.'),
+              percent: null,
+            }
+          })
+          return
+        }
         console.error('Update error:', status.error)
         setAppUpdateNotice((notice) => {
           const nextStatus = status.code === PACKAGE_NOT_READY_CODE ? 'package_not_ready' : 'error'
