@@ -31,14 +31,22 @@ function mediaContentType(filePath) {
   }
 }
 const fs = require('fs')
-// electron-updater expects currentVersion as a parsed semver SemVer object.
-// semver is a transitive dep of electron-updater and is normally hoisted to
-// the top level; fall back to electron-updater's nested copy if not.
+// electron-updater compares currentVersion with its OWN nested copy of semver
+// (electron-updater/node_modules/semver). Its comparison functions do
+// `new SemVer(x)`, which rejects a SemVer instance created by any *other* copy
+// of semver with: 'Invalid version. Must be a string. Got type "object".'
+// So the baseline must be parsed with electron-updater's exact semver module,
+// not the top-level one. Resolve that copy specifically; fall back to the
+// hoisted/top-level semver only if the nested path is unavailable.
 let semver
 try {
-  semver = require('semver')
-} catch {
   semver = require('electron-updater/node_modules/semver')
+} catch {
+  try {
+    semver = require('semver')
+  } catch {
+    semver = null
+  }
 }
 const fsp = require('fs').promises
 const sharp = require('sharp')
@@ -621,18 +629,47 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
   // SemVer object (it calls .format()/gt()/eq() on it in doCheckForUpdates).
   // Assigning a raw string throws "this.currentVersion.format is not a
   // function" at check time — which is exactly what surfaced as the generic
-  // "could not check for updates right now" error. Parse to a SemVer object;
-  // fall back to a valid 0.0.0 SemVer if the stored baseline is unparseable.
+  // "could not check for updates right now" error.
+  //
+  // Even parsing with a require('semver') is not enough: electron-updater's
+  // comparison functions instantiate `new SemVer(x)` from ITS nested semver
+  // copy, and that constructor rejects a SemVer produced by any other copy
+  // ('Invalid version. Must be a string. Got type "object".'). To guarantee
+  // class identity, build the baseline from the SemVer CLASS of the object
+  // electron-updater itself created at construction time
+  // (autoUpdater.currentVersion.constructor) — that is, by definition, its own
+  // semver. Fall back to the resolved `semver` module, then to leaving the
+  // running build's version in place, so a check never crashes.
   const baselineString = getInstalledVersionForBranch(normalizedBranch)
-  const parsedBaseline = semver.parse(baselineString) || semver.parse('0.0.0')
-  autoUpdater.currentVersion = parsedBaseline
+  let parsedBaseline = null
+  try {
+    const ExistingSemVer = autoUpdater.currentVersion && autoUpdater.currentVersion.constructor
+    if (typeof ExistingSemVer === 'function') {
+      try {
+        parsedBaseline = new ExistingSemVer(baselineString)
+      } catch {
+        parsedBaseline = new ExistingSemVer('0.0.0')
+      }
+    }
+  } catch {
+    parsedBaseline = null
+  }
+  if (parsedBaseline == null && semver) {
+    parsedBaseline = semver.parse(baselineString) || semver.parse('0.0.0')
+  }
+  if (parsedBaseline != null) {
+    autoUpdater.currentVersion = parsedBaseline
+  }
+  // If parsedBaseline is still null, leave autoUpdater.currentVersion as the
+  // running build's version (set by electron-updater at construction) rather
+  // than assigning a foreign/invalid value — the check will still run.
   autoUpdater.allowDowngrade = false
   updaterLog(
     'CONFIGURE',
     `branch=${normalizedBranch}`,
     `channel=${autoUpdater.channel}`,
     `allowPrerelease=${autoUpdater.allowPrerelease}`,
-    `baseline=${parsedBaseline.format()}`
+    `baseline=${(parsedBaseline && typeof parsedBaseline.format === 'function') ? parsedBaseline.format() : String(autoUpdater.currentVersion)}`
   )
 
   if (resetStatus && branchChanged) {
