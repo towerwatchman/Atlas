@@ -1643,6 +1643,16 @@ app.whenReady().then(async () => {
     autoUpdater.checkForUpdates().catch((err) => {
       const normalizedError = normalizeUpdateError(err)
       console.warn('Startup update check failed:', normalizedError.technicalMessage)
+      // The startup check is a background, unsolicited action. Only surface
+      // outcomes the user can actually act on. A benign "no release on this
+      // channel yet" (nothing published for this branch) is not an error and
+      // must not pop a failure notice on every launch — stay silent and let
+      // the footer remain idle. Real, actionable failures (network, package
+      // not ready, genuine check failure) still surface.
+      if (normalizedError.code === 'UPDATE_NO_RELEASE_ON_CHANNEL') {
+        sendUpdateStatus({ status: 'not-available' }, 'startup-no-release-on-channel')
+        return
+      }
       sendUpdateStatus({
         status: 'error',
         error: normalizedError.userMessage,
