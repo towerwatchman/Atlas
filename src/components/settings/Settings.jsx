@@ -7,7 +7,6 @@ import Accounts from './Accounts.jsx'
 import Database from './Database.jsx'
 import EmulatorLauncher from './EmulatorLauncher.jsx'
 import { settingsIcons } from './settingsIcons.js'
-import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
 import WelcomeTour from '../ui/WelcomeTour.jsx'
 
 const visibleSettingsTabs = settingsIcons.filter((item) => !item.hidden)
@@ -94,7 +93,6 @@ const Settings = () => {
 
   return (
     <div className="flex h-screen font-sans text-[13px] bg-transparent -webkit-app-region-no-drag">
-      <WindowBorderFrame />
       {/* Drag Header*/}
       <div className="absolute left-0 top-0 w-full h-[50px] ml-[-90px] z-40 -webkit-app-region-drag" />
       {/* Window Controls — explicit z-50 (matching the Drag Header's

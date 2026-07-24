@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import ThemeBuilder from './ThemeBuilder.jsx'
-import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
 import WindowTitleBar from '../ui/WindowTitleBar.jsx'
 
 /**
@@ -23,7 +22,6 @@ const ThemeBuilderWindow = () => {
 
   return (
     <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text -webkit-app-region-no-drag rounded-windowTheme overflow-hidden transform-gpu">
-      <WindowBorderFrame />
       {/* Header row: a real flex row (not absolutely positioned), so the
           scrollable content below can never slide up underneath it — the
           previous absolute-header-over-absolute-content approach let the

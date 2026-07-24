@@ -1,4 +1,3 @@
-import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
 import WindowTitleBar from '../ui/WindowTitleBar.jsx'
 
 // Standalone help window for the importer. Explains the scan scheme / regex
@@ -31,7 +30,6 @@ function ExampleRow({ scheme, folder, parses }) {
 export default function ImporterHelp() {
   return (
     <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text rounded-windowTheme overflow-hidden transform-gpu">
-      <WindowBorderFrame />
       <WindowTitleBar title="Importer Help & Examples" />
       <div className="flex-1 min-h-0 overflow-y-auto scroll-window-inset p-6 space-y-6 max-w-3xl">
         <Section title="How importing works">

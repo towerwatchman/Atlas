@@ -2,7 +2,6 @@ import { Component, useState, useEffect, useRef, useCallback, useMemo } from 're
 import { AutoSizer, Grid } from 'react-virtualized'
 import Sidebar from './components/ui/Sidebar.jsx'
 import TopNav from './components/ui/TopNav.jsx'
-import WindowBorderFrame from './components/ui/WindowBorderFrame.jsx'
 import AboutModal from './components/ui/AboutModal.jsx'
 import WelcomeTour from './components/ui/WelcomeTour.jsx'
 import WelcomePage, { WELCOME_SEEN_KEY } from './components/ui/WelcomePage.jsx'
@@ -103,7 +102,6 @@ export class AppErrorBoundary extends Component {
     if (this.state.error) {
       return (
         <div className="h-screen bg-tertiary text-text flex items-center justify-center p-6 rounded-windowTheme overflow-hidden transform-gpu">
-          <WindowBorderFrame />
           <div className="bg-secondary border border-border rounded p-4 max-w-xl">
             <h1 className="text-lg font-bold mb-2">Atlas hit a display error</h1>
             <p className="text-sm opacity-80 mb-3">
@@ -1396,29 +1394,20 @@ const App = () => {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen font-sans text-[13px] rounded-windowTheme overflow-hidden transform-gpu">
-      {/* windowBorderHideOnMain lets the border show on every other window
-          (Settings, Theme Builder, etc. — see their own unconditional
-          <WindowBorderFrame /> usage) while staying off on just this, the
-          main library window. windowBorderEnabled (the global on/off
-          switch) is still respected first via colors.windowBorder/
-          applyTheme.js — this only ever narrows that further, never
-          overrides it back on. */}
-      {!theme.windowBorderHideOnMain && <WindowBorderFrame />}
-      {/* Header — position:fixed (see comment above WindowBorderFrame.jsx
-          for why: so it can't visually cover the border overlay), which
-          means it also escapes the root div's own overflow-hidden/rounded
-          clip above. The logo block and the bg-primary block below it
-          each get their own matching top-corner rounding directly (NOT
-          overflow-hidden on this whole header — the TopNav "Add Game"
-          dropdown is absolutely positioned and extends below this 70px
-          bar, and would get clipped off if this clipped its own
-          overflow) — without that, those two blocks would paint a
-          square corner poking out past the border overlay's curve at
-          the window's actual top corners. */}
+    <div className="flex flex-col h-screen font-sans text-[13px] overflow-hidden">
+      {/* This window uses native OS chrome (see electron/main.js —
+          titleBarStyle: 'hidden'): the OS draws the frame, rounded
+          corners, shadow and resize border, and provides the native
+          minimize/maximize/close caption buttons. So there's no custom
+          window border overlay or CSS corner-rounding here anymore, and
+          the header's own min/max/close buttons have been removed in
+          favor of the native ones. The header still acts as the drag
+          region. */}
+      {/* Header — position:fixed so the "Add Game" dropdown (absolutely
+          positioned, extends below this 70px bar) isn't clipped. */}
       <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
         <div
-          className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag rounded-tl-windowTheme transform-gpu shadow-[0_8px_8px_-8px_rgba(0,0,0,0.5)]"
+          className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag shadow-[0_8px_8px_-8px_rgba(0,0,0,0.5)]"
           onClick={goHome}
           title="Back to Library"
         >
@@ -1440,7 +1429,7 @@ const App = () => {
             />
           )}
         </div>
-        <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_8px_8px_-8px_rgba(0,0,0,0.5)] rounded-tr-windowTheme transform-gpu">
+        <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_8px_8px_-8px_rgba(0,0,0,0.5)]">
           {/* Accent bar: the notched strip tucked behind the logo block.
               Shown in both layouts as long as the active theme's
               nav.accentBarEnabled hasn't been turned off (see
@@ -1502,7 +1491,9 @@ const App = () => {
                     navDisplayMode, per the current request — Filters/Help
                     etc. on the left can still show text if the theme says
                     so. */}
-                <div className="mt-[14px] mr-[16px] flex items-center gap-3">
+                {/* mr clears the custom caption buttons (top-right, ~92px)
+                    plus a little breathing room. */}
+                <div className="mt-[14px] mr-[100px] flex items-center gap-3">
                   <TopNav
                     group="right"
                     forceIconsOnly
@@ -1527,7 +1518,12 @@ const App = () => {
               </div>
             )}
           </div>
-          <div className="flex absolute top-1 right-2 h-[28px] -webkit-app-region-no-drag">
+          {/* Custom caption buttons (minimize/maximize/close). The window
+              uses titleBarStyle: 'hidden' with NO native buttons (see
+              electron/main.js); these match the theme and header height.
+              -webkit-app-region-no-drag so they're clickable within the
+              otherwise-draggable header. */}
+          <div className="flex absolute top-1 right-2 h-[28px] -webkit-app-region-no-drag z-50">
             <button onClick={() => window.electronAPI.minimizeWindow()} className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200">
               <i className="fas fa-minus text-text fa-sm"></i>
             </button>
@@ -1547,7 +1543,7 @@ const App = () => {
               the nav is a top bar or the left rail. data-tour="About" is
               kept so the welcome tour can still spotlight it. */}
           {!isTopNav && (
-            <div className="absolute mt-10 top-0 right-0 flex items-center h-[10px] -webkit-app-region-no-drag">
+            <div className="absolute mt-10 top-0 right-2 flex items-center h-[10px] -webkit-app-region-no-drag">
               <button
                 type="button"
                 onClick={openAbout}

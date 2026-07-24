@@ -954,21 +954,28 @@ function createWindow() {
     minWidth: 1410,
     height: 860,
     minHeight: 860,
-    frame: false,
-    // Windows draws a native DWM resize border (often tinted with the
-    // system accent color) around frame:false windows that aren't also
-    // transparent -- that's the stray colored line on the left/right/
-    // bottom edges that no amount of CSS could ever reach, since it's
-    // painted by the OS outside the web content entirely. The renderer
-    // already paints a fully opaque background on every window's root
-    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
-    // safe to go fully transparent at the native level instead.
-    transparent: true,
-    // Windows needs an explicit zero-alpha background color for true
-    // per-pixel transparency to render cleanly -- without it, the
-    // "transparent" region (e.g. outside a rounded-corner content clip)
-    // can render with artifacts instead of properly showing through.
-    backgroundColor: '#00000000',
+    // Native OS window chrome with a custom header. titleBarStyle: 'hidden'
+    // removes the native title bar strip so our own client-area header (see
+    // App.jsx) is the title bar. On Windows, 'hidden' ALONE also removes the
+    // native caption buttons and the OS drag/snap behavior -- titleBarOverlay
+    // is what brings both back: it tells Chromium to paint the native
+    // minimize/maximize/close buttons as an overlay in the top-right corner
+    // and to treat that strip as a real caption region (so Aero snap,
+    // drag-to-edge, Win+arrow, and double-click-to-maximize all work). The
+    // OS still draws the frame, rounded corners, shadow, and resize border.
+    // color/symbolColor must be set explicitly or the overlay renders on a
+    // mismatched default strip; these match the default theme's header
+    // (primary) -- see App.jsx header bg-primary. height matches the 70px
+    // Native OS window chrome with a custom header and CUSTOM caption
+    // buttons. titleBarStyle: 'hidden' removes the native title bar strip
+    // (so no doubled bar and no native min/max/close), while the OS still
+    // draws the frame, rounded corners, shadow, and resize border. Window
+    // snapping (drag-to-edge, Win+arrow, double-click-maximize) works via
+    // the -webkit-app-region: drag header in App.jsx, which Windows treats
+    // as a caption region. No titleBarOverlay here on purpose -- that's what
+    // drew the fixed-width native buttons; our own buttons live in the
+    // header instead (see App.jsx) so they match the theme and header size.
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

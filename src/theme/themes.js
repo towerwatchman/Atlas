@@ -454,7 +454,11 @@ export const DEFAULT_THEME = {
   // nav.accentBarEnabled. On by default (this app's chosen preset);
   // still toggleable from Theme Builder for anyone who'd rather not
   // have it.
-  windowBorderEnabled: true,
+  // The decorative window border overlay (a CSS overlay drawn by
+  // WindowBorderFrame, NOT OS chrome) has been removed app-wide. This is
+  // kept as a field for backward-compat with existing theme JSON, but is
+  // forced off in normalizeTheme() regardless of value — see themes.js.
+  windowBorderEnabled: false,
   // How rounded the window border (and every window's own corners, which
   // must always match it exactly — see WindowBorderFrame.jsx) are — see
   // WINDOW_RADIUS_OPTIONS above. 'lg' by default (this app's chosen
@@ -556,7 +560,11 @@ export const normalizeTheme = (theme) => {
     nav: normalizeNav(theme.nav),
     buttonEffects: normalizeButtonEffects(theme.buttonEffects),
     textEffects: normalizeTextEffects(theme.textEffects),
-    windowBorderEnabled: theme.windowBorderEnabled !== false,
+    // The decorative window border overlay has been removed app-wide (it
+    // was a CSS overlay, not OS chrome). Force it off here in the normalizer
+    // so ANY theme JSON that still sets windowBorderEnabled: true is
+    // ignored — the value is normalized away for every theme, old or new.
+    windowBorderEnabled: false,
     windowBorderHideOnMain: theme.windowBorderHideOnMain === true,
     colors: {
       ...DEFAULT_THEME.colors,

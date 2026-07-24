@@ -8,7 +8,6 @@ import ConfirmModal from './window/ConfirmModal.jsx'
 import { sanitizePercentText } from '../../utils/formatPercent.js'
 import { effectiveTitlePlaystate } from '../../utils/playstates.js'
 import { formatVersionDate } from '../../utils/formatVersionDate.js'
-import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
 
 const isRemoteMediaUrl = (url) => /^https?:\/\//i.test(String(url || ''))
@@ -748,7 +747,6 @@ const GameDetailWindow = () => {
   if (!game) {
     return (
       <div className="flex flex-col h-screen bg-canvas text-text rounded-windowTheme overflow-hidden transform-gpu">
-        <WindowBorderFrame />
         <WindowTitleBar title="Edit Game Details" isMaximized={isMaximized} />
         <div className="flex-grow flex flex-col items-center justify-center bg-secondary gap-4">
           {loadError ? (
@@ -767,7 +765,6 @@ const GameDetailWindow = () => {
   // ── Main render ───────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-screen bg-canvas text-text rounded-windowTheme overflow-hidden transform-gpu">
-      <WindowBorderFrame />
       <WindowTitleBar title="Edit Game Details" isMaximized={isMaximized} />
 
       <div className="flex flex-col flex-1 min-h-0 bg-primary">
