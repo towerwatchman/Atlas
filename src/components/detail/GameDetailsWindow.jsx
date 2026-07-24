@@ -8,6 +8,7 @@ import ConfirmModal from './window/ConfirmModal.jsx'
 import { sanitizePercentText } from '../../utils/formatPercent.js'
 import { effectiveTitlePlaystate } from '../../utils/playstates.js'
 import { formatVersionDate } from '../../utils/formatVersionDate.js'
+import { formatReleaseDate } from './page/gameDetailUtils.js'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
 
 const isRemoteMediaUrl = (url) => /^https?:\/\//i.test(String(url || ''))
@@ -38,17 +39,36 @@ const sanitizeProgressState = (progress = {}) => ({
   text: sanitizePercentText(progress.text),
 })
 
-const formatRecordDateInput = (value) => {
-  const raw = String(value || '').trim()
-  if (!raw) return ''
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
-  if (/^\d+$/.test(raw)) {
-    const date = new Date(parseInt(raw, 10) * 1000)
+// Normalizes any date-ish string to the strict YYYY-MM-DD form that an
+// <input type="date"> requires. Anything an input can't parse leaves the
+// field blank (showing the browser's mm/dd/yyyy placeholder).
+const toDateInputValue = (raw) => {
+  const str = String(raw || '').trim()
+  if (!str) return ''
+  // Already ISO (YYYY-MM-DD or YYYY-MM-DDThh...) — take the date part.
+  const isoMatch = str.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (isoMatch) return isoMatch[1]
+  // Purely numeric — treat as a Unix timestamp in seconds.
+  if (/^\d+$/.test(str)) {
+    const date = new Date(parseInt(str, 10) * 1000)
     return Number.isNaN(date.getTime()) ? '' : date.toISOString().split('T')[0]
   }
-  const parsed = new Date(raw)
-  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().split('T')[0]
+  // Anything else (e.g. Steam's "31 Aug, 2020" / "Aug 31, 2020") — let the
+  // Date parser handle it, then coerce to ISO. Use UTC noon to avoid a
+  // timezone rollback shifting the date to the previous day.
+  const parsed = new Date(str)
+  if (Number.isNaN(parsed.getTime())) return ''
+  const utc = new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 12))
+  return utc.toISOString().split('T')[0]
 }
+
+// Resolves the release date for the editable record the SAME way the game
+// page does (formatReleaseDate: release_date, then steam_release_date, then
+// gog_release_date), then normalizes it for the date input. Previously this
+// only looked at g.release_date, so Steam/GOG games — whose date lives in
+// steam_release_date/gog_release_date with release_date empty — showed a
+// blank mm/dd/yyyy field here even though the game page displayed it fine.
+const formatRecordDateInput = (game) => toDateInputValue(formatReleaseDate(game))
 
 function gameToFormData(g) {
   const mapperNames = []
@@ -63,7 +83,7 @@ function gameToFormData(g) {
     engine: g.engine || '',
     developer: g.creator || '',
     publisher: g.publisher || '',
-    release_date: formatRecordDateInput(g.release_date),
+    release_date: formatRecordDateInput(g),
     status: g.status || '',
     tags: (g.tags || g.f95_tags || '').replace(/,/g, ' , '),
     description: g.overview || '',
