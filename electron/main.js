@@ -1073,21 +1073,12 @@ function createThemeBuilderWindow() {
     // column and never has to collapse to a cramped bottom strip.
     minWidth: 1410,
     minHeight: 860,
-    frame: false,
-    // Windows draws a native DWM resize border (often tinted with the
-    // system accent color) around frame:false windows that aren't also
-    // transparent -- that's the stray colored line on the left/right/
-    // bottom edges that no amount of CSS could ever reach, since it's
-    // painted by the OS outside the web content entirely. The renderer
-    // already paints a fully opaque background on every window's root
-    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
-    // safe to go fully transparent at the native level instead.
-    transparent: true,
-    // Windows needs an explicit zero-alpha background color for true
-    // per-pixel transparency to render cleanly -- without it, the
-    // "transparent" region (e.g. outside a rounded-corner content clip)
-    // can render with artifacts instead of properly showing through.
-    backgroundColor: '#00000000',
+    // Native OS window chrome with a custom header + custom caption buttons
+    // -- same pattern as the main and settings windows (see createWindow).
+    // titleBarStyle: 'hidden' removes the native title bar strip while the
+    // OS draws the frame, corners, shadow and resize border; snapping works
+    // via the -webkit-app-region: drag header (WindowTitleBar.jsx).
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1138,21 +1129,13 @@ function createBannerEditorWindow() {
     height: 1150,
     minWidth: 1644,
     minHeight: 1150,
-    frame: false,
-    // Windows draws a native DWM resize border (often tinted with the
-    // system accent color) around frame:false windows that aren't also
-    // transparent -- that's the stray colored line on the left/right/
-    // bottom edges that no amount of CSS could ever reach, since it's
-    // painted by the OS outside the web content entirely. The renderer
-    // already paints a fully opaque background on every window's root
-    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
-    // safe to go fully transparent at the native level instead.
-    transparent: true,
-    // Windows needs an explicit zero-alpha background color for true
-    // per-pixel transparency to render cleanly -- without it, the
-    // "transparent" region (e.g. outside a rounded-corner content clip)
-    // can render with artifacts instead of properly showing through.
-    backgroundColor: '#00000000',
+    // Native OS window chrome with a custom header + custom caption buttons
+    // -- same pattern as the main/settings/theme-builder windows (see
+    // createWindow). titleBarStyle: 'hidden' removes the native title bar
+    // strip while the OS draws the frame, corners, shadow and resize border;
+    // snapping works via the -webkit-app-region: drag header
+    // (WindowTitleBar.jsx).
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

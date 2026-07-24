@@ -21,7 +21,10 @@ const ThemeBuilderWindow = () => {
   }, [])
 
   return (
-    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text -webkit-app-region-no-drag rounded-windowTheme overflow-hidden transform-gpu">
+    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text -webkit-app-region-no-drag overflow-hidden">
+      {/* Native OS chrome (see electron/main.js — titleBarStyle: 'hidden'):
+          the OS draws the window frame, corners, shadow and resize border,
+          so no CSS corner-rounding clip here anymore. */}
       {/* Header row: a real flex row (not absolutely positioned), so the
           scrollable content below can never slide up underneath it — the
           previous absolute-header-over-absolute-content approach let the
