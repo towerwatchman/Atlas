@@ -562,6 +562,26 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
   autoUpdater.setFeedURL({ provider: 'github', owner: 'towerwatchman', repo: 'Atlas', channel: feedChannel })
   autoUpdater.allowPrerelease = normalizedBranch === 'nightly'
 
+  // electron-updater resolves the release provider (and the channel it points
+  // at) lazily on the FIRST checkForUpdates() of a session and then caches it.
+  // setFeedURL() updates the stored config but does not reliably tear down the
+  // already-resolved provider or the in-flight/last check promise, so a
+  // mid-session channel switch keeps hitting whichever channel was resolved
+  // first (restarting clears it, which is why a restart "fixes" it). Null out
+  // the private cache fields so the next check fully re-resolves against the
+  // new channel. Guarded reads keep this safe across electron-updater versions
+  // that rename or drop any of these fields.
+  try {
+    autoUpdater.clientPromise = null
+  } catch {}
+  try {
+    autoUpdater.checkForUpdatesPromise = null
+  } catch {}
+  try {
+    // Present on v6; holds the last resolved { updateInfo, provider }.
+    autoUpdater.updateInfoAndProvider = null
+  } catch {}
+
   // Compare the channel's latest release against the version last INSTALLED
   // from THAT channel, not against the running build. This is the core of
   // correct channel switching: electron-updater normally compares the feed
