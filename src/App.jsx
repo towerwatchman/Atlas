@@ -1585,7 +1585,7 @@ const App = () => {
         {showGameList && (
           <div
             className={`w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ${isTopNav ? '' : 'ml-[60px]'}`}
-            style={{ borderRight: '1px solid var(--color-window-border)' }}
+            style={{ borderRight: '1px solid var(--color-border)' }}
           >
             {filteredGames.length === 0 ? (
               <div className="p-2 text-center text-text">
