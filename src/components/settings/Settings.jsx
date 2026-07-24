@@ -133,19 +133,11 @@ const Settings = () => {
           chrome via titleBarStyle: 'hidden'). */}
       <div className="flex flex-1 overflow-hidden">
         {/* Settings Sidebar */}
-        <div className="w-[180px] bg-primary h-full border-r border-border -webkit-app-region-no-drag">
+        <div className="w-[180px] bg-primary h-full border-r border-border -webkit-app-region-no-drag flex flex-col">
           <div className="text-center text-accent font-bold text-md mt-4 mb-2 antialiased -webkit-app-region-drag">
             ATLAS SETTINGS
           </div>
-          <div className="px-3 mb-3">
-            <button
-              onClick={() => setTourOpen(true)}
-              className="w-full text-xs py-1.5 rounded-buttonTheme bg-button hover:bg-buttonHover text-text transition-colors -webkit-app-region-no-drag"
-            >
-              <i className="fas fa-circle-question mr-1" aria-hidden="true"></i> Take the tour
-            </button>
-          </div>
-          <ul>
+          <ul className="flex-1 overflow-y-auto">
             {visibleSettingsTabs.map((item) => (
               <>
                 <li
@@ -169,6 +161,15 @@ const Settings = () => {
               </>
             ))}
           </ul>
+          {/* Tour button pinned to the bottom of the sidebar. */}
+          <div className="px-3 py-3 mt-auto border-t border-border">
+            <button
+              onClick={() => setTourOpen(true)}
+              className="w-full text-xs py-1.5 rounded-buttonTheme bg-button hover:bg-buttonHover text-text transition-colors -webkit-app-region-no-drag"
+            >
+              <i className="fas fa-circle-question mr-1" aria-hidden="true"></i> Take the tour
+            </button>
+          </div>
         </div>
         {/* Settings Content */}
         <div className="flex-1 bg-secondary flex flex-col min-h-0">
