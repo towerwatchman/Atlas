@@ -549,7 +549,17 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
   const previousBranch = activeAppUpdateBranch
   const branchChanged = Boolean(previousBranch && previousBranch !== normalizedBranch)
   activeAppUpdateBranch = normalizedBranch
-  autoUpdater.setFeedURL({ provider: 'github', owner: 'towerwatchman', repo: 'Atlas', channel: 'latest' })
+  // The feed channel decides WHICH manifest electron-updater fetches from the
+  // GitHub release: stable builds publish `latest.yml`, while nightly builds
+  // carry a prerelease semver (0.9.2-nightly.N) and electron-builder writes
+  // their manifest to `beta.yml`. Hardcoding `latest` here meant every branch
+  // — nightly included — pulled the stable manifest, so the app always tried
+  // to update to the latest stable/main release. allowPrerelease does NOT fix
+  // this: it only governs whether prerelease tags inside the already-fetched
+  // manifest are honored, not which channel file is downloaded. Selecting the
+  // channel per branch is what actually routes nightly to its own releases.
+  const feedChannel = normalizedBranch === 'nightly' ? 'nightly' : 'latest'
+  autoUpdater.setFeedURL({ provider: 'github', owner: 'towerwatchman', repo: 'Atlas', channel: feedChannel })
   autoUpdater.allowPrerelease = normalizedBranch === 'nightly'
 
   // Compare the channel's latest release against the version last INSTALLED

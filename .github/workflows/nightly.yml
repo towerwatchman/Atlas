@@ -82,7 +82,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win --x64 -p always --config.publish.releaseType=prerelease
+        run: npx electron-builder --win --x64 -p always --config.publish.releaseType=prerelease --config.publish.channel=nightly
         shell: cmd
 
       - name: Build and publish nightly (Linux)
@@ -90,7 +90,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --linux --x64 -p always --config.publish.releaseType=prerelease
+        run: npx electron-builder --linux --x64 -p always --config.publish.releaseType=prerelease --config.publish.channel=nightly
         shell: bash
 
       - name: Verify Linux prerelease assets
