@@ -101,7 +101,7 @@ export class AppErrorBoundary extends Component {
   render() {
     if (this.state.error) {
       return (
-        <div className="h-screen bg-tertiary text-text flex items-center justify-center p-6 rounded-windowTheme overflow-hidden transform-gpu">
+        <div className="h-screen bg-tertiary text-text flex items-center justify-center p-6 overflow-hidden">
           <div className="bg-secondary border border-border rounded p-4 max-w-xl">
             <h1 className="text-lg font-bold mb-2">Atlas hit a display error</h1>
             <p className="text-sm opacity-80 mb-3">

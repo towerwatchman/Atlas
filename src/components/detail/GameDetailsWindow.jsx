@@ -746,7 +746,7 @@ const GameDetailWindow = () => {
   // ── Loading state ─────────────────────────────────────────────────────────
   if (!game) {
     return (
-      <div className="flex flex-col h-screen bg-canvas text-text rounded-windowTheme overflow-hidden transform-gpu">
+      <div className="flex flex-col h-screen bg-canvas text-text overflow-hidden">
         <WindowTitleBar title="Edit Game Details" isMaximized={isMaximized} />
         <div className="flex-grow flex flex-col items-center justify-center bg-secondary gap-4">
           {loadError ? (
@@ -764,7 +764,9 @@ const GameDetailWindow = () => {
 
   // ── Main render ───────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen bg-canvas text-text rounded-windowTheme overflow-hidden transform-gpu">
+    <div className="flex flex-col h-screen bg-canvas text-text overflow-hidden">
+      {/* Native OS chrome (see electron/main.js — titleBarStyle: 'hidden'):
+          OS draws the frame, corners, shadow and resize border. */}
       <WindowTitleBar title="Edit Game Details" isMaximized={isMaximized} />
 
       <div className="flex flex-col flex-1 min-h-0 bg-primary">
