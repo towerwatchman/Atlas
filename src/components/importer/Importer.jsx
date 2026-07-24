@@ -1571,7 +1571,10 @@ const Importer = () => {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text rounded-windowTheme overflow-hidden transform-gpu">
+    <div className="flex flex-col h-screen font-sans text-[13px] bg-secondary text-text overflow-hidden">
+      {/* Native OS chrome (see electron/main.js — titleBarStyle: 'hidden'):
+          the OS draws the window frame, corners, shadow and resize border,
+          so no CSS corner-rounding clip here anymore. */}
       {/* Header row: a real flex row (not absolutely positioned) — same
           pattern as ThemeBuilderWindow.jsx/BannerEditorWindow.jsx/
           GameDetailsWindow.jsx, all of which round/clip correctly. The
