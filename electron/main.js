@@ -1018,21 +1018,14 @@ function createSettingsWindow(options = {}) {
   const windowState = applySavedWindowBounds('settings', {
     width: 950,
     height: 650,
-    frame: false,
-    // Windows draws a native DWM resize border (often tinted with the
-    // system accent color) around frame:false windows that aren't also
-    // transparent -- that's the stray colored line on the left/right/
-    // bottom edges that no amount of CSS could ever reach, since it's
-    // painted by the OS outside the web content entirely. The renderer
-    // already paints a fully opaque background on every window's root
-    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
-    // safe to go fully transparent at the native level instead.
-    transparent: true,
-    // Windows needs an explicit zero-alpha background color for true
-    // per-pixel transparency to render cleanly -- without it, the
-    // "transparent" region (e.g. outside a rounded-corner content clip)
-    // can render with artifacts instead of properly showing through.
-    backgroundColor: '#00000000',
+    // Native OS window chrome with a custom header and CUSTOM caption
+    // buttons -- same pattern as the main window (see createWindow above).
+    // titleBarStyle: 'hidden' removes the native title bar strip (no doubled
+    // bar, no native buttons) while the OS still draws the frame, rounded
+    // corners, shadow, and resize border. Snapping works via the
+    // -webkit-app-region: drag header (WindowTitleBar.jsx). No titleBarOverlay
+    // on purpose -- the custom buttons in the header match the theme instead.
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
