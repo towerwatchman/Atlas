@@ -31,6 +31,15 @@ function mediaContentType(filePath) {
   }
 }
 const fs = require('fs')
+// electron-updater expects currentVersion as a parsed semver SemVer object.
+// semver is a transitive dep of electron-updater and is normally hoisted to
+// the top level; fall back to electron-updater's nested copy if not.
+let semver
+try {
+  semver = require('semver')
+} catch {
+  semver = require('electron-updater/node_modules/semver')
+}
 const fsp = require('fs').promises
 const sharp = require('sharp')
 const axios = require('axios')
@@ -607,8 +616,24 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
   //   - Nightly (0.9.2-nightly.5) vs stable (0.9.2): each channel is judged
   //     against its own last-installed baseline, so the prerelease-sorts-
   //     lower problem that previously required allowDowngrade disappears.
-  autoUpdater.currentVersion = getInstalledVersionForBranch(normalizedBranch)
+  //
+  // IMPORTANT: electron-updater v6 stores currentVersion as a parsed semver
+  // SemVer object (it calls .format()/gt()/eq() on it in doCheckForUpdates).
+  // Assigning a raw string throws "this.currentVersion.format is not a
+  // function" at check time — which is exactly what surfaced as the generic
+  // "could not check for updates right now" error. Parse to a SemVer object;
+  // fall back to a valid 0.0.0 SemVer if the stored baseline is unparseable.
+  const baselineString = getInstalledVersionForBranch(normalizedBranch)
+  const parsedBaseline = semver.parse(baselineString) || semver.parse('0.0.0')
+  autoUpdater.currentVersion = parsedBaseline
   autoUpdater.allowDowngrade = false
+  updaterLog(
+    'CONFIGURE',
+    `branch=${normalizedBranch}`,
+    `channel=${autoUpdater.channel}`,
+    `allowPrerelease=${autoUpdater.allowPrerelease}`,
+    `baseline=${parsedBaseline.format()}`
+  )
 
   if (resetStatus && branchChanged) {
     updateInfo = null
@@ -623,6 +648,38 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
 
 configureAppUpdateBranch(getDefaultAppUpdateBranch())
 autoUpdater.autoDownload = false
+
+// ── Updater diagnostics ─────────────────────────────────────────────────────
+// electron-updater's console output only appears in the main-process log, which
+// is invisible in packaged builds. Mirror updater diagnostics to a plain-text
+// file in userData so they can be retrieved without launching from a terminal.
+// Path: <userData>/atlas-updater.log (e.g. %AppData%/Atlas/atlas-updater.log).
+function updaterLogPath() {
+  try {
+    return path.join(app.getPath('userData'), 'atlas-updater.log')
+  } catch {
+    return null
+  }
+}
+
+function updaterLog(...parts) {
+  const line = `[${new Date().toISOString()}] ${parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(' ')}`
+  console.log('[updater]', line)
+  const file = updaterLogPath()
+  if (!file) return
+  try {
+    fs.appendFileSync(file, line + '\n')
+  } catch {}
+}
+
+// Route electron-updater's internal logger through our file logger so its full
+// resolution trace (which release/tag/manifest it picked) is captured too.
+autoUpdater.logger = {
+  info: (m) => updaterLog('INFO', m),
+  warn: (m) => updaterLog('WARN', m),
+  error: (m) => updaterLog('ERROR', m),
+  debug: (m) => updaterLog('DEBUG', m),
+}
 
 // Pass the CURRENT install directory to the new installer so it updates
 // in-place. electron-updater appends this as the NSIS /D= switch (the last
@@ -682,9 +739,14 @@ autoUpdater.on('update-downloaded', (info) => {
 })
 autoUpdater.on('error', (err) => {
   const normalizedError = normalizeUpdateError(err)
-  // Explicit, greppable diagnostics in the MAIN-process log (not the renderer
-  // console). If an error is ever misclassified, this line shows the real
-  // electron-updater code + message to classify against.
+  // Full raw diagnostics to the file log so a packaged build can be diagnosed.
+  updaterLog(
+    'RAW-ERROR',
+    `code=${err?.code || '(none)'}`,
+    `status=${err?.statusCode || err?.status || '(none)'}`,
+    `message=${err?.message || String(err)}`,
+    `-> normalized=${normalizedError.code}`
+  )
   console.error(
     `[updater] raw error code=${err?.code || '(none)'} status=${err?.statusCode || err?.status || '(none)'} ` +
     `message=${err?.message || String(err)} -> normalized=${normalizedError.code}`
