@@ -82,19 +82,62 @@ const prettifyKey = (key) =>
 export const buildExternalLinks = (rawExternalIds) => {
   const ext = parseExternalIds(rawExternalIds)
   const links = []
-  for (const [key, rawValue] of Object.entries(ext)) {
+  const seenUrls = new Set()
+  const pushLink = (key, rawValue) => {
     const value = String(rawValue ?? '').trim()
-    if (!value) continue
+    if (!value) return
     const lower = key.toLowerCase()
     const def = LINK_DEFS[lower]
+    const url = def ? def.url(value) : ensureScheme(value)
+    // De-dupe by resolved url so the array form and any scalar form of the same
+    // id don't render twice.
+    if (url && seenUrls.has(url)) return
+    if (url) seenUrls.add(url)
     links.push({
       key,
       label: def ? def.label : prettifyKey(key),
       value,
-      url: def ? def.url(value) : ensureScheme(value),
+      url,
       icon: ICONS[lower] || 'fas fa-link',
       iconImage: IMAGE_ICONS[lower] || null,
     })
+  }
+  // Array id fields (multiple Steam/GOG appids under one atlas, from admin
+  // manual links) map each element to the corresponding scalar link def so we
+  // emit one link per id rather than a single mangled "1,2,3" link.
+  const ARRAY_KEY_TO_SCALAR = {
+    steam_appids: 'steam_appid',
+    gog_ids: 'gog_id',
+    itch: 'itch',
+    custom: 'url',
+  }
+  // Coerce a value that is meant to be a list into an array: real array,
+  // JSON-string array (e.g. '["1","2"]'), or comma-separated string.
+  const coerceList = (val) => {
+    if (Array.isArray(val)) return val
+    const s = String(val ?? '').trim()
+    if (!s) return []
+    if (s.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(s)
+        if (Array.isArray(parsed)) return parsed
+      } catch { /* fall through to CSV */ }
+    }
+    if (s.includes(',')) return s.split(',')
+    return [s]
+  }
+  for (const [key, rawValue] of Object.entries(ext)) {
+    const lower = key.toLowerCase()
+    if (lower in ARRAY_KEY_TO_SCALAR) {
+      const scalarKey = ARRAY_KEY_TO_SCALAR[lower]
+      for (const item of coerceList(rawValue)) pushLink(scalarKey, item)
+      continue
+    }
+    if (Array.isArray(rawValue)) {
+      for (const item of rawValue) pushLink(lower, item)
+      continue
+    }
+    pushLink(key, rawValue)
   }
   return links
 }

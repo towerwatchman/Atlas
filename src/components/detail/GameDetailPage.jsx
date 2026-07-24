@@ -106,10 +106,14 @@ const buildDetailExternalLinks = (game = {}, { hasSteamMapping = false, hasGogMa
     }
   }
   for (const link of buildExternalLinks(game.external_ids)) {
-    if (!hasSteamMapping && ['steam_appid', 'steam_id'].includes(String(link.key || '').toLowerCase())) continue
-    if (!hasGogMapping && ['gog_id', 'gog_appid'].includes(String(link.key || '').toLowerCase())) continue
-    if (link.url && !isValidHttpUrl(link.url)) continue
+    // Only suppress the external_ids Steam/GOG link when a LOCAL mapping already
+    // provides that store's link (installed games) -- otherwise the mapping's id
+    // and the external id would duplicate. In browse/catalog mode there is no
+    // local mapping, so external_ids IS the source of truth and its store links
+    // (incl. multiple Steam appids from admin manual links) must show. Exact-URL
+    // duplicates are still filtered by the check below.
     if (link.url && links.some((existing) => existing.url === link.url)) continue
+    if (link.url && !isValidHttpUrl(link.url)) continue
     links.push(link)
   }
   return links
@@ -180,6 +184,10 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [previews, setPreviews] = useState([])
   const [movieThumbs, setMovieThumbs] = useState({}) // video url -> steam thumbnail url
   const [previewsLoading, setPreviewsLoading] = useState(false)
+  // Preview image URLs that failed to load; excluded from the grid so we never
+  // render a broken "unavailable" tile. If everything fails, the section shows
+  // the "No previews available" note instead.
+  const [failedPreviews, setFailedPreviews] = useState(() => new Set())
   const [isWishlisted, setIsWishlisted] = useState(game?.isWishlisted === true || game?.isWishlistEntry === true)
   const [wishlistBusy, setWishlistBusy] = useState(false)
   const [isFavorite, setIsFavorite] = useState(game?.isFavorite === true || game?.is_favorite === 1)
@@ -271,9 +279,16 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     }
     const loadPreviews = async () => {
       setPreviewsLoading(true)
+      setFailedPreviews(new Set())
       try {
         if (game.isCatalogEntry === true) {
-          const cacheKey = `${game.atlas_id || ''}:${game.f95_id || ''}:${game.lc_id || game.lcId || ''}:${game.steam_id || game.steam_appid || ''}`
+          // In browse mode the selected season's Steam appid (from the
+          // synthesized versions) drives which appid's media we show. Fall back
+          // to the game's single steam id.
+          const browseSteamAppId = (selectedVersion && selectedVersion.source === 'steam')
+            ? (selectedVersion.source_app_id ?? selectedVersion.sourceAppId ?? null)
+            : (game.steam_id || game.steam_appid || null)
+          const cacheKey = `${game.atlas_id || ''}:${game.f95_id || ''}:${game.lc_id || game.lcId || ''}:${browseSteamAppId || game.steam_id || game.steam_appid || ''}`
           if (browsePreviewCacheRef.current.has(cacheKey)) {
             setPreviews(filterOutBanner(browsePreviewCacheRef.current.get(cacheKey), game.banner_url))
             return
@@ -282,18 +297,84 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             atlas_id: game.atlas_id,
             f95_id: game.f95_id,
             lc_id: game.lc_id || game.lcId,
-            steam_id: game.steam_id || game.steam_appid,
+            steam_id: browseSteamAppId,
             gog_id: game.gog_id || game.gog_appid,
           })
           const safeUrls = Array.isArray(urls) ? urls : []
+          // On-demand: fetch the selected Steam season's screens + trailers so
+          // browse mode shows them like an installed game. Trailer urls are
+          // prepended (they lead the media grid) and their thumbnails feed the
+          // movieThumbs map used by the Videos section.
+          let steamPreviews = []
+          if (browseSteamAppId) {
+            try {
+              const media = await window.electronAPI.ensureSteamBrowseMedia?.(browseSteamAppId)
+              if (media) {
+                const trailerUrls = (media.trailers || []).map((t) => t.url).filter(Boolean)
+                steamPreviews = [...trailerUrls, ...(media.previews || [])]
+                if ((media.trailers || []).length > 0) {
+                  setMovieThumbs((prev) => {
+                    const next = { ...prev }
+                    for (const t of media.trailers) if (t?.url && t?.thumbnail) next[t.url] = t.thumbnail
+                    return next
+                  })
+                }
+              }
+            } catch (mediaErr) {
+              console.warn('Failed to load browse steam media:', mediaErr?.message)
+            }
+          }
           const snapshotPreviews = splitPreviewUrls(game.preview_urls || game.previewUrls)
-          const resolvedUrls = safeUrls.length > 0 ? safeUrls : snapshotPreviews
-          browsePreviewCacheRef.current.set(cacheKey, resolvedUrls)
-          setPreviews(filterOutBanner(resolvedUrls, game.banner_url))
+          // Merge: steam trailers/screens first, then whatever the browse query
+          // returned, then the snapshot fallback. De-duped, order-preserving.
+          const merged = []
+          const seen = new Set()
+          for (const u of [...steamPreviews, ...safeUrls, ...(safeUrls.length === 0 && steamPreviews.length === 0 ? snapshotPreviews : [])]) {
+            const s = String(u || '').trim()
+            if (s && !seen.has(s)) { seen.add(s); merged.push(s) }
+          }
+          browsePreviewCacheRef.current.set(cacheKey, merged)
+          setPreviews(filterOutBanner(merged, game.banner_url))
           return
         }
-        const urls = await window.electronAPI.getPreviews(game.record_id)
-        setPreviews(filterOutBanner(urls, game.banner_url))
+        const selectedSteamAppId = (selectedVersion && selectedVersion.source === 'steam')
+          ? (selectedVersion.source_app_id ?? selectedVersion.sourceAppId ?? null)
+          : null
+        const urls = await window.electronAPI.getPreviews(game.record_id, selectedSteamAppId)
+        let localPreviews = Array.isArray(urls) ? urls : []
+        // For a Steam version, the selected season's screens/trailers may not be
+        // in the local DB yet (only the imported appid's media gets fetched at
+        // import time). Lazily fetch this appid's media so switching versions
+        // shows the right previews + trailers, mirroring browse mode. Trailer
+        // urls lead the grid; their thumbnails feed movieThumbs.
+        if (selectedSteamAppId) {
+          try {
+            const media = await window.electronAPI.ensureSteamBrowseMedia?.(selectedSteamAppId)
+            if (media) {
+              const trailerUrls = (media.trailers || []).map((t) => t.url).filter(Boolean)
+              const steamMedia = [...trailerUrls, ...(media.previews || [])]
+              const merged = []
+              const seen = new Set()
+              // Steam media for the selected appid first, then whatever getPreviews
+              // returned (local downloaded art, other-source screens), deduped.
+              for (const u of [...steamMedia, ...localPreviews]) {
+                const s = String(u || '').trim()
+                if (s && !seen.has(s)) { seen.add(s); merged.push(s) }
+              }
+              localPreviews = merged
+              if ((media.trailers || []).length > 0) {
+                setMovieThumbs((prev) => {
+                  const next = { ...prev }
+                  for (const t of media.trailers) if (t?.url && t?.thumbnail) next[t.url] = t.thumbnail
+                  return next
+                })
+              }
+            }
+          } catch (mediaErr) {
+            console.warn('Failed to load selected steam version media:', mediaErr?.message)
+          }
+        }
+        setPreviews(filterOutBanner(localPreviews, game.banner_url))
       } catch (err) {
         console.error('Failed to load previews:', err)
         setPreviews([])
@@ -302,30 +383,44 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       }
     }
     loadPreviews()
-  }, [game?.record_id, game?.versions, game?.selected_version_id, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.lc_id, game?.lcId, game?.steam_id])
+  }, [game?.record_id, game?.versions, game?.selected_version_id, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.lc_id, game?.lcId, game?.steam_id, selectedVersion?.version_id, selectedVersion?.source_app_id])
 
   // Steam provides a poster thumbnail per trailer; fetch a url->thumbnail map so
   // the Videos section can show it instead of a video first-frame. Real records
   // only (catalog entries have no record_id to query).
   useEffect(() => {
     let cancelled = false
-    if (!game?.record_id || game.isCatalogEntry === true) {
+    // Catalog (browse) entries have no record_id to query; their trailer
+    // thumbnails are populated on demand by loadPreviews (ensureSteamBrowseMedia).
+    // So here we only handle real records; don't clear browse thumbs.
+    if (game.isCatalogEntry === true) {
+      return undefined
+    }
+    if (!game?.record_id) {
       setMovieThumbs({})
       return undefined
     }
     ;(async () => {
       try {
-        const pairs = await window.electronAPI.getSteamMovieThumbnails?.(game.record_id)
-        if (cancelled || !Array.isArray(pairs)) return
-        const map = {}
-        for (const p of pairs) if (p?.url && p?.thumbnail) map[p.url] = p.thumbnail
-        setMovieThumbs(map)
+        const selectedSteamAppId = (selectedVersion && selectedVersion.source === 'steam')
+          ? (selectedVersion.source_app_id ?? selectedVersion.sourceAppId ?? null)
+          : null
+        const pairs = await window.electronAPI.getSteamMovieThumbnails?.(game.record_id, selectedSteamAppId)
+        if (cancelled || !Array.isArray(pairs) || pairs.length === 0) return
+        // Merge, don't replace: loadPreviews may have already populated thumbs
+        // for the selected Steam version via ensureSteamBrowseMedia (these two
+        // effects run in parallel). Replacing here would race/wipe those.
+        setMovieThumbs((prev) => {
+          const next = { ...prev }
+          for (const p of pairs) if (p?.url && p?.thumbnail) next[p.url] = p.thumbnail
+          return next
+        })
       } catch (err) {
         console.warn('Failed to load movie thumbnails:', err?.message)
       }
     })()
     return () => { cancelled = true }
-  }, [game?.record_id, game?.isCatalogEntry])
+  }, [game?.record_id, game?.isCatalogEntry, selectedVersion?.version_id, selectedVersion?.source_app_id])
 
   useEffect(() => {
     setLaunchState(LAUNCH_STATE.IDLE)
@@ -533,7 +628,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       return true
     })
   const videoPreviews = dedupedPreviews.filter((p) => isVideoUrl(p.url))
-  const imagePreviews = dedupedPreviews.filter((p) => !isVideoUrl(p.url))
+  const imagePreviews = dedupedPreviews
+    .filter((p) => !isVideoUrl(p.url))
+    .filter((p) => !failedPreviews.has(p.url))
 
   const steamAppId = getMappedSteamAppId(game)
   // Version-aware Steam identity: when the selected/acted-on version is itself a
@@ -1016,6 +1113,16 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
 
       <HeroBanner
         game={game}
+        heroOverride={(() => {
+          const appId = (selectedVersion && selectedVersion.source === 'steam')
+            ? (selectedVersion.source_app_id ?? selectedVersion.sourceAppId ?? null)
+            : null
+          if (!appId) return null
+          // The tile's default hero uses the first steam id; when a different
+          // Steam version is selected, prefer that appid's hero. HeroBanner
+          // falls through its candidate chain if this URL fails to load.
+          return `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/library_hero.jpg`
+        })()}
         bannerRef={bannerRef}
         bannerDimsRef={bannerDimsRef}
         bannerMask={bannerMask}
@@ -1336,7 +1443,13 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                         <SafeImage
                           src={preview}
                           alt={`Preview ${index + 1}`}
-                          fallbackLabel="Preview unavailable"
+                          fallbackMode="hidden"
+                          onError={() => setFailedPreviews((prev) => {
+                            if (prev.has(preview)) return prev
+                            const next = new Set(prev)
+                            next.add(preview)
+                            return next
+                          })}
                           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                         />
                       </div>

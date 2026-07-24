@@ -1,15 +1,18 @@
 import useImageFallback from '../../../hooks/useImageFallback.js'
 import SafeImage from '../../ui/SafeImage.jsx'
 
-export default function HeroBanner({ game, bannerRef, bannerDimsRef, bannerMask, onLoad, onBack, showBack = true }) {
+export default function HeroBanner({ game, heroOverride = null, bannerRef, bannerDimsRef, bannerMask, onLoad, onBack, showBack = true }) {
   const isCatalogEntry = game.isCatalogEntry === true
   // When the hero is Steam key-art, zoom it slightly so it fills the frame the
   // way Steam presents library_hero (which has built-in padding).
-  const isSteamHero = !!(game.steam_appid || game.steam_id)
+  const isSteamHero = !!(game.steam_appid || game.steam_id || heroOverride)
 
   // hero_candidates already encode the fallback chain (steam CDN → steam fastly
   // → next source's banner). Fall back to the single-url fields for older data.
-  const heroChain = game.hero_candidates || [game.hero_url, game.banner_url]
+  // heroOverride (the selected Steam version's appid hero) takes priority and is
+  // tried first; useImageFallback falls through to the normal chain if it fails.
+  const baseChain = game.hero_candidates || [game.hero_url, game.banner_url]
+  const heroChain = heroOverride ? [heroOverride, ...baseChain] : baseChain
   const logoChain = game.logo_candidates || (game.logo_url ? [game.logo_url] : [])
 
   const { src: heroUrl } = useImageFallback(heroChain)

@@ -103,6 +103,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getManualMappings: (recordId) =>
     ipcRenderer.invoke("get-manual-mappings", recordId),
   runDbAudit: () => ipcRenderer.invoke("run-db-audit"),
+  auditSeasonMerges: () => ipcRenderer.invoke("audit-season-merges"),
+  applySeasonMerge: (atlasId, survivorRecordId) =>
+    ipcRenderer.invoke("apply-season-merge", { atlasId, survivorRecordId }),
+  applyAllSeasonMerges: () => ipcRenderer.invoke("apply-all-season-merges"),
   getInvalidMappingCount: () => ipcRenderer.invoke("get-invalid-mapping-count"),
   setManualMappings: (recordId, mappings) =>
     ipcRenderer.invoke("set-manual-mappings", { recordId, mappings }),
@@ -192,14 +196,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getEmulatorConfig: () => ipcRenderer.invoke("get-emulator-config"),
   removeEmulatorConfig: (extension) =>
     ipcRenderer.invoke("remove-emulator-config", extension),
-  getPreviews: (recordId) => {
-    console.log("Invoking getPreviews for recordId:", recordId);
-    return ipcRenderer.invoke("get-previews", recordId);
+  getPreviews: (recordId, sourceAppId = null) => {
+    console.log("Invoking getPreviews for recordId:", recordId, "appid:", sourceAppId);
+    return ipcRenderer.invoke("get-previews", { recordId, sourceAppId });
   },
-  getSteamMovieThumbnails: (recordId) =>
-    ipcRenderer.invoke("get-steam-movie-thumbnails", recordId),
+  getSteamMovieThumbnails: (recordId, sourceAppId = null) =>
+    ipcRenderer.invoke("get-steam-movie-thumbnails", { recordId, sourceAppId }),
   getBrowsePreviewUrls: (record) =>
     ipcRenderer.invoke("get-browse-preview-urls", record),
+  ensureSteamBrowseMedia: (appId) =>
+    ipcRenderer.invoke("ensure-steam-browse-media", { appId }),
   updateBanners: (recordId) => {
     console.log("Invoking updateBanners for recordId:", recordId);
     return ipcRenderer.invoke("update-banners", recordId);

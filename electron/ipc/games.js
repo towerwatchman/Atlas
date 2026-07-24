@@ -13,6 +13,7 @@ const { fetchAndStoreGogData } = require('../scanners/gogscanner')
 const { applyMediaSources } = require('../db/mediaSources')
 const { calculatePathSize } = require('../pathSize')
 const { runDatabaseAudit, getInvalidMappingCount } = require('../db/audit')
+const { auditSeasonMerges, applySeasonMerge, applyAllSeasonMerges } = require('../db/seasonMerge')
 
 function emitGameUpdated(recordId) {
   if (!recordId) return
@@ -479,6 +480,38 @@ function registerGamesHandlers(ctx) {
     } catch (err) {
       console.error('run-db-audit error:', err)
       return { success: false, error: err.message, items: [], summary: { removed: 0, orphaned: 0, unmapped: 0 }, total: 0 }
+    }
+  })
+
+  // Season/version merge: find and fold multiple local records that share one
+  // atlas_id into a single record whose versions carry per-source identity.
+  ipcMain.handle('audit-season-merges', async () => {
+    try {
+      return { success: true, ...(await auditSeasonMerges()) }
+    } catch (err) {
+      console.error('audit-season-merges error:', err)
+      return { success: false, error: err.message, items: [], total: 0 }
+    }
+  })
+
+  ipcMain.handle('apply-season-merge', async (event, data) => {
+    try {
+      const atlasId = data?.atlasId
+      const survivorRecordId = data?.survivorRecordId ?? null
+      if (atlasId == null) throw new Error('atlasId is required')
+      return { success: true, ...(await applySeasonMerge(atlasId, survivorRecordId)) }
+    } catch (err) {
+      console.error('apply-season-merge error:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('apply-all-season-merges', async () => {
+    try {
+      return { success: true, ...(await applyAllSeasonMerges()) }
+    } catch (err) {
+      console.error('apply-all-season-merges error:', err)
+      return { success: false, error: err.message, results: [], total: 0 }
     }
   })
 

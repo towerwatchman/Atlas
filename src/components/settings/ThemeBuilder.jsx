@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { applyTheme } from '../../theme/applyTheme.js'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
 import {
-  THEME_COLOR_KEYS, GRADIENT_ELIGIBLE_KEYS, RADIUS_OPTIONS, WINDOW_RADIUS_OPTIONS,
+  THEME_COLOR_KEYS, GRADIENT_ELIGIBLE_KEYS, RADIUS_OPTIONS,
   LAYOUT_OPTIONS, NAV_DISPLAY_MODE_OPTIONS, LOGO_VARIANT_OPTIONS,
   FILTER_SIDEBAR_SIDE_OPTIONS, FILTER_SIDEBAR_MODE_OPTIONS,
   TEXT_EFFECT_CONTEXTS, normalizeTheme,
@@ -41,7 +41,6 @@ const COLOR_LABELS = {
   progressBackground: 'Progress Bar (Background)',
   progressForeground: 'Progress Bar (Foreground)',
   library: 'Library Background',
-  windowBorder: 'Window Border',
   detailPlay: 'Detail · Play Button',
   detailPlayText: 'Detail · Play Button Text',
   detailLaunching: 'Detail · Launching State',
@@ -66,7 +65,6 @@ const COLOR_DESCRIPTIONS = {
   library: 'Background of the main library / banner-grid view specifically.',
   border: 'Default lines and dividers between elements.',
   selected: 'Background of a selected or active item (e.g. a highlighted row).',
-  windowBorder: 'The accent border drawn around the outside of every window.',
 
   accent: 'Primary brand color — active states, links, focus rings, emphasis.',
   accentHover: 'Hover shade for accent-colored buttons.',
@@ -115,7 +113,7 @@ const COLOR_GROUPS = [
   {
     label: 'Surfaces & Structure',
     blurb: 'The stacked background layers and the lines that separate them.',
-    keys: ['canvas', 'primary', 'secondary', 'tertiary', 'library', 'border', 'selected', 'shadow', 'windowBorder'],
+    keys: ['canvas', 'primary', 'secondary', 'tertiary', 'library', 'border', 'selected', 'shadow'],
   },
   {
     label: 'Accent & Brand',
@@ -155,18 +153,6 @@ const RADIUS_DESCRIPTIONS = {
   md: 'Moderately rounded corners, a balanced default.',
   lg: 'Noticeably rounded corners for a softer look.',
   pill: 'Fully rounded ends, like a capsule or pill shape.',
-}
-
-// Separate from RADIUS_LABELS/DESCRIPTIONS above — windows use their own
-// smaller option set (see WINDOW_RADIUS_OPTIONS in themes.js): no 'pill'
-// (a window-sized capsule curve eats deep into the window, not just the
-// corner), plus 'none' since a window defaults to perfectly square.
-const WINDOW_RADIUS_LABELS = { none: 'Off', sm: 'Small', md: 'Medium', lg: 'Large' }
-const WINDOW_RADIUS_DESCRIPTIONS = {
-  none: 'Plain square corners — the default.',
-  sm: 'Slightly rounded corners — close to square.',
-  md: 'Moderately rounded corners, a balanced default.',
-  lg: 'Noticeably rounded corners for a softer look.',
 }
 
 const LAYOUT_LABELS = { sidebar: 'Sidebar', topnav: 'Top Bar' }
@@ -548,12 +534,6 @@ const PreviewPane = ({ draft }) => {
         <p className="text-[9px] opacity-50 mt-1 leading-tight">Resting = Accent (Muted), hover = Accent (Hover), selected = Accent. Icon glow, when enabled, shows on hover &amp; selected only.</p>
       </PreviewBlock>
 
-      <PreviewBlock title="Window Border & Radius">
-        <div className="rounded-windowTheme p-2 text-[10px] text-center" style={{ border: '2px solid var(--color-window-border)', background: 'var(--color-primary)' }}>
-          Window corner &amp; border
-        </div>
-      </PreviewBlock>
-
       <PreviewBlock title="Game Detail Page">
         <div className="flex items-center gap-1.5 flex-wrap p-2 rounded-cardTheme" style={{ background: 'var(--color-primary)' }}>
           <button type="button" className="text-[11px] font-bold px-3 py-1 rounded" style={{ background: 'var(--color-detail-play)', color: 'var(--color-detail-play-text)' }}>▶ PLAY</button>
@@ -871,48 +851,6 @@ const ThemeBuilder = ({ onClose }) => {
               Secondary, Tertiary Surface, Library) can also be set as a gradient
               using the "Gradient" checkbox on each. Changes preview live everywhere.
             </p>
-            <div className="border border-border rounded-cardTheme p-2 mb-2">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <span className="text-xs font-semibold block">Window Border</span>
-                  <span className="text-[10px] opacity-60">The accent-colored border drawn around every Atlas window. Uses the "Window Border" color below.</span>
-                </div>
-                <label className="flex items-center gap-1 text-xs cursor-pointer flex-shrink-0 ml-2">
-                  <input
-                    type="checkbox"
-                    checked={draft.windowBorderEnabled}
-                    onChange={(e) => setDraft((prev) => ({ ...prev, windowBorderEnabled: e.target.checked }))}
-                  />
-                  Enabled
-                </label>
-              </div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] opacity-60 max-w-[70%]">
-                  Keep every other window's border, but hide it on just the
-                  main library window.
-                </span>
-                <label className="flex items-center gap-1 text-xs cursor-pointer flex-shrink-0 ml-2">
-                  <input
-                    type="checkbox"
-                    checked={draft.windowBorderHideOnMain}
-                    onChange={(e) => setDraft((prev) => ({ ...prev, windowBorderHideOnMain: e.target.checked }))}
-                  />
-                  Hide on main window
-                </label>
-              </div>
-              <span className="text-[10px] opacity-60 block mb-1">
-                How rounded every window's corners are — applies even with the
-                border above turned off, since the corners themselves always
-                follow this.
-              </span>
-              <OptionPicker
-                options={WINDOW_RADIUS_OPTIONS}
-                labels={WINDOW_RADIUS_LABELS}
-                descriptions={WINDOW_RADIUS_DESCRIPTIONS}
-                value={draft.windowBorderRadius}
-                onChange={(windowBorderRadius) => setDraft((prev) => ({ ...prev, windowBorderRadius }))}
-              />
-            </div>
             {COLOR_GROUPS.map((group) => {
               const keys = group.keys.filter((k) => THEME_COLOR_KEYS.includes(k))
               if (keys.length === 0) return null

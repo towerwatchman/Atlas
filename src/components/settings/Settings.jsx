@@ -7,7 +7,6 @@ import Accounts from './Accounts.jsx'
 import Database from './Database.jsx'
 import EmulatorLauncher from './EmulatorLauncher.jsx'
 import { settingsIcons } from './settingsIcons.js'
-import WindowBorderFrame from '../ui/WindowBorderFrame.jsx'
 import WelcomeTour from '../ui/WelcomeTour.jsx'
 
 const visibleSettingsTabs = settingsIcons.filter((item) => !item.hidden)
@@ -93,8 +92,7 @@ const Settings = () => {
   };
 
   return (
-    <div className="flex h-screen font-sans text-[13px] bg-transparent -webkit-app-region-no-drag">
-      <WindowBorderFrame />
+    <div className="flex h-screen font-sans text-[13px] bg-secondary -webkit-app-region-no-drag">
       {/* Drag Header*/}
       <div className="absolute left-0 top-0 w-full h-[50px] ml-[-90px] z-40 -webkit-app-region-drag" />
       {/* Window Controls — explicit z-50 (matching the Drag Header's
@@ -130,22 +128,16 @@ const Settings = () => {
           <i className="fas fa-times text-text"></i>
         </button>
       </div>
-      {/* Main Content */}
-      <div className="flex flex-1 rounded-windowTheme overflow-hidden transform-gpu">
+      {/* Main Content — no rounded-corner clip now; the OS draws native
+          window corners (see electron/main.js — Settings uses native
+          chrome via titleBarStyle: 'hidden'). */}
+      <div className="flex flex-1 overflow-hidden">
         {/* Settings Sidebar */}
-        <div className="w-[180px] bg-primary h-full border-r border-border -webkit-app-region-no-drag">
+        <div className="w-[180px] bg-primary h-full border-r border-border -webkit-app-region-no-drag flex flex-col">
           <div className="text-center text-accent font-bold text-md mt-4 mb-2 antialiased -webkit-app-region-drag">
             ATLAS SETTINGS
           </div>
-          <div className="px-3 mb-3">
-            <button
-              onClick={() => setTourOpen(true)}
-              className="w-full text-xs py-1.5 rounded-buttonTheme bg-button hover:bg-buttonHover text-text transition-colors -webkit-app-region-no-drag"
-            >
-              <i className="fas fa-circle-question mr-1" aria-hidden="true"></i> Take the tour
-            </button>
-          </div>
-          <ul>
+          <ul className="flex-1 overflow-y-auto">
             {visibleSettingsTabs.map((item) => (
               <>
                 <li
@@ -169,6 +161,15 @@ const Settings = () => {
               </>
             ))}
           </ul>
+          {/* Tour button pinned to the bottom of the sidebar. */}
+          <div className="px-3 py-3 mt-auto border-t border-border">
+            <button
+              onClick={() => setTourOpen(true)}
+              className="w-full text-xs py-1.5 rounded-buttonTheme bg-button hover:bg-buttonHover text-text transition-colors -webkit-app-region-no-drag"
+            >
+              <i className="fas fa-circle-question mr-1" aria-hidden="true"></i> Take the tour
+            </button>
+          </div>
         </div>
         {/* Settings Content */}
         <div className="flex-1 bg-secondary flex flex-col min-h-0">

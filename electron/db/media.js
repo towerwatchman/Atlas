@@ -607,11 +607,55 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, gogId, lcId, sourceOrde
   });
 };
 
+// Screens (previews) + movies (trailers) for a SINGLE Steam appid, read from
+// the local steam_screens/steam_movies tables. Used by browse mode after an
+// on-demand fetchAndStoreSteamData has populated them, so a catalog Steam game
+// shows previews and trailers exactly like an installed one. Returns
+// { previews: [url...], trailers: [{ url, thumbnail }...] }.
+const getSteamBrowseMediaForAppId = (appId) => {
+  return new Promise((resolve, reject) => {
+    const id = String(appId || "").trim();
+    if (!id) { resolve({ previews: [], trailers: [] }); return; }
+    getDb().all(
+      `SELECT screen_url AS url FROM steam_screens WHERE steam_id = ?`,
+      [id],
+      (err, screenRows) => {
+        if (err) { reject(err); return; }
+        const previews = [];
+        const seen = new Set();
+        for (const r of screenRows || []) {
+          const u = String(r.url || "").trim();
+          if (u && isRemoteHttpUrl(u) && !seen.has(u)) { seen.add(u); previews.push(u); }
+        }
+        getDb().all(
+          `SELECT movie_url AS url, thumbnail FROM steam_movies WHERE steam_id = ?`,
+          [id],
+          (mErr, movieRows) => {
+            if (mErr) { reject(mErr); return; }
+            const trailers = (movieRows || [])
+              .filter((r) => r && r.url)
+              .map((r) => ({ url: String(r.url), thumbnail: r.thumbnail ? String(r.thumbnail) : "" }));
+            resolve({ previews, trailers });
+          },
+        );
+      },
+    );
+  });
+};
+
 const getRemotePreviewUrls = (recordId, options = {}) => {
   return new Promise((resolve, reject) => {
+    // When sourceAppId is provided (the appid of the currently-selected Steam
+    // version), Steam-sourced media is restricted to THAT appid so the hero,
+    // previews, and trailers follow the selected season rather than aggregating
+    // every appid mapped to the atlas. Non-Steam sources are unaffected. When
+    // absent, behavior is unchanged (aggregate across all linked appids).
+    const sourceAppId = options.sourceAppId != null && String(options.sourceAppId).trim() !== ''
+      ? String(options.sourceAppId).trim()
+      : null;
     const query = `
-      SELECT source, url FROM (
-        SELECT 'steam' AS source, steam_movies.movie_url AS url, 0 AS sort_order
+      SELECT source, url, steam_ref FROM (
+        SELECT 'steam' AS source, steam_movies.movie_url AS url, 0 AS sort_order, steam_movies.steam_id AS steam_ref
         FROM steam_movies
         JOIN steam_data movie_steam_data ON steam_movies.steam_id = movie_steam_data.steam_id
         JOIN games ON games.record_id = ?
@@ -625,22 +669,22 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
            OR atlas_data.external_ids LIKE '%"steam_id":"' || steam_movies.steam_id || '"%'
            OR atlas_data.external_ids LIKE '%"steam_id": "' || steam_movies.steam_id || '"%'
         UNION
-        SELECT 'f95' AS source, f95_zone_screens.screen_url AS url, 1 AS sort_order
+         SELECT 'f95' AS source, f95_zone_screens.screen_url AS url, 1 AS sort_order, NULL AS steam_ref
         FROM f95_zone_screens
         JOIN f95_zone_data ON f95_zone_screens.f95_id = f95_zone_data.f95_id
         JOIN atlas_mappings ON f95_zone_data.atlas_id = atlas_mappings.atlas_id
         WHERE atlas_mappings.record_id = ?
         UNION
-        SELECT 'lewdcorner' AS source, NULL AS url, 1 AS sort_order
+         SELECT 'lewdcorner' AS source, NULL AS url, 1 AS sort_order, NULL AS steam_ref
         FROM lewdcorner_mappings
         WHERE lewdcorner_mappings.record_id = ?
         UNION
-        SELECT 'atlas' AS source, atlas_previews.preview_url AS url, 1 AS sort_order
+         SELECT 'atlas' AS source, atlas_previews.preview_url AS url, 1 AS sort_order, NULL AS steam_ref
         FROM atlas_previews
         JOIN atlas_mappings ON atlas_previews.atlas_id = atlas_mappings.atlas_id
         WHERE atlas_mappings.record_id = ?
         UNION
-        SELECT 'steam' AS source, steam_screens.screen_url AS url, 1 AS sort_order
+         SELECT 'steam' AS source, steam_screens.screen_url AS url, 1 AS sort_order, steam_screens.steam_id AS steam_ref
         FROM steam_screens
         JOIN steam_data screen_steam_data ON steam_screens.steam_id = screen_steam_data.steam_id
         JOIN games ON games.record_id = ?
@@ -654,7 +698,7 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
            OR atlas_data.external_ids LIKE '%"steam_id":"' || steam_screens.steam_id || '"%'
            OR atlas_data.external_ids LIKE '%"steam_id": "' || steam_screens.steam_id || '"%'
         UNION
-        SELECT 'gog' AS source, gog_movies.movie_url AS url, 1 AS sort_order
+         SELECT 'gog' AS source, gog_movies.movie_url AS url, 1 AS sort_order, NULL AS steam_ref
         FROM gog_movies
         JOIN gog_data movie_gog_data ON gog_movies.gog_id = movie_gog_data.gog_id
         JOIN games ON games.record_id = ?
@@ -666,7 +710,7 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
            OR atlas_data.external_ids LIKE '%"gog_id":"' || gog_movies.gog_id || '"%'
            OR atlas_data.external_ids LIKE '%"gog_id": "' || gog_movies.gog_id || '"%'
         UNION
-        SELECT 'gog' AS source, gog_screens.screen_url AS url, 1 AS sort_order
+         SELECT 'gog' AS source, gog_screens.screen_url AS url, 1 AS sort_order, NULL AS steam_ref
         FROM gog_screens
         JOIN gog_data screen_gog_data ON gog_screens.gog_id = screen_gog_data.gog_id
         JOIN games ON games.record_id = ?
@@ -691,8 +735,12 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
         .map((row) => ({
           url: row.url,
           source: row.source,
+          steamRef: row.steam_ref != null ? String(row.steam_ref) : null,
         }))
-        .filter((row) => row.url);
+        .filter((row) => row.url)
+        // When a specific Steam appid is selected, drop Steam media that belongs
+        // to a different appid. Non-Steam rows (steamRef null) always pass.
+        .filter((row) => !sourceAppId || row.steamRef == null || row.steamRef === sourceAppId);
       const urls = selectPreviewUrlsBySource(previewEntries, options.sourceOrder);
       if (urls.length > 0) {
         resolve(urls);
@@ -735,6 +783,9 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
 };
 
 const getPreviews = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
+  const sourceAppId = mediaStorageMode && typeof mediaStorageMode === 'object'
+    ? (mediaStorageMode.sourceAppId ?? null)
+    : null;
   return new Promise((resolve, reject) => {
     getDb().all(
       `SELECT path FROM previews WHERE record_id = ? ORDER BY position ASC, path ASC`,
@@ -748,7 +799,7 @@ const getPreviews = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
             const localPreviews = rows.map((row) =>
               toLocalAssetPath(appPath, isDev, row.path),
             );
-            const remotePreviews = await getRemotePreviewUrls(recordId, { sourceOrder: mediaStorageMode?.sourceOrder });
+            const remotePreviews = await getRemotePreviewUrls(recordId, { sourceOrder: mediaStorageMode?.sourceOrder, sourceAppId });
 
             let previews;
             if (localPreviews.length > 0) {
@@ -1106,10 +1157,11 @@ const deleteMediaAssets = (recordId, appPath, isDev) => {
 // section can show Steam's own movie thumbnail as the poster (much cleaner than
 // a first-frame grab, and CORS-safe since it's just an <img>). Matches steam_id
 // via the mapping or cross-source external_ids, same as the preview query.
-const getSteamMovieThumbnails = (recordId) => {
+const getSteamMovieThumbnails = (recordId, sourceAppId = null) => {
+  const appId = sourceAppId != null && String(sourceAppId).trim() !== '' ? String(sourceAppId).trim() : null;
   return new Promise((resolve) => {
     const query = `
-      SELECT steam_movies.movie_url AS url, steam_movies.thumbnail AS thumbnail
+      SELECT steam_movies.movie_url AS url, steam_movies.thumbnail AS thumbnail, steam_movies.steam_id AS steam_ref
       FROM steam_movies
       JOIN steam_data movie_steam_data ON steam_movies.steam_id = movie_steam_data.steam_id
       JOIN games ON games.record_id = ?
@@ -1132,6 +1184,8 @@ const getSteamMovieThumbnails = (recordId) => {
       resolve(
         (rows || [])
           .filter((r) => r && r.url)
+          // Restrict to the selected appid's trailers when one is provided.
+          .filter((r) => !appId || r.steam_ref == null || String(r.steam_ref) === appId)
           .map((r) => ({ url: String(r.url), thumbnail: r.thumbnail ? String(r.thumbnail) : '' })),
       );
     });
@@ -1147,6 +1201,7 @@ module.exports = {
   getAllDownloadableAssetUrlsForRecord,
   upsertMediaAsset,
   getBrowsePreviewUrls,
+  getSteamBrowseMediaForAppId,
   getRemotePreviewUrls,
   getPreviews,
   getSteamMovieThumbnails,

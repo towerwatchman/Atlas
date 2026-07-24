@@ -2,7 +2,6 @@ import { Component, useState, useEffect, useRef, useCallback, useMemo } from 're
 import { AutoSizer, Grid } from 'react-virtualized'
 import Sidebar from './components/ui/Sidebar.jsx'
 import TopNav from './components/ui/TopNav.jsx'
-import WindowBorderFrame from './components/ui/WindowBorderFrame.jsx'
 import AboutModal from './components/ui/AboutModal.jsx'
 import WelcomeTour from './components/ui/WelcomeTour.jsx'
 import WelcomePage, { WELCOME_SEEN_KEY } from './components/ui/WelcomePage.jsx'
@@ -102,8 +101,7 @@ export class AppErrorBoundary extends Component {
   render() {
     if (this.state.error) {
       return (
-        <div className="h-screen bg-tertiary text-text flex items-center justify-center p-6 rounded-windowTheme overflow-hidden transform-gpu">
-          <WindowBorderFrame />
+        <div className="h-screen bg-tertiary text-text flex items-center justify-center p-6 overflow-hidden">
           <div className="bg-secondary border border-border rounded p-4 max-w-xl">
             <h1 className="text-lg font-bold mb-2">Atlas hit a display error</h1>
             <p className="text-sm opacity-80 mb-3">
@@ -168,6 +166,10 @@ const App = () => {
   // that local games were mapped to (count > 0). Dismissable for the session.
   const [invalidMappingCount, setInvalidMappingCount] = useState(0)
   const [mappingBannerDismissed, setMappingBannerDismissed] = useState(false)
+  // Passive banner for duplicate games that can be merged (multiple local
+  // records sharing one atlas_id, e.g. Steam seasons). Dismissable for session.
+  const [mergeableCount, setMergeableCount] = useState(0)
+  const [mergeBannerDismissed, setMergeBannerDismissed] = useState(false)
   const [showWelcomeTour, setShowWelcomeTour] = useState(false)
   // True while the tour is running as part of the first-run flow (not a replay
   // from About). When such a tour ends, we chain into the settings tour.
@@ -1014,6 +1016,22 @@ const App = () => {
     return () => { cancelled = true }
   }, [])
 
+  // Passively scan for mergeable duplicate games (shared atlas_id) so we can
+  // surface a banner prompting the user to merge them in Settings → Database.
+  // Re-runs when the library changes (e.g. after a merge or an import).
+  useEffect(() => {
+    let cancelled = false
+    const scan = () => {
+      window.electronAPI.auditSeasonMerges?.()
+        .then((res) => { if (!cancelled && res?.success !== false) setMergeableCount(res?.total || 0) })
+        .catch(() => {})
+    }
+    scan()
+    const onChanged = () => scan()
+    window.addEventListener('atlas:library-changed', onChanged)
+    return () => { cancelled = true; window.removeEventListener('atlas:library-changed', onChanged) }
+  }, [])
+
   // Replay the welcome tour from the About modal.
   const replayWelcomeTour = () => {
     firstRunTourRef.current = false
@@ -1376,29 +1394,20 @@ const App = () => {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen font-sans text-[13px] rounded-windowTheme overflow-hidden transform-gpu">
-      {/* windowBorderHideOnMain lets the border show on every other window
-          (Settings, Theme Builder, etc. — see their own unconditional
-          <WindowBorderFrame /> usage) while staying off on just this, the
-          main library window. windowBorderEnabled (the global on/off
-          switch) is still respected first via colors.windowBorder/
-          applyTheme.js — this only ever narrows that further, never
-          overrides it back on. */}
-      {!theme.windowBorderHideOnMain && <WindowBorderFrame />}
-      {/* Header — position:fixed (see comment above WindowBorderFrame.jsx
-          for why: so it can't visually cover the border overlay), which
-          means it also escapes the root div's own overflow-hidden/rounded
-          clip above. The logo block and the bg-primary block below it
-          each get their own matching top-corner rounding directly (NOT
-          overflow-hidden on this whole header — the TopNav "Add Game"
-          dropdown is absolutely positioned and extends below this 70px
-          bar, and would get clipped off if this clipped its own
-          overflow) — without that, those two blocks would paint a
-          square corner poking out past the border overlay's curve at
-          the window's actual top corners. */}
+    <div className="flex flex-col h-screen font-sans text-[13px] overflow-hidden">
+      {/* This window uses native OS chrome (see electron/main.js —
+          titleBarStyle: 'hidden'): the OS draws the frame, rounded
+          corners, shadow and resize border, and provides the native
+          minimize/maximize/close caption buttons. So there's no custom
+          window border overlay or CSS corner-rounding here anymore, and
+          the header's own min/max/close buttons have been removed in
+          favor of the native ones. The header still acts as the drag
+          region. */}
+      {/* Header — position:fixed so the "Add Game" dropdown (absolutely
+          positioned, extends below this 70px bar) isn't clipped. */}
       <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
         <div
-          className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag rounded-tl-windowTheme transform-gpu shadow-[0_8px_8px_-8px_rgba(0,0,0,0.5)]"
+          className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag shadow-[0_8px_8px_-8px_rgba(0,0,0,0.5)]"
           onClick={goHome}
           title="Back to Library"
         >
@@ -1420,7 +1429,7 @@ const App = () => {
             />
           )}
         </div>
-        <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_8px_8px_-8px_rgba(0,0,0,0.5)] rounded-tr-windowTheme transform-gpu">
+        <div className="flex-1 h-[70px] bg-primary relative -webkit-app-region-drag shadow-[0_8px_8px_-8px_rgba(0,0,0,0.5)]">
           {/* Accent bar: the notched strip tucked behind the logo block.
               Shown in both layouts as long as the active theme's
               nav.accentBarEnabled hasn't been turned off (see
@@ -1482,7 +1491,9 @@ const App = () => {
                     navDisplayMode, per the current request — Filters/Help
                     etc. on the left can still show text if the theme says
                     so. */}
-                <div className="mt-[14px] mr-[16px] flex items-center gap-3">
+                {/* mr clears the custom caption buttons (top-right, ~92px)
+                    plus a little breathing room. */}
+                <div className="mt-[14px] mr-[100px] flex items-center gap-3">
                   <TopNav
                     group="right"
                     forceIconsOnly
@@ -1507,7 +1518,12 @@ const App = () => {
               </div>
             )}
           </div>
-          <div className="flex absolute top-1 right-2 h-[28px] -webkit-app-region-no-drag">
+          {/* Custom caption buttons (minimize/maximize/close). The window
+              uses titleBarStyle: 'hidden' with NO native buttons (see
+              electron/main.js); these match the theme and header height.
+              -webkit-app-region-no-drag so they're clickable within the
+              otherwise-draggable header. */}
+          <div className="flex absolute top-1 right-2 h-[28px] -webkit-app-region-no-drag z-50">
             <button onClick={() => window.electronAPI.minimizeWindow()} className="w-7 h-7 flex items-center justify-center bg-transparent hover:bg-tertiary transition-colors duration-200">
               <i className="fas fa-minus text-text fa-sm"></i>
             </button>
@@ -1527,7 +1543,7 @@ const App = () => {
               the nav is a top bar or the left rail. data-tour="About" is
               kept so the welcome tour can still spotlight it. */}
           {!isTopNav && (
-            <div className="absolute mt-10 top-0 right-0 flex items-center h-[10px] -webkit-app-region-no-drag">
+            <div className="absolute mt-10 top-0 right-2 flex items-center h-[10px] -webkit-app-region-no-drag">
               <button
                 type="button"
                 onClick={openAbout}
@@ -1569,7 +1585,7 @@ const App = () => {
         {showGameList && (
           <div
             className={`w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ${isTopNav ? '' : 'ml-[60px]'}`}
-            style={{ borderRight: '1px solid var(--color-window-border)' }}
+            style={{ borderRight: '1px solid var(--color-border)' }}
           >
             {filteredGames.length === 0 ? (
               <div className="p-2 text-center text-text">
@@ -1665,6 +1681,28 @@ const App = () => {
               </button>
               <button
                 onClick={() => setMappingBannerDismissed(true)}
+                title="Dismiss"
+                aria-label="Dismiss"
+                className="w-7 h-7 flex items-center justify-center rounded hover:bg-tertiary flex-shrink-0"
+              >
+                <i className="fas fa-times" aria-hidden="true"></i>
+              </button>
+            </div>
+          )}
+          {!selectedGame && mergeableCount > 0 && !mergeBannerDismissed && (
+            <div className="mx-3 mt-3 mb-1 flex items-center gap-3 rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-text">
+              <i className="fas fa-layer-group text-amber-400" aria-hidden="true"></i>
+              <span className="flex-1">
+                {mergeableCount} game{mergeableCount === 1 ? '' : 's'} in your library appear{mergeableCount === 1 ? 's' : ''} more than once and can be merged into a single game with selectable versions.
+              </span>
+              <button
+                onClick={() => window.electronAPI.openSettings?.()}
+                className="px-3 py-1 bg-button hover:bg-buttonHover rounded flex-shrink-0"
+              >
+                Open Settings
+              </button>
+              <button
+                onClick={() => setMergeBannerDismissed(true)}
                 title="Dismiss"
                 aria-label="Dismiss"
                 className="w-7 h-7 flex items-center justify-center rounded hover:bg-tertiary flex-shrink-0"

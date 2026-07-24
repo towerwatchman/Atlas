@@ -83,14 +83,12 @@
   --color-progress-background: #313338;
   --color-progress-foreground: #2C8EA9;
 
-  /* Window chrome — the accent-colored border drawn around every window,
-     as a fixed top-of-stack overlay rather than a regular border (see
-     src/components/ui/WindowBorderFrame.jsx — a regular border on a
-     content div can end up visually covered by a scrollbar or a
-     full-width fixed header/footer bar). Independently colorable from
-     --color-accent, and can be switched off entirely (windowBorderEnabled
-     in the theme, applied as 'transparent' here by applyTheme.js) rather
-     than removing the border element itself. */
+  /* Legacy window-border color. The decorative window border overlay
+     (formerly src/components/ui/WindowBorderFrame.jsx) has been removed
+     app-wide and windowBorderEnabled is force-off in normalizeTheme(), so
+     this variable is no longer painted anywhere. Kept only so any older
+     theme referencing --color-window-border resolves to a value rather
+     than an error. */
   --color-window-border:      #2C8EA9;
 
   /* Game detail page (Steam-style) accents — see THEME_COLOR_KEYS in

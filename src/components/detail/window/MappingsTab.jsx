@@ -19,6 +19,33 @@ export default function MappingsTab({ game, onAddMapping }) {
   // as a JSON blob on the game (see set-manual-mappings / getGame).
   const manualIds = parseExternalIds(game.manual_external_ids)
   const steamAppId = manualIds.steam_appid || manualIds.steam_id || getMappedSteamAppId(game)
+  // Full set of Steam appids to show as mapping rows: the array form
+  // (external_ids.steam_appids, from admin manual links = multiple seasons),
+  // the scalar forms, the client-local manual override, and the mapping.
+  // Deduped, order-preserving.
+  const steamAppIds = (() => {
+    const out = []
+    const seen = new Set()
+    const add = (v) => {
+      const s = String(v ?? '').trim()
+      if (s && !seen.has(s)) { seen.add(s); out.push(s) }
+    }
+    // steam_appids may be a real array, a JSON-string array, or CSV.
+    const coerceList = (val) => {
+      if (Array.isArray(val)) return val
+      const s = String(val ?? '').trim()
+      if (!s) return []
+      if (s.startsWith('[')) { try { const p = JSON.parse(s); if (Array.isArray(p)) return p } catch { /* csv */ } }
+      return s.includes(',') ? s.split(',') : [s]
+    }
+    coerceList(externalIds.steam_appids).forEach(add)
+    add(externalIds.steam_appid)
+    add(externalIds.steam_id)
+    add(manualIds.steam_appid)
+    add(manualIds.steam_id)
+    add(steamAppId)
+    return out
+  })()
   const gogId = manualIds.gog_id || manualIds.gog_appid || getMappedGogId(game)
   const f95DisplayId = normalizeF95DisplayId(manualIds.f95_id || game.f95_id)
   const lewdCornerId = manualIds.lc_id || manualIds.lewdcorner_id || game.lc_id || game.lcId || game.lewdCornerId || externalIds.lc_id || externalIds.lewdcorner_id || null
@@ -32,7 +59,7 @@ export default function MappingsTab({ game, onAddMapping }) {
     (link) => !['steam_appid', 'steam_id', 'gog_id', 'gog_appid', 'lc_id', 'lewdcorner_id'].includes(link.key.toLowerCase()),
   )
 
-  const hasAnyMapping = f95DisplayId || game.atlas_id || steamAppId || gogId || lewdCornerId
+  const hasAnyMapping = f95DisplayId || game.atlas_id || steamAppIds.length > 0 || gogId || lewdCornerId
 
   return (
     <>
@@ -73,17 +100,17 @@ export default function MappingsTab({ game, onAddMapping }) {
                 <td className="p-2">{game.atlas_id}</td>
               </tr>
             )}
-            {steamAppId && (
-              <tr className="border-b border-border">
+            {steamAppIds.map((appId) => (
+              <tr key={`steam-${appId}`} className="border-b border-border">
                 <td className={iconCellClass}>
                   <div className={iconFrameClass}>
                     <i className="fab fa-steam block text-[28px] leading-none" aria-hidden="true"></i>
                   </div>
                 </td>
                 <td className="p-2">Steam</td>
-                <td className="p-2">{steamAppId}</td>
+                <td className="p-2">{appId}</td>
               </tr>
-            )}
+            ))}
             {gogId && (
               <tr className="border-b border-border">
                 <td className={iconCellClass}>

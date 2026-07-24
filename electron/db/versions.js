@@ -1210,7 +1210,23 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       filterParams.push(min, max);
     };
     const browseSource = String(filters.browseSource || filters.source || 'all').toLowerCase();
-    if (['f95', 'lewdcorner', 'steam', 'atlas'].includes(browseSource)) {
+    if (browseSource === 'steam') {
+      // "Steam" in browse means: any catalog tile that HAS a Steam mapping, not
+      // just tiles whose computed source is 'steam'. Atlas tiles carry their
+      // Steam link in external_ids (scalar steam_appid/steam_id or the
+      // steam_appids[] array from admin manual links); their `source` column is
+      // f95/lewdcorner/atlas because the client has no server-side steam_data to
+      // populate a steam_id. Match on either the computed source OR a Steam id
+      // present in external_ids.
+      filterWhereParts.push(`(
+        catalog.source = 'steam'
+        OR catalog.steam_id IS NOT NULL
+        OR catalog.external_ids LIKE '%"steam_appid"%'
+        OR catalog.external_ids LIKE '%"steam_appids"%'
+        OR catalog.external_ids LIKE '%"steam_id"%'
+        OR catalog.siteUrl LIKE '%store.steampowered.com/app/%'
+      )`);
+    } else if (['f95', 'lewdcorner', 'atlas'].includes(browseSource)) {
       filterWhereParts.push('catalog.source = ?');
       filterParams.push(browseSource);
     }
@@ -1489,11 +1505,15 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           atlas_data.logo as atlas_logo,
           f95_zone_data.banner_url as f95_banner,
           lewdcorner_data.banner_url as lewdcorner_banner,
-          MIN(steam_data.header) as steam_header,
-          MIN(steam_data.library_hero) as steam_library_hero,
-          MIN(steam_data.library_capsule) as steam_library_capsule,
-          MIN(steam_data.logo) as steam_logo,
-          MIN(steam_data.logo_position) as logo_position,
+          -- Tile banner assets come from the PRIMARY (lowest / first) steam
+          -- appid so all art belongs to one season rather than being mixed
+          -- column-by-column across appids via independent MIN(). Matches the
+          -- MIN(steam_data.steam_id) chosen as the tile's steam_id above.
+          (SELECT sd.header FROM steam_data sd WHERE sd.atlas_id = atlas_data.atlas_id ORDER BY sd.steam_id LIMIT 1) as steam_header,
+          (SELECT sd.library_hero FROM steam_data sd WHERE sd.atlas_id = atlas_data.atlas_id ORDER BY sd.steam_id LIMIT 1) as steam_library_hero,
+          (SELECT sd.library_capsule FROM steam_data sd WHERE sd.atlas_id = atlas_data.atlas_id ORDER BY sd.steam_id LIMIT 1) as steam_library_capsule,
+          (SELECT sd.logo FROM steam_data sd WHERE sd.atlas_id = atlas_data.atlas_id ORDER BY sd.steam_id LIMIT 1) as steam_logo,
+          (SELECT sd.logo_position FROM steam_data sd WHERE sd.atlas_id = atlas_data.atlas_id ORDER BY sd.steam_id LIMIT 1) as logo_position,
           MIN(gog_data.header) as gog_header,
           MIN(gog_data.library_hero) as gog_library_hero,
           MIN(gog_data.library_capsule) as gog_library_capsule,
@@ -1598,7 +1618,22 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           steam_data.tags AS tags
         FROM steam_data
         LEFT JOIN atlas_data ON steam_data.atlas_id = atlas_data.atlas_id
-        WHERE steam_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL
+        WHERE (steam_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL)
+          -- Also exclude appids that belong to an atlas via external_ids, even
+          -- when steam_data.atlas_id is NULL. The client fetches Steam metadata
+          -- itself (Steam's API has no atlas id), so steam_data.atlas_id is
+          -- always NULL for lazily-fetched appids; their atlas linkage lives in
+          -- atlas_data.external_ids / steam_appids[]. Without this, each season
+          -- appid would leak into browse as its own tile instead of grouping
+          -- under the one atlas catalog entry.
+          AND NOT EXISTS (
+            SELECT 1 FROM atlas_data ad
+             WHERE ad.external_ids LIKE '%"steam_appid":"' || steam_data.steam_id || '"%'
+                OR ad.external_ids LIKE '%"steam_appid": "' || steam_data.steam_id || '"%'
+                OR ad.external_ids LIKE '%"steam_appid":' || steam_data.steam_id || '%'
+                OR ad.external_ids LIKE '%"steam_id":"' || steam_data.steam_id || '"%'
+                OR ad.external_ids LIKE '%"steam_appids"%"' || steam_data.steam_id || '"%'
+          )
       ),
       steam_branch AS (
         SELECT
@@ -1849,6 +1884,95 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         isMetadataOnly: true,
       });
 
+      // Given the mapped catalog games for a page, attach a synthesized
+      // `versions` array of the Steam seasons that share each game's atlas_id, so
+      // the detail page's version selector + install button can target a specific
+      // season for an uninstalled grouped game. Only applies to catalog rows that
+      // have an atlas_id and more than one linked Steam appid; single-appid and
+      // non-atlas rows are left with their empty versions array. Best-effort and
+      // read-only.
+      const attachCatalogSteamVersions = (gamesList) => {
+        return new Promise((resolveEnrich, rejectEnrich) => {
+          const atlasIds = Array.from(
+            new Set(
+              (gamesList || [])
+                .filter((g) => g && g.isCatalogEntry && g.atlas_id != null)
+                .map((g) => g.atlas_id),
+            ),
+          );
+          if (atlasIds.length === 0) {
+            resolveEnrich();
+            return;
+          }
+          const placeholders = atlasIds.map(() => '?').join(', ');
+          getDb().all(
+            `SELECT steam_id, atlas_id, title, release_date
+               FROM steam_data
+              WHERE atlas_id IN (${placeholders})
+              ORDER BY atlas_id, steam_id`,
+            atlasIds,
+            (err, steamRows) => {
+              if (err) {
+                rejectEnrich(err);
+                return;
+              }
+              // Group appids by atlas_id.
+              const byAtlas = new Map();
+              for (const sr of steamRows || []) {
+                if (!byAtlas.has(sr.atlas_id)) byAtlas.set(sr.atlas_id, []);
+                byAtlas.get(sr.atlas_id).push(sr);
+              }
+              // Parse steam_appids[] from a game's external_ids (the admin
+              // manual-link overlay). Falls back to the single steam_appid.
+              const manualAppIds = (g) => {
+                let ext = g.external_ids;
+                if (typeof ext === 'string') {
+                  try { ext = JSON.parse(ext); } catch { ext = null; }
+                }
+                if (!ext || typeof ext !== 'object') return [];
+                const list = Array.isArray(ext.steam_appids) ? ext.steam_appids : [];
+                const single = ext.steam_appid || ext.steam_id;
+                const all = [...list, ...(single ? [single] : [])]
+                  .map((v) => String(v).trim())
+                  .filter(Boolean);
+                return Array.from(new Set(all));
+              };
+              for (const g of gamesList) {
+                if (!g || !g.isCatalogEntry || g.atlas_id == null) continue;
+                const fetched = byAtlas.get(g.atlas_id) || [];
+                const fetchedIds = new Set(fetched.map((s) => String(s.steam_id)));
+                // Merge in manually-linked appids that have no steam_data row
+                // yet, so all seasons show even before their metadata is fetched
+                // (lazy: title/date fill in once the client fetches that appid).
+                const extra = manualAppIds(g)
+                  .filter((id) => !fetchedIds.has(id))
+                  .map((id) => ({ steam_id: id, atlas_id: g.atlas_id, title: null, release_date: null }));
+                const seasons = [...fetched, ...extra];
+                // Only synthesize a version list when there are multiple Steam
+                // seasons; a single appid needs no picker.
+                if (seasons.length <= 1) continue;
+                g.versions = seasons.map((s, index) => ({
+                  version_id: `catalog:steam:${s.steam_id}`,
+                  version: String(s.title || `Season ${index + 1}`),
+                  source: 'steam',
+                  source_app_id: String(s.steam_id),
+                  game_path: '',
+                  exec_path: '',
+                  isInstalled: false,
+                  release_date: s.release_date || null,
+                  isCatalogVersion: true,
+                }));
+                g.versionCount = 0;
+                g.totalVersionCount = seasons.length;
+                g.installedVersionCount = 0;
+                g.hasSteamSeasonVersions = true;
+              }
+              resolveEnrich();
+            },
+          );
+        });
+      };
+
       // Updates-available can't be expressed as a SQL predicate — it needs
       // the exact same version-string comparison logic local mode uses
       // (getIsUpdateAvailable: numeric-aware version comparison, "Final"
@@ -1961,13 +2085,32 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           `thread_updated populated ${threadUpdatedCount}, ` +
           `thread_publish_date populated ${threadPublishDateCount})`,
         );
-          resolve({
-            games,
-            offset,
-            limit,
-            total,
-            hasMore: total === null ? games.length >= limit : offset + games.length < total,
-          });
+          // Attach per-season Steam versions to grouped atlas catalog entries so
+          // an uninstalled multi-appid game (e.g. Steam Season 1 + Season 2 under
+          // one atlas) shows each season as a selectable version to install. One
+          // supplemental query for the whole page (keyed on the atlas_ids present)
+          // rather than an N+1 lookup per row.
+          attachCatalogSteamVersions(games)
+            .then(() => {
+              resolve({
+                games,
+                offset,
+                limit,
+                total,
+                hasMore: total === null ? games.length >= limit : offset + games.length < total,
+              });
+            })
+            .catch((enrichErr) => {
+              // Enrichment is best-effort; never fail the whole catalog fetch.
+              console.warn('Catalog steam-version enrichment failed:', enrichErr?.message);
+              resolve({
+                games,
+                offset,
+                limit,
+                total,
+                hasMore: total === null ? games.length >= limit : offset + games.length < total,
+              });
+            });
         });
       };
 

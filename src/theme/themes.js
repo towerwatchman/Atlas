@@ -454,13 +454,20 @@ export const DEFAULT_THEME = {
   // nav.accentBarEnabled. On by default (this app's chosen preset);
   // still toggleable from Theme Builder for anyone who'd rather not
   // have it.
-  windowBorderEnabled: true,
+  // The decorative window border overlay (a CSS overlay drawn by
+  // WindowBorderFrame, NOT OS chrome) has been removed app-wide. This is
+  // kept as a field for backward-compat with existing theme JSON, but is
+  // forced off in normalizeTheme() regardless of value — see themes.js.
+  windowBorderEnabled: false,
   // How rounded the window border (and every window's own corners, which
   // must always match it exactly — see WindowBorderFrame.jsx) are — see
   // WINDOW_RADIUS_OPTIONS above. 'lg' by default (this app's chosen
   // preset) — still adjustable (including back down to 'none' for
   // perfectly square corners) from Theme Builder.
-  windowBorderRadius: 'lg',
+  // Window corners are drawn by the OS now (native chrome), not CSS. This
+  // is forced to 'none' in normalizeTheme() regardless of value; kept as a
+  // field for back-compat with existing theme JSON.
+  windowBorderRadius: 'none',
   // Lets the border be turned on everywhere EXCEPT the main library
   // window specifically (Settings, Theme Builder, etc. still show it).
   // Independent from windowBorderEnabled, which is the global on/off
@@ -544,9 +551,14 @@ export const normalizeTheme = (theme) => {
   const cardRadius = RADIUS_OPTIONS.includes(theme.cardRadius)
     ? theme.cardRadius
     : (legacyRadius || DEFAULT_THEME.cardRadius)
-  const windowBorderRadius = WINDOW_RADIUS_OPTIONS.includes(theme.windowBorderRadius)
-    ? theme.windowBorderRadius
-    : DEFAULT_THEME.windowBorderRadius
+  // Window corners are now drawn by the OS (native chrome via
+  // titleBarStyle: 'hidden' — see electron/main.js), not by a CSS clip. Any
+  // non-zero CSS window radius fights the native frame and, when maximized,
+  // leaves a visible line where the rounded content pulls in from the square
+  // window edge. Force the radius to 'none' here so --radius-window-active
+  // resolves to 0 for EVERY theme, ignoring any windowBorderRadius set in a
+  // theme file (old or new). Kept as a normalized field for back-compat.
+  const windowBorderRadius = 'none'
   return {
     ...DEFAULT_THEME,
     ...theme,
@@ -556,7 +568,11 @@ export const normalizeTheme = (theme) => {
     nav: normalizeNav(theme.nav),
     buttonEffects: normalizeButtonEffects(theme.buttonEffects),
     textEffects: normalizeTextEffects(theme.textEffects),
-    windowBorderEnabled: theme.windowBorderEnabled !== false,
+    // The decorative window border overlay has been removed app-wide (it
+    // was a CSS overlay, not OS chrome). Force it off here in the normalizer
+    // so ANY theme JSON that still sets windowBorderEnabled: true is
+    // ignored — the value is normalized away for every theme, old or new.
+    windowBorderEnabled: false,
     windowBorderHideOnMain: theme.windowBorderHideOnMain === true,
     colors: {
       ...DEFAULT_THEME.colors,

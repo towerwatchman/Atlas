@@ -66,6 +66,7 @@ const {
   updateFolderSize, getBannerUrl, getScreensUrlList,
   updateBanners, updatePreviews, getRemotePreviewUrls, getSteamMovieThumbnails,
   getPreviews, getBanners, getBanner, getRemoteBannerUrl, getBrowsePreviewUrls,
+  getSteamBrowseMediaForAppId,
   getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
   deleteBanner, deletePreviews,
 } = require('./db/media')
@@ -73,6 +74,7 @@ const {
 const {
   searchAtlas, searchAtlasByF95Id, findF95Id, GetAtlasIDbyRecord,
   addAtlasMapping, getAtlasData, getImportRecordStatus, insertJsonData,
+  recomputeNormalizedTitles,
 } = require('./db/atlas')
 
 const { checkDbUpdates } = require('./db/updates')
@@ -391,6 +393,21 @@ const defaultConfig = {
     showGameList: true,
     sidePanelMode: 'games',
   },
+  // Per-channel record of the app version last INSTALLED from each update
+  // channel. The updater compares the active channel's latest release
+  // against THIS baseline (via autoUpdater.currentVersion) instead of always
+  // using the running build's version. That's what lets a user switch
+  // channels correctly: switching to a channel they've never installed
+  // leaves its baseline empty (treated as 0.0.0 -> always offered the
+  // latest), while switching back to their real channel keeps its true
+  // installed version (so it correctly shows up to date). The channel that
+  // matches the actually-running build is stamped to app.getVersion() on
+  // every launch (see recordRunningBuildVersion). Empty string = never
+  // installed from that channel.
+  Updates: {
+    stableVersion: '',
+    nightlyVersion: '',
+  },
   Library: {
     rootPath: dataDir,
     gameFolder: '',
@@ -483,6 +500,46 @@ function getDefaultAppUpdateBranch() {
   return app.getVersion().includes('-nightly') ? 'nightly' : 'stable'
 }
 
+// The config key under [Updates] that stores the last-installed version for
+// a given branch.
+function versionKeyForBranch(branch) {
+  return branch === 'nightly' ? 'nightlyVersion' : 'stableVersion'
+}
+
+// The version baseline the updater should compare a channel's latest release
+// against. This is the version last INSTALLED from that channel, or 0.0.0 if
+// the user has never installed from it (so its latest is always offered).
+function getInstalledVersionForBranch(branch) {
+  const key = versionKeyForBranch(branch)
+  const stored = String(appConfig?.Updates?.[key] || '').trim()
+  return stored || '0.0.0'
+}
+
+// Persist the version last installed from a branch.
+function setInstalledVersionForBranch(branch, version) {
+  const key = versionKeyForBranch(branch)
+  const value = String(version || '').trim()
+  appConfig = {
+    ...appConfig,
+    Updates: {
+      ...(appConfig?.Updates || {}),
+      [key]: value,
+    },
+  }
+  writeConfigSafely()
+  console.log(`Recorded installed ${branch} version: ${value || '(none)'}`)
+}
+
+// Stamp the currently-running build's version onto whichever channel it
+// actually belongs to. Called on launch: whatever build is running IS, by
+// definition, the installed version for its own channel. The other channel's
+// stored version is left untouched (it reflects what was last installed from
+// there, or nothing).
+function recordRunningBuildVersion() {
+  const runningBranch = getDefaultAppUpdateBranch()
+  setInstalledVersionForBranch(runningBranch, app.getVersion())
+}
+
 function getConfiguredAppUpdateBranch(config = appConfig) {
   return normalizeAppUpdateBranch(config?.Interface?.appUpdateBranch) || getDefaultAppUpdateBranch()
 }
@@ -494,13 +551,23 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
   activeAppUpdateBranch = normalizedBranch
   autoUpdater.setFeedURL({ provider: 'github', owner: 'towerwatchman', repo: 'Atlas', channel: 'latest' })
   autoUpdater.allowPrerelease = normalizedBranch === 'nightly'
-  // Nightly versions are semver prereleases of the SAME base (e.g. 0.9.2 stable
-  // vs 0.9.2-nightly.5), so a nightly build sorts LOWER than the stable release.
-  // With allowDowngrade=false that made stable -> nightly refuse the "older"
-  // nightly build. Allow downgrade when on the nightly branch, and also whenever
-  // the branch is actively switching (so stable <-> nightly both resolve), while
-  // keeping strict no-downgrade for steady-state stable.
-  autoUpdater.allowDowngrade = normalizedBranch === 'nightly' || branchChanged
+
+  // Compare the channel's latest release against the version last INSTALLED
+  // from THAT channel, not against the running build. This is the core of
+  // correct channel switching: electron-updater normally compares the feed
+  // against app.getVersion(), which is the running build and therefore only
+  // ever right for the running build's own channel. By overriding
+  // currentVersion per channel, semver comparison alone resolves every case
+  // and the old allowDowngrade hacks are no longer needed:
+  //   - Switch to a channel never installed -> baseline 0.0.0 -> latest is
+  //     higher -> offered.
+  //   - Switch back to your real channel without updating -> baseline is its
+  //     true installed version -> latest is equal -> up to date.
+  //   - Nightly (0.9.2-nightly.5) vs stable (0.9.2): each channel is judged
+  //     against its own last-installed baseline, so the prerelease-sorts-
+  //     lower problem that previously required allowDowngrade disappears.
+  autoUpdater.currentVersion = getInstalledVersionForBranch(normalizedBranch)
+  autoUpdater.allowDowngrade = false
 
   if (resetStatus && branchChanged) {
     updateInfo = null
@@ -509,7 +576,7 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
     sendUpdateStatus({ status: 'idle' }, 'update-branch-changed')
   }
 
-  console.log(`Configured app update branch: ${normalizedBranch} (allowDowngrade=${autoUpdater.allowDowngrade})`)
+  console.log(`Configured app update branch: ${normalizedBranch} (baseline=${autoUpdater.currentVersion})`)
   return normalizedBranch
 }
 
@@ -952,21 +1019,28 @@ function createWindow() {
     minWidth: 1410,
     height: 860,
     minHeight: 860,
-    frame: false,
-    // Windows draws a native DWM resize border (often tinted with the
-    // system accent color) around frame:false windows that aren't also
-    // transparent -- that's the stray colored line on the left/right/
-    // bottom edges that no amount of CSS could ever reach, since it's
-    // painted by the OS outside the web content entirely. The renderer
-    // already paints a fully opaque background on every window's root
-    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
-    // safe to go fully transparent at the native level instead.
-    transparent: true,
-    // Windows needs an explicit zero-alpha background color for true
-    // per-pixel transparency to render cleanly -- without it, the
-    // "transparent" region (e.g. outside a rounded-corner content clip)
-    // can render with artifacts instead of properly showing through.
-    backgroundColor: '#00000000',
+    // Native OS window chrome with a custom header. titleBarStyle: 'hidden'
+    // removes the native title bar strip so our own client-area header (see
+    // App.jsx) is the title bar. On Windows, 'hidden' ALONE also removes the
+    // native caption buttons and the OS drag/snap behavior -- titleBarOverlay
+    // is what brings both back: it tells Chromium to paint the native
+    // minimize/maximize/close buttons as an overlay in the top-right corner
+    // and to treat that strip as a real caption region (so Aero snap,
+    // drag-to-edge, Win+arrow, and double-click-to-maximize all work). The
+    // OS still draws the frame, rounded corners, shadow, and resize border.
+    // color/symbolColor must be set explicitly or the overlay renders on a
+    // mismatched default strip; these match the default theme's header
+    // (primary) -- see App.jsx header bg-primary. height matches the 70px
+    // Native OS window chrome with a custom header and CUSTOM caption
+    // buttons. titleBarStyle: 'hidden' removes the native title bar strip
+    // (so no doubled bar and no native min/max/close), while the OS still
+    // draws the frame, rounded corners, shadow, and resize border. Window
+    // snapping (drag-to-edge, Win+arrow, double-click-maximize) works via
+    // the -webkit-app-region: drag header in App.jsx, which Windows treats
+    // as a caption region. No titleBarOverlay here on purpose -- that's what
+    // drew the fixed-width native buttons; our own buttons live in the
+    // header instead (see App.jsx) so they match the theme and header size.
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1009,21 +1083,14 @@ function createSettingsWindow(options = {}) {
   const windowState = applySavedWindowBounds('settings', {
     width: 950,
     height: 650,
-    frame: false,
-    // Windows draws a native DWM resize border (often tinted with the
-    // system accent color) around frame:false windows that aren't also
-    // transparent -- that's the stray colored line on the left/right/
-    // bottom edges that no amount of CSS could ever reach, since it's
-    // painted by the OS outside the web content entirely. The renderer
-    // already paints a fully opaque background on every window's root
-    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
-    // safe to go fully transparent at the native level instead.
-    transparent: true,
-    // Windows needs an explicit zero-alpha background color for true
-    // per-pixel transparency to render cleanly -- without it, the
-    // "transparent" region (e.g. outside a rounded-corner content clip)
-    // can render with artifacts instead of properly showing through.
-    backgroundColor: '#00000000',
+    // Native OS window chrome with a custom header and CUSTOM caption
+    // buttons -- same pattern as the main window (see createWindow above).
+    // titleBarStyle: 'hidden' removes the native title bar strip (no doubled
+    // bar, no native buttons) while the OS still draws the frame, rounded
+    // corners, shadow, and resize border. Snapping works via the
+    // -webkit-app-region: drag header (WindowTitleBar.jsx). No titleBarOverlay
+    // on purpose -- the custom buttons in the header match the theme instead.
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1071,21 +1138,12 @@ function createThemeBuilderWindow() {
     // column and never has to collapse to a cramped bottom strip.
     minWidth: 1410,
     minHeight: 860,
-    frame: false,
-    // Windows draws a native DWM resize border (often tinted with the
-    // system accent color) around frame:false windows that aren't also
-    // transparent -- that's the stray colored line on the left/right/
-    // bottom edges that no amount of CSS could ever reach, since it's
-    // painted by the OS outside the web content entirely. The renderer
-    // already paints a fully opaque background on every window's root
-    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
-    // safe to go fully transparent at the native level instead.
-    transparent: true,
-    // Windows needs an explicit zero-alpha background color for true
-    // per-pixel transparency to render cleanly -- without it, the
-    // "transparent" region (e.g. outside a rounded-corner content clip)
-    // can render with artifacts instead of properly showing through.
-    backgroundColor: '#00000000',
+    // Native OS window chrome with a custom header + custom caption buttons
+    // -- same pattern as the main and settings windows (see createWindow).
+    // titleBarStyle: 'hidden' removes the native title bar strip while the
+    // OS draws the frame, corners, shadow and resize border; snapping works
+    // via the -webkit-app-region: drag header (WindowTitleBar.jsx).
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1136,21 +1194,13 @@ function createBannerEditorWindow() {
     height: 1150,
     minWidth: 1644,
     minHeight: 1150,
-    frame: false,
-    // Windows draws a native DWM resize border (often tinted with the
-    // system accent color) around frame:false windows that aren't also
-    // transparent -- that's the stray colored line on the left/right/
-    // bottom edges that no amount of CSS could ever reach, since it's
-    // painted by the OS outside the web content entirely. The renderer
-    // already paints a fully opaque background on every window's root
-    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
-    // safe to go fully transparent at the native level instead.
-    transparent: true,
-    // Windows needs an explicit zero-alpha background color for true
-    // per-pixel transparency to render cleanly -- without it, the
-    // "transparent" region (e.g. outside a rounded-corner content clip)
-    // can render with artifacts instead of properly showing through.
-    backgroundColor: '#00000000',
+    // Native OS window chrome with a custom header + custom caption buttons
+    // -- same pattern as the main/settings/theme-builder windows (see
+    // createWindow). titleBarStyle: 'hidden' removes the native title bar
+    // strip while the OS draws the frame, corners, shadow and resize border;
+    // snapping works via the -webkit-app-region: drag header
+    // (WindowTitleBar.jsx).
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1183,9 +1233,10 @@ function createImporterHelpWindow() {
     height: 800,
     minWidth: 560,
     minHeight: 480,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
+    // Native OS window chrome (see createWindow). titleBarStyle: 'hidden'
+    // removes the native title bar strip; the OS draws the frame, corners,
+    // shadow and resize border, snapping via the drag-region header.
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1220,21 +1271,15 @@ function createImporterWindow(source = 'atlas') {
   const windowState = applySavedWindowBounds('importer', {
     width: 1100,
     height: 750,
-    frame: false,
-    // Windows draws a native DWM resize border (often tinted with the
-    // system accent color) around frame:false windows that aren't also
-    // transparent -- that's the stray colored line on the left/right/
-    // bottom edges that no amount of CSS could ever reach, since it's
-    // painted by the OS outside the web content entirely. The renderer
-    // already paints a fully opaque background on every window's root
-    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
-    // safe to go fully transparent at the native level instead.
-    transparent: true,
-    // Windows needs an explicit zero-alpha background color for true
-    // per-pixel transparency to render cleanly -- without it, the
-    // "transparent" region (e.g. outside a rounded-corner content clip)
-    // can render with artifacts instead of properly showing through.
-    backgroundColor: '#00000000',
+    // Native OS window chrome with a custom header + custom caption buttons
+    // -- same pattern as the other migrated windows (see createWindow).
+    // titleBarStyle: 'hidden' removes the native title bar strip while the
+    // OS draws the frame, corners, shadow and resize border; snapping works
+    // via the -webkit-app-region: drag header. NOTE: this window previously
+    // hit a compositing "gray-screen" bug from the transparent + clip-path
+    // combo (see src/assets/css/main.css); native (opaque) chrome avoids
+    // that failure mode entirely.
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1275,21 +1320,12 @@ function createGameDetailsWindow(recordId) {
   const windowState = applySavedWindowBounds('gameDetails', {
     width: 1100,
     height: 750,
-    frame: false,
-    // Windows draws a native DWM resize border (often tinted with the
-    // system accent color) around frame:false windows that aren't also
-    // transparent -- that's the stray colored line on the left/right/
-    // bottom edges that no amount of CSS could ever reach, since it's
-    // painted by the OS outside the web content entirely. The renderer
-    // already paints a fully opaque background on every window's root
-    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
-    // safe to go fully transparent at the native level instead.
-    transparent: true,
-    // Windows needs an explicit zero-alpha background color for true
-    // per-pixel transparency to render cleanly -- without it, the
-    // "transparent" region (e.g. outside a rounded-corner content clip)
-    // can render with artifacts instead of properly showing through.
-    backgroundColor: '#00000000',
+    // Native OS window chrome with a custom header + custom caption buttons
+    // -- same pattern as the other migrated windows (see createWindow).
+    // titleBarStyle: 'hidden' removes the native title bar strip while the
+    // OS draws the frame, corners, shadow and resize border; snapping works
+    // via the -webkit-app-region: drag header (WindowTitleBar.jsx).
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1389,6 +1425,7 @@ function buildCtx() {
     getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension,
     GetAtlasIDbyRecord, getPreviews, getBanner, deleteBanner, deletePreviews,
     getBrowsePreviewUrls,
+    getSteamBrowseMediaForAppId,
     searchAtlas, searchAtlasByF95Id, findF95Id, checkPathExist,
     findExistingRecordForImport, getImportRecordStatus,
     updateBanners, updatePreviews, getAtlasData, getSteamIDbyRecord, addSteamMapping,
@@ -1435,6 +1472,17 @@ app.whenReady().then(async () => {
   // Initialize database
   initializeDatabase(dataDir)
 
+  // Correct any normalized_title values computed by the old SQL migration (which
+  // diverged from the JS import matcher on accented/non-Latin titles, breaking
+  // import-to-atlas matching for non-English-region users). Deferred so it runs
+  // after initializeDatabase's async table/migration work has settled; it's
+  // idempotent and only rewrites rows whose key actually differs.
+  setTimeout(() => {
+    recomputeNormalizedTitles()
+      .then((res) => { if (res?.fixed) console.log(`normalized_title repair: fixed ${res.fixed} rows`); })
+      .catch((err) => console.error('normalized_title repair failed:', err?.message))
+  }, 3000)
+
   // Load or create config — merge parsed ini with defaults so missing
   // keys always have a value and boolean strings are coerced correctly
   function mergeConfigWithDefaults(parsed) {
@@ -1475,6 +1523,12 @@ app.whenReady().then(async () => {
     fs.writeFileSync(configPath, ini.stringify(defaultConfig))
     nsfwConfigured = false
   }
+
+  // Stamp the running build's version onto its own channel BEFORE resolving
+  // the update baseline, so the active channel always reflects the true
+  // on-disk version and only the *other* channel can be a never-installed
+  // 0.0.0. Must run after appConfig is loaded above.
+  recordRunningBuildVersion()
 
   configureAppUpdateBranch(getConfiguredAppUpdateBranch(appConfig))
 
