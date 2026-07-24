@@ -32,26 +32,47 @@ function normalizeUpdateError(error) {
   const technicalMessage = getErrorText(error) || String(error || '')
   const lower = technicalMessage.toLowerCase()
   const statusCode = Number(error?.statusCode || error?.status || error?.response?.status || 0)
+  // electron-updater tags its errors with a stable `code` (e.g.
+  // ERR_UPDATER_LATEST_VERSION_NOT_FOUND). Prefer these over fragile message
+  // substring matching; fall back to message text for wrapped/rethrown errors.
+  const updaterCode = String(error?.code || '').toUpperCase()
 
   const is404 = statusCode === 404 || (lower.includes('404') && lower.includes('not found'))
-  // A 404 (or "cannot find") on the CHANNEL MANIFEST (latest.yml / nightly.yml
-  // / beta.yml) means no release has been published on that channel yet. This
-  // is a normal, expected state — most commonly right after switching to a
-  // channel that has no build, or on the very first nightly. It must NOT be
-  // reported as "package not ready" (which implies a release exists but its
-  // binaries are still uploading) and must NOT be a scary generic failure.
+
+  // No release published for this channel yet. In v6 this surfaces as one of:
+  //  - ERR_UPDATER_LATEST_VERSION_NOT_FOUND: GitHub /releases/latest 404s. This
+  //    is EXPECTED when the repo has only prereleases (GitHub excludes them from
+  //    "latest"), or before any stable release exists. The message reads
+  //    "please ensure a production release exists".
+  //  - ERR_UPDATER_NO_PUBLISHED_VERSIONS: the atom feed had no usable release.
+  //  - ERR_UPDATER_CHANNEL_FILE_NOT_FOUND: the channel manifest (latest.yml /
+  //    nightly.yml) is missing from the resolved release.
+  // None of these mean something is broken — they mean "nothing to update to on
+  // this channel", so we present a calm, non-retryable notice.
+  const NO_RELEASE_CODES = new Set([
+    'ERR_UPDATER_LATEST_VERSION_NOT_FOUND',
+    'ERR_UPDATER_NO_PUBLISHED_VERSIONS',
+    'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND',
+  ])
   const mentionsManifest =
     lower.includes('latest.yml') ||
     lower.includes('nightly.yml') ||
     lower.includes('beta.yml') ||
+    lower.includes('channel file') ||
+    lower.includes('no published versions') ||
+    lower.includes('production release exists') ||
+    lower.includes('unable to find latest version') ||
     lower.includes('missing update metadata')
-  // A 404 on a DOWNLOAD asset means the release exists but the installer files
-  // are not uploaded yet — this is the true "package not ready" case.
   const mentionsDownloadAsset =
     lower.includes('/releases/download/') ||
     lower.includes('missing release artifact')
 
-  if ((is404 || lower.includes('cannot find')) && mentionsManifest && !mentionsDownloadAsset) {
+  if (
+    NO_RELEASE_CODES.has(updaterCode) ||
+    ((is404 || lower.includes('cannot find') || lower.includes('no published')) &&
+      mentionsManifest &&
+      !mentionsDownloadAsset)
+  ) {
     return {
       code: 'UPDATE_NO_RELEASE_ON_CHANNEL',
       retryable: false,
@@ -60,6 +81,7 @@ function normalizeUpdateError(error) {
     }
   }
 
+  // Release exists but its installer files are not uploaded yet.
   if (mentionsDownloadAsset && is404) {
     return {
       code: 'UPDATE_PACKAGE_NOT_READY',
@@ -70,7 +92,7 @@ function normalizeUpdateError(error) {
   }
 
   if (
-    ['ENOTFOUND', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN'].includes(String(error?.code || '')) ||
+    ['ENOTFOUND', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN'].includes(updaterCode) ||
     lower.includes('net::') ||
     lower.includes('network') ||
     lower.includes('timeout') ||

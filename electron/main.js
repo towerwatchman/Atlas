@@ -558,29 +558,40 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
   // this: it only governs whether prerelease tags inside the already-fetched
   // manifest are honored, not which channel file is downloaded. Selecting the
   // channel per branch is what actually routes nightly to its own releases.
-  const feedChannel = normalizedBranch === 'nightly' ? 'nightly' : 'latest'
-  autoUpdater.setFeedURL({ provider: 'github', owner: 'towerwatchman', repo: 'Atlas', channel: feedChannel })
-  autoUpdater.allowPrerelease = normalizedBranch === 'nightly'
+  // Route the check to the correct release channel. Two things must be set for
+  // electron-updater v6's GitHub provider to resolve the right release:
+  //
+  //  1. autoUpdater.channel — the provider reads `updater.channel` (NOT just the
+  //     channel passed to setFeedURL) both to choose the manifest filename and,
+  //     for prereleases, to match the release tag in the atom feed. In v6's
+  //     GitHubProvider.getLatestVersion, when allowPrerelease is true it walks
+  //     the feed looking for a release whose tag prerelease word equals
+  //     `updater.channel || semver.prerelease(currentVersion)[0]`. If that is
+  //     null it silently grabs the newest release overall — which is why
+  //     nightly was pulling the latest stable/main release.
+  //
+  //  2. currentVersion — the baseline the found release is compared against. We
+  //     keep a per-branch baseline so each channel is judged against its own
+  //     last-installed version. For nightly we ensure the baseline carries a
+  //     `-nightly` prerelease component so the feed matcher has a channel word
+  //     to lock onto even before setting `.channel` takes effect.
+  const isNightly = normalizedBranch === 'nightly'
+  autoUpdater.allowPrerelease = isNightly
+  // Assigning `.channel` also flips allowDowngrade to true internally, so set
+  // allowDowngrade explicitly afterwards.
+  autoUpdater.channel = isNightly ? 'nightly' : 'latest'
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'towerwatchman',
+    repo: 'Atlas',
+    channel: isNightly ? 'nightly' : 'latest',
+  })
 
-  // electron-updater resolves the release provider (and the channel it points
-  // at) lazily on the FIRST checkForUpdates() of a session and then caches it.
-  // setFeedURL() updates the stored config but does not reliably tear down the
-  // already-resolved provider or the in-flight/last check promise, so a
-  // mid-session channel switch keeps hitting whichever channel was resolved
-  // first (restarting clears it, which is why a restart "fixes" it). Null out
-  // the private cache fields so the next check fully re-resolves against the
-  // new channel. Guarded reads keep this safe across electron-updater versions
-  // that rename or drop any of these fields.
-  try {
-    autoUpdater.clientPromise = null
-  } catch {}
-  try {
-    autoUpdater.checkForUpdatesPromise = null
-  } catch {}
-  try {
-    // Present on v6; holds the last resolved { updateInfo, provider }.
-    autoUpdater.updateInfoAndProvider = null
-  } catch {}
+  // electron-updater resolves & caches the provider lazily; setFeedURL already
+  // resets clientPromise, but we also clear the check/result caches so a
+  // mid-session branch switch fully re-resolves. Guarded for version drift.
+  try { autoUpdater.checkForUpdatesPromise = null } catch {}
+  try { autoUpdater.updateInfoAndProvider = null } catch {}
 
   // Compare the channel's latest release against the version last INSTALLED
   // from THAT channel, not against the running build. This is the core of
@@ -671,7 +682,13 @@ autoUpdater.on('update-downloaded', (info) => {
 })
 autoUpdater.on('error', (err) => {
   const normalizedError = normalizeUpdateError(err)
-  console.error('Updater error:', err)
+  // Explicit, greppable diagnostics in the MAIN-process log (not the renderer
+  // console). If an error is ever misclassified, this line shows the real
+  // electron-updater code + message to classify against.
+  console.error(
+    `[updater] raw error code=${err?.code || '(none)'} status=${err?.statusCode || err?.status || '(none)'} ` +
+    `message=${err?.message || String(err)} -> normalized=${normalizedError.code}`
+  )
   console.error('Updater error normalized:', normalizedError)
   installAfterDownload = false
   updateInfo = null
