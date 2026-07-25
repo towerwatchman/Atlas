@@ -338,3 +338,69 @@ describe('validating existing custom data', () => {
     expect(second.deletedRows).toBe(0)
   })
 })
+
+describe('validation sweep performance and progress', () => {
+  it('exits early when no title has custom data', async () => {
+    await new Promise((res, rej) =>
+      dbIndex.db.run('DELETE FROM game_metadata_overrides', (e) => (e ? rej(e) : res())))
+
+    const summary = await validateGameMetadataOverrides()
+    expect(summary.skipped).toBe(true)
+    expect(summary.scannedRows).toBe(0)
+    // Boot must not pay for a join on a library with nothing to validate.
+    expect(typeof summary.durationMs).toBe('number')
+  })
+
+  it('reports progress so a slow first run can be shown to the user', async () => {
+    const recordId = await addGame({ title: 'ProgressGame', creator: 'Dev', engine: 'Unity' })
+    await seedAtlas(recordId, 9401, { status: 'Ongoing' })
+    await updateGame({ record_id: recordId, status: 'Ongoing' })
+
+    const events = []
+    await validateGameMetadataOverrides({ onProgress: (e) => events.push(e) })
+
+    expect(events.length).toBeGreaterThan(0)
+    expect(events[0].phase).toBe('start')
+    expect(events[events.length - 1].phase).toBe('done')
+    for (const e of events) {
+      expect(typeof e.message).toBe('string')
+      expect(e.processed).toBeLessThanOrEqual(e.total)
+    }
+  })
+
+  it('does not let a failing progress handler break the repair', async () => {
+    const recordId = await addGame({ title: 'BadHandlerGame', creator: 'Dev', engine: 'Unity' })
+    await seedAtlas(recordId, 9402, { status: 'Ongoing' })
+    await updateGame({ record_id: recordId, status: 'Ongoing' })
+
+    const summary = await validateGameMetadataOverrides({
+      onProgress: () => { throw new Error('boom') },
+    })
+    expect(summary.redundantFields).toBeGreaterThan(0)
+    expect((await getOverrideRow(recordId))).toBeNull()
+  })
+
+  it('commits the whole sweep as one unit', async () => {
+    // Several corrupt rows repaired together; all or nothing.
+    const ids = []
+    for (let i = 0; i < 5; i += 1) {
+      const id = await addGame({ title: `TxGame ${i}`, creator: 'Dev', engine: 'Unity' })
+      await seedAtlas(id, 9500 + i, { genre: 'Horror' })
+      await new Promise((res, rej) =>
+        dbIndex.db.run(
+          `INSERT INTO game_metadata_overrides (record_id, genre, status, updated_at)
+           VALUES (?, '', 'Completed', 0)`,
+          [id],
+          (e) => (e ? rej(e) : res()),
+        ))
+      ids.push(id)
+    }
+
+    await validateGameMetadataOverrides()
+    for (const id of ids) {
+      const game = await getGame(id, '/tmp', true)
+      expect(game.genre).toBe('Horror')     // blanking override cleared
+      expect(game.status).toBe('Completed') // real custom value kept
+    }
+  })
+})

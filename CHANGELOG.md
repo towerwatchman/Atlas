@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Fixed
+- `electron/db/repair.js`: `validateGameMetadataOverrides()` no longer stalls boot. It ran one auto-committed `UPDATE` per affected row, so SQLite fsynced per statement — measured at 7.2s per 3,000 single-row updates versus 86ms for the same work in one transaction. On a library where every imported title had picked up an override row this meant a multi-minute first launch with no window on screen. All writes now run in a single transaction, blanking overrides are repaired with one set-based `UPDATE` per column instead of a row loop, and the sweep exits after a single `COUNT` when no title has custom data. A 12,000-row corrupted library now repairs in ~1.7s, with steady-state passes at ~0.3s and fresh installs skipping entirely.
+- `electron/main.js`: guarded `window-all-closed` while booting, so tearing down the transient boot progress window cannot quit the app before the main window is created.
 - `electron/db/games.js`: `updateGame()` now writes only the fields present in its payload. It previously wrote all thirteen `game_metadata_overrides` columns on every call, so editing one field in the game properties window turned every displayed value into a user override.
 - `electron/db/games.js`: omitted fields are no longer stored as `''`. Because the metadata merge resolves as `COALESCE(game_metadata_overrides.x, <source chain>)`, an empty-string override is not null and therefore won the COALESCE — permanently blanking fields that had perfectly good Atlas/Steam/GOG values. Empty now means "clear this override" and is stored as `NULL`.
 - `electron/db/games.js`: fixed `latest_version` being pinned by unrelated edits, which froze `isUpdateAvailable` and left the update badge permanently wrong for the affected title.
@@ -11,6 +13,10 @@
 - `src/components/detail/GameDetailsWindow.jsx`: saving now sends only the fields whose value actually changed, so an override is created for exactly the field the user edited.
 
 ### Added
+- `electron/main.js`: added a boot progress window for slow startup database work. Startup repairs run before `createWindow()`, so a slow pass previously left the app with nothing on screen and read as a hang. The window is created lazily — only if the task is still running after 400ms — so the normal fast path stays invisible instead of flashing a splash. It is self-contained (inline HTML via data URL, no preload, no node integration) and needs no build-config entry.
+- `electron/db/repair.js`: `validateGameMetadataOverrides()` now accepts an `onProgress` callback reporting `{ phase, processed, total, message }`, throttled to every 50 rows. A throwing handler is caught and never breaks the repair.
+- `electron/db/repair.js`: added `countGameMetadataOverrideRows()` as a cheap probe so a caller can skip the sweep entirely when no title has custom data.
+- `electron/db/repair.js`: the summary now includes `durationMs` and `skipped`.
 - `electron/db/overrides.js`: added a shared module defining the overridable metadata fields and, for each, the source chain it falls back to. Kept in sync with the merge queries in `electron/db/versions.js` and used by the write path, the custom-data report, and the validation sweep.
 - `electron/db/games.js`: added `getGameOverrides()`, which reports per field whether the user has set a custom value, what that value is, and what the field would inherit if it were cleared.
 - `electron/db/games.js`: added `clearGameOverrides()` to clear specific fields or every custom value for a title. An override row holding nothing is deleted, so the presence of a row is a truthful "this title has custom data" signal.
@@ -20,7 +26,7 @@
 
 ### Changed
 - `src/components/detail/window/RecordTab.jsx`: the Record tab is now responsive — fields stack in one column on narrow windows and split into two from `md` up, with labels above inputs on small widths. Inputs have visible keyboard focus rings and the reset controls carry aria-labels.
-- `tests/game-edit.test.js`: extended with fourteen cases covering override isolation, empty-means-clear, tag preservation, override-row pruning, the custom-vs-source report, single-field and clear-all behaviour, and the validation sweep (including idempotency and dry-run).
+- `tests/game-edit.test.js`: extended with eighteen cases covering override isolation, empty-means-clear, tag preservation, override-row pruning, the custom-vs-source report, single-field and clear-all behaviour, and the validation sweep (including idempotency, dry-run, early exit, progress reporting, and single-transaction commit).
 
 ## 1.0.72 - 2026-06-15
 

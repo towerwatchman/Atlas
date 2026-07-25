@@ -274,9 +274,26 @@ const repairMissingTotalPlaytime = () => {
 //      carries no manual_external_ids. Deleted so that the existence of a row
 //      is a truthful "this title has custom data" signal.
 //
-// Read-mostly and idempotent: a clean database reports zero changes. Safe to
-// run on every launch.
-const validateGameMetadataOverrides = ({ dryRun = false } = {}) => {
+// Performance matters here because this runs during boot. Three things keep it
+// off the critical path:
+//
+//   * An early exit when game_metadata_overrides is empty, so a fresh install
+//     pays a single COUNT.
+//   * Class (1) is repaired with one set-based UPDATE per column — no join and
+//     no row loop — which clears the bulk of the damage in 13 statements.
+//   * Every write runs inside ONE transaction. Without it, SQLite
+//     auto-commits (and fsyncs) per statement, which on a library where every
+//     imported title got an override row meant thousands of disk syncs and a
+//     multi-minute boot with no window on screen.
+//
+// Idempotent: once repaired, the override table only holds genuinely custom
+// rows, so subsequent runs scan almost nothing.
+//
+// Options:
+//   dryRun     — report what would change without writing.
+//   onProgress — called with { phase, processed, total, message } so a caller
+//                can show boot progress. Never throws into the sweep.
+const validateGameMetadataOverrides = ({ dryRun = false, onProgress = null } = {}) => {
   if (!getDb()) return Promise.resolve(null);
 
   const {
@@ -293,8 +310,21 @@ const validateGameMetadataOverrides = ({ dryRun = false } = {}) => {
     new Promise((resolve, reject) => {
       getDb().all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows || [])));
     });
+  const get = (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      getDb().get(sql, params, (err, row) => (err ? reject(err) : resolve(row || null)));
+    });
 
   const labelFor = new Map(OVERRIDE_FIELDS.map((f) => [f.column, f.label]));
+  const report = (phase, processed, total, message) => {
+    if (typeof onProgress !== "function") return;
+    try {
+      onProgress({ phase, processed, total, message });
+    } catch (err) {
+      // Progress reporting must never break the repair.
+      console.warn("Override validation progress handler failed:", err.message);
+    }
+  };
 
   return new Promise((resolve, reject) => {
     getDb().serialize(async () => {
@@ -306,14 +336,60 @@ const validateGameMetadataOverrides = ({ dryRun = false } = {}) => {
         deletedRows: 0,
         byField: {},
         affectedTitles: [],
+        durationMs: 0,
+        skipped: false,
       };
+      const startedAt = Date.now();
+      const emptyCheck = OVERRIDE_COLUMNS.map((col) => `${col} IS NULL`).join(" AND ");
+      const noManualIds = "(manual_external_ids IS NULL OR TRIM(manual_external_ids) IN ('', '{}'))";
+      let inTransaction = false;
 
-      const bump = (column, kind) => {
+      const bump = (column, kind, n = 1) => {
         const entry = (summary.byField[column] ||= { label: labelFor.get(column) || column, blanked: 0, redundant: 0 });
-        entry[kind] += 1;
+        entry[kind] += n;
       };
 
       try {
+        // ── Early exit ────────────────────────────────────────────────────────
+        // Nothing to validate if no title has custom data. Keeps boot free on a
+        // fresh install and on any library that has never been edited.
+        const rowCount = (await get(`SELECT COUNT(*) AS n FROM game_metadata_overrides`))?.n || 0;
+        summary.scannedRows = rowCount;
+        if (rowCount === 0) {
+          summary.skipped = true;
+          summary.durationMs = Date.now() - startedAt;
+          return resolve(summary);
+        }
+
+        report("start", 0, rowCount, `Checking custom data on ${rowCount} title${rowCount === 1 ? "" : "s"}`);
+
+        if (!dryRun) {
+          await run("BEGIN IMMEDIATE");
+          inTransaction = true;
+        }
+
+        // ── (1) Blanking overrides, set-based ─────────────────────────────────
+        for (let i = 0; i < OVERRIDE_COLUMNS.length; i += 1) {
+          const column = OVERRIDE_COLUMNS[i];
+          if (dryRun) {
+            const n = (await get(
+              `SELECT COUNT(*) AS n FROM game_metadata_overrides WHERE ${column} IS NOT NULL AND TRIM(${column}) = ''`,
+            ))?.n || 0;
+            if (n > 0) { summary.blankedFields += n; bump(column, "blanked", n); }
+          } else {
+            const result = await run(
+              `UPDATE game_metadata_overrides SET ${column} = NULL
+               WHERE ${column} IS NOT NULL AND TRIM(${column}) = ''`,
+            );
+            const n = result.changes || 0;
+            if (n > 0) { summary.blankedFields += n; bump(column, "blanked", n); }
+          }
+          report("blanking", i + 1, OVERRIDE_COLUMNS.length, "Restoring blanked fields");
+        }
+
+        // ── (2) Redundant overrides ───────────────────────────────────────────
+        // Needs the source chains, so this is the one pass that joins. It only
+        // looks at rows that still hold at least one non-null override.
         const overrideSelect = OVERRIDE_COLUMNS
           .map((col) => `game_metadata_overrides.${col} AS override_${col}`)
           .join(",\n            ");
@@ -327,29 +403,19 @@ const validateGameMetadataOverrides = ({ dryRun = false } = {}) => {
           FROM game_metadata_overrides
           JOIN games ON games.record_id = game_metadata_overrides.record_id
 ${INHERITED_JOINS}
+          WHERE NOT (${OVERRIDE_COLUMNS.map((col) => `game_metadata_overrides.${col} IS NULL`).join(" AND ")})
           GROUP BY games.record_id`,
         );
 
-        summary.scannedRows = rows.length;
-
-        for (const row of rows) {
+        for (let i = 0; i < rows.length; i += 1) {
+          const row = rows[i];
           const clearColumns = [];
           const detail = [];
 
           for (const column of OVERRIDE_COLUMNS) {
             const custom = row[`override_${column}`];
             if (custom === null || custom === undefined) continue;
-
-            // (1) blanking override
-            if (String(custom).trim() === "") {
-              clearColumns.push(column);
-              summary.blankedFields += 1;
-              bump(column, "blanked");
-              detail.push({ field: column, reason: "blank" });
-              continue;
-            }
-
-            // (2) redundant override
+            if (String(custom).trim() === "") continue; // already handled in (1)
             if (sameValue(custom, row[`inherited_${column}`])) {
               clearColumns.push(column);
               summary.redundantFields += 1;
@@ -358,54 +424,58 @@ ${INHERITED_JOINS}
             }
           }
 
-          if (clearColumns.length === 0) continue;
+          if (clearColumns.length > 0) {
+            summary.affectedTitles.push({ record_id: row.record_id, title: row.title, fields: detail });
+            if (!dryRun) {
+              await run(
+                `UPDATE game_metadata_overrides
+                 SET ${clearColumns.map((col) => `${col} = NULL`).join(", ")}
+                 WHERE record_id = ?`,
+                [row.record_id],
+              );
+            }
+          }
 
-          summary.affectedTitles.push({
-            record_id: row.record_id,
-            title: row.title,
-            fields: detail,
-          });
-
-          if (dryRun) continue;
-
-          await run(
-            `UPDATE game_metadata_overrides
-             SET ${clearColumns.map((col) => `${col} = NULL`).join(", ")}
-             WHERE record_id = ?`,
-            [row.record_id],
-          );
+          // Throttled so a large library does not spam the boot window.
+          if (i % 50 === 0 || i === rows.length - 1) {
+            report("redundant", i + 1, rows.length, "Checking custom values against sources");
+          }
         }
 
-        // (3) rows with nothing left in them
-        if (!dryRun) {
-          const emptyCheck = OVERRIDE_COLUMNS.map((col) => `${col} IS NULL`).join(" AND ");
+        // ── (3) Rows with nothing left in them ────────────────────────────────
+        if (dryRun) {
+          summary.deletedRows = (await get(
+            `SELECT COUNT(*) AS n FROM game_metadata_overrides WHERE ${emptyCheck} AND ${noManualIds}`,
+          ))?.n || 0;
+        } else {
           const deleted = await run(
-            `DELETE FROM game_metadata_overrides
-             WHERE ${emptyCheck}
-               AND (manual_external_ids IS NULL OR TRIM(manual_external_ids) IN ('', '{}'))`,
+            `DELETE FROM game_metadata_overrides WHERE ${emptyCheck} AND ${noManualIds}`,
           );
           summary.deletedRows = deleted.changes || 0;
-        } else {
-          const emptyCheck = OVERRIDE_COLUMNS.map((col) => `${col} IS NULL`).join(" AND ");
-          const pending = await all(
-            `SELECT COUNT(*) AS n FROM game_metadata_overrides
-             WHERE ${emptyCheck}
-               AND (manual_external_ids IS NULL OR TRIM(manual_external_ids) IN ('', '{}'))`,
-          );
-          summary.deletedRows = pending[0]?.n || 0;
+        }
+        report("cleanup", 1, 1, "Cleaning up");
+
+        if (inTransaction) {
+          await run("COMMIT");
+          inTransaction = false;
         }
 
+        summary.durationMs = Date.now() - startedAt;
         const touched = summary.blankedFields + summary.redundantFields + summary.deletedRows;
         if (touched > 0) {
           console.log(
-            `${dryRun ? "Would repair" : "Repaired"} custom metadata: ` +
+            `${dryRun ? "Would repair" : "Repaired"} custom metadata in ${summary.durationMs}ms: ` +
             `${summary.blankedFields} blanking, ${summary.redundantFields} redundant field(s) ` +
             `across ${summary.affectedTitles.length} title(s); ${summary.deletedRows} empty row(s) removed`,
           );
         }
+        report("done", 1, 1, "Custom data check complete");
 
         resolve(summary);
       } catch (err) {
+        if (inTransaction) {
+          try { await run("ROLLBACK"); } catch {}
+        }
         console.error("Error validating game metadata overrides:", err);
         reject(err);
       }
@@ -413,10 +483,22 @@ ${INHERITED_JOINS}
   });
 };
 
+// Cheap "is there anything to do" probe, so a caller can decide whether to put
+// a progress window on screen before committing to the full sweep. Counts
+// override rows only — no joins.
+const countGameMetadataOverrideRows = () =>
+  new Promise((resolve) => {
+    if (!getDb()) return resolve(0);
+    getDb().get(`SELECT COUNT(*) AS n FROM game_metadata_overrides`, [], (err, row) =>
+      resolve(err ? 0 : row?.n || 0),
+    );
+  });
+
 module.exports = {
   repairDoubledApostropheRows,
   repairStaleVersionExecutables,
   repairBlankVersionNames,
   repairMissingTotalPlaytime,
   validateGameMetadataOverrides,
+  countGameMetadataOverrideRows,
 }

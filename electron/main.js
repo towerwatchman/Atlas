@@ -69,7 +69,7 @@ const {
 const {
   repairDoubledApostropheRows, repairStaleVersionExecutables,
   repairBlankVersionNames, repairMissingTotalPlaytime,
-  validateGameMetadataOverrides,
+  validateGameMetadataOverrides, countGameMetadataOverrideRows,
 } = require('./db/repair')
 
 const {
@@ -1157,6 +1157,154 @@ function registerWindowBoundsPersistence(name, win, restoreState = {}) {
   }, 0)
 }
 
+// ── Boot progress window ─────────────────────────────────────────────────────
+// Startup database repairs run BEFORE createWindow(), so a slow one leaves the
+// app with nothing on screen at all and reads as a hang. This puts a small
+// frameless window up to say what is happening.
+//
+// It is created LAZILY: the window only appears if the task is still running
+// after BOOT_PROGRESS_DEFER_MS, so the common fast path stays invisible instead
+// of flashing a splash for a few milliseconds.
+//
+// The window is intentionally self-contained (inline HTML via data URL, no
+// preload, no node integration) so it needs no build-config entry and cannot
+// depend on anything that might itself be mid-repair.
+const BOOT_PROGRESS_DEFER_MS = 400
+
+// True until the main window exists. Guards window-all-closed so dismissing the
+// transient progress window cannot quit the app mid-boot.
+let isBooting = true
+let bootProgressWindow = null
+
+function bootProgressHtml(heading) {
+  const safeHeading = String(heading).replace(/[&<>]/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]
+  ))
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    background: #16181d; color: #e6e8ec;
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    border: 1px solid #2c3038; border-radius: 6px;
+    -webkit-user-select: none; user-select: none;
+  }
+  .wrap { width: 100%; padding: 20px 22px; }
+  .heading { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .msg {
+    color: #9aa0aa; font-size: 12px; margin-bottom: 14px;
+    min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .track { height: 4px; background: #262a31; border-radius: 2px; overflow: hidden; }
+  .bar { height: 100%; width: 0%; background: #4b8ef7; border-radius: 2px; transition: width .18s linear; }
+  /* Indeterminate state, used until the task reports a real fraction. */
+  .bar.indeterminate { width: 35%; animation: slide 1.1s ease-in-out infinite; }
+  @keyframes slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(320%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bar { transition: none; }
+    .bar.indeterminate { animation: none; width: 100%; opacity: .5; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="heading">${safeHeading}</div>
+    <div class="msg" id="msg">Working&hellip;</div>
+    <div class="track"><div class="bar indeterminate" id="bar"></div></div>
+  </div>
+</body>
+</html>`
+}
+
+function createBootProgressWindow(heading) {
+  const win = new BrowserWindow({
+    width: 380,
+    height: 130,
+    frame: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: false,
+    alwaysOnTop: true,
+    center: true,
+    show: false,
+    backgroundColor: '#16181d',
+    title: heading,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
+  })
+  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(bootProgressHtml(heading))}`)
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) win.showInactive() })
+  win.on('closed', () => { if (bootProgressWindow === win) bootProgressWindow = null })
+  return win
+}
+
+// Runs `task`, showing a boot progress window only if it turns out to be slow.
+// `task` receives a report(message, fraction) callback; fraction may be null for
+// an indeterminate bar. Always resolves/rejects with whatever `task` does, and
+// always tears the window down.
+async function withBootProgress(heading, task) {
+  let latest = { message: 'Working…', fraction: null }
+  let timer = null
+  let settled = false
+
+  const push = () => {
+    const win = bootProgressWindow
+    if (!win || win.isDestroyed()) return
+    const message = JSON.stringify(String(latest.message ?? ''))
+    const pct = latest.fraction == null
+      ? 'null'
+      : String(Math.max(0, Math.min(100, Math.round(latest.fraction * 100))))
+    // executeJavaScript rather than IPC so the window needs no preload script.
+    win.webContents.executeJavaScript(`(() => {
+      const m = document.getElementById('msg');
+      const b = document.getElementById('bar');
+      if (m) m.textContent = ${message};
+      if (b) {
+        const pct = ${pct};
+        if (pct === null) { b.classList.add('indeterminate'); }
+        else { b.classList.remove('indeterminate'); b.style.width = pct + '%'; }
+      }
+    })()`, true).catch(() => {})
+  }
+
+  const report = (message, fraction = null) => {
+    latest = { message: message ?? latest.message, fraction }
+    push()
+  }
+
+  timer = setTimeout(() => {
+    if (settled) return
+    try {
+      bootProgressWindow = createBootProgressWindow(heading)
+      bootProgressWindow.webContents.once('did-finish-load', push)
+    } catch (err) {
+      console.warn('Could not show boot progress window:', err.message)
+    }
+  }, BOOT_PROGRESS_DEFER_MS)
+
+  try {
+    return await task(report)
+  } finally {
+    settled = true
+    clearTimeout(timer)
+    const win = bootProgressWindow
+    bootProgressWindow = null
+    if (win && !win.isDestroyed()) {
+      try { win.destroy() } catch { /* ignore */ }
+    }
+  }
+}
+
 function createWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     focusWindow(mainWindow)
@@ -1686,10 +1834,33 @@ app.whenReady().then(async () => {
   await repairMissingTotalPlaytime()
   await repairStaleVersionExecutables()
   // Repairs the blanking/redundant custom-metadata rows left behind by the old
-  // write-everything updateGame(). Idempotent; a clean DB reports nothing.
-  await validateGameMetadataOverrides().catch((err) =>
-    console.warn('Custom metadata validation failed:', err.message),
-  )
+  // write-everything updateGame(). Idempotent, so this is a no-op on every boot
+  // after the first, but the FIRST run on an affected library has real work to
+  // do — and it happens before createWindow(), with nothing on screen. Report
+  // progress so a slow pass reads as progress rather than a hang.
+  try {
+    // Nothing to validate if no title has custom data at all.
+    if ((await countGameMetadataOverrideRows()) > 0) {
+      await withBootProgress('Updating your library', async (report) => {
+        report('Checking custom game data…')
+        const summary = await validateGameMetadataOverrides({
+          onProgress: ({ processed, total, message }) => {
+            report(message, total > 0 ? processed / total : null)
+          },
+        })
+        const repaired = (summary?.blankedFields || 0) + (summary?.redundantFields || 0)
+        if (repaired > 0) {
+          report('Finishing up…', 1)
+          console.log(
+            `Custom metadata repaired on first run: ${repaired} field(s) across ` +
+            `${summary.affectedTitles.length} title(s) in ${summary.durationMs}ms`,
+          )
+        }
+      })
+    }
+  } catch (err) {
+    console.warn('Custom metadata validation failed:', err.message)
+  }
 
   // Load encrypted site accounts before the window (and its webRequest cookie
   // hook) come up, then refresh any expired sessions in the background.
@@ -1710,6 +1881,8 @@ app.whenReady().then(async () => {
   }
 
   createWindow()
+  // The main window exists, so window-all-closed can quit normally again.
+  isBooting = false
 
   const ctx = buildCtx()
 
@@ -1790,6 +1963,10 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => { isQuitting = true })
 
 app.on('window-all-closed', () => {
+  // During boot the only window on screen may be the transient progress window
+  // (see withBootProgress). Closing it must not quit the app before the main
+  // window has been created.
+  if (isBooting) return
   if (process.platform !== 'darwin') app.quit()
 })
 
