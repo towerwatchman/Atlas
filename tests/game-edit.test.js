@@ -404,3 +404,132 @@ describe('validation sweep performance and progress', () => {
     }
   })
 })
+
+// ── Base games columns (Title / Engine / Developer) ────────────────────────
+// These have no override column, so "changed" means the stored value differs
+// from what the sources report. Resetting writes the source value back into the
+// games row rather than nulling an override.
+
+const seedAtlasIdentity = async (recordId, atlasId, d = {}) => {
+  const run = (sql, params) =>
+    new Promise((resolve, reject) => { dbIndex.db.run(sql, params, (e) => (e ? reject(e) : resolve())) })
+  await run(
+    `INSERT OR REPLACE INTO atlas_data (atlas_id, title, engine, creator, developer, status, version)
+     VALUES (?, ?, ?, ?, ?, 'Ongoing', '1.0.0')`,
+    [atlasId, d.title ?? 'Atlas Title', d.engine ?? 'RenPy', d.creator ?? 'Atlas Creator', d.developer ?? 'Atlas Dev'],
+  )
+  await run('INSERT OR REPLACE INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)', [recordId, atlasId])
+}
+
+const fieldFor = (report, column) => report.fields.find((f) => f.column === column)
+
+describe('base games columns', () => {
+  it('does not flag a record that still matches its source', async () => {
+    const recordId = await addGame({ title: 'Atlas Title', creator: 'Atlas Creator', engine: 'RenPy' })
+    await seedAtlasIdentity(recordId, 9601)
+
+    const report = await getGameOverrides(recordId)
+    expect(fieldFor(report, 'title').overridden).toBe(false)
+    expect(fieldFor(report, 'creator').overridden).toBe(false)
+    expect(fieldFor(report, 'engine').overridden).toBe(false)
+    expect(report.baseFieldCount).toBe(0)
+  })
+
+  it('flags title/engine/developer when they differ, and reports the source', async () => {
+    const recordId = await addGame({ title: 'Atlas Title', creator: 'Atlas Creator', engine: 'RenPy' })
+    await seedAtlasIdentity(recordId, 9602)
+    await updateGame({ record_id: recordId, title: 'My Better Title', engine: 'Unity' })
+
+    const report = await getGameOverrides(recordId)
+    const title = fieldFor(report, 'title')
+    expect(title.overridden).toBe(true)
+    expect(title.base).toBe(true)
+    expect(title.custom).toBe('My Better Title')
+    expect(title.inherited).toBe('Atlas Title')
+
+    expect(fieldFor(report, 'engine').overridden).toBe(true)
+    expect(fieldFor(report, 'creator').overridden).toBe(false)
+    expect(report.baseFieldCount).toBe(2)
+  })
+
+  it('ignores case and whitespace differences', async () => {
+    const recordId = await addGame({ title: '  atlas title ', creator: 'ATLAS CREATOR', engine: 'RenPy' })
+    await seedAtlasIdentity(recordId, 9603)
+
+    const report = await getGameOverrides(recordId)
+    expect(report.baseFieldCount).toBe(0)
+  })
+
+  it('resetting a base field writes the source value back into games', async () => {
+    const recordId = await addGame({ title: 'Reset Base', creator: 'Reset Creator', engine: 'RenPy' })
+    await seedAtlasIdentity(recordId, 9604, { title: 'Reset Base', creator: 'Reset Creator' })
+    await updateGame({ record_id: recordId, title: 'Renamed', creator: 'Someone Else' })
+
+    const result = await clearGameOverrides(recordId, ['title'])
+    expect(result.success).toBe(true)
+    expect(result.cleared).toContain('title')
+
+    const game = await getGame(recordId, '/tmp', true)
+    expect(game.title).toBe('Reset Base')
+    // The other edited base field is untouched.
+    expect(game.creator).toBe('Someone Else')
+  })
+
+  it('never blanks a base field that has no source value', async () => {
+    const recordId = await addGame({ title: 'Homebrew Game', creator: 'Me', engine: 'Custom' })
+    // No atlas/steam/gog mapping at all.
+    const report = await getGameOverrides(recordId)
+    expect(fieldFor(report, 'title').resettable).toBe(false)
+    // Nothing to differ from, so nothing is flagged.
+    expect(fieldFor(report, 'title').overridden).toBe(false)
+
+    const result = await clearGameOverrides(recordId, ['title'])
+    expect(result.cleared).not.toContain('title')
+    expect(result.skipped).toContain('title')
+    expect((await getGame(recordId, '/tmp', true)).title).toBe('Homebrew Game')
+  })
+
+  it('reset-all restores base columns and overrides together', async () => {
+    const recordId = await addGame({ title: 'All Base', creator: 'All Creator', engine: 'RenPy' })
+    await seedAtlasIdentity(recordId, 9605, { title: 'All Base', creator: 'All Creator' })
+    await updateGame({ record_id: recordId, title: 'Renamed', engine: 'Unity', status: 'Completed' })
+    expect((await getGameOverrides(recordId)).overriddenCount).toBe(3)
+
+    await clearGameOverrides(recordId)
+
+    const game = await getGame(recordId, '/tmp', true)
+    expect(game.title).toBe('All Base')
+    expect(game.engine).toBe('RenPy')
+    expect(game.status).toBe('Ongoing')
+    expect((await getGameOverrides(recordId)).overriddenCount).toBe(0)
+  })
+
+  it('accepts the developer form key for the creator column', async () => {
+    const recordId = await addGame({ title: 'FormKey Base', creator: 'FormKey Creator', engine: 'RenPy' })
+    await seedAtlasIdentity(recordId, 9606, { title: 'FormKey Base', creator: 'FormKey Creator' })
+    await updateGame({ record_id: recordId, creator: 'Someone Else' })
+
+    const result = await clearGameOverrides(recordId, ['developer'])
+    expect(result.cleared).toContain('creator')
+    expect((await getGame(recordId, '/tmp', true)).creator).toBe('FormKey Creator')
+  })
+
+  it('refuses a reset that would duplicate another record, without a raw SQL error', async () => {
+    // games is UNIQUE on (title, creator, engine). Two imports of the same game
+    // where the user renamed one to tell them apart: resetting the renamed one
+    // would collide with the original.
+    await addGame({ title: 'Twin Title', creator: 'Twin Creator', engine: 'RenPy' })
+    const renamed = await addGame({ title: 'Twin Title (v2)', creator: 'Twin Creator', engine: 'RenPy' })
+    await seedAtlasIdentity(renamed, 9607, { title: 'Twin Title', creator: 'Twin Creator' })
+
+    const report = await getGameOverrides(renamed)
+    expect(fieldFor(report, 'title').overridden).toBe(true)
+
+    const result = await clearGameOverrides(renamed, ['title'])
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/identical to another record/i)
+    expect(result.error).not.toMatch(/SQLITE|constraint failed/i)
+    // The record is left intact rather than half-reset.
+    expect((await getGame(renamed, '/tmp', true)).title).toBe('Twin Title (v2)')
+  })
+})

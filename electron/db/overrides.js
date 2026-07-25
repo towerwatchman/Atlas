@@ -79,6 +79,42 @@ const INHERITED_JOINS = `
     OR (gog_mappings.gog_id IS NULL AND atlas_mappings.atlas_id IS NOT NULL AND gog_data.atlas_id = atlas_mappings.atlas_id)
 `
 
+// Base `games` columns that are shown alongside the overridable fields in the
+// properties window.
+//
+// These are NOT overrides. games.title / creator / engine always hold a value
+// (the importer seeds them from whichever source matched), and there is no
+// separate override column, so there is no stored record of user intent. All we
+// can honestly say is whether the stored value DIFFERS from what the sources
+// currently report — which is usually a user edit, but would also be true if a
+// source changed upstream after import. UI wording should therefore say
+// "differs from the source", not "your custom value".
+//
+// Resetting one of these writes the source value back into the games row rather
+// than nulling an override. `title` is the record's identity across the library
+// grid, search and sorting, so a reset must never blank it — callers skip any
+// base field whose source value is empty.
+const BASE_FIELDS = [
+  { column: 'title',   label: 'Title',     formKey: 'title' },
+  { column: 'engine',  label: 'Engine',    formKey: 'engine' },
+  { column: 'creator', label: 'Developer', formKey: 'developer' },
+]
+
+const BASE_COLUMNS = BASE_FIELDS.map((f) => f.column)
+
+// Source chains for the base columns. `creator` mirrors the precedence the
+// importer uses when it first populates the row (atlas creator -> atlas
+// developer -> steam developer); see electron/ipc/importer.js.
+const BASE_SQL = {
+  title:   `COALESCE(NULLIF(atlas_data.title, ''), NULLIF(steam_data.title, ''), gog_data.title)`,
+  engine:  `COALESCE(NULLIF(atlas_data.engine, ''), NULLIF(steam_data.engine, ''), gog_data.engine)`,
+  creator: `COALESCE(NULLIF(atlas_data.creator, ''), NULLIF(atlas_data.developer, ''), NULLIF(steam_data.developer, ''), gog_data.developer)`,
+}
+
+// SELECT list of source values for the base columns, aliased source_<column>.
+const baseSourceSelect = () =>
+  BASE_COLUMNS.map((col) => `${BASE_SQL[col]} AS source_${col}`).join(',\n        ')
+
 // SELECT list of inherited values, aliased inherited_<column>.
 const inheritedSelect = () =>
   OVERRIDE_COLUMNS.map((col) => `${INHERITED_SQL[col]} AS inherited_${col}`).join(',\n        ')
@@ -125,6 +161,10 @@ module.exports = {
   INHERITED_SQL,
   INHERITED_JOINS,
   inheritedSelect,
+  BASE_FIELDS,
+  BASE_COLUMNS,
+  BASE_SQL,
+  baseSourceSelect,
   normalizeOverrideValue,
   extractOverridePatch,
   sameValue,

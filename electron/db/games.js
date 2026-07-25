@@ -11,7 +11,8 @@ const { mapVersionRow, getVersionPathsForRecord } = require('./versions')
 const { deleteBanner, deletePreviews, deleteMediaAssets } = require('./media')
 const { normalizePlaystate } = require('./playstates')
 const { OVERRIDE_FIELDS, OVERRIDE_COLUMNS, extractOverridePatch,
-        inheritedSelect, INHERITED_JOINS, sameValue } = require('./overrides')
+        inheritedSelect, INHERITED_JOINS, sameValue,
+        BASE_FIELDS, BASE_COLUMNS, baseSourceSelect } = require('./overrides')
 
 let cachedFilterOptions = null
 const resetCachedFilterOptions = () => { cachedFilterOptions = null }
@@ -223,6 +224,8 @@ const getGameOverrides = (recordId) =>
     getDb().get(
       `SELECT
         games.record_id,
+        ${BASE_COLUMNS.map((col) => `games.${col} AS base_${col}`).join(",\n        ")},
+        ${baseSourceSelect()},
         ${overrideSelect},
         ${inheritedSelect()}
       FROM games
@@ -238,7 +241,34 @@ ${INHERITED_JOINS}
         }
         if (!row) return resolve({ recordId, fields: [], overriddenCount: 0 })
 
-        const fields = OVERRIDE_FIELDS.map(({ column, label, formKey }) => {
+        // Base `games` columns. There is no override row to consult, so
+        // "changed" means the stored value differs from what the sources report.
+        // That is usually a user edit but would also be true if a source changed
+        // upstream after import, so this is reported as a difference from the
+        // source rather than as stored custom intent.
+        const baseReport = BASE_FIELDS.map(({ column, label, formKey }) => {
+          const stored = row[`base_${column}`]
+          const source = row[`source_${column}`]
+          const storedText = stored === null || stored === undefined ? "" : String(stored)
+          const sourceText = source === null || source === undefined ? "" : String(source)
+          return {
+            column,
+            label,
+            formKey,
+            base: true,
+            // Only a real difference counts, and only when there is a source to
+            // compare against — an unmatched record has nothing to differ from.
+            overridden: sourceText !== "" && storedText !== "" && !sameValue(storedText, sourceText),
+            custom: storedText || null,
+            inherited: sourceText,
+            // A base field can only be reset when a source value exists; title
+            // in particular must never be blanked.
+            resettable: sourceText !== "",
+            redundant: false,
+          }
+        })
+
+        const overrideReport = OVERRIDE_FIELDS.map(({ column, label, formKey }) => {
           const custom = row[`override_${column}`]
           const inherited = row[`inherited_${column}`]
           const overridden = custom !== null && custom !== undefined && String(custom).trim() !== ""
@@ -246,54 +276,122 @@ ${INHERITED_JOINS}
             column,
             label,
             formKey,
+            base: false,
             overridden,
             custom: overridden ? String(custom) : null,
             inherited: inherited === null || inherited === undefined ? "" : String(inherited),
+            resettable: true,
             // A custom value identical to the source value changes nothing —
             // the signature of the old write-everything bug.
             redundant: overridden && sameValue(custom, inherited),
           }
         })
 
+        const fields = [...baseReport, ...overrideReport]
         resolve({
           recordId,
           fields,
           overriddenCount: fields.filter((f) => f.overridden).length,
+          overrideFieldCount: overrideReport.filter((f) => f.overridden).length,
+          baseFieldCount: baseReport.filter((f) => f.overridden).length,
         })
       },
     )
   })
 
-// Clears overrides for a record. Pass a list of columns (or form keys) to clear
-// specific fields; omit it to remove every custom value for the title.
+// Resets fields on a record. Pass a list of columns (or form keys) to reset
+// specific fields; omit it to reset everything.
+//
+// Two kinds of field are handled differently:
+//   * Overridable metadata — the override column is set to NULL, so the field
+//     falls back through its source chain.
+//   * Base `games` columns (title / creator / engine) — there is no override to
+//     null, so the SOURCE VALUE IS WRITTEN BACK into the games row. A base field
+//     with no source value is skipped rather than blanked; title especially is
+//     the record's identity across the library grid, search and sorting.
 const clearGameOverrides = async (recordId, fields = null) => {
   if (!recordId) throw new Error("recordId is required")
 
   const requested = Array.isArray(fields) ? fields : fields ? [fields] : null
-  let columns = OVERRIDE_COLUMNS
+  const byFormKey = new Map([
+    ...OVERRIDE_FIELDS.map((f) => [f.formKey, f.column]),
+    ...BASE_FIELDS.map((f) => [f.formKey, f.column]),
+  ])
+  const resolveName = (name) =>
+    OVERRIDE_COLUMNS.includes(name) || BASE_COLUMNS.includes(name) ? name : byFormKey.get(name)
+
+  let overrideCols = OVERRIDE_COLUMNS
+  let baseCols = BASE_COLUMNS
   if (requested) {
-    const byFormKey = new Map(OVERRIDE_FIELDS.map((f) => [f.formKey, f.column]))
-    columns = requested
-      .map((name) => (OVERRIDE_COLUMNS.includes(name) ? name : byFormKey.get(name)))
-      .filter(Boolean)
-    if (columns.length === 0) {
-      return { success: false, error: "No recognised override fields to clear", cleared: [] }
+    const resolved = requested.map(resolveName).filter(Boolean)
+    overrideCols = resolved.filter((c) => OVERRIDE_COLUMNS.includes(c))
+    baseCols = resolved.filter((c) => BASE_COLUMNS.includes(c))
+    if (overrideCols.length === 0 && baseCols.length === 0) {
+      return { success: false, error: "No recognised fields to reset", cleared: [], skipped: [] }
     }
   }
 
   try {
-    await dbRun(
-      `UPDATE game_metadata_overrides
-       SET ${columns.map((col) => `${col} = NULL`).join(", ")}, updated_at = ?
-       WHERE record_id = ?`,
-      [Math.floor(Date.now() / 1000), recordId],
-    )
-    await pruneEmptyOverrideRow(recordId)
+    const cleared = []
+    const skipped = []
+
+    if (overrideCols.length > 0) {
+      await dbRun(
+        `UPDATE game_metadata_overrides
+         SET ${overrideCols.map((col) => `${col} = NULL`).join(", ")}, updated_at = ?
+         WHERE record_id = ?`,
+        [Math.floor(Date.now() / 1000), recordId],
+      )
+      await pruneEmptyOverrideRow(recordId)
+      cleared.push(...overrideCols)
+    }
+
+    if (baseCols.length > 0) {
+      // Read the source values through the shared chains rather than
+      // duplicating them here.
+      const report = await getGameOverrides(recordId)
+      const byColumn = new Map((report?.fields || []).map((f) => [f.column, f]))
+      const writes = []
+      for (const col of baseCols) {
+        const field = byColumn.get(col)
+        const source = field?.inherited || ""
+        if (!source) { skipped.push(col); continue }        // nothing to reset to
+        if (!field.overridden) continue                     // already matches source
+        writes.push([col, source])
+      }
+      if (writes.length > 0) {
+        try {
+          await dbRun(
+            `UPDATE games SET ${writes.map(([col]) => `${col} = ?`).join(", ")} WHERE record_id = ?`,
+            [...writes.map(([, value]) => value), recordId],
+          )
+          cleared.push(...writes.map(([col]) => col))
+        } catch (err) {
+          // games has a UNIQUE constraint on (title, creator, engine). Restoring
+          // source values can therefore collide with another record — typically
+          // a duplicate import the user renamed precisely to tell the two apart.
+          // Report that plainly instead of leaking the raw SQLite message; any
+          // override columns cleared above still stand.
+          if (String(err?.code) === "SQLITE_CONSTRAINT") {
+            return {
+              success: false,
+              error:
+                "Resetting these fields would make this title identical to another record " +
+                "in your library. Rename or merge the duplicate first.",
+              cleared,
+              skipped: [...skipped, ...writes.map(([col]) => col)],
+            }
+          }
+          throw err
+        }
+      }
+    }
+
     resetCachedFilterOptions()
-    return { success: true, cleared: columns }
+    return { success: true, cleared, skipped }
   } catch (err) {
-    console.error("Error clearing game overrides:", err)
-    return { success: false, error: err.message, cleared: [] }
+    console.error("Error resetting game fields:", err)
+    return { success: false, error: err.message, cleared: [], skipped: [] }
   }
 }
 

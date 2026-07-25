@@ -8,11 +8,11 @@
 // and which came from a source.
 
 const LEFT_FIELDS = [
-  { name: 'title', label: 'Title', source: false },
+  { name: 'title', label: 'Title' },
   { name: 'mappings', label: 'Mappings', disabled: true, source: false },
   { name: 'platform', label: 'Platform' },
-  { name: 'engine', label: 'Engine', source: false },
-  { name: 'developer', label: 'Developer', source: false },
+  { name: 'engine', label: 'Engine' },
+  { name: 'developer', label: 'Developer' },
   { name: 'publisher', label: 'Publisher' },
   { name: 'status', label: 'Status' },
 ]
@@ -35,18 +35,21 @@ const INPUT_BASE =
 // The pencil is the indicator (this field was edited); the arrow is the action
 // (put it back). Sits next to the field label so the row reads: what the field
 // is, whether it is yours, how to undo it.
-function CustomBadge({ label, onReset }) {
+function CustomBadge({ label, onReset, base = false, resettable = true }) {
+  // Base games columns (Title/Engine/Developer) have no override row, so all we
+  // can say is that the stored value differs from the source — not that it is a
+  // deliberate custom value. Wording stays honest about that distinction.
+  const marker = base
+    ? `${label} differs from the source value`
+    : `${label} uses your custom value instead of the source data`
   return (
     <span className="inline-flex items-center gap-0.5 shrink-0">
-      <span
-        className="inline-flex items-center text-accent"
-        title={`${label} uses your custom value instead of the source data`}
-      >
+      <span className="inline-flex items-center text-accent" title={marker}>
         <i className="fas fa-pencil text-[10px]" aria-hidden="true"></i>
         {/* The icon carries meaning, so give assistive tech the words too. */}
-        <span className="sr-only">{`${label} has a custom value`}</span>
+        <span className="sr-only">{marker}</span>
       </span>
-      {onReset && (
+      {onReset && resettable && (
         <button
           type="button"
           onClick={onReset}
@@ -71,7 +74,14 @@ function Field({ field, value, override, onChange, onReset }) {
     <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2">
       <div className="flex items-center justify-between gap-2 sm:w-28 sm:shrink-0 sm:pt-1">
         <label htmlFor={`record-${name}`} className="text-sm">{label}</label>
-        {isCustom && <CustomBadge label={label} onReset={onReset} />}
+        {isCustom && (
+          <CustomBadge
+            label={label}
+            onReset={onReset}
+            base={Boolean(override?.base)}
+            resettable={override?.resettable !== false}
+          />
+        )}
       </div>
       <div className="flex-1 min-w-0">
         <input
@@ -91,7 +101,9 @@ function Field({ field, value, override, onChange, onReset }) {
           <p className="mt-0.5 text-[11px] text-muted break-words">
             {inherited
               ? <>Source value: <span className="text-text">{inherited}</span></>
-              : 'No source value — this field is empty without your custom value.'}
+              : override?.base
+                ? 'No source value to compare against.'
+                : 'No source value — this field is empty without your custom value.'}
           </p>
         )}
       </div>

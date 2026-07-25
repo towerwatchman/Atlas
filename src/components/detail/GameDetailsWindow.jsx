@@ -770,6 +770,10 @@ const GameDetailWindow = () => {
     if (!game?.record_id) return
     const field = overrides?.fields?.find((f) => f.formKey === formKey)
     if (!field?.overridden) return
+    if (field.resettable === false) {
+      showAlert(`Cannot reset ${field.label}`, `No source value is available for ${field.label.toLowerCase()}, so there is nothing to reset it to.`)
+      return
+    }
 
     // Confirm first — discarding a custom value the user typed is not
     // recoverable, and the reset icons sit close enough to the inputs to be
@@ -781,12 +785,20 @@ const GameDetailWindow = () => {
       const value = String(text ?? '').replace(/\s+/g, ' ').trim()
       return value.length > max ? `${value.slice(0, max).trimEnd()}…` : value
     }
+    // Title/Engine/Developer are base games columns with no override row, so a
+    // reset overwrites the stored value with the source value rather than
+    // clearing an override. Say that plainly instead of calling it "custom".
     const sourceLine = field.inherited
-      ? `It will go back to the value from Atlas, Steam or GOG:\n"${clip(field.inherited)}"`
-      : 'There is no source value for this field, so it will be left empty.'
+      ? `It will be replaced with the value from Atlas, Steam or GOG:\n"${clip(field.inherited)}"`
+      : field.base
+        ? 'There is no source value for this field, so it cannot be reset.'
+        : 'There is no source value for this field, so it will be left empty.'
+    const lead = field.base
+      ? `Replace the ${field.label.toLowerCase()} stored for "${game.title}"?`
+      : `Discard your custom ${field.label.toLowerCase()} for "${game.title}"?`
     openConfirm({
       title: `Reset ${field.label}?`,
-      body: `Discard your custom ${field.label.toLowerCase()} for "${game.title}"?\n\nYour value:\n"${clip(field.custom)}"\n\n${sourceLine}`,
+      body: `${lead}\n\nCurrent value:\n"${clip(field.custom)}"\n\n${sourceLine}`,
       confirmLabel: `Reset ${field.label}`,
       tone: 'danger',
       onConfirm: () => runDialogAction(async () => {
@@ -805,13 +817,16 @@ const GameDetailWindow = () => {
   // Drops every custom value for the title, restoring Atlas/Steam/GOG data.
   const handleClearAllOverrides = () => {
     if (!game?.record_id) return
-    const count = overrides?.overriddenCount || 0
-    if (count === 0) { showAlert('No custom data', 'This title has no custom field values to clear.'); return }
-    const names = (overrides?.fields || []).filter((f) => f.overridden).map((f) => f.label).join(', ')
+    // Only fields that can actually be reset are offered. A base column with no
+    // source value (an unmatched record) has nothing to fall back to.
+    const resettable = (overrides?.fields || []).filter((f) => f.overridden && f.resettable !== false)
+    const count = resettable.length
+    if (count === 0) { showAlert('Nothing to reset', 'This title has no changed fields that can be reset to source values.'); return }
+    const names = resettable.map((f) => f.label).join(', ')
     openConfirm({
-      title: 'Clear all custom data',
-      body: `Remove your custom values for "${game.title}"?\n\n${count} field${count === 1 ? '' : 's'}: ${names}\n\nEach field will go back to the value from Atlas, Steam or GOG. Versions, media and playtime are not affected.`,
-      confirmLabel: 'Clear Custom Data',
+      title: 'Reset all fields',
+      body: `Reset every changed field for "${game.title}"?\n\n${count} field${count === 1 ? '' : 's'}: ${names}\n\nEach one goes back to the value from Atlas, Steam or GOG. Versions, media and playtime are not affected.`,
+      confirmLabel: 'Reset All Fields',
       tone: 'danger',
       onConfirm: () => runDialogAction(async () => {
         const result = await window.electronAPI.clearGameOverrides(game.record_id, null)
