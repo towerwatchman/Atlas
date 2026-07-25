@@ -12,7 +12,8 @@ const { deleteBanner, deletePreviews, deleteMediaAssets } = require('./media')
 const { normalizePlaystate } = require('./playstates')
 const { OVERRIDE_FIELDS, OVERRIDE_COLUMNS, extractOverridePatch,
         inheritedSelect, INHERITED_JOINS, sameValue,
-        BASE_FIELDS, BASE_COLUMNS, baseSourceSelect } = require('./overrides')
+        BASE_FIELDS, BASE_COLUMNS, baseSourceSelect,
+        parseBaseOriginals, serializeBaseOriginals } = require('./overrides')
 
 let cachedFilterOptions = null
 const resetCachedFilterOptions = () => { cachedFilterOptions = null }
@@ -135,7 +136,8 @@ const pruneEmptyOverrideRow = async (recordId) => {
     `DELETE FROM game_metadata_overrides
      WHERE record_id = ?
        AND ${emptyCheck}
-       AND (manual_external_ids IS NULL OR TRIM(manual_external_ids) IN ('', '{}'))`,
+       AND (manual_external_ids IS NULL OR TRIM(manual_external_ids) IN ('', '{}'))
+       AND (base_field_originals IS NULL OR TRIM(base_field_originals) IN ('', '{}'))`,
     [recordId],
   )
   return result.changes > 0
@@ -177,16 +179,76 @@ const writeOverridePatch = async (recordId, patch) => {
 // own text, part of the inherited chain) whereas `overview` writes the override
 // column — they are deliberately separate so that reverting or clearing custom
 // data can restore the source description.
-const updateGame = async (game) => {
+// Records what a base games column held before a user edit, so the properties
+// window can mark it as changed and offer a reliable revert target.
+//
+// Only genuine user edits should be tracked — the importer and scanners also
+// write these columns, and treating those as user edits would mark half the
+// library. The caller opts in (the update-game IPC does; importer.js does not).
+const recordBaseFieldOriginals = async (recordId, pending) => {
+  const columns = Object.keys(pending)
+  if (columns.length === 0) return
+
+  const current = await new Promise((resolve, reject) => {
+    getDb().get(
+      `SELECT ${BASE_COLUMNS.map((c) => `games.${c}`).join(", ")},
+              game_metadata_overrides.base_field_originals AS originals
+       FROM games
+       LEFT JOIN game_metadata_overrides ON games.record_id = game_metadata_overrides.record_id
+       WHERE games.record_id = ?`,
+      [recordId],
+      (err, row) => (err ? reject(err) : resolve(row || null)),
+    )
+  })
+  if (!current) return
+
+  const originals = parseBaseOriginals(current.originals)
+  let changed = false
+
+  for (const column of columns) {
+    const before = current[column] === null || current[column] === undefined ? "" : String(current[column])
+    const after = pending[column] === null || pending[column] === undefined ? "" : String(pending[column])
+    if (sameValue(before, after)) continue
+
+    if (originals[column] === undefined) {
+      // First edit of this field: remember what it was.
+      originals[column] = before
+      changed = true
+    } else if (sameValue(originals[column], after)) {
+      // Edited back to the remembered value — no longer a user change.
+      delete originals[column]
+      changed = true
+    }
+  }
+
+  if (!changed) return
+  const serialized = serializeBaseOriginals(originals)
+  await dbRun(
+    `INSERT INTO game_metadata_overrides (record_id, base_field_originals, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(record_id) DO UPDATE SET
+       base_field_originals = excluded.base_field_originals,
+       updated_at = excluded.updated_at`,
+    [recordId, serialized, Math.floor(Date.now() / 1000)],
+  )
+}
+
+const updateGame = async (game, { recordBaseEdits = false } = {}) => {
   const recordId = game.record_id;
 
   try {
     const baseAssignments = []
     const baseParams = []
-    if (hasKey(game, "title"))       { baseAssignments.push("title = ?");       baseParams.push(game.title) }
-    if (hasKey(game, "creator"))     { baseAssignments.push("creator = ?");     baseParams.push(game.creator) }
-    if (hasKey(game, "engine"))      { baseAssignments.push("engine = ?");      baseParams.push(game.engine) }
+    const basePending = {}
+    if (hasKey(game, "title"))       { baseAssignments.push("title = ?");       baseParams.push(game.title);   basePending.title = game.title }
+    if (hasKey(game, "creator"))     { baseAssignments.push("creator = ?");     baseParams.push(game.creator); basePending.creator = game.creator }
+    if (hasKey(game, "engine"))      { baseAssignments.push("engine = ?");      baseParams.push(game.engine);  basePending.engine = game.engine }
     if (hasKey(game, "description")) { baseAssignments.push("description = ?"); baseParams.push(normalizeText(game.description)) }
+
+    // Must run BEFORE the UPDATE, while the previous values are still readable.
+    if (recordBaseEdits) {
+      await recordBaseFieldOriginals(recordId, basePending)
+    }
 
     if (baseAssignments.length > 0) {
       await dbRun(
@@ -226,6 +288,7 @@ const getGameOverrides = (recordId) =>
         games.record_id,
         ${BASE_COLUMNS.map((col) => `games.${col} AS base_${col}`).join(",\n        ")},
         ${baseSourceSelect()},
+        game_metadata_overrides.base_field_originals AS base_originals,
         ${overrideSelect},
         ${inheritedSelect()}
       FROM games
@@ -246,24 +309,42 @@ ${INHERITED_JOINS}
         // That is usually a user edit but would also be true if a source changed
         // upstream after import, so this is reported as a difference from the
         // source rather than as stored custom intent.
+        const baseOriginals = parseBaseOriginals(row.base_originals)
         const baseReport = BASE_FIELDS.map(({ column, label, formKey }) => {
           const stored = row[`base_${column}`]
           const source = row[`source_${column}`]
           const storedText = stored === null || stored === undefined ? "" : String(stored)
           const sourceText = source === null || source === undefined ? "" : String(source)
+
+          // Recorded intent wins. It is exact (no false positive when a source
+          // changes upstream) and it works when the source has no value for the
+          // field at all — the case that made an edited engine invisible, since
+          // Steam and GOG rarely publish one.
+          const original = baseOriginals[column]
+          const hasOriginal = original !== undefined && !sameValue(original, storedText)
+
+          // Fallback for records edited before edits were tracked: infer from a
+          // difference against the source, which needs a source to compare to.
+          const differsFromSource =
+            sourceText !== "" && storedText !== "" && !sameValue(storedText, sourceText)
+
+          // Revert target: what it was before the edit if we know, else the
+          // current source value.
+          const revertTo = hasOriginal ? original : sourceText
+
           return {
             column,
             label,
             formKey,
             base: true,
-            // Only a real difference counts, and only when there is a source to
-            // compare against — an unmatched record has nothing to differ from.
-            overridden: sourceText !== "" && storedText !== "" && !sameValue(storedText, sourceText),
+            overridden: hasOriginal || differsFromSource,
             custom: storedText || null,
-            inherited: sourceText,
-            // A base field can only be reset when a source value exists; title
-            // in particular must never be blanked.
-            resettable: sourceText !== "",
+            inherited: revertTo,
+            // Tells the UI how to label the value shown under the input.
+            inheritedFrom: hasOriginal ? "original" : "source",
+            // Never blank a base field: title is the record's identity across
+            // the library grid, search and sorting.
+            resettable: revertTo !== "",
             redundant: false,
           }
         })
@@ -291,6 +372,7 @@ ${INHERITED_JOINS}
         resolve({
           recordId,
           fields,
+          baseOriginals,
           overriddenCount: fields.filter((f) => f.overridden).length,
           overrideFieldCount: overrideReport.filter((f) => f.overridden).length,
           baseFieldCount: baseReport.filter((f) => f.overridden).length,
@@ -366,6 +448,17 @@ const clearGameOverrides = async (recordId, fields = null) => {
             [...writes.map(([, value]) => value), recordId],
           )
           cleared.push(...writes.map(([col]) => col))
+
+          // The field is back to its pre-edit value, so drop the remembered
+          // original — otherwise it would keep reading as user-changed.
+          const remaining = { ...(report?.baseOriginals || {}) }
+          for (const [col] of writes) delete remaining[col]
+          await dbRun(
+            `UPDATE game_metadata_overrides SET base_field_originals = ?, updated_at = ?
+             WHERE record_id = ?`,
+            [serializeBaseOriginals(remaining), Math.floor(Date.now() / 1000), recordId],
+          )
+          await pruneEmptyOverrideRow(recordId)
         } catch (err) {
           // games has a UNIQUE constraint on (title, creator, engine). Restoring
           // source values can therefore collide with another record — typically

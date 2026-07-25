@@ -352,8 +352,14 @@ function registerGamesHandlers(ctx) {
     return await getUniqueFilterOptions()
   })
 
+  // Edits from the game properties window. recordBaseEdits is what distinguishes
+  // a user edit from the importer/scanner writes that also call updateGame():
+  // only a user edit should mark Title/Engine/Developer as changed.
+  //
+  // (The previous getAssetBasePath()/process.defaultApp arguments here were
+  // vestigial — updateGame has never read a second or third positional arg.)
   ipcMain.handle('update-game', async (event, game) => {
-    return await updateGame(game, getAssetBasePath(), process.defaultApp)
+    return await updateGame(game, { recordBaseEdits: true })
   })
 
   ipcMain.handle('update-version', async (event, version, record_id) => {

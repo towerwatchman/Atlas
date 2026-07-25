@@ -154,6 +154,29 @@ const sameValue = (a, b) => {
   return norm(a) === norm(b)
 }
 
+// Parse/serialize the base_field_originals JSON blob. Tolerant of null, junk and
+// legacy rows written before the column existed.
+const parseBaseOriginals = (raw) => {
+  if (!raw) return {}
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const out = {}
+    for (const col of BASE_COLUMNS) {
+      if (parsed[col] !== undefined && parsed[col] !== null) out[col] = String(parsed[col])
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+// Empty map serializes to null so the row can be pruned as "no user data".
+const serializeBaseOriginals = (map) => {
+  const keys = Object.keys(map || {})
+  return keys.length === 0 ? null : JSON.stringify(map)
+}
+
 module.exports = {
   OVERRIDE_FIELDS,
   OVERRIDE_COLUMNS,
@@ -165,6 +188,8 @@ module.exports = {
   BASE_COLUMNS,
   BASE_SQL,
   baseSourceSelect,
+  parseBaseOriginals,
+  serializeBaseOriginals,
   normalizeOverrideValue,
   extractOverridePatch,
   sameValue,

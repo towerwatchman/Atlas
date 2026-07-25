@@ -533,3 +533,97 @@ describe('base games columns', () => {
     expect((await getGame(renamed, '/tmp', true)).title).toBe('Twin Title (v2)')
   })
 })
+
+// ── Tracked base-field edits ───────────────────────────────────────────────
+// Comparing a base column against its source chain is not enough on its own:
+// Steam and GOG rarely publish an engine and many Atlas records lack one, so an
+// edited engine with no source value to differ from was invisible in the
+// properties window. updateGame() now records what the column held before a
+// user edit, which gives exact intent and a revert target that does not depend
+// on the source still having a value.
+
+const userEdit = (game) => updateGame(game, { recordBaseEdits: true })
+
+describe('tracked base-field edits', () => {
+  it('marks an edited engine even when no source has an engine value', async () => {
+    const recordId = await addGame({ title: 'No Engine Source', creator: 'Dev', engine: 'Original' })
+    await seedAtlasIdentity(recordId, 9701, { title: 'No Engine Source', engine: '', creator: 'Dev' })
+
+    await userEdit({ record_id: recordId, engine: 'RenPy' })
+
+    const field = fieldFor(await getGameOverrides(recordId), 'engine')
+    expect(field.overridden).toBe(true)
+    expect(field.inheritedFrom).toBe('original')
+    expect(field.inherited).toBe('Original')
+    expect(field.resettable).toBe(true)
+  })
+
+  it('resets to the recorded pre-edit value and forgets it afterwards', async () => {
+    const recordId = await addGame({ title: 'Revert Engine', creator: 'Dev', engine: 'Original' })
+    await seedAtlasIdentity(recordId, 9702, { title: 'Revert Engine', engine: '', creator: 'Dev' })
+    await userEdit({ record_id: recordId, engine: 'RenPy' })
+
+    const result = await clearGameOverrides(recordId, ['engine'])
+    expect(result.cleared).toContain('engine')
+    expect((await getGame(recordId, '/tmp', true)).engine).toBe('Original')
+    // No longer reads as changed, and the row is gone since nothing is left.
+    expect(fieldFor(await getGameOverrides(recordId), 'engine').overridden).toBe(false)
+    expect(await getOverrideRow(recordId)).toBeNull()
+  })
+
+  it('does NOT treat importer writes as user edits', async () => {
+    const recordId = await addGame({ title: 'Importer Write', creator: 'Dev', engine: 'Original' })
+    await seedAtlasIdentity(recordId, 9703, { title: 'Importer Write', engine: '', creator: 'Dev' })
+
+    // The importer's shape, called without recordBaseEdits.
+    await updateGame({ record_id: recordId, title: 'Importer Write', creator: 'Dev', engine: 'Unity', description: 'blurb' })
+
+    const report = await getGameOverrides(recordId)
+    expect(report.baseFieldCount).toBe(0)
+    expect(fieldFor(report, 'engine').overridden).toBe(false)
+  })
+
+  it('clears the mark when the user edits back to the original value', async () => {
+    const recordId = await addGame({ title: 'Toggle Back', creator: 'Dev', engine: 'Alpha' })
+    await userEdit({ record_id: recordId, engine: 'Beta' })
+    expect(fieldFor(await getGameOverrides(recordId), 'engine').overridden).toBe(true)
+
+    await userEdit({ record_id: recordId, engine: 'Alpha' })
+    expect(fieldFor(await getGameOverrides(recordId), 'engine').overridden).toBe(false)
+  })
+
+  it('tracks and reverts edits on a record with no source at all', async () => {
+    const recordId = await addGame({ title: 'Homebrew', creator: 'Me', engine: 'Custom' })
+    await userEdit({ record_id: recordId, title: 'Homebrew Deluxe' })
+
+    const field = fieldFor(await getGameOverrides(recordId), 'title')
+    expect(field.overridden).toBe(true)
+    expect(field.resettable).toBe(true)
+    expect(field.inherited).toBe('Homebrew')
+
+    await clearGameOverrides(recordId, ['title'])
+    expect((await getGame(recordId, '/tmp', true)).title).toBe('Homebrew')
+  })
+
+  it('still infers legacy edits made before tracking existed', async () => {
+    const recordId = await addGame({ title: 'Legacy Edit', creator: 'Dev', engine: 'Unity' })
+    await seedAtlasIdentity(recordId, 9704, { title: 'Legacy Edit', engine: 'RenPy', creator: 'Dev' })
+
+    // No recorded original — the difference against the source is all we have.
+    const field = fieldFor(await getGameOverrides(recordId), 'engine')
+    expect(field.overridden).toBe(true)
+    expect(field.inheritedFrom).toBe('source')
+    expect(field.inherited).toBe('RenPy')
+  })
+
+  it('survives a junk value in the originals column', async () => {
+    const recordId = await addGame({ title: 'Junk Originals', creator: 'Dev', engine: 'Unity' })
+    await new Promise((res, rej) => dbIndex.db.run(
+      `INSERT INTO game_metadata_overrides (record_id, base_field_originals, updated_at) VALUES (?, 'not json', 0)`,
+      [recordId], (e) => (e ? rej(e) : res())))
+
+    const report = await getGameOverrides(recordId)
+    expect(report.baseFieldCount).toBe(0)
+    expect(report.fields.length).toBeGreaterThan(0)
+  })
+})

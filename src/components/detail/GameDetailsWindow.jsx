@@ -789,9 +789,13 @@ const GameDetailWindow = () => {
     // reset overwrites the stored value with the source value rather than
     // clearing an override. Say that plainly instead of calling it "custom".
     const sourceLine = field.inherited
-      ? `It will be replaced with the value from Atlas, Steam or GOG:\n"${clip(field.inherited)}"`
+      ? field.inheritedFrom === 'original'
+        // The revert target is what the field held before the edit, which is not
+        // necessarily what the sources say now.
+        ? `It will go back to what it was before you changed it:\n"${clip(field.inherited)}"`
+        : `It will be replaced with the value from Atlas, Steam or GOG:\n"${clip(field.inherited)}"`
       : field.base
-        ? 'There is no source value for this field, so it cannot be reset.'
+        ? 'There is nothing recorded to reset this field to.'
         : 'There is no source value for this field, so it will be left empty.'
     const lead = field.base
       ? `Replace the ${field.label.toLowerCase()} stored for "${game.title}"?`

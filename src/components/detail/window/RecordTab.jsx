@@ -99,11 +99,19 @@ function Field({ field, value, override, onChange, onReset }) {
             legible next to the data it replaced. */}
         {isCustom && (
           <p className="mt-0.5 text-[11px] text-muted break-words">
-            {inherited
-              ? <>Source value: <span className="text-text">{inherited}</span></>
-              : override?.base
-                ? 'No source value to compare against.'
-                : 'No source value — this field is empty without your custom value.'}
+            {inherited ? (
+              <>
+                {/* For Title/Engine/Developer the revert target may be the value
+                    recorded before the edit rather than a live source value —
+                    label it for what it actually is. */}
+                {override?.inheritedFrom === 'original' ? 'Before your edit: ' : 'Source value: '}
+                <span className="text-text">{inherited}</span>
+              </>
+            ) : override?.base ? (
+              'No source value to compare against.'
+            ) : (
+              'No source value — this field is empty without your custom value.'
+            )}
           </p>
         )}
       </div>

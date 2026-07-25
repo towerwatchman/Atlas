@@ -470,6 +470,18 @@ const initializeDatabase = (dataDir) => {
     // Atlas-linked source tables. Merged over the derived mapping ids in the
     // renderer (see MappingsTab.jsx).
     db.run(`ALTER TABLE game_metadata_overrides ADD COLUMN manual_external_ids TEXT;`, () => {});
+    // Records what games.title / creator / engine held BEFORE the user first
+    // edited them, as a JSON map of column -> previous value.
+    //
+    // These three are real games columns with no override column, so there is
+    // otherwise no way to know the user changed one. Comparing against the
+    // source chain is not enough: Steam and GOG rarely publish an engine and
+    // many Atlas records lack it, so an edited engine with no source value to
+    // differ from was invisible in the properties window. Storing the previous
+    // value gives real intent (no false positives when a source changes
+    // upstream) and a reliable revert target that does not depend on the source
+    // still having a value.
+    db.run(`ALTER TABLE game_metadata_overrides ADD COLUMN base_field_originals TEXT;`, () => {});
     // Marks an atlas record that is still referenced by the user (owned or
     // wishlisted) but no longer present in the latest full snapshot. 0 = present.
     db.run(`ALTER TABLE atlas_data ADD COLUMN removed_from_server INTEGER NOT NULL DEFAULT 0;`, () => {});
