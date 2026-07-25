@@ -1174,6 +1174,13 @@ const BOOT_PROGRESS_DEFER_MS = 400
 // True until the main window exists. Guards window-all-closed so dismissing the
 // transient progress window cannot quit the app mid-boot.
 let isBooting = true
+
+// Result of the startup custom-metadata repair, held for the renderer to collect
+// once it mounts. Startup repairs finish BEFORE createWindow(), so there is no
+// renderer listening at the time — the summary is PULLED via
+// get-startup-repair-summary rather than pushed, which avoids racing the window
+// load. Reading it clears it, so the notice shows once per launch.
+let startupRepairSummary = null
 let bootProgressWindow = null
 
 function bootProgressHtml(heading) {
@@ -1730,6 +1737,13 @@ function buildCtx() {
     getVersionPathsForRecord, db: dbIndex.db,
     getManualMappings, setManualMappings, setSelectedGameVersion,
     getGameOverrides, clearGameOverrides, validateGameMetadataOverrides,
+    // Reading the startup repair summary clears it, so the renderer shows the
+    // notice once per launch even if it remounts.
+    takeStartupRepairSummary: () => {
+      const summary = startupRepairSummary
+      startupRepairSummary = null
+      return summary
+    },
     // scanners
     startSteamScan, startScan,
   }
@@ -1855,6 +1869,18 @@ app.whenReady().then(async () => {
             `Custom metadata repaired on first run: ${repaired} field(s) across ` +
             `${summary.affectedTitles.length} title(s) in ${summary.durationMs}ms`,
           )
+          // Held for the renderer to pick up and show as a toast, so a silent
+          // bulk change to the user's library is actually reported to them.
+          startupRepairSummary = {
+            blankedFields: summary.blankedFields,
+            redundantFields: summary.redundantFields,
+            repairedFields: repaired,
+            titleCount: summary.affectedTitles.length,
+            deletedRows: summary.deletedRows,
+            durationMs: summary.durationMs,
+            // A few examples so the notice can name what changed.
+            sampleTitles: summary.affectedTitles.slice(0, 5).map((t) => t.title),
+          }
         }
       })
     }

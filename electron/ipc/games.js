@@ -128,6 +128,7 @@ function registerGamesHandlers(ctx) {
     recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePlaystate, setVersionPlaystate, setGamePersonalRatings, setSelectedGameVersion, getEmulatorByExtension,
     getManualMappings, setManualMappings, addSteamMapping,
     getGameOverrides, clearGameOverrides, validateGameMetadataOverrides,
+    takeStartupRepairSummary,
     // helpers
     deleteTitleRecord, isAllowedDeletionPath, getTrustedVersion,
     removeEmptyParentDirectories, normalizeForPathCompare,
@@ -580,6 +581,18 @@ function registerGamesHandlers(ctx) {
     } catch (err) {
       console.error('clear-game-overrides error:', err)
       return { success: false, error: err.message, cleared: [] }
+    }
+  })
+
+  // One-shot: what the startup custom-metadata repair changed, if anything.
+  // Returns null when there is nothing to report. Reading it clears it, so the
+  // renderer shows the notice once per launch.
+  ipcMain.handle('get-startup-repair-summary', async () => {
+    try {
+      return typeof takeStartupRepairSummary === 'function' ? takeStartupRepairSummary() : null
+    } catch (err) {
+      console.error('get-startup-repair-summary error:', err)
+      return null
     }
   })
 

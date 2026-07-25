@@ -13,6 +13,9 @@
 - `src/components/detail/GameDetailsWindow.jsx`: saving now sends only the fields whose value actually changed, so an override is created for exactly the field the user edited.
 
 ### Added
+- `src/App.jsx`: added a post-boot summary toast reporting what the startup custom-metadata repair changed — how many fields were restored, across how many titles, and the split between fields that were blank and fields that merely duplicated the source value. Sticky rather than auto-dismissed, since it reports a one-time bulk change to the user's own data. Because the repair completes before the window exists, the summary is pulled on mount via `get-startup-repair-summary` rather than pushed, which avoids racing the window load; the main process clears it on read so the notice shows once per launch.
+- `electron/main.js`: holds the startup repair summary for the renderer to collect, exposed on ctx as `takeStartupRepairSummary()`.
+- `electron/ipc/games.js`: added the `get-startup-repair-summary` handler, exposed via `electron/preload.js` as `getStartupRepairSummary()`.
 - `electron/main.js`: added a boot progress window for slow startup database work. Startup repairs run before `createWindow()`, so a slow pass previously left the app with nothing on screen and read as a hang. The window is created lazily — only if the task is still running after 400ms — so the normal fast path stays invisible instead of flashing a splash. It is self-contained (inline HTML via data URL, no preload, no node integration) and needs no build-config entry.
 - `electron/db/repair.js`: `validateGameMetadataOverrides()` now accepts an `onProgress` callback reporting `{ phase, processed, total, message }`, throttled to every 50 rows. A throwing handler is caught and never breaks the repair.
 - `electron/db/repair.js`: added `countGameMetadataOverrideRows()` as a cheap probe so a caller can skip the sweep entirely when no title has custom data.
@@ -25,6 +28,7 @@
 - `src/components/detail/window/RecordTab.jsx`: custom fields are now marked, show the source value they replace beneath the input, and can each be reset on their own. A summary strip reports how many fields are custom and offers a single "Clear all custom data" action.
 
 ### Changed
+- `src/components/detail/window/RecordTab.jsx`: the "Reset all fields" button is now always rendered, disabled when a title has no custom values, so the affordance is discoverable rather than appearing only once a record already has custom data.
 - `src/components/detail/window/RecordTab.jsx`: the Record tab is now responsive — fields stack in one column on narrow windows and split into two from `md` up, with labels above inputs on small widths. Inputs have visible keyboard focus rings and the reset controls carry aria-labels.
 - `tests/game-edit.test.js`: extended with eighteen cases covering override isolation, empty-means-clear, tag preservation, override-row pruning, the custom-vs-source report, single-field and clear-all behaviour, and the validation sweep (including idempotency, dry-run, early exit, progress reporting, and single-transaction commit).
 

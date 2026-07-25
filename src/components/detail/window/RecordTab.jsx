@@ -129,14 +129,23 @@ export default function RecordTab({
             ? `${customCount} field${customCount === 1 ? '' : 's'} use your custom values. The rest come from Atlas, Steam or GOG.`
             : 'All fields come from Atlas, Steam or GOG. Edit any field to set your own value.'}
         </p>
-        {customCount > 0 && onClearAllOverrides && (
+        {onClearAllOverrides && (
           <button
             type="button"
             onClick={onClearAllOverrides}
-            className="px-2.5 py-1 rounded text-xs border border-border text-muted hover:text-danger hover:border-danger focus:outline-none focus:ring-1 focus:ring-danger whitespace-nowrap"
+            disabled={customCount === 0}
+            title={customCount > 0
+              ? `Reset all ${customCount} custom field${customCount === 1 ? '' : 's'} to their source values`
+              : 'No custom field values to reset'}
+            /* Always rendered, disabled when there is nothing to clear, so the
+               affordance is discoverable rather than appearing only once a
+               record already has custom data. */
+            className="px-2.5 py-1 rounded text-xs border whitespace-nowrap focus:outline-none focus:ring-1 focus:ring-danger
+              enabled:border-border enabled:text-muted enabled:hover:text-danger enabled:hover:border-danger
+              disabled:border-border/50 disabled:text-muted/40 disabled:cursor-not-allowed"
           >
             <i className="fas fa-eraser mr-1.5" aria-hidden="true"></i>
-            Clear all custom data
+            Reset all fields
           </button>
         )}
       </div>

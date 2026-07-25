@@ -407,6 +407,62 @@ const App = () => {
     return () => { if (typeof off === 'function') off() }
   }, [toast])
 
+  // Report the startup custom-metadata repair, if it changed anything.
+  //
+  // The repair runs before this window exists, so it cannot be pushed to us —
+  // we pull it once on mount and the main process clears it on read, so the
+  // notice appears exactly once per launch. A silent bulk change to the user's
+  // own data should not go unannounced.
+  useEffect(() => {
+    let cancelled = false
+    const fetchSummary = window.electronAPI.getStartupRepairSummary
+    if (typeof fetchSummary !== 'function') return undefined
+
+    fetchSummary()
+      .then((summary) => {
+        if (cancelled || !summary || !summary.repairedFields) return
+        const { repairedFields, titleCount, blankedFields, redundantFields, sampleTitles } = summary
+        const n = (v) => Number(v || 0).toLocaleString()
+        const plural = (v, one, many) => (v === 1 ? one : many)
+
+        // Name the title when only one was affected — shorter and more useful
+        // than "across 1 title".
+        const onlyTitle = titleCount === 1 ? (sampleTitles || [])[0] : null
+        const scope = onlyTitle
+          ? `on ${onlyTitle}`
+          : `across ${n(titleCount)} ${plural(titleCount, 'title', 'titles')}`
+
+        // Lead with what the user actually notices — fields that were showing
+        // blank are showing their real values again — then the tidy-up.
+        const details = []
+        if (blankedFields > 0) {
+          details.push(
+            `${n(blankedFields)} ${plural(blankedFields, 'was', 'were')} blank and ` +
+            `${plural(blankedFields, 'now shows', 'now show')} source data again`,
+          )
+        }
+        if (redundantFields > 0) {
+          details.push(
+            `${n(redundantFields)} matched the source and ${plural(redundantFields, 'is', 'are')} ` +
+            'no longer pinned as custom',
+          )
+        }
+
+        toast.success('Library data repaired', {
+          id: 'startup-metadata-repair',
+          message:
+            `Fixed ${n(repairedFields)} ${plural(repairedFields, 'field', 'fields')} ${scope} ` +
+            `that had been saved as custom values by mistake. ${details.join('; ')}.`,
+          // Sticky: this is a one-time change to their data, worth an explicit
+          // dismissal rather than vanishing after a few seconds.
+          duration: 0,
+        })
+      })
+      .catch((err) => console.warn('Could not read startup repair summary:', err))
+
+    return () => { cancelled = true }
+  }, [toast])
+
   // ── Scroll restore ─────────────────────────────────────────────────────────
   const restoreLibraryScrollIfNeeded = useCallback(() => {
     const targetScrollTop = pendingLibraryScrollTopRestoreRef.current

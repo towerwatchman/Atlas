@@ -257,6 +257,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("clear-game-overrides", { recordId, fields }),
   validateGameOverrides: (options = {}) =>
     ipcRenderer.invoke("validate-game-overrides", options),
+  // One-shot summary of the startup custom-metadata repair (null if nothing
+  // was changed). Reading it clears it on the main-process side.
+  getStartupRepairSummary: () =>
+    ipcRenderer.invoke("get-startup-repair-summary"),
   updateVersion: (version, record_id) => {
     console.log("Invoking updateVersion with version data:", version);
     return ipcRenderer.invoke("update-version", version, record_id);
