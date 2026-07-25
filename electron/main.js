@@ -69,6 +69,7 @@ const {
 const {
   repairDoubledApostropheRows, repairStaleVersionExecutables,
   repairBlankVersionNames, repairMissingTotalPlaytime,
+  validateGameMetadataOverrides,
 } = require('./db/repair')
 
 const {
@@ -77,6 +78,7 @@ const {
   getUniqueFilterOptions, recordGameLaunchStarted, recordGamePlaytime,
   setGameFavorite, setGamePersonalRatings, setGamePlaystate, setVersionPlaystate,
   getManualMappings, setManualMappings, setSelectedGameVersion,
+  getGameOverrides, clearGameOverrides,
 } = require('./db/games')
 
 const {
@@ -1579,6 +1581,7 @@ function buildCtx() {
     getUniqueFilterOptions, getVersionForRecord, getInstalledVersionsForRecord,
     getVersionPathsForRecord, db: dbIndex.db,
     getManualMappings, setManualMappings, setSelectedGameVersion,
+    getGameOverrides, clearGameOverrides, validateGameMetadataOverrides,
     // scanners
     startSteamScan, startScan,
   }
@@ -1682,6 +1685,11 @@ app.whenReady().then(async () => {
   await repairBlankVersionNames()
   await repairMissingTotalPlaytime()
   await repairStaleVersionExecutables()
+  // Repairs the blanking/redundant custom-metadata rows left behind by the old
+  // write-everything updateGame(). Idempotent; a clean DB reports nothing.
+  await validateGameMetadataOverrides().catch((err) =>
+    console.warn('Custom metadata validation failed:', err.message),
+  )
 
   // Load encrypted site accounts before the window (and its webRequest cookie
   // hook) come up, then refresh any expired sessions in the background.

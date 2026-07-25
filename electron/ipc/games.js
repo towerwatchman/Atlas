@@ -127,6 +127,7 @@ function registerGamesHandlers(ctx) {
     getVersionPathsForRecord, getInstalledVersionsForRecord,
     recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePlaystate, setVersionPlaystate, setGamePersonalRatings, setSelectedGameVersion, getEmulatorByExtension,
     getManualMappings, setManualMappings, addSteamMapping,
+    getGameOverrides, clearGameOverrides, validateGameMetadataOverrides,
     // helpers
     deleteTitleRecord, isAllowedDeletionPath, getTrustedVersion,
     removeEmptyParentDirectories, normalizeForPathCompare,
@@ -554,6 +555,42 @@ function registerGamesHandlers(ctx) {
       return { success: true, mappings: saved }
     } catch (err) {
       console.error('set-manual-mappings error:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Which metadata fields carry a user override, and what each field would fall
+  // back to if that override were cleared. Drives the custom-value markers and
+  // per-field revert in the game properties window.
+  ipcMain.handle('get-game-overrides', async (event, recordId) => {
+    try {
+      return await getGameOverrides(recordId)
+    } catch (err) {
+      console.error('get-game-overrides error:', err)
+      return { recordId, fields: [], overriddenCount: 0, error: err.message }
+    }
+  })
+
+  // Clear specific overrides (pass `fields`) or every override for the title.
+  ipcMain.handle('clear-game-overrides', async (event, { recordId, fields = null } = {}) => {
+    try {
+      const result = await clearGameOverrides(recordId, fields)
+      if (result?.success) emitGameUpdated(recordId)
+      return result
+    } catch (err) {
+      console.error('clear-game-overrides error:', err)
+      return { success: false, error: err.message, cleared: [] }
+    }
+  })
+
+  // Library-wide audit of the custom metadata table. Pass dryRun to get the
+  // report without writing anything.
+  ipcMain.handle('validate-game-overrides', async (event, { dryRun = false } = {}) => {
+    try {
+      const summary = await validateGameMetadataOverrides({ dryRun })
+      return { success: true, summary }
+    } catch (err) {
+      console.error('validate-game-overrides error:', err)
       return { success: false, error: err.message }
     }
   })

@@ -249,6 +249,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking updateGame with game data:", game);
     return ipcRenderer.invoke("update-game", game);
   },
+  // Per-field custom metadata: which fields the user has overridden, what each
+  // would inherit if cleared, and clearing one field or all of them.
+  getGameOverrides: (recordId) =>
+    ipcRenderer.invoke("get-game-overrides", recordId),
+  clearGameOverrides: (recordId, fields = null) =>
+    ipcRenderer.invoke("clear-game-overrides", { recordId, fields }),
+  validateGameOverrides: (options = {}) =>
+    ipcRenderer.invoke("validate-game-overrides", options),
   updateVersion: (version, record_id) => {
     console.log("Invoking updateVersion with version data:", version);
     return ipcRenderer.invoke("update-version", version, record_id);

@@ -10,6 +10,8 @@ const { toLocalAssetPath, normalizeMediaStorageMode,
 const { mapVersionRow, getVersionPathsForRecord } = require('./versions')
 const { deleteBanner, deletePreviews, deleteMediaAssets } = require('./media')
 const { normalizePlaystate } = require('./playstates')
+const { OVERRIDE_FIELDS, OVERRIDE_COLUMNS, extractOverridePatch,
+        inheritedSelect, INHERITED_JOINS, sameValue } = require('./overrides')
 
 let cachedFilterOptions = null
 const resetCachedFilterOptions = () => { cachedFilterOptions = null }
@@ -122,64 +124,178 @@ const addGame = (game) => {
   });
 };
 
+const hasKey = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key)
+
+// Deletes an override row that no longer carries any user data, so "does a row
+// exist" stays a truthful answer to "does this title have custom data".
+const pruneEmptyOverrideRow = async (recordId) => {
+  const emptyCheck = OVERRIDE_COLUMNS.map((col) => `${col} IS NULL`).join(" AND ")
+  const result = await dbRun(
+    `DELETE FROM game_metadata_overrides
+     WHERE record_id = ?
+       AND ${emptyCheck}
+       AND (manual_external_ids IS NULL OR TRIM(manual_external_ids) IN ('', '{}'))`,
+    [recordId],
+  )
+  return result.changes > 0
+}
+
+// Writes the override columns named in `patch` and nothing else. A null value
+// clears that single override (the field falls back to its source chain).
+const writeOverridePatch = async (recordId, patch) => {
+  const columns = Object.keys(patch)
+  if (columns.length === 0) return false
+
+  const placeholders = columns.map(() => "?").join(", ")
+  const assignments = columns.map((col) => `${col} = excluded.${col}`).join(",\n         ")
+  await dbRun(
+    `INSERT INTO game_metadata_overrides (record_id, ${columns.join(", ")}, updated_at)
+     VALUES (?, ${placeholders}, ?)
+     ON CONFLICT(record_id) DO UPDATE SET
+         ${assignments},
+         updated_at = excluded.updated_at`,
+    [recordId, ...columns.map((col) => patch[col]), Math.floor(Date.now() / 1000)],
+  )
+  await pruneEmptyOverrideRow(recordId)
+  return true
+}
+
+// Updates a game record. Everything here is a PATCH: only the keys actually
+// present on `game` are written.
+//
+// This matters because the merge queries in versions.js resolve metadata as
+// COALESCE(game_metadata_overrides.x, <source chain>). Writing a column we were
+// not asked to write pins that field to a user override forever — and writing ''
+// rather than NULL blanks the field outright, because '' is not null and wins
+// the COALESCE. The previous implementation did both on every call, so editing
+// one field in the properties window overrode all thirteen, and an import that
+// carried a description wrote a full row of blanking overrides.
+//
+// Base `games` columns (title/creator/engine/description) are also only touched
+// when supplied. Note that `description` writes games.description (the record's
+// own text, part of the inherited chain) whereas `overview` writes the override
+// column — they are deliberately separate so that reverting or clearing custom
+// data can restore the source description.
 const updateGame = async (game) => {
-  const { title, creator, engine } = game;
   const recordId = game.record_id;
-  const description = game.description ?? game.overview ?? "";
 
   try {
-    await dbRun(
-      `UPDATE games SET title = ?, creator = ?, engine = ?, description = ?
-       WHERE record_id = ?`,
-      [title, creator, engine, description, recordId],
-    );
-    await dbRun(
-      `INSERT INTO game_metadata_overrides
-       (record_id, os, publisher, release_date, status, category, latest_version, censored,
-        language, translations, genre, voice, rating, overview, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(record_id) DO UPDATE SET
-         os = excluded.os,
-         publisher = excluded.publisher,
-         release_date = excluded.release_date,
-         status = excluded.status,
-         category = excluded.category,
-         latest_version = excluded.latest_version,
-         censored = excluded.censored,
-         language = excluded.language,
-         translations = excluded.translations,
-         genre = excluded.genre,
-         voice = excluded.voice,
-         rating = excluded.rating,
-         overview = excluded.overview,
-         updated_at = excluded.updated_at`,
-      [
-        recordId,
-        normalizeText(game.os),
-        normalizeText(game.publisher),
-        normalizeText(game.release_date),
-        normalizeText(game.status),
-        normalizeText(game.category),
-        normalizeText(game.latest_version ?? game.latestVersion),
-        normalizeText(game.censored),
-        normalizeText(game.language),
-        normalizeText(game.translations),
-        normalizeText(game.genre),
-        normalizeText(game.voice),
-        normalizeText(game.rating),
-        normalizeText(game.overview ?? game.description),
-        Math.floor(Date.now() / 1000),
-      ],
-    );
-    await replaceGameTags(recordId, game.tags ?? game.f95_tags ?? "");
+    const baseAssignments = []
+    const baseParams = []
+    if (hasKey(game, "title"))       { baseAssignments.push("title = ?");       baseParams.push(game.title) }
+    if (hasKey(game, "creator"))     { baseAssignments.push("creator = ?");     baseParams.push(game.creator) }
+    if (hasKey(game, "engine"))      { baseAssignments.push("engine = ?");      baseParams.push(game.engine) }
+    if (hasKey(game, "description")) { baseAssignments.push("description = ?"); baseParams.push(normalizeText(game.description)) }
+
+    if (baseAssignments.length > 0) {
+      await dbRun(
+        `UPDATE games SET ${baseAssignments.join(", ")} WHERE record_id = ?`,
+        [...baseParams, recordId],
+      );
+    }
+
+    await writeOverridePatch(recordId, extractOverridePatch(game));
+
+    // Only rewrite tags when the caller actually supplied them. The old
+    // unconditional call deleted every tag mapping whenever a partial payload
+    // (e.g. the importer's five-key update) omitted tags.
+    if (hasKey(game, "tags") || hasKey(game, "f95_tags")) {
+      await replaceGameTags(recordId, game.tags ?? game.f95_tags ?? "");
+    }
+
     resetCachedFilterOptions();
-    console.log(`Updated game ${title} with record_id: ${recordId}`);
+    console.log(`Updated game ${game.title ?? ""} with record_id: ${recordId}`);
     return recordId;
   } catch (err) {
     console.error("Error updating game:", err);
     throw err;
   }
 };
+
+// Reports, per overridable field, whether the user has set a custom value and
+// what the value would be if that override were cleared. Powers the "custom vs
+// inherited" markers and per-field revert in the properties window.
+const getGameOverrides = (recordId) =>
+  new Promise((resolve, reject) => {
+    const overrideSelect = OVERRIDE_COLUMNS
+      .map((col) => `game_metadata_overrides.${col} AS override_${col}`)
+      .join(",\n        ")
+    getDb().get(
+      `SELECT
+        games.record_id,
+        ${overrideSelect},
+        ${inheritedSelect()}
+      FROM games
+      LEFT JOIN game_metadata_overrides ON games.record_id = game_metadata_overrides.record_id
+${INHERITED_JOINS}
+      WHERE games.record_id = ?
+      GROUP BY games.record_id`,
+      [recordId],
+      (err, row) => {
+        if (err) {
+          console.error("Error reading game overrides:", err)
+          return reject(err)
+        }
+        if (!row) return resolve({ recordId, fields: [], overriddenCount: 0 })
+
+        const fields = OVERRIDE_FIELDS.map(({ column, label, formKey }) => {
+          const custom = row[`override_${column}`]
+          const inherited = row[`inherited_${column}`]
+          const overridden = custom !== null && custom !== undefined && String(custom).trim() !== ""
+          return {
+            column,
+            label,
+            formKey,
+            overridden,
+            custom: overridden ? String(custom) : null,
+            inherited: inherited === null || inherited === undefined ? "" : String(inherited),
+            // A custom value identical to the source value changes nothing —
+            // the signature of the old write-everything bug.
+            redundant: overridden && sameValue(custom, inherited),
+          }
+        })
+
+        resolve({
+          recordId,
+          fields,
+          overriddenCount: fields.filter((f) => f.overridden).length,
+        })
+      },
+    )
+  })
+
+// Clears overrides for a record. Pass a list of columns (or form keys) to clear
+// specific fields; omit it to remove every custom value for the title.
+const clearGameOverrides = async (recordId, fields = null) => {
+  if (!recordId) throw new Error("recordId is required")
+
+  const requested = Array.isArray(fields) ? fields : fields ? [fields] : null
+  let columns = OVERRIDE_COLUMNS
+  if (requested) {
+    const byFormKey = new Map(OVERRIDE_FIELDS.map((f) => [f.formKey, f.column]))
+    columns = requested
+      .map((name) => (OVERRIDE_COLUMNS.includes(name) ? name : byFormKey.get(name)))
+      .filter(Boolean)
+    if (columns.length === 0) {
+      return { success: false, error: "No recognised override fields to clear", cleared: [] }
+    }
+  }
+
+  try {
+    await dbRun(
+      `UPDATE game_metadata_overrides
+       SET ${columns.map((col) => `${col} = NULL`).join(", ")}, updated_at = ?
+       WHERE record_id = ?`,
+      [Math.floor(Date.now() / 1000), recordId],
+    )
+    await pruneEmptyOverrideRow(recordId)
+    resetCachedFilterOptions()
+    return { success: true, cleared: columns }
+  } catch (err) {
+    console.error("Error clearing game overrides:", err)
+    return { success: false, error: err.message, cleared: [] }
+  }
+}
 
 const recordGameLaunchStarted = (recordId, version, timestamp) => {
   return new Promise((resolve, reject) => {
@@ -692,4 +808,6 @@ module.exports = {
   resetCachedFilterOptions,
   getManualMappings,
   setManualMappings,
+  getGameOverrides,
+  clearGameOverrides,
 }

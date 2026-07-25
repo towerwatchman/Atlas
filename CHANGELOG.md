@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- `electron/db/games.js`: `updateGame()` now writes only the fields present in its payload. It previously wrote all thirteen `game_metadata_overrides` columns on every call, so editing one field in the game properties window turned every displayed value into a user override.
+- `electron/db/games.js`: omitted fields are no longer stored as `''`. Because the metadata merge resolves as `COALESCE(game_metadata_overrides.x, <source chain>)`, an empty-string override is not null and therefore won the COALESCE — permanently blanking fields that had perfectly good Atlas/Steam/GOG values. Empty now means "clear this override" and is stored as `NULL`.
+- `electron/db/games.js`: fixed `latest_version` being pinned by unrelated edits, which froze `isUpdateAvailable` and left the update badge permanently wrong for the affected title.
+- `electron/ipc/importer.js` path: importing a title with a description no longer creates a full row of blanking overrides. The importer calls `updateGame()` with five keys, and the old write-everything behaviour blanked the other twelve fields with no user edit involved.
+- `electron/db/games.js`: `updateGame()` no longer deletes every tag mapping when the payload omits tags — the same importer-shaped call was silently wiping a title's tags.
+- `src/components/detail/GameDetailsWindow.jsx`: saving now sends only the fields whose value actually changed, so an override is created for exactly the field the user edited.
+
+### Added
+- `electron/db/overrides.js`: added a shared module defining the overridable metadata fields and, for each, the source chain it falls back to. Kept in sync with the merge queries in `electron/db/versions.js` and used by the write path, the custom-data report, and the validation sweep.
+- `electron/db/games.js`: added `getGameOverrides()`, which reports per field whether the user has set a custom value, what that value is, and what the field would inherit if it were cleared.
+- `electron/db/games.js`: added `clearGameOverrides()` to clear specific fields or every custom value for a title. An override row holding nothing is deleted, so the presence of a row is a truthful "this title has custom data" signal.
+- `electron/db/repair.js`: added `validateGameMetadataOverrides()`, which repairs blanking (`''`) overrides, prunes overrides identical to the value the field would inherit anyway, and removes empty rows. Runs at startup (idempotent; a clean database reports nothing) and supports `{ dryRun: true }` for a report-only pass.
+- `electron/ipc/games.js`: added `get-game-overrides`, `clear-game-overrides` and `validate-game-overrides` IPC handlers, exposed via `electron/preload.js`.
+- `src/components/detail/window/RecordTab.jsx`: custom fields are now marked, show the source value they replace beneath the input, and can each be reset on their own. A summary strip reports how many fields are custom and offers a single "Clear all custom data" action.
+
+### Changed
+- `src/components/detail/window/RecordTab.jsx`: the Record tab is now responsive — fields stack in one column on narrow windows and split into two from `md` up, with labels above inputs on small widths. Inputs have visible keyboard focus rings and the reset controls carry aria-labels.
+- `tests/game-edit.test.js`: extended with fourteen cases covering override isolation, empty-means-clear, tag preservation, override-row pruning, the custom-vs-source report, single-field and clear-all behaviour, and the validation sweep (including idempotency and dry-run).
+
 ## 1.0.72 - 2026-06-15
 
 ### Added
