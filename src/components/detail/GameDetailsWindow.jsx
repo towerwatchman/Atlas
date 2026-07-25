@@ -766,18 +766,40 @@ const GameDetailWindow = () => {
   }
 
   // Drops the custom value for one field so it falls back to its source value.
-  const handleRevertField = async (formKey) => {
+  const handleRevertField = (formKey) => {
     if (!game?.record_id) return
     const field = overrides?.fields?.find((f) => f.formKey === formKey)
     if (!field?.overridden) return
-    try {
-      const result = await window.electronAPI.clearGameOverrides(game.record_id, [field.column])
-      if (result?.success === false) { showAlert('Revert failed', result.error || 'Unknown error'); return }
-      const refreshedGame = await window.electronAPI.getGame(game.record_id)
-      if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion)
-    } catch (err) {
-      showAlert('Revert failed', err.message || 'Unknown error')
+
+    // Confirm first — discarding a custom value the user typed is not
+    // recoverable, and the reset icons sit close enough to the inputs to be
+    // hit by accident. Naming both values makes the outcome unambiguous.
+    //
+    // Values are clipped because Description can hold a full synopsis, which
+    // would otherwise push the dialog buttons off screen.
+    const clip = (text, max = 160) => {
+      const value = String(text ?? '').replace(/\s+/g, ' ').trim()
+      return value.length > max ? `${value.slice(0, max).trimEnd()}…` : value
     }
+    const sourceLine = field.inherited
+      ? `It will go back to the value from Atlas, Steam or GOG:\n"${clip(field.inherited)}"`
+      : 'There is no source value for this field, so it will be left empty.'
+    openConfirm({
+      title: `Reset ${field.label}?`,
+      body: `Discard your custom ${field.label.toLowerCase()} for "${game.title}"?\n\nYour value:\n"${clip(field.custom)}"\n\n${sourceLine}`,
+      confirmLabel: `Reset ${field.label}`,
+      tone: 'danger',
+      onConfirm: () => runDialogAction(async () => {
+        try {
+          const result = await window.electronAPI.clearGameOverrides(game.record_id, [field.column])
+          if (result?.success === false) { showAlert('Reset failed', result.error || 'Unknown error'); return }
+          const refreshedGame = await window.electronAPI.getGame(game.record_id)
+          if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion)
+        } catch (err) {
+          showAlert('Reset failed', err.message || 'Unknown error')
+        }
+      }),
+    })
   }
 
   // Drops every custom value for the title, restoring Atlas/Steam/GOG data.

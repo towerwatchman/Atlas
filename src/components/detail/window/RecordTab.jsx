@@ -31,16 +31,20 @@ const RIGHT_FIELDS = [
 const INPUT_BASE =
   'w-full min-w-0 bg-tertiary border p-1 rounded focus:outline-none focus:ring-1 focus:ring-accent'
 
-// Small "Custom" marker with a reset control. Sits beside the field label so the
-// row reads: what the field is, whether it is yours, how to put it back.
+// Marks a field as holding the user's own value, with a reset control beside it.
+// The pencil is the indicator (this field was edited); the arrow is the action
+// (put it back). Sits next to the field label so the row reads: what the field
+// is, whether it is yours, how to undo it.
 function CustomBadge({ label, onReset }) {
   return (
-    <span className="inline-flex items-center gap-1 shrink-0">
+    <span className="inline-flex items-center gap-0.5 shrink-0">
       <span
-        className="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide bg-accentMuted text-accent border border-accent/40"
+        className="inline-flex items-center text-accent"
         title={`${label} uses your custom value instead of the source data`}
       >
-        Custom
+        <i className="fas fa-pencil text-[10px]" aria-hidden="true"></i>
+        {/* The icon carries meaning, so give assistive tech the words too. */}
+        <span className="sr-only">{`${label} has a custom value`}</span>
       </span>
       {onReset && (
         <button
@@ -124,10 +128,17 @@ export default function RecordTab({
       {/* Summary strip: how much of this record is the user's own data, plus the
           single action that undoes all of it. */}
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-border">
+        {/* Naming the marker here is what makes the pencil icon legible the
+            first time someone sees it. */}
         <p className="text-xs text-muted">
-          {customCount > 0
-            ? `${customCount} field${customCount === 1 ? '' : 's'} use your custom values. The rest come from Atlas, Steam or GOG.`
-            : 'All fields come from Atlas, Steam or GOG. Edit any field to set your own value.'}
+          {customCount > 0 ? (
+            <>
+              <i className="fas fa-pencil text-accent mx-0.5" aria-hidden="true"></i>
+              {` marks the ${customCount} field${customCount === 1 ? '' : 's'} using your custom value${customCount === 1 ? '' : 's'}. The rest come from Atlas, Steam or GOG.`}
+            </>
+          ) : (
+            'All fields come from Atlas, Steam or GOG. Edit any field to set your own value.'
+          )}
         </p>
         {onClearAllOverrides && (
           <button
