@@ -189,6 +189,52 @@ export default function Database() {
     return () => window.removeEventListener('keydown', onKey)
   }, [remapBusy])
 
+  // ── Browse catalog index ──────────────────────────────────────────────────
+  // Kept as an explicit control rather than something automatic-only, because a
+  // stale index is invisible from the UI: Browse would still return results,
+  // just in the wrong order or missing entries added since the last refresh.
+  const [indexStatus, setIndexStatus] = useState(null)
+  const [indexBusy, setIndexBusy] = useState(false)
+  const [indexProgress, setIndexProgress] = useState(null)
+  const [indexError, setIndexError] = useState('')
+  const [indexResult, setIndexResult] = useState(null)
+
+  const loadIndexStatus = useCallback(async () => {
+    try {
+      const res = await window.electronAPI.getCatalogIndexStatus?.()
+      setIndexStatus(res || null)
+    } catch (err) {
+      setIndexError(err?.message || String(err))
+    }
+  }, [])
+
+  useEffect(() => { loadIndexStatus() }, [loadIndexStatus])
+
+  useEffect(() => {
+    const off = window.electronAPI.onCatalogIndexProgress?.((payload) => {
+      setIndexProgress(payload || null)
+    })
+    return () => { if (typeof off === 'function') off() }
+  }, [])
+
+  const rebuildIndex = useCallback(async () => {
+    setIndexBusy(true)
+    setIndexError('')
+    setIndexResult(null)
+    setIndexProgress(null)
+    try {
+      const res = await window.electronAPI.rebuildCatalogIndex?.()
+      if (res?.success) setIndexResult(res)
+      else setIndexError(res?.error || 'Rebuild failed.')
+    } catch (err) {
+      setIndexError(err?.message || String(err))
+    } finally {
+      setIndexBusy(false)
+      setIndexProgress(null)
+      loadIndexStatus()
+    }
+  }, [loadIndexStatus])
+
   const summary = result?.summary
   const items = result?.items || []
 
@@ -200,6 +246,77 @@ export default function Database() {
           The remote catalog changes over time. When a catalog entry your library relied on is removed,
           the local metadata stays put but stops receiving updates. Run an audit to find games that need remapping.
         </p>
+      </div>
+
+      <div className="border border-border rounded p-4 space-y-3">
+        <div>
+          <h2 className="text-base font-semibold">Browse catalog index</h2>
+          <p className="text-sm text-muted mt-1 max-w-2xl">
+            Browse filters and sorts against a compact index of the catalog instead of rebuilding
+            the full metadata join on every query. It refreshes automatically as catalog updates
+            arrive; rebuild it here if Browse looks out of date, is missing entries, or is sorted
+            wrongly. Your library and metadata are not touched.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={rebuildIndex}
+            disabled={indexBusy}
+            className="px-4 py-2 bg-accent hover:bg-accentHover text-white rounded-buttonTheme disabled:opacity-50"
+          >
+            {indexBusy ? 'Rebuilding…' : 'Rebuild index'}
+          </button>
+
+          {indexStatus && !indexBusy && (
+            <span className="text-sm text-muted">
+              {indexStatus.ready
+                ? `${(indexStatus.rowCount || 0).toLocaleString()} entries indexed`
+                : indexStatus.rowCount > 0
+                  ? `Out of date - ${(indexStatus.rowCount || 0).toLocaleString()} entries indexed`
+                  : 'Not built yet'}
+              {indexStatus.builtAt
+                ? ` - last built ${new Date(indexStatus.builtAt).toLocaleString()}`
+                : ''}
+            </span>
+          )}
+        </div>
+
+        {indexBusy && (
+          <div className="space-y-1">
+            <div className="text-sm text-muted">
+              {indexProgress?.message || 'Preparing…'}
+            </div>
+            <div className="h-1.5 w-full max-w-md bg-tertiary rounded overflow-hidden">
+              <div
+                className="h-full bg-accent transition-[width] duration-200"
+                style={{
+                  width: indexProgress?.total
+                    ? `${Math.min(100, Math.round((indexProgress.processed / indexProgress.total) * 100))}%`
+                    : '15%',
+                }}
+                role="progressbar"
+                aria-valuenow={indexProgress?.total ? indexProgress.processed : undefined}
+                aria-valuemin={0}
+                aria-valuemax={indexProgress?.total || undefined}
+                aria-label="Rebuilding browse catalog index"
+              />
+            </div>
+          </div>
+        )}
+
+        {indexResult && (
+          <div className="text-sm text-muted">
+            Rebuilt {(indexResult.totalRows || 0).toLocaleString()} entries in{' '}
+            {((indexResult.durationMs || 0) / 1000).toFixed(1)}s
+            {typeof indexResult.steamLinks === 'number'
+              ? `, resolved ${indexResult.steamLinks.toLocaleString()} Steam links`
+              : ''}
+            .
+          </div>
+        )}
+
+        {indexError && <div className="text-sm text-danger">{indexError}</div>}
       </div>
 
       <div className="flex items-center gap-3">

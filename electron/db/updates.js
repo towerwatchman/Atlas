@@ -5,7 +5,21 @@ const fs = require('fs')
 const dbModule = require('./index')
 const getDb = () => dbModule.db
 const { insertJsonData } = require('./atlas')
+const {
+  refreshCatalogIndexForAtlasIds,
+  markCatalogIndexStale,
+} = require('./catalogIndex')
 const { isNewerVersion } = require('../utils/versionUtils')
+
+// Update packages identify rows by atlas_id; f95/lewdcorner payloads carry it
+// too, which is what lets one delta be reprojected without a full rebuild.
+const collectAtlasIds = (target, rows) => {
+  if (!Array.isArray(rows)) return
+  for (const row of rows) {
+    const id = Number.parseInt(row?.atlas_id, 10)
+    if (Number.isInteger(id)) target.add(id)
+  }
+}
 
 const withF95LatestOrder = (rows, updateDate) =>
   rows.map((row, index) => ({
@@ -191,7 +205,6 @@ const applyFullSnapshotPrune = async (db, data, snapshotDate, trusted) => {
 
         // Orphaned remote children of removed atlas rows.
         await dbRun(db, "DELETE FROM atlas_previews WHERE atlas_id NOT IN (SELECT atlas_id FROM atlas_data)");
-        await dbRun(db, "DELETE FROM atlas_tags WHERE atlas_id NOT IN (SELECT atlas_id FROM atlas_data)");
         await dbRun(db, "COMMIT");
       } catch (err) {
         await dbRun(db, "ROLLBACK").catch(() => {});
@@ -218,7 +231,6 @@ const applyFullSnapshotPrune = async (db, data, snapshotDate, trusted) => {
         );
         summary.f95Deleted = deleted.changes || 0;
         await dbRun(db, "DELETE FROM f95_zone_screens WHERE f95_id NOT IN (SELECT f95_id FROM f95_zone_data)");
-        await dbRun(db, "DELETE FROM f95_zone_tags WHERE f95_id NOT IN (SELECT f95_id FROM f95_zone_data)");
         await dbRun(db, "COMMIT");
       } catch (err) {
         await dbRun(db, "ROLLBACK").catch(() => {});
@@ -263,6 +275,11 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
   const lz4 = require("lz4js");
   const http = require("http");
   const https = require("https");
+
+  // Atlas ids touched by this run, so the browse index can be brought up to
+  // date incrementally instead of rebuilt from scratch after every sync.
+  const touchedAtlasIds = new Set();
+  let snapshotApplied = false;
 
   // Reuse a single keep-alive connection for the manifest and every package
   // download. Without this, axios opens a fresh TCP + TLS connection per
@@ -375,6 +392,7 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
       });
       if (data.atlas && data.atlas.length > 0) {
         await insertJsonData(data.atlas, "atlas_data");
+        collectAtlasIds(touchedAtlasIds, data.atlas);
       }
 
       // Process f95_zone_data
@@ -385,6 +403,7 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
       });
       if (data.f95_zone && data.f95_zone.length > 0) {
         await insertJsonData(withF95LatestOrder(data.f95_zone, date), "f95_zone_data");
+        collectAtlasIds(touchedAtlasIds, data.f95_zone);
       }
 
       // Process lewdcorner_data
@@ -395,6 +414,7 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
       });
       if (data.lewdcorner && data.lewdcorner.length > 0) {
         await insertJsonData(data.lewdcorner, "lewdcorner_data");
+        collectAtlasIds(touchedAtlasIds, data.lewdcorner);
       }
 
       // Full snapshot reconciliation: remove games that no longer exist on the
@@ -415,6 +435,10 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
           // next snapshot.
           console.error(`Snapshot prune failed for ${date} (continuing):`, pruneErr.message);
         }
+        // A snapshot prune can delete arbitrary catalog rows, so the browse
+        // index can no longer be brought up to date from the touched-id list
+        // alone. Flag it for a full rebuild instead of reprojecting piecemeal.
+        snapshotApplied = true;
       }
 
       // Insert update record
@@ -456,12 +480,31 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
       }
     }
 
+    // Bring the browse index in line with what just landed. Incremental for a
+    // normal delta (only the ids actually present in the packages); a snapshot
+    // prune can delete arbitrary rows, so that case is flagged stale and picked
+    // up by the background rebuild instead. Never allowed to fail the update —
+    // a stale index degrades browse ordering, a thrown error would lose the
+    // whole sync.
+    try {
+      if (snapshotApplied) {
+        await markCatalogIndexStale("full snapshot applied");
+      } else if (touchedAtlasIds.size > 0) {
+        const { refreshed } = await refreshCatalogIndexForAtlasIds([...touchedAtlasIds]);
+        console.log(`catalog_index: refreshed ${refreshed} of ${touchedAtlasIds.size} touched entries`);
+      }
+    } catch (indexErr) {
+      console.warn("catalog_index refresh after update failed:", indexErr.message);
+      await markCatalogIndexStale("incremental refresh failed").catch(() => {});
+    }
+
     return {
       success: true,
       message: `Processed ${processed} updates${skipped > 0 ? `, skipped ${skipped}` : ""}`,
       total,
       processed,
       skipped,
+      catalogIndexStale: snapshotApplied,
     };
   } catch (err) {
     console.error("Error checking database updates:", err.message);

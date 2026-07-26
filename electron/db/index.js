@@ -170,6 +170,17 @@ const initializeDatabase = (dataDir) => {
   db.run("PRAGMA synchronous = NORMAL");
   db.run("PRAGMA busy_timeout = 5000");
 
+  // The catalog/Browse queries sort tens of thousands of rows and spill a temp
+  // b-tree doing it. The defaults put that spill on disk and cap the page cache
+  // at 2MB, which on a 200MB+ database means re-reading the same pages
+  // constantly. These three are the cheapest wins available on a large library:
+  //   temp_store  keeps ORDER BY / GROUP BY scratch in RAM instead of a temp file
+  //   cache_size  negative = KiB, so -65536 is a 64MB page cache (was ~2MB)
+  //   mmap_size   maps up to 256MB of the DB, avoiding a read() per page
+  db.run("PRAGMA temp_store = MEMORY");
+  db.run("PRAGMA cache_size = -65536");
+  db.run("PRAGMA mmap_size = 268435456");
+
   db.serialize(() => {
     // Table creation migrations from C#
     db.run(`
@@ -359,21 +370,15 @@ const initializeDatabase = (dataDir) => {
         updated_at INTEGER
       );
     `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS atlas_tags
-      (
-        tag_id INTEGER REFERENCES tags (tag_id),
-        atlas_id INTEGER REFERENCES atlas_data (atlas_id),
-        UNIQUE (atlas_id, tag_id)
-      );
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS f95_zone_tags
-      (
-        f95_id INTEGER REFERENCES f95_zone_data (f95_id),
-        tag_id INTEGER REFERENCES tags (tag_id)
-      );
-    `);
+    // atlas_tags / f95_zone_tags were created here for years but never written
+    // to and never read — the only other references anywhere were two orphan
+    // DELETE statements in the update path (since removed). Catalog tag data
+    // lives as delimited text on atlas_data.tags / f95_zone_data.tags /
+    // lewdcorner_data.tags, and USER tags live in tags + tag_mappings (written
+    // by db/games.js, joined by the library queries here) — those two are live
+    // and must not be touched. Dropping only the dead pair.
+    db.run(`DROP TABLE IF EXISTS atlas_tags;`, () => {});
+    db.run(`DROP TABLE IF EXISTS f95_zone_tags;`, () => {});
     db.run(`
       CREATE TABLE IF NOT EXISTS previews
       (
@@ -731,6 +736,23 @@ const initializeDatabase = (dataDir) => {
     migrateDropAtlasIdNameUnique();
     migrateDropF95AtlasIdUnique();
     sweepOrphanedRecords();
+
+    // Browse-mode index tables. Required at boot rather than lazily: the steam
+    // branch of getCatalogGames probes atlas_external_steam, and a missing table
+    // errors the entire query instead of degrading. Created empty here — the
+    // rows are filled in by the background build (see electron/db/catalogIndex.js
+    // rebuildCatalogIndex), which is what getCatalogIndexStatus().ready gates on.
+    //
+    // Required lazily to keep the circular dependency harmless: catalogIndex.js
+    // does require('./index') at load, and by the time initializeDatabase runs,
+    // this module's exports (including the `db` getter) are fully in place.
+    try {
+      const { CATALOG_INDEX_DDL, CATALOG_INDEX_INDEXES } = require('./catalogIndex');
+      for (const ddl of CATALOG_INDEX_DDL) db.run(ddl, () => {});
+      for (const ddl of CATALOG_INDEX_INDEXES) db.run(ddl, () => {});
+    } catch (err) {
+      console.error('Failed to create catalog index schema:', err.message);
+    }
   });
 };
 

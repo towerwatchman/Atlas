@@ -74,7 +74,6 @@ const SearchSidebar = ({
   onResetFilters,
   onClose,
   activeSavedFilterId = '',
-  savedFilterCounts = {},
   savedFilterDeleteStateById = {},
   onApplySavedFilter,
   onDeleteSavedFilter,
@@ -435,7 +434,6 @@ const SearchSidebar = ({
             <SavedFiltersPanel
               userSavedFilters={userSavedFilters}
               activeSavedFilterId={activeSavedFilterId}
-              counts={savedFilterCounts}
               deleteStateById={savedFilterDeleteStateById}
               onApplyFilter={onApplySavedFilter}
               onDeleteFilter={onDeleteSavedFilter}

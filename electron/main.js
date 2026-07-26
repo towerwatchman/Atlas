@@ -95,6 +95,7 @@ const {
   addAtlasMapping, getAtlasData, getImportRecordStatus, insertJsonData,
   recomputeNormalizedTitles,
 } = require('./db/atlas')
+const { getCatalogIndexStatus, rebuildCatalogIndex } = require('./db/catalogIndex')
 
 const { checkDbUpdates } = require('./db/updates')
 
@@ -1909,6 +1910,36 @@ app.whenReady().then(async () => {
   createWindow()
   // The main window exists, so window-all-closed can quit normally again.
   isBooting = false
+
+  // Build the Browse catalog index if it is missing or stale. Deliberately AFTER
+  // createWindow() and not awaited: the library grid does not depend on it, so
+  // there is no reason to hold the window back. rebuildCatalogIndex() commits in
+  // chunks and yields between them, which matters because every query shares one
+  // sqlite connection — a single long transaction would queue the library's own
+  // reads behind it and read as a freeze. Progress is streamed to the renderer so
+  // Browse can show it instead of an empty grid.
+  setTimeout(async () => {
+    try {
+      const status = await getCatalogIndexStatus()
+      if (status.ready) {
+        console.log(`catalog_index ready: ${status.rowCount} entries`)
+        return
+      }
+      console.log(
+        `catalog_index needs building (version ${status.version} -> ${status.expectedVersion}` +
+        `${status.stale ? `, stale: ${status.staleReason}` : ''}); building in background`,
+      )
+      await rebuildCatalogIndex({
+        onProgress: (payload) => {
+          BrowserWindow.getAllWindows().forEach((win) => {
+            if (!win.isDestroyed()) win.webContents.send('catalog-index-progress', payload)
+          })
+        },
+      })
+    } catch (err) {
+      console.error('Background catalog index build failed:', err?.message || err)
+    }
+  }, 1500)
 
   const ctx = buildCtx()
 

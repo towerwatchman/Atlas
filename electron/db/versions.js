@@ -1626,13 +1626,23 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           -- atlas_data.external_ids / steam_appids[]. Without this, each season
           -- appid would leak into browse as its own tile instead of grouping
           -- under the one atlas catalog entry.
+          --
+          -- This used to be five CORRELATED LIKE patterns over atlas_data,
+          -- re-run for every steam_data row: O(steam_data x atlas_data x 5),
+          -- measured at 94s on a 3,000 x 32,000 catalog and growing every time a
+          -- user lazily fetches another appid's metadata. It was also wrong —
+          -- steam_appid had both spaced and unspaced variants but steam_id
+          -- only had the unspaced one, so the standard {"steam_id": "123"}
+          -- serialization never matched and those appids leaked into Browse as
+          -- duplicate standalone tiles (69 of 400 in a seeded check).
+          --
+          -- atlas_external_steam holds the same linkage parsed out of the JSON
+          -- once (electron/db/catalogIndex.js), so this is now a primary-key
+          -- probe: 1ms instead of 94s, and immune to whitespace/key-order
+          -- variation that text matching can never handle reliably.
           AND NOT EXISTS (
-            SELECT 1 FROM atlas_data ad
-             WHERE ad.external_ids LIKE '%"steam_appid":"' || steam_data.steam_id || '"%'
-                OR ad.external_ids LIKE '%"steam_appid": "' || steam_data.steam_id || '"%'
-                OR ad.external_ids LIKE '%"steam_appid":' || steam_data.steam_id || '%'
-                OR ad.external_ids LIKE '%"steam_id":"' || steam_data.steam_id || '"%'
-                OR ad.external_ids LIKE '%"steam_appids"%"' || steam_data.steam_id || '"%'
+            SELECT 1 FROM atlas_external_steam aes
+             WHERE aes.steam_appid = steam_data.steam_id
           )
       ),
       steam_branch AS (

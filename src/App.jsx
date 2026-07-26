@@ -16,7 +16,7 @@ import GameDetailPage from './components/detail/GameDetailPage.jsx'
 import RefreshMediaModal from './components/ui/RefreshMediaModal.jsx'
 import { useToast } from './components/ui/toast/ToastContext.jsx'
 import { useGames } from './hooks/useGames.js'
-import { builtInSavedFilters, defaultFilters, filterGamesWithState, normalizeFilterState, useFilters } from './hooks/useFilters.js'
+import { defaultFilters, filterGamesWithState, normalizeFilterState, useFilters } from './hooks/useFilters.js'
 import { useAppUpdate } from './hooks/useAppUpdate.js'
 import { useWindowState } from './hooks/useWindowState.js'
 import { useTheme } from './theme/ThemeProvider.jsx'
@@ -916,57 +916,6 @@ const App = () => {
     }
   }, [activeSavedFilterId])
 
-  const allSavedFilters = useMemo(
-    () => [...builtInSavedFilters, ...userSavedFilters],
-    [userSavedFilters],
-  )
-
-  const localSavedFilterCounts = useMemo(() => {
-    const nextCounts = {}
-    for (const filter of allSavedFilters) {
-      nextCounts[filter.id] = filterGamesWithState(games, filter.filters).length
-    }
-    return nextCounts
-  }, [allSavedFilters, games])
-
-  // Browse/catalog entries live entirely server-side (and are only ever
-  // partially loaded client-side — see requestCatalogRange in
-  // useGames.js), so a saved filter's match count for Browse mode can't be
-  // computed against the local `games` array the way localSavedFilterCounts
-  // does above; that's why every saved filter showed "0 matches" while
-  // browsing. Ask the backend for the real count instead, via the
-  // count-only catalog query (get-catalog-count — see
-  // electron/db/versions.js getCatalogGames' countOnly option), one per
-  // saved filter, using that filter's OWN search/filters — same "what
-  // would applying this filter as-is return" semantics as the local-mode
-  // counts, not combined with whatever's currently typed in the search box.
-  const [catalogSavedFilterCounts, setCatalogSavedFilterCounts] = useState({})
-  useEffect(() => {
-    if (libraryMode !== 'catalog' || !showSavedFilters || !browseAvailable) return
-    let cancelled = false
-    setCatalogSavedFilterCounts((prev) => {
-      const next = {}
-      for (const filter of allSavedFilters) next[filter.id] = prev[filter.id] ?? null
-      return next
-    })
-    allSavedFilters.forEach((filter) => {
-      const filters = normalizeFilterState(filter.filters)
-      window.electronAPI.getCatalogCount({
-        search: { text: filters.text, type: filters.type },
-        filters,
-      }).then((result) => {
-        if (cancelled) return
-        setCatalogSavedFilterCounts((prev) => ({ ...prev, [filter.id]: Number(result?.total || 0) }))
-      }).catch((error) => {
-        console.error(`Failed to get catalog count for saved filter "${filter.name}":`, error)
-        if (cancelled) return
-        setCatalogSavedFilterCounts((prev) => ({ ...prev, [filter.id]: 0 }))
-      })
-    })
-    return () => { cancelled = true }
-  }, [allSavedFilters, browseAvailable, libraryMode, showSavedFilters])
-
-  const savedFilterCounts = libraryMode === 'catalog' ? catalogSavedFilterCounts : localSavedFilterCounts
 
   // ── DB update check ────────────────────────────────────────────────────────
   const clearDbUpdateStatusSoon = useCallback(() => {
@@ -1697,7 +1646,6 @@ const App = () => {
               onResetFilters={resetFilters}
               onSavedFilterSaved={handleSavedFilterSaved}
               activeSavedFilterId={activeSavedFilterId}
-              savedFilterCounts={savedFilterCounts}
               savedFilterDeleteStateById={savedFilterDeleteStateById}
               onApplySavedFilter={applySavedFilter}
               onDeleteSavedFilter={deleteSavedFilter}
@@ -1857,7 +1805,6 @@ const App = () => {
             onResetFilters={resetFilters}
             onSavedFilterSaved={handleSavedFilterSaved}
             activeSavedFilterId={activeSavedFilterId}
-            savedFilterCounts={savedFilterCounts}
             savedFilterDeleteStateById={savedFilterDeleteStateById}
             onApplySavedFilter={applySavedFilter}
             onDeleteSavedFilter={deleteSavedFilter}
@@ -1879,7 +1826,6 @@ const App = () => {
             onResetFilters={resetFilters}
             onSavedFilterSaved={handleSavedFilterSaved}
             activeSavedFilterId={activeSavedFilterId}
-            savedFilterCounts={savedFilterCounts}
             savedFilterDeleteStateById={savedFilterDeleteStateById}
             onApplySavedFilter={applySavedFilter}
             onDeleteSavedFilter={deleteSavedFilter}

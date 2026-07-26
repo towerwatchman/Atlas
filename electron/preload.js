@@ -103,6 +103,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getManualMappings: (recordId) =>
     ipcRenderer.invoke("get-manual-mappings", recordId),
   runDbAudit: () => ipcRenderer.invoke("run-db-audit"),
+  getCatalogIndexStatus: () => ipcRenderer.invoke("get-catalog-index-status"),
+  rebuildCatalogIndex: () => ipcRenderer.invoke("rebuild-catalog-index"),
   auditSeasonMerges: () => ipcRenderer.invoke("audit-season-merges"),
   applySeasonMerge: (atlasId, survivorRecordId) =>
     ipcRenderer.invoke("apply-season-merge", { atlasId, survivorRecordId }),
@@ -318,6 +320,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("db-update-progress", (event, progress) =>
       callback(progress),
     );
+  },
+  // Returns its own unsubscriber rather than relying on removeAllListeners, so
+  // a Settings window closing cannot tear down a listener the main library
+  // window still holds for the same channel.
+  onCatalogIndexProgress: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("catalog-index-progress", handler);
+    return () => ipcRenderer.removeListener("catalog-index-progress", handler);
   },
   deleteBanner: (recordId) => {
     console.log("Invoking deleteBanner for recordId:", recordId);

@@ -13,7 +13,12 @@ const { fetchAndStoreGogData } = require('../scanners/gogscanner')
 const { applyMediaSources } = require('../db/mediaSources')
 const { calculatePathSize } = require('../pathSize')
 const { runDatabaseAudit, getInvalidMappingCount } = require('../db/audit')
+const { getCatalogIndexStatus, rebuildCatalogIndex } = require('../db/catalogIndex')
 const { auditSeasonMerges, applySeasonMerge, applyAllSeasonMerges } = require('../db/seasonMerge')
+
+// Guards against two full rebuilds interleaving their chunked transactions on
+// the single shared sqlite connection.
+let catalogIndexRebuildInFlight = false
 
 function emitGameUpdated(recordId) {
   if (!recordId) return
@@ -480,6 +485,45 @@ function registerGamesHandlers(ctx) {
   ipcMain.handle('open-directory', async (event, dirPath) => {
     await shell.openPath(dirPath)
     return { success: true }
+  })
+
+  // ── Browse catalog index ──────────────────────────────────────────────────
+  // Browse filters and sorts against catalog_index rather than the four-branch
+  // union, which is what makes the always-on newest-first sort answerable from
+  // an index instead of a 32k-row temp b-tree. Status is polled by the renderer
+  // so Browse can show build progress instead of an empty grid.
+  ipcMain.handle('get-catalog-index-status', async () => {
+    try {
+      return { success: true, ...(await getCatalogIndexStatus()) }
+    } catch (err) {
+      console.error('get-catalog-index-status error:', err)
+      return { success: false, error: err.message, ready: false }
+    }
+  })
+
+  // Manual full rebuild (Settings -> Database). Chunked and yielding, so the
+  // library stays usable while it runs; progress is streamed to every open
+  // window rather than returned, since a large catalog takes a few seconds.
+  ipcMain.handle('rebuild-catalog-index', async () => {
+    if (catalogIndexRebuildInFlight) {
+      return { success: false, error: 'A catalog index rebuild is already running.' }
+    }
+    catalogIndexRebuildInFlight = true
+    try {
+      const summary = await rebuildCatalogIndex({
+        onProgress: (payload) => {
+          BrowserWindow.getAllWindows().forEach((win) => {
+            if (!win.isDestroyed()) win.webContents.send('catalog-index-progress', payload)
+          })
+        },
+      })
+      return { success: true, ...summary }
+    } catch (err) {
+      console.error('rebuild-catalog-index error:', err)
+      return { success: false, error: err.message }
+    } finally {
+      catalogIndexRebuildInFlight = false
+    }
   })
 
   ipcMain.handle('run-db-audit', async () => {

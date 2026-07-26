@@ -2,7 +2,6 @@ import { builtInSavedFilters, normalizeFilterState } from '../../hooks/useFilter
 
 const SavedFilterRow = ({
   filter,
-  count,
   isActive,
   deleteState,
   onApply,
@@ -20,7 +19,7 @@ const SavedFilterRow = ({
     <div className="min-w-0 flex-1">
       <div className="truncate text-text">{filter.name}</div>
       <div className="text-[11px] text-muted">
-        {filter.builtIn ? 'Built-in' : 'Saved'} - {count === null || count === undefined ? '…' : count} matches
+        {filter.builtIn ? 'Built-in' : 'Saved'}
       </div>
       {deleteState?.confirming && (
         <div className="mt-2 flex items-center gap-2 text-[11px]">
@@ -70,7 +69,6 @@ const SavedFilterRow = ({
 const SavedFiltersPanel = ({
   userSavedFilters = [],
   activeSavedFilterId = '',
-  counts = {},
   deleteStateById = {},
   onApplyFilter,
   onDeleteFilter,
@@ -106,7 +104,6 @@ const SavedFiltersPanel = ({
     <SavedFilterRow
       key={filter.id}
       filter={filter}
-      count={counts[filter.id]}
       isActive={activeSavedFilterId === filter.id}
       deleteState={deleteStateById[filter.id]}
       onApply={applyFilter}
