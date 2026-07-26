@@ -44,7 +44,7 @@ const { withTransaction, isWriteLockBusy } = require('./writeLock')
 
 // Bump when the projection (columns, tier semantics, source precedence)
 // changes. A mismatch marks the index stale and triggers one rebuild.
-const CATALOG_INDEX_VERSION = 3
+const CATALOG_INDEX_VERSION = 4
 
 const CHUNK_SIZE = 2000
 
@@ -242,12 +242,24 @@ const CATALOG_INDEX_DDL = [
 // title/catalog_key columns match the ORDER BY tiebreakers so the index covers
 // the whole ordering rather than only its leading terms.
 const CATALOG_INDEX_INDEXES = [
-  `CREATE INDEX IF NOT EXISTS idx_catalog_index_thread_updated
-     ON catalog_index(thread_updated_tier, thread_updated_ms DESC, title, catalog_key);`,
-  `CREATE INDEX IF NOT EXISTS idx_catalog_index_thread_publish
-     ON catalog_index(thread_publish_tier, thread_publish_ms DESC, title, catalog_key);`,
-  `CREATE INDEX IF NOT EXISTS idx_catalog_index_release_date
-     ON catalog_index(release_date_tier, release_date_ms DESC, title, catalog_key);`,
+  // The trailing title term MUST carry COLLATE NOCASE to match the ORDER BY.
+  // Without it the index satisfies only (tier, ms DESC) and SQLite falls back to
+  // "USE TEMP B-TREE FOR RIGHT PART OF ORDER BY" to resolve the title
+  // tiebreaker — a collation mismatch silently costs the sort.
+  //
+  // Renamed with a _v2 suffix because CREATE INDEX IF NOT EXISTS will not
+  // replace an existing index of the same name, so installs that already built
+  // the BINARY-collated version would keep it forever. The old names are dropped
+  // just below; both are cheap no-ops after the first launch.
+  `DROP INDEX IF EXISTS idx_catalog_index_thread_updated;`,
+  `DROP INDEX IF EXISTS idx_catalog_index_thread_publish;`,
+  `DROP INDEX IF EXISTS idx_catalog_index_release_date;`,
+  `CREATE INDEX IF NOT EXISTS idx_catalog_index_thread_updated_v2
+     ON catalog_index(thread_updated_tier, thread_updated_ms DESC, title COLLATE NOCASE, catalog_key);`,
+  `CREATE INDEX IF NOT EXISTS idx_catalog_index_thread_publish_v2
+     ON catalog_index(thread_publish_tier, thread_publish_ms DESC, title COLLATE NOCASE, catalog_key);`,
+  `CREATE INDEX IF NOT EXISTS idx_catalog_index_release_date_v2
+     ON catalog_index(release_date_tier, release_date_ms DESC, title COLLATE NOCASE, catalog_key);`,
   `CREATE INDEX IF NOT EXISTS idx_catalog_index_title
      ON catalog_index(title COLLATE NOCASE, catalog_key);`,
   `CREATE INDEX IF NOT EXISTS idx_catalog_index_creator
@@ -584,8 +596,12 @@ const rebuildOrphanBranches = async ({ onProgress, chunkSize, nowMs }) => {
 
   await runBranch('steam',
     `SELECT COUNT(*) AS c ${STEAM_WHERE}`,
-    `SELECT sd.steam_id, sd.title, sd.developer, sd.publisher, sd.engine, sd.status,
-            sd.category, sd.censored, sd.language, sd.tags, sd.release_date, sd.rating,
+    // steam_data has no `status` or `rating` column: the thread/release status is
+    // `release_state` (matching `steam_data.release_state as status` in the union
+    // query this mirrors), and there is no rating at all.
+    `SELECT sd.steam_id, sd.title, sd.developer, sd.publisher, sd.engine,
+            sd.release_state AS status,
+            sd.category, sd.censored, sd.language, sd.tags, sd.release_date,
             (SELECT MIN(sm.record_id) FROM steam_mappings sm WHERE sm.steam_id = sd.steam_id) AS local_record_id
      ${STEAM_WHERE} ORDER BY sd.steam_id LIMIT ? OFFSET ?`,
     (row, now) => {
@@ -599,7 +615,7 @@ const rebuildOrphanBranches = async ({ onProgress, chunkSize, nowMs }) => {
         title, title, creator, row.engine ?? null, row.category ?? null,
         row.status ?? null, row.censored ?? null, row.language ?? null,
         joinText(row.tags), joinText(title, creator, row.engine, row.status, row.category),
-        null, toNumberOrNull(row.rating), null,
+        null, null, null,
         2, null, 2, null, dateTier(releaseMs, now), releaseMs, null, 1,
       ]
     }, 'steamRows')
@@ -611,8 +627,10 @@ const rebuildOrphanBranches = async ({ onProgress, chunkSize, nowMs }) => {
 
   await runBranch('gog',
     `SELECT COUNT(*) AS c ${GOG_WHERE}`,
+    // Same as steam: release_state, and no rating column.
     `SELECT gd.gog_id, gd.title, gd.developer, gd.publisher, gd.engine, gd.category,
-            gd.censored, gd.language, gd.tags, gd.release_date, gd.rating, gd.store_url,
+            gd.release_state AS status,
+            gd.censored, gd.language, gd.tags, gd.release_date, gd.store_url,
             (SELECT MIN(gm.record_id) FROM gog_mappings gm WHERE gm.gog_id = gd.gog_id) AS local_record_id
      ${GOG_WHERE} ORDER BY gd.gog_id LIMIT ? OFFSET ?`,
     (row, now) => {
@@ -624,9 +642,9 @@ const rebuildOrphanBranches = async ({ onProgress, chunkSize, nowMs }) => {
         null, null, row.gog_id, null, null,
         row.local_record_id ?? null, row.local_record_id != null ? 1 : 0,
         title, title, creator, row.engine ?? null, row.category ?? null,
-        null, row.censored ?? null, row.language ?? null,
-        joinText(row.tags), joinText(title, creator, row.engine, row.category),
-        row.store_url ?? null, toNumberOrNull(row.rating), null,
+        row.status ?? null, row.censored ?? null, row.language ?? null,
+        joinText(row.tags), joinText(title, creator, row.engine, row.status, row.category),
+        row.store_url ?? null, null, null,
         2, null, 2, null, dateTier(releaseMs, now), releaseMs, null, 0,
       ]
     }, 'gogRows')
