@@ -99,6 +99,7 @@ const { getCatalogIndexStatus, rebuildCatalogIndex } = require('./db/catalogInde
 const { isWriteLockBusy, activeWriteLockLabel } = require('./db/writeLock')
 const { buildDefaultConfig, mergeWithDefaults } = require('./config/configSchema')
 const { sanitizeConfigFile } = require('./config/configSanitizer')
+const { migrateActiveLayoutToFile, readActiveLayout, writeActiveLayout } = require('./config/bannerLayoutStore')
 
 const { checkDbUpdates } = require('./db/updates')
 
@@ -159,6 +160,8 @@ let appConfig
 let nsfwConfigured = false
 // Result of the startup config prune, collected by the Client Check panel.
 let configSanitizeReport = null
+// Result of moving Appearance.customBannerLayout into its own file.
+let bannerLayoutMigrationReport = null
 let activeImportSession = null
 let activeLibraryValidation = null
 let activeScanSession = null
@@ -1630,6 +1633,9 @@ function buildCtx() {
     // Read by the Client Check panel so the config prune that already ran at
     // startup can be reported rather than repeated.
     get configSanitizeReport() { return configSanitizeReport },
+    get bannerLayoutMigrationReport() { return bannerLayoutMigrationReport },
+    readActiveBannerLayout: () => readActiveLayout(dataDir, appConfig),
+    writeActiveBannerLayout: (layout) => writeActiveLayout(dataDir, layout),
     nsfwConfigured,
     contextMenuData, contextMenuId, recentlyDeletedGamePaths, gameDetailsRecordMap,
     activeImportSession, activeScanSession, activeLibraryValidation, isQuitting,
@@ -1731,7 +1737,7 @@ app.whenReady().then(async () => {
   // file. Only keys on an explicit deprecation list are touched, and config.ini
   // is backed up to config.ini.bak first; the report is held for the Client
   // Check panel in Settings -> Database rather than shown as a startup toast.
-  configSanitizeReport = sanitizeConfigFile(configPath, ini)
+  configSanitizeReport = sanitizeConfigFile(configPath, ini, dataDir)
 
   if (fs.existsSync(configPath)) {
     try {
@@ -1746,6 +1752,20 @@ app.whenReady().then(async () => {
     appConfig = { ...defaultConfig }
     fs.writeFileSync(configPath, ini.stringify(defaultConfig))
     nsfwConfigured = false
+  }
+
+  // Move the active banner layout out of config.ini and into its own file. It was
+  // 18,421 bytes on a real config -- 89% of the whole file -- which made
+  // config.ini unreadable by hand and meant every settings save rewrote all of
+  // it. Themes already work this way (themeId in config, definition in
+  // templates/theme). Runs after appConfig is loaded and writes the file, reads
+  // it back and compares BEFORE dropping the ini key, so a failed write cannot
+  // lose the layout; on any error the key stays and the next launch retries.
+  try {
+    bannerLayoutMigrationReport = migrateActiveLayoutToFile(dataDir, appConfig, configPath, ini)
+    if (bannerLayoutMigrationReport?.config) appConfig = bannerLayoutMigrationReport.config
+  } catch (err) {
+    console.warn('Banner layout migration skipped:', err.message)
   }
 
   // Stamp the running build's version onto its own channel BEFORE resolving

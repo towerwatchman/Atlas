@@ -31,7 +31,9 @@ const {
   CONFIG_VERSION,
   DEPRECATED_KEYS,
   DEPRECATED_SECTIONS,
+  MIGRATED_KEYS,
   isDynamicSectionKey,
+  buildDefaultConfig,
 } = require('./configSchema')
 
 const emptyReport = () => ({
@@ -41,15 +43,24 @@ const emptyReport = () => ({
   configVersionAfter: CONFIG_VERSION,
   removedSections: [],
   removedKeys: [],
+  // Keys present on disk that this build's schema does not define and that are
+  // not on any deprecation list. Reported, never removed — an unrecognised key
+  // is as likely to come from a newer build as an older one. This exists because
+  // the first version of the deprecation list was written from guesswork and
+  // matched nothing on a real config; surfacing the truth from the user's own
+  // file is more reliable than predicting what past versions wrote.
+  unknownKeys: [],
+  unknownSections: [],
   backupPath: null,
   error: null,
 })
 
 // Pure: takes a parsed ini object, returns a cleaned copy plus what it removed.
 // Split out from the file I/O so it can be tested without touching disk.
-const sanitizeParsedConfig = (parsed) => {
+const sanitizeParsedConfig = (parsed, dataDir = '') => {
   const report = emptyReport()
   report.ran = true
+  const schema = buildDefaultConfig(dataDir)
 
   if (!parsed || typeof parsed !== 'object') {
     return { config: {}, report }
@@ -67,6 +78,10 @@ const sanitizeParsedConfig = (parsed) => {
       // top-level scalar is malformed. Keep it rather than guess.
       cleaned[section] = value
       continue
+    }
+
+    if (!(section in schema)) {
+      report.unknownSections.push({ section, keys: Object.keys(value).length })
     }
 
     if (DEPRECATED_SECTIONS.includes(section)) {
@@ -90,6 +105,19 @@ const sanitizeParsedConfig = (parsed) => {
         report.changed = true
         continue
       }
+      // Recognised-but-elsewhere: owned by a dedicated migration, so neither
+      // removed here nor reported as unrecognised.
+      const migrated = MIGRATED_KEYS[section] || []
+      const known = schema[section] ? key in schema[section] : false
+      if (!known && !migrated.includes(key)) {
+        const text = String(value[key] ?? '')
+        report.unknownKeys.push({
+          section, key,
+          bytes: text.length,
+          // Long values (embedded JSON) are clipped so the panel stays readable.
+          preview: text.length > 120 ? `${text.slice(0, 120)}…` : text,
+        })
+      }
       nextSection[key] = value[key]
     }
     cleaned[section] = nextSection
@@ -108,16 +136,27 @@ const sanitizeParsedConfig = (parsed) => {
 // Reads config.ini, sanitizes it, and writes it back only if something changed —
 // taking a .bak first. `ini` is injected rather than required here so this module
 // stays dependency-light and testable.
-const sanitizeConfigFile = (configPath, ini) => {
+const sanitizeConfigFile = (configPath, ini, dataDir = '') => {
   const report = emptyReport()
   try {
     if (!configPath || !fs.existsSync(configPath)) return report
 
     const original = fs.readFileSync(configPath, 'utf-8')
     const parsed = ini.parse(original)
-    const { config, report: inner } = sanitizeParsedConfig(parsed)
+    const { config, report: inner } = sanitizeParsedConfig(parsed, dataDir)
     Object.assign(report, inner)
 
+    if (report.unknownKeys.length > 0) {
+      console.log(
+        `config: ${report.unknownKeys.length} unrecognised key(s) left in place ` +
+        `(reported in Settings -> Database -> Full client check)`,
+      )
+      for (const entry of report.unknownKeys) {
+        console.log(`  ? [${entry.section}] ${entry.key} (${entry.bytes} bytes)`)
+      }
+    }
+
+    // Unrecognised keys are informational only, so they must not cause a rewrite.
     if (!report.changed) return report
 
     const backupPath = `${configPath}.bak`

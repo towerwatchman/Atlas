@@ -27,7 +27,7 @@
 // [Meta] configVersion so a 0.7-era file can be told apart from a current one —
 // previously there was no version marker anywhere, which is why stale keys could
 // accumulate indefinitely with no way to know what needed cleaning.
-const CONFIG_VERSION = 2
+const CONFIG_VERSION = 3
 
 // Sections whose KEY NAMES are generated at runtime and therefore cannot be
 // enumerated in a static default. The sanitizer must never treat an unknown key
@@ -37,54 +37,42 @@ const DYNAMIC_SECTIONS = {
   WindowBounds: /^[A-Za-z0-9]+(X|Y|Width|Height|Maximized)$/,
 }
 
-// Keys written by 0.7/0.8-era builds that no longer mean anything. Listed
-// explicitly rather than inferred, so removal is a deliberate, reviewable act
-// and an unrecognised key from a NEWER build is never destroyed by an older one.
+// Keys that older builds wrote and that NOTHING in the current tree reads.
+//
+// Every entry here has been verified against a real config.ini by grepping the
+// whole of electron/ and src/ for reads — an earlier version of this list was
+// written from guesswork about what 0.7 might have stored, matched nothing at
+// all on a real file, and gave a false impression that the config had been
+// cleaned. Do not add to this list speculatively: keys that are merely
+// unrecognised are reported by the Client Check (see configSanitizer's
+// unknownKeys) and only graduate to removal once confirmed dead.
 const DEPRECATED_KEYS = {
   Interface: [
-    'theme',              // superseded by Appearance.themeId
-    'colorScheme',        // superseded by Appearance.themeId
-    'accentColor',        // now part of the theme definition
-    'viewMode',           // superseded by Appearance.layout
-    'gridSize',           // superseded by the banner layout system
-    'bannerSize',
-    'showTitles',
-    'enableAnimations',
-    'startMinimized',     // never implemented
-    'updateChannel',      // superseded by Interface.appUpdateBranch
-  ],
-  Library: [
-    'defaultGameFolder',  // superseded by Library.gameFolder
-    'scanOnStartup',      // superseded by Library.validatePathsOnStartup
-    'autoImport',
-    'archiveExtensions',  // superseded by Library.extractionExtensions
-    'sevenZipLocation',   // superseded by Library.sevenZipPath
-  ],
-  Metadata: [
-    'downloadBanners',    // moved to [Importer].downloadBannerImages
-    'imageQuality',       // fixed by imageUtils now
-    'bannerWidth',
-    'previewWidth',
-    'useF95',             // superseded by Metadata.sourceOrder
-    'useSteam',
-    'preferSteamArt',
-  ],
-  Performance: [
-    'threadCount',        // superseded by mediaDownloadConcurrency
-    'maxConcurrentDownloads',
-    'enableGpu',
-  ],
-  Importer: [
-    'lastSourcePath',     // superseded by Importer.sourceGamePath
-    'flattenFolders',
+    // Superseded by Appearance.detailLayout. The two are from different
+    // generations of the detail page — this one holds the old
+    // { order: [...], sizes: {...} } shape while detailLayout holds the current
+    // { rows: [{ type: 'columns', ... }] } shape. Only detailLayout is read
+    // (src/components/detail/GameDetailPage.jsx).
+    'detailsPageLayout',
+    'detailsPageModuleOrder',
   ],
 }
 
-// Whole sections from older builds that no longer exist.
-const DEPRECATED_SECTIONS = ['Theme', 'Colors', 'Grid', 'Scanner', 'Proxy']
+// Whole sections no longer used. Empty on purpose: no real config has yet shown
+// one, and inventing entries here is exactly the mistake described above.
+const DEPRECATED_SECTIONS = []
 
 // `rootPath` defaults to the data directory, so the defaults depend on where
 // that is — hence a builder rather than a frozen object.
+// Keys that have moved to their own file and are removed by a dedicated
+// migration, not by the deprecation sweep. Listed so the Client Check does not
+// report them as unrecognised while the migration is pending.
+const MIGRATED_KEYS = {
+  // -> templates/banner-layout-active.json (electron/config/bannerLayoutStore.js).
+  // Was 18,421 bytes on a real config: 89% of the entire file.
+  Appearance: ['customBannerLayout'],
+}
+
 const buildDefaultConfig = (dataDir = '') => ({
   Meta: {
     configVersion: CONFIG_VERSION,
@@ -159,6 +147,10 @@ const buildDefaultConfig = (dataDir = '') => ({
     filterSidebarSide: 'right',
     filterSidebarMode: 'overlay',
     customTheme: '',
+    // Short id of the active banner layout, mirroring how themeId names a theme
+    // whose definition lives in templates/theme/*.json. The layout itself is NOT
+    // stored here — see MIGRATED_KEYS above.
+    bannerTemplate: 'Default',
   },
   // Whether the user has opted in to NSFW/adult ("Browse mode") content.
   // Deliberately NOT folded into another section — nsfwConfigured detection
@@ -225,6 +217,7 @@ module.exports = {
   DYNAMIC_SECTIONS,
   DEPRECATED_KEYS,
   DEPRECATED_SECTIONS,
+  MIGRATED_KEYS,
   buildDefaultConfig,
   mergeWithDefaults,
   isDynamicSectionKey,

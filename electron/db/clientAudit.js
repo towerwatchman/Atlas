@@ -123,6 +123,55 @@ const auditConfig = async (ctx) => {
       result.status = 'issues'
       result.count += report.removedSections.length
     }
+    // Unrecognised keys: reported, never removed. The deprecation list can only
+    // ever cover keys someone has confirmed dead, so this is how anything else
+    // becomes visible rather than silently accumulating.
+    if (report.unknownKeys?.length > 0) {
+      result.findings.push({
+        label: 'Settings this version does not recognise',
+        count: report.unknownKeys.length,
+        detail: 'Left in place, not removed — an unrecognised key may belong to a ' +
+                'newer build. Report these if you think they are obsolete and they ' +
+                'can be added to the removal list.',
+        samples: report.unknownKeys.map(
+          (k) => `[${k.section}] ${k.key}${k.bytes > 120 ? ` (${k.bytes} bytes)` : ` = ${k.preview}`}`),
+      })
+      result.status = 'issues'
+      result.count += report.unknownKeys.length
+    }
+    if (report.unknownSections?.length > 0) {
+      result.findings.push({
+        label: 'Config sections this version does not recognise',
+        count: report.unknownSections.length,
+        detail: 'Left in place.',
+        samples: report.unknownSections.map((x) => `[${x.section}] (${x.keys} keys)`),
+      })
+      result.status = 'issues'
+      result.count += report.unknownSections.length
+    }
+
+    // Banner layout relocation, reported so the size reduction is visible.
+    const banner = ctx?.bannerLayoutMigrationReport
+    if (banner?.migrated) {
+      result.findings.push({
+        label: 'Banner layout moved out of config.ini',
+        count: 0,
+        detail: `${banner.bytesMoved.toLocaleString()} bytes moved to ` +
+                'templates/banner-layout-active.json. config.ini now holds only the ' +
+                'layout name, the same way themes work.',
+        samples: null,
+      })
+    } else if (banner?.ran && banner?.error) {
+      result.findings.push({
+        label: 'Banner layout could not be moved out of config.ini',
+        count: 1,
+        detail: `${banner.error} The layout is untouched and Atlas will retry on the next launch.`,
+        samples: null,
+      })
+      result.status = 'issues'
+      result.count += 1
+    }
+
     if (report.error) {
       result.status = 'error'
       result.error = report.error
