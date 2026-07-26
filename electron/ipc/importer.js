@@ -1589,6 +1589,150 @@ module.exports = function registerImporterHandlers(ctx) {
     }
   }
 
+  // ── Manual add & catalog search ───────────────────────────────────────────
+  //
+  // Motivation: Steam's GetOwnedGames does not return every app in a user's
+  // library. Free titles in particular are omitted, and no combination of
+  // include_played_free_games / include_free_sub / skip_unvetted_apps changes
+  // that (verified against a real account: identical count for all eight
+  // permutations). reconcileInstalled() now unions in installed games found via
+  // appmanifest scan, but an UNINSTALLED title Steam refuses to list has no
+  // local footprint at all and is unreachable by any automatic path.
+  //
+  // So: let the user search the storefronts directly and add by id, pulling real
+  // metadata and art so nothing has to be typed in by hand.
+
+  // A unix timestamp for an adult date of birth. Without it Steam's storefront
+  // omits mature-gated titles from search results entirely — which are exactly
+  // the ones most likely to be missing from the owned list.
+  const STORE_AGE_GATE_COOKIE = 'birthtime=568022401; mature_content=1; wants_mature_content=1'
+
+  const searchSteamStore = async (term) => {
+    const url = `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(term)}&l=english&cc=us`
+    const res = await fetch(url, { headers: { Cookie: STORE_AGE_GATE_COOKIE } })
+    if (!res.ok) throw new Error(`Steam search returned HTTP ${res.status}`)
+    const json = await res.json()
+    const items = Array.isArray(json?.items) ? json.items : []
+    return items.map((item) => ({
+      source: 'steam',
+      id: String(item.id),
+      name: item.name || `App ${item.id}`,
+      // tiny_image is a small capsule; good enough for a result row and cheap.
+      imageUrl: item.tiny_image || null,
+      isFree: item.price ? item.price.final === 0 : null,
+      type: item.type || '',
+    }))
+  }
+
+  const searchGogCatalog = async (term) => {
+    // embed.gog.com's filtered endpoint is used rather than catalog.gog.com
+    // because it needs no auth and returns the numeric product id directly,
+    // which is what gog_mappings keys on.
+    const url = `https://embed.gog.com/games/ajax/filtered?mediaType=game&search=${encodeURIComponent(term)}`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`GOG search returned HTTP ${res.status}`)
+    const json = await res.json()
+    const products = Array.isArray(json?.products) ? json.products : []
+    return products.map((product) => ({
+      source: 'gog',
+      id: String(product.id),
+      name: product.title || `Product ${product.id}`,
+      // GOG returns protocol-relative image paths with no extension.
+      imageUrl: product.image ? `https:${product.image}_196.jpg` : null,
+      isFree: product.price ? product.price.isFree === true : null,
+      type: product.isGame === false ? 'dlc' : 'game',
+    }))
+  }
+
+  ipcMain.handle('catalog-search', async (event, { source = 'steam', query = '' } = {}) => {
+    const term = String(query || '').trim()
+    if (term.length < 2) {
+      return { ok: false, results: [], error: 'Enter at least two characters to search.' }
+    }
+    try {
+      const results = source === 'gog'
+        ? await searchGogCatalog(term)
+        : await searchSteamStore(term)
+      return { ok: true, results }
+    } catch (err) {
+      console.error(`catalog-search (${source}) failed:`, err)
+      return { ok: false, results: [], error: err.message || 'Search failed.' }
+    }
+  })
+
+  // GOG twin of importOwnedSteamGame. Same shape, same ordering: fetch and store
+  // metadata FIRST (so record resolution can see the product's atlas_id and group
+  // with any existing record for the same game), then resolve or create the
+  // record, map it, and upsert a version.
+  const importGogGameById = async (gogId, fallbackName = '', installDir = '') => {
+    const id = String(gogId || '').trim()
+    if (!/^\d+$/.test(id)) {
+      return { ok: false, gogId, error: 'Invalid GOG product id.' }
+    }
+    const dir = String(installDir || '').trim()
+
+    let meta = null
+    try {
+      meta = await fetchAndStoreGogData(db, parseInt(id, 10))
+    } catch (err) {
+      console.warn(`Manual add: GOG metadata fetch failed for ${id}:`, err.message)
+    }
+
+    const existing = await findRecordByGogId(parseInt(id, 10))
+    const title = String(meta?.title || fallbackName || `GOG Product ${id}`).trim()
+    const creator = String(meta?.developer || 'Unknown').trim()
+    const engine = String(meta?.engine || '').trim()
+
+    const recordId = existing || (await addGame({ title, creator, engine }))
+    if (!existing) await addGogMapping(recordId, parseInt(id, 10))
+
+    await upsertVersion(
+      { version: title, folder: dir, execPath: '', folderSize: 0, source: 'gog', sourceAppId: id },
+      recordId,
+    )
+
+    return {
+      ok: true,
+      gogId: id,
+      recordId,
+      title,
+      versionLabel: title,
+      installed: Boolean(dir),
+      alreadyPresent: Boolean(existing),
+    }
+  }
+
+  // Unified manual add. Dispatches on source so the renderer has one call for
+  // both storefronts, and reuses the existing Steam path verbatim rather than
+  // duplicating its atlas-grouping logic.
+  ipcMain.handle('manual-add-game', async (event, { source = 'steam', id, name = '', installDir = '' } = {}) => {
+    try {
+      const result = source === 'gog'
+        ? await importGogGameById(id, name, installDir)
+        : await importOwnedSteamGame(id, name, installDir, null)
+      if (result?.ok) {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) win.webContents.send('import-complete')
+        })
+      }
+      return result
+    } catch (err) {
+      console.error('manual-add-game error:', err)
+      return { ok: false, id, error: err.message || 'Could not add game.' }
+    }
+  })
+
+  // Folder picker for the optional local path on a manually added game.
+  ipcMain.handle('manual-add-pick-folder', async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    const result = await dialog.showOpenDialog(owner, {
+      title: 'Select the game folder',
+      properties: ['openDirectory'],
+    })
+    if (result.canceled || !result.filePaths?.length) return { ok: false, canceled: true }
+    return { ok: true, path: result.filePaths[0] }
+  })
+
   // Single add.
   ipcMain.handle('steam-add-owned-game', async (event, { appid, name, installDir, assetSourceOrder } = {}) => {
     try {

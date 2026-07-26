@@ -464,6 +464,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   steamSetKey: (payload) => ipcRenderer.invoke("steam-set-key", payload),
   steamDisconnect: () => ipcRenderer.invoke("steam-disconnect"),
   steamOwnedGames: (payload) => ipcRenderer.invoke("steam-owned-games", payload),
+  // Manual add: search a storefront, then create a record from the chosen id.
+  catalogSearch: (payload) => ipcRenderer.invoke("catalog-search", payload),
+  manualAddGame: (payload) => ipcRenderer.invoke("manual-add-game", payload),
+  manualAddPickFolder: () => ipcRenderer.invoke("manual-add-pick-folder"),
   steamAddOwnedGame: (payload) => ipcRenderer.invoke("steam-add-owned-game", payload),
   steamOwnedExisting: (payload) => ipcRenderer.invoke("steam-owned-existing", payload),
   steamCheckInstalled: (payload) => ipcRenderer.invoke("steam-check-installed", payload),

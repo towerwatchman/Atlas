@@ -1409,7 +1409,8 @@ function createThemeBuilderWindow() {
 
 function normalizeImporterSource(source) {
   const value = String(source || '').trim().toLowerCase()
-  return ['atlas', 'steam', 'gog', 'renpy'].includes(value) ? value : 'atlas'
+  // Keep in sync with importerSources.js in the renderer.
+  return ['atlas', 'steam', 'gog', 'renpy', 'manual'].includes(value) ? value : 'atlas'
 }
 
 function createBannerEditorWindow() {

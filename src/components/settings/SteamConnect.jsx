@@ -114,7 +114,11 @@ const SteamConnect = () => {
           <div className="text-xs text-text/60 truncate">
             {signedIn ? `SteamID ${status.steamId}` : 'Sign in to load your owned library'}
             {fullyConnected && status.cachedCount
-              ? ` · ${status.cachedCount} games cached`
+              ? status.cacheIncomplete
+                // Don't present a stale pre-fix count as the library size. It is
+                // missing unplayed free-to-play, delisted and age-gated titles.
+                ? ' · cached list is out of date — refresh to update'
+                : ` · ${status.cachedCount} games cached`
               : ''}
           </div>
         </div>

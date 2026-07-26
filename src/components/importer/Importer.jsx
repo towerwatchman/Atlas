@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import SettingsStep from './steps/SettingsStep.jsx'
 import ScanStep from './steps/ScanStep.jsx'
 import SteamLibraryStep from './steps/SteamLibraryStep.jsx'
+import ManualAddStep from './steps/ManualAddStep.jsx'
 import { normalizeImporterSource } from './importerSources.js'
 import { buildFolderRegex } from './folderRegex.js'
 import WindowTitleBar from '../ui/WindowTitleBar.jsx'
@@ -1168,6 +1169,12 @@ const Importer = () => {
         startRenpyScan()
         return
       }
+      if (safeSource === 'manual') {
+        resetImporterSourceState()
+        setImportMode('manualAdd')
+        setView('manualAdd')
+        return
+      }
       resetImporterSourceState()
       setImportMode('games')
       setView('settings')
@@ -1652,6 +1659,12 @@ const Importer = () => {
               <SteamLibraryStep onBack={() => { setView('settings'); setImportMode('games') }} />
             </div>
           )}
+
+          {view === 'manualAdd' && (
+            <div className="h-full -m-4">
+              <ManualAddStep onBack={() => { setView('settings'); setImportMode('games') }} />
+            </div>
+          )}
         </div>
 
         {/* Fixed footer action bar. Buttons share one height (h-9) and stay put
@@ -1662,6 +1675,15 @@ const Importer = () => {
             <>
               <div className="text-xs text-text/50">
                 Browsing your Steam library. Open a game in your library to install, launch, or uninstall it.
+              </div>
+              <button onClick={() => window.electronAPI.closeWindow()} className="h-9 px-4 inline-flex items-center bg-danger hover:bg-dangerHover text-white rounded-buttonTheme transition-colors">Close</button>
+            </>
+          ) : view === 'manualAdd' ? (
+            <>
+              {/* The step owns its own Add/Back buttons so several games can be
+                  added in a row without leaving the screen. */}
+              <div className="text-xs text-text/50">
+                Adding a game by store ID. Metadata and artwork are pulled from the source.
               </div>
               <button onClick={() => window.electronAPI.closeWindow()} className="h-9 px-4 inline-flex items-center bg-danger hover:bg-dangerHover text-white rounded-buttonTheme transition-colors">Close</button>
             </>

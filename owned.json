@@ -1,0 +1,957 @@
+[
+  {
+    "appid": "220",
+    "name": "Half-Life 2",
+    "playtime": 0
+  },
+  {
+    "appid": "320",
+    "name": "Half-Life 2: Deathmatch",
+    "playtime": 0
+  },
+  {
+    "appid": "360",
+    "name": "Half-Life Deathmatch: Source",
+    "playtime": 0
+  },
+  {
+    "appid": "400",
+    "name": "Portal",
+    "playtime": 34
+  },
+  {
+    "appid": "550",
+    "name": "Left 4 Dead 2",
+    "playtime": 138
+  },
+  {
+    "appid": "620",
+    "name": "Portal 2",
+    "playtime": 4
+  },
+  {
+    "appid": "1250",
+    "name": "Killing Floor",
+    "playtime": 47
+  },
+  {
+    "appid": "4760",
+    "name": "Rome: Total War",
+    "playtime": 17
+  },
+  {
+    "appid": "4770",
+    "name": "Rome: Total War - Alexander",
+    "playtime": 0
+  },
+  {
+    "appid": "6020",
+    "name": "STAR WARS™ Jedi Knight: Jedi Academy™",
+    "playtime": 0
+  },
+  {
+    "appid": "6030",
+    "name": "STAR WARS™ Jedi Knight II: Jedi Outcast™",
+    "playtime": 0
+  },
+  {
+    "appid": "6060",
+    "name": "Star Wars: Battlefront 2 (Classic, 2005)",
+    "playtime": 4
+  },
+  {
+    "appid": "7670",
+    "name": "BioShock",
+    "playtime": 0
+  },
+  {
+    "appid": "7850",
+    "name": "Cryostasis",
+    "playtime": 29
+  },
+  {
+    "appid": "8190",
+    "name": "Just Cause 2",
+    "playtime": 7
+  },
+  {
+    "appid": "8850",
+    "name": "BioShock 2",
+    "playtime": 116
+  },
+  {
+    "appid": "8870",
+    "name": "BioShock Infinite",
+    "playtime": 1671
+  },
+  {
+    "appid": "8980",
+    "name": "Borderlands GOTY",
+    "playtime": 125
+  },
+  {
+    "appid": "9200",
+    "name": "RAGE",
+    "playtime": 0
+  },
+  {
+    "appid": "10180",
+    "name": "Call of Duty: Modern Warfare 2 (2009)",
+    "playtime": 10
+  },
+  {
+    "appid": "10190",
+    "name": "Call of Duty: Modern Warfare 2 (2009) - Multiplayer",
+    "playtime": 1957
+  },
+  {
+    "appid": "12750",
+    "name": "GRID",
+    "playtime": 7
+  },
+  {
+    "appid": "13520",
+    "name": "Far Cry",
+    "playtime": 0
+  },
+  {
+    "appid": "15700",
+    "name": "Oddworld: Abe's Oddysee",
+    "playtime": 0
+  },
+  {
+    "appid": "15710",
+    "name": "Oddworld: Abe's Exoddus",
+    "playtime": 0
+  },
+  {
+    "appid": "15740",
+    "name": "Oddworld: Munch's Oddysee",
+    "playtime": 0
+  },
+  {
+    "appid": "15750",
+    "name": "Oddworld: Stranger's Wrath HD",
+    "playtime": 24
+  },
+  {
+    "appid": "16450",
+    "name": "F.E.A.R. 2: Project Origin",
+    "playtime": 0
+  },
+  {
+    "appid": "16700",
+    "name": "Stronghold Crusader Extreme HD",
+    "playtime": 0
+  },
+  {
+    "appid": "17300",
+    "name": "Crysis",
+    "playtime": 48
+  },
+  {
+    "appid": "17330",
+    "name": "Crysis Warhead",
+    "playtime": 0
+  },
+  {
+    "appid": "17340",
+    "name": "Crysis Wars",
+    "playtime": 0
+  },
+  {
+    "appid": "17410",
+    "name": "Mirror's Edge",
+    "playtime": 2
+  },
+  {
+    "appid": "17460",
+    "name": "Mass Effect (2007)",
+    "playtime": 10
+  },
+  {
+    "appid": "17470",
+    "name": "Dead Space (2008)",
+    "playtime": 12
+  },
+  {
+    "appid": "19680",
+    "name": "Alice: Madness Returns",
+    "playtime": 786
+  },
+  {
+    "appid": "19900",
+    "name": "Far Cry 2",
+    "playtime": 0
+  },
+  {
+    "appid": "19980",
+    "name": "Prince of Persia",
+    "playtime": 0
+  },
+  {
+    "appid": "20900",
+    "name": "The Witcher: Enhanced Edition",
+    "playtime": 4
+  },
+  {
+    "appid": "20920",
+    "name": "The Witcher 2: Assassins of Kings Enhanced Edition",
+    "playtime": 0
+  },
+  {
+    "appid": "21090",
+    "name": "F.E.A.R.",
+    "playtime": 0
+  },
+  {
+    "appid": "21100",
+    "name": "F.E.A.R. 3",
+    "playtime": 0
+  },
+  {
+    "appid": "21110",
+    "name": "F.E.A.R.: Extraction Point",
+    "playtime": 0
+  },
+  {
+    "appid": "21120",
+    "name": "F.E.A.R.: Perseus Mandate",
+    "playtime": 0
+  },
+  {
+    "appid": "21690",
+    "name": "Resident Evil 5",
+    "playtime": 21
+  },
+  {
+    "appid": "22100",
+    "name": "Mount & Blade",
+    "playtime": 13340
+  },
+  {
+    "appid": "22320",
+    "name": "The Elder Scrolls III: Morrowind",
+    "playtime": 0
+  },
+  {
+    "appid": "22370",
+    "name": "Fallout 3 - Game of the Year Edition",
+    "playtime": 127
+  },
+  {
+    "appid": "22380",
+    "name": "Fallout: New Vegas",
+    "playtime": 10
+  },
+  {
+    "appid": "24240",
+    "name": "PAYDAY: The Heist",
+    "playtime": 132
+  },
+  {
+    "appid": "24400",
+    "name": "King Arthur - The Role-playing Wargame",
+    "playtime": 15
+  },
+  {
+    "appid": "24980",
+    "name": "Mass Effect 2 (2010)",
+    "playtime": 0
+  },
+  {
+    "appid": "28050",
+    "name": "Deus Ex: Human Revolution",
+    "playtime": 118
+  },
+  {
+    "appid": "32370",
+    "name": "STAR WARS™ Knights of the Old Republic™",
+    "playtime": 10
+  },
+  {
+    "appid": "32380",
+    "name": "STAR WARS™ Jedi Knight: Dark Forces II",
+    "playtime": 0
+  },
+  {
+    "appid": "32390",
+    "name": "STAR WARS™ Jedi Knight: Mysteries of the Sith™",
+    "playtime": 0
+  },
+  {
+    "appid": "32400",
+    "name": "STAR WARS™: Dark Forces",
+    "playtime": 0
+  },
+  {
+    "appid": "32430",
+    "name": "STAR WARS™: The Force Unleashed™ Ultimate Sith Edition",
+    "playtime": 246
+  },
+  {
+    "appid": "32500",
+    "name": "STAR WARS™: The Force Unleashed™ II",
+    "playtime": 0
+  },
+  {
+    "appid": "32800",
+    "name": "The Lord of the Rings: War in the North",
+    "playtime": 9
+  },
+  {
+    "appid": "33460",
+    "name": "From Dust",
+    "playtime": 3
+  },
+  {
+    "appid": "35140",
+    "name": "Batman: Arkham Asylum GOTY Edition",
+    "playtime": 738
+  },
+  {
+    "appid": "35420",
+    "name": "Killing Floor Mod: Defence Alliance 2",
+    "playtime": 0
+  },
+  {
+    "appid": "35700",
+    "name": "Trine",
+    "playtime": 0
+  },
+  {
+    "appid": "35720",
+    "name": "Trine 2",
+    "playtime": 473
+  },
+  {
+    "appid": "38400",
+    "name": "Fallout",
+    "playtime": 0
+  },
+  {
+    "appid": "38410",
+    "name": "Fallout 2",
+    "playtime": 0
+  },
+  {
+    "appid": "38420",
+    "name": "Fallout Tactics",
+    "playtime": 0
+  },
+  {
+    "appid": "40950",
+    "name": "Stronghold HD",
+    "playtime": 4
+  },
+  {
+    "appid": "40960",
+    "name": "Stronghold 2",
+    "playtime": 0
+  },
+  {
+    "appid": "40970",
+    "name": "Stronghold Crusader HD",
+    "playtime": 0
+  },
+  {
+    "appid": "40980",
+    "name": "Stronghold Legends",
+    "playtime": 0
+  },
+  {
+    "appid": "42680",
+    "name": "Call of Duty®: Modern Warfare® 3 (2011)",
+    "playtime": 41
+  },
+  {
+    "appid": "42690",
+    "name": "Call of Duty®: Modern Warfare® 3 (2011) - Multiplayer",
+    "playtime": 237
+  },
+  {
+    "appid": "43110",
+    "name": "Metro 2033",
+    "playtime": 458
+  },
+  {
+    "appid": "43160",
+    "name": "Metro: Last Light Complete Edition",
+    "playtime": 17
+  },
+  {
+    "appid": "47780",
+    "name": "Dead Space 2",
+    "playtime": 1378
+  },
+  {
+    "appid": "47810",
+    "name": "Dragon Age: Origins - Ultimate Edition",
+    "playtime": 15
+  },
+  {
+    "appid": "48000",
+    "name": "LIMBO",
+    "playtime": 0
+  },
+  {
+    "appid": "48700",
+    "name": "Mount & Blade: Warband",
+    "playtime": 275
+  },
+  {
+    "appid": "49520",
+    "name": "Borderlands 2",
+    "playtime": 411
+  },
+  {
+    "appid": "55230",
+    "name": "Saints Row: The Third",
+    "playtime": 142
+  },
+  {
+    "appid": "57300",
+    "name": "Amnesia: The Dark Descent",
+    "playtime": 1
+  },
+  {
+    "appid": "57400",
+    "name": "Batman: Arkham City™",
+    "playtime": 0
+  },
+  {
+    "appid": "72850",
+    "name": "The Elder Scrolls V: Skyrim",
+    "playtime": 3817
+  },
+  {
+    "appid": "107410",
+    "name": "Arma 3",
+    "playtime": 6
+  },
+  {
+    "appid": "108710",
+    "name": "Alan Wake",
+    "playtime": 39
+  },
+  {
+    "appid": "108800",
+    "name": "Crysis 2 Maximum Edition",
+    "playtime": 52
+  },
+  {
+    "appid": "110800",
+    "name": "L.A. Noire",
+    "playtime": 19
+  },
+  {
+    "appid": "111900",
+    "name": "Guardians of Middle-earth",
+    "playtime": 0
+  },
+  {
+    "appid": "200260",
+    "name": "Batman: Arkham City GOTY",
+    "playtime": 0
+  },
+  {
+    "appid": "201810",
+    "name": "Wolfenstein: The New Order",
+    "playtime": 45
+  },
+  {
+    "appid": "202750",
+    "name": "Alan Wake's American Nightmare",
+    "playtime": 0
+  },
+  {
+    "appid": "203160",
+    "name": "Tomb Raider",
+    "playtime": 1435
+  },
+  {
+    "appid": "204100",
+    "name": "Max Payne 3",
+    "playtime": 1511
+  },
+  {
+    "appid": "205100",
+    "name": "Dishonored",
+    "playtime": 889
+  },
+  {
+    "appid": "205350",
+    "name": "Mortal Kombat Kollection",
+    "playtime": 0
+  },
+  {
+    "appid": "207490",
+    "name": "Rayman Origins",
+    "playtime": 7
+  },
+  {
+    "appid": "207610",
+    "name": "The Walking Dead",
+    "playtime": 82
+  },
+  {
+    "appid": "208480",
+    "name": "Assassin's Creed® III",
+    "playtime": 2312
+  },
+  {
+    "appid": "208580",
+    "name": "STAR WARS™ Knights of the Old Republic™ II: The Sith Lords™",
+    "playtime": 0
+  },
+  {
+    "appid": "209000",
+    "name": "Batman™: Arkham Origins",
+    "playtime": 23
+  },
+  {
+    "appid": "211820",
+    "name": "Starbound",
+    "playtime": 55
+  },
+  {
+    "appid": "214510",
+    "name": "LEGO® The Lord of the Rings™",
+    "playtime": 316
+  },
+  {
+    "appid": "218680",
+    "name": "Scribblenauts Unlimited",
+    "playtime": 0
+  },
+  {
+    "appid": "220200",
+    "name": "Kerbal Space Program",
+    "playtime": 1044
+  },
+  {
+    "appid": "220240",
+    "name": "Far Cry® 3",
+    "playtime": 5
+  },
+  {
+    "appid": "220440",
+    "name": "DmC Devil May Cry",
+    "playtime": 396
+  },
+  {
+    "appid": "221380",
+    "name": "Age of Empires II (2013)",
+    "playtime": 45
+  },
+  {
+    "appid": "223670",
+    "name": "F1 2013",
+    "playtime": 176
+  },
+  {
+    "appid": "223850",
+    "name": "3DMark",
+    "playtime": 0
+  },
+  {
+    "appid": "224760",
+    "name": "FEZ",
+    "playtime": 20
+  },
+  {
+    "appid": "233270",
+    "name": "Far Cry® 3 Blood Dragon",
+    "playtime": 0
+  },
+  {
+    "appid": "233740",
+    "name": "Organ Trail: Director's Cut",
+    "playtime": 128
+  },
+  {
+    "appid": "236390",
+    "name": "War Thunder",
+    "playtime": 364
+  },
+  {
+    "appid": "238320",
+    "name": "Outlast",
+    "playtime": 14
+  },
+  {
+    "appid": "241930",
+    "name": "Middle-earth™: Shadow of Mordor™",
+    "playtime": 0
+  },
+  {
+    "appid": "242050",
+    "name": "Assassin's Creed IV Black Flag",
+    "playtime": 44
+  },
+  {
+    "appid": "243470",
+    "name": "Watch_Dogs",
+    "playtime": 1018
+  },
+  {
+    "appid": "249130",
+    "name": "LEGO® MARVEL Super Heroes",
+    "playtime": 192
+  },
+  {
+    "appid": "250180",
+    "name": "METAL SLUG 3",
+    "playtime": 0
+  },
+  {
+    "appid": "250320",
+    "name": "The Wolf Among Us",
+    "playtime": 446
+  },
+  {
+    "appid": "250760",
+    "name": "Shovel Knight: Treasure Trove",
+    "playtime": 0
+  },
+  {
+    "appid": "252950",
+    "name": "Rocket League",
+    "playtime": 0
+  },
+  {
+    "appid": "260210",
+    "name": "Assassin's Creed Liberation",
+    "playtime": 1
+  },
+  {
+    "appid": "268500",
+    "name": "XCOM 2",
+    "playtime": 0
+  },
+  {
+    "appid": "271590",
+    "name": "Grand Theft Auto V Legacy",
+    "playtime": 475
+  },
+  {
+    "appid": "285330",
+    "name": "RollerCoaster Tycoon 2: Triple Thrill Pack",
+    "playtime": 60
+  },
+  {
+    "appid": "286160",
+    "name": "Tabletop Simulator",
+    "playtime": 1
+  },
+  {
+    "appid": "286690",
+    "name": "Metro 2033 Redux",
+    "playtime": 12
+  },
+  {
+    "appid": "287390",
+    "name": "Metro: Last Light Redux",
+    "playtime": 0
+  },
+  {
+    "appid": "292030",
+    "name": "The Witcher 3: Wild Hunt",
+    "playtime": 32
+  },
+  {
+    "appid": "296610",
+    "name": "GestureWorks Gameplay",
+    "playtime": 70
+  },
+  {
+    "appid": "312520",
+    "name": "Rain World",
+    "playtime": 0
+  },
+  {
+    "appid": "312610",
+    "name": "METAL SLUG X",
+    "playtime": 0
+  },
+  {
+    "appid": "312840",
+    "name": "Fahrenheit: Indigo Prophecy Remastered",
+    "playtime": 0
+  },
+  {
+    "appid": "330840",
+    "name": "Game of Thrones - A Telltale Games Series",
+    "playtime": 5
+  },
+  {
+    "appid": "346110",
+    "name": "ARK: Survival Evolved",
+    "playtime": 541
+  },
+  {
+    "appid": "366250",
+    "name": "METAL SLUG",
+    "playtime": 8
+  },
+  {
+    "appid": "367520",
+    "name": "Hollow Knight",
+    "playtime": 0
+  },
+  {
+    "appid": "367540",
+    "name": "Starbound - Unstable",
+    "playtime": 0
+  },
+  {
+    "appid": "377160",
+    "name": "Fallout 4",
+    "playtime": 2224
+  },
+  {
+    "appid": "386360",
+    "name": "SMITE",
+    "playtime": 1399
+  },
+  {
+    "appid": "391220",
+    "name": "Rise of the Tomb Raider",
+    "playtime": 0
+  },
+  {
+    "appid": "407530",
+    "name": "ARK: Survival Of The Fittest",
+    "playtime": 0
+  },
+  {
+    "appid": "409710",
+    "name": "BioShock Remastered",
+    "playtime": 25
+  },
+  {
+    "appid": "409720",
+    "name": "BioShock 2 Remastered",
+    "playtime": 0
+  },
+  {
+    "appid": "413150",
+    "name": "Stardew Valley",
+    "playtime": 2443
+  },
+  {
+    "appid": "414340",
+    "name": "Hellblade: Senua's Sacrifice",
+    "playtime": 5
+  },
+  {
+    "appid": "438740",
+    "name": "Friday the 13th: The Game",
+    "playtime": 0
+  },
+  {
+    "appid": "474960",
+    "name": "Quantum Break",
+    "playtime": 0
+  },
+  {
+    "appid": "489830",
+    "name": "The Elder Scrolls V: Skyrim Special Edition",
+    "playtime": 1221
+  },
+  {
+    "appid": "578330",
+    "name": "LEGO® City Undercover",
+    "playtime": 4
+  },
+  {
+    "appid": "588650",
+    "name": "Dead Cells",
+    "playtime": 459
+  },
+  {
+    "appid": "599140",
+    "name": "Graveyard Keeper",
+    "playtime": 0
+  },
+  {
+    "appid": "613830",
+    "name": "CHRONO TRIGGER",
+    "playtime": 0
+  },
+  {
+    "appid": "692850",
+    "name": "Bloodstained: Ritual of the Night",
+    "playtime": 8
+  },
+  {
+    "appid": "729040",
+    "name": "Borderlands GOTY Enhanced",
+    "playtime": 0
+  },
+  {
+    "appid": "747350",
+    "name": "Hellblade: Senua's Sacrifice VR Edition",
+    "playtime": 0
+  },
+  {
+    "appid": "750920",
+    "name": "Shadow of the Tomb Raider",
+    "playtime": 0
+  },
+  {
+    "appid": "774361",
+    "name": "Blasphemous",
+    "playtime": 0
+  },
+  {
+    "appid": "960910",
+    "name": "Heavy Rain",
+    "playtime": 0
+  },
+  {
+    "appid": "960990",
+    "name": "Beyond: Two Souls",
+    "playtime": 0
+  },
+  {
+    "appid": "1085660",
+    "name": "Destiny 2",
+    "playtime": 179
+  },
+  {
+    "appid": "1091500",
+    "name": "Cyberpunk 2077",
+    "playtime": 3334
+  },
+  {
+    "appid": "1115690",
+    "name": "Yes, Your Grace",
+    "playtime": 9
+  },
+  {
+    "appid": "1143810",
+    "name": "Black Skylands",
+    "playtime": 9
+  },
+  {
+    "appid": "1145350",
+    "name": "Hades II",
+    "playtime": 916
+  },
+  {
+    "appid": "1145360",
+    "name": "Hades",
+    "playtime": 23
+  },
+  {
+    "appid": "1151640",
+    "name": "Horizon Zero Dawn™ Complete Edition",
+    "playtime": 313
+  },
+  {
+    "appid": "1172380",
+    "name": "STAR WARS Jedi: Fallen Order™",
+    "playtime": 0
+  },
+  {
+    "appid": "1222140",
+    "name": "Detroit: Become Human",
+    "playtime": 0
+  },
+  {
+    "appid": "1229240",
+    "name": "Chained Echoes",
+    "playtime": 0
+  },
+  {
+    "appid": "1231880",
+    "name": "Haiku, the Robot",
+    "playtime": 0
+  },
+  {
+    "appid": "1238060",
+    "name": "Dead Space™ 3",
+    "playtime": 0
+  },
+  {
+    "appid": "1268750",
+    "name": "Starship Troopers: Extermination",
+    "playtime": 405
+  },
+  {
+    "appid": "1306630",
+    "name": "Lost Ruins",
+    "playtime": 9
+  },
+  {
+    "appid": "1328670",
+    "name": "Mass Effect™ Legendary Edition",
+    "playtime": 12
+  },
+  {
+    "appid": "1432860",
+    "name": "Sun Haven",
+    "playtime": 66
+  },
+  {
+    "appid": "1543710",
+    "name": "Beyond Galaxyland",
+    "playtime": 0
+  },
+  {
+    "appid": "1623730",
+    "name": "Palworld",
+    "playtime": 11
+  },
+  {
+    "appid": "1674780",
+    "name": "Lone Fungus",
+    "playtime": 0
+  },
+  {
+    "appid": "1716740",
+    "name": "Starfield",
+    "playtime": 37
+  },
+  {
+    "appid": "1739300",
+    "name": "Smack Studio",
+    "playtime": 0
+  },
+  {
+    "appid": "1850570",
+    "name": "DEATH STRANDING DIRECTOR'S CUT",
+    "playtime": 306
+  },
+  {
+    "appid": "1938090",
+    "name": "Call of Duty®",
+    "playtime": 3151
+  },
+  {
+    "appid": "1939970",
+    "name": "Nobody Wants to Die",
+    "playtime": 0
+  },
+  {
+    "appid": "1997040",
+    "name": "MARVEL SNAP",
+    "playtime": 248
+  },
+  {
+    "appid": "2358720",
+    "name": "Black Myth: Wukong",
+    "playtime": 129
+  },
+  {
+    "appid": "2362420",
+    "name": "Mass Effect 2 (2010) Edition",
+    "playtime": 0
+  },
+  {
+    "appid": "3240220",
+    "name": "Grand Theft Auto V Enhanced",
+    "playtime": 122
+  }
+]
