@@ -26,6 +26,7 @@ const fs = require('fs')
 const path = require('path')
 const dbModule = require('./index')
 const getDb = () => dbModule.db
+const { withWriteLock, withTransaction } = require('./writeLock')
 
 const dbAll = (sql, params = []) =>
   new Promise((resolve, reject) => {
@@ -547,8 +548,7 @@ const runClientAudit = async (ctx = {}) => {
 
 const repairDatabaseSection = async () => {
   const changes = []
-  await dbRun('BEGIN')
-  try {
+  await withTransaction('audit.orphanSweep', dbRun, async () => {
     for (const table of RECORD_CHILD_TABLES) {
       if (!(await tableExists(table))) continue
       const res = await dbRun(
@@ -557,11 +557,7 @@ const repairDatabaseSection = async () => {
             AND record_id NOT IN (SELECT record_id FROM games)`)
       if (res?.changes) changes.push(`${table}: removed ${res.changes} orphaned row(s)`)
     }
-    await dbRun('COMMIT')
-  } catch (err) {
-    try { await dbRun('ROLLBACK') } catch { /* already unwound */ }
-    throw err
-  }
+  })
   return { changes }
 }
 
@@ -582,8 +578,7 @@ const repairMediaSection = async (ctx) => {
   const deadAssets = await deadIn('media_assets')
   const deadPreviews = await deadIn('previews')
 
-  await dbRun('BEGIN')
-  try {
+  await withTransaction('audit.mediaRefs', dbRun, async () => {
     const purge = async (table, ids) => {
       if (!ids.length) return
       for (let i = 0; i < ids.length; i += 400) {
@@ -604,11 +599,7 @@ const repairMediaSection = async (ctx) => {
             AND record_id NOT IN (SELECT record_id FROM games)`)
       if (res?.changes) changes.push(`media_assets: removed ${res.changes} row(s) for deleted games`)
     }
-    await dbRun('COMMIT')
-  } catch (err) {
-    try { await dbRun('ROLLBACK') } catch { /* already unwound */ }
-    throw err
-  }
+  })
   return { changes }
 }
 
@@ -627,6 +618,7 @@ const repairFilesSection = async () => {
 
 const repairMaintenanceSection = async () => {
   const changes = []
+  return withWriteLock('audit.vacuum', async () => {
   const before = (await dbGet(`PRAGMA page_count`))?.page_count || 0
   const pageSize = (await dbGet(`PRAGMA page_size`))?.page_size || 4096
   // VACUUM cannot run inside a transaction and takes an exclusive lock for its
@@ -641,6 +633,7 @@ const repairMaintenanceSection = async () => {
   await dbRun('ANALYZE')
   changes.push('Recalculated query planner statistics')
   return { changes }
+  })
 }
 
 const repairBrowseIndexSection = async ({ onProgress } = {}) => {

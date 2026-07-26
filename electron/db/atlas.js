@@ -6,6 +6,7 @@ const fsPromises = fs.promises
 const axios = require('axios')
 const lz4 = require('lz4js')
 const dbModule = require('./index')
+const { withWriteLock } = require('./writeLock')
 const getDb = () => dbModule.db
 const { toLocalAssetPath } = require('./helpers')
 const { checkRecordExist, checkPathExist, findExistingRecordForImport, normalizePathForCompare } = require('./versions')
@@ -734,8 +735,11 @@ const insertJsonData = async (jsonData, tableName) => {
     )}) VALUES (${writeColumns.map(() => '?').join(', ')})`;
   }
 
+  // Each chunk is its own transaction on the shared connection, so it has to
+  // take the write lock — otherwise a concurrent writer (the catalog index
+  // build at startup, a scanner) can COMMIT inside this window.
   const writeChunk = (chunk) =>
-    new Promise((resolve, reject) => {
+    withWriteLock('atlas.insertJsonData', () => new Promise((resolve, reject) => {
       const db = getDb();
       db.serialize(() => {
         db.run("BEGIN TRANSACTION");
@@ -760,7 +764,7 @@ const insertJsonData = async (jsonData, tableName) => {
           }
         });
       });
-    });
+    }));
 
   // Process in bounded chunks, yielding the event loop between commits. On the
   // single shared sqlite connection this lets renderer reads (games, previews,
@@ -831,6 +835,10 @@ const recomputeNormalizedTitles = () =>
           resolve({ checked: (rows || []).length, fixed: 0 });
           return;
         }
+        // Runs on a 3s startup timer, which used to overlap the catalog index
+        // build and the update check. Serialized so its COMMIT cannot close
+        // someone else's transaction.
+        withWriteLock('atlas.recomputeNormalizedTitles', () => new Promise((done) => {
         db.serialize(() => {
           db.run('BEGIN TRANSACTION');
           const stmt = db.prepare(
@@ -839,6 +847,7 @@ const recomputeNormalizedTitles = () =>
           for (const r of toFix) stmt.run([r.normalized_title, r.atlas_id]);
           stmt.finalize(() => {
             db.run('COMMIT', () => {
+              done();
               console.log(
                 `recomputeNormalizedTitles: fixed ${toFix.length}/${(rows || []).length} atlas rows`,
               );
@@ -846,6 +855,7 @@ const recomputeNormalizedTitles = () =>
             });
           });
         });
+        }));
       },
     );
   });

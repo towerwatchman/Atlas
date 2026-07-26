@@ -40,6 +40,7 @@
 
 const dbModule = require('./index')
 const getDb = () => dbModule.db
+const { withTransaction, isWriteLockBusy } = require('./writeLock')
 
 // Bump when the projection (columns, tier semantics, source precedence)
 // changes. A mismatch marks the index stale and triggers one rebuild.
@@ -348,8 +349,7 @@ const rebuildAtlasExternalSteam = async ({ onProgress } = {}) => {
     }
   }
 
-  await dbRun('BEGIN')
-  try {
+  await withTransaction('catalogIndex.steamLinks', dbRun, async () => {
     await dbRun('DELETE FROM atlas_external_steam')
     for (let i = 0; i < pairs.length; i += CHUNK_SIZE) {
       const slice = pairs.slice(i, i + CHUNK_SIZE)
@@ -362,11 +362,7 @@ const rebuildAtlasExternalSteam = async ({ onProgress } = {}) => {
         catch { /* a throwing reporter must never break the rebuild */ }
       }
     }
-    await dbRun('COMMIT')
-  } catch (err) {
-    try { await dbRun('ROLLBACK') } catch { /* already unwound */ }
-    throw err
-  }
+  })
   return { pairs: pairs.length, scanned: rows.length }
 }
 
@@ -509,14 +505,10 @@ const rebuildCatalogIndex = async ({ onProgress, chunkSize = CHUNK_SIZE } = {}) 
     if (rows.length === 0) break
 
     const projected = rows.map((row) => projectAtlasRow(row, nowMs))
-    await dbRun('BEGIN')
-    try {
-      await insertProjectedRows(projected)
-      await dbRun('COMMIT')
-    } catch (err) {
-      try { await dbRun('ROLLBACK') } catch { /* already unwound */ }
-      throw err
-    }
+    // One transaction PER CHUNK, taken under the shared write lock. The lock is
+    // released between chunks, so a concurrent catalog sync interleaves at a
+    // transaction boundary instead of committing this one out from under us.
+    await withTransaction('catalogIndex.chunk', dbRun, () => insertProjectedRows(projected))
 
     processed += rows.length
     report({
@@ -574,14 +566,7 @@ const rebuildOrphanBranches = async ({ onProgress, chunkSize, nowMs }) => {
       const rows = await dbAll(pageSql, [chunkSize, offset])
       if (rows.length === 0) break
       const projected = rows.map((row) => project(row, nowMs))
-      await dbRun('BEGIN')
-      try {
-        await insertProjectedRows(projected)
-        await dbRun('COMMIT')
-      } catch (err) {
-        try { await dbRun('ROLLBACK') } catch { /* already unwound */ }
-        throw err
-      }
+      await withTransaction(`catalogIndex.${label}`, dbRun, () => insertProjectedRows(projected))
       done += rows.length
       report({ phase: label, processed: done, total, message: `Indexing ${label} entries…` })
       await yieldToLoop()
@@ -701,19 +686,14 @@ const refreshCatalogIndexForAtlasIds = async (atlasIds = []) => {
     const found = new Set(rows.map((row) => row.atlas_id))
     const missing = slice.filter((id) => !found.has(id))
 
-    await dbRun('BEGIN')
-    try {
+    await withTransaction('catalogIndex.refresh', dbRun, async () => {
       if (missing.length > 0) {
         await dbRun(
           `DELETE FROM catalog_index WHERE catalog_key IN (${missing.map(() => '?').join(', ')})`,
           missing.map((id) => `atlas:${id}`))
       }
       await insertProjectedRows(rows.map((row) => projectAtlasRow(row, nowMs)))
-      await dbRun('COMMIT')
-    } catch (err) {
-      try { await dbRun('ROLLBACK') } catch { /* already unwound */ }
-      throw err
-    }
+    })
     refreshed += rows.length
     await yieldToLoop()
   }
@@ -1042,3 +1022,5 @@ const queryCatalogIndex = async ({
 module.exports.queryCatalogIndex = queryCatalogIndex
 module.exports.buildIndexWhere = buildIndexWhere
 module.exports.buildIndexOrderBy = buildIndexOrderBy
+
+module.exports.isWriteLockBusy = isWriteLockBusy

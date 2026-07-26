@@ -96,6 +96,7 @@ const {
   recomputeNormalizedTitles,
 } = require('./db/atlas')
 const { getCatalogIndexStatus, rebuildCatalogIndex } = require('./db/catalogIndex')
+const { isWriteLockBusy, activeWriteLockLabel } = require('./db/writeLock')
 const { buildDefaultConfig, mergeWithDefaults } = require('./config/configSchema')
 const { sanitizeConfigFile } = require('./config/configSanitizer')
 
@@ -1831,6 +1832,16 @@ app.whenReady().then(async () => {
   // Browse can show it instead of an empty grid.
   setTimeout(async () => {
     try {
+      // The DB update check also runs at startup. The write lock makes the two
+      // safe to overlap, but there is no point queueing every index chunk behind
+      // a long catalog sync — wait for the writer to finish first, up to a cap so
+      // a stuck sync can never block the build forever.
+      for (let waited = 0; isWriteLockBusy() && waited < 120000; waited += 1000) {
+        if (waited === 0) {
+          console.log(`catalog_index build waiting for ${activeWriteLockLabel() || 'another writer'}…`)
+        }
+        await new Promise((r) => setTimeout(r, 1000))
+      }
       const status = await getCatalogIndexStatus()
       if (status.ready) {
         console.log(`catalog_index ready: ${status.rowCount} entries`)

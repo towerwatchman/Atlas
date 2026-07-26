@@ -5,6 +5,7 @@ const fs = require('fs')
 const dbModule = require('./index')
 const getDb = () => dbModule.db
 const { insertJsonData } = require('./atlas')
+const { withWriteLock } = require('./writeLock')
 const {
   refreshCatalogIndexForAtlasIds,
   markCatalogIndexStale,
@@ -77,15 +78,17 @@ const backfillF95LatestOrderFromUpdateFiles = async (updatesDir) => {
     if (Array.isArray(data.f95_zone)) {
       const updateDate = Number(name.replace(".update", ""));
       try {
-        await dbRun(db, "BEGIN");
-        const stmt = db.prepare(`UPDATE f95_zone_data SET f95_latest_order = ? WHERE f95_id = ?`);
-        for (const row of withF95LatestOrder(data.f95_zone, updateDate)) {
-          if (!row.f95_id) continue;
-          stmt.run([row.f95_latest_order, row.f95_id]);
-          updated++;
-        }
-        await new Promise((resolve, reject) => stmt.finalize((err) => (err ? reject(err) : resolve())));
-        await dbRun(db, "COMMIT");
+        await withWriteLock('updates.f95OrderBackfill', async () => {
+          await dbRun(db, "BEGIN");
+          const stmt = db.prepare(`UPDATE f95_zone_data SET f95_latest_order = ? WHERE f95_id = ?`);
+          for (const row of withF95LatestOrder(data.f95_zone, updateDate)) {
+            if (!row.f95_id) continue;
+            stmt.run([row.f95_latest_order, row.f95_id]);
+            updated++;
+          }
+          await new Promise((resolve, reject) => stmt.finalize((err) => (err ? reject(err) : resolve())));
+          await dbRun(db, "COMMIT");
+        });
       } catch (err) {
         await dbRun(db, "ROLLBACK").catch(() => {});
         console.warn(`Unable to backfill F95 latest order from ${name}:`, err.message);
@@ -141,11 +144,13 @@ const loadIdsIntoTemp = async (db, tempName, ids) => {
   const insertSql = `INSERT OR IGNORE INTO ${tempName} (id) VALUES (?)`;
   for (let start = 0; start < unique.length; start += CHUNK) {
     const chunk = unique.slice(start, start + CHUNK);
-    await dbRun(db, "BEGIN");
-    const stmt = db.prepare(insertSql);
-    for (const id of chunk) stmt.run(id);
-    await new Promise((resolve, reject) => stmt.finalize((err) => (err ? reject(err) : resolve())));
-    await dbRun(db, "COMMIT");
+    await withWriteLock('updates.loadIdsIntoTemp', async () => {
+      await dbRun(db, "BEGIN");
+      const stmt = db.prepare(insertSql);
+      for (const id of chunk) stmt.run(id);
+      await new Promise((resolve, reject) => stmt.finalize((err) => (err ? reject(err) : resolve())));
+      await dbRun(db, "COMMIT");
+    });
     // Yield between batches so reads on the shared connection can run.
     await new Promise((resolve) => setImmediate(resolve));
   }
@@ -391,7 +396,8 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
         total,
       });
       if (data.atlas && data.atlas.length > 0) {
-        await insertJsonData(data.atlas, "atlas_data");
+        await withWriteLock('updates.insertJsonData', () =>
+          insertJsonData(data.atlas, "atlas_data"));
         collectAtlasIds(touchedAtlasIds, data.atlas);
       }
 
@@ -402,7 +408,8 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
         total,
       });
       if (data.f95_zone && data.f95_zone.length > 0) {
-        await insertJsonData(withF95LatestOrder(data.f95_zone, date), "f95_zone_data");
+        await withWriteLock('updates.insertJsonData', () =>
+          insertJsonData(withF95LatestOrder(data.f95_zone, date), "f95_zone_data"));
         collectAtlasIds(touchedAtlasIds, data.f95_zone);
       }
 
@@ -413,7 +420,8 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
         total,
       });
       if (data.lewdcorner && data.lewdcorner.length > 0) {
-        await insertJsonData(data.lewdcorner, "lewdcorner_data");
+        await withWriteLock('updates.insertJsonData', () =>
+          insertJsonData(data.lewdcorner, "lewdcorner_data"));
         collectAtlasIds(touchedAtlasIds, data.lewdcorner);
       }
 
@@ -428,7 +436,13 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
           total,
         });
         try {
-          const pruneSummary = await applyFullSnapshotPrune(getDb(), data, Number(date), trusted);
+          // Held for the whole prune: it runs several transactions back to
+          // back and calls loadIdsIntoTemp, which runs more. Without this, the
+          // background catalog-index build (which yields between chunks) could
+          // land a COMMIT inside one of them — the cause of
+          // "cannot commit - no transaction is active" at startup.
+          const pruneSummary = await withWriteLock('updates.snapshotPrune', () =>
+            applyFullSnapshotPrune(getDb(), data, Number(date), trusted));
           console.log(`Snapshot prune summary (${date}):`, JSON.stringify(pruneSummary));
         } catch (pruneErr) {
           // A prune failure must not abort the update; it will be retried on the
