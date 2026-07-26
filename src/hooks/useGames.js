@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { getGameTitle, normalizeGameForRenderer, normalizeGamesForRenderer } from '../utils/gameDisplay.js'
 
 const debounce = (func, delay) => {
@@ -38,6 +38,15 @@ export function useGames() {
   // placeholder — but kept available for callers that want it.
   const [catalogLoadingMore, setCatalogLoadingMore] = useState(false)
   const [catalogTotal, setCatalogTotal] = useState(null)
+  // Browse filters and sorts against a prebuilt catalog index. Until that index
+  // exists (first launch after upgrade, or after a manual rebuild) Browse falls
+  // back to a full scan, which is correct but slow — so the UI needs to know the
+  // difference between "no results" and "not ready yet". Without this, a first
+  // launch showed an empty grid reading "No browse titles match these filters",
+  // which is actively misleading.
+  const [catalogIndexState, setCatalogIndexState] = useState({
+    ready: true, building: false, progress: null,
+  })
   const [catalogLoadError, setCatalogLoadError] = useState('')
   const [wishlistGames, setWishlistGames] = useState([])
   const [totalVersions, setTotalVersions] = useState(0)
@@ -55,6 +64,37 @@ export function useGames() {
   const catalogLoadedOffsetsRef = useRef(new Set())
   const catalogPendingOffsetsRef = useRef(new Set())
   const catalogRangeDebounceRef = useRef(null)
+
+  const refreshCatalogIndexState = useCallback(async () => {
+    try {
+      const status = await window.electronAPI.getCatalogIndexStatus?.()
+      if (!status) return null
+      setCatalogIndexState((prev) => ({
+        ...prev,
+        ready: status.ready !== false,
+        // A not-ready index means a build is either running or about to start
+        // (main.js kicks one off shortly after the window appears).
+        building: status.ready === false ? true : prev.building,
+      }))
+      return status
+    } catch (err) {
+      console.warn('Could not read catalog index status:', err?.message || err)
+      return null
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshCatalogIndexState()
+    const off = window.electronAPI.onCatalogIndexProgress?.((payload) => {
+      const done = payload?.phase === 'done'
+      setCatalogIndexState({
+        ready: done,
+        building: !done,
+        progress: done ? null : payload || null,
+      })
+    })
+    return () => { if (typeof off === 'function') off() }
+  }, [refreshCatalogIndexState])
 
   const updateGamesState = useCallback((gamesArray) => {
     const normalizedGames = normalizeGamesForRenderer(gamesArray)
@@ -344,6 +384,8 @@ export function useGames() {
     catalogLoadingMore,
     catalogTotal,
     catalogLoadError,
+    catalogIndexState,
+    refreshCatalogIndexState,
     wishlistGames,
     totalVersions,
     fetchGames,

@@ -233,7 +233,7 @@ const App = () => {
   const {
     games, catalogGames, wishlistGames, totalVersions, fetchGames, fetchCatalogGames,
     requestCatalogRange, catalogLoading, catalogLoadingMore,
-    catalogTotal, catalogLoadError,
+    catalogTotal, catalogLoadError, catalogIndexState,
     fetchWishlistGames, replaceGameInState,
     removeGameFromState, refreshGame, includeUninstalledRef,
   } = useGames()
@@ -1366,6 +1366,30 @@ const App = () => {
     }
   }, [browseAvailable, catalogQueryFilters, catalogSearch, catalogTotal, fetchCatalogGames, libraryMode])
 
+  // When the catalog index finishes building, anything already on screen in
+  // Browse came from the slower fallback scan (or from nothing at all, if the
+  // build state was showing). Refetch once on the false -> true transition so the
+  // user ends up with index-ordered results without having to touch a filter.
+  const catalogIndexWasReadyRef = useRef(true)
+  useEffect(() => {
+    const ready = catalogIndexState?.ready !== false
+    const becameReady = ready && !catalogIndexWasReadyRef.current
+    catalogIndexWasReadyRef.current = ready
+    if (!becameReady) return
+    if (libraryMode !== 'catalog' || !browseAvailable) return
+    lastFetchedCatalogParamsKeyRef.current = JSON.stringify({
+      search: catalogSearch, filters: catalogQueryFilters,
+    })
+    fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
+  }, [
+    browseAvailable,
+    catalogIndexState?.ready,
+    catalogQueryFilters,
+    catalogSearch,
+    fetchCatalogGames,
+    libraryMode,
+  ])
+
   useEffect(() => {
     if (!showSavedFilters || includeUninstalledRef.current) return
     includeUninstalledRef.current = true
@@ -1723,7 +1747,35 @@ const App = () => {
               onWishlistChanged={handleWishlistChanged}
             />
           ) : filteredGames.length === 0 ? (
-            libraryMode === 'catalog' && catalogLoading ? (
+            // Order matters: an index that is still building must NOT be
+            // reported as "no titles match", which is what a fresh install used
+            // to show for the whole first-launch build.
+            libraryMode === 'catalog' && catalogIndexState?.building ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+                <div
+                  className="h-10 w-10 animate-spin rounded-full border-4 border-border border-t-accent"
+                  role="status"
+                  aria-label="Preparing Browse"
+                />
+                <div className="text-text">Preparing Browse…</div>
+                <div className="text-xs text-muted max-w-sm">
+                  {catalogIndexState.progress?.message
+                    || 'Building the catalog index. This happens once, and your library stays usable while it runs.'}
+                </div>
+                {catalogIndexState.progress?.total > 0 && (
+                  <div className="h-1.5 w-56 overflow-hidden rounded bg-tertiary">
+                    <div
+                      className="h-full bg-accent transition-[width] duration-200"
+                      style={{
+                        width: `${Math.min(100, Math.round(
+                          (catalogIndexState.progress.processed / catalogIndexState.progress.total) * 100,
+                        ))}%`,
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            ) : libraryMode === 'catalog' && catalogLoading ? (
               <div className="flex h-full items-center justify-center">
                 <div
                   className="h-10 w-10 animate-spin rounded-full border-4 border-border border-t-accent"
@@ -1783,6 +1835,31 @@ const App = () => {
                 )
               }}
             </AutoSizer>
+          )}
+          {/* Page-fetch indicator. This has to render as a SIBLING of the grid,
+              not inside the empty-state branch: once the first page resolves,
+              catalogGames becomes Array(total).fill(null), so filteredGames is
+              non-empty and the centred spinner above is unreachable from then on.
+              A stalled scroll fetch therefore showed blank cells and nothing
+              else. Deliberately a small corner pill rather than a blocking
+              overlay — the loaded rows stay usable while another page arrives.
+
+              Positioned `fixed` rather than `absolute`: the only enclosing
+              positioned candidate is #gameGrid, which is overflow-y-auto, so an
+              absolute child anchors to the full scroll height and scrolls out of
+              view. bottom-16 clears the footer. */}
+          {!selectedGame && libraryMode === 'catalog' && catalogLoadingMore && !catalogLoading && (
+            <div
+              className="pointer-events-none fixed bottom-16 right-6 z-40 flex items-center gap-2 rounded-full border border-border bg-primary/90 px-3 py-1.5 text-xs text-text shadow-lg"
+              role="status"
+              aria-live="polite"
+            >
+              <span
+                className="h-3 w-3 animate-spin rounded-full border-2 border-border border-t-accent"
+                aria-hidden="true"
+              />
+              Loading more titles…
+            </div>
           )}
           {!selectedGame && libraryMode === 'catalog' && catalogLoadError && (
             <div className="py-4 text-center text-sm text-danger">
