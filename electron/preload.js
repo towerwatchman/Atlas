@@ -360,6 +360,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("library-validation-progress", (event, progress) =>
       callback(progress),
     ),
+  // Fired once by the post-boot stale-exec repair, and only when it actually
+  // changed rows. Repointing exec_path changes a version's installed/missing
+  // state, so the grid needs to re-read rather than show stale badges until the
+  // next launch.
+  onLibraryExecPathsRepaired: (callback) => {
+    const handler = (event, summary) => callback(summary);
+    ipcRenderer.on("library-exec-paths-repaired", handler);
+    return () => ipcRenderer.removeListener("library-exec-paths-repaired", handler);
+  },
   onUpdateStatus: (callback) => {
     ipcRenderer.on("update-status", (event, status) => callback(status));
     return () => ipcRenderer.removeAllListeners("update-status");
@@ -385,6 +394,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "context-menu-command",
       "game-deleted",
       "library-validation-progress",
+      "library-exec-paths-repaired",
     ]);
 
     if (allowedChannels.has(channel)) {

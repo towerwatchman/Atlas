@@ -1258,6 +1258,14 @@ const App = () => {
       }
     }
 
+    // The post-boot stale-exec repair changed exec_path on one or more versions,
+    // which flips their installed/missing state. Re-read rather than leave the
+    // grid showing badges that are now wrong.
+    const handleLibraryExecPathsRepaired = (summary) => {
+      console.log(`Stale executable repair updated ${summary?.repaired || 0} version(s); refreshing library`)
+      fetchGames(false, { skipPathValidation: true })
+    }
+
     const handleLibraryValidationProgress = (progress) => {
       if (progress?.error) { console.error('Library validation error:', progress.error); return }
       if (progress?.total) {
@@ -1303,6 +1311,8 @@ const App = () => {
     window.electronAPI.onGameUpdated(handleGameUpdated)
     window.electronAPI.onGameDeleted(handleGameDeleted)
     window.electronAPI.onLibraryValidationProgress?.(handleLibraryValidationProgress)
+    const removeExecRepairListener =
+      window.electronAPI.onLibraryExecPathsRepaired?.(handleLibraryExecPathsRepaired)
     window.electronAPI.onImportComplete(handleImportComplete)
     window.electronAPI.onUpdateStatus(handleUpdateStatus)
     window.electronAPI.onRefreshMediaProgress?.((data) => {
@@ -1338,6 +1348,7 @@ const App = () => {
       window.electronAPI.removeUpdateStatusListener?.()
       if (typeof removeMetadataListener === 'function') removeMetadataListener()
       if (typeof removeNsfwListener === 'function') removeNsfwListener()
+      if (typeof removeExecRepairListener === 'function') removeExecRepairListener()
       window.removeEventListener('resize', debounceResize)
       ;[
         'window-state-changed', 'db-update-progress', 'import-progress',

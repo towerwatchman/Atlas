@@ -223,8 +223,12 @@ const Library = () => {
           <span>Validate installed paths on startup</span>
         </label>
         <p className="text-xs opacity-60">
-          Checks every installed game path on launch. Disable for faster startup
-          on large libraries.
+          Checks every installed game path shortly after launch, and repairs
+          version executables that have been renamed. Leave this off if your
+          games live on a mechanical drive or a network share — the check is
+          thousands of individual disk lookups on a large library, and they are
+          slowest right after a reboot. With it off, Atlas only checks versions
+          that have no executable recorded at all.
         </p>
         <button
           type="button"

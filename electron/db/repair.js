@@ -7,7 +7,8 @@ const fsPromises = require('fs').promises
 const path = require('path')
 const { DEFAULT_LAUNCHABLE_EXTENSIONS, normalizeExtensions,
         isLaunchableFile, findLaunchablesInFolder,
-        chooseLaunchableForRepair, getUniqueVersionName } = require('./versions')
+        chooseLaunchableForRepair, chooseLaunchableForRepairAsync,
+        getUniqueVersionName } = require('./versions')
 
 function normalizeDoubledApostrophes(value) {
   return typeof value === "string" ? value.replace(/''/g, "'") : value;
@@ -87,66 +88,236 @@ const repairDoubledApostropheRows = () => {
   });
 };
 
-const repairStaleVersionExecutables = (
+// ── Stale executable repair ─────────────────────────────────────────────────
+//
+// Rewrites versions.exec_path when the recorded executable no longer exists but
+// the game folder does (renamed/updated build, e.g. Game-1.2.exe -> Game-1.3.exe).
+//
+// PERFORMANCE HISTORY — this was the single worst thing Atlas did at boot.
+// The original version ran unconditionally, before createWindow(), and did a
+// synchronous fs.existsSync() on EVERY non-Steam version row with a game_path,
+// plus a synchronous RECURSIVE readdir of the game folder for every row whose
+// exec_path had gone stale. On a 6,000-title library with games on a mechanical
+// drive that is ~6,000+ blocking metadata lookups, each of which is a real head
+// seek (and a fresh Defender scan) when the OS file cache is cold after a
+// reboot. Measured: ~3.4 minutes with nothing on screen. Every launch after
+// that was 2-5 seconds, because the cache was then warm — which is exactly the
+// signature of a cold-cache metadata storm rather than a code hot spot.
+//
+// Four changes keep it off the boot path:
+//
+//   1. It no longer runs before the window. main.js schedules it after
+//      createWindow(), so the UI is interactive while it works.
+//   2. Async fs.promises.access with bounded concurrency instead of
+//      existsSync, so the main process event loop keeps turning. Concurrency
+//      is deliberately low: a mechanical drive gets slower, not faster, when
+//      you queue hundreds of seeks at once.
+//   3. Drive roots are probed ONCE and cached. A library on a drive that is
+//      spun down, unplugged or offline used to cost one timeout per row; it now
+//      costs one per root.
+//   4. Two modes plus a wall-clock budget. 'quick' (the default, and what runs
+//      when Library.validatePathsOnStartup is off) only looks at rows whose
+//      exec_path is already blank — the ones that cannot be launched at all, so
+//      the check is worth its cost. 'full' does the whole sweep and is only
+//      reached when the user has opted into startup path validation.
+//
+// Writes are collected and applied in ONE transaction at the end rather than
+// auto-committing (and fsyncing) per row.
+//
+// Options:
+//   mode        — 'quick' (blank exec_path rows only) | 'full' (all rows).
+//   concurrency — parallel path checks. Default 8.
+//   budgetMs    — wall-clock cap for the scan. Default 30s; 0/Infinity = none.
+//   walkLimits  — { maxDepth, maxEntries, budgetMs } for the folder walk done
+//                 per repairable row. Bounded so one enormous folder can't
+//                 consume the whole budget.
+//   onProgress  — ({ processed, total, repaired }) for callers that want to
+//                 report it. Never allowed to throw into the repair.
+const DEFAULT_EXEC_WALK_LIMITS = { maxDepth: 6, maxEntries: 40000, budgetMs: 4000 };
+
+const pathExists = async (value) => {
+  if (!value) return false;
+  try {
+    await fsPromises.access(value);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Runs `worker` over `items` with at most `limit` in flight. Stops early when
+// shouldStop() goes true so the wall-clock budget is respected mid-flight.
+const runWithConcurrency = async (items, limit, worker, shouldStop = () => false) => {
+  let cursor = 0;
+  const lanes = Array.from(
+    { length: Math.max(1, Math.min(limit, items.length)) },
+    async () => {
+      while (cursor < items.length) {
+        if (shouldStop()) return;
+        const index = cursor;
+        cursor += 1;
+        await worker(items[index], index);
+      }
+    },
+  );
+  await Promise.all(lanes);
+};
+
+const repairStaleVersionExecutables = async (
   extensions = DEFAULT_LAUNCHABLE_EXTENSIONS,
+  {
+    mode = "quick",
+    concurrency = 8,
+    budgetMs = 30000,
+    walkLimits = DEFAULT_EXEC_WALK_LIMITS,
+    onProgress = null,
+  } = {},
 ) => {
-  if (!getDb()) return Promise.resolve();
+  const summary = {
+    mode,
+    checked: 0,
+    repaired: 0,
+    skippedOfflineRoots: 0,
+    offlineRoots: [],
+    timedOut: false,
+    durationMs: 0,
+  };
+  if (!getDb()) return summary;
+
+  const startedAt = Date.now();
+  const hasBudget = Number.isFinite(budgetMs) && budgetMs > 0;
+  const outOfBudget = () => hasBudget && Date.now() - startedAt > budgetMs;
 
   const run = (sql, params = []) =>
     new Promise((resolve, reject) => {
-      getDb().run(sql, params, function (err) {
+      getDb().run(sql, params, function onRun(err) {
         if (err) reject(err);
         else resolve(this.changes || 0);
       });
     });
   const all = (sql, params = []) =>
     new Promise((resolve, reject) => {
-      getDb().all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+      getDb().all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows || [])));
     });
 
-  return new Promise((resolve, reject) => {
-    getDb().serialize(async () => {
+  const report = (payload) => {
+    if (typeof onProgress !== "function") return;
+    try {
+      onProgress(payload);
+    } catch (err) {
+      console.warn("Exec repair progress handler failed:", err.message);
+    }
+  };
+
+  try {
+    // Steam-managed titles are excluded: Steam owns their install paths, and a
+    // not-currently-installed Steam game is not a stale row to repair.
+    const execFilter = mode === "full"
+      ? ""
+      : "AND (v.exec_path IS NULL OR TRIM(v.exec_path) = '')";
+    const rows = await all(
+      `SELECT v.rowid, v.record_id, v.version, v.game_path, v.exec_path
+         FROM versions v
+         LEFT JOIN steam_mappings sm ON v.record_id = sm.record_id
+        WHERE v.game_path IS NOT NULL AND TRIM(v.game_path) != ''
+          AND sm.steam_id IS NULL
+          ${execFilter}`,
+    );
+
+    if (rows.length === 0) {
+      summary.durationMs = Date.now() - startedAt;
+      return summary;
+    }
+
+    // One probe per distinct drive root instead of one per row. This is what
+    // makes an offline or spun-down library drive cheap rather than catastrophic.
+    const rootCache = new Map();
+    const rootAvailable = async (value) => {
+      let root = "";
       try {
-        const rows = await all(
-          `SELECT v.rowid, v.record_id, v.version, v.game_path, v.exec_path
-           FROM versions v
-           LEFT JOIN steam_mappings sm ON v.record_id = sm.record_id
-           WHERE v.game_path IS NOT NULL AND TRIM(v.game_path) != ''
-             AND sm.steam_id IS NULL`,
-        );
-        let repaired = 0;
+        root = path.parse(String(value)).root || "";
+      } catch {
+        root = "";
+      }
+      if (!root) return true;
+      const key = root.toLowerCase();
+      if (!rootCache.has(key)) rootCache.set(key, pathExists(root));
+      return rootCache.get(key);
+    };
 
-        for (const row of rows) {
-          const gamePath = String(row.game_path || "");
-          const execPath = String(row.exec_path || "");
-          if (!fs.existsSync(gamePath)) continue;
-          if (execPath && fs.existsSync(execPath)) continue;
+    const pending = [];
 
-          const launchable = chooseLaunchableForRepair(
-            gamePath,
-            execPath,
-            extensions,
-          );
-          if (!launchable) continue;
+    await runWithConcurrency(
+      rows,
+      concurrency,
+      async (row) => {
+        const gamePath = String(row.game_path || "");
+        const execPath = String(row.exec_path || "");
 
-          const nextExecPath = path.join(gamePath, launchable);
-          await run(`UPDATE versions SET exec_path = ? WHERE rowid = ?`, [
-            nextExecPath,
-            row.rowid,
-          ]);
-          repaired += 1;
-          console.log(
-            `Repaired stale executable for record ${row.record_id} ${row.version}: ${nextExecPath}`,
-          );
+        if (!(await rootAvailable(gamePath))) {
+          summary.skippedOfflineRoots += 1;
+          const root = path.parse(gamePath).root;
+          if (root && !summary.offlineRoots.includes(root)) summary.offlineRoots.push(root);
+          return;
         }
 
-        resolve(repaired);
+        summary.checked += 1;
+        if (summary.checked % 250 === 0) {
+          report({ processed: summary.checked, total: rows.length, repaired: pending.length });
+        }
+
+        if (!(await pathExists(gamePath))) return;
+        if (execPath && (await pathExists(execPath))) return;
+
+        const launchable = await chooseLaunchableForRepairAsync(
+          gamePath,
+          execPath,
+          extensions,
+          walkLimits,
+        );
+        if (!launchable) return;
+
+        pending.push({ rowid: row.rowid, record_id: row.record_id, version: row.version,
+                       nextExecPath: path.join(gamePath, launchable) });
+      },
+      outOfBudget,
+    );
+
+    if (outOfBudget()) summary.timedOut = true;
+
+    if (pending.length > 0) {
+      await run("BEGIN IMMEDIATE");
+      try {
+        for (const item of pending) {
+          await run(`UPDATE versions SET exec_path = ? WHERE rowid = ?`, [item.nextExecPath, item.rowid]);
+          summary.repaired += 1;
+          console.log(
+            `Repaired stale executable for record ${item.record_id} ${item.version}: ${item.nextExecPath}`,
+          );
+        }
+        await run("COMMIT");
       } catch (err) {
-        console.error("Error repairing stale executable paths:", err);
-        reject(err);
+        try { await run("ROLLBACK"); } catch { /* ignore */ }
+        throw err;
       }
-    });
-  });
+    }
+
+    summary.durationMs = Date.now() - startedAt;
+    if (summary.repaired > 0 || summary.timedOut || summary.skippedOfflineRoots > 0) {
+      console.log(
+        `Exec repair (${mode}): checked ${summary.checked}/${rows.length}, ` +
+        `repaired ${summary.repaired}, skipped ${summary.skippedOfflineRoots} on offline root(s)` +
+        `${summary.offlineRoots.length ? ` [${summary.offlineRoots.join(", ")}]` : ""}` +
+        `${summary.timedOut ? ", stopped at time budget" : ""} in ${summary.durationMs}ms`,
+      );
+    }
+    return summary;
+  } catch (err) {
+    console.error("Error repairing stale executable paths:", err);
+    summary.durationMs = Date.now() - startedAt;
+    summary.error = err.message;
+    return summary;
+  }
 };
 
 const repairBlankVersionNames = () => {
