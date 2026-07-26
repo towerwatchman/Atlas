@@ -5,86 +5,13 @@ const fs = require('fs')
 const path = require('path')
 const ini = require('ini')
 const { BROWSE_MODE_ENABLED } = require('../features')
+// Shared with electron/main.js. These used to be duplicated here and had
+// drifted: this copy was missing [Updates] and [WindowBounds] entirely, and
+// because the merge drops sections absent from the defaults, get-settings
+// stripped them — which the renderer then wrote back, deleting them from
+// config.ini on every single settings save.
+const { buildDefaultConfig, mergeWithDefaults } = require('../config/configSchema')
 
-const defaultConfig = {
-  Interface: {
-    language: 'English',
-    atlasStartup: 'Do Nothing',
-    gameStartup: 'Do Nothing',
-    showDebugConsole: false,
-    minimizeToTray: false,
-    checkForAppUpdatesOnStartup: true,
-    appUpdateBranch: null,
-    showGameList: true,
-    sidePanelMode: 'games',
-  },
-  Library: {
-    gameFolder: '',
-    gameExtensions: 'exe,swf,flv,f4v,rag,cmd,bat,jar,html',
-    extractionExtensions: 'zip,7z,rar',
-    libraryFolderStructure: '{creator}/{title}/{version}',
-    autoSelectLatestReplaceVersion: false,
-    validatePathsOnStartup: false,
-    sevenZipPath: '',
-  },
-  Metadata: {
-    downloadPreviews: false,
-    mediaStorageMode: 'stream',
-    sourceOrder: 'f95,lewdcorner,steam',
-    // Order Atlas tries Steam's three art sources in when resolving the
-    // header/hero/library-capsule/logo images — see
-    // electron/scanners/steamscanner.js resolveLibraryAssets(). Same
-    // comma-string-for-clean-INI-round-trips convention as sourceOrder above.
-    steamAssetSourceOrder: 'fastly,akamaihd,getitems',
-  },
-  Importer: {
-    sourceGamePath: '',
-    sourceFolderStructure: '{creator}/{title}/{version}',
-    useUnstructured: true,
-    downloadBannerImages: null,
-    downloadPreviewImages: null,
-    previewLimit: 'Unlimited',
-    downloadVideos: false,
-    scanSize: false,
-    moveFoldersToLibrary: false,
-    deleteSourceArchiveAfterImport: false,
-    includeUnmatched: false,
-    forceReimport: false,
-  },
-  Performance: {
-    maxHeapSize: 4096,
-    mediaDownloadConcurrency: 3,
-    mediaPerHostConcurrency: 2,
-    mediaRequestDelayMs: 100,
-  },
-  Appearance: {
-    // themeId selects one of the built-in themes defined in src/theme/themes.js
-    // (see THEME_COLOR_KEYS / BUILT_IN_THEMES / getThemeById there).
-    themeId: 'default',
-    // layout is independent of theme — 'sidebar' or 'topnav' — see
-    // LAYOUT_OPTIONS in src/theme/themes.js.
-    layout: 'sidebar',
-    // Nav button presentation ('icons' | 'iconsAndText' | 'text') and
-    // whether the header's accent-bar notch strip is shown — independent
-    // of theme/layout, same pattern as layout above. See
-    // NAV_DISPLAY_MODE_OPTIONS / DEFAULT_NAV in src/theme/themes.js.
-    navDisplayMode: 'icons',
-    accentBarEnabled: true,
-    // Which edge the filter sidebar docks to, and whether it overlays the
-    // library grid or shares space with it inline — see
-    // FILTER_SIDEBAR_SIDE_OPTIONS / FILTER_SIDEBAR_MODE_OPTIONS in
-    // src/theme/themes.js. Same independent-of-theme pattern as above.
-    filterSidebarSide: 'right',
-    filterSidebarMode: 'overlay',
-    // Reserved for a future custom theme editor: a JSON-stringified theme
-    // object (same shape as the built-ins) the user has authored themselves.
-    // Empty string means "no custom theme saved".
-    customTheme: '',
-  },
-  NSFW: {
-    enabled: false,
-  },
-}
 
 const sanitizeFeatureSettings = (settings = {}) => {
   if (BROWSE_MODE_ENABLED) return settings
@@ -236,36 +163,6 @@ const normalizeSavedFilter = (filter) => {
   }
 }
 
-// Deep merge parsed ini into defaults so missing keys always have a value.
-// ini.parse() returns all values as strings — coerce known booleans/numbers.
-function mergeWithDefaults(parsed, defaults) {
-  const result = {}
-  for (const section of Object.keys(defaults)) {
-    result[section] = { ...defaults[section] }
-    if (parsed && parsed[section]) {
-      for (const key of Object.keys(defaults[section])) {
-        const raw = parsed[section][key]
-        if (raw === undefined) continue
-        const def = defaults[section][key]
-      if (typeof def === 'boolean') {
-        result[section][key] = raw === true || raw === 'true'
-      } else if (typeof def === 'number') {
-          const parsedNumber = Number(raw)
-          result[section][key] = Number.isFinite(parsedNumber) ? parsedNumber : def
-      } else {
-        result[section][key] = raw
-      }
-      }
-      // Also keep any extra keys the user may have added
-      for (const key of Object.keys(parsed[section])) {
-        if (!(key in defaults[section])) {
-          result[section][key] = parsed[section][key]
-        }
-      }
-    }
-  }
-  return result
-}
 
 module.exports = function registerSettingsHandlers(ctx) {
   const { createSettingsWindow } = ctx
@@ -302,7 +199,9 @@ module.exports = function registerSettingsHandlers(ctx) {
   })
 
   ipcMain.handle('get-settings', async () => {
-    return sanitizeFeatureSettings(mergeWithDefaults(ctx.appConfig, defaultConfig))
+    return sanitizeFeatureSettings(
+      mergeWithDefaults(ctx.appConfig, buildDefaultConfig(ctx.dataDir)),
+    )
   })
 
   ipcMain.handle('save-settings', async (event, settings) => {
@@ -310,7 +209,21 @@ module.exports = function registerSettingsHandlers(ctx) {
       const previousAppearance = ctx.appConfig?.Appearance
       const previousInterface = ctx.appConfig?.Interface
       const previousMetadata = ctx.appConfig?.Metadata
-      const nextSettings = sanitizeFeatureSettings(settings)
+      // Merge over the live config rather than replacing it outright. Every
+      // renderer save path spreads the whole object it got from getConfig(), so
+      // a single missing section used to wipe that section from disk. Even with
+      // the schema unified, a section-wise merge means a stale or partial
+      // payload can no longer delete anything it simply failed to mention.
+      const incoming = sanitizeFeatureSettings(settings) || {}
+      const current = ctx.appConfig || {}
+      const nextSettings = { ...current }
+      for (const section of Object.keys(incoming)) {
+        const value = incoming[section]
+        nextSettings[section] =
+          value && typeof value === 'object' && !Array.isArray(value)
+            ? { ...(current[section] || {}), ...value }
+            : value
+      }
       ctx.appConfig = nextSettings
       fs.writeFileSync(ctx.configPath, ini.stringify(nextSettings))
 

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { getGameTitle, normalizeGameForRenderer, normalizeGamesForRenderer } from '../utils/gameDisplay.js'
 
 const debounce = (func, delay) => {
@@ -38,8 +38,28 @@ export function useGames() {
   // placeholder — but kept available for callers that want it.
   const [catalogLoadingMore, setCatalogLoadingMore] = useState(false)
   const [catalogTotal, setCatalogTotal] = useState(null)
+  // Browse filters and sorts against a prebuilt catalog index. Until that index
+  // exists (first launch after upgrade, or after a manual rebuild) Browse falls
+  // back to a full scan, which is correct but slow — so the UI needs to know the
+  // difference between "no results" and "not ready yet". Without this, a first
+  // launch showed an empty grid reading "No browse titles match these filters",
+  // which is actively misleading.
+  const [catalogIndexState, setCatalogIndexState] = useState({
+    ready: true, building: false, progress: null,
+  })
   const [catalogLoadError, setCatalogLoadError] = useState('')
   const [wishlistGames, setWishlistGames] = useState([])
+  // True until the FIRST local-library fetch resolves. Starts true because the
+  // grid mounts before any data exists, and rendering "No games available" in
+  // that window is indistinguishable from a lost library — which on a 5,000+
+  // version collection is exactly what it looked like, since get-games has to
+  // resolve every record's versions before it returns anything.
+  const [gamesLoading, setGamesLoading] = useState(true)
+  const [wishlistLoading, setWishlistLoading] = useState(false)
+  // Cheap COUNT(*) probe (get-library-stats). Lets the UI distinguish a library
+  // that is still loading from one that is genuinely empty, and show the real
+  // total while waiting rather than a bare spinner.
+  const [libraryStats, setLibraryStats] = useState(null)
   const [totalVersions, setTotalVersions] = useState(0)
   const includeUninstalledRef = useRef(true)
   // Bumped on every reset; any page fetch already in flight from a
@@ -56,6 +76,47 @@ export function useGames() {
   const catalogPendingOffsetsRef = useRef(new Set())
   const catalogRangeDebounceRef = useRef(null)
 
+  const refreshCatalogIndexState = useCallback(async () => {
+    try {
+      const status = await window.electronAPI.getCatalogIndexStatus?.()
+      if (!status) return null
+      setCatalogIndexState((prev) => ({
+        ...prev,
+        ready: status.ready !== false,
+        // A not-ready index means a build is either running or about to start
+        // (main.js kicks one off shortly after the window appears).
+        building: status.ready === false ? true : prev.building,
+      }))
+      return status
+    } catch (err) {
+      console.warn('Could not read catalog index status:', err?.message || err)
+      return null
+    }
+  }, [])
+
+  // Runs on mount so the count is known as early as possible — it is three
+  // indexed COUNT(*)s and resolves long before get-games does.
+  useEffect(() => {
+    let cancelled = false
+    window.electronAPI.getLibraryStats?.()
+      .then((stats) => { if (!cancelled) setLibraryStats(stats || null) })
+      .catch((err) => console.warn('Could not read library stats:', err?.message || err))
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    refreshCatalogIndexState()
+    const off = window.electronAPI.onCatalogIndexProgress?.((payload) => {
+      const done = payload?.phase === 'done'
+      setCatalogIndexState({
+        ready: done,
+        building: !done,
+        progress: done ? null : payload || null,
+      })
+    })
+    return () => { if (typeof off === 'function') off() }
+  }, [refreshCatalogIndexState])
+
   const updateGamesState = useCallback((gamesArray) => {
     const normalizedGames = normalizeGamesForRenderer(gamesArray)
     setGames(normalizedGames)
@@ -65,8 +126,9 @@ export function useGames() {
   }, [])
 
   const fetchGames = useCallback(
-    (includeUninstalled = includeUninstalledRef.current, options = {}) =>
-      window.electronAPI
+    (includeUninstalled = includeUninstalledRef.current, options = {}) => {
+      setGamesLoading(true)
+      return window.electronAPI
         .getGames({ includeUninstalled, options })
         .then((allGames) => {
           const gamesArray = normalizeGamesForRenderer(allGames)
@@ -79,7 +141,9 @@ export function useGames() {
         .catch((error) => {
           console.error('Failed to fetch games:', error)
           return []
-        }),
+        })
+        .finally(() => setGamesLoading(false))
+    },
     [updateGamesState]
   )
 
@@ -247,8 +311,9 @@ export function useGames() {
   }, [])
 
   const fetchWishlistGames = useCallback(
-    () =>
-      window.electronAPI
+    () => {
+      setWishlistLoading(true)
+      return window.electronAPI
         .getWishlistEntries()
         .then((allGames) => {
           const gamesArray = normalizeGamesForRenderer(allGames).map((game) => ({
@@ -265,7 +330,9 @@ export function useGames() {
         .catch((error) => {
           console.error('Failed to fetch wishlist entries:', error)
           return []
-        }),
+        })
+        .finally(() => setWishlistLoading(false))
+    },
     []
   )
 
@@ -344,6 +411,11 @@ export function useGames() {
     catalogLoadingMore,
     catalogTotal,
     catalogLoadError,
+    catalogIndexState,
+    refreshCatalogIndexState,
+    gamesLoading,
+    wishlistLoading,
+    libraryStats,
     wishlistGames,
     totalVersions,
     fetchGames,

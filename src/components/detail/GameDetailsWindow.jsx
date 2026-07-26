@@ -98,6 +98,62 @@ function gameToFormData(g) {
   }
 }
 
+// Maps a RecordTab form field to the key updateGame() expects. Anything absent
+// from this map (e.g. the read-only "mappings" summary) is never sent.
+//
+// title / engine / developer are real `games` columns; everything else lands in
+// game_metadata_overrides. Note description -> overview: the override column is
+// deliberately separate from games.description so that reverting a custom
+// description can fall back to the source text.
+const FORM_TO_PAYLOAD = {
+  title: 'title',
+  engine: 'engine',
+  developer: 'creator',
+  platform: 'os',
+  publisher: 'publisher',
+  release_date: 'release_date',
+  status: 'status',
+  category: 'category',
+  latest_version: 'latest_version',
+  censored: 'censored',
+  language: 'language',
+  translations: 'translations',
+  genre: 'genre',
+  voice: 'voice',
+  rating: 'rating',
+  description: 'overview',
+}
+
+// Builds the sparse updateGame payload: only the fields whose value actually
+// differs from what the form was seeded with.
+//
+// This is the fix for overrides leaking across fields. The form is seeded from
+// the MERGED record (Atlas/Steam/GOG values already resolved), so sending the
+// whole form made every displayed value a user override — one edit pinned all
+// thirteen metadata fields, and the pinned latest_version froze update
+// detection. Sending only genuine edits means an override is created for
+// exactly the field the user touched.
+//
+// A field the user has emptied is still "changed", and is sent as '' — the DB
+// layer reads that as "clear this override" and restores the source value.
+function buildChangedPayload(current, baseline) {
+  const payload = {}
+  for (const [formKey, payloadKey] of Object.entries(FORM_TO_PAYLOAD)) {
+    const next = current?.[formKey] ?? ''
+    const prev = baseline?.[formKey] ?? ''
+    if (String(next) !== String(prev)) payload[payloadKey] = next
+  }
+  // Tags round-trip through a " , " separated display form; only send them if
+  // the user actually altered the field (it is read-only for now).
+  const nextTags = current?.tags ?? ''
+  if (String(nextTags) !== String(baseline?.tags ?? '')) {
+    const normalized = nextTags ? nextTags.replace(/ , /g, ',') : ''
+    payload.tags = normalized
+    payload.f95_tags = normalized
+  }
+  return payload
+}
+
 function versionToData(v) {
   const hasSize = v.folder_size !== undefined && v.folder_size !== null && v.folder_size !== ''
   const lastPlayed = formatVersionDate(v.last_played, 'Never')
@@ -124,6 +180,12 @@ const GameDetailWindow = () => {
   const [versions, setVersions] = useState([])
   const [selectedVersion, setSelectedVersion] = useState(null)
   const [formData, setFormData] = useState(EMPTY_FORM)
+  // The values the form was seeded with, so a save can send only real edits
+  // (see buildChangedPayload).
+  const [baselineForm, setBaselineForm] = useState(EMPTY_FORM)
+  // Per-field custom-value report from get-game-overrides: which fields the
+  // user has overridden and what each would inherit if cleared.
+  const [overrides, setOverrides] = useState(null)
   const [versionData, setVersionData] = useState(EMPTY_VERSION)
   const [bannerUrl, setBannerUrl] = useState('')
   const [previewUrls, setPreviewUrls] = useState([])
@@ -168,6 +230,20 @@ const GameDetailWindow = () => {
     }
   }
 
+  // Seeds the form and records the baseline the next save will diff against.
+  const seedForm = (sourceGame) => {
+    const seeded = gameToFormData(sourceGame)
+    setFormData(seeded)
+    setBaselineForm(seeded)
+  }
+
+  const loadOverrides = (recordId) => {
+    if (!recordId || typeof window.electronAPI.getGameOverrides !== 'function') return
+    window.electronAPI.getGameOverrides(recordId)
+      .then((result) => setOverrides(result || null))
+      .catch((err) => console.error('Failed to load custom metadata:', err))
+  }
+
   const handleVersionSelect = (version, persist = false) => {
     setSelectedVersion(version)
     setVersionData(versionToData(version))
@@ -184,7 +260,8 @@ const GameDetailWindow = () => {
 
   const refreshFromGame = (updatedGame, preferredVersion) => {
     setGame(updatedGame)
-    setFormData(gameToFormData(updatedGame))
+    seedForm(updatedGame)
+    loadOverrides(updatedGame?.record_id)
     const updatedVersions = updatedGame.versions || []
     setVersions(updatedVersions)
     const preferredVersionId = preferredVersion && typeof preferredVersion === 'object'
@@ -216,7 +293,8 @@ const GameDetailWindow = () => {
       if (!fetchedGame) { setLoadError(true); return }
       setGame(fetchedGame)
       setVersions(fetchedGame.versions || [])
-      setFormData(gameToFormData(fetchedGame))
+      seedForm(fetchedGame)
+      loadOverrides(fetchedGame.record_id)
       if (fetchedGame.versions?.length > 0) {
         handleVersionSelect(
           fetchedGame.versions.find((version) =>
@@ -659,19 +737,12 @@ const GameDetailWindow = () => {
   }
 
   const handleSave = async () => {
-    const updatedGame = {
-      ...game,
-      title: formData.title, os: formData.platform, engine: formData.engine,
-      creator: formData.developer, publisher: formData.publisher,
-      release_date: formData.release_date,
-      status: formData.status, f95_tags: formData.tags ? formData.tags.replace(/ , /g, ',') : '',
-      tags: formData.tags ? formData.tags.replace(/ , /g, ',') : '',
-      overview: formData.description, category: formData.category,
-      latest_version: formData.latest_version, censored: formData.censored,
-      language: formData.language, translations: formData.translations,
-      genre: formData.genre, voice: formData.voice, rating: formData.rating,
+    // Send ONLY the fields the user actually changed. Sending the whole form
+    // would write every displayed (merged) value into the overrides table.
+    const changed = buildChangedPayload(formData, baselineForm)
+    if (Object.keys(changed).length > 0) {
+      await window.electronAPI.updateGame({ record_id: game.record_id, ...changed })
     }
-    await window.electronAPI.updateGame(updatedGame)
     const savedVersion = {
       version_id: selectedVersion?.version_id,
       version: versionData.game_version,
@@ -692,6 +763,82 @@ const GameDetailWindow = () => {
     }
     const refreshedGame = await window.electronAPI.getGame(game.record_id)
     if (refreshedGame) refreshFromGame(refreshedGame, savedVersion)
+  }
+
+  // Drops the custom value for one field so it falls back to its source value.
+  const handleRevertField = (formKey) => {
+    if (!game?.record_id) return
+    const field = overrides?.fields?.find((f) => f.formKey === formKey)
+    if (!field?.overridden) return
+    if (field.resettable === false) {
+      showAlert(`Cannot reset ${field.label}`, `No source value is available for ${field.label.toLowerCase()}, so there is nothing to reset it to.`)
+      return
+    }
+
+    // Confirm first — discarding a custom value the user typed is not
+    // recoverable, and the reset icons sit close enough to the inputs to be
+    // hit by accident. Naming both values makes the outcome unambiguous.
+    //
+    // Values are clipped because Description can hold a full synopsis, which
+    // would otherwise push the dialog buttons off screen.
+    const clip = (text, max = 160) => {
+      const value = String(text ?? '').replace(/\s+/g, ' ').trim()
+      return value.length > max ? `${value.slice(0, max).trimEnd()}…` : value
+    }
+    // Title/Engine/Developer are base games columns with no override row, so a
+    // reset overwrites the stored value with the source value rather than
+    // clearing an override. Say that plainly instead of calling it "custom".
+    const sourceLine = field.inherited
+      ? field.inheritedFrom === 'original'
+        // The revert target is what the field held before the edit, which is not
+        // necessarily what the sources say now.
+        ? `It will go back to what it was before you changed it:\n"${clip(field.inherited)}"`
+        : `It will be replaced with the value from Atlas, Steam or GOG:\n"${clip(field.inherited)}"`
+      : field.base
+        ? 'There is nothing recorded to reset this field to.'
+        : 'There is no source value for this field, so it will be left empty.'
+    const lead = field.base
+      ? `Replace the ${field.label.toLowerCase()} stored for "${game.title}"?`
+      : `Discard your custom ${field.label.toLowerCase()} for "${game.title}"?`
+    openConfirm({
+      title: `Reset ${field.label}?`,
+      body: `${lead}\n\nCurrent value:\n"${clip(field.custom)}"\n\n${sourceLine}`,
+      confirmLabel: `Reset ${field.label}`,
+      tone: 'danger',
+      onConfirm: () => runDialogAction(async () => {
+        try {
+          const result = await window.electronAPI.clearGameOverrides(game.record_id, [field.column])
+          if (result?.success === false) { showAlert('Reset failed', result.error || 'Unknown error'); return }
+          const refreshedGame = await window.electronAPI.getGame(game.record_id)
+          if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion)
+        } catch (err) {
+          showAlert('Reset failed', err.message || 'Unknown error')
+        }
+      }),
+    })
+  }
+
+  // Drops every custom value for the title, restoring Atlas/Steam/GOG data.
+  const handleClearAllOverrides = () => {
+    if (!game?.record_id) return
+    // Only fields that can actually be reset are offered. A base column with no
+    // source value (an unmatched record) has nothing to fall back to.
+    const resettable = (overrides?.fields || []).filter((f) => f.overridden && f.resettable !== false)
+    const count = resettable.length
+    if (count === 0) { showAlert('Nothing to reset', 'This title has no changed fields that can be reset to source values.'); return }
+    const names = resettable.map((f) => f.label).join(', ')
+    openConfirm({
+      title: 'Reset all fields',
+      body: `Reset every changed field for "${game.title}"?\n\n${count} field${count === 1 ? '' : 's'}: ${names}\n\nEach one goes back to the value from Atlas, Steam or GOG. Versions, media and playtime are not affected.`,
+      confirmLabel: 'Reset All Fields',
+      tone: 'danger',
+      onConfirm: () => runDialogAction(async () => {
+        const result = await window.electronAPI.clearGameOverrides(game.record_id, null)
+        if (result?.success === false) { showAlert('Clear failed', result.error || 'Unknown error'); return }
+        const refreshedGame = await window.electronAPI.getGame(game.record_id)
+        if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion)
+      }),
+    })
   }
 
   const handleFindGame = async () => {
@@ -816,7 +963,10 @@ const GameDetailWindow = () => {
             {activeTab === 'Record' && (
               <RecordTab
                 formData={formData}
+                overrides={overrides}
                 onChange={(e) => setFormData({ ...formData, [e.target.name]: e.target.value })}
+                onRevertField={handleRevertField}
+                onClearAllOverrides={handleClearAllOverrides}
               />
             )}
             {activeTab === 'Versions' && (

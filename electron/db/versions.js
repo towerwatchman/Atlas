@@ -1076,7 +1076,100 @@ ${bannerJoinClauses}
   });
 };
 
-const getCatalogGames = (appPath, isDev, options = {}) => {
+// Splits a page of catalog keys ('atlas:123', 'steam:456', 'gog:7', 'lewdcorner:8')
+// back into per-branch id lists and renders each branch's id restriction. Values
+// are parsed to integers and inlined rather than bound, because the four branches
+// each need their own subset and threading four variable-length parameter arrays
+// through a template built in one pass is far easier to get wrong; the ids come
+// from catalog_index's own primary key, never from user input.
+const buildBranchRestrictions = (keys) => {
+  const empty = { atlas: '', steam: '', gog: '', lewdcorner: '' }
+  if (!Array.isArray(keys) || keys.length === 0) return empty
+
+  const buckets = { atlas: [], steam: [], gog: [], lewdcorner: [] }
+  for (const key of keys) {
+    const text = String(key || '')
+    const separator = text.indexOf(':')
+    if (separator < 0) continue
+    const branch = text.slice(0, separator)
+    if (!(branch in buckets)) continue
+    const id = Number.parseInt(text.slice(separator + 1), 10)
+    if (Number.isInteger(id)) buckets[branch].push(id)
+  }
+
+  // A branch with no keys on this page still has to yield NO rows, or it would
+  // contribute its entire contents to the union.
+  const clause = (ids, column, keyword) =>
+    ids.length > 0
+      ? `${keyword} ${column} IN (${ids.join(', ')})`
+      : `${keyword} 1 = 0`
+
+  return {
+    atlas: clause(buckets.atlas, 'atlas_data.atlas_id', 'WHERE'),
+    steam: clause(buckets.steam, 'steam_data.steam_id', 'AND'),
+    gog: clause(buckets.gog, 'gog_data.gog_id', 'AND'),
+    lewdcorner: clause(buckets.lewdcorner, 'lewdcorner_data.lc_id', 'AND'),
+  }
+}
+
+// Public entry point. When the browse index is ready this resolves the page's
+// keys and total from catalog_index (an index-ordered seek with early
+// termination) and hydrates only those rows from the source tables. Until the
+// index has finished building it falls through to the original union scan, which
+// is correct but pays a full materialise-and-sort — so the fallback is a
+// first-launch/rebuild window, not a permanent state.
+//
+// The updateAvailable filter always takes the union path: it needs per-record
+// version-string comparison in JS, which is not expressible as a SQL predicate.
+const getCatalogGames = async (appPath, isDev, options = {}) => {
+  if (options.filters?.updateAvailable !== true && !options.hydrateKeys) {
+    try {
+      const { getCatalogIndexStatus, queryCatalogIndex } = require('./catalogIndex')
+      const status = await getCatalogIndexStatus()
+      if (status.ready) {
+        const rawOffset = Number.parseInt(options.offset, 10)
+        const rawLimit = Number.parseInt(options.limit, 10)
+        const offset = Number.isInteger(rawOffset) && rawOffset > 0 ? rawOffset : 0
+        const limit = Number.isInteger(rawLimit) ? Math.min(1000, Math.max(50, rawLimit)) : 250
+        const countOnly = options.countOnly === true
+        const includeTotal = options.includeTotal === true
+
+        const { keys, total } = await queryCatalogIndex({
+          search: options.search, filters: options.filters,
+          offset, limit, includeTotal, countOnly,
+        })
+        if (countOnly) {
+          return { games: [], offset: 0, limit, total, hasMore: total > 0, countOnly: true }
+        }
+        if (keys.length === 0) {
+          return { games: [], offset, limit, total: includeTotal ? total : 0, hasMore: false }
+        }
+
+        // Hydrate exactly these keys. Ordering is reapplied in JS from the index
+        // result, because restricting the branches drops the SQL ORDER BY.
+        const hydrated = await getCatalogGamesFromUnion(appPath, isDev, {
+          ...options, hydrateKeys: keys, offset: 0, limit: keys.length,
+          includeTotal: false, countOnly: false,
+        })
+        const byKey = new Map(
+          (hydrated.games || []).map((game) => [String(game.catalogKey), game]))
+        const games = keys.map((key) => byKey.get(String(key))).filter(Boolean)
+        return {
+          games, offset, limit,
+          total: includeTotal ? total : null,
+          hasMore: includeTotal ? offset + games.length < total : games.length >= limit,
+        }
+      }
+    } catch (err) {
+      // Any failure here falls through to the union path rather than failing the
+      // browse request outright.
+      console.warn('Catalog index path unavailable, falling back to full scan:', err.message)
+    }
+  }
+  return getCatalogGamesFromUnion(appPath, isDev, options)
+}
+
+const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
   return new Promise((resolve, reject) => {
     const rawOffset = Number.parseInt(options.offset, 10);
     const rawLimit = Number.parseInt(options.limit, 10);
@@ -1428,6 +1521,15 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
       const f95LatestOrderSelect = hasF95LatestOrder
         ? 'f95_zone_data.f95_latest_order AS f95_latest_order'
         : 'NULL AS f95_latest_order'
+      // When the browse index supplies the page's keys, each branch is narrowed
+      // to just those ids so the union is evaluated for 250 rows instead of the
+      // whole catalog. Empty strings restore the original unrestricted shape,
+      // which is the fallback used until the index has finished building.
+      const restrict = buildBranchRestrictions(options.hydrateKeys)
+      const atlasRestrict = restrict.atlas
+      const steamRestrict = restrict.steam
+      const gogRestrict = restrict.gog
+      const lcRestrict = restrict.lewdcorner
       const query = `
       WITH atlas_branch_base AS (
         SELECT
@@ -1527,6 +1629,7 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         LEFT JOIN lewdcorner_data ON atlas_data.atlas_id = lewdcorner_data.atlas_id
         LEFT JOIN steam_data ON atlas_data.atlas_id = steam_data.atlas_id
         LEFT JOIN gog_data ON atlas_data.atlas_id = gog_data.atlas_id
+        ${atlasRestrict}
         GROUP BY atlas_data.atlas_id
       ),
       atlas_branch AS (
@@ -1626,14 +1729,25 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           -- atlas_data.external_ids / steam_appids[]. Without this, each season
           -- appid would leak into browse as its own tile instead of grouping
           -- under the one atlas catalog entry.
+          --
+          -- This used to be five CORRELATED LIKE patterns over atlas_data,
+          -- re-run for every steam_data row: O(steam_data x atlas_data x 5),
+          -- measured at 94s on a 3,000 x 32,000 catalog and growing every time a
+          -- user lazily fetches another appid's metadata. It was also wrong —
+          -- steam_appid had both spaced and unspaced variants but steam_id
+          -- only had the unspaced one, so the standard {"steam_id": "123"}
+          -- serialization never matched and those appids leaked into Browse as
+          -- duplicate standalone tiles (69 of 400 in a seeded check).
+          --
+          -- atlas_external_steam holds the same linkage parsed out of the JSON
+          -- once (electron/db/catalogIndex.js), so this is now a primary-key
+          -- probe: 1ms instead of 94s, and immune to whitespace/key-order
+          -- variation that text matching can never handle reliably.
           AND NOT EXISTS (
-            SELECT 1 FROM atlas_data ad
-             WHERE ad.external_ids LIKE '%"steam_appid":"' || steam_data.steam_id || '"%'
-                OR ad.external_ids LIKE '%"steam_appid": "' || steam_data.steam_id || '"%'
-                OR ad.external_ids LIKE '%"steam_appid":' || steam_data.steam_id || '%'
-                OR ad.external_ids LIKE '%"steam_id":"' || steam_data.steam_id || '"%'
-                OR ad.external_ids LIKE '%"steam_appids"%"' || steam_data.steam_id || '"%'
+            SELECT 1 FROM atlas_external_steam aes
+             WHERE aes.steam_appid = steam_data.steam_id
           )
+          ${steamRestrict}
       ),
       steam_branch AS (
         SELECT
@@ -1724,7 +1838,8 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           gog_data.tags AS tags
         FROM gog_data
         LEFT JOIN atlas_data ON gog_data.atlas_id = atlas_data.atlas_id
-        WHERE gog_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL
+        WHERE (gog_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL)
+          ${gogRestrict}
       ),
       gog_branch AS (
         SELECT
@@ -1812,7 +1927,8 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
           lewdcorner_data.tags AS tags
         FROM lewdcorner_data
         LEFT JOIN atlas_data ON lewdcorner_data.atlas_id = atlas_data.atlas_id
-        WHERE lewdcorner_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL
+        WHERE (lewdcorner_data.atlas_id IS NULL OR atlas_data.atlas_id IS NULL)
+          ${lcRestrict}
       ),
       lewdcorner_branch AS (
         SELECT
@@ -1841,12 +1957,16 @@ const getCatalogGames = (appPath, isDev, options = {}) => {
         LEFT JOIN game_personal_ratings AS local_ratings ON local_ratings.record_id = catalog.local_record_id
       `;
 
+      // Hydration is already restricted to one page of keys and reordered in JS
+      // by the caller, so the SQL sort is dropped for that path — keeping it
+      // would re-sort 250 rows for nothing.
+      const hydrating = Array.isArray(options.hydrateKeys) && options.hydrateKeys.length > 0;
       const pagedQuery = `
         SELECT catalog.*
         FROM (${query}) catalog
         ${catalogJoins}
         ${whereClause}
-        ${orderByClause}
+        ${hydrating ? '' : orderByClause}
         LIMIT ? OFFSET ?
       `;
       const countQuery = `

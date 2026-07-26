@@ -69,6 +69,7 @@ const {
 const {
   repairDoubledApostropheRows, repairStaleVersionExecutables,
   repairBlankVersionNames, repairMissingTotalPlaytime,
+  validateGameMetadataOverrides, countGameMetadataOverrideRows,
 } = require('./db/repair')
 
 const {
@@ -77,6 +78,7 @@ const {
   getUniqueFilterOptions, recordGameLaunchStarted, recordGamePlaytime,
   setGameFavorite, setGamePersonalRatings, setGamePlaystate, setVersionPlaystate,
   getManualMappings, setManualMappings, setSelectedGameVersion,
+  getGameOverrides, clearGameOverrides,
 } = require('./db/games')
 
 const {
@@ -93,6 +95,11 @@ const {
   addAtlasMapping, getAtlasData, getImportRecordStatus, insertJsonData,
   recomputeNormalizedTitles,
 } = require('./db/atlas')
+const { getCatalogIndexStatus, rebuildCatalogIndex } = require('./db/catalogIndex')
+const { isWriteLockBusy, activeWriteLockLabel } = require('./db/writeLock')
+const { buildDefaultConfig, mergeWithDefaults } = require('./config/configSchema')
+const { sanitizeConfigFile } = require('./config/configSanitizer')
+const { migrateActiveLayoutToFile, readActiveLayout, writeActiveLayout } = require('./config/bannerLayoutStore')
 
 const { checkDbUpdates } = require('./db/updates')
 
@@ -151,6 +158,10 @@ let appConfig
 // of the [NSFW] enabled key in the saved config.ini, not by reading the
 // merged-with-defaults appConfig (which would always report a value).
 let nsfwConfigured = false
+// Result of the startup config prune, collected by the Client Check panel.
+let configSanitizeReport = null
+// Result of moving Appearance.customBannerLayout into its own file.
+let bannerLayoutMigrationReport = null
 let activeImportSession = null
 let activeLibraryValidation = null
 let activeScanSession = null
@@ -398,91 +409,7 @@ const themeTemplatesDir = path.join(dataDir, 'templates/theme')
 if (!fs.existsSync(themeTemplatesDir)) fs.mkdirSync(themeTemplatesDir, { recursive: true })
 
 const configPath = path.join(dataDir, 'config.ini')
-const defaultConfig = {
-  Interface: {
-    language: 'English',
-    atlasStartup: 'Do Nothing',
-    gameStartup: 'Do Nothing',
-    showDebugConsole: false,
-    minimizeToTray: false,
-    checkForAppUpdatesOnStartup: true,
-    appUpdateBranch: null,
-    showGameList: true,
-    sidePanelMode: 'games',
-  },
-  // Per-channel record of the app version last INSTALLED from each update
-  // channel. The updater compares the active channel's latest release
-  // against THIS baseline (via autoUpdater.currentVersion) instead of always
-  // using the running build's version. That's what lets a user switch
-  // channels correctly: switching to a channel they've never installed
-  // leaves its baseline empty (treated as 0.0.0 -> always offered the
-  // latest), while switching back to their real channel keeps its true
-  // installed version (so it correctly shows up to date). The channel that
-  // matches the actually-running build is stamped to app.getVersion() on
-  // every launch (see recordRunningBuildVersion). Empty string = never
-  // installed from that channel.
-  Updates: {
-    stableVersion: '',
-    nightlyVersion: '',
-  },
-  Library: {
-    rootPath: dataDir,
-    gameFolder: '',
-    gameExtensions: 'exe,swf,flv,f4v,rag,cmd,bat,jar,html',
-    extractionExtensions: 'zip,7z,rar',
-    libraryFolderStructure: '{creator}/{title}/{version}',
-    autoSelectLatestReplaceVersion: false,
-    validatePathsOnStartup: false,
-    sevenZipPath: '',
-  },
-  Metadata: {
-    downloadPreviews: false,
-    mediaStorageMode: 'stream',
-    sourceOrder: 'f95,lewdcorner,steam',
-    // Max size (MB) of Chromium's disk cache used for streamed banner/preview
-    // images. Applied at startup via --disk-cache-size (see readConfiguredCacheBytes).
-    imageCacheSizeMB: 1024,
-  },
-  Performance: {
-    maxHeapSize: 4096,
-    mediaDownloadConcurrency: 3,
-    mediaPerHostConcurrency: 2,
-    mediaRequestDelayMs: 100,
-  },
-  Appearance: {
-    themeId: 'default',
-    layout: 'sidebar',
-    // Game detail page panel layout (3 columns). Stored as a JSON string so it
-    // round-trips cleanly through INI. Shared across all games. Panels not
-    // listed here (or newly added) are appended to the shortest column.
-    detailLayout: '{"rows":[{"type":"columns","columns":[{"mode":"flex"},{"mode":"fixed","px":360}],"cells":[["previews"],["versions","rating","details","links","tags"]]}]}',
-    // Nav button presentation ('icons' | 'iconsAndText' | 'text') and
-    // whether the header's accent-bar notch strip is shown — both
-    // independent of theme/layout, same pattern as layout above. See
-    // NAV_DISPLAY_MODE_OPTIONS / DEFAULT_NAV in src/theme/themes.js.
-    // Falls back to the active theme's own nav defaults whenever this is
-    // unset (fresh install, or before a theme has ever been explicitly
-    // picked) — see ThemeProvider.jsx's parseAppearance.
-    navDisplayMode: 'icons',
-    accentBarEnabled: true,
-    // Which edge the filter sidebar (SearchSidebar.jsx) docks to, and
-    // whether it overlays the library grid or shares space with it
-    // inline — see FILTER_SIDEBAR_SIDE_OPTIONS / FILTER_SIDEBAR_MODE_OPTIONS
-    // in src/theme/themes.js. Same independent-of-theme pattern as above.
-    filterSidebarSide: 'right',
-    filterSidebarMode: 'overlay',
-    customTheme: '',
-  },
-  // Whether the user has opted in to NSFW/adult ("Browse mode") content.
-  // Deliberately NOT merged into Interface/Library/etc — see the
-  // nsfwConfigured detection below, which checks for the literal absence
-  // of this key in the saved ini (not just a falsy value) to decide
-  // whether the first-run NSFW confirmation prompt should be shown.
-  NSFW: {
-    enabled: false,
-  },
-  WindowBounds: {},
-}
+const defaultConfig = buildDefaultConfig(dataDir)
 
 // ── autoUpdater setup ───────────────────────────────────────────────────────
 
@@ -1155,6 +1082,161 @@ function registerWindowBoundsPersistence(name, win, restoreState = {}) {
   }, 0)
 }
 
+// ── Boot progress window ─────────────────────────────────────────────────────
+// Startup database repairs run BEFORE createWindow(), so a slow one leaves the
+// app with nothing on screen at all and reads as a hang. This puts a small
+// frameless window up to say what is happening.
+//
+// It is created LAZILY: the window only appears if the task is still running
+// after BOOT_PROGRESS_DEFER_MS, so the common fast path stays invisible instead
+// of flashing a splash for a few milliseconds.
+//
+// The window is intentionally self-contained (inline HTML via data URL, no
+// preload, no node integration) so it needs no build-config entry and cannot
+// depend on anything that might itself be mid-repair.
+const BOOT_PROGRESS_DEFER_MS = 400
+
+// True until the main window exists. Guards window-all-closed so dismissing the
+// transient progress window cannot quit the app mid-boot.
+let isBooting = true
+
+// Result of the startup custom-metadata repair, held for the renderer to collect
+// once it mounts. Startup repairs finish BEFORE createWindow(), so there is no
+// renderer listening at the time — the summary is PULLED via
+// get-startup-repair-summary rather than pushed, which avoids racing the window
+// load. Reading it clears it, so the notice shows once per launch.
+let startupRepairSummary = null
+let bootProgressWindow = null
+
+function bootProgressHtml(heading) {
+  const safeHeading = String(heading).replace(/[&<>]/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]
+  ))
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    background: #16181d; color: #e6e8ec;
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    border: 1px solid #2c3038; border-radius: 6px;
+    -webkit-user-select: none; user-select: none;
+  }
+  .wrap { width: 100%; padding: 20px 22px; }
+  .heading { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .msg {
+    color: #9aa0aa; font-size: 12px; margin-bottom: 14px;
+    min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .track { height: 4px; background: #262a31; border-radius: 2px; overflow: hidden; }
+  .bar { height: 100%; width: 0%; background: #4b8ef7; border-radius: 2px; transition: width .18s linear; }
+  /* Indeterminate state, used until the task reports a real fraction. */
+  .bar.indeterminate { width: 35%; animation: slide 1.1s ease-in-out infinite; }
+  @keyframes slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(320%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bar { transition: none; }
+    .bar.indeterminate { animation: none; width: 100%; opacity: .5; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="heading">${safeHeading}</div>
+    <div class="msg" id="msg">Working&hellip;</div>
+    <div class="track"><div class="bar indeterminate" id="bar"></div></div>
+  </div>
+</body>
+</html>`
+}
+
+function createBootProgressWindow(heading) {
+  const win = new BrowserWindow({
+    width: 380,
+    height: 130,
+    frame: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: false,
+    alwaysOnTop: true,
+    center: true,
+    show: false,
+    backgroundColor: '#16181d',
+    title: heading,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
+  })
+  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(bootProgressHtml(heading))}`)
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) win.showInactive() })
+  win.on('closed', () => { if (bootProgressWindow === win) bootProgressWindow = null })
+  return win
+}
+
+// Runs `task`, showing a boot progress window only if it turns out to be slow.
+// `task` receives a report(message, fraction) callback; fraction may be null for
+// an indeterminate bar. Always resolves/rejects with whatever `task` does, and
+// always tears the window down.
+async function withBootProgress(heading, task) {
+  let latest = { message: 'Working…', fraction: null }
+  let timer = null
+  let settled = false
+
+  const push = () => {
+    const win = bootProgressWindow
+    if (!win || win.isDestroyed()) return
+    const message = JSON.stringify(String(latest.message ?? ''))
+    const pct = latest.fraction == null
+      ? 'null'
+      : String(Math.max(0, Math.min(100, Math.round(latest.fraction * 100))))
+    // executeJavaScript rather than IPC so the window needs no preload script.
+    win.webContents.executeJavaScript(`(() => {
+      const m = document.getElementById('msg');
+      const b = document.getElementById('bar');
+      if (m) m.textContent = ${message};
+      if (b) {
+        const pct = ${pct};
+        if (pct === null) { b.classList.add('indeterminate'); }
+        else { b.classList.remove('indeterminate'); b.style.width = pct + '%'; }
+      }
+    })()`, true).catch(() => {})
+  }
+
+  const report = (message, fraction = null) => {
+    latest = { message: message ?? latest.message, fraction }
+    push()
+  }
+
+  timer = setTimeout(() => {
+    if (settled) return
+    try {
+      bootProgressWindow = createBootProgressWindow(heading)
+      bootProgressWindow.webContents.once('did-finish-load', push)
+    } catch (err) {
+      console.warn('Could not show boot progress window:', err.message)
+    }
+  }, BOOT_PROGRESS_DEFER_MS)
+
+  try {
+    return await task(report)
+  } finally {
+    settled = true
+    clearTimeout(timer)
+    const win = bootProgressWindow
+    bootProgressWindow = null
+    if (win && !win.isDestroyed()) {
+      try { win.destroy() } catch { /* ignore */ }
+    }
+  }
+}
+
 function createWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     focusWindow(mainWindow)
@@ -1547,6 +1629,13 @@ function buildCtx() {
     quitFromMainWindow,
     // state
     appConfig, configPath, dataDir, launcherDir, templatesDir, themeTemplatesDir,
+    imagesDir, updatesDir,
+    // Read by the Client Check panel so the config prune that already ran at
+    // startup can be reported rather than repeated.
+    get configSanitizeReport() { return configSanitizeReport },
+    get bannerLayoutMigrationReport() { return bannerLayoutMigrationReport },
+    readActiveBannerLayout: () => readActiveLayout(dataDir, appConfig),
+    writeActiveBannerLayout: (layout) => writeActiveLayout(dataDir, layout),
     nsfwConfigured,
     contextMenuData, contextMenuId, recentlyDeletedGamePaths, gameDetailsRecordMap,
     activeImportSession, activeScanSession, activeLibraryValidation, isQuitting,
@@ -1579,6 +1668,14 @@ function buildCtx() {
     getUniqueFilterOptions, getVersionForRecord, getInstalledVersionsForRecord,
     getVersionPathsForRecord, db: dbIndex.db,
     getManualMappings, setManualMappings, setSelectedGameVersion,
+    getGameOverrides, clearGameOverrides, validateGameMetadataOverrides,
+    // Reading the startup repair summary clears it, so the renderer shows the
+    // notice once per launch even if it remounts.
+    takeStartupRepairSummary: () => {
+      const summary = startupRepairSummary
+      startupRepairSummary = null
+      return summary
+    },
     // scanners
     startSteamScan, startScan,
   }
@@ -1631,29 +1728,16 @@ app.whenReady().then(async () => {
 
   // Load or create config — merge parsed ini with defaults so missing
   // keys always have a value and boolean strings are coerced correctly
-  function mergeConfigWithDefaults(parsed) {
-    const result = {}
-    for (const section of Object.keys(defaultConfig)) {
-      result[section] = { ...defaultConfig[section] }
-      if (parsed && parsed[section]) {
-        for (const key of Object.keys(defaultConfig[section])) {
-          const raw = parsed[section][key]
-          if (raw === undefined) continue
-          const def = defaultConfig[section][key]
-          if (typeof def === 'boolean') result[section][key] = raw === true || raw === 'true'
-          else if (typeof def === 'number') {
-            const parsedNumber = Number(raw)
-            result[section][key] = Number.isFinite(parsedNumber) ? parsedNumber : def
-          }
-          else result[section][key] = raw
-        }
-        for (const key of Object.keys(parsed[section])) {
-          if (!(key in defaultConfig[section])) result[section][key] = parsed[section][key]
-        }
-      }
-    }
-    return result
-  }
+  // Delegates to the shared schema so main.js and ipc/settings.js can never
+  // drift apart again — that divergence is what silently deleted [Updates] and
+  // [WindowBounds] from config.ini on every settings save.
+  const mergeConfigWithDefaults = (parsed) => mergeWithDefaults(parsed, defaultConfig)
+
+  // Prune keys left behind by 0.7/0.8-era builds before anything reads the
+  // file. Only keys on an explicit deprecation list are touched, and config.ini
+  // is backed up to config.ini.bak first; the report is held for the Client
+  // Check panel in Settings -> Database rather than shown as a startup toast.
+  configSanitizeReport = sanitizeConfigFile(configPath, ini, dataDir)
 
   if (fs.existsSync(configPath)) {
     try {
@@ -1670,6 +1754,20 @@ app.whenReady().then(async () => {
     nsfwConfigured = false
   }
 
+  // Move the active banner layout out of config.ini and into its own file. It was
+  // 18,421 bytes on a real config -- 89% of the whole file -- which made
+  // config.ini unreadable by hand and meant every settings save rewrote all of
+  // it. Themes already work this way (themeId in config, definition in
+  // templates/theme). Runs after appConfig is loaded and writes the file, reads
+  // it back and compares BEFORE dropping the ini key, so a failed write cannot
+  // lose the layout; on any error the key stays and the next launch retries.
+  try {
+    bannerLayoutMigrationReport = migrateActiveLayoutToFile(dataDir, appConfig, configPath, ini)
+    if (bannerLayoutMigrationReport?.config) appConfig = bannerLayoutMigrationReport.config
+  } catch (err) {
+    console.warn('Banner layout migration skipped:', err.message)
+  }
+
   // Stamp the running build's version onto its own channel BEFORE resolving
   // the update baseline, so the active channel always reflects the true
   // on-disk version and only the *other* channel can be a never-installed
@@ -1682,6 +1780,46 @@ app.whenReady().then(async () => {
   await repairBlankVersionNames()
   await repairMissingTotalPlaytime()
   await repairStaleVersionExecutables()
+  // Repairs the blanking/redundant custom-metadata rows left behind by the old
+  // write-everything updateGame(). Idempotent, so this is a no-op on every boot
+  // after the first, but the FIRST run on an affected library has real work to
+  // do — and it happens before createWindow(), with nothing on screen. Report
+  // progress so a slow pass reads as progress rather than a hang.
+  try {
+    // Nothing to validate if no title has custom data at all.
+    if ((await countGameMetadataOverrideRows()) > 0) {
+      await withBootProgress('Updating your library', async (report) => {
+        report('Checking custom game data…')
+        const summary = await validateGameMetadataOverrides({
+          onProgress: ({ processed, total, message }) => {
+            report(message, total > 0 ? processed / total : null)
+          },
+        })
+        const repaired = (summary?.blankedFields || 0) + (summary?.redundantFields || 0)
+        if (repaired > 0) {
+          report('Finishing up…', 1)
+          console.log(
+            `Custom metadata repaired on first run: ${repaired} field(s) across ` +
+            `${summary.affectedTitles.length} title(s) in ${summary.durationMs}ms`,
+          )
+          // Held for the renderer to pick up and show as a toast, so a silent
+          // bulk change to the user's library is actually reported to them.
+          startupRepairSummary = {
+            blankedFields: summary.blankedFields,
+            redundantFields: summary.redundantFields,
+            repairedFields: repaired,
+            titleCount: summary.affectedTitles.length,
+            deletedRows: summary.deletedRows,
+            durationMs: summary.durationMs,
+            // A few examples so the notice can name what changed.
+            sampleTitles: summary.affectedTitles.slice(0, 5).map((t) => t.title),
+          }
+        }
+      })
+    }
+  } catch (err) {
+    console.warn('Custom metadata validation failed:', err.message)
+  }
 
   // Load encrypted site accounts before the window (and its webRequest cookie
   // hook) come up, then refresh any expired sessions in the background.
@@ -1702,6 +1840,48 @@ app.whenReady().then(async () => {
   }
 
   createWindow()
+  // The main window exists, so window-all-closed can quit normally again.
+  isBooting = false
+
+  // Build the Browse catalog index if it is missing or stale. Deliberately AFTER
+  // createWindow() and not awaited: the library grid does not depend on it, so
+  // there is no reason to hold the window back. rebuildCatalogIndex() commits in
+  // chunks and yields between them, which matters because every query shares one
+  // sqlite connection — a single long transaction would queue the library's own
+  // reads behind it and read as a freeze. Progress is streamed to the renderer so
+  // Browse can show it instead of an empty grid.
+  setTimeout(async () => {
+    try {
+      // The DB update check also runs at startup. The write lock makes the two
+      // safe to overlap, but there is no point queueing every index chunk behind
+      // a long catalog sync — wait for the writer to finish first, up to a cap so
+      // a stuck sync can never block the build forever.
+      for (let waited = 0; isWriteLockBusy() && waited < 120000; waited += 1000) {
+        if (waited === 0) {
+          console.log(`catalog_index build waiting for ${activeWriteLockLabel() || 'another writer'}…`)
+        }
+        await new Promise((r) => setTimeout(r, 1000))
+      }
+      const status = await getCatalogIndexStatus()
+      if (status.ready) {
+        console.log(`catalog_index ready: ${status.rowCount} entries`)
+        return
+      }
+      console.log(
+        `catalog_index needs building (version ${status.version} -> ${status.expectedVersion}` +
+        `${status.stale ? `, stale: ${status.staleReason}` : ''}); building in background`,
+      )
+      await rebuildCatalogIndex({
+        onProgress: (payload) => {
+          BrowserWindow.getAllWindows().forEach((win) => {
+            if (!win.isDestroyed()) win.webContents.send('catalog-index-progress', payload)
+          })
+        },
+      })
+    } catch (err) {
+      console.error('Background catalog index build failed:', err?.message || err)
+    }
+  }, 1500)
 
   const ctx = buildCtx()
 
@@ -1782,6 +1962,10 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => { isQuitting = true })
 
 app.on('window-all-closed', () => {
+  // During boot the only window on screen may be the transient progress window
+  // (see withBootProgress). Closing it must not quit the app before the main
+  // window has been created.
+  if (isBooting) return
   if (process.platform !== 'darwin') app.quit()
 })
 

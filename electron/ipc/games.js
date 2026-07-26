@@ -5,7 +5,7 @@ const { BROWSE_MODE_ENABLED } = require('../features')
 const path = require('path')
 const fs = require('fs')
 const cp = require('child_process')
-const { recordGameLaunchStarted, recordGamePlaytime } = require('../db/games')
+const { recordGameLaunchStarted, recordGamePlaytime, getLibraryStats } = require('../db/games')
 const { getEmulatorByExtension } = require('../db/settings')
 const { getSteamIDbyRecord } = require('../db/steam')
 const { getGogIDbyRecord, addGogMapping } = require('../db/gog')
@@ -13,7 +13,16 @@ const { fetchAndStoreGogData } = require('../scanners/gogscanner')
 const { applyMediaSources } = require('../db/mediaSources')
 const { calculatePathSize } = require('../pathSize')
 const { runDatabaseAudit, getInvalidMappingCount } = require('../db/audit')
+const { getCatalogIndexStatus, rebuildCatalogIndex } = require('../db/catalogIndex')
+const { runClientAudit, repairClientAuditSection } = require('../db/clientAudit')
 const { auditSeasonMerges, applySeasonMerge, applyAllSeasonMerges } = require('../db/seasonMerge')
+
+// Guards against two full rebuilds interleaving their chunked transactions on
+// the single shared sqlite connection.
+let catalogIndexRebuildInFlight = false
+// Repairs mutate shared tables and VACUUM takes an exclusive lock, so only one
+// may run at a time.
+let clientAuditRepairInFlight = false
 
 function emitGameUpdated(recordId) {
   if (!recordId) return
@@ -127,6 +136,8 @@ function registerGamesHandlers(ctx) {
     getVersionPathsForRecord, getInstalledVersionsForRecord,
     recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePlaystate, setVersionPlaystate, setGamePersonalRatings, setSelectedGameVersion, getEmulatorByExtension,
     getManualMappings, setManualMappings, addSteamMapping,
+    getGameOverrides, clearGameOverrides, validateGameMetadataOverrides,
+    takeStartupRepairSummary,
     // helpers
     deleteTitleRecord, isAllowedDeletionPath, getTrustedVersion,
     removeEmptyParentDirectories, normalizeForPathCompare,
@@ -144,6 +155,17 @@ function registerGamesHandlers(ctx) {
 
   ipcMain.handle('add-game', async (event, game) => {
     return await addGame(game, getAssetBasePath(), process.defaultApp)
+  })
+
+  // Cheap probe so the renderer can show a spinner with a real count instead of
+  // an empty-library message while get-games is still running.
+  ipcMain.handle('get-library-stats', async () => {
+    try {
+      return await getLibraryStats()
+    } catch (err) {
+      console.error('get-library-stats error:', err)
+      return { games: 0, versions: 0, pathVersions: 0, ok: false }
+    }
   })
 
   ipcMain.handle('count-versions', async (_, recordId) => {
@@ -350,8 +372,14 @@ function registerGamesHandlers(ctx) {
     return await getUniqueFilterOptions()
   })
 
+  // Edits from the game properties window. recordBaseEdits is what distinguishes
+  // a user edit from the importer/scanner writes that also call updateGame():
+  // only a user edit should mark Title/Engine/Developer as changed.
+  //
+  // (The previous getAssetBasePath()/process.defaultApp arguments here were
+  // vestigial — updateGame has never read a second or third positional arg.)
   ipcMain.handle('update-game', async (event, game) => {
-    return await updateGame(game, getAssetBasePath(), process.defaultApp)
+    return await updateGame(game, { recordBaseEdits: true })
   })
 
   ipcMain.handle('update-version', async (event, version, record_id) => {
@@ -474,6 +502,82 @@ function registerGamesHandlers(ctx) {
     return { success: true }
   })
 
+  // ── Browse catalog index ──────────────────────────────────────────────────
+  // Browse filters and sorts against catalog_index rather than the four-branch
+  // union, which is what makes the always-on newest-first sort answerable from
+  // an index instead of a 32k-row temp b-tree. Status is polled by the renderer
+  // so Browse can show build progress instead of an empty grid.
+  ipcMain.handle('get-catalog-index-status', async () => {
+    try {
+      return { success: true, ...(await getCatalogIndexStatus()) }
+    } catch (err) {
+      console.error('get-catalog-index-status error:', err)
+      return { success: false, error: err.message, ready: false }
+    }
+  })
+
+  // Manual full rebuild (Settings -> Database). Chunked and yielding, so the
+  // library stays usable while it runs; progress is streamed to every open
+  // window rather than returned, since a large catalog takes a few seconds.
+  ipcMain.handle('rebuild-catalog-index', async () => {
+    if (catalogIndexRebuildInFlight) {
+      return { success: false, error: 'A catalog index rebuild is already running.' }
+    }
+    catalogIndexRebuildInFlight = true
+    try {
+      const summary = await rebuildCatalogIndex({
+        onProgress: (payload) => {
+          BrowserWindow.getAllWindows().forEach((win) => {
+            if (!win.isDestroyed()) win.webContents.send('catalog-index-progress', payload)
+          })
+        },
+      })
+      return { success: true, ...summary }
+    } catch (err) {
+      console.error('rebuild-catalog-index error:', err)
+      return { success: false, error: err.message }
+    } finally {
+      catalogIndexRebuildInFlight = false
+    }
+  })
+
+  // ── Full client check ─────────────────────────────────────────────────────
+  // Read-only. Returns one entry per section with its findings and, where a
+  // repair exists, a `willChange` list so the UI can state the effect before the
+  // user approves it. Nothing is modified until repair-client-audit-section is
+  // called with a specific section id.
+  ipcMain.handle('run-client-audit', async () => {
+    try {
+      return { success: true, ...(await runClientAudit(ctx)) }
+    } catch (err) {
+      console.error('run-client-audit error:', err)
+      return { success: false, error: err.message, sections: [] }
+    }
+  })
+
+  ipcMain.handle('repair-client-audit-section', async (event, sectionId) => {
+    if (clientAuditRepairInFlight) {
+      return { success: false, error: 'Another repair is already running.' }
+    }
+    clientAuditRepairInFlight = true
+    try {
+      const result = await repairClientAuditSection(String(sectionId || ''), ctx, {
+        onProgress: (payload) => {
+          BrowserWindow.getAllWindows().forEach((win) => {
+            if (!win.isDestroyed()) win.webContents.send('catalog-index-progress', payload)
+          })
+        },
+      })
+      console.log(`client audit repair [${sectionId}]:`, (result.changes || []).join('; ') || 'no changes')
+      return { success: true, section: sectionId, ...result }
+    } catch (err) {
+      console.error(`repair-client-audit-section (${sectionId}) error:`, err)
+      return { success: false, error: err.message }
+    } finally {
+      clientAuditRepairInFlight = false
+    }
+  })
+
   ipcMain.handle('run-db-audit', async () => {
     try {
       return { success: true, ...(await runDatabaseAudit()) }
@@ -554,6 +658,54 @@ function registerGamesHandlers(ctx) {
       return { success: true, mappings: saved }
     } catch (err) {
       console.error('set-manual-mappings error:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Which metadata fields carry a user override, and what each field would fall
+  // back to if that override were cleared. Drives the custom-value markers and
+  // per-field revert in the game properties window.
+  ipcMain.handle('get-game-overrides', async (event, recordId) => {
+    try {
+      return await getGameOverrides(recordId)
+    } catch (err) {
+      console.error('get-game-overrides error:', err)
+      return { recordId, fields: [], overriddenCount: 0, error: err.message }
+    }
+  })
+
+  // Clear specific overrides (pass `fields`) or every override for the title.
+  ipcMain.handle('clear-game-overrides', async (event, { recordId, fields = null } = {}) => {
+    try {
+      const result = await clearGameOverrides(recordId, fields)
+      if (result?.success) emitGameUpdated(recordId)
+      return result
+    } catch (err) {
+      console.error('clear-game-overrides error:', err)
+      return { success: false, error: err.message, cleared: [] }
+    }
+  })
+
+  // One-shot: what the startup custom-metadata repair changed, if anything.
+  // Returns null when there is nothing to report. Reading it clears it, so the
+  // renderer shows the notice once per launch.
+  ipcMain.handle('get-startup-repair-summary', async () => {
+    try {
+      return typeof takeStartupRepairSummary === 'function' ? takeStartupRepairSummary() : null
+    } catch (err) {
+      console.error('get-startup-repair-summary error:', err)
+      return null
+    }
+  })
+
+  // Library-wide audit of the custom metadata table. Pass dryRun to get the
+  // report without writing anything.
+  ipcMain.handle('validate-game-overrides', async (event, { dryRun = false } = {}) => {
+    try {
+      const summary = await validateGameMetadataOverrides({ dryRun })
+      return { success: true, summary }
+    } catch (err) {
+      console.error('validate-game-overrides error:', err)
       return { success: false, error: err.message }
     }
   })

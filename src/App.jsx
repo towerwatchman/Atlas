@@ -16,7 +16,7 @@ import GameDetailPage from './components/detail/GameDetailPage.jsx'
 import RefreshMediaModal from './components/ui/RefreshMediaModal.jsx'
 import { useToast } from './components/ui/toast/ToastContext.jsx'
 import { useGames } from './hooks/useGames.js'
-import { builtInSavedFilters, defaultFilters, filterGamesWithState, normalizeFilterState, useFilters } from './hooks/useFilters.js'
+import { defaultFilters, filterGamesWithState, normalizeFilterState, useFilters } from './hooks/useFilters.js'
 import { useAppUpdate } from './hooks/useAppUpdate.js'
 import { useWindowState } from './hooks/useWindowState.js'
 import { useTheme } from './theme/ThemeProvider.jsx'
@@ -233,7 +233,8 @@ const App = () => {
   const {
     games, catalogGames, wishlistGames, totalVersions, fetchGames, fetchCatalogGames,
     requestCatalogRange, catalogLoading, catalogLoadingMore,
-    catalogTotal, catalogLoadError,
+    catalogTotal, catalogLoadError, catalogIndexState,
+    gamesLoading, wishlistLoading, libraryStats,
     fetchWishlistGames, replaceGameInState,
     removeGameFromState, refreshGame, includeUninstalledRef,
   } = useGames()
@@ -298,6 +299,31 @@ const App = () => {
       : libraryMode === 'wishlist'
         ? wishlistFilteredGames
         : localFilteredGames
+  // The library grid must not claim to be empty while data is still arriving, nor
+  // when the database reports records that are not in state yet. get-games has to
+  // resolve every record's version list before it returns, so on a large library
+  // there is a real window with no data — and "No games available" in that window
+  // reads as a lost library. The stats probe (three indexed COUNT(*)s) resolves
+  // well before get-games, so the real total is usually known on first render.
+  const expectedLibraryCount = libraryStats?.games || 0
+  const libraryIsLoading =
+    libraryMode === 'wishlist' ? wishlistLoading : libraryMode === 'local' && gamesLoading
+  // The fetch finished, returned nothing, and yet the database reports records.
+  // Deliberately NOT folded into the spinner condition above: that would spin
+  // forever on a failed fetch. This is a genuine anomaly, so it gets its own
+  // message and a retry rather than an animation that never ends.
+  const libraryLoadMismatch =
+    libraryMode === 'local' && !gamesLoading && games.length === 0 && expectedLibraryCount > 0
+  // Distinguishes "your filters match nothing" from "you have no games", which
+  // the single 'No games available' string used to conflate.
+  const hasActiveLibraryFilters = Boolean(
+    activeFilters?.text ||
+    activeSavedFilterId ||
+    (activeFilters?.tags?.length || 0) > 0 ||
+    (activeFilters?.category?.length || 0) > 0 ||
+    (activeFilters?.engine?.length || 0) > 0 ||
+    (activeFilters?.status?.length || 0) > 0,
+  )
   const viewTitle =
     libraryMode === 'catalog'
       ? 'Browse'
@@ -405,6 +431,62 @@ const App = () => {
       })
     })
     return () => { if (typeof off === 'function') off() }
+  }, [toast])
+
+  // Report the startup custom-metadata repair, if it changed anything.
+  //
+  // The repair runs before this window exists, so it cannot be pushed to us —
+  // we pull it once on mount and the main process clears it on read, so the
+  // notice appears exactly once per launch. A silent bulk change to the user's
+  // own data should not go unannounced.
+  useEffect(() => {
+    let cancelled = false
+    const fetchSummary = window.electronAPI.getStartupRepairSummary
+    if (typeof fetchSummary !== 'function') return undefined
+
+    fetchSummary()
+      .then((summary) => {
+        if (cancelled || !summary || !summary.repairedFields) return
+        const { repairedFields, titleCount, blankedFields, redundantFields, sampleTitles } = summary
+        const n = (v) => Number(v || 0).toLocaleString()
+        const plural = (v, one, many) => (v === 1 ? one : many)
+
+        // Name the title when only one was affected — shorter and more useful
+        // than "across 1 title".
+        const onlyTitle = titleCount === 1 ? (sampleTitles || [])[0] : null
+        const scope = onlyTitle
+          ? `on ${onlyTitle}`
+          : `across ${n(titleCount)} ${plural(titleCount, 'title', 'titles')}`
+
+        // Lead with what the user actually notices — fields that were showing
+        // blank are showing their real values again — then the tidy-up.
+        const details = []
+        if (blankedFields > 0) {
+          details.push(
+            `${n(blankedFields)} ${plural(blankedFields, 'was', 'were')} blank and ` +
+            `${plural(blankedFields, 'now shows', 'now show')} source data again`,
+          )
+        }
+        if (redundantFields > 0) {
+          details.push(
+            `${n(redundantFields)} matched the source and ${plural(redundantFields, 'is', 'are')} ` +
+            'no longer pinned as custom',
+          )
+        }
+
+        toast.success('Library data repaired', {
+          id: 'startup-metadata-repair',
+          message:
+            `Fixed ${n(repairedFields)} ${plural(repairedFields, 'field', 'fields')} ${scope} ` +
+            `that had been saved as custom values by mistake. ${details.join('; ')}.`,
+          // Sticky: this is a one-time change to their data, worth an explicit
+          // dismissal rather than vanishing after a few seconds.
+          duration: 0,
+        })
+      })
+      .catch((err) => console.warn('Could not read startup repair summary:', err))
+
+    return () => { cancelled = true }
   }, [toast])
 
   // ── Scroll restore ─────────────────────────────────────────────────────────
@@ -860,57 +942,6 @@ const App = () => {
     }
   }, [activeSavedFilterId])
 
-  const allSavedFilters = useMemo(
-    () => [...builtInSavedFilters, ...userSavedFilters],
-    [userSavedFilters],
-  )
-
-  const localSavedFilterCounts = useMemo(() => {
-    const nextCounts = {}
-    for (const filter of allSavedFilters) {
-      nextCounts[filter.id] = filterGamesWithState(games, filter.filters).length
-    }
-    return nextCounts
-  }, [allSavedFilters, games])
-
-  // Browse/catalog entries live entirely server-side (and are only ever
-  // partially loaded client-side — see requestCatalogRange in
-  // useGames.js), so a saved filter's match count for Browse mode can't be
-  // computed against the local `games` array the way localSavedFilterCounts
-  // does above; that's why every saved filter showed "0 matches" while
-  // browsing. Ask the backend for the real count instead, via the
-  // count-only catalog query (get-catalog-count — see
-  // electron/db/versions.js getCatalogGames' countOnly option), one per
-  // saved filter, using that filter's OWN search/filters — same "what
-  // would applying this filter as-is return" semantics as the local-mode
-  // counts, not combined with whatever's currently typed in the search box.
-  const [catalogSavedFilterCounts, setCatalogSavedFilterCounts] = useState({})
-  useEffect(() => {
-    if (libraryMode !== 'catalog' || !showSavedFilters || !browseAvailable) return
-    let cancelled = false
-    setCatalogSavedFilterCounts((prev) => {
-      const next = {}
-      for (const filter of allSavedFilters) next[filter.id] = prev[filter.id] ?? null
-      return next
-    })
-    allSavedFilters.forEach((filter) => {
-      const filters = normalizeFilterState(filter.filters)
-      window.electronAPI.getCatalogCount({
-        search: { text: filters.text, type: filters.type },
-        filters,
-      }).then((result) => {
-        if (cancelled) return
-        setCatalogSavedFilterCounts((prev) => ({ ...prev, [filter.id]: Number(result?.total || 0) }))
-      }).catch((error) => {
-        console.error(`Failed to get catalog count for saved filter "${filter.name}":`, error)
-        if (cancelled) return
-        setCatalogSavedFilterCounts((prev) => ({ ...prev, [filter.id]: 0 }))
-      })
-    })
-    return () => { cancelled = true }
-  }, [allSavedFilters, browseAvailable, libraryMode, showSavedFilters])
-
-  const savedFilterCounts = libraryMode === 'catalog' ? catalogSavedFilterCounts : localSavedFilterCounts
 
   // ── DB update check ────────────────────────────────────────────────────────
   const clearDbUpdateStatusSoon = useCallback(() => {
@@ -1361,6 +1392,30 @@ const App = () => {
     }
   }, [browseAvailable, catalogQueryFilters, catalogSearch, catalogTotal, fetchCatalogGames, libraryMode])
 
+  // When the catalog index finishes building, anything already on screen in
+  // Browse came from the slower fallback scan (or from nothing at all, if the
+  // build state was showing). Refetch once on the false -> true transition so the
+  // user ends up with index-ordered results without having to touch a filter.
+  const catalogIndexWasReadyRef = useRef(true)
+  useEffect(() => {
+    const ready = catalogIndexState?.ready !== false
+    const becameReady = ready && !catalogIndexWasReadyRef.current
+    catalogIndexWasReadyRef.current = ready
+    if (!becameReady) return
+    if (libraryMode !== 'catalog' || !browseAvailable) return
+    lastFetchedCatalogParamsKeyRef.current = JSON.stringify({
+      search: catalogSearch, filters: catalogQueryFilters,
+    })
+    fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
+  }, [
+    browseAvailable,
+    catalogIndexState?.ready,
+    catalogQueryFilters,
+    catalogSearch,
+    fetchCatalogGames,
+    libraryMode,
+  ])
+
   useEffect(() => {
     if (!showSavedFilters || includeUninstalledRef.current) return
     includeUninstalledRef.current = true
@@ -1641,7 +1696,6 @@ const App = () => {
               onResetFilters={resetFilters}
               onSavedFilterSaved={handleSavedFilterSaved}
               activeSavedFilterId={activeSavedFilterId}
-              savedFilterCounts={savedFilterCounts}
               savedFilterDeleteStateById={savedFilterDeleteStateById}
               onApplySavedFilter={applySavedFilter}
               onDeleteSavedFilter={deleteSavedFilter}
@@ -1719,7 +1773,35 @@ const App = () => {
               onWishlistChanged={handleWishlistChanged}
             />
           ) : filteredGames.length === 0 ? (
-            libraryMode === 'catalog' && catalogLoading ? (
+            // Order matters: an index that is still building must NOT be
+            // reported as "no titles match", which is what a fresh install used
+            // to show for the whole first-launch build.
+            libraryMode === 'catalog' && catalogIndexState?.building ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+                <div
+                  className="h-10 w-10 animate-spin rounded-full border-4 border-border border-t-accent"
+                  role="status"
+                  aria-label="Preparing Browse"
+                />
+                <div className="text-text">Preparing Browse…</div>
+                <div className="text-xs text-muted max-w-sm">
+                  {catalogIndexState.progress?.message
+                    || 'Building the catalog index. This happens once, and your library stays usable while it runs.'}
+                </div>
+                {catalogIndexState.progress?.total > 0 && (
+                  <div className="h-1.5 w-56 overflow-hidden rounded bg-tertiary">
+                    <div
+                      className="h-full bg-accent transition-[width] duration-200"
+                      style={{
+                        width: `${Math.min(100, Math.round(
+                          (catalogIndexState.progress.processed / catalogIndexState.progress.total) * 100,
+                        ))}%`,
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            ) : libraryMode === 'catalog' && catalogLoading ? (
               <div className="flex h-full items-center justify-center">
                 <div
                   className="h-10 w-10 animate-spin rounded-full border-4 border-border border-t-accent"
@@ -1727,13 +1809,64 @@ const App = () => {
                   aria-label="Loading Browse titles"
                 />
               </div>
+            ) : libraryLoadMismatch ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+                <i className="fas fa-triangle-exclamation text-2xl text-amber-400" aria-hidden="true" />
+                <div className="text-text">Your library did not load</div>
+                <div className="max-w-md text-xs text-muted">
+                  The database reports {expectedLibraryCount.toLocaleString()} game
+                  {expectedLibraryCount === 1 ? '' : 's'}
+                  {libraryStats?.versions
+                    ? ` and ${libraryStats.versions.toLocaleString()} version${libraryStats.versions === 1 ? '' : 's'}`
+                    : ''}
+                  , but none were returned. Your data is still there. Try reloading;
+                  if it keeps happening run Settings, Database, Full client check.
+                </div>
+                <button
+                  onClick={() => fetchGames(includeUninstalledRef.current)}
+                  className="rounded-buttonTheme bg-button px-4 py-2 text-sm hover:bg-buttonHover"
+                >
+                  Reload library
+                </button>
+              </div>
+            ) : libraryIsLoading ? (
+              // Never show an empty-library message while the fetch is still in
+              // flight, or when the database says there ARE records. get-games
+              // resolves every record's version list before returning, so on a
+              // large library there is a real window where the grid has no data
+              // yet — and "No games available" in that window reads as a lost
+              // library rather than as loading. Path validation and streamed art
+              // can extend it further.
+              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+                <div
+                  className="h-10 w-10 animate-spin rounded-full border-4 border-border border-t-accent"
+                  role="status"
+                  aria-label={libraryMode === 'wishlist' ? 'Loading wishlist' : 'Loading library'}
+                />
+                <div className="text-text">
+                  {libraryMode === 'wishlist' ? 'Loading wishlist…' : 'Loading your library…'}
+                </div>
+                {libraryMode !== 'wishlist' && expectedLibraryCount > 0 && (
+                  <div className="text-xs text-muted">
+                    {expectedLibraryCount.toLocaleString()} game
+                    {expectedLibraryCount === 1 ? '' : 's'}
+                    {libraryStats?.versions
+                      ? ` and ${libraryStats.versions.toLocaleString()} version${libraryStats.versions === 1 ? '' : 's'}`
+                      : ''}
+                    {' '}in your database. Large libraries can take a moment, especially
+                    on a network drive.
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="flex h-full items-center justify-center text-center text-text">
                 {libraryMode === 'catalog'
                   ? 'No browse titles match these filters.'
                   : libraryMode === 'wishlist'
                     ? 'No wishlist entries yet.'
-                    : 'No games available'}
+                    : hasActiveLibraryFilters
+                      ? 'No games match these filters.'
+                      : 'No games available'}
               </div>
             )
           ) : (
@@ -1780,6 +1913,31 @@ const App = () => {
               }}
             </AutoSizer>
           )}
+          {/* Page-fetch indicator. This has to render as a SIBLING of the grid,
+              not inside the empty-state branch: once the first page resolves,
+              catalogGames becomes Array(total).fill(null), so filteredGames is
+              non-empty and the centred spinner above is unreachable from then on.
+              A stalled scroll fetch therefore showed blank cells and nothing
+              else. Deliberately a small corner pill rather than a blocking
+              overlay — the loaded rows stay usable while another page arrives.
+
+              Positioned `fixed` rather than `absolute`: the only enclosing
+              positioned candidate is #gameGrid, which is overflow-y-auto, so an
+              absolute child anchors to the full scroll height and scrolls out of
+              view. bottom-16 clears the footer. */}
+          {!selectedGame && libraryMode === 'catalog' && catalogLoadingMore && !catalogLoading && (
+            <div
+              className="pointer-events-none fixed bottom-16 right-6 z-40 flex items-center gap-2 rounded-full border border-border bg-primary/90 px-3 py-1.5 text-xs text-text shadow-lg"
+              role="status"
+              aria-live="polite"
+            >
+              <span
+                className="h-3 w-3 animate-spin rounded-full border-2 border-border border-t-accent"
+                aria-hidden="true"
+              />
+              Loading more titles…
+            </div>
+          )}
           {!selectedGame && libraryMode === 'catalog' && catalogLoadError && (
             <div className="py-4 text-center text-sm text-danger">
               Browse load failed: {catalogLoadError}
@@ -1801,7 +1959,6 @@ const App = () => {
             onResetFilters={resetFilters}
             onSavedFilterSaved={handleSavedFilterSaved}
             activeSavedFilterId={activeSavedFilterId}
-            savedFilterCounts={savedFilterCounts}
             savedFilterDeleteStateById={savedFilterDeleteStateById}
             onApplySavedFilter={applySavedFilter}
             onDeleteSavedFilter={deleteSavedFilter}
@@ -1823,7 +1980,6 @@ const App = () => {
             onResetFilters={resetFilters}
             onSavedFilterSaved={handleSavedFilterSaved}
             activeSavedFilterId={activeSavedFilterId}
-            savedFilterCounts={savedFilterCounts}
             savedFilterDeleteStateById={savedFilterDeleteStateById}
             onApplySavedFilter={applySavedFilter}
             onDeleteSavedFilter={deleteSavedFilter}

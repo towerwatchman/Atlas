@@ -189,6 +189,99 @@ export default function Database() {
     return () => window.removeEventListener('keydown', onKey)
   }, [remapBusy])
 
+  // ── Full client check ─────────────────────────────────────────────────────
+  // Read-only audit first; every repair is opted into per section, and the
+  // confirmation names exactly what that repair will change.
+  const [auditRunning, setAuditRunning] = useState(false)
+  const [auditReport, setAuditReport] = useState(null)
+  const [auditErr, setAuditErr] = useState('')
+  const [expandedSection, setExpandedSection] = useState(null)
+  const [pendingRepair, setPendingRepair] = useState(null)
+  const [repairBusyId, setRepairBusyId] = useState(null)
+  const [repairResults, setRepairResults] = useState({})
+
+  const runClientCheck = useCallback(async () => {
+    setAuditRunning(true)
+    setAuditErr('')
+    setRepairResults({})
+    setPendingRepair(null)
+    try {
+      const res = await window.electronAPI.runClientAudit?.()
+      if (res?.success) setAuditReport(res)
+      else setAuditErr(res?.error || 'Client check failed.')
+    } catch (err) {
+      setAuditErr(err?.message || String(err))
+    } finally {
+      setAuditRunning(false)
+    }
+  }, [])
+
+  const applyRepair = useCallback(async (sectionId) => {
+    setRepairBusyId(sectionId)
+    setPendingRepair(null)
+    try {
+      const res = await window.electronAPI.repairClientAuditSection?.(sectionId)
+      setRepairResults((prev) => ({
+        ...prev,
+        [sectionId]: res?.success
+          ? { ok: true, changes: res.changes || [] }
+          : { ok: false, error: res?.error || 'Repair failed.' },
+      }))
+    } catch (err) {
+      setRepairResults((prev) => ({
+        ...prev, [sectionId]: { ok: false, error: err?.message || String(err) },
+      }))
+    } finally {
+      setRepairBusyId(null)
+    }
+  }, [])
+
+  // ── Browse catalog index ──────────────────────────────────────────────────
+  // Kept as an explicit control rather than something automatic-only, because a
+  // stale index is invisible from the UI: Browse would still return results,
+  // just in the wrong order or missing entries added since the last refresh.
+  const [indexStatus, setIndexStatus] = useState(null)
+  const [indexBusy, setIndexBusy] = useState(false)
+  const [indexProgress, setIndexProgress] = useState(null)
+  const [indexError, setIndexError] = useState('')
+  const [indexResult, setIndexResult] = useState(null)
+
+  const loadIndexStatus = useCallback(async () => {
+    try {
+      const res = await window.electronAPI.getCatalogIndexStatus?.()
+      setIndexStatus(res || null)
+    } catch (err) {
+      setIndexError(err?.message || String(err))
+    }
+  }, [])
+
+  useEffect(() => { loadIndexStatus() }, [loadIndexStatus])
+
+  useEffect(() => {
+    const off = window.electronAPI.onCatalogIndexProgress?.((payload) => {
+      setIndexProgress(payload || null)
+    })
+    return () => { if (typeof off === 'function') off() }
+  }, [])
+
+  const rebuildIndex = useCallback(async () => {
+    setIndexBusy(true)
+    setIndexError('')
+    setIndexResult(null)
+    setIndexProgress(null)
+    try {
+      const res = await window.electronAPI.rebuildCatalogIndex?.()
+      if (res?.success) setIndexResult(res)
+      else setIndexError(res?.error || 'Rebuild failed.')
+    } catch (err) {
+      setIndexError(err?.message || String(err))
+    } finally {
+      setIndexBusy(false)
+      setIndexProgress(null)
+      loadIndexStatus()
+    }
+  }, [loadIndexStatus])
+
   const summary = result?.summary
   const items = result?.items || []
 
@@ -200,6 +293,220 @@ export default function Database() {
           The remote catalog changes over time. When a catalog entry your library relied on is removed,
           the local metadata stays put but stops receiving updates. Run an audit to find games that need remapping.
         </p>
+      </div>
+
+      {/* ── Full client check ─────────────────────────────────────────────── */}
+      <div className="border border-border rounded p-4 space-y-3" data-tour="ClientCheck">
+        <div>
+          <h2 className="text-base font-semibold">Full client check</h2>
+          <p className="text-sm text-muted mt-1 max-w-2xl">
+            Checks your configuration, database, library files, images and the Browse index.
+            Nothing is changed by running it — each section reports what it found, and you
+            approve any repair separately.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={runClientCheck}
+            disabled={auditRunning}
+            className="px-4 py-2 bg-accent hover:bg-accentHover text-white rounded-buttonTheme disabled:opacity-50"
+          >
+            {auditRunning ? 'Checking…' : 'Run full client check'}
+          </button>
+          {auditReport && !auditRunning && (
+            <span className="text-sm text-muted">
+              {auditReport.totalIssues === 0
+                ? 'No problems found.'
+                : `${auditReport.totalIssues.toLocaleString()} item(s) across ${
+                    auditReport.sections.filter((x) => x.status !== 'ok').length} section(s).`}
+              {' '}Took {((auditReport.durationMs || 0) / 1000).toFixed(1)}s.
+            </span>
+          )}
+        </div>
+
+        {auditErr && <div className="text-sm text-danger">{auditErr}</div>}
+
+        {auditReport?.sections?.length > 0 && (
+          <div className="divide-y divide-border border border-border rounded">
+            {auditReport.sections.map((sec) => {
+              const open = expandedSection === sec.id
+              const repaired = repairResults[sec.id]
+              const busy = repairBusyId === sec.id
+              const badge =
+                sec.status === 'error'
+                  ? { text: 'Error', cls: 'border-danger text-danger' }
+                  : sec.status === 'issues'
+                    ? { text: `${sec.count}`, cls: 'border-accent text-accent' }
+                    : { text: 'OK', cls: 'border-border text-muted' }
+              return (
+                <div key={sec.id} className="p-3">
+                  <button
+                    className="w-full flex items-start gap-3 text-left"
+                    onClick={() => setExpandedSection(open ? null : sec.id)}
+                    aria-expanded={open}
+                  >
+                    <span className={`mt-0.5 px-2 py-0.5 text-[11px] rounded border flex-shrink-0 ${badge.cls}`}>
+                      {badge.text}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium">{sec.label}</span>
+                      <span className="block text-xs text-muted mt-0.5">{sec.description}</span>
+                    </span>
+                    <i className={`fas fa-chevron-${open ? 'up' : 'down'} text-xs mt-1 text-muted`} aria-hidden="true" />
+                  </button>
+
+                  {open && (
+                    <div className="mt-3 pl-1 space-y-3">
+                      {sec.error && <div className="text-sm text-danger">{sec.error}</div>}
+
+                      {sec.findings.map((f, i) => (
+                        <div key={i} className="text-sm">
+                          <div className="flex items-baseline gap-2">
+                            {f.count > 0 && (
+                              <span className="text-accent font-medium">{f.count.toLocaleString()}</span>
+                            )}
+                            <span>{f.label}</span>
+                          </div>
+                          {f.detail && <div className="text-xs text-muted mt-0.5">{f.detail}</div>}
+                          {f.samples?.length > 0 && (
+                            <ul className="mt-1 text-xs text-muted list-disc list-inside space-y-0.5">
+                              {f.samples.map((sample, j) => <li key={j} className="truncate">{sample}</li>)}
+                              {f.count > f.samples.length && (
+                                <li className="italic">…and {(f.count - f.samples.length).toLocaleString()} more</li>
+                              )}
+                            </ul>
+                          )}
+                        </div>
+                      ))}
+
+                      {sec.repairable && !repaired && pendingRepair !== sec.id && (
+                        <button
+                          onClick={() => setPendingRepair(sec.id)}
+                          disabled={busy}
+                          className="px-3 py-1.5 text-sm bg-button hover:bg-buttonHover rounded-buttonTheme disabled:opacity-50"
+                        >
+                          {sec.repairLabel}
+                        </button>
+                      )}
+
+                      {/* Approval step: state the effect before doing it. */}
+                      {pendingRepair === sec.id && (
+                        <div className="border border-accent rounded p-3 space-y-2">
+                          <div className="text-sm font-medium">This will:</div>
+                          <ul className="text-sm text-muted list-disc list-inside space-y-1">
+                            {sec.willChange.map((line, i) => <li key={i}>{line}</li>)}
+                          </ul>
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              onClick={() => applyRepair(sec.id)}
+                              disabled={busy}
+                              className="px-3 py-1.5 text-sm bg-accent hover:bg-accentHover text-white rounded-buttonTheme disabled:opacity-50"
+                            >
+                              {busy ? 'Working…' : 'Continue'}
+                            </button>
+                            <button
+                              onClick={() => setPendingRepair(null)}
+                              disabled={busy}
+                              className="px-3 py-1.5 text-sm bg-button hover:bg-buttonHover rounded-buttonTheme disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {repaired && (
+                        <div className={`text-sm ${repaired.ok ? 'text-muted' : 'text-danger'}`}>
+                          {repaired.ok ? (
+                            <>
+                              <div className="font-medium text-text">Done.</div>
+                              <ul className="list-disc list-inside mt-1 space-y-0.5">
+                                {repaired.changes.map((c, i) => <li key={i}>{c}</li>)}
+                              </ul>
+                              <div className="mt-1 text-xs">Re-run the check to confirm.</div>
+                            </>
+                          ) : repaired.error}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="border border-border rounded p-4 space-y-3">
+        <div>
+          <h2 className="text-base font-semibold">Browse catalog index</h2>
+          <p className="text-sm text-muted mt-1 max-w-2xl">
+            Browse filters and sorts against a compact index of the catalog instead of rebuilding
+            the full metadata join on every query. It refreshes automatically as catalog updates
+            arrive; rebuild it here if Browse looks out of date, is missing entries, or is sorted
+            wrongly. Your library and metadata are not touched.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={rebuildIndex}
+            disabled={indexBusy}
+            className="px-4 py-2 bg-accent hover:bg-accentHover text-white rounded-buttonTheme disabled:opacity-50"
+          >
+            {indexBusy ? 'Rebuilding…' : 'Rebuild index'}
+          </button>
+
+          {indexStatus && !indexBusy && (
+            <span className="text-sm text-muted">
+              {indexStatus.ready
+                ? `${(indexStatus.rowCount || 0).toLocaleString()} entries indexed`
+                : indexStatus.rowCount > 0
+                  ? `Out of date - ${(indexStatus.rowCount || 0).toLocaleString()} entries indexed`
+                  : 'Not built yet'}
+              {indexStatus.builtAt
+                ? ` - last built ${new Date(indexStatus.builtAt).toLocaleString()}`
+                : ''}
+            </span>
+          )}
+        </div>
+
+        {indexBusy && (
+          <div className="space-y-1">
+            <div className="text-sm text-muted">
+              {indexProgress?.message || 'Preparing…'}
+            </div>
+            <div className="h-1.5 w-full max-w-md bg-tertiary rounded overflow-hidden">
+              <div
+                className="h-full bg-accent transition-[width] duration-200"
+                style={{
+                  width: indexProgress?.total
+                    ? `${Math.min(100, Math.round((indexProgress.processed / indexProgress.total) * 100))}%`
+                    : '15%',
+                }}
+                role="progressbar"
+                aria-valuenow={indexProgress?.total ? indexProgress.processed : undefined}
+                aria-valuemin={0}
+                aria-valuemax={indexProgress?.total || undefined}
+                aria-label="Rebuilding browse catalog index"
+              />
+            </div>
+          </div>
+        )}
+
+        {indexResult && (
+          <div className="text-sm text-muted">
+            Rebuilt {(indexResult.totalRows || 0).toLocaleString()} entries in{' '}
+            {((indexResult.durationMs || 0) / 1000).toFixed(1)}s
+            {typeof indexResult.steamLinks === 'number'
+              ? `, resolved ${indexResult.steamLinks.toLocaleString()} Steam links`
+              : ''}
+            .
+          </div>
+        )}
+
+        {indexError && <div className="text-sm text-danger">{indexError}</div>}
       </div>
 
       <div className="flex items-center gap-3">

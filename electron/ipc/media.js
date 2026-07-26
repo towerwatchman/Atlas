@@ -147,6 +147,23 @@ module.exports = function registerMediaHandlers(ctx) {
     }
   })
 
+  // Both banner handlers used to build a whole config object and
+  // fs.writeFileSync it directly, which bypassed the section-wise merge in
+  // save-settings -- so a settings change made in between could be clobbered.
+  // This merges into the live config and supports deleting a key (undefined),
+  // which is how customBannerLayout is retired once it lives in a file.
+  const persistAppearance = (patch) => {
+    const ini = require('ini')
+    const appearance = { ...(ctx.appConfig?.Appearance || {}) }
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) delete appearance[key]
+      else appearance[key] = value
+    }
+    const next = { ...(ctx.appConfig || {}), Appearance: appearance }
+    fs.writeFileSync(configPath, ini.stringify(next))
+    ctx.appConfig = next
+  }
+
   ipcMain.handle('get-selected-banner-template', async () => {
     try {
       return ctx.appConfig?.Appearance?.bannerTemplate || 'Default'
@@ -157,13 +174,7 @@ module.exports = function registerMediaHandlers(ctx) {
 
   ipcMain.handle('set-selected-banner-template', async (event, template) => {
     try {
-      const ini = require('ini')
-      const newConfig = {
-        ...ctx.appConfig,
-        Appearance: { ...ctx.appConfig.Appearance, bannerTemplate: template },
-      }
-      fs.writeFileSync(configPath, ini.stringify(newConfig))
-      ctx.appConfig = newConfig
+      persistAppearance({ bannerTemplate: template })
       broadcastBannerLayoutUpdated()
       return { success: true }
     } catch (err) {
@@ -172,11 +183,12 @@ module.exports = function registerMediaHandlers(ctx) {
     }
   })
 
+  // The active layout lives in templates/banner-layout-active.json, not in
+  // config.ini. ctx.readActiveBannerLayout falls back to the old config key when
+  // the file is absent, so a downgrade or a restored older config.ini still works.
   ipcMain.handle('get-custom-banner-layout', async () => {
     try {
-      const raw = ctx.appConfig?.Appearance?.customBannerLayout
-      if (!raw) return null
-      return JSON.parse(raw)
+      return ctx.readActiveBannerLayout?.() ?? null
     } catch (err) {
       console.error('get-custom-banner-layout error:', err)
       return null
@@ -185,17 +197,10 @@ module.exports = function registerMediaHandlers(ctx) {
 
   ipcMain.handle('set-custom-banner-layout', async (event, layout) => {
     try {
-      const ini = require('ini')
-      const newConfig = {
-        ...ctx.appConfig,
-        Appearance: {
-          ...ctx.appConfig.Appearance,
-          bannerTemplate: 'custom',
-          customBannerLayout: JSON.stringify(layout || {}),
-        },
-      }
-      fs.writeFileSync(configPath, ini.stringify(newConfig))
-      ctx.appConfig = newConfig
+      // Layout to its own file; config.ini keeps only the short id, the same
+      // split themes already use.
+      ctx.writeActiveBannerLayout(layout || {})
+      persistAppearance({ bannerTemplate: 'custom', customBannerLayout: undefined })
       broadcastBannerLayoutUpdated()
       return { success: true }
     } catch (err) {
