@@ -105,6 +105,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   runDbAudit: () => ipcRenderer.invoke("run-db-audit"),
   getCatalogIndexStatus: () => ipcRenderer.invoke("get-catalog-index-status"),
   rebuildCatalogIndex: () => ipcRenderer.invoke("rebuild-catalog-index"),
+  runClientAudit: () => ipcRenderer.invoke("run-client-audit"),
+  repairClientAuditSection: (sectionId) =>
+    ipcRenderer.invoke("repair-client-audit-section", sectionId),
   auditSeasonMerges: () => ipcRenderer.invoke("audit-season-merges"),
   applySeasonMerge: (atlasId, survivorRecordId) =>
     ipcRenderer.invoke("apply-season-merge", { atlasId, survivorRecordId }),

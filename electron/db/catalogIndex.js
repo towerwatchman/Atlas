@@ -771,3 +771,274 @@ module.exports = {
   dateTier,
   extractSteamAppIds,
 }
+
+// ── query path ───────────────────────────────────────────────────────────────
+//
+// Resolves a page of browse results to an ordered list of catalog keys plus an
+// optional total, filtering and sorting entirely against catalog_index. The
+// caller then hydrates just those keys from the source tables.
+//
+// Local-only concepts (favourite, playstate, personal rating, wishlist) are not
+// projected into the index because they change on user action rather than on
+// catalog sync; they join in from games / game_personal_ratings /
+// wishlist_entries on local_record_id, which is indexed.
+const buildIndexWhere = (search = {}, filters = {}) => {
+  const parts = []
+  const params = []
+
+  const escapeLike = (value) => String(value).replace(/[\\%_]/g, (c) => `\\${c}`)
+  const like = (value) => `%${escapeLike(value).toLowerCase()}%`
+  const toArray = (value) => {
+    if (Array.isArray(value)) {
+      return value.filter((v) => v !== undefined && v !== null && String(v).trim() !== '').map(String)
+    }
+    if (value === undefined || value === null || value === '') return []
+    return [String(value)]
+  }
+
+  // ── text search ───────────────────────────────────────────────────────────
+  let text = String(search.text || '').trim()
+  let type = String(search.type || 'all').trim()
+  const prefixed = text.match(/^([a-z]+):\s*(.+)$/i)
+  if (prefixed) {
+    const prefix = prefixed[1].toLowerCase()
+    text = prefixed[2].trim()
+    if (prefix === 'id') type = 'anyId'
+    if (prefix === 'f95') type = 'f95Id'
+    if (prefix === 'lc' || prefix === 'lewdcorner') type = 'lewdcornerId'
+    if (prefix === 'atlas') type = 'atlasId'
+    if (prefix === 'steam') type = 'steamId'
+    if (prefix === 'url') type = 'source'
+  }
+  const terms = text.split(/\s+/).map((t) => t.trim()).filter((t) => t && !t.startsWith('-'))
+  if (terms.length > 0) {
+    const fieldsFor = {
+      title: ['title', 'short_name'],
+      creator: ['creator'],
+      atlasId: ['atlas_id', 'record_id'],
+      f95Id: ['f95_id'],
+      lewdcornerId: ['lc_id'],
+      steamId: ['steam_id'],
+      anyId: ['atlas_id', 'record_id', 'f95_id', 'lc_id', 'steam_id'],
+      source: ['site_url', 'source'],
+    }
+    // The catch-all search matches the precomputed search_text (title, name,
+    // creator, engine, status, category) plus tags_text, replacing a ten-column
+    // OR across the union.
+    const fields = fieldsFor[type] || ['search_text', 'tags_text']
+    for (const term of terms) {
+      parts.push(`(${fields.map((f) => `LOWER(COALESCE(CAST(ci.${f} AS TEXT), '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`)
+      params.push(...fields.map(() => like(term)))
+    }
+  }
+
+  // ── source ────────────────────────────────────────────────────────────────
+  const browseSource = String(filters.browseSource || filters.source || 'all').toLowerCase()
+  if (browseSource === 'steam') {
+    // "Steam" means any tile that HAS a Steam link, not only tiles whose
+    // computed source is steam — has_steam_link captures both.
+    parts.push(`(ci.source = 'steam' OR ci.has_steam_link = 1 OR ci.steam_id IS NOT NULL)`)
+  } else if (['f95', 'lewdcorner', 'atlas', 'gog'].includes(browseSource)) {
+    parts.push('ci.source = ?')
+    params.push(browseSource)
+  }
+
+  const addIn = (column, values) => {
+    const safe = toArray(values)
+    if (safe.length === 0) return
+    parts.push(`ci.${column} COLLATE NOCASE IN (${safe.map(() => '?').join(', ')})`)
+    params.push(...safe)
+  }
+  const addNotIn = (column, values) => {
+    const safe = toArray(values)
+    if (safe.length === 0) return
+    parts.push(`(ci.${column} IS NULL OR ci.${column} COLLATE NOCASE NOT IN (${safe.map(() => '?').join(', ')}))`)
+    params.push(...safe)
+  }
+
+  addIn('category', filters.category)
+  addNotIn('category', filters.excludedCategories)
+  addIn('engine', filters.engine)
+  addNotIn('engine', filters.excludedEngines)
+  addIn('status', filters.status)
+  addNotIn('status', filters.excludedStatuses)
+  addIn('censored', filters.censored)
+
+  const languages = toArray(filters.language)
+  if (languages.length > 0) {
+    parts.push(`(${languages.map(() => `LOWER(COALESCE(ci.language, '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`)
+    params.push(...languages.map(like))
+  }
+
+  // All four tag sources are concatenated into tags_text at index time, so one
+  // LIKE per tag replaces four.
+  const addTags = (values, { exclude = false, logic = 'AND' } = {}) => {
+    const safe = toArray(values)
+    if (safe.length === 0) return
+    const clauses = safe.map((value) => {
+      params.push(like(value))
+      const one = `LOWER(COALESCE(ci.tags_text, '')) LIKE ? ESCAPE '\\'`
+      return exclude ? `NOT (${one})` : `(${one})`
+    })
+    parts.push(`(${clauses.join(exclude || logic === 'AND' ? ' AND ' : ' OR ')})`)
+  }
+  addTags(filters.tags, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' })
+  addTags(filters.excludedTags, { exclude: true })
+
+  if (filters.steamMapped === true) {
+    parts.push('(ci.steam_id IS NOT NULL OR ci.has_steam_link = 1)')
+  }
+  if (filters.installState === 'installed') parts.push('ci.is_installed = 1')
+  else if (filters.installState === 'uninstalled') parts.push('ci.is_installed = 0')
+  if (filters.updateAvailable === true) parts.push('ci.is_installed = 1')
+  if (filters.favoritesOnly === true) parts.push('COALESCE(lg.is_favorite, 0) = 1')
+
+  // Effective playstate: an explicit per-title override wins, otherwise it is
+  // derived from the versions but only when every version agrees.
+  const playstateExpr = `COALESCE(
+    lg.playstate,
+    (SELECT CASE
+              WHEN COUNT(*) > 0
+               AND SUM(CASE WHEN v.playstate IS NULL OR v.playstate = '' THEN 1 ELSE 0 END) = 0
+               AND COUNT(DISTINCT v.playstate) = 1
+              THEN MAX(v.playstate) ELSE NULL END
+     FROM versions v WHERE v.record_id = ci.local_record_id)
+  )`
+  const includePlaystates = toArray(filters.playstates)
+  if (includePlaystates.length > 0) {
+    parts.push(`(${playstateExpr}) COLLATE NOCASE IN (${includePlaystates.map(() => '?').join(', ')})`)
+    params.push(...includePlaystates)
+  }
+  const excludePlaystates = toArray(filters.excludedPlaystates)
+  if (excludePlaystates.length > 0) {
+    parts.push(`((${playstateExpr}) IS NULL OR (${playstateExpr}) COLLATE NOCASE NOT IN (${excludePlaystates.map(() => '?').join(', ')}))`)
+    params.push(...excludePlaystates, ...excludePlaystates)
+  }
+
+  if (filters.wishlistOnly === true) {
+    parts.push(`EXISTS (
+      SELECT 1 FROM wishlist_entries w
+       WHERE (w.atlas_id IS NOT NULL AND w.atlas_id = ci.atlas_id)
+          OR (w.f95_id  IS NOT NULL AND w.f95_id  = ci.f95_id)
+          OR (w.lc_id   IS NOT NULL AND w.lc_id   = ci.lc_id)
+          OR (w.steam_id IS NOT NULL AND w.steam_id = ci.steam_id))`)
+  }
+
+  const ratingExpr = `(
+    (COALESCE(lr.story,0) + COALESCE(lr.graphics,0) + COALESCE(lr.gameplay,0) + COALESCE(lr.fappability,0)) * 1.0
+    / NULLIF(
+        (CASE WHEN lr.story IS NOT NULL THEN 1 ELSE 0 END) +
+        (CASE WHEN lr.graphics IS NOT NULL THEN 1 ELSE 0 END) +
+        (CASE WHEN lr.gameplay IS NOT NULL THEN 1 ELSE 0 END) +
+        (CASE WHEN lr.fappability IS NOT NULL THEN 1 ELSE 0 END), 0))`
+  const ratingMin = Number(filters.personalRatingMin)
+  const ratingStatus = ['rated', 'unrated'].includes(filters.personalRatingStatus)
+    ? filters.personalRatingStatus
+    : filters.personalRatingRatedOnly === true ? 'rated' : 'any'
+  if (ratingStatus === 'unrated') {
+    parts.push(`${ratingExpr} IS NULL`)
+  } else if (ratingStatus === 'rated' || (Number.isFinite(ratingMin) && ratingMin > 0)) {
+    parts.push(`${ratingExpr} IS NOT NULL`)
+    if (Number.isFinite(ratingMin) && ratingMin > 0) {
+      parts.push(`${ratingExpr} >= ?`)
+      params.push(ratingMin)
+    }
+  }
+
+  const communityMin = Number(filters.communityRatingMin)
+  if (Number.isFinite(communityMin) && communityMin > 0) {
+    parts.push('COALESCE(ci.rating_best, 0) >= ?')
+    params.push(communityMin)
+  }
+
+  // Date ranges hit the stored *_ms integers, so these are index-usable rather
+  // than a CASE evaluated per row.
+  const addDateRange = (column, range) => {
+    const now = Date.now()
+    let min = null
+    let max = now
+    if (range === '7d') min = now - 7 * 86400000
+    else if (range === '30d') min = now - 30 * 86400000
+    else if (range === '90d') min = now - 90 * 86400000
+    else if (range === 'year') {
+      const year = new Date(now).getFullYear()
+      min = new Date(year, 0, 1).getTime()
+      max = new Date(year + 1, 0, 1).getTime() - 1
+    } else return
+    parts.push(`ci.${column} BETWEEN ? AND ?`)
+    params.push(min, max)
+  }
+  const range = filters.dateRange
+  if (filters.dateField === 'releaseDate' && range && range !== 'any') addDateRange('release_date_ms', range)
+  else if (filters.dateField === 'latestUpdate' && range && range !== 'any') addDateRange('thread_updated_ms', range)
+  else if (filters.dateField === 'threadPublished' && range && range !== 'any') addDateRange('thread_publish_ms', range)
+  else if (filters.dateField === 'none' && filters.browseDateRange && filters.browseDateRange !== 'any') {
+    addDateRange(
+      filters.browseDateBasis === 'thread_publish_date' ? 'thread_publish_ms' : 'thread_updated_ms',
+      filters.browseDateRange)
+  }
+
+  return { where: parts.length ? `WHERE ${parts.join(' AND ')}` : '', params }
+}
+
+// (tier ASC, ms DESC, title, catalog_key) matches the composite indexes exactly,
+// which is what lets the default newest-first page terminate early instead of
+// sorting the whole catalog.
+const buildIndexOrderBy = (filters = {}) => {
+  const aliases = {
+    name: 'titleAsc', nameAsc: 'titleAsc', nameDesc: 'titleDesc',
+    newest: 'threadUpdatedDesc', oldest: 'threadUpdatedAsc',
+  }
+  const raw = String(filters.browseSort || 'threadUpdatedDesc')
+  const sort = aliases[raw] || raw
+  const dated = (prefix, dir) =>
+    `ORDER BY ci.${prefix}_tier ASC, ci.${prefix}_ms ${dir}, ci.title COLLATE NOCASE ASC, ci.catalog_key ASC`
+  const nullsLast = (column, dir) =>
+    `ORDER BY CASE WHEN ci.${column} IS NULL THEN 1 ELSE 0 END ASC, ci.${column} ${dir}, ci.title COLLATE NOCASE ASC, ci.catalog_key ASC`
+  switch (sort) {
+    case 'titleDesc': return 'ORDER BY ci.title COLLATE NOCASE DESC, ci.catalog_key DESC'
+    case 'titleAsc': return 'ORDER BY ci.title COLLATE NOCASE ASC, ci.catalog_key ASC'
+    case 'creatorAsc': return nullsLast('creator', 'ASC')
+    case 'creatorDesc': return nullsLast('creator', 'DESC')
+    case 'likesDesc': return nullsLast('likes_best', 'DESC')
+    case 'likesAsc': return nullsLast('likes_best', 'ASC')
+    case 'ratingDesc': return nullsLast('rating_best', 'DESC')
+    case 'ratingAsc': return nullsLast('rating_best', 'ASC')
+    case 'threadUpdatedAsc': return dated('thread_updated', 'ASC')
+    case 'threadPublishedDesc': return dated('thread_publish', 'DESC')
+    case 'threadPublishedAsc': return dated('thread_publish', 'ASC')
+    case 'releaseDateDesc': return dated('release_date', 'DESC')
+    case 'releaseDateAsc': return dated('release_date', 'ASC')
+    case 'f95LatestOrderDesc': return nullsLast('f95_latest_order', 'DESC')
+    case 'f95LatestOrderAsc': return nullsLast('f95_latest_order', 'ASC')
+    default: return dated('thread_updated', 'DESC')
+  }
+}
+
+const CATALOG_INDEX_JOINS = `
+  LEFT JOIN games AS lg ON lg.record_id = ci.local_record_id
+  LEFT JOIN game_personal_ratings AS lr ON lr.record_id = ci.local_record_id
+`
+
+const queryCatalogIndex = async ({
+  search = {}, filters = {}, offset = 0, limit = 250,
+  includeTotal = false, countOnly = false,
+} = {}) => {
+  const { where, params } = buildIndexWhere(search, filters)
+  let total = null
+  if (includeTotal || countOnly) {
+    const row = await dbGet(
+      `SELECT COUNT(*) AS total FROM catalog_index ci ${CATALOG_INDEX_JOINS} ${where}`, params)
+    total = Number(row?.total || 0)
+  }
+  if (countOnly) return { keys: [], total }
+  const rows = await dbAll(
+    `SELECT ci.catalog_key FROM catalog_index ci ${CATALOG_INDEX_JOINS} ${where}
+     ${buildIndexOrderBy(filters)} LIMIT ? OFFSET ?`,
+    [...params, limit, offset])
+  return { keys: rows.map((r) => r.catalog_key), total }
+}
+
+module.exports.queryCatalogIndex = queryCatalogIndex
+module.exports.buildIndexWhere = buildIndexWhere
+module.exports.buildIndexOrderBy = buildIndexOrderBy

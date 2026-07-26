@@ -14,11 +14,15 @@ const { applyMediaSources } = require('../db/mediaSources')
 const { calculatePathSize } = require('../pathSize')
 const { runDatabaseAudit, getInvalidMappingCount } = require('../db/audit')
 const { getCatalogIndexStatus, rebuildCatalogIndex } = require('../db/catalogIndex')
+const { runClientAudit, repairClientAuditSection } = require('../db/clientAudit')
 const { auditSeasonMerges, applySeasonMerge, applyAllSeasonMerges } = require('../db/seasonMerge')
 
 // Guards against two full rebuilds interleaving their chunked transactions on
 // the single shared sqlite connection.
 let catalogIndexRebuildInFlight = false
+// Repairs mutate shared tables and VACUUM takes an exclusive lock, so only one
+// may run at a time.
+let clientAuditRepairInFlight = false
 
 function emitGameUpdated(recordId) {
   if (!recordId) return
@@ -523,6 +527,43 @@ function registerGamesHandlers(ctx) {
       return { success: false, error: err.message }
     } finally {
       catalogIndexRebuildInFlight = false
+    }
+  })
+
+  // ── Full client check ─────────────────────────────────────────────────────
+  // Read-only. Returns one entry per section with its findings and, where a
+  // repair exists, a `willChange` list so the UI can state the effect before the
+  // user approves it. Nothing is modified until repair-client-audit-section is
+  // called with a specific section id.
+  ipcMain.handle('run-client-audit', async () => {
+    try {
+      return { success: true, ...(await runClientAudit(ctx)) }
+    } catch (err) {
+      console.error('run-client-audit error:', err)
+      return { success: false, error: err.message, sections: [] }
+    }
+  })
+
+  ipcMain.handle('repair-client-audit-section', async (event, sectionId) => {
+    if (clientAuditRepairInFlight) {
+      return { success: false, error: 'Another repair is already running.' }
+    }
+    clientAuditRepairInFlight = true
+    try {
+      const result = await repairClientAuditSection(String(sectionId || ''), ctx, {
+        onProgress: (payload) => {
+          BrowserWindow.getAllWindows().forEach((win) => {
+            if (!win.isDestroyed()) win.webContents.send('catalog-index-progress', payload)
+          })
+        },
+      })
+      console.log(`client audit repair [${sectionId}]:`, (result.changes || []).join('; ') || 'no changes')
+      return { success: true, section: sectionId, ...result }
+    } catch (err) {
+      console.error(`repair-client-audit-section (${sectionId}) error:`, err)
+      return { success: false, error: err.message }
+    } finally {
+      clientAuditRepairInFlight = false
     }
   })
 
