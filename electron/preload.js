@@ -478,6 +478,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // ────────────────────────────────────────────────────────────────
   //     METHODS TO REMOVE
   // ────────────────────────────────────────────────────────────────
+  getLibraryStats: () => ipcRenderer.invoke("get-library-stats"),
   countVersions: (recordId) => ipcRenderer.invoke("count-versions", recordId),
   deleteVersion: (params) => ipcRenderer.invoke("delete-version", params),
   deleteGameCompletely: (recordId) =>

@@ -234,6 +234,7 @@ const App = () => {
     games, catalogGames, wishlistGames, totalVersions, fetchGames, fetchCatalogGames,
     requestCatalogRange, catalogLoading, catalogLoadingMore,
     catalogTotal, catalogLoadError, catalogIndexState,
+    gamesLoading, wishlistLoading, libraryStats,
     fetchWishlistGames, replaceGameInState,
     removeGameFromState, refreshGame, includeUninstalledRef,
   } = useGames()
@@ -298,6 +299,31 @@ const App = () => {
       : libraryMode === 'wishlist'
         ? wishlistFilteredGames
         : localFilteredGames
+  // The library grid must not claim to be empty while data is still arriving, nor
+  // when the database reports records that are not in state yet. get-games has to
+  // resolve every record's version list before it returns, so on a large library
+  // there is a real window with no data — and "No games available" in that window
+  // reads as a lost library. The stats probe (three indexed COUNT(*)s) resolves
+  // well before get-games, so the real total is usually known on first render.
+  const expectedLibraryCount = libraryStats?.games || 0
+  const libraryIsLoading =
+    libraryMode === 'wishlist' ? wishlistLoading : libraryMode === 'local' && gamesLoading
+  // The fetch finished, returned nothing, and yet the database reports records.
+  // Deliberately NOT folded into the spinner condition above: that would spin
+  // forever on a failed fetch. This is a genuine anomaly, so it gets its own
+  // message and a retry rather than an animation that never ends.
+  const libraryLoadMismatch =
+    libraryMode === 'local' && !gamesLoading && games.length === 0 && expectedLibraryCount > 0
+  // Distinguishes "your filters match nothing" from "you have no games", which
+  // the single 'No games available' string used to conflate.
+  const hasActiveLibraryFilters = Boolean(
+    activeFilters?.text ||
+    activeSavedFilterId ||
+    (activeFilters?.tags?.length || 0) > 0 ||
+    (activeFilters?.category?.length || 0) > 0 ||
+    (activeFilters?.engine?.length || 0) > 0 ||
+    (activeFilters?.status?.length || 0) > 0,
+  )
   const viewTitle =
     libraryMode === 'catalog'
       ? 'Browse'
@@ -1783,13 +1809,64 @@ const App = () => {
                   aria-label="Loading Browse titles"
                 />
               </div>
+            ) : libraryLoadMismatch ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+                <i className="fas fa-triangle-exclamation text-2xl text-amber-400" aria-hidden="true" />
+                <div className="text-text">Your library did not load</div>
+                <div className="max-w-md text-xs text-muted">
+                  The database reports {expectedLibraryCount.toLocaleString()} game
+                  {expectedLibraryCount === 1 ? '' : 's'}
+                  {libraryStats?.versions
+                    ? ` and ${libraryStats.versions.toLocaleString()} version${libraryStats.versions === 1 ? '' : 's'}`
+                    : ''}
+                  , but none were returned. Your data is still there. Try reloading;
+                  if it keeps happening run Settings, Database, Full client check.
+                </div>
+                <button
+                  onClick={() => fetchGames(includeUninstalledRef.current)}
+                  className="rounded-buttonTheme bg-button px-4 py-2 text-sm hover:bg-buttonHover"
+                >
+                  Reload library
+                </button>
+              </div>
+            ) : libraryIsLoading ? (
+              // Never show an empty-library message while the fetch is still in
+              // flight, or when the database says there ARE records. get-games
+              // resolves every record's version list before returning, so on a
+              // large library there is a real window where the grid has no data
+              // yet — and "No games available" in that window reads as a lost
+              // library rather than as loading. Path validation and streamed art
+              // can extend it further.
+              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+                <div
+                  className="h-10 w-10 animate-spin rounded-full border-4 border-border border-t-accent"
+                  role="status"
+                  aria-label={libraryMode === 'wishlist' ? 'Loading wishlist' : 'Loading library'}
+                />
+                <div className="text-text">
+                  {libraryMode === 'wishlist' ? 'Loading wishlist…' : 'Loading your library…'}
+                </div>
+                {libraryMode !== 'wishlist' && expectedLibraryCount > 0 && (
+                  <div className="text-xs text-muted">
+                    {expectedLibraryCount.toLocaleString()} game
+                    {expectedLibraryCount === 1 ? '' : 's'}
+                    {libraryStats?.versions
+                      ? ` and ${libraryStats.versions.toLocaleString()} version${libraryStats.versions === 1 ? '' : 's'}`
+                      : ''}
+                    {' '}in your database. Large libraries can take a moment, especially
+                    on a network drive.
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="flex h-full items-center justify-center text-center text-text">
                 {libraryMode === 'catalog'
                   ? 'No browse titles match these filters.'
                   : libraryMode === 'wishlist'
                     ? 'No wishlist entries yet.'
-                    : 'No games available'}
+                    : hasActiveLibraryFilters
+                      ? 'No games match these filters.'
+                      : 'No games available'}
               </div>
             )
           ) : (

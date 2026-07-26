@@ -748,6 +748,36 @@ const removeGame = async (record_id) => {
 
 // Count versions for a game
 
+// Cheap library-wide totals, used so the UI can tell "still loading" apart from
+// "you have no games". Without this the library grid rendered its empty state
+// ("No games available") while the first get-games call was still in flight,
+// which on a 5,000-version library reads as data loss rather than as loading.
+// Three indexed COUNT(*)s: fast enough to run before the real fetch.
+const getLibraryStats = () =>
+  new Promise((resolve) => {
+    getDb().get(
+      `SELECT
+         (SELECT COUNT(*) FROM games)    AS games,
+         (SELECT COUNT(*) FROM versions) AS versions,
+         (SELECT COUNT(*) FROM versions
+           WHERE game_path IS NOT NULL AND game_path != '') AS pathVersions`,
+      [],
+      (err, row) => {
+        if (err) {
+          console.warn('getLibraryStats failed:', err.message)
+          resolve({ games: 0, versions: 0, pathVersions: 0, ok: false })
+          return
+        }
+        resolve({
+          games: row?.games || 0,
+          versions: row?.versions || 0,
+          pathVersions: row?.pathVersions || 0,
+          ok: true,
+        })
+      },
+    )
+  })
+
 const countVersions = (recordId) =>
   new Promise((resolve, reject) => {
     getDb().get(
@@ -985,6 +1015,7 @@ module.exports = {
   updateGame,
   removeGame,
   countVersions,
+  getLibraryStats,
   deleteVersion,
   deleteGameCompletely,
   getGameRecordIds,

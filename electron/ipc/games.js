@@ -5,7 +5,7 @@ const { BROWSE_MODE_ENABLED } = require('../features')
 const path = require('path')
 const fs = require('fs')
 const cp = require('child_process')
-const { recordGameLaunchStarted, recordGamePlaytime } = require('../db/games')
+const { recordGameLaunchStarted, recordGamePlaytime, getLibraryStats } = require('../db/games')
 const { getEmulatorByExtension } = require('../db/settings')
 const { getSteamIDbyRecord } = require('../db/steam')
 const { getGogIDbyRecord, addGogMapping } = require('../db/gog')
@@ -155,6 +155,17 @@ function registerGamesHandlers(ctx) {
 
   ipcMain.handle('add-game', async (event, game) => {
     return await addGame(game, getAssetBasePath(), process.defaultApp)
+  })
+
+  // Cheap probe so the renderer can show a spinner with a real count instead of
+  // an empty-library message while get-games is still running.
+  ipcMain.handle('get-library-stats', async () => {
+    try {
+      return await getLibraryStats()
+    } catch (err) {
+      console.error('get-library-stats error:', err)
+      return { games: 0, versions: 0, pathVersions: 0, ok: false }
+    }
   })
 
   ipcMain.handle('count-versions', async (_, recordId) => {
