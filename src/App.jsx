@@ -1314,6 +1314,17 @@ const App = () => {
     const removeExecRepairListener =
       window.electronAPI.onLibraryExecPathsRepaired?.(handleLibraryExecPathsRepaired)
     window.electronAPI.onImportComplete(handleImportComplete)
+    // The import wizard closes as soon as an import starts, so failures are
+    // reported here rather than in a window that's already gone.
+    const removeImportFailedListener = window.electronAPI.onImportFailed?.((payload) => {
+      const count = payload?.count || 0
+      if (count <= 0) return
+      const errors = Array.isArray(payload?.errors) ? payload.errors : []
+      toast.error(`${count} import${count === 1 ? '' : 's'} failed`, {
+        message: errors.join('\n') || 'Unknown import failure',
+        duration: 12000,
+      })
+    })
     window.electronAPI.onUpdateStatus(handleUpdateStatus)
     window.electronAPI.onRefreshMediaProgress?.((data) => {
       setRefreshLibraryProgress({
@@ -1349,6 +1360,7 @@ const App = () => {
       if (typeof removeMetadataListener === 'function') removeMetadataListener()
       if (typeof removeNsfwListener === 'function') removeNsfwListener()
       if (typeof removeExecRepairListener === 'function') removeExecRepairListener()
+      if (typeof removeImportFailedListener === 'function') removeImportFailedListener()
       window.removeEventListener('resize', debounceResize)
       ;[
         'window-state-changed', 'db-update-progress', 'import-progress',
@@ -2040,8 +2052,24 @@ const App = () => {
               <div className="h-[15px] bg-progressBackground rounded overflow-hidden">
                 <div className="h-full bg-progressForeground" style={{ width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%` }}></div>
               </div>
-              <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
-                Game {formatProgressNumber(importProgress.progress, { clamp: false })}/{formatProgressNumber(importProgress.total, { clamp: false })}
+              <span
+                className="absolute inset-0 flex items-center justify-center gap-1 px-1 text-[10px] text-text overflow-hidden whitespace-nowrap"
+                title={importProgress.title || undefined}
+              >
+                {importProgress.percent != null || importProgress.phase === 'extracting' ? (
+                  <>
+                    {importProgress.title && (
+                      <span className="min-w-0 overflow-hidden text-ellipsis">{importProgress.title}</span>
+                    )}
+                    <span className="shrink-0">
+                      {formatPercent(importProgress.percent ?? importProgress.progress)}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Game {formatProgressNumber(importProgress.progress, { clamp: false })}/{formatProgressNumber(importProgress.total, { clamp: false })}
+                  </>
+                )}
               </span>
             </div>
             {importProgress.canCancel && (

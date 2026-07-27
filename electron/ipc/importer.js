@@ -29,6 +29,22 @@ const { deletePathWithElevationFallback } = require('../deleteUtils')
 let ownerMainWindow = null
 let nextScanId = 1
 
+// The registration context, kept at module scope so module-level helpers can
+// reach the *current* app config. `ctx.appConfig` is replaced wholesale every
+// time settings are saved (e.g. set-default-game-folder), so anything that
+// captured the config object at registration time goes stale immediately — which
+// is how "Default library folder is not set" could fire right after the user
+// picked a folder.
+let handlerCtx = null;
+const getLiveConfig = () => handlerCtx?.appConfig || {};
+
+// Closes the import wizard if it's open. `ctx.importerWindow` is a live getter
+// in main.js, so this always sees the current window (or null).
+const closeImporterWindow = () => {
+  const win = handlerCtx?.importerWindow;
+  if (win && !win.isDestroyed()) win.close();
+};
+
 const clampInteger = (value, fallback, min, max) => {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -379,6 +395,7 @@ async function extractArchive(
   session,
   progressWindow,
   useBundledRarExtractor = false,
+  label = "",
 ) {
   const workerPath = resolvePackagedModulePath(
     path.join(__dirname, "../../workers/extractWorker.js"),
@@ -423,8 +440,13 @@ async function extractArchive(
     worker.on("message", (msg) => {
       if (msg.type === "progress") {
         if (progressWindow && !progressWindow.isDestroyed()) {
+          // `title`/`percent` are passed through so the renderer can label the
+          // progress bar with the game being extracted instead of the
+          // meaningless "Game 42/100" it derives from progress/total.
           progressWindow.webContents.send("import-progress", {
-            text: msg.text,
+            text: label ? `${label} \u2014 ${msg.text}` : msg.text,
+            title: label || null,
+            percent: typeof msg.percent === "number" ? msg.percent : null,
             progress:
               typeof msg.percent === "number"
                 ? msg.percent
@@ -499,6 +521,7 @@ async function extractArchiveWithFallback({
   currentConfigPath,
   ownerWindow,
   notify,
+  label = "",
 }) {
   try {
     return await extractArchive(
@@ -508,6 +531,7 @@ async function extractArchiveWithFallback({
       session,
       progressWindow,
       useBundledRarExtractor,
+      label,
     );
   } catch (err) {
     // Never interfere with cancellation, and only offer the fallback for the
@@ -570,6 +594,7 @@ async function extractArchiveWithFallback({
       session,
       progressWindow,
       false,
+      label,
     );
   }
 }
@@ -981,7 +1006,7 @@ async function deleteLinkedGameFolders(recordId, versionPaths) {
     if (!deleteResult.success) throw new Error(deleteResult.error || "Delete skipped");
     await removeEmptyParentDirectories(
       resolvedPath,
-      appConfig?.Library?.gameFolder,
+      getLiveConfig()?.Library?.gameFolder,
     );
   }
 }
@@ -1451,6 +1476,7 @@ const applyImportMatchData = (game, match, { f95Id = "", lcId = "" } = {}) => ({
 // ── IPC Handlers ───────────────────────────────────────────────────
 
 module.exports = function registerImporterHandlers(ctx) {
+  handlerCtx = ctx;
   const {
     mainWindow, importerWindow, appConfig, configPath, dataDir,
     searchAtlas, searchAtlasByF95Id, findF95Id, getAtlasData,
@@ -2099,6 +2125,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
         currentConfigPath: configPath,
         ownerWindow,
         notify: (text) => notify(text, 15),
+        label: importGame.title || "",
       });
       gamePath = extraction.finalPath || targetBase;
 
@@ -2381,6 +2408,7 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
         currentConfigPath: configPath,
         ownerWindow,
         notify: () => {},
+        label: importGame.title || "",
       });
       gamePath = extraction.finalPath || targetBase;
       console.log("[LocalImport] Archive extracted", { sourcePath, gamePath });
@@ -3093,9 +3121,14 @@ ipcMain.handle("import-games", async (event, params) => {
       ["new", "repairPath", "steamVersion"].includes(game.scanStatus || "new") ||
       (forceReimport && game.scanStatus === "alreadyImported"),
   );
+  // Always re-read the config for this run. The renderer can set the games
+  // folder moments before calling import-games (the "Set your games folder"
+  // prompt), which rewrites ctx.appConfig — the destructured `appConfig` above
+  // is a snapshot from app start and would still show no gameFolder.
+  const liveConfig = ctx.appConfig || appConfig || {};
   const destinationFormat =
     libraryFormat ||
-    appConfig?.Library?.libraryFolderStructure ||
+    liveConfig?.Library?.libraryFolderStructure ||
     defaultConfig.Library.libraryFolderStructure;
   const gamesDir = path.join(dataDir, "games");
   if (!fs.existsSync(gamesDir)) fs.mkdirSync(gamesDir, { recursive: true });
@@ -3130,7 +3163,7 @@ ipcMain.handle("import-games", async (event, params) => {
   });
 
   const importNeedsLibrary = games.some((game) => game.isArchive || (moveFoldersToLibrary && !isSteamImportRow(game)));
-  let targetLibrary = appConfig?.Library?.gameFolder;
+  let targetLibrary = liveConfig?.Library?.gameFolder;
   if ((!targetLibrary || !fs.existsSync(targetLibrary)) && importNeedsLibrary) {
     console.warn("No default library folder configured");
     mainWindow.webContents.send("import-progress", {
@@ -3144,6 +3177,14 @@ ipcMain.handle("import-games", async (event, params) => {
   }
   if (!targetLibrary || !fs.existsSync(targetLibrary)) targetLibrary = null;
 
+  // Everything that can still bounce the user back to the wizard (missing games
+  // folder, nothing importable) has now passed, so the import is committed.
+  // Close the wizard here rather than in the renderer: the renderer only closed
+  // itself on a fully successful run, which left the window sitting open behind
+  // the progress bar whenever anything failed. Progress and failures are
+  // reported to the main window from here on.
+  closeImporterWindow();
+
   // ────────────────────────────────────────────────────────────────
   //  Resolve 7-Zip once before archive extraction
   // ────────────────────────────────────────────────────────────────
@@ -3154,8 +3195,8 @@ ipcMain.handle("import-games", async (event, params) => {
 
   if (needsExtraction) {
     const resolvedSevenZip = await resolveSevenZipExecutablePath({
-      configuredPath: appConfig?.Library?.sevenZipPath,
-      currentConfig: appConfig,
+      configuredPath: liveConfig?.Library?.sevenZipPath,
+      currentConfig: liveConfig,
       currentConfigPath: configPath,
       ownerWindow: mainWindow,
       notify: (text) =>
@@ -3293,6 +3334,9 @@ ipcMain.handle("import-games", async (event, params) => {
           text: `Preparing extraction for ${game.title}...`,
           progress: 0,
           total: 100,
+          phase: "extracting",
+          title: game.title || null,
+          percent: 0,
         });
 
         try {
@@ -3304,7 +3348,7 @@ ipcMain.handle("import-games", async (event, params) => {
             progressWindow: mainWindow,
             useBundledRarExtractor:
               isRarArchivePath(zipPath) && sevenZipSource === "bundled",
-            currentConfig: appConfig,
+            currentConfig: liveConfig,
             currentConfigPath: configPath,
             ownerWindow: mainWindow,
             notify: (text) =>
@@ -3312,7 +3356,9 @@ ipcMain.handle("import-games", async (event, params) => {
                 text,
                 progress: 0,
                 total: 0,
+                title: game.title || null,
               }),
+            label: game.title || "",
           });
           extractPath = extraction.finalPath || extractPath;
           session.cleanupPaths = [extractPath];
@@ -3805,6 +3851,19 @@ ipcMain.handle("import-games", async (event, params) => {
     total,
     canCancel: false,
   });
+
+  // The wizard was closed when the import started, so per-game failures can no
+  // longer be alerted there. Hand them to the main window's toast system.
+  const importFailures = results.filter((r) => r && r.success === false);
+  if (importFailures.length > 0) {
+    mainWindow.webContents.send("import-failed", {
+      count: importFailures.length,
+      total,
+      errors: importFailures
+        .map((r) => r.error || r.title || "Unknown import failure")
+        .slice(0, 5),
+    });
+  }
 
   const shouldDownloadImportImages = downloadBannerImages || downloadPreviewImages;
 

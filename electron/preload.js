@@ -356,6 +356,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeListener("game-updated", callback);
   },
   onImportComplete: (callback) => ipcRenderer.on("import-complete", callback),
+  // Per-game import failures. The wizard closes as soon as an import starts, so
+  // these are surfaced by the main window instead of an alert in the wizard.
+  onImportFailed: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("import-failed", handler);
+    return () => ipcRenderer.removeListener("import-failed", handler);
+  },
+  // Live launch state for a game: { recordId, version, running, tracked }.
+  onGameRunState: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("game-run-state", handler);
+    return () => ipcRenderer.removeListener("game-run-state", handler);
+  },
+  getRunningGames: () => ipcRenderer.invoke("get-running-games"),
   onLibraryValidationProgress: (callback) =>
     ipcRenderer.on("library-validation-progress", (event, progress) =>
       callback(progress),
@@ -388,6 +402,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "game-imported",
       "game-updated",
       "import-complete",
+      "import-failed",
+      "game-run-state",
       "update-status",
       "appearance-changed",
       "metadata-changed",
