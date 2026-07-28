@@ -21,11 +21,27 @@ const ROTATION_DEG = -60
 // percentages resolve against DIFFERENT bases (tile width vs tile height).
 const TILE_ASPECT = 16 / 9
 
-// Ceiling on how much art a tile draws. Past roughly this many the cells are
-// too small to read as game art, and every extra image costs a decode. Must not
-// exceed TILE_ART_LIMIT in electron/ipc/collections.js, which decides how many
+// Ceiling on how wide one cell may be, as a fraction of the tile's width.
+//
+// A cap is needed because covering the tile and keeping cells small are in
+// direct conflict when the grid is sized from the game count: covering a 16:9
+// tile at 60 degrees with a single cell forces that cell to 245% of the tile's
+// width. Under the cap, small collections leave some flat color top and bottom
+// instead of scaling art up to fill.
+//
+// Cells are free to run past the tile edge and be clipped — an image does not
+// have to be visible in full — which is what lets these sit as high as they do.
+const BASE_CELL_WIDTH = 0.45
+const CELL_ZOOM = 1.4 // every count
+const SINGLE_CELL_ZOOM = 1.5 // a lone image gets a little more
+
+const maxCellWidth = (cols, rows) =>
+  BASE_CELL_WIDTH * (cols === 1 && rows === 1 ? SINGLE_CELL_ZOOM : CELL_ZOOM)
+
+// Ceiling on how much art a tile draws, which also caps the grid at 2x4. Must
+// match TILE_ART_LIMIT in electron/ipc/collections.js, which decides how many
 // record ids are fetched per collection.
-const MAX_ART = 24
+export const MAX_ART = 8
 
 /**
  * Grid shape for `n` images: as square as possible, biased to portrait so the
@@ -45,12 +61,11 @@ export function getGridShape(n) {
  *     unit — tile widths — because a CSS `height: 200%` is 200% of the tile
  *     HEIGHT, not its width. Treating both axes as unit-length (the earlier
  *     bug) stretched cells to ~3.8:1 on a 16:9 tile.
- *  2. The rotated grid fully covers the tile, so no band of flat color is left
- *     above or below the art.
- *
- * Rotating the tile back into the grid's own frame gives the span the grid must
- * cover; because constraint 1 pins the grid's own aspect, the grid is then
- * scaled up until whichever axis is short reaches that span.
+ *  2. Size is the smaller of two things: the size that would exactly cover the
+ *     tile once rotated, and maxCellWidth(). Rotating the tile back into the
+ *     grid's own frame gives the span needed to cover, but with few cells that
+ *     span implies an absurdly large cell, so the cap wins and the tile is
+ *     left partly uncovered.
  */
 export function getGridSize(cols, rows, tileAspect = TILE_ASPECT, rotationDeg = ROTATION_DEG) {
   const theta = (Math.abs(rotationDeg) * Math.PI) / 180
@@ -63,10 +78,16 @@ export function getGridSize(cols, rows, tileAspect = TILE_ASPECT, rotationDeg = 
 
   const ratio = (BANNER_ASPECT * cols) / rows // grid width / grid height
   const root = Math.sqrt(ratio)
-  const scale = Math.max(spanW / root, spanH * root)
+  const coverScale = Math.max(spanW / root, spanH * root)
 
-  const gridWidth = scale * root // tile widths
-  const gridHeight = scale / root // tile widths
+  // With few cells, covering would demand a cell wider than the tile itself.
+  const coveringCellWidth = (coverScale * root) / cols
+  // Never exceed the covering size: past that, extra width only pushes art off
+  // the tile with nothing gained on screen.
+  const cellWidth = Math.min(coveringCellWidth, maxCellWidth(cols, rows))
+
+  const gridWidth = cellWidth * cols // tile widths
+  const gridHeight = (cellWidth / BANNER_ASPECT) * rows // tile widths
 
   // Convert the height back into a fraction of the tile's HEIGHT for CSS.
   return { width: gridWidth, height: gridHeight * tileAspect }

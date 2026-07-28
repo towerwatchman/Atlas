@@ -16,10 +16,10 @@ const {
 } = require('../db/collections')
 
 // How many titles feed a collection tile's mosaic. The tile lays these out in a
-// grid sized from the count (9 -> 3x3, 10 -> 3 cols x 4 rows), so this is the
+// grid sized from the count (4 -> 2x2, 7 -> 2 cols x 4 rows), so this is the
 // point past which a bigger collection stops adding visible art. Keep in step
 // with MAX_ART in src/components/collections/CollectionTile.jsx.
-const TILE_ART_LIMIT = 24
+const TILE_ART_LIMIT = 8
 
 // Collections are shown in several windows at once (library grid, tree, the
 // collections screen) and are mutated from native context menus that belong to
