@@ -132,7 +132,7 @@
     "nsis": {
       "allowToChangeInstallationDirectory": true,
       "oneClick": false,
-      "perMachine": false,
+      "perMachine": true,
       "deleteAppDataOnUninstall": false,
       "artifactName": "${productName}-Setup ${version}.${ext}",
       "include": "build/installer.nsh",
@@ -141,7 +141,8 @@
       "runAfterFinish": true,
       "shortcutName": "${productName}",
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "allowElevation": true
     },
     "linux": {
       "target": [

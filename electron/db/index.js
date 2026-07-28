@@ -3,6 +3,13 @@
 const sqlite3 = require('sqlite3').verbose()
 const path = require('path')
 const fs = require('fs')
+// The startup migrations below rebuild whole tables inside explicit transactions
+// on the ONE shared sqlite connection. They must take the same write lock as
+// every other transactional writer (see electron/db/atlas.js) or their BEGIN
+// lands inside somebody else's open transaction and sqlite rejects it with
+// "cannot start a transaction within a transaction" — and worse, their COMMIT
+// can close a transaction they do not own.
+const { withWriteLock } = require('./writeLock')
 
 let db
 let cachedFilterOptions = null
@@ -54,6 +61,7 @@ function rebuildAtlasDataWithoutUnique() {
       .join(", ");
     const colNames = cols.map((c) => c.name).join(", ");
 
+    withWriteLock("migrate.rebuildAtlasData", () => new Promise((settle) => {
     db.serialize(() => {
       db.run("BEGIN TRANSACTION");
       db.run(`CREATE TABLE atlas_data_rebuild (${colDefs});`);
@@ -63,13 +71,14 @@ function rebuildAtlasDataWithoutUnique() {
       db.run(`DROP TABLE atlas_data;`);
       db.run(`ALTER TABLE atlas_data_rebuild RENAME TO atlas_data;`, (e) => {
         if (e) {
-          db.run("ROLLBACK");
+          db.run("ROLLBACK", () => settle());
           console.error("atlas_data rebuild failed, rolled back:", e);
           return;
         }
         db.run("COMMIT", (commitErr) => {
           if (commitErr) {
             console.error("atlas_data rebuild commit failed:", commitErr);
+            settle();
             return;
           }
           // DROP TABLE removed its indexes; recreate them.
@@ -78,9 +87,11 @@ function rebuildAtlasDataWithoutUnique() {
           db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_creator ON atlas_data(creator);`);
           db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_normalized_title ON atlas_data(normalized_title);`);
           console.log("atlas_data rebuilt without id_name UNIQUE constraint");
+          settle();
         });
       });
     });
+    }));
   });
 }
 
@@ -131,6 +142,7 @@ function rebuildF95WithoutAtlasIdUnique() {
       .join(", ");
     const colNames = cols.map((c) => c.name).join(", ");
 
+    withWriteLock("migrate.rebuildF95ZoneData", () => new Promise((settle) => {
     db.serialize(() => {
       db.run("BEGIN TRANSACTION");
       db.run(`CREATE TABLE f95_zone_data_rebuild (${colDefs});`);
@@ -140,19 +152,22 @@ function rebuildF95WithoutAtlasIdUnique() {
       db.run(`DROP TABLE f95_zone_data;`);
       db.run(`ALTER TABLE f95_zone_data_rebuild RENAME TO f95_zone_data;`, (e) => {
         if (e) {
-          db.run("ROLLBACK");
+          db.run("ROLLBACK", () => settle());
           console.error("f95_zone_data rebuild failed, rolled back:", e);
           return;
         }
         db.run("COMMIT", (commitErr) => {
           if (commitErr) {
             console.error("f95_zone_data rebuild commit failed:", commitErr);
+            settle();
             return;
           }
           console.log("f95_zone_data rebuilt without atlas_id UNIQUE constraint");
+          settle();
         });
       });
     });
+    }));
   });
 }
 

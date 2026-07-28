@@ -371,6 +371,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   getRunningGames: () => ipcRenderer.invoke("get-running-games"),
 
+  // ── Data location ────────────────────────────────────────────────────────
+  // Atlas keeps its data in <installDir>/data with no AppData fallback. These
+  // back the client check: report where data lives and whether it is writable,
+  // repair the folder permissions, and move data from the old AppData location.
+  getDataLocationStatus: () => ipcRenderer.invoke("get-data-location-status"),
+  repairDataPermissions: () => ipcRenderer.invoke("repair-data-permissions"),
+  migrateLegacyData: () => ipcRenderer.invoke("migrate-legacy-data"),
+
   // ── Collections ──────────────────────────────────────────────────────────
   // Steam-style user groupings of local library titles. "Uncategorized" is
   // derived (a title in zero collections) and has no id of its own.

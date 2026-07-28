@@ -135,6 +135,10 @@ const registerImporterHandlers = require('./ipc/importer')
 const registerThemeHandlers = require('./ipc/themes')
 const registerAccountsHandlers = require('./ipc/accounts')
 const registerCollectionsHandlers = require('./ipc/collections')
+const {
+  resolveDataRoot, grantUsersModify, isElevated,
+  getLegacyDataDirs, directorySize, migrateLegacyData,
+} = require('./dataLocation')
 const accountStore = require('./accounts/accountStore')
 
 // ── Shared mutable state ────────────────────────────────────────────────────
@@ -173,6 +177,71 @@ let updateDownloaded = false
 let lastUpdateStatus = { status: 'idle' }
 let installAfterDownload = false
 let activeAppUpdateBranch = null
+
+// Data always lives beside the executable. There is no AppData fallback: the old
+// behaviour silently relocated to %APPDATA%\Atlas whenever the write probe
+// failed, so the app could run from one root on one boot and another on the next
+// with nothing reporting it — which is what made the cache failures so hard to
+// place. If the folder is not writable we say so and offer to repair the
+// permissions, rather than quietly moving.
+//
+// Declared HERE, above the resolveAppDataRoot() call below, and not next to the
+// function itself. Function declarations hoist but `let` does not, so with the
+// call site moved above the instance lock a declaration further down the file
+// left this in the temporal dead zone and threw
+// "Cannot access 'dataWriteState' before initialization".
+let dataWriteState = { writable: true, error: null }
+
+// ── Data root and Chromium storage redirect ─────────────────────────────────
+// This runs BEFORE requestSingleInstanceLock() below, and the order is the whole
+// point. Chromium's ProcessSingleton is keyed to the user-data-dir, so acquiring
+// the lock initialises that path — and if we have not redirected it yet, it
+// initialises at Electron's default, %APPDATA%\atlas, creating the folder we are
+// trying to avoid. (Lowercase because app.getName() reads the top-level "name"
+// field; the "Atlas" productName lives under "build" and is electron-builder
+// config only, invisible at runtime.) Redirecting first also means the instance
+// lock is keyed to OUR data dir rather than a shared AppData one.
+const appDataRoot = resolveAppDataRoot()
+var dataDir = path.join(appDataRoot, 'data')
+var launcherDir = path.join(appDataRoot, 'launchers')
+
+// Wrapped because an unwritable install dir would otherwise throw here, before
+// there is any window or dialog to explain what went wrong.
+try {
+  fs.mkdirSync(appDataRoot, { recursive: true })
+  fs.mkdirSync(dataDir, { recursive: true })
+} catch (err) {
+  dataWriteState = { writable: false, error: err.message }
+  console.error('Failed to create data directories:', err.message)
+}
+
+// Point Electron/Chromium's own storage (userData, session data, HTTP cache,
+// GPUCache, cookies, logs) at our data folder instead of the OS default
+// (%APPDATA%\Atlas on Windows). Without this, Electron ALWAYS creates that
+// AppData folder for its cache/cookies even though our own data lives beside
+// the exe — which is exactly the stray folder that broke portability. Must run
+// before app is ready. In dev we leave the defaults alone.
+if (!process.defaultApp) {
+  try {
+    const chromeDataDir = path.join(dataDir, 'chrome')
+    fs.mkdirSync(chromeDataDir, { recursive: true })
+    app.setPath('userData', chromeDataDir)
+    app.setPath('sessionData', chromeDataDir)
+    try { app.setPath('cache', path.join(chromeDataDir, 'cache')) } catch { /* some platforms disallow */ }
+    try { app.setPath('logs', path.join(dataDir, 'logs')) } catch { /* best effort */ }
+    // Crashpad creates its database eagerly at startup; without this it lands
+    // in the default userData folder regardless of the redirect above.
+    try { app.setPath('crashDumps', path.join(dataDir, 'crashDumps')) } catch { /* best effort */ }
+  } catch (err) {
+    // Leaving this unhandled is what put a stray %APPDATA%\atlas folder on disk:
+    // Chromium keeps using its default path, so the cache and cookies go there
+    // even though our own data is meant to live beside the exe. Treat it as the
+    // same fatal condition as an unwritable data folder so startup explains it.
+    dataWriteState = { writable: false, error: err?.message || String(err) }
+    console.error('Failed to redirect Electron storage into data dir:', err?.message || err)
+  }
+}
+
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
@@ -314,49 +383,12 @@ function isPortableForced() {
 function resolveAppDataRoot() {
   if (process.defaultApp) return __dirname
   const installDir = getLegacyResourcesPath()
-  // Forced portable mode: always use data beside the exe, no AppData fallback.
-  if (isPortableForced()) {
-    try { fs.mkdirSync(path.join(installDir, 'data'), { recursive: true }) } catch { /* best effort */ }
-    return installDir
+  const resolved = resolveDataRoot({ installDir, isDev: false })
+  dataWriteState = { writable: resolved.writable, error: resolved.error }
+  if (!resolved.writable) {
+    console.error('Atlas data folder is not writable:', resolved.error)
   }
-  try {
-    fs.mkdirSync(path.join(installDir, 'data'), { recursive: true })
-    // Write test to confirm we have write access
-    const testFile = path.join(installDir, 'data', '.write-test')
-    fs.writeFileSync(testFile, '1')
-    fs.unlinkSync(testFile)
-    return installDir
-  } catch {
-    // Install dir is not writable (e.g. Program Files) — fall back to AppData
-    console.warn('Install directory not writable, using AppData instead')
-    return app.getPath('userData')
-  }
-}
-
-const appDataRoot = resolveAppDataRoot()
-var dataDir = path.join(appDataRoot, 'data')
-var launcherDir = path.join(appDataRoot, 'launchers')
-
-fs.mkdirSync(appDataRoot, { recursive: true })
-fs.mkdirSync(dataDir, { recursive: true })
-
-// Point Electron/Chromium's own storage (userData, session data, HTTP cache,
-// GPUCache, cookies, logs) at our data folder instead of the OS default
-// (%APPDATA%\Atlas on Windows). Without this, Electron ALWAYS creates that
-// AppData folder for its cache/cookies even though our own data lives beside
-// the exe — which is exactly the stray folder that broke portability. Must run
-// before app is ready. In dev we leave the defaults alone.
-if (!process.defaultApp) {
-  try {
-    const chromeDataDir = path.join(dataDir, 'chrome')
-    fs.mkdirSync(chromeDataDir, { recursive: true })
-    app.setPath('userData', chromeDataDir)
-    app.setPath('sessionData', chromeDataDir)
-    try { app.setPath('cache', path.join(chromeDataDir, 'cache')) } catch { /* some platforms disallow */ }
-    try { app.setPath('logs', path.join(dataDir, 'logs')) } catch { /* best effort */ }
-  } catch (err) {
-    console.warn('Failed to redirect Electron storage into data dir:', err?.message || err)
-  }
+  return installDir
 }
 
 // Streamed banner/preview images rely on Chromium's HTTP disk cache. Its
@@ -1754,8 +1786,196 @@ function scheduleStaleExecutableRepair() {
 
 // ── App lifecycle ───────────────────────────────────────────────────────────
 
+
+// ── Data folder health and legacy migration ─────────────────────────────────
+
+const MIGRATION_MARKER = () => path.join(dataDir, '.appdata-migration-prompted')
+const REPAIR_FLAG = '--atlas-repair-permissions'
+
+// Relaunch elevated to fix the ACL on the data folder, then relaunch normally.
+// Elevating ONCE to repair permissions is very different from running the whole
+// app as administrator: Atlas spawns game executables, and a child process
+// inherits its parent's elevation, so a permanently elevated Atlas would hand
+// admin rights to every game it launches.
+function relaunchElevatedForRepair() {
+  if (process.platform !== 'win32') return false
+  const exe = process.execPath
+  const args = [...process.argv.slice(1), REPAIR_FLAG]
+    .map((a) => `'${String(a).replace(/'/g, "''")}'`)
+    .join(',')
+  const psArgs = args ? `-ArgumentList ${args}` : ''
+  try {
+    require('child_process').spawn(
+      'powershell.exe',
+      ['-NoProfile', '-Command', `Start-Process -FilePath '${exe}' ${psArgs} -Verb RunAs`],
+      { detached: true, stdio: 'ignore', windowsHide: true },
+    ).unref()
+    return true
+  } catch (err) {
+    console.error('Failed to relaunch elevated:', err.message)
+    return false
+  }
+}
+
+async function runPermissionRepair() {
+  // Deleting the data folder takes its ACL with it, and recreating it needs
+  // write access on the PARENT (Program Files) which only this elevated pass
+  // has. grantUsersModify() mkdirs before applying the grant for that reason,
+  // so a deleted folder is recoverable rather than a reinstall.
+  const result = await grantUsersModify(dataDir)
+  if (!result.ok) {
+    dialog.showErrorBox(
+      'Atlas — could not repair permissions',
+      `Granting write access to:\n\n${dataDir}\n\nfailed:\n${result.error || 'unknown error'}`,
+    )
+    return false
+  }
+  return true
+}
+
+async function checkDataFolderWritable() {
+  if (process.defaultApp) return true
+  if (dataWriteState.writable) return true
+
+  // Launched with the repair flag: we should be elevated, so fix and restart.
+  if (process.argv.includes(REPAIR_FLAG)) {
+    if (await isElevated()) {
+      const ok = await runPermissionRepair()
+      if (ok) {
+        app.relaunch({ args: process.argv.slice(1).filter((a) => a !== REPAIR_FLAG) })
+      }
+      app.exit(0)
+      return false
+    }
+  }
+
+  const { response } = await dialog.showMessageBox({
+    type: 'error',
+    title: 'Atlas — data folder is not writable',
+    message: 'Atlas cannot write to its data folder, so the cache and database cannot be created.',
+    detail:
+      `${dataDir}\n\n${dataWriteState.error || ''}\n\n` +
+      'Atlas can restart with administrator rights just once to grant your account ' +
+      'write access to this folder. Atlas itself will keep running normally afterwards.',
+    buttons: ['Grant Access and Restart', 'Quit'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  })
+  if (response === 0 && relaunchElevatedForRepair()) {
+    app.exit(0)
+    return false
+  }
+  app.exit(1)
+  return false
+}
+
+// Offers to bring data across from the old %APPDATA%\Atlas location. Prompts at
+// most once on its own; after that it is only reachable from the client check
+// (see the migrate-legacy-data / get-data-location-status handlers).
+async function maybePromptLegacyMigration({ force = false } = {}) {
+  if (process.defaultApp) return
+  let alreadyPrompted = false
+  try { alreadyPrompted = fs.existsSync(MIGRATION_MARKER()) } catch { /* ignore */ }
+  if (alreadyPrompted && !force) return
+
+  const legacy = getLegacyDataDirs(app).filter(
+    (dir) => path.resolve(dir).toLowerCase() !== path.resolve(dataDir).toLowerCase(),
+  )
+  if (legacy.length === 0) {
+    try { fs.writeFileSync(MIGRATION_MARKER(), String(Date.now())) } catch { /* ignore */ }
+    return
+  }
+
+  const source = legacy[0]
+  const { bytes, files } = await directorySize(source)
+  const mb = (bytes / (1024 * 1024)).toFixed(1)
+  const { response } = await dialog.showMessageBox({
+    type: 'question',
+    title: 'Atlas — move existing data?',
+    message: 'Atlas found data in the old AppData location.',
+    detail:
+      `${source}\n\n${files} files, ${mb} MB\n\n` +
+      `Move it to:\n${dataDir}\n\n` +
+      'Files are copied and verified first; the old folder is only deleted once ' +
+      'the copy is confirmed. Any file already present in the new location is kept.',
+    buttons: ['Move Data', 'Not Now'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  })
+
+  // Recorded either way, so declining does not re-prompt every launch.
+  try { fs.writeFileSync(MIGRATION_MARKER(), String(Date.now())) } catch { /* ignore */ }
+  if (response !== 0) return
+
+  const result = await migrateLegacyData(source, dataDir)
+  if (!result.success) {
+    dialog.showErrorBox(
+      'Atlas — data move failed',
+      `${result.error}\n\nYour original data has been left untouched at:\n${source}`,
+    )
+    return
+  }
+  await dialog.showMessageBox({
+    type: 'info',
+    title: 'Atlas — data moved',
+    message: `Moved ${result.files} files (${(result.bytes / (1024 * 1024)).toFixed(1)} MB).`,
+    detail: result.warning || `The old folder at ${source} has been removed.`,
+    buttons: ['OK'],
+    noLink: true,
+  })
+  app.relaunch()
+  app.exit(0)
+}
+
+function registerDataLocationHandlers() {
+  ipcMain.handle('get-data-location-status', async () => {
+    const legacy = getLegacyDataDirs(app).filter(
+      (dir) => path.resolve(dir).toLowerCase() !== path.resolve(dataDir).toLowerCase(),
+    )
+    let legacySize = null
+    if (legacy.length > 0) legacySize = await directorySize(legacy[0])
+    return {
+      dataDir,
+      installDir: appDataRoot,
+      writable: dataWriteState.writable,
+      error: dataWriteState.error,
+      portableForced: isPortableForced(),
+      legacyDir: legacy[0] || null,
+      legacyFiles: legacySize?.files || 0,
+      legacyBytes: legacySize?.bytes || 0,
+    }
+  })
+
+  // Re-offer the move from a client check, ignoring the one-shot marker.
+  ipcMain.handle('migrate-legacy-data', async () => {
+    await maybePromptLegacyMigration({ force: true })
+    return { success: true }
+  })
+
+  ipcMain.handle('repair-data-permissions', async () => {
+    if (await isElevated()) {
+      const ok = await runPermissionRepair()
+      return { success: ok, elevated: true }
+    }
+    const launched = relaunchElevatedForRepair()
+    if (launched) app.exit(0)
+    return { success: launched, elevated: false }
+  })
+}
+
 app.whenReady().then(async () => {
+  // The writability check comes BEFORE the single-instance gate on purpose. It
+  // used to sit after, so when the lock failed this handler returned early and
+  // the repair dialog never appeared — the user got only console noise and a
+  // silent exit, which is exactly what happened when someone deleted their data
+  // folder. An unwritable data folder needs explaining whether or not we hold
+  // the lock, and a stale lock is itself a plausible symptom of broken storage.
+  if (!(await checkDataFolderWritable())) return
   if (!hasSingleInstanceLock) return
+
+  registerDataLocationHandlers()
 
   // Serve local downloaded media (atlas-media://local/<encoded-abs-path>).
   // Files are only served from within the app's asset base directory.
@@ -1925,6 +2145,13 @@ app.whenReady().then(async () => {
 
   // Filesystem-touching repair, deliberately AFTER the window and never awaited.
   scheduleStaleExecutableRepair()
+
+  // Offer to bring across data from the old AppData location. After the window
+  // so the prompt has a parent and does not delay startup; prompts at most once
+  // on its own, and is re-offered from the client check thereafter.
+  maybePromptLegacyMigration().catch((err) =>
+    console.warn('Legacy data migration check failed:', err?.message || err),
+  )
 
   // Build the Browse catalog index if it is missing or stale. Deliberately AFTER
   // createWindow() and not awaited: the library grid does not depend on it, so

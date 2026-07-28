@@ -9,9 +9,48 @@
 ; We only override the default when there is no recorded previous install,
 ; so we don't stomp on an existing installation's location.
 !macro preInit
-  ReadRegStr $0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
+  ; Fresh installs default to Program Files, like most desktop software. The
+  ; install is per-machine so the installer elevates, which is what lets us set
+  ; the ACL in customInstall below.
+  ReadRegStr $0 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
   ${If} $0 == ""
-    StrCpy $INSTDIR "$LOCALAPPDATA\Atlas"
+    ReadRegStr $0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
+  ${EndIf}
+  ${If} $0 == ""
+    ${If} ${RunningX64}
+      StrCpy $INSTDIR "$PROGRAMFILES64\Atlas"
+    ${Else}
+      StrCpy $INSTDIR "$PROGRAMFILES\Atlas"
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+; Atlas keeps its database, cache and artwork in <installDir>\data. Program Files
+; is not user-writable, so grant the local Users group modify rights on that ONE
+; subfolder while we still hold the installer's elevated token. The app then runs
+; unelevated for the rest of its life.
+;
+; This matters for security: Atlas launches game executables, and a child process
+; inherits its parent's elevation. A permanently elevated Atlas would run every
+; game it launches as administrator.
+;
+; The grant is scoped to data\ and launchers\ and never to $INSTDIR itself, which
+; holds Atlas.exe — a user-writable folder containing executables that something
+; elevated later runs is a privilege-escalation route.
+;
+; S-1-5-32-545 is the well-known SID for the local Users group; the name is
+; localised ("Benutzer", "Utilisateurs") so a name-based grant fails outside
+; English Windows. (OI)(CI) makes the grant inherit to files and subfolders.
+!macro customInstall
+  CreateDirectory "$INSTDIR\data"
+  CreateDirectory "$INSTDIR\launchers"
+  nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$INSTDIR\data" /grant "*S-1-5-32-545:(OI)(CI)M" /T /C /Q'
+  Pop $0
+  nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$INSTDIR\launchers" /grant "*S-1-5-32-545:(OI)(CI)M" /T /C /Q'
+  Pop $1
+  ${If} $0 != 0
+    DetailPrint "Warning: could not grant write access to $INSTDIR\data (icacls returned $0)."
+    DetailPrint "Atlas will offer to repair this on first run."
   ${EndIf}
 !macroend
 
