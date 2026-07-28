@@ -421,6 +421,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("collection-rename-requested", handler);
     return () => ipcRenderer.removeListener("collection-rename-requested", handler);
   },
+  onCollectionBulkTagRequested: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("collection-bulk-tag-requested", handler);
+    return () => ipcRenderer.removeListener("collection-bulk-tag-requested", handler);
+  },
   onCollectionDeleteRequested: (callback) => {
     const handler = (event, payload) => callback(payload);
     ipcRenderer.on("collection-delete-requested", handler);
@@ -469,6 +474,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "collection-create-requested",
       "collection-rename-requested",
       "collection-delete-requested",
+      "collection-bulk-tag-requested",
       "update-status",
       "appearance-changed",
       "metadata-changed",

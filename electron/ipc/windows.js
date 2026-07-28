@@ -143,6 +143,16 @@ function handleContextAction(data, sender, ctx) {
       });
       break;
     }
+    case "collectionBulkTagRequested": {
+      // Same round-trip as rename/delete: a native menu cannot host a form, so
+      // the renderer owns the dialog and already knows which records belong to
+      // the collection.
+      sender?.send("collection-bulk-tag-requested", {
+        collectionId: data.collectionId,
+        name: data.name,
+      });
+      break;
+    }
     case "collectionDeleteRequested": {
       sender?.send("collection-delete-requested", {
         collectionId: data.collectionId,

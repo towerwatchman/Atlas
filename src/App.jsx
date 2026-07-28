@@ -13,6 +13,7 @@ import GameBanner from './components/library/GameBanner.jsx'
 import GameTree from './components/library/GameTree.jsx'
 import CollectionsView from './components/collections/CollectionsView.jsx'
 import CollectionModal from './components/collections/CollectionModal.jsx'
+import BulkTagModal from './components/collections/BulkTagModal.jsx'
 import { buildCollectionMenuItems } from './components/collections/collectionMenu.js'
 import { useCollections, UNCATEGORIZED_ID } from './hooks/useCollections.js'
 import SearchBox from './components/search/SearchBox.jsx'
@@ -249,7 +250,7 @@ const App = () => {
   // hang membership off, so the collections button and grouping are hidden in
   // those modes and Browse keeps the list it already had.
   const {
-    collections, artRecordIds, collectionIdsByRecord,
+    collections, artRecordIds, collectionIdsByRecord, recordIdsByCollection,
     loading: collectionsLoading, refresh: refreshCollections,
   } = useCollections({ enabled: true })
   // 'grid' is the normal library; 'collections' is the tile screen.
@@ -259,6 +260,7 @@ const App = () => {
   const [collectionModalError, setCollectionModalError] = useState('')
   const [expandedCollectionIds, setExpandedCollectionIds] = useState(() => new Set())
   const [pendingCollectionDelete, setPendingCollectionDelete] = useState(null)
+  const [bulkTagTarget, setBulkTagTarget] = useState(null)
   // Tile art comes back from the DB as record ids; resolve them against the
   // already-loaded library rather than refetching art per collection.
   const gamesByRecordId = useMemo(() => {
@@ -266,6 +268,31 @@ const App = () => {
     for (const game of games) if (game) map.set(Number(game.record_id), game)
     return map
   }, [games])
+  // Which records the bulk dialog will touch, and the tags already present
+  // across them. The "remove" field suggests from the latter rather than the
+  // whole library, since library-wide tags mostly cannot be removed here.
+  const bulkTagRecordIds = useMemo(() => {
+    if (!bulkTagTarget?.id) return []
+    return [...(recordIdsByCollection.get(Number(bulkTagTarget.id)) || [])]
+  }, [bulkTagTarget, recordIdsByCollection])
+  const bulkTagPresentTags = useMemo(() => {
+    if (bulkTagRecordIds.length === 0) return []
+    const seen = new Map()
+    for (const recordId of bulkTagRecordIds) {
+      const game = gamesByRecordId.get(Number(recordId))
+      if (!game) continue
+      const merged = [game.tags, game.f95_tags, game.lewdcornerTags]
+        .filter(Boolean)
+        .join(',')
+      for (const raw of merged.split(/[,;|]/)) {
+        const tag = raw.trim()
+        if (!tag) continue
+        const key = tag.toLowerCase()
+        if (!seen.has(key)) seen.set(key, tag)
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.localeCompare(b))
+  }, [bulkTagRecordIds, gamesByRecordId])
 
   const {
     activeFilters, handleFilterChange, handleResetFilters,
@@ -700,6 +727,14 @@ const App = () => {
           collectionId: collection.id,
           name: collection.name,
           color: collection.color,
+        },
+      },
+      {
+        label: 'Tag All Games…',
+        data: {
+          action: 'collectionBulkTagRequested',
+          collectionId: collection.id,
+          name: collection.name,
         },
       },
       { type: 'separator' },
@@ -1571,6 +1606,9 @@ const App = () => {
         color: payload?.color || null,
       })
     })
+    const removeCollectionBulkTagListener = window.electronAPI.onCollectionBulkTagRequested?.((payload) => {
+      setBulkTagTarget({ id: payload?.collectionId, name: payload?.name || '' })
+    })
     const removeCollectionDeleteListener = window.electronAPI.onCollectionDeleteRequested?.((payload) => {
       setPendingCollectionDelete({
         id: payload?.collectionId,
@@ -1598,6 +1636,7 @@ const App = () => {
       if (typeof removeCollectionCreateListener === 'function') removeCollectionCreateListener()
       if (typeof removeCollectionRenameListener === 'function') removeCollectionRenameListener()
       if (typeof removeCollectionDeleteListener === 'function') removeCollectionDeleteListener()
+      if (typeof removeCollectionBulkTagListener === 'function') removeCollectionBulkTagListener()
       window.removeEventListener('resize', debounceResize)
       ;[
         'window-state-changed', 'db-update-progress', 'import-progress',
@@ -2332,6 +2371,15 @@ const App = () => {
         error={collectionModalError}
         onSubmit={submitCollectionModal}
         onCancel={closeCollectionModal}
+      />
+
+      <BulkTagModal
+        open={Boolean(bulkTagTarget)}
+        collectionName={bulkTagTarget?.name || ''}
+        recordIds={bulkTagRecordIds}
+        presentTags={bulkTagPresentTags}
+        onClose={() => setBulkTagTarget(null)}
+        onApplied={() => fetchGames()}
       />
 
       {/* Deleting a collection never deletes games — say so plainly, since

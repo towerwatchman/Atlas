@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useKnownTags, useTagSuggestions } from '../../hooks/useKnownTags.js'
 
 // Editor for a game's tag list.
 //
@@ -34,24 +35,10 @@ export default function TagEditor({
 
   // Autocomplete against tags already used in the library. Without it the same
   // concept drifts into "3DCG" / "3dcg" / "3d cg" and none of them filter
-  // together. Fetched lazily so the list is only paid for when a field exists.
-  const [library, setLibrary] = useState(knownTags)
-  useEffect(() => {
-    if (knownTags) { setLibrary(knownTags); return }
-    let cancelled = false
-    window.electronAPI?.getKnownTags?.()
-      .then((list) => { if (!cancelled) setLibrary(Array.isArray(list) ? list : []) })
-      .catch(() => { if (!cancelled) setLibrary([]) })
-    return () => { cancelled = true }
-  }, [knownTags])
-
-  const suggestions = useMemo(() => {
-    const query = draft.trim().toLowerCase()
-    if (!query || !library) return []
-    return library
-      .filter((tag) => tag.toLowerCase().includes(query) && !includesTag(tags, tag))
-      .slice(0, 8)
-  }, [draft, library, tags])
+  // together. Shared with the bulk dialog so both suggest from one set.
+  const fetched = useKnownTags({ enabled: !knownTags })
+  const library = knownTags || fetched
+  const suggestions = useTagSuggestions(library, draft, tags)
 
   useEffect(() => { setHighlight(0) }, [draft])
 
