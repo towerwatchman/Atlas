@@ -377,6 +377,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getTagState: (recordId) => ipcRenderer.invoke("get-tag-state", recordId),
   setTagOverride: (payload) => ipcRenderer.invoke("set-tag-override", payload),
   resetTagOverride: (recordId) => ipcRenderer.invoke("reset-tag-override", recordId),
+  // Autocomplete source, ordered by how often each tag is used.
+  getKnownTags: () => ipcRenderer.invoke("get-known-tags"),
+  // Applies add/remove on top of each record's own list rather than a shared
+  // snapshot, so bulk tagging never flattens games onto one tag list.
+  bulkEditTags: (payload) => ipcRenderer.invoke("bulk-edit-tags", payload),
 
   // ── Data location ────────────────────────────────────────────────────────
   // Atlas keeps its data in <installDir>/data with no AppData fallback. These

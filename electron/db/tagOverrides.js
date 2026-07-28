@@ -151,7 +151,95 @@ async function clearTagOverride(recordId) {
   return getCatalogTags(recordId)
 }
 
+/**
+ * Every tag known to the library, for autocomplete. Drawn from the same four
+ * sources as the filter sidebar so the two agree: catalog tables, the user tags
+ * table, and any override snapshot.
+ *
+ * Returned in descending use order, so the tags a user actually applies surface
+ * before one-off catalog noise.
+ */
+async function getKnownTags() {
+  const rows = await new Promise((resolve, reject) => {
+    getDb().all(
+      `SELECT tags FROM f95_zone_data WHERE tags IS NOT NULL
+       UNION ALL
+       SELECT tags FROM atlas_data WHERE tags IS NOT NULL
+       UNION ALL
+       SELECT tags FROM lewdcorner_data WHERE tags IS NOT NULL
+       UNION ALL
+       SELECT tags FROM game_metadata_overrides WHERE tags IS NOT NULL`,
+      [],
+      (err, result) => (err ? reject(err) : resolve(result || [])),
+    )
+  })
+  // Count occurrences so the ordering means something. Keyed case-insensitively
+  // but the first spelling seen is kept, so "3DCG" does not become "3dcg".
+  const counts = new Map()
+  for (const row of rows) {
+    for (const tag of parseTags(row.tags)) {
+      const key = tag.toLowerCase()
+      const existing = counts.get(key)
+      if (existing) existing.count += 1
+      else counts.set(key, { tag, count: 1 })
+    }
+  }
+  return [...counts.values()]
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+    .map((entry) => entry.tag)
+}
+
+/**
+ * Apply tag changes to many records at once. `add` and `remove` are applied on
+ * top of each record's CURRENT resolved list, not as a shared snapshot — bulk
+ * tagging a collection must not flatten every game onto one tag list.
+ */
+async function bulkEditTags(recordIds = [], { add = [], remove = [] } = {}) {
+  const toAdd = parseTags(add)
+  const toRemove = parseTags(remove).map((t) => t.toLowerCase())
+  if (toAdd.length === 0 && toRemove.length === 0) {
+    return { success: false, error: 'No tag changes supplied' }
+  }
+  const results = []
+  for (const recordId of recordIds) {
+    try {
+      const state = await getTagState(recordId)
+      let next = state.tags.filter((tag) => !toRemove.includes(tag.toLowerCase()))
+      for (const tag of toAdd) {
+        if (!next.some((entry) => entry.toLowerCase() === tag.toLowerCase())) next.push(tag)
+      }
+      // Skip the write when nothing actually changed, so bulk tagging does not
+      // create overrides on records it did not affect — an override suppresses
+      // future catalog refreshes, so creating one needlessly has a real cost.
+      const unchanged =
+        next.length === state.tags.length &&
+        next.every((tag, i) => tag.toLowerCase() === state.tags[i].toLowerCase())
+      if (unchanged && state.overridden) {
+        results.push({ recordId, changed: false })
+        continue
+      }
+      if (unchanged && !state.overridden) {
+        results.push({ recordId, changed: false })
+        continue
+      }
+      await setTagOverride(recordId, next)
+      results.push({ recordId, changed: true, tags: next })
+    } catch (err) {
+      results.push({ recordId, changed: false, error: err.message })
+    }
+  }
+  return {
+    success: true,
+    changed: results.filter((r) => r.changed).length,
+    skipped: results.filter((r) => !r.changed && !r.error).length,
+    failed: results.filter((r) => r.error),
+    results,
+  }
+}
+
 module.exports = {
+  getKnownTags,
+  bulkEditTags,
   CATALOG_TAGS_SQL,
   parseTags,
   serializeTags,

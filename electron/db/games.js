@@ -923,11 +923,20 @@ const getUniqueFilterOptions = () => {
                         if (err) return reject(err);
                         options.languages = rows.map((r) => r.language);
 
-                        // Tags from source-specific remote tables
+                        // Catalog tags plus USER tags. Without the tags
+                        // table a user could add a tag and then be unable to
+                        // filter by it, because this list drives the filter
+                        // sidebar. game_metadata_overrides.tags is included too
+                        // so an override survives here even before its
+                        // tag_mappings rows are rebuilt.
                         getDb().all(
                           `SELECT tags FROM f95_zone_data WHERE tags IS NOT NULL
                            UNION ALL
-                           SELECT tags FROM lewdcorner_data WHERE tags IS NOT NULL`,
+                           SELECT tags FROM lewdcorner_data WHERE tags IS NOT NULL
+                           UNION ALL
+                           SELECT tag AS tags FROM tags WHERE tag IS NOT NULL
+                           UNION ALL
+                           SELECT tags FROM game_metadata_overrides WHERE tags IS NOT NULL`,
                           [],
                           (err, rows) => {
                             if (err) return reject(err);

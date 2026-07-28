@@ -6,6 +6,11 @@ const path = require('path')
 const fs = require('fs')
 const cp = require('child_process')
 const { recordGameLaunchStarted, recordGamePlaytime, getLibraryStats } = require('../db/games')
+// Required directly rather than pulled from the ctx bundle: that bundle
+// re-exports a curated list, so adding exports to db/games.js alone left these
+// undefined and set-tag-override failed with "getTagState is not a function"
+// AFTER already writing the override.
+const { getTagState, clearTagOverride, getKnownTags, bulkEditTags } = require('../db/tagOverrides')
 const { getEmulatorByExtension } = require('../db/settings')
 const { getSteamIDbyRecord } = require('../db/steam')
 const { getGogIDbyRecord, addGogMapping } = require('../db/gog')
@@ -182,7 +187,6 @@ function registerGamesHandlers(ctx) {
     getMetadataSourceOrder,
     // db functions
     addGame, getGame, getGames, getCatalogGames, getGameRecordIds, removeGame, updateGame,
-    getTagState, setTagOverride, clearTagOverride,
     addWishlistEntry, removeWishlistEntry, toggleWishlistEntry,
     getWishlistEntries, getWishlistEntryIdentities,
     upsertVersion, updateVersion, deleteGameCompletely, getUniqueFilterOptions,
@@ -522,6 +526,36 @@ function registerGamesHandlers(ctx) {
       return { success: true, ...(await getTagState(recordId)) }
     } catch (err) {
       console.error('set-tag-override failed:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Autocomplete source. Cached per call is fine: the list is small and this is
+  // only hit when a tag field is focused.
+  ipcMain.handle('get-known-tags', async () => {
+    try {
+      return await getKnownTags()
+    } catch (err) {
+      console.error('get-known-tags failed:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle('bulk-edit-tags', async (event, { recordIds, add, remove } = {}) => {
+    try {
+      const result = await bulkEditTags(recordIds || [], { add, remove })
+      if (result.success) {
+        // tag_mappings drives filtering, so rebuild it for each record that
+        // actually changed, then let every window refresh.
+        for (const entry of result.results) {
+          if (!entry.changed) continue
+          await updateGame({ record_id: entry.recordId, tags: entry.tags })
+          emitGameUpdated(entry.recordId)
+        }
+      }
+      return result
+    } catch (err) {
+      console.error('bulk-edit-tags failed:', err)
       return { success: false, error: err.message }
     }
   })

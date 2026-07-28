@@ -77,3 +77,54 @@ test('a game with no catalog row resolves to an empty list', async () => {
   expect(await tagOverrides.getCatalogTags(2)).toEqual([])
   expect((await tagOverrides.getTagState(2)).overridden).toBe(false)
 })
+
+// ── Autocomplete source and bulk editing ────────────────────────────────────
+
+test('known tags come from catalog, overrides and user tags, in use order', async () => {
+  await run(`INSERT INTO games VALUES (2,'G2')`)
+  await run(`INSERT INTO atlas_mappings VALUES (2, 20)`)
+  await run(`INSERT INTO atlas_data VALUES (20, '3dcg, fantasy')`)
+  await tagOverrides.setTagOverride(1, '3dcg, my-own-tag')
+
+  const known = await tagOverrides.getKnownTags()
+  // 3dcg appears in two catalog rows plus an override, so it leads.
+  expect(known[0]).toBe('3dcg')
+  expect(known).toContain('my-own-tag')
+  expect(known).toContain('fantasy')
+  // Case-insensitive keying, first spelling wins — no '3DCG' duplicate.
+  expect(known.filter((t) => t.toLowerCase() === '3dcg')).toHaveLength(1)
+})
+
+// Bulk editing must apply add/remove to each record's OWN list. Sharing one
+// snapshot across a collection would flatten every game onto identical tags.
+test('bulk editing preserves each record its own list', async () => {
+  await run(`INSERT INTO games VALUES (2,'G2')`)
+  await run(`INSERT INTO atlas_mappings VALUES (2, 20)`)
+  await run(`INSERT INTO atlas_data VALUES (20, '2dcg, fantasy')`)
+
+  const result = await tagOverrides.bulkEditTags([1, 2], { add: ['starred'], remove: ['3dcg'] })
+  expect(result.success).toBe(true)
+  expect(result.changed).toBe(2)
+
+  expect((await tagOverrides.getTagState(1)).tags).toEqual(['adventure', 'fantasy', 'starred'])
+  expect((await tagOverrides.getTagState(2)).tags).toEqual(['2dcg', 'fantasy', 'starred'])
+})
+
+test('re-running the same bulk edit changes nothing', async () => {
+  await tagOverrides.bulkEditTags([1], { add: ['starred'] })
+  const second = await tagOverrides.bulkEditTags([1], { add: ['starred'] })
+  expect(second.changed).toBe(0)
+  expect(second.skipped).toBe(1)
+})
+
+// An override suppresses future catalog refreshes, so bulk editing must not
+// create one on a record it did not actually change.
+test('a no-op bulk edit does not create an override', async () => {
+  const result = await tagOverrides.bulkEditTags([1], { remove: ['not-present-anywhere'] })
+  expect(result.changed).toBe(0)
+  expect((await tagOverrides.getTagState(1)).overridden).toBe(false)
+})
+
+test('an empty bulk edit is rejected', async () => {
+  expect((await tagOverrides.bulkEditTags([1], {})).success).toBe(false)
+})
