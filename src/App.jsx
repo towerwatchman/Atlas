@@ -1836,22 +1836,8 @@ const App = () => {
               // Collections button sits directly to its right. In topnav
               // layout there is no search box here and Collections is a nav
               // button instead (see TopNav's LEFT_ORDER).
-              <div className="flex w-full items-center justify-center gap-2">
+              <div className="flex justify-center w-full">
                 <SearchBox value={activeFilters.text} onSearchChange={handleSearchChange} onToggleSidebar={toggleSearchSidebar} />
-                <button
-                  type="button"
-                  onClick={openCollections}
-                  title="Collections"
-                  aria-label="Collections"
-                  className={`-webkit-app-region-no-drag mt-[20px] flex h-10 shrink-0 items-center gap-2 rounded-buttonTheme border border-border px-3 transition-colors ${
-                    collectionsActive
-                      ? 'bg-accent text-white'
-                      : 'bg-secondary text-text hover:border-accent hover:text-accent'
-                  }`}
-                >
-                  <i className="fas fa-layer-group text-sm" aria-hidden="true"></i>
-                  <span className="whitespace-nowrap text-sm font-medium">Collections</span>
-                </button>
               </div>
             )}
           </div>
@@ -1912,6 +1898,8 @@ const App = () => {
             onOpenWishlist={openFavorites}
             onToggleSearchSidebar={toggleSearchSidebar}
             onOpenAbout={openAbout}
+            onOpenCollections={openCollections}
+            collectionsActive={collectionsActive}
             showGameList={showGameList}
             libraryMode={libraryMode}
             favoritesActive={favoritesActive}
@@ -2003,13 +1991,6 @@ const App = () => {
         >
           {!selectedGame && libraryView !== 'collections' && activeCollection && (
             <div className="mx-3 mb-1 mt-3 flex items-center gap-3 rounded border border-border bg-secondary px-4 py-2 text-sm text-text">
-              {activeCollection.color && (
-                <span
-                  className="h-3 w-3 shrink-0 rounded-sm"
-                  style={{ background: activeCollection.color }}
-                  aria-hidden="true"
-                />
-              )}
               <span className="flex-1">
                 Showing <strong>{activeCollection.name}</strong>
               </span>

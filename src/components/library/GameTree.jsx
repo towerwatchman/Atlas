@@ -75,15 +75,8 @@ export default function GameTree({
                 className={`fas ${isExpanded ? 'fa-minus' : 'fa-plus'} w-3 shrink-0 text-[9px] text-muted`}
                 aria-hidden="true"
               />
-              {group.id !== UNCATEGORIZED_ID && group.color && (
-                <span
-                  className="h-2 w-2 shrink-0 rounded-sm"
-                  style={{ background: group.color }}
-                  aria-hidden="true"
-                />
-              )}
               <span
-                className={`min-w-0 flex-1 truncate text-[12px] font-semibold ${
+                className={`min-w-0 flex-1 truncate text-[12px] font-semibold uppercase tracking-wide ${
                   group.id === UNCATEGORIZED_ID ? 'text-muted' : 'text-text'
                 }`}
                 title={group.name}

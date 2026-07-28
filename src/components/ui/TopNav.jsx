@@ -27,8 +27,8 @@ const LABELS = {
 // List, Wishlist, About (icon-only by default, like the help/list/theme
 // icon cluster in the reference design's top-right corner — but see
 // navDisplayMode for how this can include text too).
-const LEFT_ORDER = ['Library', 'Collections', 'Browse', 'Add', 'Settings', 'Filters']
-const RIGHT_ORDER = ['Updates', 'List', 'Favorites', 'About']
+const LEFT_ORDER = ['Library', 'Browse', 'Add', 'Settings', 'Filters']
+const RIGHT_ORDER = ['Updates', 'List', 'Favorites', 'Collections', 'About']
 
 const orderItems = (items, order) =>
   order.map((name) => items.find((item) => item.name === name)).filter(Boolean)
