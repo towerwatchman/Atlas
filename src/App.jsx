@@ -16,6 +16,8 @@ import CollectionModal from './components/collections/CollectionModal.jsx'
 import BulkTagModal from './components/collections/BulkTagModal.jsx'
 import { buildCollectionMenuItems } from './components/collections/collectionMenu.js'
 import { useCollections, UNCATEGORIZED_ID } from './hooks/useCollections.js'
+import { retainImage } from './utils/imageRetention.js'
+import { toMediaSrc } from './utils/mediaSrc.js'
 import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
@@ -564,6 +566,18 @@ const App = () => {
       if (grid?.scrollToPosition) {
         grid.recomputeGridSize?.()
         grid.scrollToPosition({ scrollTop: targetScrollTop })
+        // forceUpdate is the important part. Without it react-virtualized keeps
+        // the cell range it rendered for the PREVIOUS dataset — coming back from
+        // Browse left the top rows blank while lower rows, which happened to
+        // overlap the stale range, still painted. Scrolling alone does not
+        // invalidate that range.
+        grid.forceUpdate?.()
+        // rowCount for the library can land a frame after this runs, so
+        // re-measure once more on the next frame.
+        requestAnimationFrame(() => {
+          gridRef.current?.recomputeGridSize?.()
+          gridRef.current?.forceUpdate?.()
+        })
         libraryScrollTopRef.current = targetScrollTop
         pendingLibraryScrollTopRestoreRef.current = null
         return
@@ -860,6 +874,12 @@ const App = () => {
     const index = rowIndex * currentColumnCount + columnIndex
     if (index >= filteredGames.length) return null
     const game = filteredGames[index]
+    // Keep library banners decoded so returning from Browse does not flash.
+    // Local mode only: Browse scrolls the whole catalog, and retaining that
+    // would be hundreds of MB of bitmaps for art the user passes through once.
+    if (libraryMode === 'local' && game?.banner_url) {
+      retainImage(toMediaSrc(game.banner_url))
+    }
     if (!game) {
       // Not-loaded-yet catalog slot — requestCatalogRange() (driven by the
       // Grid's onSectionRendered) will fetch the page covering this index

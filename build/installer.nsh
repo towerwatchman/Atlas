@@ -9,14 +9,23 @@
 ; We only override the default when there is no recorded previous install,
 ; so we don't stomp on an existing installation's location.
 !macro preInit
-  ; Fresh installs default to Program Files, like most desktop software. The
-  ; install is per-machine so the installer elevates, which is what lets us set
-  ; the ACL in customInstall below.
+  ; An existing install is upgraded WHERE IT ALREADY LIVES. HKLM is checked first
+  ; (per-machine installs) then HKCU, because installs made by the older
+  ; per-user build recorded themselves there — switching to perMachine made
+  ; electron-builder look only in HKLM, find nothing, and silently relocate every
+  ; upgrade to Program Files.
+  ;
+  ; The previous version of this macro read the location into $0 and then never
+  ; copied it into $INSTDIR, so the value was found and discarded.
   ReadRegStr $0 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
   ${If} $0 == ""
     ReadRegStr $0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
   ${EndIf}
-  ${If} $0 == ""
+  ${If} $0 != ""
+  ${AndIf} ${FileExists} "$0\*.*"
+    StrCpy $INSTDIR "$0"
+  ${Else}
+    ; Nothing installed: default to Program Files, like most desktop software.
     ${If} ${RunningX64}
       StrCpy $INSTDIR "$PROGRAMFILES64\Atlas"
     ${Else}
