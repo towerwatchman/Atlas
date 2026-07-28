@@ -27,7 +27,8 @@ It's meant to replace [Game-List](https://www.game-list.org) ([Github](https://g
 Atlas is for the user that wants ease of use, quality of life and have the software do the heavy lifting for you.
 
 For discussion about future releases and new features please visit our [Discord Server](https://discord.gg/XpTHvYbYyz).
-We have an F95Zone thread here: <https://f95zone.to/threads/305805/>
+
+We have an threads here: [F95Zone](https://f95zone.to/threads/305805/) & [LewdCorner](https://lewdcorner.com/threads/23964/)
 
 ## Adult / Lewd Game Support
 Atlas includes optional support for browsing and managing adult-oriented games and visual novels, with metadata sourced from:
