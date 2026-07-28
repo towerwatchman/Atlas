@@ -105,6 +105,58 @@ function handleContextAction(data, sender, ctx) {
         .catch((err) => console.error("Context delete title failed:", err));
       break;
     }
+    case "addToCollection": {
+      const { addGameToCollection } = require("../db/collections");
+      const { broadcastCollectionsChanged } = require("./collections");
+      addGameToCollection(data.collectionId, data.recordId)
+        .then((result) => {
+          if (!result?.success) {
+            console.error("Context add to collection failed:", result?.error);
+            return;
+          }
+          broadcastCollectionsChanged();
+        })
+        .catch((err) => console.error("Context add to collection failed:", err));
+      break;
+    }
+    case "removeFromCollection": {
+      const { removeGameFromCollection } = require("../db/collections");
+      const { broadcastCollectionsChanged } = require("./collections");
+      removeGameFromCollection(data.collectionId, data.recordId)
+        .then((result) => {
+          if (!result?.success) {
+            console.error("Context remove from collection failed:", result?.error);
+            return;
+          }
+          broadcastCollectionsChanged();
+        })
+        .catch((err) => console.error("Context remove from collection failed:", err));
+      break;
+    }
+    case "collectionRenameRequested": {
+      // Same reason as newCollectionWithGame: native menus can't prompt, so the
+      // renderer owns the dialog.
+      sender?.send("collection-rename-requested", {
+        collectionId: data.collectionId,
+        name: data.name,
+        color: data.color,
+      });
+      break;
+    }
+    case "collectionDeleteRequested": {
+      sender?.send("collection-delete-requested", {
+        collectionId: data.collectionId,
+        name: data.name,
+      });
+      break;
+    }
+    case "newCollectionWithGame": {
+      // The name has to come from the renderer (native menus can't prompt), so
+      // this just asks the window that opened the menu to show its create
+      // dialog, pre-seeded with the game to add on save.
+      sender?.send("collection-create-requested", { recordId: data.recordId });
+      break;
+    }
     default:
       console.error(`Unknown action: ${data.action}`);
   }

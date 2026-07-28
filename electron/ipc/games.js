@@ -31,14 +31,64 @@ function emitGameUpdated(recordId) {
   })
 }
 
+// ── Running-game tracking ──────────────────────────────────────────────────
+// The detail page's PLAY button used to infer "the game closed" from the
+// game-updated event, but startPlaySession fires game-updated at launch *start*
+// (to refresh last_played), so the button flipped to RUNNING and straight back
+// to PLAY. These broadcasts are now the single source of truth for that button.
+const runningSessions = new Map()
+const runKey = (recordId, version) => `${recordId}::${version ?? ''}`
+
+// Steam/GOG handoffs and shell.openPath launches give us no child process, so
+// there's no exit to observe. Hold RUNNING briefly for feedback, then release it
+// so the user isn't locked out of relaunching.
+const UNTRACKED_RUN_STATE_MS = 20000
+
+function broadcastRunState(recordId, version, running, tracked) {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('game-run-state', { recordId, version, running, tracked })
+    }
+  })
+}
+
+function getRunningGames() {
+  return [...runningSessions.values()].map(({ recordId, version, tracked, startedAtMs }) => ({
+    recordId, version, tracked, startedAtMs,
+  }))
+}
+
 async function startPlaySession(recordId, version, trackPlaytime = true) {
   if (!recordId || !version) return null
   const startedAtMs = Date.now()
   const startedAtSeconds = Math.floor(startedAtMs / 1000)
   await recordGameLaunchStarted(recordId, version, startedAtSeconds)
   emitGameUpdated(recordId)
+
+  const key = runKey(recordId, version)
+  const previous = runningSessions.get(key)
+  if (previous?.expiry) clearTimeout(previous.expiry)
+  const entry = { recordId, version, tracked: trackPlaytime, startedAtMs, expiry: null }
+  runningSessions.set(key, entry)
+  // Sent after emitGameUpdated so a renderer refresh can't clobber it.
+  broadcastRunState(recordId, version, true, trackPlaytime)
+
+  const release = () => {
+    if (runningSessions.get(key) !== entry) return
+    if (entry.expiry) clearTimeout(entry.expiry)
+    runningSessions.delete(key)
+    broadcastRunState(recordId, version, false, trackPlaytime)
+  }
+
+  if (!trackPlaytime) {
+    entry.expiry = setTimeout(release, UNTRACKED_RUN_STATE_MS)
+    if (typeof entry.expiry.unref === 'function') entry.expiry.unref()
+  }
+
   return {
+    release,
     finish: async () => {
+      release()
       if (!trackPlaytime) return
       const elapsedMs = Math.max(0, Date.now() - startedAtMs)
       if (elapsedMs <= 0) return
@@ -64,6 +114,9 @@ function trackChildPlaySession(child, session, recordId) {
     if (finalized) return
     finalized = true
     console.error(`Tracked game process error for ${recordId}:`, err)
+    // No playtime worth recording, but the run state still has to be released or
+    // the PLAY button stays stuck on RUNNING for the rest of the session.
+    session.release?.()
   })
 }
 
@@ -424,17 +477,25 @@ function registerGamesHandlers(ctx) {
     }
   })
 
+  // Both of these read ctx.appConfig rather than the destructured `appConfig`
+  // snapshot: saving settings replaces ctx.appConfig wholesale, so the snapshot
+  // goes stale the moment the games folder is set.
   ipcMain.handle('get-default-game-folder', async () => {
-    return appConfig?.Library?.gameFolder || ''
+    return (ctx.appConfig || appConfig)?.Library?.gameFolder || ''
   })
 
   ipcMain.handle('set-default-game-folder', async (event, newPath) => {
     const ini = require('ini')
-    const newConfig = { ...appConfig, Library: { ...appConfig.Library, gameFolder: newPath } }
+    const currentConfig = ctx.appConfig || appConfig || {}
+    const newConfig = { ...currentConfig, Library: { ...currentConfig.Library, gameFolder: newPath } }
     fs.writeFileSync(configPath, ini.stringify(newConfig))
     ctx.appConfig = newConfig
     return { success: true }
   })
+
+  // Lets a window that mounts while a game is already running show RUNNING
+  // instead of PLAY (e.g. navigating away from the detail page and back).
+  ipcMain.handle('get-running-games', async () => getRunningGames())
 
   ipcMain.handle('launch-game', async (event, data) => {
     try {

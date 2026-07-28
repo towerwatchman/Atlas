@@ -1,7 +1,7 @@
 import atlasLogo from '../../../assets/icons/atlas_logo.svg'
 import GogIcon from '../../ui/GogIcon.jsx'
 
-export default function SourceStep({ onSelect, onStartSteam, onStartGog, onStartRenpy }) {
+export default function SourceStep({ onSelect, onStartSteam, onStartGog, onStartRenpy, onStartManualAdd }) {
   return (
     <div className="flex items-center justify-center h-full">
       <div className="flex flex-col space-y-4 max-w-md w-full">
@@ -26,6 +26,16 @@ export default function SourceStep({ onSelect, onStartSteam, onStartGog, onStart
         >
           <GogIcon size={18} />
           GOG Library
+        </button>
+        {/* Escape hatch for games no automatic path can reach: Steam omits free
+            titles from its owned-games list, and the disk scan only sees games
+            that are installed. */}
+        <button
+          onClick={() => onStartManualAdd?.()}
+          className="bg-secondary hover:bg-selected text-text p-2 rounded-buttonTheme flex items-center justify-center gap-2"
+        >
+          <i className="fas fa-plus"></i>
+          Add Game Manually
         </button>
         <button
           onClick={() => onStartRenpy?.()}

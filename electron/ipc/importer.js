@@ -29,6 +29,22 @@ const { deletePathWithElevationFallback } = require('../deleteUtils')
 let ownerMainWindow = null
 let nextScanId = 1
 
+// The registration context, kept at module scope so module-level helpers can
+// reach the *current* app config. `ctx.appConfig` is replaced wholesale every
+// time settings are saved (e.g. set-default-game-folder), so anything that
+// captured the config object at registration time goes stale immediately — which
+// is how "Default library folder is not set" could fire right after the user
+// picked a folder.
+let handlerCtx = null;
+const getLiveConfig = () => handlerCtx?.appConfig || {};
+
+// Closes the import wizard if it's open. `ctx.importerWindow` is a live getter
+// in main.js, so this always sees the current window (or null).
+const closeImporterWindow = () => {
+  const win = handlerCtx?.importerWindow;
+  if (win && !win.isDestroyed()) win.close();
+};
+
 const clampInteger = (value, fallback, min, max) => {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -379,6 +395,7 @@ async function extractArchive(
   session,
   progressWindow,
   useBundledRarExtractor = false,
+  label = "",
 ) {
   const workerPath = resolvePackagedModulePath(
     path.join(__dirname, "../../workers/extractWorker.js"),
@@ -423,8 +440,13 @@ async function extractArchive(
     worker.on("message", (msg) => {
       if (msg.type === "progress") {
         if (progressWindow && !progressWindow.isDestroyed()) {
+          // `title`/`percent` are passed through so the renderer can label the
+          // progress bar with the game being extracted instead of the
+          // meaningless "Game 42/100" it derives from progress/total.
           progressWindow.webContents.send("import-progress", {
-            text: msg.text,
+            text: label ? `${label} \u2014 ${msg.text}` : msg.text,
+            title: label || null,
+            percent: typeof msg.percent === "number" ? msg.percent : null,
             progress:
               typeof msg.percent === "number"
                 ? msg.percent
@@ -499,6 +521,7 @@ async function extractArchiveWithFallback({
   currentConfigPath,
   ownerWindow,
   notify,
+  label = "",
 }) {
   try {
     return await extractArchive(
@@ -508,6 +531,7 @@ async function extractArchiveWithFallback({
       session,
       progressWindow,
       useBundledRarExtractor,
+      label,
     );
   } catch (err) {
     // Never interfere with cancellation, and only offer the fallback for the
@@ -570,6 +594,7 @@ async function extractArchiveWithFallback({
       session,
       progressWindow,
       false,
+      label,
     );
   }
 }
@@ -981,7 +1006,7 @@ async function deleteLinkedGameFolders(recordId, versionPaths) {
     if (!deleteResult.success) throw new Error(deleteResult.error || "Delete skipped");
     await removeEmptyParentDirectories(
       resolvedPath,
-      appConfig?.Library?.gameFolder,
+      getLiveConfig()?.Library?.gameFolder,
     );
   }
 }
@@ -1451,6 +1476,7 @@ const applyImportMatchData = (game, match, { f95Id = "", lcId = "" } = {}) => ({
 // ── IPC Handlers ───────────────────────────────────────────────────
 
 module.exports = function registerImporterHandlers(ctx) {
+  handlerCtx = ctx;
   const {
     mainWindow, importerWindow, appConfig, configPath, dataDir,
     searchAtlas, searchAtlasByF95Id, findF95Id, getAtlasData,
@@ -1588,6 +1614,150 @@ module.exports = function registerImporterHandlers(ctx) {
       alreadyPresent: Boolean(existing),
     }
   }
+
+  // ── Manual add & catalog search ───────────────────────────────────────────
+  //
+  // Motivation: Steam's GetOwnedGames does not return every app in a user's
+  // library. Free titles in particular are omitted, and no combination of
+  // include_played_free_games / include_free_sub / skip_unvetted_apps changes
+  // that (verified against a real account: identical count for all eight
+  // permutations). reconcileInstalled() now unions in installed games found via
+  // appmanifest scan, but an UNINSTALLED title Steam refuses to list has no
+  // local footprint at all and is unreachable by any automatic path.
+  //
+  // So: let the user search the storefronts directly and add by id, pulling real
+  // metadata and art so nothing has to be typed in by hand.
+
+  // A unix timestamp for an adult date of birth. Without it Steam's storefront
+  // omits mature-gated titles from search results entirely — which are exactly
+  // the ones most likely to be missing from the owned list.
+  const STORE_AGE_GATE_COOKIE = 'birthtime=568022401; mature_content=1; wants_mature_content=1'
+
+  const searchSteamStore = async (term) => {
+    const url = `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(term)}&l=english&cc=us`
+    const res = await fetch(url, { headers: { Cookie: STORE_AGE_GATE_COOKIE } })
+    if (!res.ok) throw new Error(`Steam search returned HTTP ${res.status}`)
+    const json = await res.json()
+    const items = Array.isArray(json?.items) ? json.items : []
+    return items.map((item) => ({
+      source: 'steam',
+      id: String(item.id),
+      name: item.name || `App ${item.id}`,
+      // tiny_image is a small capsule; good enough for a result row and cheap.
+      imageUrl: item.tiny_image || null,
+      isFree: item.price ? item.price.final === 0 : null,
+      type: item.type || '',
+    }))
+  }
+
+  const searchGogCatalog = async (term) => {
+    // embed.gog.com's filtered endpoint is used rather than catalog.gog.com
+    // because it needs no auth and returns the numeric product id directly,
+    // which is what gog_mappings keys on.
+    const url = `https://embed.gog.com/games/ajax/filtered?mediaType=game&search=${encodeURIComponent(term)}`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`GOG search returned HTTP ${res.status}`)
+    const json = await res.json()
+    const products = Array.isArray(json?.products) ? json.products : []
+    return products.map((product) => ({
+      source: 'gog',
+      id: String(product.id),
+      name: product.title || `Product ${product.id}`,
+      // GOG returns protocol-relative image paths with no extension.
+      imageUrl: product.image ? `https:${product.image}_196.jpg` : null,
+      isFree: product.price ? product.price.isFree === true : null,
+      type: product.isGame === false ? 'dlc' : 'game',
+    }))
+  }
+
+  ipcMain.handle('catalog-search', async (event, { source = 'steam', query = '' } = {}) => {
+    const term = String(query || '').trim()
+    if (term.length < 2) {
+      return { ok: false, results: [], error: 'Enter at least two characters to search.' }
+    }
+    try {
+      const results = source === 'gog'
+        ? await searchGogCatalog(term)
+        : await searchSteamStore(term)
+      return { ok: true, results }
+    } catch (err) {
+      console.error(`catalog-search (${source}) failed:`, err)
+      return { ok: false, results: [], error: err.message || 'Search failed.' }
+    }
+  })
+
+  // GOG twin of importOwnedSteamGame. Same shape, same ordering: fetch and store
+  // metadata FIRST (so record resolution can see the product's atlas_id and group
+  // with any existing record for the same game), then resolve or create the
+  // record, map it, and upsert a version.
+  const importGogGameById = async (gogId, fallbackName = '', installDir = '') => {
+    const id = String(gogId || '').trim()
+    if (!/^\d+$/.test(id)) {
+      return { ok: false, gogId, error: 'Invalid GOG product id.' }
+    }
+    const dir = String(installDir || '').trim()
+
+    let meta = null
+    try {
+      meta = await fetchAndStoreGogData(db, parseInt(id, 10))
+    } catch (err) {
+      console.warn(`Manual add: GOG metadata fetch failed for ${id}:`, err.message)
+    }
+
+    const existing = await findRecordByGogId(parseInt(id, 10))
+    const title = String(meta?.title || fallbackName || `GOG Product ${id}`).trim()
+    const creator = String(meta?.developer || 'Unknown').trim()
+    const engine = String(meta?.engine || '').trim()
+
+    const recordId = existing || (await addGame({ title, creator, engine }))
+    if (!existing) await addGogMapping(recordId, parseInt(id, 10))
+
+    await upsertVersion(
+      { version: title, folder: dir, execPath: '', folderSize: 0, source: 'gog', sourceAppId: id },
+      recordId,
+    )
+
+    return {
+      ok: true,
+      gogId: id,
+      recordId,
+      title,
+      versionLabel: title,
+      installed: Boolean(dir),
+      alreadyPresent: Boolean(existing),
+    }
+  }
+
+  // Unified manual add. Dispatches on source so the renderer has one call for
+  // both storefronts, and reuses the existing Steam path verbatim rather than
+  // duplicating its atlas-grouping logic.
+  ipcMain.handle('manual-add-game', async (event, { source = 'steam', id, name = '', installDir = '' } = {}) => {
+    try {
+      const result = source === 'gog'
+        ? await importGogGameById(id, name, installDir)
+        : await importOwnedSteamGame(id, name, installDir, null)
+      if (result?.ok) {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) win.webContents.send('import-complete')
+        })
+      }
+      return result
+    } catch (err) {
+      console.error('manual-add-game error:', err)
+      return { ok: false, id, error: err.message || 'Could not add game.' }
+    }
+  })
+
+  // Folder picker for the optional local path on a manually added game.
+  ipcMain.handle('manual-add-pick-folder', async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    const result = await dialog.showOpenDialog(owner, {
+      title: 'Select the game folder',
+      properties: ['openDirectory'],
+    })
+    if (result.canceled || !result.filePaths?.length) return { ok: false, canceled: true }
+    return { ok: true, path: result.filePaths[0] }
+  })
 
   // Single add.
   ipcMain.handle('steam-add-owned-game', async (event, { appid, name, installDir, assetSourceOrder } = {}) => {
@@ -1955,6 +2125,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
         currentConfigPath: configPath,
         ownerWindow,
         notify: (text) => notify(text, 15),
+        label: importGame.title || "",
       });
       gamePath = extraction.finalPath || targetBase;
 
@@ -2237,6 +2408,7 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
         currentConfigPath: configPath,
         ownerWindow,
         notify: () => {},
+        label: importGame.title || "",
       });
       gamePath = extraction.finalPath || targetBase;
       console.log("[LocalImport] Archive extracted", { sourcePath, gamePath });
@@ -2949,9 +3121,14 @@ ipcMain.handle("import-games", async (event, params) => {
       ["new", "repairPath", "steamVersion"].includes(game.scanStatus || "new") ||
       (forceReimport && game.scanStatus === "alreadyImported"),
   );
+  // Always re-read the config for this run. The renderer can set the games
+  // folder moments before calling import-games (the "Set your games folder"
+  // prompt), which rewrites ctx.appConfig — the destructured `appConfig` above
+  // is a snapshot from app start and would still show no gameFolder.
+  const liveConfig = ctx.appConfig || appConfig || {};
   const destinationFormat =
     libraryFormat ||
-    appConfig?.Library?.libraryFolderStructure ||
+    liveConfig?.Library?.libraryFolderStructure ||
     defaultConfig.Library.libraryFolderStructure;
   const gamesDir = path.join(dataDir, "games");
   if (!fs.existsSync(gamesDir)) fs.mkdirSync(gamesDir, { recursive: true });
@@ -2986,7 +3163,7 @@ ipcMain.handle("import-games", async (event, params) => {
   });
 
   const importNeedsLibrary = games.some((game) => game.isArchive || (moveFoldersToLibrary && !isSteamImportRow(game)));
-  let targetLibrary = appConfig?.Library?.gameFolder;
+  let targetLibrary = liveConfig?.Library?.gameFolder;
   if ((!targetLibrary || !fs.existsSync(targetLibrary)) && importNeedsLibrary) {
     console.warn("No default library folder configured");
     mainWindow.webContents.send("import-progress", {
@@ -3000,6 +3177,14 @@ ipcMain.handle("import-games", async (event, params) => {
   }
   if (!targetLibrary || !fs.existsSync(targetLibrary)) targetLibrary = null;
 
+  // Everything that can still bounce the user back to the wizard (missing games
+  // folder, nothing importable) has now passed, so the import is committed.
+  // Close the wizard here rather than in the renderer: the renderer only closed
+  // itself on a fully successful run, which left the window sitting open behind
+  // the progress bar whenever anything failed. Progress and failures are
+  // reported to the main window from here on.
+  closeImporterWindow();
+
   // ────────────────────────────────────────────────────────────────
   //  Resolve 7-Zip once before archive extraction
   // ────────────────────────────────────────────────────────────────
@@ -3010,8 +3195,8 @@ ipcMain.handle("import-games", async (event, params) => {
 
   if (needsExtraction) {
     const resolvedSevenZip = await resolveSevenZipExecutablePath({
-      configuredPath: appConfig?.Library?.sevenZipPath,
-      currentConfig: appConfig,
+      configuredPath: liveConfig?.Library?.sevenZipPath,
+      currentConfig: liveConfig,
       currentConfigPath: configPath,
       ownerWindow: mainWindow,
       notify: (text) =>
@@ -3149,6 +3334,9 @@ ipcMain.handle("import-games", async (event, params) => {
           text: `Preparing extraction for ${game.title}...`,
           progress: 0,
           total: 100,
+          phase: "extracting",
+          title: game.title || null,
+          percent: 0,
         });
 
         try {
@@ -3160,7 +3348,7 @@ ipcMain.handle("import-games", async (event, params) => {
             progressWindow: mainWindow,
             useBundledRarExtractor:
               isRarArchivePath(zipPath) && sevenZipSource === "bundled",
-            currentConfig: appConfig,
+            currentConfig: liveConfig,
             currentConfigPath: configPath,
             ownerWindow: mainWindow,
             notify: (text) =>
@@ -3168,7 +3356,9 @@ ipcMain.handle("import-games", async (event, params) => {
                 text,
                 progress: 0,
                 total: 0,
+                title: game.title || null,
               }),
+            label: game.title || "",
           });
           extractPath = extraction.finalPath || extractPath;
           session.cleanupPaths = [extractPath];
@@ -3661,6 +3851,19 @@ ipcMain.handle("import-games", async (event, params) => {
     total,
     canCancel: false,
   });
+
+  // The wizard was closed when the import started, so per-game failures can no
+  // longer be alerted there. Hand them to the main window's toast system.
+  const importFailures = results.filter((r) => r && r.success === false);
+  if (importFailures.length > 0) {
+    mainWindow.webContents.send("import-failed", {
+      count: importFailures.length,
+      total,
+      errors: importFailures
+        .map((r) => r.error || r.title || "Unknown import failure")
+        .slice(0, 5),
+    });
+  }
 
   const shouldDownloadImportImages = downloadBannerImages || downloadPreviewImages;
 

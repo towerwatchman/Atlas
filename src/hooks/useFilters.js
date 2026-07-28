@@ -32,6 +32,11 @@ export const defaultFilters = {
   tagLogic: 'AND',
   updateAvailable: false,
   favoritesOnly: false,
+  // Collection membership. Ids are numeric collection ids, plus the literal
+  // 'uncategorized' sentinel for titles that belong to no collection. Empty =
+  // no collection constraint. Distinct from `category`, which is the
+  // atlas_data metadata category (Games/Comics/etc.).
+  collectionIds: [],
   wishlistOnly: false,
   steamMapped: false,
   personalRatingMin: 0,
@@ -48,6 +53,7 @@ export const defaultFilters = {
 }
 
 const arrayFilterKeys = [
+  'collectionIds',
   'category',
   'engine',
   'status',
@@ -919,6 +925,21 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
     result = result.filter((game) => game.isFavorite === true || game.is_favorite === 1)
   }
 
+  // Collection membership. The lookup is passed in (options.collectionIdsByRecord,
+  // a Map of record_id -> [collectionId]) rather than joined onto each game row:
+  // getGames already carries a GROUP_CONCAT over tags under a GROUP BY, so a
+  // second one-to-many join there would corrupt the tag list.
+  if (activeFilters.collectionIds.length > 0) {
+    const wanted = new Set(activeFilters.collectionIds.map(String))
+    const includeUncategorized = wanted.has('uncategorized')
+    const lookup = options.collectionIdsByRecord
+    result = result.filter((game) => {
+      const ids = lookup?.get(Number(game.record_id)) || []
+      if (ids.length === 0) return includeUncategorized
+      return ids.some((id) => wanted.has(String(id)))
+    })
+  }
+
   if (activeFilters.personalRatingStatus !== 'any') {
     result = result.filter((game) => {
       const rating = getPersonalRatingOverall(game)
@@ -1162,7 +1183,9 @@ export const builtInSavedFilters = [
   },
 ]
 
-export function useFilters(games, includeUninstalledRef, fetchGames, setSelectedGame) {
+// `filterOptions` carries lookups that can't live on the game rows themselves —
+// currently just collectionIdsByRecord (see filterGamesWithState).
+export function useFilters(games, includeUninstalledRef, fetchGames, setSelectedGame, filterOptions = {}) {
   const [activeFilters, setActiveFilters] = useState(() => normalizeFilterState(defaultFilters))
 
   const handleFilterChange = useCallback(
@@ -1214,9 +1237,10 @@ export function useFilters(games, includeUninstalledRef, fetchGames, setSelected
     }
   }, [includeUninstalledRef, fetchGames, setSelectedGame])
 
+  const collectionIdsByRecord = filterOptions?.collectionIdsByRecord
   const filteredGames = useMemo(() => {
-    return filterGamesWithState(games, activeFilters)
-  }, [games, activeFilters])
+    return filterGamesWithState(games, activeFilters, { collectionIdsByRecord })
+  }, [games, activeFilters, collectionIdsByRecord])
 
   const installedGameCount = useMemo(
     () => games.filter((game) => game.hasInstalledVersion !== false).length,

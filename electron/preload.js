@@ -356,10 +356,74 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeListener("game-updated", callback);
   },
   onImportComplete: (callback) => ipcRenderer.on("import-complete", callback),
+  // Per-game import failures. The wizard closes as soon as an import starts, so
+  // these are surfaced by the main window instead of an alert in the wizard.
+  onImportFailed: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("import-failed", handler);
+    return () => ipcRenderer.removeListener("import-failed", handler);
+  },
+  // Live launch state for a game: { recordId, version, running, tracked }.
+  onGameRunState: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("game-run-state", handler);
+    return () => ipcRenderer.removeListener("game-run-state", handler);
+  },
+  getRunningGames: () => ipcRenderer.invoke("get-running-games"),
+
+  // ── Collections ──────────────────────────────────────────────────────────
+  // Steam-style user groupings of local library titles. "Uncategorized" is
+  // derived (a title in zero collections) and has no id of its own.
+  getCollections: () => ipcRenderer.invoke("get-collections"),
+  getCollectionsForGame: (recordId) =>
+    ipcRenderer.invoke("get-collections-for-game", recordId),
+  createCollection: (payload) => ipcRenderer.invoke("create-collection", payload),
+  renameCollection: (payload) => ipcRenderer.invoke("rename-collection", payload),
+  setCollectionColor: (payload) => ipcRenderer.invoke("set-collection-color", payload),
+  deleteCollection: (collectionId) =>
+    ipcRenderer.invoke("delete-collection", collectionId),
+  addGameToCollection: (payload) =>
+    ipcRenderer.invoke("add-game-to-collection", payload),
+  removeGameFromCollection: (payload) =>
+    ipcRenderer.invoke("remove-game-from-collection", payload),
+  reorderCollections: (orderedIds) =>
+    ipcRenderer.invoke("reorder-collections", orderedIds),
+  // Fired when the "+ New Collection" entry in a native context menu is
+  // chosen: the main process can't prompt for a name, so the renderer opens
+  // its create dialog and adds the game once saved.
+  onCollectionCreateRequested: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("collection-create-requested", handler);
+    return () => ipcRenderer.removeListener("collection-create-requested", handler);
+  },
+  onCollectionRenameRequested: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("collection-rename-requested", handler);
+    return () => ipcRenderer.removeListener("collection-rename-requested", handler);
+  },
+  onCollectionDeleteRequested: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("collection-delete-requested", handler);
+    return () => ipcRenderer.removeListener("collection-delete-requested", handler);
+  },
+  onCollectionsChanged: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on("collections-changed", handler);
+    return () => ipcRenderer.removeListener("collections-changed", handler);
+  },
   onLibraryValidationProgress: (callback) =>
     ipcRenderer.on("library-validation-progress", (event, progress) =>
       callback(progress),
     ),
+  // Fired once by the post-boot stale-exec repair, and only when it actually
+  // changed rows. Repointing exec_path changes a version's installed/missing
+  // state, so the grid needs to re-read rather than show stale badges until the
+  // next launch.
+  onLibraryExecPathsRepaired: (callback) => {
+    const handler = (event, summary) => callback(summary);
+    ipcRenderer.on("library-exec-paths-repaired", handler);
+    return () => ipcRenderer.removeListener("library-exec-paths-repaired", handler);
+  },
   onUpdateStatus: (callback) => {
     ipcRenderer.on("update-status", (event, status) => callback(status));
     return () => ipcRenderer.removeAllListeners("update-status");
@@ -379,12 +443,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "game-imported",
       "game-updated",
       "import-complete",
+      "import-failed",
+      "game-run-state",
+      "collections-changed",
+      "collection-create-requested",
+      "collection-rename-requested",
+      "collection-delete-requested",
       "update-status",
       "appearance-changed",
       "metadata-changed",
       "context-menu-command",
       "game-deleted",
       "library-validation-progress",
+      "library-exec-paths-repaired",
     ]);
 
     if (allowedChannels.has(channel)) {
@@ -454,6 +525,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   steamSetKey: (payload) => ipcRenderer.invoke("steam-set-key", payload),
   steamDisconnect: () => ipcRenderer.invoke("steam-disconnect"),
   steamOwnedGames: (payload) => ipcRenderer.invoke("steam-owned-games", payload),
+  // Manual add: search a storefront, then create a record from the chosen id.
+  catalogSearch: (payload) => ipcRenderer.invoke("catalog-search", payload),
+  manualAddGame: (payload) => ipcRenderer.invoke("manual-add-game", payload),
+  manualAddPickFolder: () => ipcRenderer.invoke("manual-add-pick-folder"),
   steamAddOwnedGame: (payload) => ipcRenderer.invoke("steam-add-owned-game", payload),
   steamOwnedExisting: (payload) => ipcRenderer.invoke("steam-owned-existing", payload),
   steamCheckInstalled: (payload) => ipcRenderer.invoke("steam-check-installed", payload),

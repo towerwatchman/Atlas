@@ -5,8 +5,8 @@ import ImporterSourceMenu from '../importer/ImporterSourceMenu.jsx'
 
 const Sidebar = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
-  onToggleSearchSidebar, onOpenAbout, showGameList, libraryMode = 'local',
-  browseAvailable, favoritesActive = false,
+  onToggleSearchSidebar, onOpenAbout, onOpenCollections, showGameList, libraryMode = 'local',
+  browseAvailable, favoritesActive = false, collectionsActive = false,
 }) => {
   const { navDisplayMode } = useTheme()
   const [selected, setSelected] = useState('Library')
@@ -18,7 +18,7 @@ const Sidebar = ({
   // whether the nav is a top bar or this left rail.
   const items = getNavItems({
     onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
-    onToggleSearchSidebar, onOpenAbout, browseModeAvailable: browseAvailable,
+    onToggleSearchSidebar, onOpenAbout, onOpenCollections, browseModeAvailable: browseAvailable,
   }).filter((item) => item.name !== 'Filters' && item.name !== 'About')
   const showIcon = navDisplayMode !== 'text'
   const showText = navDisplayMode !== 'icons'
@@ -39,10 +39,12 @@ const Sidebar = ({
     <div className="w-navSize bg-primary flex flex-col items-center min-w-[60px] py-[1px] fixed top-[70px] bottom-[40px] z-50">
       {items.map((item) => {
         const isActive =
-          item.name === 'Favorites'
+          item.name === 'Collections'
+            ? collectionsActive
+            : item.name === 'Favorites'
             ? favoritesActive
             : item.name === 'Library'
-              ? (libraryMode === 'local' && !favoritesActive)
+              ? (libraryMode === 'local' && !favoritesActive && !collectionsActive)
               : item.name === 'List'
                 ? false
                 : (

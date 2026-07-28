@@ -232,6 +232,10 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   // Drives moving the Back button from the hero into the ActionBar.
   const [barStuck, setBarStuck] = useState(false)
   const isRunningRef  = useRef(false)
+  // Set when the main process reports the game closed. Guards against a
+  // fast-exiting game reporting closed *before* the launchGame invoke resolves,
+  // which would otherwise leave the button stuck on RUNNING.
+  const closedDuringLaunchRef = useRef(false)
   const rootRef       = useRef(null)
   const stickySentinelRef = useRef(null)
   const bannerRef     = useRef(null)
@@ -423,7 +427,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   }, [game?.record_id, game?.isCatalogEntry, selectedVersion?.version_id, selectedVersion?.source_app_id])
 
   useEffect(() => {
-    setLaunchState(LAUNCH_STATE.IDLE)
     setShowInfo(false)
     setLightboxIndex(null)
     setIsWishlisted(game?.isWishlisted === true || game?.isWishlistEntry === true)
@@ -448,7 +451,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     setPersonalRatingsSaved(nextRatings)
     setPersonalRatingsError('')
     setPersonalRatingsBusy(false)
-    isRunningRef.current = false
   }, [
     game?.record_id,
     game?.isWishlisted,
@@ -567,10 +569,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     const handleGameUpdated = (event, payload) => {
       const updatedId = typeof payload === 'object' ? payload?.record_id : payload
       if (updatedId !== game.record_id) return
-      if (isRunningRef.current) {
-        isRunningRef.current = false
-        setLaunchState(LAUNCH_STATE.IDLE)
-      }
+      // Deliberately does NOT touch launchState: game-updated also fires at
+      // launch *start* (last_played), which is what used to snap the button
+      // straight back to PLAY. game-run-state owns that state now.
       onRefresh?.(game.record_id)
     }
     const removeListener = window.electronAPI.onGameUpdated(handleGameUpdated)
@@ -579,6 +580,51 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
       else window.electronAPI.removeAllListeners?.('game-updated')
     }
   }, [game?.record_id, onRefresh])
+
+  // Authoritative launch state, driven by the main process: RUNNING is held for
+  // the lifetime of the game process (tracked launches) and released on exit.
+  // Matched on record id only — the title is running whichever version it is.
+  useEffect(() => {
+    const recordId = game?.record_id
+    if (!recordId) return
+    let cancelled = false
+
+    // Switching records starts from a clean slate; the query below re-asserts
+    // RUNNING if this particular title happens to be running.
+    isRunningRef.current = false
+    closedDuringLaunchRef.current = false
+    setLaunchState(LAUNCH_STATE.IDLE)
+
+    const applyRunState = (running) => {
+      isRunningRef.current = running
+      if (!running) closedDuringLaunchRef.current = true
+      setLaunchState(running ? LAUNCH_STATE.RUNNING : LAUNCH_STATE.IDLE)
+    }
+
+    // A game may already be running when this page mounts.
+    ;(async () => {
+      try {
+        const rows = await window.electronAPI.getRunningGames?.()
+        if (cancelled || !Array.isArray(rows)) return
+        if (rows.some((row) => String(row?.recordId) === String(recordId))) {
+          isRunningRef.current = true
+          setLaunchState(LAUNCH_STATE.RUNNING)
+        }
+      } catch (err) {
+        console.warn('Failed to read running games:', err?.message)
+      }
+    })()
+
+    const removeListener = window.electronAPI.onGameRunState?.((payload) => {
+      if (cancelled || String(payload?.recordId) !== String(recordId)) return
+      applyRunState(payload?.running === true)
+    })
+
+    return () => {
+      cancelled = true
+      if (typeof removeListener === 'function') removeListener()
+    }
+  }, [game?.record_id])
 
   // ── Derived state ─────────────────────────────────────────────────────────
   const installedVersions = getInstalledVersions(game.versions || [])
@@ -719,9 +765,13 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   // ── Handlers ──────────────────────────────────────────────────────────────
   const launchSelectedGame = async () => {
     if (!canLaunch || launchState !== LAUNCH_STATE.IDLE) return
+    closedDuringLaunchRef.current = false
     setLaunchState(LAUNCH_STATE.LAUNCHING)
     try {
       await window.electronAPI.launchGame({ recordId: game.record_id, version: actionVersion.version })
+      // If the process already exited (crash, instant-close launcher stub), the
+      // main process has told us so — don't claim RUNNING after the fact.
+      if (closedDuringLaunchRef.current) return
       isRunningRef.current = true
       setLaunchState(LAUNCH_STATE.RUNNING)
     } catch (err) {

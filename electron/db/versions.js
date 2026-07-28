@@ -106,6 +106,24 @@ function isLaunchableFile(filePath, allowedExtensions) {
   return allowedExtensions.has(ext) && !LAUNCHABLE_NAME_BLACKLIST.has(base);
 }
 
+// Shallowest first, then .exe > .html > everything else, then alphabetical.
+// Shared by both walkers so the sync and async paths can never pick different
+// executables for the same folder.
+function sortLaunchableCandidates(results) {
+  return results.sort((a, b) => {
+    const depthDiff = a.split(path.sep).length - b.split(path.sep).length;
+    if (depthDiff !== 0) return depthDiff;
+    const extRank = (candidate) => {
+      const ext = path.extname(candidate).replace(/^\./, "").toLowerCase();
+      if (ext === "exe") return 0;
+      if (ext === "html") return 1;
+      return 2;
+    };
+    const rankDiff = extRank(a) - extRank(b);
+    return rankDiff || a.localeCompare(b);
+  });
+}
+
 function findLaunchablesInFolder(rootPath, extensions) {
   if (!rootPath || !fs.existsSync(rootPath)) return [];
 
@@ -132,23 +150,73 @@ function findLaunchablesInFolder(rootPath, extensions) {
     }
   }
 
-  return results.sort((a, b) => {
-    const depthDiff = a.split(path.sep).length - b.split(path.sep).length;
-    if (depthDiff !== 0) return depthDiff;
-    const extRank = (candidate) => {
-      const ext = path.extname(candidate).replace(/^\./, "").toLowerCase();
-      if (ext === "exe") return 0;
-      if (ext === "html") return 1;
-      return 2;
-    };
-    const rankDiff = extRank(a) - extRank(b);
-    return rankDiff || a.localeCompare(b);
-  });
+  return sortLaunchableCandidates(results);
 }
 
-function chooseLaunchableForRepair(gamePath, staleExecPath, extensions) {
-  const launchables = findLaunchablesInFolder(gamePath, extensions);
-  if (launchables.length === 0) return null;
+// Async, budgeted twin of findLaunchablesInFolder.
+//
+// The sync walker is correct for interactive, one-folder-at-a-time use (the
+// importer, the executable chooser). It is the wrong tool for the startup
+// exec-path repair, which may need to walk many folders on a mechanical drive
+// with a cold OS file cache: a recursive readdirSync blocks the main process
+// outright, and with the window already on screen that reads as a hard freeze.
+//
+// This variant awaits each readdir (so the event loop keeps turning) and stops
+// as soon as any limit is hit, so a single 200k-file game folder cannot stall
+// the pass. Limits default to unlimited, matching the sync behaviour.
+async function findLaunchablesInFolderAsync(rootPath, extensions, limits = {}) {
+  const {
+    maxDepth = Infinity,
+    maxEntries = Infinity,
+    budgetMs = Infinity,
+  } = limits;
+
+  if (!rootPath) return [];
+  try {
+    await fsPromises.access(rootPath);
+  } catch {
+    return [];
+  }
+
+  const allowedExtensions = normalizeExtensions(extensions);
+  const startedAt = Date.now();
+  const results = [];
+  // Breadth-first, so the shallow (and overwhelmingly most likely) candidates
+  // are found before any limit can cut the walk short.
+  let frontier = [{ dir: rootPath, depth: 0 }];
+  let seenEntries = 0;
+
+  while (frontier.length > 0) {
+    const nextFrontier = [];
+    for (const { dir, depth } of frontier) {
+      if (seenEntries >= maxEntries) return sortLaunchableCandidates(results);
+      if (Date.now() - startedAt > budgetMs) return sortLaunchableCandidates(results);
+
+      let entries = [];
+      try {
+        entries = await fsPromises.readdir(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        seenEntries += 1;
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (depth + 1 <= maxDepth) nextFrontier.push({ dir: fullPath, depth: depth + 1 });
+        } else if (entry.isFile() && isLaunchableFile(fullPath, allowedExtensions)) {
+          results.push(path.relative(rootPath, fullPath));
+        }
+      }
+    }
+    frontier = nextFrontier;
+  }
+
+  return sortLaunchableCandidates(results);
+}
+
+function pickLaunchableFromCandidates(launchables, staleExecPath) {
+  if (!launchables || launchables.length === 0) return null;
 
   const staleBase = path.basename(String(staleExecPath || "")).toLowerCase();
   if (staleBase) {
@@ -159,6 +227,20 @@ function chooseLaunchableForRepair(gamePath, staleExecPath, extensions) {
   }
 
   return launchables[0];
+}
+
+function chooseLaunchableForRepair(gamePath, staleExecPath, extensions) {
+  return pickLaunchableFromCandidates(
+    findLaunchablesInFolder(gamePath, extensions),
+    staleExecPath,
+  );
+}
+
+async function chooseLaunchableForRepairAsync(gamePath, staleExecPath, extensions, limits = {}) {
+  return pickLaunchableFromCandidates(
+    await findLaunchablesInFolderAsync(gamePath, extensions, limits),
+    staleExecPath,
+  );
 }
 
 const resolveVersionSize = async (game, gamePath) => {
@@ -2303,7 +2385,9 @@ module.exports = {
   normalizeExtensions,
   isLaunchableFile,
   findLaunchablesInFolder,
+  findLaunchablesInFolderAsync,
   chooseLaunchableForRepair,
+  chooseLaunchableForRepairAsync,
   normalizeVersionName,
   getUniqueVersionName,
   getIsUpdateAvailable,

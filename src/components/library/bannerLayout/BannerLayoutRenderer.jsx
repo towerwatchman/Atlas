@@ -144,9 +144,17 @@ const isEmptyValue = (value) =>
   value === '' ||
   (Array.isArray(value) && value.length === 0)
 
+// Catalog/browse entries are metadata-only rows out of the Atlas database: they
+// have no local files, so they resolve media differently and several layout
+// conditions key off the distinction. Kept as one module-level helper because it
+// is needed both by the condition filter and by the preview-cycle fetch, and the
+// two must never disagree about what a catalog entry is.
+const isCatalogGame = (game) =>
+  game?.isCatalogEntry === true || game?.isMetadataOnly === true
+
 const fieldPassesConditions = (field, game) => {
   const conditions = field.conditions || {}
-  const isCatalog = game.isCatalogEntry === true || game.isMetadataOnly === true
+  const isCatalog = isCatalogGame(game)
   const isWishlist = game.isWishlisted === true || game.isWishlistEntry === true
   const isInstalled = game.hasInstalledVersion !== false || game.isInstalled === true
   if (conditions.localOnly && isCatalog) return false
@@ -382,6 +390,11 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
     (typeof window.electronAPI?.getPreviews === 'function' ||
       typeof window.electronAPI?.getBrowsePreviewUrls === 'function')
   const cycleIntervalMs = Math.max(250, Number(previewCycle.intervalMs) || 2000)
+  // Needed by handleBannerMouseEnter below to pick the right preview source.
+  // This used to be read as a bare `isCatalog` identifier that only existed as a
+  // local inside fieldPassesConditions, so the first hover on any card with
+  // preview cycling enabled threw ReferenceError and no previews ever loaded.
+  const isCatalog = isCatalogGame(game)
 
   const [isHovering, setIsHovering] = React.useState(false)
   const [cyclePreviews, setCyclePreviews] = React.useState([])
@@ -412,8 +425,13 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
         const images = (Array.isArray(urls) ? urls : []).filter(isImagePreview)
         setCyclePreviews(images)
       })
-      .catch(() => setCyclePreviews([]))
-  }, [cycleEnabled, game?.record_id, cycleIntervalMs])
+      .catch(() => {
+        // Let a later hover try again rather than latching "no previews" for
+        // the lifetime of the card on a one-off IPC failure.
+        previewsFetchedRef.current = false
+        setCyclePreviews([])
+      })
+  }, [cycleEnabled, game, isCatalog, cycleIntervalMs])
 
   const handleBannerMouseLeave = React.useCallback(() => {
     if (hoverDelayRef.current) {

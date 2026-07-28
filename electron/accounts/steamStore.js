@@ -28,6 +28,16 @@ let store = {} // in-memory mirror of steam.json
 // a background refetch. A manual refresh always refetches regardless.
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
+// Bumped whenever the shape of a cached entry or the set of GetOwnedGames
+// request parameters changes. A cache written by an older schema is treated as
+// stale immediately rather than being trusted for up to CACHE_TTL_MS.
+//
+// This exists because of v2: the request was missing include_free_sub and
+// skip_unvetted_apps, so every cached list was already missing the user's
+// unplayed free-to-play, delisted and age-gated games. Without the version
+// check, fixing the request would have appeared to do nothing for a day.
+const OWNED_CACHE_SCHEMA = 2
+
 function encryptionAvailable() {
   try {
     return safeStorage.isEncryptionAvailable()
@@ -94,6 +104,12 @@ function status() {
     cachedCount: store.ownedCache && Array.isArray(store.ownedCache.games)
       ? store.ownedCache.games.length
       : 0,
+    // A cache written before OWNED_CACHE_SCHEMA's current value is known to be
+    // an incomplete library (it predates include_free_sub/skip_unvetted_apps),
+    // and getOwnedGames() will discard it on the next read. Reporting that here
+    // stops Settings from advertising a count it is about to throw away — which
+    // is what made the panel and the importer disagree until a manual refresh.
+    cacheIncomplete: Boolean(store.ownedCache) && store.ownedCache.schema !== OWNED_CACHE_SCHEMA,
   }
 }
 
@@ -144,20 +160,65 @@ function disconnect() {
 
 // Reconcile a normalized owned-games list against locally-installed Steam games
 // (from the disk scanner), tagging each with install state. Join key is appid.
+//
+// This is a UNION, not a left join on the owned list, and that matters. Steam
+// hides some titles from GetOwnedGames entirely — free titles in particular are
+// omitted regardless of include_played_free_games/include_free_sub/
+// skip_unvetted_apps, which was verified against a real account by running every
+// parameter permutation and getting an identical count each time. So the API list
+// is authoritative for what the account OWNS but is not a complete picture of
+// what is in the library.
+//
+// The local appmanifest scan does see those titles: appmanifest_<appid>.acf has
+// the appid, the real name, the install dir and the size on disk. An installed
+// game the API refuses to mention is therefore still perfectly importable, and
+// dropping it (which is what mapping over ownedGames alone did) is the reason a
+// game could be installed, playable, visible in the Steam client, and yet absent
+// from Atlas's import wizard.
+//
+// Local-only entries are flagged with apiListed:false so the UI can say why they
+// look different, and carry playtime 0 because the API is the only playtime
+// source and it does not report these.
 function reconcileInstalled(ownedGames, installedGames) {
-  const byAppId = new Map()
+  const installedByAppId = new Map()
   for (const g of installedGames || []) {
-    byAppId.set(String(g.appid), g)
+    if (g && g.appid) installedByAppId.set(String(g.appid), g)
   }
-  return ownedGames.map((g) => {
-    const installed = byAppId.get(String(g.appid)) || null
+
+  const ownedAppIds = new Set()
+  const merged = (ownedGames || []).map((g) => {
+    const appId = String(g.appid)
+    ownedAppIds.add(appId)
+    const installed = installedByAppId.get(appId) || null
     return {
       ...g,
       installed: Boolean(installed),
       installDir: installed ? installed.installDir : null,
       sizeOnDisk: installed ? installed.size || 0 : 0,
+      apiListed: true,
     }
   })
+
+  for (const [appId, installed] of installedByAppId) {
+    if (ownedAppIds.has(appId)) continue
+    const name = typeof installed.name === 'string' ? installed.name.trim() : ''
+    merged.push({
+      appid: appId,
+      // The .acf name is Steam's own, so it needs no enrichment to be useful.
+      name: name || `App ${appId}`,
+      playtimeForever: 0,
+      playtimeRecent: 0,
+      iconHash: null,
+      hasStoreInfo: name.length > 0,
+      installed: true,
+      installDir: installed.installDir || null,
+      sizeOnDisk: installed.size || 0,
+      // Found on disk but absent from GetOwnedGames.
+      apiListed: false,
+    })
+  }
+
+  return merged
 }
 
 // Read the owned-games list. Uses the on-disk cache when fresh unless forceRefresh
@@ -174,8 +235,9 @@ async function getOwnedGames({ installedGames = [], forceRefresh = false } = {})
   }
 
   const cache = store.ownedCache
+  const cacheCurrent = cache && cache.schema === OWNED_CACHE_SCHEMA
   const cacheFresh =
-    cache &&
+    cacheCurrent &&
     Array.isArray(cache.games) &&
     Date.now() - (cache.fetchedAt || 0) < CACHE_TTL_MS
 
@@ -190,7 +252,7 @@ async function getOwnedGames({ installedGames = [], forceRefresh = false } = {})
 
   try {
     const games = await steamAuth.getOwnedGames(apiKey, store.steamId)
-    store.ownedCache = { fetchedAt: Date.now(), games }
+    store.ownedCache = { schema: OWNED_CACHE_SCHEMA, fetchedAt: Date.now(), games }
     persist()
     return {
       ok: true,
@@ -206,6 +268,9 @@ async function getOwnedGames({ installedGames = [], forceRefresh = false } = {})
         ok: true,
         fromCache: true,
         stale: true,
+        // An old-schema cache is incomplete (see OWNED_CACHE_SCHEMA) but is
+        // still better than showing the user nothing when Steam is unreachable.
+        incomplete: !cacheCurrent,
         fetchedAt: cache.fetchedAt,
         games: reconcileInstalled(cache.games, installedGames),
       }

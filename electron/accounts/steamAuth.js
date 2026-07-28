@@ -147,14 +147,48 @@ function signInWithSteam() {
 const OWNED_GAMES_URL = 'https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/'
 
 // Low-level GetOwnedGames call. Returns the raw `response` object from Steam, or
-// throws on a transport/HTTP error. include_appinfo=1 gives us name + img hashes;
-// include_played_free_games=1 so free titles the user has played show up too.
+// throws on a transport/HTTP error.
+//
+// The parameter set matters more than it looks. GetOwnedGames does NOT return
+// the user's whole library by default — it returns a filtered subset, and three
+// separate filters were hiding games:
+//
+//   include_appinfo=1
+//     Adds name + img_icon_url. Without it you get bare appids.
+//
+//   include_played_free_games=1
+//     Free-to-play titles are licensed through a free sub rather than a purchase,
+//     so they are excluded by default. This flag adds back only the ones with
+//     playtime > 0 — which is why an unplayed F2P game in the library was
+//     invisible no matter how many times the list was refreshed.
+//
+//   include_free_sub=1
+//     The rest of the free-license apps, played or not. This is the one that
+//     actually surfaces unplayed free-to-play games.
+//
+//   skip_unvetted_apps=0
+//     Defaults to TRUE, which silently drops apps Steam has not vetted for
+//     store display: titles delisted/removed from the store, and adult titles
+//     behind the mature-content gate. Both are still owned and still launchable;
+//     they were just being filtered out of the response before Atlas ever saw
+//     them. Turning it off is what brings them back.
+//
+//   include_extended_appinfo=1 / language
+//     Best-effort richer appinfo. Harmless when Steam ignores it.
+//
+// Unvetted apps frequently come back with no `name`, because the name lives in
+// store data they have no store page for. That is expected, not an error — see
+// getOwnedGames() for how those are flagged rather than dropped.
 async function fetchOwnedGames(apiKey, steamId) {
   const params = new URLSearchParams({
     key: apiKey,
     steamid: steamId,
     include_appinfo: '1',
     include_played_free_games: '1',
+    include_free_sub: '1',
+    skip_unvetted_apps: '0',
+    include_extended_appinfo: '1',
+    language: 'english',
     format: 'json',
   })
   const res = await fetch(`${OWNED_GAMES_URL}?${params.toString()}`)
@@ -202,18 +236,30 @@ async function validateApiKey(apiKey, steamId) {
 }
 
 // Fetch and normalize the owned-games list. Returns an array of:
-//   { appid, name, playtimeForever, playtimeRecent, iconHash }
+//   { appid, name, playtimeForever, playtimeRecent, iconHash, hasStoreInfo }
 // iconHash lets the UI build a library-capsule URL without an extra call.
+//
+// hasStoreInfo=false marks the delisted / age-gated / free-sub apps that Steam
+// returns without a name or icon. They are real, owned, launchable games and are
+// deliberately kept in the list — dropping anything nameless is how a library
+// silently loses its delisted titles. The UI flags them as limited-info instead,
+// and the normal Steam metadata pass can still fill them in later by appid (the
+// scanner already sends the birthtime/mature_content cookie to appdetails, so
+// age-gated titles do resolve once they are in the library).
 async function getOwnedGames(apiKey, steamId) {
   const response = await fetchOwnedGames(String(apiKey || '').trim(), steamId)
   const games = Array.isArray(response.games) ? response.games : []
-  return games.map((g) => ({
-    appid: String(g.appid),
-    name: g.name || `App ${g.appid}`,
-    playtimeForever: g.playtime_forever || 0,
-    playtimeRecent: g.playtime_2weeks || 0,
-    iconHash: g.img_icon_url || null,
-  }))
+  return games.map((g) => {
+    const name = typeof g.name === 'string' ? g.name.trim() : ''
+    return {
+      appid: String(g.appid),
+      name: name || `App ${g.appid}`,
+      playtimeForever: g.playtime_forever || 0,
+      playtimeRecent: g.playtime_2weeks || 0,
+      iconHash: g.img_icon_url || null,
+      hasStoreInfo: name.length > 0,
+    }
+  })
 }
 
 module.exports = {

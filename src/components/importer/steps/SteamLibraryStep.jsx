@@ -200,16 +200,29 @@ const SteamLibraryStep = ({ onBack }) => {
     let list = games
     if (filter === 'installed') list = list.filter((g) => g.installed)
     else if (filter === 'notInstalled') list = list.filter((g) => !g.installed)
-    if (q) list = list.filter((g) => g.name.toLowerCase().includes(q))
+    if (q) list = list.filter((g) => String(g.name || '').toLowerCase().includes(q))
     // Installed first, then by playtime desc, then name.
     return [...list].sort((a, b) => {
       if (a.installed !== b.installed) return a.installed ? -1 : 1
       if (b.playtimeForever !== a.playtimeForever) return b.playtimeForever - a.playtimeForever
-      return a.name.localeCompare(b.name)
+      return String(a.name || '').localeCompare(String(b.name || ''))
     })
   }, [games, query, filter])
 
   const installedCount = useMemo(() => games.filter((g) => g.installed).length, [games])
+  // Delisted / age-gated / free-sub apps Steam returned without store details.
+  // Surfaced in the header so a jump in library size is explained rather than
+  // looking like Atlas invented rows.
+  const limitedInfoCount = useMemo(
+    () => games.filter((g) => g.hasStoreInfo === false).length,
+    [games],
+  )
+  // Installed games Steam's owned-games API does not return at all. Surfaced so
+  // the number reconciles against the Steam client rather than looking wrong.
+  const localOnlyCount = useMemo(
+    () => games.filter((g) => g.apiListed === false).length,
+    [games],
+  )
 
   // ── Non-ready states ────────────────────────────────────────────────────
   if (state.status === 'loading') {
@@ -278,7 +291,13 @@ const SteamLibraryStep = ({ onBack }) => {
           <i className="fab fa-steam text-lg" />
           <span className="font-semibold">Steam Library</span>
           <span className="text-xs text-text/50">
-            {games.length} owned · {installedCount} installed
+            {games.length - localOnlyCount} owned · {installedCount} installed
+            {localOnlyCount > 0 && (
+              <> · <span className="text-blue-400">{localOnlyCount} local only</span></>
+            )}
+            {limitedInfoCount > 0 && (
+              <> · <span className="text-yellow-500">{limitedInfoCount} limited info</span></>
+            )}
           </span>
           <div className="flex-1" />
           <div className="relative">
@@ -458,6 +477,27 @@ const SteamLibraryStep = ({ onBack }) => {
                   <div className="text-[11px] text-text/50">{fmtPlaytime(g.playtimeForever)}</div>
                 </div>
                 <div className="shrink-0 flex items-center gap-1.5">
+                  {g.apiListed === false && (
+                    <span
+                      className="inline-flex items-center gap-1 text-[10px] text-blue-400 border border-blue-400/40 rounded px-1.5 py-0.5"
+                      title={'Found installed on disk, but Steam does not return this app in the '
+                        + 'owned-games API at all \u2014 free titles are commonly omitted. It was read '
+                        + 'from its Steam appmanifest instead, so it can be imported normally.'}
+                    >
+                      <i className="fas fa-hard-drive" /> Local only
+                    </span>
+                  )}
+                  {g.hasStoreInfo === false && (
+                    <span
+                      className="inline-flex items-center gap-1 text-[10px] text-yellow-500 border border-yellow-500/40 rounded px-1.5 py-0.5"
+                      title={'Steam returned no store details for this app. That normally means it has been '
+                        + 'delisted from the store, or it is behind the mature-content gate. It is still '
+                        + 'owned and can still be added and launched \u2014 the name and artwork may fill in '
+                        + 'once metadata is fetched.'}
+                    >
+                      <i className="fas fa-circle-info" /> Limited info
+                    </span>
+                  )}
                   {g.installed ? (
                     <span className="inline-flex items-center gap-1 text-[10px] text-green-500 border border-green-500/40 rounded px-1.5 py-0.5">
                       <i className="fas fa-check" /> Installed

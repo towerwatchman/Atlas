@@ -5,6 +5,7 @@ export const IMPORTER_SOURCE_IDS = {
   STEAM: 'steam',
   GOG: 'gog',
   RENPY: 'renpy',
+  MANUAL: 'manual',
 }
 
 export const importerSources = [
@@ -28,6 +29,15 @@ export const importerSources = [
     description: 'Scan installed GOG / Galaxy games',
     iconType: 'gog',
     icon: null,
+  },
+  {
+    id: IMPORTER_SOURCE_IDS.MANUAL,
+    label: 'Add Game Manually',
+    // Needed because neither automatic path is complete: Steam omits free titles
+    // from its owned-games API, and the disk scan only sees installed games.
+    description: 'Search Steam or GOG, or add by store ID',
+    iconType: 'font',
+    icon: 'fas fa-plus',
   },
   {
     id: IMPORTER_SOURCE_IDS.RENPY,

@@ -134,6 +134,7 @@ const registerMediaHandlers = require('./ipc/media')
 const registerImporterHandlers = require('./ipc/importer')
 const registerThemeHandlers = require('./ipc/themes')
 const registerAccountsHandlers = require('./ipc/accounts')
+const registerCollectionsHandlers = require('./ipc/collections')
 const accountStore = require('./accounts/accountStore')
 
 // ── Shared mutable state ────────────────────────────────────────────────────
@@ -1409,7 +1410,8 @@ function createThemeBuilderWindow() {
 
 function normalizeImporterSource(source) {
   const value = String(source || '').trim().toLowerCase()
-  return ['atlas', 'steam', 'gog', 'renpy'].includes(value) ? value : 'atlas'
+  // Keep in sync with importerSources.js in the renderer.
+  return ['atlas', 'steam', 'gog', 'renpy', 'manual'].includes(value) ? value : 'atlas'
 }
 
 function createBannerEditorWindow() {
@@ -1681,6 +1683,75 @@ function buildCtx() {
   }
 }
 
+// ── Boot instrumentation ────────────────────────────────────────────────────
+// Every startup phase is timed and logged so a slow launch can be attributed to
+// a phase from the log alone, instead of being guessed at. Cheap: one Date.now()
+// pair per phase.
+const bootStartedAt = Date.now()
+
+async function withPhaseTiming(label, task) {
+  const startedAt = Date.now()
+  try {
+    return await task()
+  } finally {
+    const elapsed = Date.now() - startedAt
+    // Only the slow ones are worth a line; anything sub-250ms is noise.
+    if (elapsed >= 250) console.log(`boot: ${label} took ${elapsed}ms (+${Date.now() - bootStartedAt}ms)`)
+  }
+}
+
+// Stale exec_path repair, scheduled off the boot critical path.
+//
+// Two things decide how much work this does:
+//
+//   * Library.validatePathsOnStartup — the setting the user already has for
+//     "check my library against the filesystem when Atlas starts". When it is
+//     ON, the full sweep runs. When it is OFF, only 'quick' runs: rows whose
+//     exec_path is blank, i.e. versions that cannot be launched at all. Doing
+//     the full sweep against the setting was the bug — path validation was
+//     explicitly disabled and Atlas walked the whole library anyway.
+//   * A wall-clock budget, so even the full sweep cannot run away on a cold
+//     mechanical drive. It resumes on the next launch where it left off,
+//     because the repair is idempotent and re-queries every time.
+//
+// The delay lets the renderer's own initial get-games query (which runs with
+// skipPathValidation, so it never touches disk) finish first — the sqlite
+// connection is shared, and there is no reason to make the library grid wait
+// behind a maintenance pass.
+function scheduleStaleExecutableRepair() {
+  const validateOnStartup =
+    appConfig?.Library?.validatePathsOnStartup === true ||
+    appConfig?.Library?.validatePathsOnStartup === 'true'
+
+  const extensions = String(appConfig?.Library?.gameExtensions || '')
+    .split(',')
+    .map((ext) => ext.trim())
+    .filter(Boolean)
+
+  setTimeout(async () => {
+    try {
+      const summary = await repairStaleVersionExecutables(
+        extensions.length > 0 ? extensions : undefined,
+        {
+          mode: validateOnStartup ? 'full' : 'quick',
+          // A mechanical drive gets slower, not faster, with a deeper queue.
+          concurrency: 8,
+          budgetMs: validateOnStartup ? 60000 : 15000,
+        },
+      )
+      if (summary?.repaired > 0) {
+        // Repointing exec_path changes installed/missing state, so let the grid
+        // pick the rows up instead of showing stale badges until the next launch.
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) win.webContents.send('library-exec-paths-repaired', summary)
+        })
+      }
+    } catch (err) {
+      console.warn('Stale executable repair failed:', err?.message || err)
+    }
+  }, 4000)
+}
+
 // ── App lifecycle ───────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
@@ -1776,10 +1847,18 @@ app.whenReady().then(async () => {
 
   configureAppUpdateBranch(getConfiguredAppUpdateBranch(appConfig))
 
-  await repairDoubledApostropheRows()
-  await repairBlankVersionNames()
-  await repairMissingTotalPlaytime()
-  await repairStaleVersionExecutables()
+  // DB-only repairs. These are all filtered SQL passes with no filesystem
+  // access, so they are cheap even on a large library and safe to run before the
+  // window: repairDoubledApostropheRows in particular fixes titles the grid is
+  // about to display.
+  //
+  // repairStaleVersionExecutables() used to be awaited HERE, and it was the
+  // whole reason a large library on a mechanical drive took minutes to reach the
+  // UI after a reboot — see the header comment on it in db/repair.js. It now
+  // runs after createWindow(); see scheduleStaleExecutableRepair() below.
+  await withPhaseTiming('repair:apostrophes', () => repairDoubledApostropheRows())
+  await withPhaseTiming('repair:blank-versions', () => repairBlankVersionNames())
+  await withPhaseTiming('repair:playtime', () => repairMissingTotalPlaytime())
   // Repairs the blanking/redundant custom-metadata rows left behind by the old
   // write-everything updateGame(). Idempotent, so this is a no-op on every boot
   // after the first, but the FIRST run on an affected library has real work to
@@ -1842,6 +1921,10 @@ app.whenReady().then(async () => {
   createWindow()
   // The main window exists, so window-all-closed can quit normally again.
   isBooting = false
+  console.log(`boot: window created at +${Date.now() - bootStartedAt}ms`)
+
+  // Filesystem-touching repair, deliberately AFTER the window and never awaited.
+  scheduleStaleExecutableRepair()
 
   // Build the Browse catalog index if it is missing or stale. Deliberately AFTER
   // createWindow() and not awaited: the library grid does not depend on it, so
@@ -1934,6 +2017,7 @@ app.whenReady().then(async () => {
   registerImporterHandlers(ctx)
   registerThemeHandlers(ctx)
   registerAccountsHandlers(ctx)
+  registerCollectionsHandlers(ctx)
 
   if (appConfig?.Interface?.checkForAppUpdatesOnStartup) {
     autoUpdater.checkForUpdates().catch((err) => {

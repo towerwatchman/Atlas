@@ -10,6 +10,11 @@ import { atlasLogo } from './assets/icons/data.js'
 import coloredAtlasLogoUrl from './assets/images/atlas_logo.svg'
 import { getBannerTotalSize } from './components/library/bannerLayout/bannerLayoutSchema.js'
 import GameBanner from './components/library/GameBanner.jsx'
+import GameTree from './components/library/GameTree.jsx'
+import CollectionsView from './components/collections/CollectionsView.jsx'
+import CollectionModal from './components/collections/CollectionModal.jsx'
+import { buildCollectionMenuItems } from './components/collections/collectionMenu.js'
+import { useCollections, UNCATEGORIZED_ID } from './hooks/useCollections.js'
 import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
@@ -239,10 +244,33 @@ const App = () => {
     removeGameFromState, refreshGame, includeUninstalledRef,
   } = useGames()
 
+  // ── Collections ────────────────────────────────────────────────────────────
+  // Local-library only: catalog and wishlist entries have no games.record_id to
+  // hang membership off, so the collections button and grouping are hidden in
+  // those modes and Browse keeps the list it already had.
+  const {
+    collections, artRecordIds, collectionIdsByRecord,
+    loading: collectionsLoading, refresh: refreshCollections,
+  } = useCollections({ enabled: true })
+  // 'grid' is the normal library; 'collections' is the tile screen.
+  const [libraryView, setLibraryView] = useState('grid')
+  const [collectionModal, setCollectionModal] = useState(null)
+  const [collectionModalBusy, setCollectionModalBusy] = useState(false)
+  const [collectionModalError, setCollectionModalError] = useState('')
+  const [expandedCollectionIds, setExpandedCollectionIds] = useState(() => new Set())
+  const [pendingCollectionDelete, setPendingCollectionDelete] = useState(null)
+  // Tile art comes back from the DB as record ids; resolve them against the
+  // already-loaded library rather than refetching art per collection.
+  const gamesByRecordId = useMemo(() => {
+    const map = new Map()
+    for (const game of games) if (game) map.set(Number(game.record_id), game)
+    return map
+  }, [games])
+
   const {
     activeFilters, handleFilterChange, handleResetFilters,
     filteredGames: localFilteredGames, installedGameCount, uninstalledGameCount,
-  } = useFilters(games, includeUninstalledRef, fetchGames, setSelectedGame)
+  } = useFilters(games, includeUninstalledRef, fetchGames, setSelectedGame, { collectionIdsByRecord })
   const catalogWithWishlist = useMemo(
     () => withWishlistStates(catalogGames, wishlistIdentityKeys),
     [catalogGames, wishlistIdentityKeys],
@@ -324,6 +352,11 @@ const App = () => {
     (activeFilters?.engine?.length || 0) > 0 ||
     (activeFilters?.status?.length || 0) > 0,
   )
+  // The collection currently being viewed, if the filter holds exactly one.
+  const activeCollection =
+    (activeFilters?.collectionIds?.length || 0) === 1
+      ? collections.find((c) => String(c.id) === String(activeFilters.collectionIds[0])) || null
+      : null
   const viewTitle =
     libraryMode === 'catalog'
       ? 'Browse'
@@ -339,6 +372,11 @@ const App = () => {
   // filter being applied, not libraryMode === 'local' (which is the normal
   // library too, and made the button look permanently active).
   const favoritesActive = activeSavedFilterId === 'builtin-favorites' && libraryMode === 'local'
+  // Active on the tile screen AND while viewing inside a collection, since
+  // both are "you are in collections" as far as the button is concerned.
+  const collectionsActive =
+    libraryMode === 'local' &&
+    (libraryView === 'collections' || (activeFilters?.collectionIds?.length || 0) > 0)
 
   const toast = useToast()
   const {
@@ -516,6 +554,10 @@ const App = () => {
 
   const goHome = useCallback(() => {
     setLibraryMode('local')
+    setLibraryView('grid')
+    // Inlined rather than calling clearCollectionFilter(), which is declared
+    // further down — handleFilterChange is already in scope here.
+    handleFilterChange({ collectionIds: [] })
     if (sidebarMode === SIDE_PANEL_MODES.CATALOG || sidebarMode === SIDE_PANEL_MODES.WISHLIST) {
       setAndPersistSidePanelMode(SIDE_PANEL_MODES.HIDDEN)
     }
@@ -529,7 +571,163 @@ const App = () => {
       handleResetFilters()
     }
     goBackToLibrary()
-  }, [goBackToLibrary, setAndPersistSidePanelMode, sidebarMode, activeSavedFilterId, handleResetFilters])
+  }, [goBackToLibrary, setAndPersistSidePanelMode, sidebarMode, activeSavedFilterId, handleResetFilters, handleFilterChange])
+
+
+  // ── Collection handlers ────────────────────────────────────────────────────
+  // Expand/collapse state is a UI preference, persisted alongside the other
+  // Interface settings so the tree comes back the way it was left.
+  const persistExpandedCollections = useCallback((expandedSet) => {
+    const ids = [...expandedSet]
+    window.electronAPI.getConfig?.()
+      .then((config) => window.electronAPI.saveSettings({
+        ...config,
+        Interface: { ...(config?.Interface || {}), expandedCollections: ids.join(',') },
+      }))
+      .catch((err) => console.error('Failed to persist expanded collections:', err))
+  }, [])
+
+  const openCollections = useCallback(() => {
+    setLibraryMode('local')
+    setSelectedGame(null)
+    setLibraryView('collections')
+  }, [])
+
+  // Opening a collection is a filtered local view, exactly like Favorites: it
+  // sets a filter rather than becoming its own libraryMode, so search and the
+  // rest of the filter sidebar keep working inside a collection.
+  const openCollection = useCallback((collection) => {
+    if (!collection) return
+    setLibraryMode('local')
+    setSelectedGame(null)
+    setLibraryView('grid')
+    setActiveSavedFilterId('')
+    handleFilterChange({
+      collectionIds: [String(collection.id)],
+      includeUninstalled: true,
+      installState: 'all',
+    })
+  }, [handleFilterChange])
+
+  const clearCollectionFilter = useCallback(() => {
+    handleFilterChange({ collectionIds: [] })
+  }, [handleFilterChange])
+
+  const toggleCollectionExpanded = useCallback((groupId) => {
+    setExpandedCollectionIds((previous) => {
+      const next = new Set(previous)
+      if (next.has(groupId)) next.delete(groupId)
+      else next.add(groupId)
+      persistExpandedCollections(next)
+      return next
+    })
+  }, [])
+
+  const closeCollectionModal = useCallback(() => {
+    setCollectionModal(null)
+    setCollectionModalError('')
+    setCollectionModalBusy(false)
+  }, [])
+
+  const submitCollectionModal = useCallback(async ({ name, color }) => {
+    if (!collectionModal) return
+    setCollectionModalBusy(true)
+    setCollectionModalError('')
+    try {
+      if (collectionModal.mode === 'rename') {
+        const result = await window.electronAPI.renameCollection({
+          collectionId: collectionModal.collectionId, name,
+        })
+        if (!result?.success) {
+          setCollectionModalError(result?.error || 'Failed to rename collection')
+          return
+        }
+        if (color) {
+          await window.electronAPI.setCollectionColor({
+            collectionId: collectionModal.collectionId, color,
+          })
+        }
+      } else {
+        const result = await window.electronAPI.createCollection({ name, color })
+        if (!result?.success) {
+          setCollectionModalError(result?.error || 'Failed to create collection')
+          return
+        }
+        // Created from a game's context menu: drop that game straight in, which
+        // is the whole point of "Add to -> + New Collection".
+        if (collectionModal.recordId) {
+          await window.electronAPI.addGameToCollection({
+            collectionId: result.id, recordId: collectionModal.recordId,
+          })
+        }
+      }
+      closeCollectionModal()
+      refreshCollections()
+    } catch (err) {
+      setCollectionModalError(err?.message || 'Something went wrong')
+    } finally {
+      setCollectionModalBusy(false)
+    }
+  }, [collectionModal, closeCollectionModal, refreshCollections])
+
+  const deleteCollection = useCallback(async (collection) => {
+    if (!collection) return
+    const result = await window.electronAPI.deleteCollection(collection.id)
+    if (!result?.success) {
+      toast.error('Could not delete collection', { message: result?.error || 'Unknown error' })
+      return
+    }
+    // Titles in a deleted collection fall back to Uncategorized rather than
+    // being removed, so say so — deleting a "collection" shouldn't read as
+    // deleting games.
+    toast.success(`Deleted "${collection.name}"`, {
+      message: 'Its titles are now uncategorized.',
+    })
+    if (activeFilters.collectionIds?.includes(String(collection.id))) clearCollectionFilter()
+    refreshCollections()
+  }, [toast, activeFilters.collectionIds, clearCollectionFilter, refreshCollections])
+
+  // Right-clicking a tile on the collections screen. Rename and delete need a
+  // renderer dialog, so those entries round-trip back through
+  // collection-rename-requested / collection-delete-requested.
+  const handleCollectionContextMenu = useCallback((collection) => {
+    if (!collection) return
+    window.electronAPI.showContextMenu([
+      {
+        label: 'Rename',
+        data: {
+          action: 'collectionRenameRequested',
+          collectionId: collection.id,
+          name: collection.name,
+          color: collection.color,
+        },
+      },
+      { type: 'separator' },
+      {
+        label: 'Delete Collection',
+        data: {
+          action: 'collectionDeleteRequested',
+          collectionId: collection.id,
+          name: collection.name,
+        },
+      },
+    ])
+  }, [])
+
+  // Right-clicking a title in the library tree. Mirrors the grid banner menu.
+  const handleTreeContextMenu = useCallback((game) => {
+    if (!game || game.isCatalogEntry || game.isMetadataOnly) return
+    const template = [
+      ...buildCollectionMenuItems({
+        recordId: game.record_id,
+        collections,
+        memberOf: collectionIdsByRecord.get(Number(game.record_id)) || [],
+      }),
+      { type: 'separator' },
+      { label: 'Properties', data: { action: 'properties', recordId: game.record_id } },
+    ]
+    window.electronAPI.showContextMenu(template)
+  }, [collections, collectionIdsByRecord])
 
   const selectGame = useCallback((game) => {
     setShowSearchSidebar(false)
@@ -662,7 +860,12 @@ const App = () => {
           maxWidth: '100%',
         }}
       >
-        <GameBanner game={game} onSelect={() => selectGame(game)} />
+        <GameBanner
+          game={game}
+          onSelect={() => selectGame(game)}
+          collections={collections}
+          collectionIdsByRecord={collectionIdsByRecord}
+        />
       </div>
     )
   }
@@ -698,6 +901,7 @@ const App = () => {
   }, [])
 
   const browseCatalog = useCallback(() => {
+    setLibraryView('grid')
     if (!browseAvailable) {
       setLibraryMode('local')
       setSelectedGame(null)
@@ -776,6 +980,7 @@ const App = () => {
   }, [fetchWishlistGames, loadWishlistIdentities, setAndPersistSidePanelMode])
 
   const openFavorites = useCallback(() => {
+    setLibraryView('grid')
     const favoriteFilters = normalizeFilterState({
       ...defaultFilters,
       favoritesOnly: true,
@@ -1156,6 +1361,13 @@ const App = () => {
           setNsfwPromptOpen(true)
         }
 
+        // Restore which collection groups were expanded in the tree.
+        const savedExpanded = String(config.Interface?.expandedCollections || '')
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean)
+        if (savedExpanded.length > 0) setExpandedCollectionIds(new Set(savedExpanded))
+
         const browseOk = BROWSE_MODE_ENABLED && enabled
         let nextMode = normalizeSidePanelMode(
           config.Interface?.sidePanelMode,
@@ -1258,6 +1470,14 @@ const App = () => {
       }
     }
 
+    // The post-boot stale-exec repair changed exec_path on one or more versions,
+    // which flips their installed/missing state. Re-read rather than leave the
+    // grid showing badges that are now wrong.
+    const handleLibraryExecPathsRepaired = (summary) => {
+      console.log(`Stale executable repair updated ${summary?.repaired || 0} version(s); refreshing library`)
+      fetchGames(false, { skipPathValidation: true })
+    }
+
     const handleLibraryValidationProgress = (progress) => {
       if (progress?.error) { console.error('Library validation error:', progress.error); return }
       if (progress?.total) {
@@ -1303,7 +1523,20 @@ const App = () => {
     window.electronAPI.onGameUpdated(handleGameUpdated)
     window.electronAPI.onGameDeleted(handleGameDeleted)
     window.electronAPI.onLibraryValidationProgress?.(handleLibraryValidationProgress)
+    const removeExecRepairListener =
+      window.electronAPI.onLibraryExecPathsRepaired?.(handleLibraryExecPathsRepaired)
     window.electronAPI.onImportComplete(handleImportComplete)
+    // The import wizard closes as soon as an import starts, so failures are
+    // reported here rather than in a window that's already gone.
+    const removeImportFailedListener = window.electronAPI.onImportFailed?.((payload) => {
+      const count = payload?.count || 0
+      if (count <= 0) return
+      const errors = Array.isArray(payload?.errors) ? payload.errors : []
+      toast.error(`${count} import${count === 1 ? '' : 's'} failed`, {
+        message: errors.join('\n') || 'Unknown import failure',
+        duration: 12000,
+      })
+    })
     window.electronAPI.onUpdateStatus(handleUpdateStatus)
     window.electronAPI.onRefreshMediaProgress?.((data) => {
       setRefreshLibraryProgress({
@@ -1323,6 +1556,28 @@ const App = () => {
       .then((status) => { if (status?.status && status.status !== 'idle') handleUpdateStatus(status) })
       .catch((error) => console.error('Failed to load app update state:', error))
 
+    // "+ New Collection" / Rename / Delete chosen in a native context menu.
+    // The main process can't prompt, so it asks this window to drive the UI.
+    const removeCollectionCreateListener = window.electronAPI.onCollectionCreateRequested?.((payload) => {
+      setCollectionModalError('')
+      setCollectionModal({ mode: 'create', recordId: payload?.recordId || null })
+    })
+    const removeCollectionRenameListener = window.electronAPI.onCollectionRenameRequested?.((payload) => {
+      setCollectionModalError('')
+      setCollectionModal({
+        mode: 'rename',
+        collectionId: payload?.collectionId,
+        name: payload?.name || '',
+        color: payload?.color || null,
+      })
+    })
+    const removeCollectionDeleteListener = window.electronAPI.onCollectionDeleteRequested?.((payload) => {
+      setPendingCollectionDelete({
+        id: payload?.collectionId,
+        name: payload?.name || 'this collection',
+      })
+    })
+
     window.electronAPI.onContextMenuCommand((event, data) => {
       if (data.action === 'properties') {
         window.electronAPI.getGame(data.recordId)
@@ -1338,6 +1593,11 @@ const App = () => {
       window.electronAPI.removeUpdateStatusListener?.()
       if (typeof removeMetadataListener === 'function') removeMetadataListener()
       if (typeof removeNsfwListener === 'function') removeNsfwListener()
+      if (typeof removeExecRepairListener === 'function') removeExecRepairListener()
+      if (typeof removeImportFailedListener === 'function') removeImportFailedListener()
+      if (typeof removeCollectionCreateListener === 'function') removeCollectionCreateListener()
+      if (typeof removeCollectionRenameListener === 'function') removeCollectionRenameListener()
+      if (typeof removeCollectionDeleteListener === 'function') removeCollectionDeleteListener()
       window.removeEventListener('resize', debounceResize)
       ;[
         'window-state-changed', 'db-update-progress', 'import-progress',
@@ -1529,9 +1789,11 @@ const App = () => {
                     onOpenWishlist={openFavorites}
                     onToggleSearchSidebar={toggleSearchSidebar}
                     onOpenAbout={openAbout}
+                    onOpenCollections={openCollections}
                     showGameList={showGameList}
                     libraryMode={libraryMode}
                     favoritesActive={favoritesActive}
+                    collectionsActive={collectionsActive}
                     browseAvailable={browseAvailable}
                   />
                 </div>
@@ -1559,15 +1821,21 @@ const App = () => {
                     onOpenWishlist={openFavorites}
                     onToggleSearchSidebar={toggleSearchSidebar}
                     onOpenAbout={openAbout}
+                    onOpenCollections={openCollections}
                     showGameList={showGameList}
                     libraryMode={libraryMode}
                     favoritesActive={favoritesActive}
+                    collectionsActive={collectionsActive}
                     browseAvailable={browseAvailable}
                   />
                   <span className="text-text text-xs whitespace-nowrap">Version: {version} <span style={{ color: 'Goldenrod' }}>β</span></span>
                 </div>
               </>
             ) : (
+              // Sidebar layout: the header carries the search box, so the
+              // Collections button sits directly to its right. In topnav
+              // layout there is no search box here and Collections is a nav
+              // button instead (see TopNav's LEFT_ORDER).
               <div className="flex justify-center w-full">
                 <SearchBox value={activeFilters.text} onSearchChange={handleSearchChange} onToggleSidebar={toggleSearchSidebar} />
               </div>
@@ -1630,6 +1898,8 @@ const App = () => {
             onOpenWishlist={openFavorites}
             onToggleSearchSidebar={toggleSearchSidebar}
             onOpenAbout={openAbout}
+            onOpenCollections={openCollections}
+            collectionsActive={collectionsActive}
             showGameList={showGameList}
             libraryMode={libraryMode}
             favoritesActive={favoritesActive}
@@ -1642,28 +1912,26 @@ const App = () => {
             className={`w-[200px] bg-secondary fixed top-[70px] bottom-[40px] z-40 overflow-y-auto ${isTopNav ? '' : 'ml-[60px]'}`}
             style={{ borderRight: '1px solid var(--color-border)' }}
           >
-            {filteredGames.length === 0 ? (
-              <div className="p-2 text-center text-text">
-                {libraryMode === 'catalog'
+            <GameTree
+              games={filteredGames}
+              collections={collections}
+              collectionIdsByRecord={collectionIdsByRecord}
+              /* Collections are a local-library concept — Browse and Wishlist
+                 keep the ungrouped list they already had. */
+              grouped={libraryMode === 'local'}
+              expandedIds={expandedCollectionIds}
+              onToggleExpanded={toggleCollectionExpanded}
+              selectedRecordId={selectedGame?.record_id}
+              onSelectGame={selectGame}
+              onGameContextMenu={handleTreeContextMenu}
+              emptyMessage={
+                libraryMode === 'catalog'
                   ? 'No browse titles match these filters.'
                   : libraryMode === 'wishlist'
                     ? 'No wishlist entries yet.'
-                    : 'No games found'}
-              </div>
-            ) : (
-              filteredGames.filter(Boolean).map((game) => {
-                const isSelected = selectedGame?.record_id === game.record_id
-                return (
-                  <div
-                    key={game.record_id}
-                    className={`text-shadow-fx text-glow-fx game-titles p-2 cursor-pointer hover:bg-selected ${isSelected ? 'bg-selected selected' : ''} ${game.hasInstalledVersion === false && !game.isCatalogEntry ? 'text-muted italic' : ''}`}
-                    onClick={() => selectGame(game)}
-                  >
-                    {getGameTitle(game)}
-                  </div>
-                )
-              })
-            )}
+                    : 'No games found'
+              }
+            />
           </div>
         )}
 
@@ -1721,6 +1989,27 @@ const App = () => {
           ref={gameGridRef}
           style={{ overflowX: 'hidden' }}
         >
+          {!selectedGame && libraryView !== 'collections' && activeCollection && (
+            <div className="mx-3 mb-1 mt-3 flex items-center gap-3 rounded border border-border bg-secondary px-4 py-2 text-sm text-text">
+              <span className="flex-1">
+                Showing <strong>{activeCollection.name}</strong>
+              </span>
+              <button
+                onClick={openCollections}
+                className="flex-shrink-0 rounded bg-button px-3 py-1 hover:bg-buttonHover"
+              >
+                All Collections
+              </button>
+              <button
+                onClick={clearCollectionFilter}
+                title="Clear collection filter"
+                aria-label="Clear collection filter"
+                className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded hover:bg-tertiary"
+              >
+                <i className="fas fa-times" aria-hidden="true"></i>
+              </button>
+            </div>
+          )}
           {!selectedGame && invalidMappingCount > 0 && !mappingBannerDismissed && (
             <div className="mx-3 mt-3 mb-1 flex items-center gap-3 rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-text">
               <i className="fas fa-triangle-exclamation text-amber-400" aria-hidden="true"></i>
@@ -1771,6 +2060,19 @@ const App = () => {
               onBack={goBackToLibrary}
               onRefresh={refreshDetailGame}
               onWishlistChanged={handleWishlistChanged}
+            />
+          ) : libraryView === 'collections' ? (
+            <CollectionsView
+              collections={collections}
+              artRecordIds={artRecordIds}
+              gamesByRecordId={gamesByRecordId}
+              loading={collectionsLoading}
+              onOpenCollection={openCollection}
+              onCreateCollection={() => {
+                setCollectionModalError('')
+                setCollectionModal({ mode: 'create', recordId: null })
+              }}
+              onCollectionContextMenu={handleCollectionContextMenu}
             />
           ) : filteredGames.length === 0 ? (
             // Order matters: an index that is still building must NOT be
@@ -2021,6 +2323,59 @@ const App = () => {
         </div>
       )}
 
+      <CollectionModal
+        open={Boolean(collectionModal)}
+        mode={collectionModal?.mode || 'create'}
+        initialName={collectionModal?.name || ''}
+        initialColor={collectionModal?.color || undefined}
+        busy={collectionModalBusy}
+        error={collectionModalError}
+        onSubmit={submitCollectionModal}
+        onCancel={closeCollectionModal}
+      />
+
+      {/* Deleting a collection never deletes games — say so plainly, since
+          "delete collection" reads as destructive. */}
+      {pendingCollectionDelete && (
+        <div
+          className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setPendingCollectionDelete(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded border border-border bg-primary p-4 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 className="mb-2 text-sm font-semibold text-text">Delete Collection</h3>
+            <p className="text-sm text-text">
+              Delete <strong>{pendingCollectionDelete.name}</strong>?
+            </p>
+            <p className="mt-2 text-xs text-muted">
+              The titles in it stay in your library and become uncategorized.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingCollectionDelete(null)}
+                className="rounded-buttonTheme bg-button px-3 py-1.5 text-sm text-text hover:bg-buttonHover"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const target = pendingCollectionDelete
+                  setPendingCollectionDelete(null)
+                  deleteCollection({ id: target.id, name: target.name })
+                }}
+                className="rounded-buttonTheme bg-danger px-3 py-1.5 text-sm text-white hover:bg-dangerHover"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {importProgress.text && (
         <div className="absolute bottom-[60px] left-1/2 transform -translate-x-1/2 w-[900px] bg-primary flex items-center justify-center p-2 z-[1500] border border-border opacity-95">
           <div className="flex items-center w-[880px] gap-2">
@@ -2029,8 +2384,24 @@ const App = () => {
               <div className="h-[15px] bg-progressBackground rounded overflow-hidden">
                 <div className="h-full bg-progressForeground" style={{ width: `${(importProgress.progress / (importProgress.total || 1)) * 100}%` }}></div>
               </div>
-              <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
-                Game {formatProgressNumber(importProgress.progress, { clamp: false })}/{formatProgressNumber(importProgress.total, { clamp: false })}
+              <span
+                className="absolute inset-0 flex items-center justify-center gap-1 px-1 text-[10px] text-text overflow-hidden whitespace-nowrap"
+                title={importProgress.title || undefined}
+              >
+                {importProgress.percent != null || importProgress.phase === 'extracting' ? (
+                  <>
+                    {importProgress.title && (
+                      <span className="min-w-0 overflow-hidden text-ellipsis">{importProgress.title}</span>
+                    )}
+                    <span className="shrink-0">
+                      {formatPercent(importProgress.percent ?? importProgress.progress)}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Game {formatProgressNumber(importProgress.progress, { clamp: false })}/{formatProgressNumber(importProgress.total, { clamp: false })}
+                  </>
+                )}
               </span>
             </div>
             {importProgress.canCancel && (
