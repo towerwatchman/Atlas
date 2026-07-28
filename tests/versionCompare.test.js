@@ -8,6 +8,14 @@ const {
   isTerminal,
 } = require("../electron/utils/versionCompare");
 
+// Same situation as tests/dateFilter.test.js: written as a standalone node
+// script but matched by vitest's glob, so vitest found no suite and failed.
+// The collected failures are asserted in a test at the bottom instead of
+// calling process.exit(1), which inside vitest would kill the worker rather
+// than report a failing test.
+//
+// `test`/`expect` are globals (vitest.config.js sets globals: true) rather than
+// imports, because an `import` would make this file ESM and break `require`.
 let pass = 0;
 let fail = 0;
 const failures = [];
@@ -151,16 +159,18 @@ cmp("2026-06-03", "v0.9", null, "incomparable");
 cmp("Final", "v0.9", 1);
 
 // ── parse sanity ─────────────────────────────────────────────────────────────
-assert.strictEqual(isTerminal("Final + DLC"), true);
-assert.strictEqual(isTerminal("v1.0 Demo"), false);
-assert.deepStrictEqual(parseVersion("Ch.10 v0.10.0").chapter, [10]);
-assert.deepStrictEqual(parseVersion("S2 Ep.4").season, [2]);
-assert.deepStrictEqual(parseVersion("Ep.3.5.2").episode, [3, 5, 2]);
+test("parse sanity", () => {
+  assert.strictEqual(isTerminal("Final + DLC"), true);
+  assert.strictEqual(isTerminal("v1.0 Demo"), false);
+  assert.deepStrictEqual(parseVersion("Ch.10 v0.10.0").chapter, [10]);
+  assert.deepStrictEqual(parseVersion("S2 Ep.4").season, [2]);
+  assert.deepStrictEqual(parseVersion("Ep.3.5.2").episode, [3, 5, 2]);
+});
 
-console.log(`\nversionCompare: ${pass} passed, ${fail} failed`);
-if (fail > 0) {
-  console.log("\nFailures:");
-  for (const f of failures) console.log("  " + f);
-  process.exit(1);
-}
-console.log("All version comparison checks passed.\n");
+test("all version comparison checks pass", () => {
+  expect(pass).toBeGreaterThan(0);
+  // Reported as a list so a failure names every mismatch, the way the original
+  // script's summary did.
+  expect(failures).toEqual([]);
+  expect(fail).toBe(0);
+});

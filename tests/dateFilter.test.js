@@ -100,9 +100,20 @@ const applyDateFilter = (games, f) => {
   });
 };
 
+// Registers each assertion as a vitest case. This file was originally written
+// in the style of scripts/check-*.js — bare assertions at module top level plus
+// a console summary — but it lives in tests/ and matches vitest's
+// `tests/**/*.test.js` glob, so vitest imported it, found no registered suite,
+// and failed the run with "No test suite found in file".
+//
+// `test`/`expect` are globals here (vitest.config.js sets globals: true) rather
+// than imports on purpose: adding an `import` would make this file ESM and
+// break the `require` calls above.
 let pass = 0;
 const check = (name, cond) => {
-  assert.ok(cond, name);
+  test(name, () => {
+    assert.ok(cond, name);
+  });
   pass++;
 };
 
@@ -144,4 +155,6 @@ check(
 check("none => passthrough", titles({ dateField: "none", dateRange: "30d" }) === "compact,iso,none,old");
 check("missing date excluded", !applyDateFilter(games, { dateField: "releaseDate", dateRange: "90d" }).some((g) => g.title === "none"));
 
-console.log(`\ndateFilter: ${pass} checks passed.\n`);
+test("every dateFilter check is registered", () => {
+  expect(pass).toBeGreaterThan(0);
+});
