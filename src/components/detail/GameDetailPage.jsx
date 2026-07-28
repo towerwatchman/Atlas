@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
+import TagEditor from '../tags/TagEditor.jsx'
+import { useTagState } from '../../hooks/useTagState.js'
 import HeroBanner from './page/HeroBanner.jsx'
 import ActionBar from './page/ActionBar.jsx'
 import InfoPanel from './page/InfoPanel.jsx'
@@ -697,6 +699,11 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const developer = resolveDeveloper(game)
   const categories = splitCsv(game.category)
   const detailTags = getDetailTags(game)
+  // onSaved refreshes the record so the library grid and filter sidebar pick up
+  // the new tag list rather than showing a stale one until the next navigation.
+  const tagState = useTagState(game?.record_id, {
+    onSaved: () => onRefresh?.(game?.record_id),
+  })
   const totalTitlePlaytime = game.totalPlaytime ?? game.total_playtime
 
   // Comprehensive Details card. Only known fields render (empties filtered).
@@ -1683,14 +1690,35 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                 </div>
               </section>
             ) : null,
-            tags: detailTags.length > 0 ? (
+            // Editable here as well as in the properties window. When an
+            // override exists the editor is the source of truth; otherwise it
+            // seeds from the catalog list, which is also what detailTags shows
+            // for records the user has never touched.
+            tags: (tagState.tags.length > 0 || tagState.catalogTags.length > 0 || detailTags.length > 0) ? (
               <section className="bg-secondary border border-border p-2">
-                <h2 className="text-lg font-semibold mb-3">Tags</h2>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {[...new Set(detailTags)].slice(0, 32).map((tag, i) => (
-                    <span key={`${tag}-${i}`} className="bg-primary border border-border px-2 py-1 text-xs">{tag}</span>
-                  ))}
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h2 className="text-lg font-semibold">Tags</h2>
+                  {tagState.overridden && (
+                    <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-accent">
+                      Custom
+                    </span>
+                  )}
                 </div>
+                {tagState.loading ? (
+                  <p className="text-xs text-muted">Loading tags…</p>
+                ) : (
+                  <TagEditor
+                    tags={tagState.tags}
+                    catalogTags={tagState.catalogTags}
+                    overridden={tagState.overridden}
+                    busy={tagState.busy}
+                    onChange={tagState.applyTags}
+                    onReset={tagState.resetTags}
+                  />
+                )}
+                {tagState.error && (
+                  <p className="mt-1 text-xs text-danger">{tagState.error}</p>
+                )}
               </section>
             ) : null,
           }}
