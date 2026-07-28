@@ -371,6 +371,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   getRunningGames: () => ipcRenderer.invoke("get-running-games"),
 
+  // ── Tag overrides ────────────────────────────────────────────────────────
+  // getTagState returns { tags, catalogTags, overridden, added, removed } so the
+  // editor can seed from the current list and show what reset would restore.
+  getTagState: (recordId) => ipcRenderer.invoke("get-tag-state", recordId),
+  setTagOverride: (payload) => ipcRenderer.invoke("set-tag-override", payload),
+  resetTagOverride: (recordId) => ipcRenderer.invoke("reset-tag-override", recordId),
+
   // ── Data location ────────────────────────────────────────────────────────
   // Atlas keeps its data in <installDir>/data with no AppData fallback. These
   // back the client check: report where data lives and whether it is writable,

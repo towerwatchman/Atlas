@@ -14,6 +14,7 @@ const { OVERRIDE_FIELDS, OVERRIDE_COLUMNS, extractOverridePatch,
         inheritedSelect, INHERITED_JOINS, sameValue,
         BASE_FIELDS, BASE_COLUMNS, baseSourceSelect,
         parseBaseOriginals, serializeBaseOriginals } = require('./overrides')
+const { setTagOverride, getTagOverride, clearTagOverride, getTagState } = require('./tagOverrides')
 
 let cachedFilterOptions = null
 const resetCachedFilterOptions = () => { cachedFilterOptions = null }
@@ -262,8 +263,21 @@ const updateGame = async (game, { recordBaseEdits = false } = {}) => {
     // Only rewrite tags when the caller actually supplied them. The old
     // unconditional call deleted every tag mapping whenever a partial payload
     // (e.g. the importer's five-key update) omitted tags.
-    if (hasKey(game, "tags") || hasKey(game, "f95_tags")) {
-      await replaceGameTags(recordId, game.tags ?? game.f95_tags ?? "");
+    //
+    // `tags` is a user edit (the renderer sends that key); `f95_tags` is a
+    // catalog refresh (the importer and scrapers send that one). The two are
+    // treated differently: a user edit is recorded as an override so it can be
+    // reset later, whereas a catalog refresh must NOT clobber a list the user
+    // has already customised.
+    if (hasKey(game, "tags")) {
+      const list = await setTagOverride(recordId, game.tags ?? "");
+      await replaceGameTags(recordId, list.join(", "));
+    } else if (hasKey(game, "f95_tags")) {
+      const existingOverride = await getTagOverride(recordId);
+      if (existingOverride === null) {
+        await replaceGameTags(recordId, game.f95_tags ?? "");
+      }
+      // else: the user owns this list now; leave it alone.
     }
 
     resetCachedFilterOptions();
@@ -1011,6 +1025,9 @@ const setManualMappings = async (recordId, mappings = {}) => {
 }
 
 module.exports = {
+  getTagState,
+  setTagOverride,
+  clearTagOverride,
   addGame,
   updateGame,
   removeGame,

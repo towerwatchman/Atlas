@@ -182,6 +182,7 @@ function registerGamesHandlers(ctx) {
     getMetadataSourceOrder,
     // db functions
     addGame, getGame, getGames, getCatalogGames, getGameRecordIds, removeGame, updateGame,
+    getTagState, setTagOverride, clearTagOverride,
     addWishlistEntry, removeWishlistEntry, toggleWishlistEntry,
     getWishlistEntries, getWishlistEntryIdentities,
     upsertVersion, updateVersion, deleteGameCompletely, getUniqueFilterOptions,
@@ -496,6 +497,47 @@ function registerGamesHandlers(ctx) {
   // Lets a window that mounts while a game is already running show RUNNING
   // instead of PLAY (e.g. navigating away from the detail page and back).
   ipcMain.handle('get-running-games', async () => getRunningGames())
+
+  // ── Tag overrides ────────────────────────────────────────────────────────
+  // Tags come from the catalog; a user can add to and remove from that list.
+  // Their edit is stored as a snapshot and wins until reset, which restores the
+  // catalog list. get-tag-state also returns catalogTags so the UI can show
+  // what a reset would go back to, and can seed the editor from the DB list.
+  ipcMain.handle('get-tag-state', async (event, recordId) => {
+    try {
+      return await getTagState(recordId)
+    } catch (err) {
+      console.error('get-tag-state failed:', err)
+      return { recordId, tags: [], catalogTags: [], overridden: false, added: [], removed: [] }
+    }
+  })
+
+  ipcMain.handle('set-tag-override', async (event, { recordId, tags } = {}) => {
+    try {
+      // Routed through updateGame so tag_mappings is rebuilt in the same step;
+      // the filter sidebar and library query both read tag_mappings, so writing
+      // the override alone would leave search disagreeing with the detail page.
+      await updateGame({ record_id: recordId, tags })
+      emitGameUpdated(recordId)
+      return { success: true, ...(await getTagState(recordId)) }
+    } catch (err) {
+      console.error('set-tag-override failed:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('reset-tag-override', async (event, recordId) => {
+    try {
+      const catalogTags = await clearTagOverride(recordId)
+      // Rebuild tag_mappings from the catalog list so filters follow the reset.
+      await updateGame({ record_id: recordId, f95_tags: catalogTags.join(', ') })
+      emitGameUpdated(recordId)
+      return { success: true, ...(await getTagState(recordId)) }
+    } catch (err) {
+      console.error('reset-tag-override failed:', err)
+      return { success: false, error: err.message }
+    }
+  })
 
   ipcMain.handle('launch-game', async (event, data) => {
     try {

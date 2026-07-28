@@ -502,6 +502,10 @@ const initializeDatabase = (dataDir) => {
     // upstream) and a reliable revert target that does not depend on the source
     // still having a value.
     db.run(`ALTER TABLE game_metadata_overrides ADD COLUMN base_field_originals TEXT;`, () => {});
+    // User tag list, overriding the catalog tags. NULL means "not overridden"
+    // and inherits from atlas_data/f95_zone_data/lewdcorner_data; an empty
+    // string means "overridden to no tags", which is a different thing.
+    db.run(`ALTER TABLE game_metadata_overrides ADD COLUMN tags TEXT;`, () => {});
     // Marks an atlas record that is still referenced by the user (owned or
     // wishlisted) but no longer present in the latest full snapshot. 0 = present.
     db.run(`ALTER TABLE atlas_data ADD COLUMN removed_from_server INTEGER NOT NULL DEFAULT 0;`, () => {});
