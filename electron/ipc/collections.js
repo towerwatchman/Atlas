@@ -15,10 +15,11 @@ const {
   reorderCollections,
 } = require('../db/collections')
 
-// How many titles feed a collection tile's mosaic. The tile deliberately crops
-// the top and bottom rows, so it always asks for a full set and lets the
-// renderer decide how much is visible.
-const TILE_ART_LIMIT = 8
+// How many titles feed a collection tile's mosaic. The tile lays these out in a
+// grid sized from the count (9 -> 3x3, 10 -> 3 cols x 4 rows), so this is the
+// point past which a bigger collection stops adding visible art. Keep in step
+// with MAX_ART in src/components/collections/CollectionTile.jsx.
+const TILE_ART_LIMIT = 24
 
 // Collections are shown in several windows at once (library grid, tree, the
 // collections screen) and are mutated from native context menus that belong to
