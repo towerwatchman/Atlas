@@ -134,6 +134,7 @@ const registerMediaHandlers = require('./ipc/media')
 const registerImporterHandlers = require('./ipc/importer')
 const registerThemeHandlers = require('./ipc/themes')
 const registerAccountsHandlers = require('./ipc/accounts')
+const registerCollectionsHandlers = require('./ipc/collections')
 const accountStore = require('./accounts/accountStore')
 
 // ── Shared mutable state ────────────────────────────────────────────────────
@@ -2016,6 +2017,7 @@ app.whenReady().then(async () => {
   registerImporterHandlers(ctx)
   registerThemeHandlers(ctx)
   registerAccountsHandlers(ctx)
+  registerCollectionsHandlers(ctx)
 
   if (appConfig?.Interface?.checkForAppUpdatesOnStartup) {
     autoUpdater.checkForUpdates().catch((err) => {

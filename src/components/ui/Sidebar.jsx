@@ -19,7 +19,7 @@ const Sidebar = ({
   const items = getNavItems({
     onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
     onToggleSearchSidebar, onOpenAbout, browseModeAvailable: browseAvailable,
-  }).filter((item) => item.name !== 'Filters' && item.name !== 'About')
+  }).filter((item) => item.name !== 'Filters' && item.name !== 'About' && item.name !== 'Collections')
   const showIcon = navDisplayMode !== 'text'
   const showText = navDisplayMode !== 'icons'
 

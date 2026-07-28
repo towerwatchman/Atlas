@@ -370,6 +370,47 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeListener("game-run-state", handler);
   },
   getRunningGames: () => ipcRenderer.invoke("get-running-games"),
+
+  // ── Collections ──────────────────────────────────────────────────────────
+  // Steam-style user groupings of local library titles. "Uncategorized" is
+  // derived (a title in zero collections) and has no id of its own.
+  getCollections: () => ipcRenderer.invoke("get-collections"),
+  getCollectionsForGame: (recordId) =>
+    ipcRenderer.invoke("get-collections-for-game", recordId),
+  createCollection: (payload) => ipcRenderer.invoke("create-collection", payload),
+  renameCollection: (payload) => ipcRenderer.invoke("rename-collection", payload),
+  setCollectionColor: (payload) => ipcRenderer.invoke("set-collection-color", payload),
+  deleteCollection: (collectionId) =>
+    ipcRenderer.invoke("delete-collection", collectionId),
+  addGameToCollection: (payload) =>
+    ipcRenderer.invoke("add-game-to-collection", payload),
+  removeGameFromCollection: (payload) =>
+    ipcRenderer.invoke("remove-game-from-collection", payload),
+  reorderCollections: (orderedIds) =>
+    ipcRenderer.invoke("reorder-collections", orderedIds),
+  // Fired when the "+ New Collection" entry in a native context menu is
+  // chosen: the main process can't prompt for a name, so the renderer opens
+  // its create dialog and adds the game once saved.
+  onCollectionCreateRequested: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("collection-create-requested", handler);
+    return () => ipcRenderer.removeListener("collection-create-requested", handler);
+  },
+  onCollectionRenameRequested: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("collection-rename-requested", handler);
+    return () => ipcRenderer.removeListener("collection-rename-requested", handler);
+  },
+  onCollectionDeleteRequested: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("collection-delete-requested", handler);
+    return () => ipcRenderer.removeListener("collection-delete-requested", handler);
+  },
+  onCollectionsChanged: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on("collections-changed", handler);
+    return () => ipcRenderer.removeListener("collections-changed", handler);
+  },
   onLibraryValidationProgress: (callback) =>
     ipcRenderer.on("library-validation-progress", (event, progress) =>
       callback(progress),
@@ -404,6 +445,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "import-complete",
       "import-failed",
       "game-run-state",
+      "collections-changed",
+      "collection-create-requested",
+      "collection-rename-requested",
+      "collection-delete-requested",
       "update-status",
       "appearance-changed",
       "metadata-changed",

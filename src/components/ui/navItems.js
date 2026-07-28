@@ -13,7 +13,7 @@ import { BROWSE_MODE_ENABLED } from '../../features.js'
 
 export function getNavItems({
   onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
-  onToggleSearchSidebar, onOpenAbout,
+  onToggleSearchSidebar, onOpenAbout, onOpenCollections,
   // Runtime gate for the Browse nav item: requires BOTH the build-time
   // BROWSE_MODE_ENABLED flag AND the user's per-install NSFW opt-in
   // (see App.jsx's browseAvailable / electron/ipc/settings.js's
@@ -41,6 +41,23 @@ export function getNavItems({
         '<path d="M2 20.5C2 19.947715 2.447715 19.5 3 19.5H21C21.552285 19.5 22 19.947715 22 20.5C22 21.052285 21.552285 21.5 21 21.5H3C2.447715 21.5 2 21.052285 2 20.5Z"/>',
       ],
       viewBox: '0 0 24 22',
+    },
+    {
+      // Topnav only. In the sidebar layout the Collections button lives beside
+      // the search box in the header instead (see App.jsx), because the left
+      // rail has no search box to sit next to. Filtered out by Sidebar.jsx the
+      // same way Filters and About are.
+      name: 'Collections',
+      path: [
+        '<path d="M3 5C3 4.44772 3.44772 4 4 4H10C10.5523 4 11 4.44772 11 5V10C11 10.5523 10.5523 11 10 11H4C3.44772 11 3 10.5523 3 10V5Z"/>',
+        '<path d="M13 5C13 4.44772 13.4477 4 14 4H20C20.5523 4 21 4.44772 21 5V10C21 10.5523 20.5523 11 20 11H14C13.4477 11 13 10.5523 13 10V5Z"/>',
+        '<path d="M3 14C3 13.4477 3.44772 13 4 13H10C10.5523 13 11 13.4477 11 14V19C11 19.5523 10.5523 20 10 20H4C3.44772 20 3 19.5523 3 19V14Z"/>',
+        '<path d="M13 14C13 13.4477 13.4477 13 14 13H20C20.5523 13 21 13.4477 21 14V19C21 19.5523 20.5523 20 20 20H14C13.4477 20 13 19.5523 13 19V14Z"/>',
+      ],
+      viewBox: '0 0 24 24',
+      onClick: () => {
+        if (onOpenCollections) onOpenCollections()
+      },
     },
     {
       name: 'Add',

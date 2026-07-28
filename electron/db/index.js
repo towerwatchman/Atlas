@@ -753,6 +753,16 @@ const initializeDatabase = (dataDir) => {
     } catch (err) {
       console.error('Failed to create catalog index schema:', err.message);
     }
+
+    // User collections (Steam-style groupings of local titles). Same lazy
+    // require rationale as the catalog index above.
+    try {
+      const { COLLECTIONS_DDL, COLLECTIONS_INDEXES } = require('./collections');
+      for (const ddl of COLLECTIONS_DDL) db.run(ddl, () => {});
+      for (const ddl of COLLECTIONS_INDEXES) db.run(ddl, () => {});
+    } catch (err) {
+      console.error('Failed to create collections schema:', err.message);
+    }
   });
 };
 
@@ -775,6 +785,7 @@ function sweepOrphanedRecords() {
     "steam_mappings",
     "gog_mappings",
     "game_personal_ratings",
+    "collection_games",
   ];
   for (const tbl of childTables) {
     db.run(

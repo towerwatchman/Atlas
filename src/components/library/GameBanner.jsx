@@ -3,8 +3,9 @@ import useImageFallback from '../../hooks/useImageFallback.js'
 import { getGameTitle } from '../../utils/gameDisplay.js'
 import BannerLayoutRenderer from './bannerLayout/BannerLayoutRenderer.jsx'
 import { useBannerTemplate } from '../../theme/BannerTemplateProvider.jsx'
+import { buildCollectionMenuItems } from '../collections/collectionMenu.js'
 
-const GameBanner = ({ game, onSelect }) => {
+const GameBanner = ({ game, onSelect, collections = [], collectionIdsByRecord = null }) => {
   // Resolved once per window by BannerTemplateProvider (see src/theme/
   // BannerTemplateProvider.jsx) instead of once per card — previously every
   // <GameBanner> instance fetched this itself via getSelectedBannerTemplate()
@@ -106,6 +107,15 @@ const GameBanner = ({ game, onSelect }) => {
           isFavorite: !game.isFavorite,
         },
       })
+
+      // Collection membership. Same builder the library tree uses, so both
+      // menus stay in step as collections change.
+      const collectionItems = buildCollectionMenuItems({
+        recordId: game.record_id,
+        collections,
+        memberOf: collectionIdsByRecord?.get(Number(game.record_id)) || [],
+      })
+      for (const item of collectionItems) template.push(item)
 
       template.push({
         label: 'Properties',

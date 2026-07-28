@@ -10,6 +10,7 @@ import ImporterSourceMenu from '../importer/ImporterSourceMenu.jsx'
 // Filters — "Add Game" is still used on the footer's separate button.
 const LABELS = {
   Library: 'Library',
+  Collections: 'Collections',
   Add: 'Import',
   List: 'List',
   Browse: 'Browse',
@@ -26,7 +27,7 @@ const LABELS = {
 // List, Wishlist, About (icon-only by default, like the help/list/theme
 // icon cluster in the reference design's top-right corner — but see
 // navDisplayMode for how this can include text too).
-const LEFT_ORDER = ['Library', 'Browse', 'Add', 'Settings', 'Filters']
+const LEFT_ORDER = ['Library', 'Collections', 'Browse', 'Add', 'Settings', 'Filters']
 const RIGHT_ORDER = ['Updates', 'List', 'Favorites', 'About']
 
 const orderItems = (items, order) =>
@@ -52,14 +53,14 @@ const orderItems = (items, order) =>
  */
 const TopNav = ({
   onToggleGameList, onCheckDbUpdates, onGoHome, onBrowseCatalog, onOpenWishlist,
-  onToggleSearchSidebar, onOpenAbout, showGameList, libraryMode = 'local', group = 'left',
-  forceIconsOnly = false, browseAvailable, favoritesActive = false,
+  onToggleSearchSidebar, onOpenAbout, onOpenCollections, showGameList, libraryMode = 'local', group = 'left',
+  forceIconsOnly = false, browseAvailable, favoritesActive = false, collectionsActive = false,
 }) => {
   const { navDisplayMode } = useTheme()
   const [selected, setSelected] = useState(null)
   const items = getNavItems({
     onToggleGameList, onCheckDbUpdates, onBrowseCatalog, onOpenWishlist,
-    onToggleSearchSidebar, onOpenAbout, browseModeAvailable: browseAvailable,
+    onToggleSearchSidebar, onOpenAbout, onOpenCollections, browseModeAvailable: browseAvailable,
   })
   const groupItems = orderItems(items, group === 'right' ? RIGHT_ORDER : LEFT_ORDER)
   const effectiveDisplayMode = forceIconsOnly ? 'icons' : navDisplayMode
@@ -82,7 +83,9 @@ const TopNav = ({
     <div className="flex items-center gap-1 h-full -webkit-app-region-no-drag">
       {groupItems.map((item) => {
         const isActive =
-          item.name === 'Favorites'
+          item.name === 'Collections'
+            ? collectionsActive
+            : item.name === 'Favorites'
             ? favoritesActive
             : item.name === 'Library'
               // Library reflects the actual view (plain local library, not
@@ -90,7 +93,7 @@ const TopNav = ({
               // left/right TopNav groups each have their own `selected`, so
               // clicking Favorites (right group) can't otherwise clear
               // Library's highlight (left group).
-              ? (libraryMode === 'local' && !favoritesActive)
+              ? (libraryMode === 'local' && !favoritesActive && !collectionsActive)
               : item.name === 'List'
                 // List is a view toggle, not a destination — hover/normal only.
                 ? false
