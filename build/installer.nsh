@@ -1,35 +1,33 @@
-; Default install directory for FRESH installs only.
-; `preInit` is the hook electron-builder actually invokes (the previous
-; `customInstallDir` macro was never called by the template). At this point
-; the per-user install mode has already seeded $INSTDIR from the registry
-; (for upgrades) or the per-user default (for fresh installs). The NSIS /D=
-; switch, when present, overrides $INSTDIR afterward in setInstallModePerUser,
-; so passing /D= from electron-updater still wins for in-place updates.
+; Adopt an existing installation directory.
 ;
-; We only override the default when there is no recorded previous install,
-; so we don't stomp on an existing installation's location.
-!macro preInit
-  ; An existing install is upgraded WHERE IT ALREADY LIVES. HKLM is checked first
-  ; (per-machine installs) then HKCU, because installs made by the older
-  ; per-user build recorded themselves there — switching to perMachine made
-  ; electron-builder look only in HKLM, find nothing, and silently relocate every
-  ; upgrade to Program Files.
-  ;
-  ; The previous version of this macro read the location into $0 and then never
-  ; copied it into $INSTDIR, so the value was found and discarded.
+; This has to be customInit, NOT preInit. electron-builder's .onInit runs:
+;
+;     preInit  ->  check64BitAndSetRegView  ->  initMultiUser  ->  customInit
+;
+; so a preInit hook is doomed twice over: the 64-bit registry view is not set
+; yet, meaning a HKLM read hits the WOW6432Node redirect and finds nothing, and
+; initMultiUser then overwrites $INSTDIR regardless of what preInit set. An
+; earlier version of this file set $INSTDIR in preInit and the value was
+; silently discarded every time.
+;
+; electron-builder already handles the per-machine case on its own:
+; setInstallModePerAllUsers reads HKLM InstallLocation and falls back to
+; $PROGRAMFILES64\Atlas, which is exactly the wanted behaviour, so there is no
+; preInit macro here at all any more.
+;
+; The gap it does NOT cover is the per-user -> per-machine transition. Installs
+; made by the older perMachine:false build recorded themselves under HKCU, and
+; setInstallModePerAllUsers only ever consults HKLM — so every upgrade of one of
+; those looked like a fresh install and relocated to Program Files. This adopts
+; the HKCU location when HKLM has none.
+!macro customInit
   ReadRegStr $0 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
   ${If} $0 == ""
     ReadRegStr $0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
-  ${EndIf}
-  ${If} $0 != ""
-  ${AndIf} ${FileExists} "$0\*.*"
-    StrCpy $INSTDIR "$0"
-  ${Else}
-    ; Nothing installed: default to Program Files, like most desktop software.
-    ${If} ${RunningX64}
-      StrCpy $INSTDIR "$PROGRAMFILES64\Atlas"
-    ${Else}
-      StrCpy $INSTDIR "$PROGRAMFILES\Atlas"
+    ${If} $0 != ""
+    ${AndIf} ${FileExists} "$0\*.*"
+      DetailPrint "Existing per-user installation found at $0 - upgrading in place."
+      StrCpy $INSTDIR "$0"
     ${EndIf}
   ${EndIf}
 !macroend

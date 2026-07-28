@@ -33,8 +33,18 @@ test('a stale probe file from a previous crash is overwritten', () => {
   expect(dl.probeWritable(dir).writable).toBe(true)
 })
 
+// A path that cannot be created on ANY platform: a directory underneath a
+// regular file. The earlier version used a read-only mount path that only
+// exists in one particular sandbox, so on Windows mkdirSync happily created
+// C:\\mnt\\skills\\... and the test reported the folder as writable.
+const unwritablePath = () => {
+  const file = path.join(tmp(), 'not-a-directory')
+  fs.writeFileSync(file, 'x')
+  return path.join(file, 'data')
+}
+
 test('an unwritable directory reports a reason instead of throwing', () => {
-  const result = dl.probeWritable('/mnt/skills/public/atlas-should-not-exist')
+  const result = dl.probeWritable(unwritablePath())
   expect(result.writable).toBe(false)
   expect(typeof result.error).toBe('string')
   expect(result.error.length).toBeGreaterThan(0)
@@ -75,7 +85,7 @@ test('a failed copy leaves the source intact', async () => {
   fs.mkdirSync(from, { recursive: true })
   fs.writeFileSync(path.join(from, 'atlas.db'), 'DB')
 
-  const result = await dl.migrateLegacyData(from, '/mnt/skills/public/nope/data')
+  const result = await dl.migrateLegacyData(from, unwritablePath())
   expect(result.success).toBe(false)
   expect(result.sourceKept).toBe(true)
   expect(fs.existsSync(path.join(from, 'atlas.db'))).toBe(true)

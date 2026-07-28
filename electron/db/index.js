@@ -813,7 +813,12 @@ function sweepOrphanedRecords() {
          AND record_id NOT IN (SELECT record_id FROM games)`,
       function (err) {
         if (err) {
-          console.warn(`Orphan sweep skipped for ${tbl}:`, err.message);
+          // A missing table is an expected condition, not a problem: several
+          // test fixtures and older databases build only part of the schema.
+          // Anything else is worth surfacing.
+          if (!/no such table/i.test(err.message || "")) {
+            console.warn(`Orphan sweep skipped for ${tbl}:`, err.message);
+          }
         } else if (this.changes) {
           console.log(`Orphan sweep: removed ${this.changes} stale row(s) from ${tbl}`);
         }
