@@ -3,9 +3,8 @@ import useImageFallback from '../../hooks/useImageFallback.js'
 import { getGameTitle } from '../../utils/gameDisplay.js'
 import BannerLayoutRenderer from './bannerLayout/BannerLayoutRenderer.jsx'
 import { useBannerTemplate } from '../../theme/BannerTemplateProvider.jsx'
-import { buildCollectionMenuItems } from '../collections/collectionMenu.js'
 
-const GameBanner = ({ game, onSelect, collections = [], collectionIdsByRecord = null }) => {
+const GameBanner = ({ game, onSelect, onContextMenu }) => {
   // Resolved once per window by BannerTemplateProvider (see src/theme/
   // BannerTemplateProvider.jsx) instead of once per card — previously every
   // <GameBanner> instance fetched this itself via getSelectedBannerTemplate()
@@ -22,134 +21,13 @@ const GameBanner = ({ game, onSelect, collections = [], collectionIdsByRecord = 
       : { ...game, banner_url: resolvedBannerUrl }
   const displayTitle = getGameTitle(resolvedGame)
 
+  // The menu itself is built and rendered by App.jsx (see gameContextMenu.js), so
+  // the grid and the library tree present exactly the same menu. This used to
+  // assemble a native Electron template here, which could not be styled and
+  // ignored clicks on any row that had a submenu.
   const handleContextMenu = (event) => {
     event.preventDefault()
-    if (!game) {
-      console.log('No game available for context menu')
-      return
-    }
-
-    const installedVersions = (game.versions || []).filter(
-      (version) => version.isInstalled !== false,
-    )
-    const isMetadataOnly = game.isMetadataOnly === true
-    const template = []
-
-    // Resolve the user's last selected version (persisted as
-    // selected_version_id) so Play / Open Game Folder default to it when
-    // multiple versions are installed. Falls back to the first installed one.
-    const selectedId = Number(game.selected_version_id)
-    const selectedVersion =
-      (Number.isInteger(selectedId) && selectedId > 0
-        ? installedVersions.find((v) => Number(v.version_id) === selectedId)
-        : null) || installedVersions[0]
-
-    if (installedVersions.length === 1) {
-      const version = installedVersions[0]
-      template.push({
-        label: 'Play',
-        data: { action: 'launch', recordId: game.record_id, version: version.version },
-      })
-    } else if (installedVersions.length > 1) {
-      // Top-level Play launches the selected version directly. Electron ignores
-      // a click on an item that also has a submenu, so the other versions live
-      // in a separate "Play Version" submenu.
-      if (selectedVersion) {
-        template.push({
-          label: `Play (${selectedVersion.version})`,
-          data: { action: 'launch', recordId: game.record_id, version: selectedVersion.version },
-        })
-      }
-      template.push({
-        label: 'Play Version',
-        submenu: installedVersions.map((version) => ({
-          label: version.version,
-          data: { action: 'launch', recordId: game.record_id, version: version.version },
-        })),
-      })
-    }
-
-    if (installedVersions.length === 1) {
-      const version = installedVersions[0]
-      template.push({
-        label: 'Open Game Folder',
-        data: { action: 'openFolder', recordId: game.record_id, version: version.version },
-      })
-    } else if (installedVersions.length > 1) {
-      if (selectedVersion) {
-        template.push({
-          label: 'Open Game Folder',
-          data: { action: 'openFolder', recordId: game.record_id, version: selectedVersion.version },
-        })
-      }
-      template.push({
-        label: 'Open Folder for Version',
-        submenu: installedVersions.map((version) => ({
-          label: version.version,
-          data: { action: 'openFolder', recordId: game.record_id, version: version.version },
-        })),
-      })
-    }
-
-    if (game.siteUrl) {
-      template.push({
-        label: 'Open Web Link',
-        data: { action: 'openUrl', url: game.siteUrl },
-      })
-    }
-
-    if (!isMetadataOnly) {
-      template.push({
-        label: game.isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
-        data: {
-          action: 'setFavorite',
-          recordId: game.record_id,
-          isFavorite: !game.isFavorite,
-        },
-      })
-
-      // Collection membership. Same builder the library tree uses, so both
-      // menus stay in step as collections change.
-      const collectionItems = buildCollectionMenuItems({
-        recordId: game.record_id,
-        collections,
-        memberOf: collectionIdsByRecord?.get(Number(game.record_id)) || [],
-      })
-      for (const item of collectionItems) template.push(item)
-
-      template.push({
-        label: 'Rate Game…',
-        data: { action: 'rateTitleRequested', recordId: game.record_id, title: game.title },
-      })
-
-      template.push({
-        label: 'Properties',
-        data: { action: 'properties', recordId: game.record_id },
-      })
-
-      template.push({ type: 'separator' })
-
-      template.push({
-        label: 'Remove Title from Library',
-        data: {
-          action: 'removeTitleFromLibrary',
-          recordId: game.record_id,
-          title: displayTitle,
-        },
-      })
-
-      template.push({
-        label: 'Delete Title and Files',
-        data: {
-          action: 'deleteTitleAndFiles',
-          recordId: game.record_id,
-          title: displayTitle,
-        },
-      })
-    }
-
-    console.log('Context menu template:', JSON.stringify(template, null, 2))
-    window.electronAPI.showContextMenu(template)
+    onContextMenu?.(game, event)
   }
 
   const isCatalogEntry = game.isCatalogEntry === true

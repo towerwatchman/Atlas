@@ -1,4 +1,6 @@
 import { Component, useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import ContextMenu from './components/ui/ContextMenu.jsx'
+import { buildGameContextMenu } from './components/library/gameContextMenu.js'
 import { AutoSizer, Grid } from 'react-virtualized'
 import Sidebar from './components/ui/Sidebar.jsx'
 import TopNav from './components/ui/TopNav.jsx'
@@ -14,7 +16,6 @@ import GameTree from './components/library/GameTree.jsx'
 import CollectionsView from './components/collections/CollectionsView.jsx'
 import CollectionModal from './components/collections/CollectionModal.jsx'
 import BulkTagModal from './components/collections/BulkTagModal.jsx'
-import { buildCollectionMenuItems } from './components/collections/collectionMenu.js'
 import { useCollections, UNCATEGORIZED_ID } from './hooks/useCollections.js'
 import { retainImage } from './utils/imageRetention.js'
 import { toMediaSrc } from './utils/mediaSrc.js'
@@ -266,6 +267,9 @@ const App = () => {
   // Set when "Rate Game" is chosen from a context menu. The modal itself lives on
   // the detail page, so the grid has to navigate there and hand off a request.
   const [pendingRatingRecordId, setPendingRatingRecordId] = useState(null)
+  // Custom context menu state. Replaces the native menu for game rows so Play can
+  // be styled and can both launch and list versions from one row.
+  const [gameMenu, setGameMenu] = useState(null)
   // Tile art comes back from the DB as record ids; resolve them against the
   // already-loaded library rather than refetching art per collection.
   const gamesByRecordId = useMemo(() => {
@@ -766,21 +770,20 @@ const App = () => {
     ])
   }, [])
 
-  // Right-clicking a title in the library tree. Mirrors the grid banner menu.
-  const handleTreeContextMenu = useCallback((game) => {
-    if (!game || game.isCatalogEntry || game.isMetadataOnly) return
-    const template = [
-      ...buildCollectionMenuItems({
-        recordId: game.record_id,
-        collections,
-        memberOf: collectionIdsByRecord.get(Number(game.record_id)) || [],
-      }),
-      { type: 'separator' },
-      { label: 'Rate Game…', data: { action: 'rateTitleRequested', recordId: game.record_id, title: game.title } },
-      { label: 'Properties', data: { action: 'properties', recordId: game.record_id } },
-    ]
-    window.electronAPI.showContextMenu(template)
+  // One opener for the grid and the tree, so both menus are identical.
+  const openGameContextMenu = useCallback((game, event) => {
+    if (!game) return
+    const items = buildGameContextMenu({ game, collections, collectionIdsByRecord })
+    if (items.length === 0) return
+    setGameMenu({ x: event?.clientX ?? 0, y: event?.clientY ?? 0, items })
   }, [collections, collectionIdsByRecord])
+
+  // Routed through the main process so the custom menu and the remaining native
+  // menus share handleContextAction — confirmations and delete safeguards
+  // included.
+  const runGameContextAction = useCallback((data) => {
+    window.electronAPI.runContextAction?.(data)
+  }, [])
 
   const selectGame = useCallback((game) => {
     setShowSearchSidebar(false)
@@ -817,6 +820,19 @@ const App = () => {
         console.error(`Failed to refresh selected game ${recordIdToLoad}:`, error)
       )
   }, [wishlistIdentityKeys])
+
+  // Opens the rating modal for a title chosen from a context menu in the grid or
+  // tree. Real dependencies, so it sees the current games list rather than the
+  // empty one captured when the listeners were registered.
+  useEffect(() => {
+    if (!pendingRatingRecordId) return
+    if (selectedGame?.record_id === pendingRatingRecordId) return
+    const target = gamesByRecordId.get(Number(pendingRatingRecordId))
+    if (target) selectGame(target)
+    // No match (e.g. filtered out of the current view): drop the request rather
+    // than leaving it pending and firing on some unrelated later navigation.
+    else setPendingRatingRecordId(null)
+  }, [pendingRatingRecordId, selectedGame?.record_id, gamesByRecordId, selectGame])
 
   const refreshDetailGame = useCallback((recordId) => {
     refreshGame(recordId)
@@ -922,8 +938,7 @@ const App = () => {
         <GameBanner
           game={game}
           onSelect={() => selectGame(game)}
-          collections={collections}
-          collectionIdsByRecord={collectionIdsByRecord}
+          onContextMenu={openGameContextMenu}
         />
       </div>
     )
@@ -1631,11 +1646,12 @@ const App = () => {
       })
     })
     const removeRateTitleListener = window.electronAPI.onRateTitleRequested?.((payload) => {
-      const recordId = payload?.recordId
-      if (!recordId) return
-      const target = games.find((entry) => entry?.record_id === recordId)
-      if (target) selectGame(target)
-      setPendingRatingRecordId(recordId)
+      // Records the id ONLY. This listener lives in a []-dependency effect, so
+      // anything it closes over is captured from the first render — `games` was
+      // still empty, so looking the title up here always failed and the
+      // navigation never happened. The effect below does the lookup with real
+      // dependencies instead.
+      if (payload?.recordId) setPendingRatingRecordId(payload.recordId)
     })
     const removeCollectionBulkTagListener = window.electronAPI.onCollectionBulkTagRequested?.((payload) => {
       setBulkTagTarget({ id: payload?.collectionId, name: payload?.name || '' })
@@ -1994,7 +2010,7 @@ const App = () => {
               onToggleExpanded={toggleCollectionExpanded}
               selectedRecordId={selectedGame?.record_id}
               onSelectGame={selectGame}
-              onGameContextMenu={handleTreeContextMenu}
+              onGameContextMenu={openGameContextMenu}
               emptyMessage={
                 libraryMode === 'catalog'
                   ? 'No browse titles match these filters.'
@@ -2405,6 +2421,15 @@ const App = () => {
         error={collectionModalError}
         onSubmit={submitCollectionModal}
         onCancel={closeCollectionModal}
+      />
+
+      <ContextMenu
+        open={Boolean(gameMenu)}
+        x={gameMenu?.x || 0}
+        y={gameMenu?.y || 0}
+        items={gameMenu?.items || []}
+        onClose={() => setGameMenu(null)}
+        onAction={runGameContextAction}
       />
 
       <BulkTagModal

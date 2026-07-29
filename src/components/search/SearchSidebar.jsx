@@ -38,7 +38,12 @@ const SORT_OPTIONS = [
   { value: 'creator', label: 'Creator', icon: 'fa-user' },
   { value: 'lastUpdated', label: 'Last Updated', icon: 'fa-clock' },
   { value: 'likes', label: 'Likes', icon: 'fa-thumbs-up' },
-  { value: 'rating', label: 'Rating', icon: 'fa-star' },
+  // Labelled "Online Rating" now that the detail card distinguishes the community
+  // score from the user's own. This is the F95/LewdCorner score.
+  { value: 'rating', label: 'Online Rating', icon: 'fa-star' },
+  // personalRating was already in sortTypes and had a working comparator in
+  // useFilters — it was simply never listed here, so the UI never offered it.
+  { value: 'personalRating', label: 'My Rating', icon: 'fa-user-check' },
   { value: 'newlyInstalled', label: 'Install Date', icon: 'fa-download' },
   { value: 'newlyPlayed', label: 'Last Played', icon: 'fa-play' },
   { value: 'playtime', label: 'Playtime', icon: 'fa-stopwatch' },

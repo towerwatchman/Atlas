@@ -422,6 +422,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeListener("collection-rename-requested", handler);
   },
   // "Rate this game" chosen in a native context menu; the renderer owns the modal.
+  // Runs one context-menu action. Used by the custom React menu; the payload is
+  // the same `data` object the native menu templates carry.
+  runContextAction: (data) => ipcRenderer.invoke("run-context-action", data),
   onRateTitleRequested: (callback) => {
     const handler = (event, payload) => callback(payload);
     ipcRenderer.on("rate-title-requested", handler);

@@ -109,14 +109,15 @@ test('the detail page shows both ratings and defaults to Unrated', () => {
   expect(page).toMatch(/'Unrated'/)
 })
 
-test('the context menus offer rating', () => {
-  const banner = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'components', 'library', 'GameBanner.jsx'), 'utf8')
+// Menu construction moved out of GameBanner into the shared builder when the
+// custom React menu landed, so the grid and the tree present one menu.
+test('the context menu offers rating', () => {
+  const builder = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'components', 'library', 'gameContextMenu.js'), 'utf8')
   const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'App.jsx'), 'utf8')
   const windows = fs.readFileSync(
     path.join(__dirname, '..', 'electron', 'ipc', 'windows.js'), 'utf8')
-  expect(banner).toContain('rateTitleRequested')
-  expect(app).toContain('rateTitleRequested')
+  expect(builder).toContain('rateTitleRequested')
   expect(app).toContain('onRateTitleRequested')
   expect(windows).toContain('rate-title-requested')
 })

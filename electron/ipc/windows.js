@@ -238,6 +238,20 @@ module.exports = function registerWindowsHandlers(ctx) {
     return { success: true, quitting: false }
   })
 
+  // Entry point for the custom React context menu. It reuses handleContextAction
+  // rather than reimplementing a dozen actions in the renderer, so the native
+  // menu path and the custom one cannot drift — confirmations, elevation
+  // prompts and delete safeguards all still live in one place.
+  ipcMain.handle('run-context-action', async (event, data) => {
+    try {
+      handleContextAction(data, event.sender, ctx)
+      return { success: true }
+    } catch (err) {
+      console.error('run-context-action failed:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
   ipcMain.handle('select-file', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     const result = await dialog.showOpenDialog(win, {
