@@ -11,6 +11,7 @@ const { recordGameLaunchStarted, recordGamePlaytime, getLibraryStats } = require
 // undefined and set-tag-override failed with "getTagState is not a function"
 // AFTER already writing the override.
 const { getTagState, clearTagOverride, getKnownTags, bulkEditTags } = require('../db/tagOverrides')
+const { sanitizeChildEnv, resolveLinuxLaunch } = require('../launchEnv')
 const { getEmulatorByExtension } = require('../db/settings')
 const { getSteamIDbyRecord } = require('../db/steam')
 const { getGogIDbyRecord, addGogMapping } = require('../db/gog')
@@ -128,6 +129,39 @@ function trackChildPlaySession(child, session, recordId) {
 const isSteamInstallPath = (value) =>
   /(?:^|[\\/])steamapps[\\/]common(?:[\\/]|$)/i.test(String(value || ''))
 
+/**
+ * Spawn a tracked child.
+ *
+ * The play session is opened BEFORE the spawn. It used to be awaited after, and
+ * that await performs database writes, so it yields: a child that exited during
+ * it fired 'exit' before trackChildPlaySession attached a listener, the exit was
+ * lost, playtime went unrecorded and the PLAY button stayed on RUNNING forever.
+ * Rare on Windows, routine on Linux where a bad exec fails instantly.
+ *
+ * The environment is sanitised for every spawn. Under deb and pacman that is a
+ * no-op; under AppImage it removes the AppDir paths AppRun injected, which would
+ * otherwise hand the game Electron's bundled libraries.
+ */
+async function spawnTrackedGame(command, args, { recordId, version, cwd, shell = false }) {
+  const session = await startPlaySession(recordId, version, true)
+  try {
+    const child = cp.spawn(command, args, {
+      cwd,
+      detached: true,
+      stdio: 'ignore',
+      shell,
+      env: sanitizeChildEnv(process.env),
+    })
+    trackChildPlaySession(child, session, recordId)
+    child.unref()
+    return child
+  } catch (err) {
+    // Spawn threw synchronously, so no exit will ever arrive to release it.
+    session?.release?.()
+    throw err
+  }
+}
+
 async function launchGame({ execPath, gamePath, extension, recordId, version, source, sourceAppId }) {
   const hasExecutable = !!execPath && fs.existsSync(execPath)
   // Source-aware Steam launch: a version tagged source='steam' (or one sitting
@@ -159,20 +193,33 @@ async function launchGame({ execPath, gamePath, extension, recordId, version, so
   if (emulator) {
     const args = emulator.parameters ? emulator.parameters.split(' ') : []
     args.push(execPath)
-    const child = cp.spawn(emulator.program_path, args, { detached: true, stdio: 'ignore' })
-    const session = await startPlaySession(recordId, version, true)
-    trackChildPlaySession(child, session, recordId)
-    child.unref()
-  } else if (['exe', 'bat', 'cmd'].includes(extension)) {
-    const child = cp.spawn(execPath, [], {
+    await spawnTrackedGame(emulator.program_path, args, { recordId, version })
+  } else if (process.platform === 'linux') {
+    // shell.openPath on Linux goes through xdg-open/KIO, which refuses to
+    // execute binaries, so the child has to be spawned directly. resolveLinuxLaunch
+    // adds a missing execute bit (archives built on Windows carry no Unix mode,
+    // so an extracted Game.sh arrives at 0644) and routes Windows builds through
+    // Wine, reporting a readable error when Wine is absent.
+    const plan = resolveLinuxLaunch({ execPath, extension })
+    if (plan.error) throw new Error(plan.error)
+    if (plan.madeExecutable) {
+      console.log(`Added the execute bit to ${execPath}`)
+    }
+    await spawnTrackedGame(plan.command, plan.args, {
+      recordId,
+      version,
+      // Ren'Py, Unity and RPG Maker all resolve assets relative to the working
+      // directory, so this is required rather than tidiness. Under Wine the cwd
+      // is still the game folder, not Wine's.
       cwd: path.dirname(execPath),
-      detached: true,
-      stdio: 'ignore',
+    })
+  } else if (['exe', 'bat', 'cmd'].includes(extension)) {
+    await spawnTrackedGame(execPath, [], {
+      recordId,
+      version,
+      cwd: path.dirname(execPath),
       shell: extension === 'bat' || extension === 'cmd',
     })
-    const session = await startPlaySession(recordId, version, true)
-    trackChildPlaySession(child, session, recordId)
-    child.unref()
   } else {
     const openResult = await shell.openPath(execPath)
     if (openResult) throw new Error(openResult)
