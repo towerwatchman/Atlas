@@ -1,6 +1,6 @@
 # Linux packaging notes
 
-## Why `build.linux.pacman.depends` is overridden in package.json
+## Why `build.pacman.depends` is overridden in package.json
 
 electron-builder's pacman target goes through [fpm](https://fpm.readthedocs.io/),
 and when no `depends` list is supplied it falls back to its own hardcoded
@@ -22,9 +22,34 @@ without overriding this list produces an install that fails immediately:
 error: cannot resolve "http-parser", a dependency of atlas
 ```
 
-`package.json` now sets `build.linux.pacman.depends` explicitly, which
-bypasses `getDefaultDepends` entirely (fpm only falls back to the hardcoded
-list when `depends` is `null`/absent).
+`package.json` now sets `build.pacman.depends` explicitly, which bypasses
+`getDefaultDepends` entirely (fpm only falls back to the hardcoded list when
+`depends` is `null`/absent).
+
+### It goes at the TOP LEVEL, not under `linux`
+
+`pacman` is a target config and a **sibling** of `linux`, not a child of it:
+
+```json
+"build": {
+  "linux":  { "target": ["deb", "AppImage", "pacman"] },
+  "pacman": { "depends": [...] }
+}
+```
+
+`LinuxConfiguration` in electron-builder's schema has
+`additionalProperties: false`, so nesting it under `linux` fails the whole
+build before any packaging work happens:
+
+```
+Invalid configuration object.
+ - configuration.linux should be one of these:
+   null
+```
+
+`tests/pacman-depends.test.js` validates `build` against
+`app-builder-lib/scheme.json` — the same schema the build uses — so this class
+of mistake fails locally instead of in CI.
 
 ## The current list is a starting point, not verified against a live repo
 
@@ -40,7 +65,7 @@ pacman -Si gtk3 nss libxss libnotify alsa-lib
 
 If a name has changed or split (Arch does rename packages over time —
 `libxss` in particular has moved before), update
-`build.linux.pacman.depends` in `package.json` to match, then rebuild.
+`build.pacman.depends` in `package.json` to match, then rebuild.
 
 If you hit a *different* unresolved dependency after this fix, it means one of
 these five is now wrong on your distro version — check `pacman -Si <name>`
