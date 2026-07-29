@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { canEditTags as canEditTagsFor } from '../../utils/tagEditing.js'
 import TagEditor from '../tags/TagEditor.jsx'
 import { useTagState } from '../../hooks/useTagState.js'
 import HeroBanner from './page/HeroBanner.jsx'
@@ -632,6 +633,8 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const installedVersions = getInstalledVersions(game.versions || [])
   const actionVersion = selectedVersion || getDefaultVersion(installedVersions)
   const canManageLocalTitle = game.isMetadataOnly !== true && game.isCatalogEntry !== true
+  // See src/utils/tagEditing.js for why Browse rows are read-only.
+  const tagsEditable = canEditTagsFor(game)
   const canManageFavorite = canManageLocalTitle && Boolean(Number.parseInt(game.record_id, 10) > 0)
   const canManagePersonalRatings = canManageFavorite
   // Title playstate: explicit override on the game wins; otherwise derived from
@@ -1694,17 +1697,26 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
             // override exists the editor is the source of truth; otherwise it
             // seeds from the catalog list, which is also what detailTags shows
             // for records the user has never touched.
-            tags: (tagState.tags.length > 0 || tagState.catalogTags.length > 0 || detailTags.length > 0) ? (
+            tags: (tagsEditable
+              ? (tagState.tags.length > 0 || tagState.catalogTags.length > 0 || tagState.loading)
+              : detailTags.length > 0) ? (
               <section className="bg-secondary border border-border p-2">
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <h2 className="text-lg font-semibold">Tags</h2>
-                  {tagState.overridden && (
+                  {tagsEditable && tagState.overridden && (
                     <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-accent">
                       Custom
                     </span>
                   )}
                 </div>
-                {tagState.loading ? (
+                {!tagsEditable ? (
+                  // Browse / metadata-only rows: read-only catalog tags.
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {[...new Set(detailTags)].slice(0, 32).map((tag, i) => (
+                      <span key={`${tag}-${i}`} className="bg-primary border border-border px-2 py-1 text-xs">{tag}</span>
+                    ))}
+                  </div>
+                ) : tagState.loading ? (
                   <p className="text-xs text-muted">Loading tags…</p>
                 ) : (
                   <TagEditor
@@ -1716,7 +1728,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                     onReset={tagState.resetTags}
                   />
                 )}
-                {tagState.error && (
+                {tagsEditable && tagState.error && (
                   <p className="mt-1 text-xs text-danger">{tagState.error}</p>
                 )}
               </section>
