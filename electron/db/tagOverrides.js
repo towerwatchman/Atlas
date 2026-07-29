@@ -26,14 +26,24 @@ const dbModule = require('./index')
 
 const getDb = () => dbModule.db
 
-// Mirrors the catalog precedence used by the library queries in versions.js.
+// Every catalog tag source for a record, returned separately so they can be
+// UNIONED rather than ranked.
+//
+// This used to COALESCE them — first non-empty source wins — which meant a game
+// matched on both F95 and LewdCorner showed only the F95 list and silently
+// dropped LewdCorner-only tags. It also disagreed with the read-only display in
+// GameDetailPage (getDetailTags), which was already merging all three, so the
+// same game showed different tags depending on whether it was being viewed or
+// edited.
+//
+// atlas_data is included even though the request was about lc and f95: dropping
+// it would lose every tag on atlas-only records.
 const CATALOG_TAGS_SQL = `
-  SELECT COALESCE(
-           NULLIF(atlas_data.tags, ''),
-           NULLIF(f95_zone_data.tags, ''),
-           NULLIF(direct_lewdcorner_data.tags, ''),
-           lewdcorner_data.tags
-         ) AS tags
+  SELECT
+    atlas_data.tags AS atlas_tags,
+    f95_zone_data.tags AS f95_tags,
+    direct_lewdcorner_data.tags AS direct_lc_tags,
+    lewdcorner_data.tags AS lc_tags
     FROM games
     LEFT JOIN atlas_mappings ON games.record_id = atlas_mappings.record_id
     LEFT JOIN atlas_data ON atlas_mappings.atlas_id = atlas_data.atlas_id
@@ -87,10 +97,25 @@ function dedupe(tags) {
 
 const serializeTags = (tags) => parseTags(tags).join(', ')
 
-/** The catalog list for a record, untouched by any override. */
+/**
+ * The catalog list for a record, untouched by any override: the union of every
+ * source, de-duplicated case-insensitively.
+ *
+ * Source order is kept stable (atlas, then f95, then lewdcorner) rather than
+ * sorted, so the chip order does not shuffle between reads and the added/removed
+ * diff in getTagState stays comparable.
+ */
 async function getCatalogTags(recordId) {
   const row = await get(CATALOG_TAGS_SQL, [recordId])
-  return parseTags(row?.tags)
+  if (!row) return []
+  return dedupe([
+    ...parseTags(row.atlas_tags),
+    ...parseTags(row.f95_tags),
+    // Only one of these two is ever populated — direct_lewdcorner_data is the
+    // record's own LC mapping, lewdcorner_data the one reached via atlas_id.
+    ...parseTags(row.direct_lc_tags),
+    ...parseTags(row.lc_tags),
+  ])
 }
 
 /** The stored override, or null when the field is not overridden. */

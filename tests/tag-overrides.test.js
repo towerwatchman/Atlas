@@ -66,10 +66,45 @@ test('tags are split on , ; and | and de-duplicated case-insensitively', async (
   expect((await tagOverrides.getTagState(1)).tags).toEqual(['A', 'B', 'C', 'D'])
 })
 
-test('catalog precedence falls through to f95 then lewdcorner', async () => {
-  await run(`UPDATE atlas_data SET tags = '' WHERE atlas_id = 10`)
-  await run(`INSERT INTO f95_zone_data VALUES (10, 'f95-tag')`)
-  expect(await tagOverrides.getCatalogTags(1)).toEqual(['f95-tag'])
+// Sources are UNIONED, not ranked. Previously a COALESCE returned only the
+// first non-empty source, so a game matched on both F95 and LewdCorner showed
+// only the F95 list and dropped LewdCorner-only tags — and disagreed with the
+// read-only display in GameDetailPage, which was already merging all three.
+test('every catalog source is merged, not ranked', async () => {
+  await run(`INSERT INTO f95_zone_data VALUES (10, 'f95-only')`)
+  await run(`INSERT INTO lewdcorner_data VALUES (99, 10, 'lc-only')`)
+  const tags = await tagOverrides.getCatalogTags(1)
+  expect(tags).toContain('3dcg')      // atlas
+  expect(tags).toContain('f95-only')
+  expect(tags).toContain('lc-only')
+})
+
+test('overlapping tags across sources collapse case-insensitively', async () => {
+  await run(`INSERT INTO f95_zone_data VALUES (10, 'ADVENTURE, f95-only')`)
+  await run(`INSERT INTO lewdcorner_data VALUES (99, 10, 'Adventure')`)
+  const tags = await tagOverrides.getCatalogTags(1)
+  // 'adventure' is already on atlas_data for this record.
+  expect(tags.filter((t) => t.toLowerCase() === 'adventure')).toHaveLength(1)
+})
+
+test("a record's own LewdCorner mapping is included", async () => {
+  await run(`INSERT INTO games VALUES (3,'LC direct')`)
+  await run(`INSERT INTO lewdcorner_mappings VALUES (3, 55)`)
+  await run(`INSERT INTO lewdcorner_data VALUES (55, NULL, 'lc-direct')`)
+  expect(await tagOverrides.getCatalogTags(3)).toEqual(['lc-direct'])
+})
+
+// Unioning must not drop the sole source on records that only match atlas.
+test('atlas-only records keep their tags', async () => {
+  expect(await tagOverrides.getCatalogTags(1)).toEqual(['3dcg', 'adventure', 'fantasy'])
+})
+
+test('reset restores the merged list, not just one source', async () => {
+  await run(`INSERT INTO f95_zone_data VALUES (10, 'f95-only')`)
+  await tagOverrides.setTagOverride(1, 'mine')
+  const restored = await tagOverrides.clearTagOverride(1)
+  expect(restored).toContain('3dcg')
+  expect(restored).toContain('f95-only')
 })
 
 test('a game with no catalog row resolves to an empty list', async () => {
