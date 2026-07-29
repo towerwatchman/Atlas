@@ -150,7 +150,16 @@
         "deb",
         "AppImage",
         "pacman"
-      ]
+      ],
+      "pacman": {
+        "depends": [
+          "gtk3",
+          "nss",
+          "libxss",
+          "libnotify",
+          "alsa-lib"
+        ]
+      }
     }
   },
   "dependencies": {
