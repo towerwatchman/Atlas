@@ -700,6 +700,26 @@ const initializeDatabase = (dataDir) => {
       );
     `);
 
+    // Rating categories added after the table shipped. Driven off
+    // ratingCategories.js so the list lives in one place; ALTER TABLE ADD COLUMN
+    // errors harmlessly when the column is already there, which is the same
+    // idempotent pattern used for the other added columns above.
+    //
+    // `fappability` is intentionally left in the CREATE above and never dropped:
+    // DROP COLUMN rewrites the table and destroys the data irreversibly, and the
+    // column is excluded from every read, write and average, so it is inert.
+    try {
+      const { PERSONAL_RATING_COLUMNS } = require("./ratingCategories");
+      for (const column of PERSONAL_RATING_COLUMNS) {
+        db.run(
+          `ALTER TABLE game_personal_ratings ADD COLUMN ${column} INTEGER;`,
+          () => {},
+        );
+      }
+    } catch (err) {
+      console.error("Failed to add personal rating columns:", err.message);
+    }
+
     // Add pre-computed normalized_title column if it doesn't exist. It is
     // populated/corrected in JS (see recomputeNormalizedTitles), NOT here — the
     // old SQL expression only stripped a few ASCII punctuation chars and did not

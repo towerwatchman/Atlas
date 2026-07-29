@@ -9,6 +9,7 @@ const { toLocalAssetPath, normalizeMediaStorageMode, remoteBannerExpression,
         buildBannerJoinClauses, buildBannerSelectFields, getAssetBasePath } = require('./helpers')
 const { calculatePathSize } = require('../pathSize')
 const { effectiveTitlePlaystate } = require('./playstates')
+const { PERSONAL_RATING_CATEGORIES, buildRatingAverageSql, computeRatingAverage } = require('./ratingCategories')
 
 const localMediaAssetSelect = (baseImagePath, assetType, fallbackExpression) => {
   const safeBaseImagePath = String(baseImagePath || '').replace(/'/g, "''");
@@ -43,24 +44,26 @@ const normalizePersonalRating = (value) => {
   return Number.isFinite(number) ? number : null
 }
 
-const getPersonalRatingOverall = (row = {}) => {
-  const values = [
-    normalizePersonalRating(row.personal_rating_story),
-    normalizePersonalRating(row.personal_rating_graphics),
-    normalizePersonalRating(row.personal_rating_gameplay),
-    normalizePersonalRating(row.personal_rating_fappability),
-  ].filter((value) => value !== null)
-  if (values.length === 0) return null
-  const average = values.reduce((sum, value) => sum + value, 0) / values.length
-  return Math.round(average * 10) / 10
-}
+// Driven off PERSONAL_RATING_CATEGORIES so a new category needs no edit here.
+// computeRatingAverage also excludes zeros, which the old inline version did not.
+const getPersonalRatingOverall = (row = {}) =>
+  computeRatingAverage(
+    Object.fromEntries(
+      PERSONAL_RATING_CATEGORIES.map(({ key, column }) => [
+        key,
+        normalizePersonalRating(row[`personal_rating_${column}`]),
+      ]),
+    ),
+  )
 
 const applyPersonalRatings = (game, row = {}) => ({
   ...game,
-  personalRatingStory: normalizePersonalRating(row.personal_rating_story),
-  personalRatingGraphics: normalizePersonalRating(row.personal_rating_graphics),
-  personalRatingGameplay: normalizePersonalRating(row.personal_rating_gameplay),
-  personalRatingFappability: normalizePersonalRating(row.personal_rating_fappability),
+  ...Object.fromEntries(
+    PERSONAL_RATING_CATEGORIES.map(({ gameKey, column }) => [
+      gameKey,
+      normalizePersonalRating(row[`personal_rating_${column}`]),
+    ]),
+  ),
   personalRatingOverall: getPersonalRatingOverall(row),
   personalRatingUpdatedAt: normalizePersonalRating(row.personal_rating_updated_at),
 })
@@ -841,7 +844,11 @@ const getGame = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
         game_personal_ratings.story as personal_rating_story,
         game_personal_ratings.graphics as personal_rating_graphics,
         game_personal_ratings.gameplay as personal_rating_gameplay,
-        game_personal_ratings.fappability as personal_rating_fappability,
+        game_personal_ratings.characters as personal_rating_characters,
+        game_personal_ratings.sound as personal_rating_sound,
+        game_personal_ratings.writing as personal_rating_writing,
+        game_personal_ratings.polish as personal_rating_polish,
+        game_personal_ratings.replayability as personal_rating_replayability,
         game_personal_ratings.updated_at as personal_rating_updated_at,
         games.total_playtime,
         games.last_played_r,
@@ -994,7 +1001,11 @@ const getGames = (
         game_personal_ratings.story as personal_rating_story,
         game_personal_ratings.graphics as personal_rating_graphics,
         game_personal_ratings.gameplay as personal_rating_gameplay,
-        game_personal_ratings.fappability as personal_rating_fappability,
+        game_personal_ratings.characters as personal_rating_characters,
+        game_personal_ratings.sound as personal_rating_sound,
+        game_personal_ratings.writing as personal_rating_writing,
+        game_personal_ratings.polish as personal_rating_polish,
+        game_personal_ratings.replayability as personal_rating_replayability,
         game_personal_ratings.updated_at as personal_rating_updated_at,
         games.total_playtime,
         games.last_played_r,
@@ -1484,16 +1495,11 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
            OR (wishlist.steam_id IS NOT NULL AND wishlist.steam_id = catalog.steam_id)
       )`);
     }
-    const personalRatingOverallExpr = `(
-      (COALESCE(local_ratings.story, 0) + COALESCE(local_ratings.graphics, 0) + COALESCE(local_ratings.gameplay, 0) + COALESCE(local_ratings.fappability, 0)) * 1.0
-      / NULLIF(
-          (CASE WHEN local_ratings.story IS NOT NULL THEN 1 ELSE 0 END) +
-          (CASE WHEN local_ratings.graphics IS NOT NULL THEN 1 ELSE 0 END) +
-          (CASE WHEN local_ratings.gameplay IS NOT NULL THEN 1 ELSE 0 END) +
-          (CASE WHEN local_ratings.fappability IS NOT NULL THEN 1 ELSE 0 END),
-          0
-        )
-    )`;
+    // Generated from ratingCategories.js. The previous literal version listed
+    // the columns by hand, still counted fappability, and treated an explicit 0
+    // as a real score, so rating one category 0 dragged the average down instead
+    // of being ignored.
+    const personalRatingOverallExpr = `(${buildRatingAverageSql('local_ratings')})`;
     const personalRatingMinValue = Number(filters.personalRatingMin);
     const personalRatingStatus = ['rated', 'unrated'].includes(filters.personalRatingStatus)
       ? filters.personalRatingStatus

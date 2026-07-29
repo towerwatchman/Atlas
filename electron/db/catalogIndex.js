@@ -39,6 +39,7 @@
 // rebuild rather than silently serving a stale shape.
 
 const dbModule = require('./index')
+const { buildRatingAverageSql } = require('./ratingCategories')
 const getDb = () => dbModule.db
 const { withTransaction, isWriteLockBusy } = require('./writeLock')
 
@@ -922,13 +923,10 @@ const buildIndexWhere = (search = {}, filters = {}) => {
           OR (w.steam_id IS NOT NULL AND w.steam_id = ci.steam_id))`)
   }
 
-  const ratingExpr = `(
-    (COALESCE(lr.story,0) + COALESCE(lr.graphics,0) + COALESCE(lr.gameplay,0) + COALESCE(lr.fappability,0)) * 1.0
-    / NULLIF(
-        (CASE WHEN lr.story IS NOT NULL THEN 1 ELSE 0 END) +
-        (CASE WHEN lr.graphics IS NOT NULL THEN 1 ELSE 0 END) +
-        (CASE WHEN lr.gameplay IS NOT NULL THEN 1 ELSE 0 END) +
-        (CASE WHEN lr.fappability IS NOT NULL THEN 1 ELSE 0 END), 0))`
+  // Generated from ratingCategories.js. This was a second hand-written copy of
+  // the same average, and it drifted from the one in versions.js: both still
+  // counted fappability, and both treated an explicit 0 as a real score.
+  const ratingExpr = `(${buildRatingAverageSql('lr')})`
   const ratingMin = Number(filters.personalRatingMin)
   const ratingStatus = ['rated', 'unrated'].includes(filters.personalRatingStatus)
     ? filters.personalRatingStatus

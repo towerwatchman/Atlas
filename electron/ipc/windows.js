@@ -143,6 +143,10 @@ function handleContextAction(data, sender, ctx) {
       });
       break;
     }
+    case "rateTitleRequested": {
+      sender?.send("rate-title-requested", { recordId: data.recordId, title: data.title });
+      break;
+    }
     case "collectionBulkTagRequested": {
       // Same round-trip as rename/delete: a native menu cannot host a form, so
       // the renderer owns the dialog and already knows which records belong to

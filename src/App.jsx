@@ -263,6 +263,9 @@ const App = () => {
   const [expandedCollectionIds, setExpandedCollectionIds] = useState(() => new Set())
   const [pendingCollectionDelete, setPendingCollectionDelete] = useState(null)
   const [bulkTagTarget, setBulkTagTarget] = useState(null)
+  // Set when "Rate Game" is chosen from a context menu. The modal itself lives on
+  // the detail page, so the grid has to navigate there and hand off a request.
+  const [pendingRatingRecordId, setPendingRatingRecordId] = useState(null)
   // Tile art comes back from the DB as record ids; resolve them against the
   // already-loaded library rather than refetching art per collection.
   const gamesByRecordId = useMemo(() => {
@@ -773,6 +776,7 @@ const App = () => {
         memberOf: collectionIdsByRecord.get(Number(game.record_id)) || [],
       }),
       { type: 'separator' },
+      { label: 'Rate Game…', data: { action: 'rateTitleRequested', recordId: game.record_id, title: game.title } },
       { label: 'Properties', data: { action: 'properties', recordId: game.record_id } },
     ]
     window.electronAPI.showContextMenu(template)
@@ -1626,6 +1630,13 @@ const App = () => {
         color: payload?.color || null,
       })
     })
+    const removeRateTitleListener = window.electronAPI.onRateTitleRequested?.((payload) => {
+      const recordId = payload?.recordId
+      if (!recordId) return
+      const target = games.find((entry) => entry?.record_id === recordId)
+      if (target) selectGame(target)
+      setPendingRatingRecordId(recordId)
+    })
     const removeCollectionBulkTagListener = window.electronAPI.onCollectionBulkTagRequested?.((payload) => {
       setBulkTagTarget({ id: payload?.collectionId, name: payload?.name || '' })
     })
@@ -1657,6 +1668,7 @@ const App = () => {
       if (typeof removeCollectionRenameListener === 'function') removeCollectionRenameListener()
       if (typeof removeCollectionDeleteListener === 'function') removeCollectionDeleteListener()
       if (typeof removeCollectionBulkTagListener === 'function') removeCollectionBulkTagListener()
+      if (typeof removeRateTitleListener === 'function') removeRateTitleListener()
       window.removeEventListener('resize', debounceResize)
       ;[
         'window-state-changed', 'db-update-progress', 'import-progress',
@@ -2119,6 +2131,8 @@ const App = () => {
               onBack={goBackToLibrary}
               onRefresh={refreshDetailGame}
               onWishlistChanged={handleWishlistChanged}
+              openRatingFor={pendingRatingRecordId}
+              onRatingOpened={() => setPendingRatingRecordId(null)}
             />
           ) : libraryView === 'collections' ? (
             <CollectionsView

@@ -118,6 +118,11 @@ const GameBanner = ({ game, onSelect, collections = [], collectionIdsByRecord = 
       for (const item of collectionItems) template.push(item)
 
       template.push({
+        label: 'Rate Game…',
+        data: { action: 'rateTitleRequested', recordId: game.record_id, title: game.title },
+      })
+
+      template.push({
         label: 'Properties',
         data: { action: 'properties', recordId: game.record_id },
       })

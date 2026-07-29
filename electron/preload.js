@@ -421,6 +421,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("collection-rename-requested", handler);
     return () => ipcRenderer.removeListener("collection-rename-requested", handler);
   },
+  // "Rate this game" chosen in a native context menu; the renderer owns the modal.
+  onRateTitleRequested: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("rate-title-requested", handler);
+    return () => ipcRenderer.removeListener("rate-title-requested", handler);
+  },
   onCollectionBulkTagRequested: (callback) => {
     const handler = (event, payload) => callback(payload);
     ipcRenderer.on("collection-bulk-tag-requested", handler);
@@ -475,6 +481,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "collection-rename-requested",
       "collection-delete-requested",
       "collection-bulk-tag-requested",
+      "rate-title-requested",
       "update-status",
       "appearance-changed",
       "metadata-changed",

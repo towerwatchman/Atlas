@@ -1,4 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
+import RatingModal from './RatingModal.jsx'
+import {
+  PERSONAL_RATING_CATEGORIES, RATING_MAX,
+  computeOnlineRating, computeRatingAverage, readRatingsFromGame,
+} from '../../utils/ratingCategories.js'
 import { canEditTags as canEditTagsFor } from '../../utils/tagEditing.js'
 import TagEditor from '../tags/TagEditor.jsx'
 import { useTagState } from '../../hooks/useTagState.js'
@@ -26,12 +31,13 @@ const isValidHttpUrl = (url) => /^https?:\/\//i.test(String(url || '').trim())
 const isSteamInstallPath = (value) =>
   /(?:^|[\\/])steamapps[\\/]common(?:[\\/]|$)/i.test(String(value || ''))
 
-const personalRatingFields = [
-  ['story', 'Story', 'personalRatingStory'],
-  ['graphics', 'Graphics', 'personalRatingGraphics'],
-  ['gameplay', 'Gameplay', 'personalRatingGameplay'],
-  ['fappability', 'Fappability', 'personalRatingFappability'],
-]
+// Category list now lives in src/utils/ratingCategories.js so the renderer and
+// the database cannot disagree about it.
+const personalRatingFields = PERSONAL_RATING_CATEGORIES.map(({ key, label, gameKey }) => [
+  key,
+  label,
+  gameKey,
+])
 
 const normalizeRatingInput = (value) => {
   if (value === undefined || value === null || value === '') return ''
@@ -183,7 +189,7 @@ const isArchiveSourcePath = (sourcePath = '', archiveExtensions = ['zip', '7z', 
   return Boolean(ext && archiveExtensions.includes(ext))
 }
 
-const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
+const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRatingFor = null, onRatingOpened }) => {
   const [previews, setPreviews] = useState([])
   const [movieThumbs, setMovieThumbs] = useState({}) // video url -> steam thumbnail url
   const [previewsLoading, setPreviewsLoading] = useState(false)
@@ -224,6 +230,8 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const [personalRatingsSaved, setPersonalRatingsSaved] = useState(() => buildPersonalRatingsDraft(game))
   const [personalRatingsBusy, setPersonalRatingsBusy] = useState(false)
   const [personalRatingsError, setPersonalRatingsError] = useState('')
+  const [ratingModalOpen, setRatingModalOpen] = useState(false)
+
   // Customizable 3-column panel layout (shared across all games, saved to config
   // under Appearance.detailLayout). editingLayout toggles drag-and-drop.
   const [detailLayout, setDetailLayout] = useState(DEFAULT_DETAIL_LAYOUT)
@@ -637,6 +645,17 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const tagsEditable = canEditTagsFor(game)
   const canManageFavorite = canManageLocalTitle && Boolean(Number.parseInt(game.record_id, 10) > 0)
   const canManagePersonalRatings = canManageFavorite
+  // Opened from a context menu in the grid or tree: App.jsx selects the game and
+  // passes its id through, and this clears the request so re-selecting the same
+  // title later does not reopen the modal.
+  useEffect(() => {
+    if (!openRatingFor || openRatingFor !== game?.record_id) return
+    if (canManagePersonalRatings) {
+      setPersonalRatingsError('')
+      setRatingModalOpen(true)
+    }
+    onRatingOpened?.()
+  }, [openRatingFor, game?.record_id, canManagePersonalRatings, onRatingOpened])
   // Title playstate: explicit override on the game wins; otherwise derived from
   // the versions. `game.playstate` is the raw override; effectivePlaystate is
   // provided by the backend but recomputed here so optimistic UI stays correct.
@@ -702,6 +721,18 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
   const developer = resolveDeveloper(game)
   const categories = splitCsv(game.category)
   const detailTags = getDetailTags(game)
+  // Community scores are 0-5 at source; computeOnlineRating converts to 0-10.
+  const onlineRating = computeOnlineRating({
+    f95Rating: game.rating,
+    lewdcornerRating: game.lewdcornerRating,
+  })
+  const onlineRatingSources = [
+    Number(game.rating) > 0 ? 'F95' : null,
+    Number(game.lewdcornerRating) > 0 ? 'LewdCorner' : null,
+  ].filter(Boolean)
+  const personalRatedCount = PERSONAL_RATING_CATEGORIES.filter(
+    ({ gameKey }) => Number(game?.[gameKey]) > 0,
+  ).length
   // onSaved refreshes the record so the library grid and filter sidebar pick up
   // the new tag list rather than showing a stale one until the next navigation.
   const tagState = useTagState(game?.record_id, {
@@ -1072,22 +1103,27 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
     }))
   }
 
-  const savePersonalRatings = async () => {
-    if (!canManagePersonalRatings || personalRatingsBusy || !personalRatingsDirty) return
+  const savePersonalRatings = async (draft) => {
+    if (!canManagePersonalRatings || personalRatingsBusy) return
     setPersonalRatingsBusy(true)
     setPersonalRatingsError('')
     try {
-      const payload = getPersonalRatingsPayload(personalRatingsDraft)
+      // 0 is sent through as-is: the database stores it and every average
+      // excludes it, which is what makes a category skippable.
+      const payload = Object.fromEntries(
+        PERSONAL_RATING_CATEGORIES.map(({ key }) => [key, Number(draft?.[key]) || 0]),
+      )
       const result = await window.electronAPI.setGamePersonalRatings?.(game.record_id, payload)
       if (!result?.success) throw new Error(result?.error || 'Personal rating update failed')
-      const saved = {
-        story: normalizeRatingInput(result.personalRatingStory),
-        graphics: normalizeRatingInput(result.personalRatingGraphics),
-        gameplay: normalizeRatingInput(result.personalRatingGameplay),
-        fappability: normalizeRatingInput(result.personalRatingFappability),
-      }
+      const saved = Object.fromEntries(
+        PERSONAL_RATING_CATEGORIES.map(({ key, gameKey }) => [
+          key,
+          normalizeRatingInput(result[gameKey]),
+        ]),
+      )
       setPersonalRatingsDraft(saved)
       setPersonalRatingsSaved(saved)
+      setRatingModalOpen(false)
       onRefresh?.(game.record_id)
     } catch (err) {
       console.error('Failed to update personal ratings:', err)
@@ -1595,44 +1631,64 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
                 )}
               </section>
             ),
-            rating: canManagePersonalRatings ? (
+            // Two ratings side by side, both out of 10 so they read against
+            // each other. Community scores are 0-5 at source and converted; the
+            // conversion lives in computeOnlineRating.
+            rating: (
               <section className="bg-secondary border border-border p-2">
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
-                  <h2 className="text-lg font-semibold">Personal Rating</h2>
-                  <span style={{ color: personalRatingsOverall === null ? 'var(--color-muted)' : 'var(--color-warning)', fontWeight: 700 }}>
-                    {personalRatingsOverall === null ? 'Unrated' : `${personalRatingsOverall}/10`}
-                  </span>
-                </div>
+                <h2 className="mb-3 text-lg font-semibold">Rating</h2>
                 <div className="space-y-2">
-                  {personalRatingFields.map(([key, label]) => (
-                    <label key={key} className="text-sm" style={{ display: 'grid', gridTemplateColumns: '1fr 72px', gap: 10, alignItems: 'center' }}>
-                      <span style={{ color: 'var(--color-text)' }}>{label}</span>
-                      <input
-                        type="number"
-                        min="0"
-                        max="10"
-                        step="1"
-                        value={personalRatingsDraft[key]}
-                        onChange={(event) => updatePersonalRatingDraft(key, event.target.value)}
-                        placeholder="-"
-                        className="bg-primary border border-border px-2 py-1 text-sm text-right"
-                      />
-                    </label>
-                  ))}
+                  <div className="flex items-center justify-between gap-3 rounded border border-border bg-primary px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="text-sm text-text">Online Rating</div>
+                      <div className="text-[11px] text-muted">
+                        {onlineRatingSources.length > 0
+                          ? `Average of ${onlineRatingSources.join(' and ')}`
+                          : 'No community scores found'}
+                      </div>
+                    </div>
+                    <span
+                      className="shrink-0 text-base font-bold tabular-nums"
+                      style={{ color: onlineRating === null ? 'var(--color-muted)' : 'var(--color-warning)' }}
+                    >
+                      {onlineRating === null ? 'Unrated' : `${onlineRating}/${RATING_MAX}`}
+                    </span>
+                  </div>
+
+                  {canManagePersonalRatings ? (
+                    <button
+                      type="button"
+                      onClick={() => { setPersonalRatingsError(''); setRatingModalOpen(true) }}
+                      title="Set your rating"
+                      className="flex w-full items-center justify-between gap-3 rounded border border-border bg-primary px-3 py-2 text-left transition-colors hover:border-accent"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm text-text">Personal Rating</div>
+                        <div className="text-[11px] text-muted">
+                          {personalRatingsOverall === null
+                            ? 'Click to rate this game'
+                            : `${personalRatedCount} of ${PERSONAL_RATING_CATEGORIES.length} categories rated`}
+                        </div>
+                      </div>
+                      <span
+                        className="shrink-0 text-base font-bold tabular-nums"
+                        style={{ color: personalRatingsOverall === null ? 'var(--color-muted)' : 'var(--color-warning)' }}
+                      >
+                        {personalRatingsOverall === null ? 'Unrated' : `${personalRatingsOverall}/${RATING_MAX}`}
+                      </span>
+                    </button>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3 rounded border border-border bg-primary px-3 py-2">
+                      <div className="text-sm text-text">Personal Rating</div>
+                      <span className="shrink-0 text-sm text-muted">Unavailable</span>
+                    </div>
+                  )}
                 </div>
                 {personalRatingsError && (
-                  <div className="text-xs text-danger mt-3">{personalRatingsError}</div>
+                  <div className="mt-2 text-xs text-danger">{personalRatingsError}</div>
                 )}
-                <button
-                  type="button"
-                  onClick={savePersonalRatings}
-                  disabled={!personalRatingsDirty || personalRatingsBusy}
-                  className="mt-3 w-full px-3 py-2 rounded text-sm bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:hover:bg-accent"
-                >
-                  {personalRatingsBusy ? 'Saving...' : personalRatingsDirty ? 'Save ratings' : 'Ratings saved'}
-                </button>
               </section>
-            ) : null,
+            ),
             details: (
               <section className="bg-secondary border border-border p-2">
                 <h2 className="text-lg font-semibold mb-3">Details</h2>
@@ -1743,6 +1799,16 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged }) => {
         onClose={() => setLightboxIndex(null)}
         onPrev={() => setLightboxIndex((i) => (i === null ? i : (i - 1 + previews.length) % previews.length))}
         onNext={() => setLightboxIndex((i) => (i === null ? i : (i + 1) % previews.length))}
+      />
+
+      <RatingModal
+        open={ratingModalOpen}
+        title={game.title || ''}
+        ratings={readRatingsFromGame(game)}
+        busy={personalRatingsBusy}
+        error={personalRatingsError}
+        onSave={savePersonalRatings}
+        onCancel={() => { if (!personalRatingsBusy) setRatingModalOpen(false) }}
       />
 
       <RefreshMediaModal
