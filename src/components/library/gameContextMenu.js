@@ -1,4 +1,5 @@
 import { buildCollectionMenuItems } from '../collections/collectionMenu.js'
+import { sortVersionsDesc } from '../detail/page/gameDetailUtils.js'
 
 // Item tree for a game's context menu.
 //
@@ -21,9 +22,16 @@ export function buildGameContextMenu({ game, collections = [], collectionIdsByRe
   const recordId = game.record_id
   const isLocal = game.isCatalogEntry !== true && game.isMetadataOnly !== true && Boolean(recordId)
 
-  const installedVersions = (game.versions || []).filter(
-    (version) => version?.exec_path && version?.hasExecutable !== false,
+  // Newest first. Uses the same comparator as the detail page's version list, so
+  // the two orders cannot disagree — a menu ordered differently from the page it
+  // opens would be worse than either order on its own.
+  const installedVersions = sortVersionsDesc(
+    (game.versions || []).filter(
+      (version) => version?.exec_path && version?.hasExecutable !== false,
+    ),
   )
+  // An explicit selection still wins; otherwise the default is now the newest
+  // version rather than whichever happened to come first out of the database.
   const selectedVersion =
     installedVersions.find((version) => version.version_id === game.selected_version_id)
     || installedVersions[0]

@@ -43,8 +43,8 @@ test('with multiple versions Play both launches and lists them', () => {
   const play = find(items, 'Play')
   // Clickable...
   expect(play.data).toEqual({ action: 'launch', recordId: 7, version: 'v2.0' })
-  // ...and expandable.
-  expect(play.submenu.map((s) => s.label)).toEqual(['v1.0', 'v2.0'])
+  // ...and expandable, newest first.
+  expect(play.submenu.map((s) => s.label)).toEqual(['v2.0', 'v1.0'])
   expect(play.hint).toBe('v2.0')
   // No second Play entry.
   expect(labels(items).filter((l) => l.startsWith('Play'))).toEqual(['Play'])
@@ -159,4 +159,73 @@ test('nested submenus are produced for the Manage branch', () => {
   })
   const nested = find(find(items, 'Manage').submenu, 'Remove from Collection')
   expect(nested.submenu.map((c) => c.label)).toEqual(['RPG'])
+})
+
+// ── Version ordering ────────────────────────────────────────────────────────
+
+const versionMenu = (versions, over = {}) =>
+  buildGameContextMenu({ game: localGame({ versions, ...over }) })
+
+test('versions are listed newest first', () => {
+  const items = versionMenu([
+    { version: 'v0.9.11', version_id: 1, exec_path: '/a' },
+    { version: 'v1.2', version_id: 2, exec_path: '/b' },
+    { version: 'v0.2', version_id: 3, exec_path: '/c' },
+  ])
+  expect(find(items, 'Play').submenu.map((v) => v.label)).toEqual(['v1.2', 'v0.9.11', 'v0.2'])
+})
+
+// 0.10 is newer than 0.9.11 numerically but earlier lexically, so a plain string
+// sort gets this backwards.
+test('version segments compare numerically, not lexically', () => {
+  const items = versionMenu([
+    { version: 'v0.9.11', version_id: 1, exec_path: '/a' },
+    { version: 'v0.10.0', version_id: 2, exec_path: '/b' },
+  ])
+  expect(find(items, 'Play').submenu.map((v) => v.label)).toEqual(['v0.10.0', 'v0.9.11'])
+})
+
+test('the Open Game Folder submenu uses the same order', () => {
+  const items = versionMenu([
+    { version: 'v1.0', version_id: 1, exec_path: '/a' },
+    { version: 'v3.0', version_id: 2, exec_path: '/b' },
+    { version: 'v2.0', version_id: 3, exec_path: '/c' },
+  ])
+  const folder = find(find(items, 'Manage').submenu, 'Open Game Folder')
+  expect(folder.submenu.map((v) => v.label)).toEqual(['v3.0', 'v2.0', 'v1.0'])
+})
+
+// Without an explicit selection the default is now the newest version rather
+// than whichever came first out of the database.
+test('Play defaults to the newest version when none is selected', () => {
+  const items = versionMenu([
+    { version: 'v1.0', version_id: 1, exec_path: '/a' },
+    { version: 'v4.5', version_id: 2, exec_path: '/b' },
+  ])
+  expect(find(items, 'Play').data.version).toBe('v4.5')
+})
+
+test('an explicitly selected version still wins over the newest', () => {
+  const items = versionMenu(
+    [
+      { version: 'v1.0', version_id: 1, exec_path: '/a' },
+      { version: 'v4.5', version_id: 2, exec_path: '/b' },
+    ],
+    { selected_version_id: 1 },
+  )
+  const play = find(items, 'Play')
+  expect(play.data.version).toBe('v1.0')
+  // ...but the list is still newest-first.
+  expect(play.submenu.map((v) => v.label)).toEqual(['v4.5', 'v1.0'])
+})
+
+// Sharing one comparator with the detail page matters: a menu ordered
+// differently from the page it opens is worse than either order alone.
+test('the menu reuses the detail page comparator', () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'components', 'library', 'gameContextMenu.js'),
+    'utf8',
+  )
+  expect(src).toContain('sortVersionsDesc')
+  expect(src).toContain('gameDetailUtils.js')
 })
