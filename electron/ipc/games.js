@@ -123,8 +123,26 @@ function trackChildPlaySession(child, session, recordId) {
 const isSteamInstallPath = (value) =>
   /(?:^|[\\/])steamapps[\\/]common(?:[\\/]|$)/i.test(String(value || ''))
 
+function isExecutablePath(filePath) {
+  try {
+    // On Windows the executable bit concept isn't meaningful in the same way.
+    // `hasExecutable` already checked existence before calling this helper,
+    // so simply assume executable on Windows here.
+    if (process.platform === 'win32') return true
+
+    // On Unix-like systems, check the execute permission bit using access.
+    // fs.constants.X_OK checks whether the file is executable for the current
+    // process' real UID/GID.
+    fs.accessSync(filePath, fs.constants.X_OK)
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
 async function launchGame({ execPath, gamePath, extension, recordId, version, source, sourceAppId }) {
   const hasExecutable = !!execPath && fs.existsSync(execPath)
+  const isExec = hasExecutable && isExecutablePath(execPath)
   // Source-aware Steam launch: a version tagged source='steam' (or one sitting
   // in a steamapps/common path) launches via the Steam client. Prefer the
   // version's own appid so the right title launches even when the record holds
@@ -155,6 +173,19 @@ async function launchGame({ execPath, gamePath, extension, recordId, version, so
     const args = emulator.parameters ? emulator.parameters.split(' ') : []
     args.push(execPath)
     const child = cp.spawn(emulator.program_path, args, { detached: true, stdio: 'ignore' })
+    const session = await startPlaySession(recordId, version, true)
+    trackChildPlaySession(child, session, recordId)
+    child.unref()
+  } else if (process.platform === 'linux' && isExec) {
+    // On Linux desktop environments (KDE, etc.) shell.openPath delegates to
+    // xdg-open/KIO which will refuse to launch executables for security.
+    // If the file exists and has an executable bit, spawn it directly instead.
+    const child = cp.spawn(execPath, [], {
+      cwd: path.dirname(execPath),
+      detached: true,
+      stdio: 'ignore',
+      shell: false,
+    })
     const session = await startPlaySession(recordId, version, true)
     trackChildPlaySession(child, session, recordId)
     child.unref()
