@@ -57,16 +57,58 @@ function probeWritable(dir) {
 }
 
 /**
- * Resolve the data root. Returns diagnostics alongside the path so startup can
- * report exactly what happened instead of failing opaquely.
+ * Where data lives on this platform.
+ *
+ * WINDOWS keeps it beside the executable. Program Files is not user-writable, so
+ * the installer elevates once and grants the Users group modify rights on
+ * <installDir>/data.
+ *
+ * LINUX cannot do that, and the reason is not permissions but packaging:
+ *
+ *   deb / pacman  install to /opt/Atlas, owned by root. Writing there needs
+ *                 elevation on every launch, and the FHS reserves /opt for
+ *                 static application files — a package manager may replace the
+ *                 whole tree on upgrade.
+ *   AppImage      runs from a read-only squashfs mounted at a DIFFERENT random
+ *                 path each launch (/tmp/.mount_AtlasXXXX). Even if it were
+ *                 writable, data written beside the executable would vanish when
+ *                 the mount went away.
+ *
+ * So on Linux and macOS the data root is the per-user directory, which honours
+ * XDG_CONFIG_HOME and matches where existing installs already keep their data
+ * (~/.config/atlas), so nothing needs migrating.
+ *
+ * Explicit portable mode still wins on every platform when the location is
+ * genuinely writable — an AppImage extracted into ~/Apps, for instance.
  */
-function resolveDataRoot({ installDir, isDev }) {
+function resolveDataRoot({ installDir, isDev, userDataDir, portable = false }) {
   if (isDev) {
     return { root: installDir, writable: true, error: null, isDev: true }
   }
-  const dataDir = path.join(installDir, 'data')
+
+  if (portable) {
+    const probe = probeWritable(path.join(installDir, 'data'))
+    if (probe.writable) {
+      return { root: installDir, dataDir: path.join(installDir, 'data'), ...probe, portable: true }
+    }
+    // Asked for portable but the location cannot take it. Fall through rather
+    // than fail: on Linux this is the normal state for a packaged install.
+  }
+
+  const root = process.platform === 'win32' || !userDataDir ? installDir : userDataDir
+  const dataDir = path.join(root, 'data')
   const { writable, error } = probeWritable(dataDir)
-  return { root: installDir, dataDir, writable, error, isDev: false }
+  return {
+    root,
+    dataDir,
+    writable,
+    error,
+    isDev: false,
+    portable: false,
+    // Only Windows has an installer-granted ACL that can be repaired. An
+    // unwritable home directory on Linux is not something we can fix.
+    repairable: process.platform === 'win32',
+  }
 }
 
 /**

@@ -99,3 +99,67 @@ test('an empty source is reported rather than treated as a move', async () => {
   expect(result.success).toBe(false)
   expect(result.error).toMatch(/nothing to migrate/i)
 })
+
+// ── Platform-specific data root ─────────────────────────────────────────────
+// On Arch (pacman) the install tree is /opt/Atlas, owned by root, and startup
+// died with EACCES on mkdir '/opt/Atlas/data'. The reason is packaging, not
+// permissions: /opt is for static application files and a package upgrade may
+// replace the whole tree, while an AppImage runs from a read-only squashfs
+// mounted at a different random path each launch.
+
+const withPlatform = (value, fn) => {
+  const original = process.platform
+  Object.defineProperty(process, 'platform', { value, configurable: true })
+  try { return fn() } finally {
+    Object.defineProperty(process, 'platform', { value: original, configurable: true })
+  }
+}
+
+test('Linux keeps data in the per-user directory, never the install tree', () => {
+  const home = tmp()
+  const result = withPlatform('linux', () =>
+    dl.resolveDataRoot({ installDir: '/opt/Atlas', isDev: false, userDataDir: home }),
+  )
+  expect(result.root).toBe(home)
+  expect(result.root).not.toBe('/opt/Atlas')
+  expect(result.writable).toBe(true)
+  // Nothing to elevate for: the directory is already the user's own.
+  expect(result.repairable).toBe(false)
+})
+
+test('Windows keeps data beside the executable', () => {
+  const installDir = tmp()
+  const result = withPlatform('win32', () =>
+    dl.resolveDataRoot({ installDir, isDev: false, userDataDir: tmp() }),
+  )
+  expect(result.root).toBe(installDir)
+  // Windows has an installer-granted ACL that a one-shot elevation can repair.
+  expect(result.repairable).toBe(true)
+})
+
+test('explicit portable mode wins on Linux when the location is writable', () => {
+  const installDir = tmp()
+  const result = withPlatform('linux', () =>
+    dl.resolveDataRoot({ installDir, isDev: false, userDataDir: tmp(), portable: true }),
+  )
+  expect(result.root).toBe(installDir)
+  expect(result.portable).toBe(true)
+})
+
+// A packaged Linux install is exactly this case: portable.txt cannot help when
+// /opt is root-owned, so it must fall through rather than fail.
+test('portable mode falls back when the install tree is not writable', () => {
+  const home = tmp()
+  const unwritable = unwritablePath()
+  const result = withPlatform('linux', () =>
+    dl.resolveDataRoot({ installDir: unwritable, isDev: false, userDataDir: home, portable: true }),
+  )
+  expect(result.root).toBe(home)
+  expect(result.portable).toBe(false)
+})
+
+test('a dev run uses the project directory', () => {
+  const result = dl.resolveDataRoot({ installDir: '/src/atlas', isDev: true })
+  expect(result.root).toBe('/src/atlas')
+  expect(result.writable).toBe(true)
+})

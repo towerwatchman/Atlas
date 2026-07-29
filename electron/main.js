@@ -383,12 +383,27 @@ function isPortableForced() {
 function resolveAppDataRoot() {
   if (process.defaultApp) return __dirname
   const installDir = getLegacyResourcesPath()
-  const resolved = resolveDataRoot({ installDir, isDev: false })
-  dataWriteState = { writable: resolved.writable, error: resolved.error }
+  // app.getPath('userData') honours XDG_CONFIG_HOME on Linux and is where
+  // existing installs already keep their data, so choosing it needs no migration.
+  let userDataDir = null
+  try { userDataDir = app.getPath('userData') } catch { /* pre-ready is fine */ }
+  const resolved = resolveDataRoot({
+    installDir,
+    isDev: false,
+    userDataDir,
+    portable: isPortableForced(),
+  })
+  dataWriteState = {
+    writable: resolved.writable,
+    error: resolved.error,
+    repairable: resolved.repairable === true,
+  }
   if (!resolved.writable) {
     console.error('Atlas data folder is not writable:', resolved.error)
   }
-  return installDir
+  // NOTE: returns resolved.root, not installDir. On Linux the install tree
+  // (/opt/Atlas, or a read-only AppImage mount) is never the data root.
+  return resolved.root
 }
 
 // Streamed banner/preview images rely on Chromium's HTTP disk cache. Its
@@ -421,13 +436,28 @@ if (process.defaultApp) {
   console.log('Running in release, data root:', appDataRoot)
 }
 
-fs.mkdirSync(launcherDir, { recursive: true })
+// Wrapped for the same reason as the data directories above: an uncaught throw
+// at module scope produces Electron's raw "A JavaScript error occurred in the
+// main process" dialog, which tells the user nothing. On an unwritable root this
+// threw before checkDataFolderWritable() could explain the real problem.
+try {
+  fs.mkdirSync(launcherDir, { recursive: true })
+} catch (err) {
+  if (dataWriteState.writable) {
+    dataWriteState = { ...dataWriteState, writable: false, error: err.message }
+  }
+  console.error('Failed to create launchers directory:', err.message)
+}
 
 const updatesDir = path.join(dataDir, 'updates')
-if (!fs.existsSync(updatesDir)) fs.mkdirSync(updatesDir, { recursive: true })
-
 const imagesDir = path.join(dataDir, 'images')
-if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true })
+for (const dir of [updatesDir, imagesDir]) {
+  try {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  } catch (err) {
+    console.error(`Failed to create ${dir}:`, err.message)
+  }
+}
 
 const templatesDir = path.join(dataDir, 'templates/banner')
 if (!fs.existsSync(templatesDir)) fs.mkdirSync(templatesDir, { recursive: true })
@@ -1847,6 +1877,24 @@ async function checkDataFolderWritable() {
       app.exit(0)
       return false
     }
+  }
+
+  // Only Windows has an installer-granted ACL to repair. On Linux the data root
+  // is inside the user's own home directory, so if that is unwritable there is
+  // nothing Atlas can grant itself — offering to elevate would be a dead end.
+  if (!dataWriteState.repairable) {
+    await dialog.showMessageBox({
+      type: 'error',
+      title: 'Atlas — data folder is not writable',
+      message: 'Atlas cannot write to its data folder, so the cache and database cannot be created.',
+      detail:
+        `${dataDir}\n\n${dataWriteState.error || ''}\n\n` +
+        'Check that you own this directory and that the disk is not full or mounted read-only.',
+      buttons: ['Quit'],
+      noLink: true,
+    })
+    app.exit(1)
+    return false
   }
 
   const { response } = await dialog.showMessageBox({
