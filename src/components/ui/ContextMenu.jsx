@@ -20,7 +20,10 @@ const EDGE_PADDING = 8
 export default function ContextMenu({ open, x = 0, y = 0, items = [], onClose, onAction }) {
   const rootRef = useRef(null)
   const [position, setPosition] = useState({ left: x, top: y })
-  const [openSubmenu, setOpenSubmenu] = useState(null)
+  // One open key PER DEPTH. A single value meant a nested submenu (Manage ▸
+  // Remove from Collection ▸ …) set the key to its own, which made the parent's
+  // condition false and unmounted the branch the cursor was inside.
+  const [openPath, setOpenPath] = useState([])
   const [submenuFlip, setSubmenuFlip] = useState(false)
 
   // Measured after paint so the real height is known before deciding to flip.
@@ -39,7 +42,7 @@ export default function ContextMenu({ open, x = 0, y = 0, items = [], onClose, o
 
   useEffect(() => {
     if (!open) return undefined
-    setOpenSubmenu(null)
+    setOpenPath([])
     const onKey = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -79,13 +82,19 @@ export default function ContextMenu({ open, x = 0, y = 0, items = [], onClose, o
     const hasSubmenu = Array.isArray(item.submenu) && item.submenu.length > 0
     const isPlay = item.variant === 'play'
     const submenuKey = `${depth}-${index}`
-    const showSubmenu = hasSubmenu && openSubmenu === submenuKey
+    const showSubmenu = hasSubmenu && openPath[depth] === submenuKey
 
     return (
       <div
         key={submenuKey}
         className="relative"
-        onMouseEnter={() => setOpenSubmenu(hasSubmenu ? submenuKey : null)}
+        onMouseEnter={() =>
+          setOpenPath((current) => {
+            const next = current.slice(0, depth)
+            if (hasSubmenu) next[depth] = submenuKey
+            return next
+          })
+        }
       >
         <button
           type="button"
@@ -93,7 +102,16 @@ export default function ContextMenu({ open, x = 0, y = 0, items = [], onClose, o
           // A parent with a submenu is still clickable — that is the point of
           // not using a native menu. Clicking Play launches; hovering reveals
           // the other versions.
-          onClick={() => (item.data || item.onSelect ? run(item) : setOpenSubmenu(submenuKey))}
+          onClick={() => {
+            if (item.data || item.onSelect) run(item)
+            else {
+              setOpenPath((current) => {
+                const next = current.slice(0, depth)
+                next[depth] = submenuKey
+                return next
+              })
+            }
+          }}
           className={`flex w-full items-center gap-2.5 px-3 text-left text-sm transition-colors disabled:opacity-40 ${
             isPlay
               ? 'mb-1 rounded-sm bg-[#2e7d32] py-2 font-bold uppercase tracking-wide text-white hover:bg-[#388e3c]'
@@ -131,10 +149,13 @@ export default function ContextMenu({ open, x = 0, y = 0, items = [], onClose, o
   }
 
   return (
+    // No overflow-hidden on the root: submenus sit at left:100%, completely
+    // outside its box, so clipping hid every one of them. Rounding is kept
+    // without clipping since nothing at this level needs cropping.
     <div
       ref={rootRef}
       role="menu"
-      className="fixed z-[3000] overflow-hidden rounded border border-border bg-primary p-1 shadow-2xl"
+      className="fixed z-[3000] rounded border border-border bg-primary p-1 shadow-2xl"
       style={{ left: position.left, top: position.top, minWidth: MENU_MIN_WIDTH }}
       onContextMenu={(event) => event.preventDefault()}
     >

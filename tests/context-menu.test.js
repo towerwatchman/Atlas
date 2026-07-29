@@ -13,12 +13,18 @@ const localGame = (over = {}) => ({
 const labels = (items) => items.filter((i) => !i.type).map((i) => i.label)
 const find = (items, label) => items.find((i) => i.label === label)
 
-// Consolidated from twelve flat entries to five rows, per the mock.
-test('the top level is short: Play, Favorites, Add to, Manage, Properties', () => {
+// Consolidated from twelve flat entries to four rows. Favorites moved inside
+// "Add to": it is the same kind of action as adding to a collection.
+test('the top level is four rows', () => {
   const items = buildGameContextMenu({ game: localGame(), collections: [{ id: 1, name: 'RPG' }] })
-  expect(labels(items)).toEqual([
-    'Play', 'Add to Favorites', 'Add to', 'Manage', 'Properties…',
-  ])
+  expect(labels(items)).toEqual(['Play', 'Add to', 'Manage', 'Properties…'])
+})
+
+test('Favorites sits inside Add to, above the collections', () => {
+  const items = buildGameContextMenu({ game: localGame(), collections: [{ id: 1, name: 'RPG' }] })
+  const addTo = find(items, 'Add to')
+  expect(labels(addTo.submenu)).toEqual(['Favorites', 'RPG', '+ New Collection'])
+  expect(addTo.submenu[0].data.action).toBe('favorite')
 })
 
 test('Play is the only item using the green variant', () => {
@@ -49,10 +55,16 @@ test('a game with no installed version offers no Play', () => {
   expect(find(items, 'Play')).toBeUndefined()
 })
 
-test('the favorites entry reflects current state', () => {
-  expect(find(buildGameContextMenu({ game: localGame() }), 'Add to Favorites').data.isFavorite).toBe(true)
-  const on = buildGameContextMenu({ game: localGame({ isFavorite: true }) })
-  expect(find(on, 'Remove from Favorites').data.isFavorite).toBe(false)
+// One entry serves as both add and remove, ticked when already a favorite —
+// matching how the version submenu marks the current selection.
+test('the favorites entry toggles and shows a tick when set', () => {
+  const off = find(buildGameContextMenu({ game: localGame() }), 'Add to').submenu[0]
+  expect(off.data.isFavorite).toBe(true)
+  expect(off.icon).not.toBe('fa-check')
+
+  const on = find(buildGameContextMenu({ game: localGame({ isFavorite: true }) }), 'Add to').submenu[0]
+  expect(on.data.isFavorite).toBe(false)
+  expect(on.icon).toBe('fa-check')
 })
 
 // Browse and wishlist rows have no local record, so only Play can apply.
@@ -109,4 +121,42 @@ test('the rating request is resolved by an effect, not the listener closure', ()
   const body = app.slice(start, start + 500)
   expect(body).not.toMatch(/games\.find/)
   expect(app).toMatch(/if \(!pendingRatingRecordId\) return/)
+})
+
+// ── Menu rendering ──────────────────────────────────────────────────────────
+
+const menuSource = fs.readFileSync(
+  path.join(__dirname, '..', 'src', 'components', 'ui', 'ContextMenu.jsx'),
+  'utf8',
+)
+
+// Submenus are absolutely positioned at left:100%, entirely outside the root's
+// box, so overflow-hidden on the root made every one of them invisible.
+test('the root menu does not clip its submenus', () => {
+  const start = menuSource.indexOf('ref={rootRef}')
+  const rootTag = menuSource.slice(start, menuSource.indexOf('>', start))
+  expect(rootTag).not.toContain('overflow-hidden')
+})
+
+// A single open-key meant a nested submenu set the key to its own, which made
+// the parent's condition false and unmounted the branch the cursor was inside.
+test('submenu open state is tracked per depth', () => {
+  expect(menuSource).toContain('openPath')
+  expect(menuSource).toMatch(/openPath\[depth\] === submenuKey/)
+  expect(menuSource).not.toContain('openSubmenu')
+})
+
+test('opening a submenu closes any deeper ones', () => {
+  expect(menuSource).toMatch(/current\.slice\(0, depth\)/)
+})
+
+// Two levels deep: Manage > Remove from Collection > <collection>.
+test('nested submenus are produced for the Manage branch', () => {
+  const items = buildGameContextMenu({
+    game: localGame(),
+    collections: [{ id: 1, name: 'RPG' }],
+    collectionIdsByRecord: new Map([[7, [1]]]),
+  })
+  const nested = find(find(items, 'Manage').submenu, 'Remove from Collection')
+  expect(nested.submenu.map((c) => c.label)).toEqual(['RPG'])
 })

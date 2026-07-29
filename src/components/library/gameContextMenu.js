@@ -63,14 +63,12 @@ export function buildGameContextMenu({ game, collections = [], collectionIdsByRe
     return items
   }
 
-  items.push({
-    label: game.isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
-    icon: game.isFavorite ? 'fa-heart-crack' : 'fa-heart',
-    data: { action: 'favorite', recordId, isFavorite: !game.isFavorite },
-  })
-
   // ── Add to ──────────────────────────────────────────────────────────────
-  // Reuses the collection builder so this menu and the tree agree.
+  // Favorites lives in here rather than at the top level: it is the same kind of
+  // action as adding to a collection, and grouping it keeps the top level to
+  // four rows. Marked with a tick when already a favorite, matching how the
+  // version submenu shows the current selection, so one entry serves as both add
+  // and remove.
   const collectionItems = buildCollectionMenuItems({
     recordId,
     collections,
@@ -78,9 +76,17 @@ export function buildGameContextMenu({ game, collections = [], collectionIdsByRe
   })
   const addTo = collectionItems.find((item) => item.label === 'Add to')
   const removeFrom = collectionItems.find((item) => item.label === 'Remove from')
-  if (addTo) {
-    items.push({ label: 'Add to', icon: 'fa-layer-group', submenu: addTo.submenu })
-  }
+
+  const addToSubmenu = [
+    {
+      label: 'Favorites',
+      icon: game.isFavorite ? 'fa-check' : 'fa-heart',
+      data: { action: 'favorite', recordId, isFavorite: !game.isFavorite },
+    },
+    { type: 'separator' },
+    ...(addTo?.submenu || []),
+  ]
+  items.push({ label: 'Add to', icon: 'fa-plus', submenu: addToSubmenu })
 
   // ── Manage ──────────────────────────────────────────────────────────────
   const manage = []
