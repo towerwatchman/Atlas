@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "0.9.7",
+  "version": "0.9.6",
   "author": {
     "name": "towerwatchman",
     "email": "towerwatchman@atlas.com"
@@ -150,7 +150,8 @@
         "deb",
         "AppImage",
         "pacman"
-      ]
+      ],
+      "icon": "build/icons"
     },
     "pacman": {
       "depends": [

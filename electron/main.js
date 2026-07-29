@@ -903,6 +903,29 @@ async function deleteTitleRecord(recordId, { deleteFiles = false } = {}) {
   }
 }
 
+// Window icon for Linux.
+//
+// On Windows the icon is embedded in the .exe and on macOS it comes from the
+// bundle, so neither needs this. On Linux the launcher entry is covered by
+// build/icons via electron-builder's linux.icon, but several window managers
+// take the titlebar and alt-tab icon from the WINDOW, which falls back to the
+// default Electron logo unless it is set explicitly.
+//
+// Reads from src/assets/ui because that path is already in build.files and so
+// exists inside the packaged asar; build/icons is a build-time input only and is
+// NOT packaged.
+function getWindowIconPath() {
+  if (process.platform !== 'linux') return undefined
+  const candidate = process.defaultApp
+    ? path.join(__dirname, '..', 'src', 'assets', 'ui', 'appicon.png')
+    : path.join(app.getAppPath(), 'src', 'assets', 'ui', 'appicon.png')
+  try {
+    return fs.existsSync(candidate) ? candidate : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function quitFromMainWindow() {
   if (isQuitting) return
   console.log('Main window close requested; quitting Atlas')
@@ -1306,6 +1329,7 @@ function createWindow() {
     return mainWindow
   }
   const windowState = applySavedWindowBounds('main', {
+    icon: getWindowIconPath(),
     width: 1410,
     minWidth: 1410,
     height: 860,
