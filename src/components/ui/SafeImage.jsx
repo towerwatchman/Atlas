@@ -12,6 +12,9 @@ export default function SafeImage({
   fallbackMode,
   placeholderStyle,
   onError,
+  // Artwork gets high-quality downscaling by default. Pass false for anything
+  // that must not be resampled, e.g. sampling exact pixels from a screenshot.
+  smoothScaling = true,
   ...imgProps
 }) {
   const [failed, setFailed] = useState(false)
@@ -65,7 +68,9 @@ export default function SafeImage({
       {...imgProps}
       src={toMediaSrc(src)}
       alt={alt}
-      className={className}
+      className={[smoothScaling && 'atlas-smooth-image', className]
+        .filter(Boolean)
+        .join(' ')}
       style={style}
       onError={(event) => {
         setFailed(true)

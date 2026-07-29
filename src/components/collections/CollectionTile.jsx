@@ -143,7 +143,7 @@ export default function CollectionTile({
                     alt=""
                     loading="lazy"
                     draggable={false}
-                    className="h-full w-full object-cover"
+                    className="atlas-smooth-image h-full w-full object-cover"
                     onError={(event) => { event.currentTarget.style.visibility = 'hidden' }}
                   />
                 ) : null}
