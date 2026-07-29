@@ -143,3 +143,144 @@ test('a native launcher that cannot be prepared reports why', () => {
   const plan = le.resolveLinuxLaunch({ execPath: path.join(tmp(), 'missing'), extension: 'sh' })
   expect(plan.error).toBeTruthy()
 })
+
+// ── Emulator / wrapper launching ────────────────────────────────────────────
+// The emulator mapping is the general mechanism for running a game through
+// something else — Wine, Proton, an interpreter, a Flatpak wrapper. It was built
+// for Windows and had three problems that only really bite on Linux.
+
+// A plain .split(' ') turned `-w "My Prefix"` into ["-w", "\"My", "Prefix\""].
+test('parameters are split respecting quotes', () => {
+  expect(le.parseCommandArgs('wine -w "My Prefix"')).toEqual(['wine', '-w', 'My Prefix'])
+  expect(le.parseCommandArgs("--opt 'a b' -x")).toEqual(['--opt', 'a b', '-x'])
+})
+
+test('parameter parsing handles empty and padded input', () => {
+  expect(le.parseCommandArgs('')).toEqual([])
+  expect(le.parseCommandArgs(null)).toEqual([])
+  expect(le.parseCommandArgs('  -a    -b  ')).toEqual(['-a', '-b'])
+  // An explicitly empty argument is meaningful and must survive.
+  expect(le.parseCommandArgs('-p ""')).toEqual(['-p', ''])
+})
+
+test('the game path is appended when no placeholder is given', () => {
+  const plan = le.resolveEmulatorLaunch({
+    emulator: { program_path: 'wine' },
+    execPath: '/games/My Game/game.exe',
+  })
+  expect(plan.command).toBe('wine')
+  expect(plan.args).toEqual(['/games/My Game/game.exe'])
+  expect(plan.usedPlaceholder).toBe(false)
+})
+
+// Appending is wrong for anything taking trailing options of its own, e.g.
+// `java -jar game.jar --fullscreen` or `retroarch -L core.so rom`.
+test.each(['%GAME%', '{game}', '%ROM%', '{file}'])(
+  'the %s placeholder positions the game path',
+  (token) => {
+    const plan = le.resolveEmulatorLaunch({
+      emulator: { program_path: 'java', parameters: `-jar ${token} --fullscreen` },
+      execPath: '/g/game.jar',
+    })
+    expect(plan.args).toEqual(['-jar', '/g/game.jar', '--fullscreen'])
+    expect(plan.usedPlaceholder).toBe(true)
+  },
+)
+
+test('a placeholder inside quotes is still substituted', () => {
+  const plan = le.resolveEmulatorLaunch({
+    emulator: { program_path: 'x', parameters: '--path "%GAME%"' },
+    execPath: '/games/My Game/game.exe',
+  })
+  expect(plan.args).toEqual(['--path', '/games/My Game/game.exe'])
+})
+
+// Configuring `wine` by name is the normal Linux setup; spawn resolves it from
+// PATH, and sanitizeChildEnv has already removed AppDir entries from that PATH.
+test('a bare program name is accepted without filesystem checks', () => {
+  const plan = le.resolveEmulatorLaunch({
+    emulator: { program_path: 'wine' },
+    execPath: '/g/game.exe',
+  })
+  expect(plan.error).toBeUndefined()
+})
+
+test('a bad program path is reported rather than left to fail at spawn', () => {
+  expect(
+    le.resolveEmulatorLaunch({
+      emulator: { program_path: '/nope/wine' },
+      execPath: '/g/game.exe',
+    }).error,
+  ).toMatch(/not found/i)
+
+  expect(
+    le.resolveEmulatorLaunch({ emulator: { program_path: tmp() }, execPath: '/g/game.exe' }).error,
+  ).toMatch(/not a file/i)
+
+  expect(
+    le.resolveEmulatorLaunch({ emulator: { program_path: '' }, execPath: '/g/game.exe' }).error,
+  ).toMatch(/no program path/i)
+})
+
+// The emulator is the user's own tool, so this reports instead of chmod'ing it —
+// changing permissions outside our data directory is not ours to do.
+test('a non-executable emulator program explains the fix', () => {
+  const program = path.join(tmp(), 'wine')
+  fs.writeFileSync(program, '#!/bin/sh\n', { mode: 0o644 })
+  const plan = le.resolveEmulatorLaunch({ emulator: { program_path: program }, execPath: '/g/g.exe' })
+  expect(plan.error).toMatch(/not executable/i)
+  expect(plan.error).toContain('chmod +x')
+})
+
+// End to end through a real wrapper script: proves the quoted argument survives
+// as ONE argv entry, that cwd is the game folder, and that the AppImage
+// LD_LIBRARY_PATH does not reach the child.
+test('a wrapper receives correct argv, cwd and a sanitised environment', () => {
+  const cp = require('child_process')
+  const root = tmp()
+  const gameDir = path.join(root, 'My Game')
+  fs.mkdirSync(gameDir)
+  const game = path.join(gameDir, 'game.exe')
+  fs.writeFileSync(game, 'PE')
+  fs.writeFileSync(path.join(gameDir, 'assets.dat'), 'data')
+
+  const wrapper = path.join(root, 'wine')
+  fs.writeFileSync(
+    wrapper,
+    '#!/bin/sh\n'
+      + 'echo "argc=$#"\n'
+      + 'echo "assets=$([ -f assets.dat ] && echo yes || echo no)"\n'
+      + 'echo "ld=[$LD_LIBRARY_PATH]"\n'
+      + 'echo "appdir=[$APPDIR]"\n',
+    { mode: 0o755 },
+  )
+
+  const plan = le.resolveEmulatorLaunch({
+    emulator: { program_path: wrapper, parameters: '-w "My Prefix"' },
+    execPath: game,
+  })
+  const out = cp.spawnSync(plan.command, plan.args, {
+    cwd: path.dirname(game),
+    env: le.sanitizeChildEnv({ ...process.env, APPDIR, LD_LIBRARY_PATH: `${APPDIR}/usr/lib:/usr/local/lib` }),
+    encoding: 'utf8',
+  })
+  // 3, not 4: the quoted prefix stayed a single argument.
+  expect(out.stdout).toContain('argc=3')
+  expect(out.stdout).toContain('assets=yes')
+  expect(out.stdout).toContain('ld=[/usr/local/lib]')
+  expect(out.stdout).toContain('appdir=[]')
+})
+
+test('the emulator branch passes a working directory', () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'electron', 'ipc', 'games.js'),
+    'utf8',
+  )
+  const start = src.indexOf('const emulator = await getEmulatorByExtension')
+  expect(start).toBeGreaterThan(-1)
+  const branch = src.slice(start, start + 900)
+  expect(branch).toContain('resolveEmulatorLaunch')
+  // Omitting cwd left emulated games inheriting /opt/Atlas or the AppImage mount.
+  expect(branch).toContain('cwd: path.dirname(execPath)')
+  expect(branch).not.toContain("parameters.split(' ')")
+})

@@ -185,8 +185,9 @@ function resolveLinuxLaunch({ execPath, extension }) {
     if (!wine) {
       return {
         error:
-          `This is a Windows build (.${ext}) and Wine was not found. ` +
-          'Install Wine to launch it on Linux.',
+          `This is a Windows build (.${ext}) and Wine was not found on PATH.\n\n` +
+          'Either install Wine, or configure a launcher for this file type under ' +
+          `Settings > Emulators (map "${ext}" to wine, Proton, or another wrapper).`,
       }
     }
     return { command: wine, args: [execPath], viaWine: true, madeExecutable: false }
@@ -199,7 +200,107 @@ function resolveLinuxLaunch({ execPath, extension }) {
   return { command: execPath, args: [], viaWine: false, madeExecutable: prepared.changed }
 }
 
+/**
+ * Split an emulator parameter string into argv, respecting quotes.
+ *
+ * A plain .split(' ') breaks on any quoted argument — `-w "My Prefix"` became
+ * three broken arguments — and that matters more on Linux, where wrapper
+ * commands routinely carry paths with spaces.
+ *
+ * Not a full shell parser: no variable expansion, globbing or pipes. Arguments
+ * are passed to spawn() directly with shell:false, so shell metacharacters are
+ * literal by design rather than by accident.
+ */
+function parseCommandArgs(input) {
+  const text = String(input ?? '')
+  const args = []
+  let current = ''
+  let quote = null
+  let started = false
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i]
+    if (quote) {
+      if (char === quote) quote = null
+      else current += char
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      started = true
+      continue
+    }
+    if (/\s/.test(char)) {
+      if (started || current) args.push(current)
+      current = ''
+      started = false
+      continue
+    }
+    current += char
+  }
+  if (started || current) args.push(current)
+  return args
+}
+
+// Placeholders a user can put in the parameter string to control WHERE the game
+// path lands. Without one the path is appended, which is right for `wine
+// game.exe` but wrong for anything that takes trailing options of its own —
+// `java -jar game.jar`, `retroarch -L core.so rom`, or a wrapper that needs
+// `-- ` before the target.
+const GAME_PLACEHOLDERS = ['%GAME%', '{game}', '%ROM%', '{file}']
+
+/**
+ * How to launch `execPath` through a configured emulator/wrapper.
+ *
+ * This is the general mechanism for Wine, Proton, an interpreter, or any other
+ * wrapper: the user maps an extension to a program and its arguments, and it
+ * takes precedence over the built-in handling.
+ */
+function resolveEmulatorLaunch({ emulator, execPath }) {
+  const program = String(emulator?.program_path || '').trim()
+  if (!program) return { error: 'This emulator has no program path configured.' }
+
+  const parsed = parseCommandArgs(emulator?.parameters)
+  const placeholder = GAME_PLACEHOLDERS.find((token) =>
+    parsed.some((arg) => arg.includes(token)),
+  )
+
+  const args = placeholder
+    ? parsed.map((arg) => arg.split(placeholder).join(execPath))
+    : [...parsed, execPath]
+
+  // A bare name like "wine" is resolved from PATH by spawn, which is the normal
+  // way to configure this on Linux. Only validate when an actual path is given.
+  const looksLikePath = program.includes('/') || program.includes('\\')
+  if (looksLikePath) {
+    let stat
+    try {
+      stat = fs.statSync(program)
+    } catch {
+      return { error: `Emulator program not found: ${program}` }
+    }
+    if (!stat.isFile()) {
+      return { error: `Emulator program is not a file: ${program}` }
+    }
+    // The emulator is the user's own tool, so report rather than chmod it —
+    // silently changing permissions on something outside our data directory is
+    // not ours to do.
+    if (process.platform !== 'win32' && !isExecutableFile(program)) {
+      return {
+        error:
+          `Emulator program is not executable: ${program}\n` +
+          `Run: chmod +x "${program}"`,
+      }
+    }
+  }
+
+  return { command: program, args, usedPlaceholder: Boolean(placeholder) }
+}
+
 module.exports = {
+  parseCommandArgs,
+  resolveEmulatorLaunch,
+  GAME_PLACEHOLDERS,
   APPIMAGE_INJECTED_VARS,
   sanitizeChildEnv,
   isExecutableFile,

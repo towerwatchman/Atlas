@@ -11,7 +11,7 @@ const { recordGameLaunchStarted, recordGamePlaytime, getLibraryStats } = require
 // undefined and set-tag-override failed with "getTagState is not a function"
 // AFTER already writing the override.
 const { getTagState, clearTagOverride, getKnownTags, bulkEditTags } = require('../db/tagOverrides')
-const { sanitizeChildEnv, resolveLinuxLaunch } = require('../launchEnv')
+const { sanitizeChildEnv, resolveLinuxLaunch, resolveEmulatorLaunch } = require('../launchEnv')
 const { getEmulatorByExtension } = require('../db/settings')
 const { getSteamIDbyRecord } = require('../db/steam')
 const { getGogIDbyRecord, addGogMapping } = require('../db/gog')
@@ -191,9 +191,19 @@ async function launchGame({ execPath, gamePath, extension, recordId, version, so
   }
   const emulator = await getEmulatorByExtension(extension)
   if (emulator) {
-    const args = emulator.parameters ? emulator.parameters.split(' ') : []
-    args.push(execPath)
-    await spawnTrackedGame(emulator.program_path, args, { recordId, version })
+    // The general wrapper mechanism: Wine, Proton, an interpreter, anything. It
+    // is checked first so a configured launcher always beats built-in handling.
+    const plan = resolveEmulatorLaunch({ emulator, execPath })
+    if (plan.error) throw new Error(plan.error)
+    await spawnTrackedGame(plan.command, plan.args, {
+      recordId,
+      version,
+      // Previously omitted, so an emulated game inherited Atlas's own working
+      // directory — /opt/Atlas on a package install, or the read-only AppImage
+      // mount. Ren'Py, Unity and RPG Maker resolve their assets relative to cwd,
+      // so under Wine they simply failed to find their data.
+      cwd: path.dirname(execPath),
+    })
   } else if (process.platform === 'linux') {
     // shell.openPath on Linux goes through xdg-open/KIO, which refuses to
     // execute binaries, so the child has to be spawned directly. resolveLinuxLaunch
