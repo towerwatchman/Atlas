@@ -202,13 +202,43 @@ const getLewdCornerIdFromGame = (game = {}) =>
     parseLewdCornerIdFromUrl(game.lewdCornerSiteUrl || game.lewdcornerSiteUrl || game.siteUrl || game.site_url || game.sourceUrl || game.url),
   );
 
+// Compound tarballs: the compression and the archive are SEPARATE layers, so one
+// pass of 7-Zip only strips the outer compression and leaves a .tar behind. A
+// second pass is required. Linux game builds ship this way routinely.
+const TARBALL_SUFFIXES = [
+  ".tar.gz", ".tgz",
+  ".tar.bz2", ".tbz2", ".tbz",
+  ".tar.xz", ".txz",
+  ".tar.zst", ".tzst",
+  ".tar.lz4", ".tar.lzma",
+];
+
+const isCompoundTarballPath = (filePath) => {
+  const lower = String(filePath || "").toLowerCase();
+  return TARBALL_SUFFIXES.some((suffix) => lower.endsWith(suffix));
+};
+
+// path.extname only ever returns the LAST extension, so "game.tar.bz2" reports
+// "bz2". Checking the compound suffixes first is what makes these detectable.
+const getArchiveExtension = (filePath) => {
+  const lower = String(filePath || "").toLowerCase();
+  const compound = TARBALL_SUFFIXES.find((suffix) => lower.endsWith(suffix));
+  if (compound) return compound.replace(/^\./, "");
+  return path.extname(lower).replace(/^\./, "");
+};
+
 const getConfiguredExtractionExtensions = (appConfig) =>
-  String(appConfig?.Library?.extractionExtensions || "zip,7z,rar")
+  // tar and the compressed variants are in the default set: without them a
+  // Linux release downloaded as .tar.bz2 is not recognised as an archive at all,
+  // so it is imported as a single file with no executable inside.
+  String(appConfig?.Library?.extractionExtensions
+    || "zip,7z,rar,tar,gz,bz2,xz,zst,tgz,tbz2,txz")
     .split(",")
     .map((ext) => ext.trim().toLowerCase().replace(/^\./, ""))
     .filter(Boolean);
 
 const isArchiveFilePath = (filePath, appConfig) => {
+  if (isCompoundTarballPath(filePath)) return true;
   const ext = path.extname(String(filePath || "")).toLowerCase().replace(/^\./, "");
   return ext ? getConfiguredExtractionExtensions(appConfig).includes(ext) : false;
 };
@@ -388,6 +418,57 @@ async function getArchiveInfo(archivePath, sevenZipBin) {
   });
 }
 
+/**
+ * If an extraction produced nothing but a single .tar, extract that too.
+ *
+ * 7-Zip treats compression and archiving as separate layers, so `.tar.bz2`
+ * decompresses to `.tar` and stops. The import then finds one opaque file, no
+ * executable, and the title lands unplayable.
+ *
+ * Runs at most twice. Only acts when the extracted output is a LONE tar file:
+ * an archive that legitimately ships a .tar alongside other content is left
+ * alone, since unwrapping it there would scatter its contents.
+ */
+async function unwrapNestedTarball(targetDir, sevenZipBin, session, depth = 0) {
+  if (depth >= 2 || !sevenZipBin) return;
+  let entries;
+  try {
+    entries = await fsp.readdir(targetDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  const visible = entries.filter(
+    (entry) => !entry.name.startsWith(".") && !entry.name.startsWith("__MACOSX"),
+  );
+  if (visible.length !== 1 || !visible[0].isFile()) return;
+  if (!visible[0].name.toLowerCase().endsWith(".tar")) return;
+
+  const tarPath = path.join(targetDir, visible[0].name);
+  console.log(`Unwrapping nested tar: ${tarPath}`);
+  try {
+    throwIfImportCanceled(session);
+    await new Promise((resolve, reject) => {
+      cp.execFile(
+        sevenZipBin,
+        ["x", tarPath, `-o${targetDir}`, "-y"],
+        { windowsHide: true, maxBuffer: 1024 * 1024 * 16 },
+        (err, stdout, stderr) => {
+          if (err) reject(new Error(stderr || err.message));
+          else resolve();
+        },
+      );
+    });
+  } catch (err) {
+    // The outer extraction already succeeded, so leave the .tar in place rather
+    // than failing the whole import; the title is still recoverable by hand.
+    console.warn(`Failed to unwrap ${tarPath}:`, err.message || err);
+    return;
+  }
+  await removePathIfExists(tarPath);
+  // A .tar.gz.tar is pathological but cheap to handle.
+  await unwrapNestedTarball(targetDir, sevenZipBin, session, depth + 1);
+}
+
 async function extractArchive(
   archivePath,
   finalPath,
@@ -474,6 +555,10 @@ async function extractArchive(
               finalPath = getUniquePath(finalPath);
             }
             await moveDirWithRetry(tempPath, finalPath);
+            // One 7-Zip pass on a .tar.bz2 strips only the compression and
+            // leaves the .tar sitting there, which then imports as a single
+            // file with no executable inside. Unwrap it.
+            await unwrapNestedTarball(finalPath, sevenZipBin, session);
             resolve({ success: true, finalPath });
           } catch (err) {
             await removePathIfExists(tempPath);
