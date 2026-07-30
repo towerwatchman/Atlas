@@ -134,7 +134,7 @@
     "nsis": {
       "allowToChangeInstallationDirectory": true,
       "oneClick": false,
-      "perMachine": true,
+      "perMachine": false,
       "deleteAppDataOnUninstall": false,
       "artifactName": "${productName}-Setup ${version}.${ext}",
       "include": "build/installer.nsh",

@@ -15,47 +15,32 @@
 ; $PROGRAMFILES64\Atlas, which is exactly the wanted behaviour, so there is no
 ; preInit macro here at all any more.
 ;
-; The gap it does NOT cover is the per-user -> per-machine transition. Installs
-; made by the older perMachine:false build recorded themselves under HKCU, and
-; setInstallModePerAllUsers only ever consults HKLM — so every upgrade of one of
-; those looked like a fresh install and relocated to Program Files. This adopts
-; the HKCU location when HKLM has none.
-; Show a progress banner during an update install.
+; The gap it does NOT cover is a mode transition in EITHER direction, and this
+; build has now made both:
 ;
-; Updates install silently (see electron/ipc/updater.js), which is required:
-; installSection.nsh only auto-starts the app itself when ${isForceRun} AND
-; ${Silent}, so a non-silent update installs fine and then never reopens Atlas.
-; A previous attempt went non-silent to get the NSIS progress page and hand-rolled
-; the relaunch here instead — the install worked and the app stayed closed.
+;   * perMachine:false -> true recorded installs under HKCU while
+;     setInstallModePerAllUsers only consults HKLM.
+;   * perMachine:true -> false (current) is the mirror: those builds recorded
+;     under HKLM, and setInstallModePerUser only consults HKCU.
 ;
-; Silent means no installer UI at all, though, and the gap between Atlas closing
-; and reopening looked like a crash. SpiderBanner is a plugin window rather than
-; an installer page, so it can be shown even under /S. oneClick.nsh uses the same
-; call for exactly this purpose.
+; Either way an upgrade of an install from the other era looks like a fresh one
+; and relocates — Program Files one way, %LOCALAPPDATA%\Programs the other. So
+; adopt a recorded location from whichever hive actually has one that still exists
+; on disk, preferring HKLM since a per-machine record is the stronger signal of
+; where the app really lives.
 ;
-; Only for updates: a first-time install already has the full wizard, and a
-; banner on top of it would be noise. ${isUpdated} is reliable here — it is what
-; makes skipPageIfUpdated suppress the directory page.
-;
-; InitPluginsDir is required before any plugin call and is safe to repeat;
-; installSection.nsh calls it too, but that runs after .onInit.
-;
-; If the plugin call fails the banner simply does not appear and the update still
-; completes normally, which is the pre-existing behaviour.
+; Updates from within the app also pass /D=, which overrides this, but a manually
+; downloaded installer has no such switch and relies entirely on this.
 !macro customInit
-  ${If} ${isUpdated}
-    InitPluginsDir
-    SpiderBanner::Show /MODERN
-  ${EndIf}
-
   ReadRegStr $0 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
   ${If} $0 == ""
+  ${OrIfNot} ${FileExists} "$0\*.*"
     ReadRegStr $0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
-    ${If} $0 != ""
-    ${AndIf} ${FileExists} "$0\*.*"
-      DetailPrint "Existing per-user installation found at $0 - upgrading in place."
-      StrCpy $INSTDIR "$0"
-    ${EndIf}
+  ${EndIf}
+  ${If} $0 != ""
+  ${AndIf} ${FileExists} "$0\*.*"
+    DetailPrint "Existing installation found at $0 - upgrading in place."
+    StrCpy $INSTDIR "$0"
   ${EndIf}
 !macroend
 
@@ -86,7 +71,6 @@
     DetailPrint "Warning: could not grant write access to $INSTDIR\data (icacls returned $0)."
     DetailPrint "Atlas will offer to repair this on first run."
   ${EndIf}
-
 !macroend
 
 ; Preserve data/ and launchers/ folders on update/uninstall

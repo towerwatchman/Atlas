@@ -760,9 +760,9 @@ autoUpdater.on('update-downloaded', (info) => {
     sendUpdateStatus({ status: 'installing', version: info.version, percent: null }, 'update-downloaded')
     setTimeout(() => {
       try {
-        // Not silent — see electron/ipc/updater.js. The installer window is the
-        // progress UI and its finish page relaunches Atlas.
-        autoUpdater.quitAndInstall(false, true)
+        // Silent — see electron/ipc/updater.js for the three failed attempts at
+        // showing the installer. Do not change without a real build test.
+        autoUpdater.quitAndInstall(true, true)
       } catch (err) {
         console.error('Auto install after download failed:', err)
         sendUpdateStatus({ status: 'downloaded', version: info.version, percent: null }, 'auto-install-failed')

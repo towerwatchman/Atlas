@@ -10,139 +10,194 @@ const readTemplate = (...parts) => fs.readFileSync(path.join(NSIS_TEMPLATES, ...
 
 const installerNsh = () => read('build', 'installer.nsh')
 
-// ── The change ──────────────────────────────────────────────────────────────
+// ── Regression guards ───────────────────────────────────────────────────────
 
-// The installer is shown, not hidden. Its own window is the progress UI and its
-// finish page is both the "done" signal and the relaunch. Nothing we render could
-// cover the gap anyway, since this process must exit for the installer to replace
-// its own files.
-test('updates install non-silently, everywhere', () => {
+// Updates MUST install silently on this configuration. Three attempts at showing
+// the installer all broke updates; see electron/ipc/updater.js for the log. The
+// failure mode is the dangerous kind: the install succeeds and the app never
+// reopens, so the user is left on a working-but-closed install.
+test('updates install silently, everywhere', () => {
   const calls = [
     ...(read('electron', 'ipc', 'updater.js').match(/quitAndInstall\([^)]*\)/g) || []),
     ...(read('electron', 'main.js').match(/quitAndInstall\([^)]*\)/g) || []),
   ]
   expect(calls).toHaveLength(3)
-  for (const call of calls) expect(call).toBe('quitAndInstall(false, true)')
+  for (const call of calls) expect(call).toBe('quitAndInstall(true, true)')
 })
 
-// The relaunch is MUI_FINISHPAGE_RUN -> StartApp. It only exists when
-// HIDE_RUN_AFTER_FINISH is undefined, which requires runAfterFinish !== false.
-// Setting runAfterFinish:false would install updates and never reopen Atlas.
-test('runAfterFinish is enabled, so the finish page can relaunch', () => {
-  expect(JSON.parse(read('package.json')).build.nsis.runAfterFinish).not.toBe(false)
-
-  const nsisTarget = read('node_modules', 'app-builder-lib', 'out', 'targets', 'nsis', 'NsisTarget.js')
-  expect(nsisTarget).toMatch(/runAfterFinish === false\)\s*\{\s*defines\.HIDE_RUN_AFTER_FINISH = null/)
-
-  const assisted = readTemplate('assistedInstaller.nsh')
-  const run = assisted.slice(assisted.indexOf('!ifndef HIDE_RUN_AFTER_FINISH'))
-  expect(run).toContain('!define MUI_FINISHPAGE_RUN')
-  expect(run).toMatch(/MUI_FINISHPAGE_RUN_FUNCTION\s+"StartApp"/)
+// This is the only thing that reopens Atlas after a silent update. Both halves of
+// the guard matter: a non-silent install fails it and the app stays closed.
+test('the template still auto-starts the app on a silent forced run', () => {
+  const section = readTemplate('installSection.nsh')
+  const assisted = section.slice(section.lastIndexOf('!else'))
+  expect(assisted).toMatch(/\$\{if\} \$\{isForceRun\}/)
+  expect(assisted).toMatch(/\$\{andIf\} \$\{Silent\}/)
+  expect(assisted).toContain('!insertmacro doStartApp')
 })
 
-// StartApp is only compiled when customFinishPage is NOT defined. A previous
-// attempt defined it as empty to remove the click, which deleted the only thing
-// that relaunched the app: the install succeeded and Atlas stayed closed.
-test('installer.nsh does not override the finish page or hand-roll a relaunch', () => {
+// StartApp/doStartApp uses ExecShellAsUser so Atlas does not inherit the
+// installer's elevated token — Atlas launches game executables, which would
+// otherwise all run as administrator.
+test('the relaunch drops elevation and passes --updated', () => {
+  const common = readTemplate('common.nsh')
+  const start = common.indexOf('!macro StartApp')
+  const macro = common.slice(start, common.indexOf('!macroend', start))
+  expect(macro).toContain('${StdUtils.ExecShellAsUser}')
+  expect(macro).toContain('$launchLink')
+  expect(macro).toContain('--updated')
+})
+
+// installer.nsh must stay free of the workarounds from the failed attempts. Each
+// of these broke updates: customFinishPage deleted the stock relaunch, the
+// hand-rolled ExecShellAsUser did not replace it, and SpiderBanner never showed.
+test('installer.nsh carries none of the failed workarounds', () => {
   const nsh = installerNsh()
-  expect(nsh).not.toContain('customFinishPage')
-  expect(nsh).not.toContain('ExecShellAsUser')
-  expect(nsh).not.toContain('SetAutoClose')
-  expect(nsh).not.toContain('SpiderBanner')
-})
-
-// Atlas launches game executables, so it must not inherit the installer's
-// elevated token. The stock StartApp uses ExecShellAsUser for exactly this.
-test('the stock relaunch drops elevation and passes --updated', () => {
-  const assisted = readTemplate('assistedInstaller.nsh')
-  // Anchor the end search to the start: instFilesPre's FunctionEnd appears
-  // earlier in the file, so an unanchored indexOf slices backwards.
-  const startIdx = assisted.indexOf('Function StartApp')
-  const fn = assisted.slice(startIdx, assisted.indexOf('FunctionEnd', startIdx))
-  expect(fn).toContain('${StdUtils.ExecShellAsUser}')
-  expect(fn).toContain('$launchLink')
-  expect(fn).toContain('--updated')
-  expect(fn).not.toMatch(/^\s*Exec(Wait)?\s/m)
+  for (const token of ['customFinishPage', 'ExecShellAsUser', 'SetAutoClose', 'SpiderBanner']) {
+    expect(nsh, `installer.nsh should not contain ${token}`).not.toContain(token)
+  }
 })
 
 // quitAndInstall discards isForceRunAfter when isSilent is false and reads
-// autoRunAppAfterInstall instead, so it is set explicitly rather than left to a
-// library default.
+// autoRunAppAfterInstall instead. Irrelevant while we stay silent, but set
+// explicitly so a future switch does not depend on a library default.
 test('the relaunch opt-in is explicit, not inherited from a default', () => {
   expect(read('electron', 'main.js')).toMatch(/autoUpdater\.autoRunAppAfterInstall = true/)
   expect(read('node_modules', 'electron-updater', 'out', 'BaseUpdater.js'))
     .toContain('isSilent ? isForceRunAfter : this.autoRunAppAfterInstall')
 })
 
-// ── Assumptions about electron-builder's templates ──────────────────────────
+// ── UAC still fires, but only when elevation is actually needed ─────────────
 //
-// Going non-silent is only safe because no wizard page can appear on an update.
-// That is a property of electron-builder's own templates, not of our code, so an
-// upgrade could silently reintroduce a wizard for every user mid-update. These
-// pin the assumptions to the installed version so that fails here instead.
+// perMachine:false removes RequestExecutionLevel admin, so the manifest no longer
+// forces elevation. It is NOT gone — it moves from unconditional to on-demand,
+// via three paths. These pin all three, because the failure mode if any were
+// missing is an install that silently cannot write its target directory.
 
-
-// perMachine:true defines INSTALL_MODE_PER_ALL_USERS, and the page is only
-// inserted when that is NOT defined. This was the "stale per-machine prompt"
-// the silent install was originally working around.
-// With the installer visible, this is what keeps an update from showing the
-// wizard. If an upgrade dropped it, every user would get a directory prompt
-// mid-update.
-test('the directory page is still skipped on updates', () => {
-  const assisted = readTemplate('assistedInstaller.nsh')
-  const dirPage = assisted.slice(
-    assisted.indexOf('!ifdef allowToChangeInstallationDirectory'),
-    assisted.indexOf('!insertmacro MUI_PAGE_DIRECTORY'),
-  )
-  expect(dirPage).toContain('!insertmacro skipPageIfUpdated')
-
-  const common = readTemplate('common.nsh')
-  const macro = common.slice(
-    common.indexOf('!macro skipPageIfUpdated'),
-    common.indexOf('!macroend', common.indexOf('!macro skipPageIfUpdated')),
-  )
-  expect(macro).toContain('${if} ${isUpdated}')
-  expect(macro).toContain('Abort')
+// Path 1: a fresh install where the user picks "all users". The mode page's LEAVE
+// handler elevates before continuing.
+test('choosing an all-users install elevates', () => {
+  const ui = readTemplate('multiUserUi.nsh')
+  const leave = ui.slice(ui.indexOf('SendMessage $MultiUser.InstallModePage.AllUsers'))
+  expect(leave).toMatch(/\$\{IfNot\} \$\{UAC_IsAdmin\}/)
+  expect(leave).toContain('!insertmacro UAC_RunElevated')
+  // Cancelling UAC returns to the radio buttons rather than killing the install.
+  expect(leave).toContain('${Case} 1223')
+  expect(leave).toContain('Abort')
 })
 
-test('the install-mode page is compiled out for perMachine builds', () => {
-  const pkg = JSON.parse(read('package.json'))
-  expect(pkg.build.nsis.perMachine).toBe(true)
-
-  const nsisTarget = read('node_modules', 'app-builder-lib', 'out', 'targets', 'nsis', 'NsisTarget.js')
-  expect(nsisTarget).toMatch(/perMachine === true\)\s*\{\s*defines\.INSTALL_MODE_PER_ALL_USERS = null/)
-
+// The mode page only exists when perMachine is off, so path 1 depends on it.
+test('the install-mode page is compiled in now that perMachine is off', () => {
   const assisted = readTemplate('assistedInstaller.nsh')
   const before = assisted.slice(0, assisted.indexOf('!insertmacro PAGE_INSTALL_MODE'))
   expect(before.slice(-80)).toContain('!ifndef INSTALL_MODE_PER_ALL_USERS')
+  expect(JSON.parse(read('package.json')).build.nsis.perMachine).toBe(false)
+  // allowElevation must stay on, or MULTIUSER_INSTALLMODE_ALLOW_ELEVATION is
+  // undefined and the all-users option cannot elevate at all.
+  expect(JSON.parse(read('package.json')).build.nsis.allowElevation).not.toBe(false)
+  expect(readTemplate('multiUserUi.nsh')).toContain('MULTIUSER_INSTALLMODE_ALLOW_ELEVATION')
 })
 
-// Defining customFinishPage is what removes MUI_PAGE_FINISH; if the template
-// stopped honouring the hook, the finish page would come back and updates would
-// hang waiting for a click.
-
-// customInstall must still run after $launchLink is assigned, or the relaunch
-// would exec an empty path.
-test('customInstall still runs after $launchLink is set', () => {
-  const section = readTemplate('installSection.nsh')
-  expect(section.indexOf('StrCpy $launchLink'))
-    .toBeLessThan(section.indexOf('!insertmacro customInstall'))
+// Path 2, and the important one for updates: a SILENT upgrade of an install that
+// is already per-machine elevates itself, since no page runs to ask.
+//
+// Note this block is guarded by !ifndef INSTALL_MODE_PER_ALL_USERS — it was
+// COMPILED OUT under perMachine:true, which relied on the manifest instead.
+// Turning perMachine off is what makes conditional elevation exist at all.
+test('a silent upgrade of a per-machine install elevates itself', () => {
+  const nsi = readTemplate('installer.nsi')
+  const block = nsi.slice(
+    nsi.indexOf("# If we're running a silent upgrade"),
+    nsi.indexOf('!include "installSection.nsh"'),
+  )
+  expect(block).toContain('!ifndef INSTALL_MODE_PER_ALL_USERS')
+  expect(block).toMatch(/\$hasPerMachineInstallation == "1"/)
+  expect(block).toMatch(/\$\{andIf\} \$\{Silent\}/)
+  expect(block).toMatch(/\$\{ifNot\} \$\{UAC_IsAdmin\}/)
+  expect(block).toContain('!insertmacro UAC_RunElevated')
 })
 
-// ${isForceRun} and ${StdUtils.ExecShellAsUser} both come from the generated
-// header rather than the templates, so they are only usable if the generator
-// still emits them.
-test('isForceRun and StdUtils are still provided by the generated header', () => {
+// Path 3: uninstalling a per-machine install.
+test('uninstalling a per-machine install elevates', () => {
+  const ui = readTemplate('multiUserUi.nsh')
+  expect(ui.match(/!insertmacro UAC_RunElevated/g).length).toBeGreaterThanOrEqual(3)
+})
+
+// ── Elevation: why updates could not relaunch ───────────────────────────────
+//
+// The real cause of "update installs, app never reopens" — across silent AND
+// non-silent builds, which is why chasing that distinction never fixed it.
+//
+// From a failing run's atlas-updater.log:
+//   Install: isSilent: true, isForceRunAfter: true
+//   Executing: ...Atlas-Setup-<v>.exe with args: --updated,/S,--force-run,
+//     /D=C:\Users\tower\AppData\Local\Programs\Atlas
+//   Cannot run installer: error code: EACCES ... will be executed again using elevate
+//   Executing: ...\resources\elevate.exe with args: <installer>,--updated,/S,...
+//
+// perMachine:true put RequestExecutionLevel admin on the installer, so the
+// non-elevated spawn was rejected (EACCES) and electron-updater fell back to
+// elevate.exe — producing a UAC prompt and an ELEVATED installer. The relaunch
+// then had to hop back down across the integrity boundary via ExecShellAsUser,
+// and that is the step that failed.
+//
+// The install target is %LOCALAPPDATA%\Programs\Atlas, a per-user directory that
+// never needed elevation to write to in the first place.
+
+test('perMachine is off, so the installer needs no elevation', () => {
+  expect(JSON.parse(read('package.json')).build.nsis.perMachine).toBe(false)
+})
+
+// The chain being defended: perMachine:true -> INSTALL_MODE_PER_ALL_USERS ->
+// RequestExecutionLevel admin. Turning perMachine back on reintroduces all of it.
+test('only perMachine would force an admin manifest', () => {
   const nsisTarget = read('node_modules', 'app-builder-lib', 'out', 'targets', 'nsis', 'NsisTarget.js')
-  expect(nsisTarget).toContain('"StdUtils.nsh"')
-  expect(nsisTarget).toMatch(/flags\(\[[^\]]*"force-run"/)
+  expect(nsisTarget).toMatch(/perMachine === true\)\s*\{\s*defines\.INSTALL_MODE_PER_ALL_USERS = null/)
 
-  const generator = read('node_modules', 'app-builder-lib', 'out', 'targets', 'nsis', 'nsisScriptGenerator.js')
-  // flags() emits `!macro _is<Flag>` + `!define is<Flag>`, which is what makes
-  // ${isForceRun} a valid LogicLib condition.
-  expect(generator).toContain('!macro _${variableName}')
-  expect(generator).toContain('!define ${variableName}')
+  const nsi = readTemplate('installer.nsi')
+  const block = nsi.slice(
+    nsi.indexOf('!ifdef INSTALL_MODE_PER_ALL_USERS'),
+    nsi.indexOf('!ifdef BUILD_UNINSTALLER', nsi.indexOf('RequestExecutionLevel user\n!endif')),
+  )
+  expect(block).toContain('RequestExecutionLevel admin')
+  // ...and without that define, the installer runs as the plain user.
+  expect(block).toMatch(/!else\s*\n\s*RequestExecutionLevel user/)
 })
+
+// Why an admin manifest is fatal rather than merely noisy: a non-elevated parent
+// cannot CreateProcess it, so electron-updater never gets to spawn it directly.
+test('an admin-manifested installer forces the elevate.exe fallback', () => {
+  const updater = read('node_modules', 'electron-updater', 'out', 'NsisUpdater.js')
+  expect(updater).toContain('elevate.exe')
+  expect(updater).toMatch(/errorCode === "UNKNOWN" \|\| errorCode === "EACCES"/)
+})
+
+// Both perMachine transitions have now happened in this build, so an existing
+// install may be recorded under either hive. Adopting only one of them makes an
+// upgrade from the other era look like a fresh install and relocate.
+test('customInit adopts an existing install from either registry hive', () => {
+  const init = installerNsh()
+  const macro = init.slice(init.indexOf('!macro customInit'), init.indexOf('!macroend', init.indexOf('!macro customInit')))
+  expect(macro).toContain('ReadRegStr $0 HKLM')
+  expect(macro).toContain('ReadRegStr $0 HKCU')
+  // The HKLM value must be checked for existence, not just non-emptiness — a
+  // stale per-machine record pointing at a deleted folder must fall through.
+  expect(macro).toMatch(/\$\{OrIfNot\} \$\{FileExists\}/)
+})
+
+// A per-machine install can still happen if the user picks it on the install-mode
+// page, and installer.nsi handles elevating that case for silent upgrades. That
+// path is only compiled when perMachine is off, so it must stay reachable.
+test('silent upgrades of a per-machine install can still elevate themselves', () => {
+  const nsi = readTemplate('installer.nsi')
+  const block = nsi.slice(
+    nsi.indexOf("# If we're running a silent upgrade"),
+    nsi.indexOf('!include "installSection.nsh"'),
+  )
+  expect(block).toContain('!ifndef INSTALL_MODE_PER_ALL_USERS')
+  expect(block).toMatch(/\$\{andIf\} \$\{Silent\}/)
+  expect(block).toContain('UAC_RunElevated')
+})
+
 
 // /D= is appended regardless of silence, so the update still lands in the folder
 // the app is currently installed in.
