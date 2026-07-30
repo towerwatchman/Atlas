@@ -20,7 +20,34 @@
 ; setInstallModePerAllUsers only ever consults HKLM — so every upgrade of one of
 ; those looked like a fresh install and relocated to Program Files. This adopts
 ; the HKCU location when HKLM has none.
+; Show a progress banner during an update install.
+;
+; Updates install silently (see electron/ipc/updater.js), which is required:
+; installSection.nsh only auto-starts the app itself when ${isForceRun} AND
+; ${Silent}, so a non-silent update installs fine and then never reopens Atlas.
+; A previous attempt went non-silent to get the NSIS progress page and hand-rolled
+; the relaunch here instead — the install worked and the app stayed closed.
+;
+; Silent means no installer UI at all, though, and the gap between Atlas closing
+; and reopening looked like a crash. SpiderBanner is a plugin window rather than
+; an installer page, so it can be shown even under /S. oneClick.nsh uses the same
+; call for exactly this purpose.
+;
+; Only for updates: a first-time install already has the full wizard, and a
+; banner on top of it would be noise. ${isUpdated} is reliable here — it is what
+; makes skipPageIfUpdated suppress the directory page.
+;
+; InitPluginsDir is required before any plugin call and is safe to repeat;
+; installSection.nsh calls it too, but that runs after .onInit.
+;
+; If the plugin call fails the banner simply does not appear and the update still
+; completes normally, which is the pre-existing behaviour.
 !macro customInit
+  ${If} ${isUpdated}
+    InitPluginsDir
+    SpiderBanner::Show /MODERN
+  ${EndIf}
+
   ReadRegStr $0 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
   ${If} $0 == ""
     ReadRegStr $0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
@@ -59,6 +86,7 @@
     DetailPrint "Warning: could not grant write access to $INSTDIR\data (icacls returned $0)."
     DetailPrint "Atlas will offer to repair this on first run."
   ${EndIf}
+
 !macroend
 
 ; Preserve data/ and launchers/ folders on update/uninstall

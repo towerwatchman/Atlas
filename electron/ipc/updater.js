@@ -69,10 +69,20 @@ module.exports = function registerUpdaterHandlers(ctx) {
           ...ctx.lastUpdateStatus,
           status: 'installing',
         }, 'download-and-install-app-update')
-        // Silent install (no installer UI) so the NSIS mode/directory pages
-        // never run. This avoids the stale per-machine prompt and lets the
-        // /D= switch (set via autoUpdater.installDirectory) place the update
-        // in the current folder. Second arg relaunches the app afterward.
+        // MUST stay silent. BaseUpdater.quitAndInstall does:
+        //   install(isSilent, isSilent ? isForceRunAfter : this.autoRunAppAfterInstall)
+        // so the second argument here is only honoured when isSilent is true —
+        // but more importantly installSection.nsh's assisted-installer branch
+        // only auto-starts the app when ${isForceRun} AND ${Silent}. A
+        // non-silent update therefore installs correctly and then leaves Atlas
+        // closed, which is exactly what happened when this was tried.
+        //
+        // Progress feedback comes from the SpiderBanner shown in
+        // build/installer.nsh's customInit, which works under /S because it is a
+        // plugin window rather than an installer page.
+        //
+        // Silent also keeps the NSIS mode/directory pages from running and lets
+        // /D= place the update in the current folder.
         autoUpdater.quitAndInstall(true, true)
       } else {
         ctx.installAfterDownload = true
@@ -102,6 +112,7 @@ module.exports = function registerUpdaterHandlers(ctx) {
         ...ctx.lastUpdateStatus,
         status: 'installing',
       }, 'install-app-update')
+      // See download-and-install-app-update above for why this must be silent.
       autoUpdater.quitAndInstall(true, true)
       return { success: true }
     } catch (err) {
