@@ -69,32 +69,31 @@ module.exports = function registerUpdaterHandlers(ctx) {
           ...ctx.lastUpdateStatus,
           status: 'installing',
         }, 'download-and-install-app-update')
-        // MUST stay silent. Three separate attempts at showing the installer
-        // all broke updates on this configuration (perMachine + elevation):
+        // Non-silent: the installer's own window IS the progress UI, and its
+        // finish page is both the "done" signal and the relaunch. This process
+        // has to exit for the installer to replace its own files, so nothing we
+        // render could cover that gap.
         //
-        //   1. non-silent + empty customFinishPage, relaunch hand-rolled here:
-        //      installed, never reopened (removing the finish page also removes
-        //      MUI_FINISHPAGE_RUN and Function StartApp).
-        //   2. silent + SpiderBanner: banner never appeared.
-        //   3. non-silent + the stock finish page: UAC prompt, then no installer
-        //      window at all, and no relaunch.
+        // No wizard page can appear on an update, so the visible installer is
+        // just progress + finish:
+        //   * no welcome/license page is configured
+        //   * the install-mode page is not compiled in (perMachine:true defines
+        //     INSTALL_MODE_PER_ALL_USERS, which assistedInstaller.nsh checks)
+        //   * the directory page is wrapped in skipPageIfUpdated, and --updated
+        //     is always passed
         //
-        // Silent is the only configuration observed to actually work end to end.
-        // It also matches what the templates expect: installSection.nsh's
-        // assisted-installer branch auto-starts the app only when ${isForceRun}
-        // AND ${Silent}, and installer.nsi's own elevation-for-upgrade block is
-        // guarded by ${Silent} too — its comment says a non-silent install
-        // elevates "when the install mode is selected in the UI", but that page
-        // is not compiled in under perMachine:true, so nothing in the script
-        // elevates and it depends entirely on RequestExecutionLevel admin plus
-        // electron-updater's elevate.exe fallback.
+        // The relaunch comes from MUI_FINISHPAGE_RUN -> StartApp, which exists
+        // because runAfterFinish is true (so HIDE_RUN_AFTER_FINISH is undefined)
+        // and because build/installer.nsh does NOT define customFinishPage. That
+        // costs one click on Finish, which is the point: the user sees it complete
+        // rather than guessing.
         //
-        // Do not switch this to false without testing a real packaged build; the
-        // failure mode is a successful install that never reopens the app.
+        // StartApp uses ExecShellAsUser, so Atlas does not inherit the installer's
+        // elevated token — important because Atlas launches game executables.
         //
-        // Silent also keeps the mode/directory pages from running and lets /D=
-        // place the update in the current folder.
-        autoUpdater.quitAndInstall(true, true)
+        // /D= is passed either way, so the update still lands in the current
+        // folder.
+        autoUpdater.quitAndInstall(false, true)
       } else {
         ctx.installAfterDownload = true
         await autoUpdater.downloadUpdate()
@@ -123,8 +122,8 @@ module.exports = function registerUpdaterHandlers(ctx) {
         ...ctx.lastUpdateStatus,
         status: 'installing',
       }, 'install-app-update')
-      // See download-and-install-app-update above for why this must be silent.
-      autoUpdater.quitAndInstall(true, true)
+      // See download-and-install-app-update above for why this is not silent.
+      autoUpdater.quitAndInstall(false, true)
       return { success: true }
     } catch (err) {
       const normalizedError = normalizeUpdateError(err)
