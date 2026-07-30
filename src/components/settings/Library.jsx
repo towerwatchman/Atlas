@@ -12,6 +12,8 @@ const Library = () => {
   const [extractionExtensions, setExtractionExtensions] =
     useState("zip,7z,rar");
   const [sevenZipPath, setSevenZipPath] = useState(""); // ← added
+  const [sevenZipStatus, setSevenZipStatus] = useState("");
+  const [detectingSevenZip, setDetectingSevenZip] = useState(false);
   const [autoSelectLatestReplaceVersion, setAutoSelectLatestReplaceVersion] =
     useState(false);
   const [validatePathsOnStartup, setValidatePathsOnStartup] = useState(false);
@@ -91,6 +93,31 @@ const Library = () => {
     if (result) {
       setSevenZipPath(result);
       saveLibrarySetting("sevenZipPath", result);
+    }
+  };
+
+  // The same lookup runs automatically on first launch (see
+  // electron/utils/sevenZipDetect.js), so this button matters when 7-Zip was
+  // installed after Atlas, or when the saved path pointed at a binary that has
+  // since been removed. It writes config.ini itself, so no saveLibrarySetting.
+  const handleDetectSevenZip = async () => {
+    if (detectingSevenZip) return;
+    setDetectingSevenZip(true);
+    setSevenZipStatus("Looking for 7-Zip...");
+    try {
+      const result = await window.electronAPI.detectSevenZip?.();
+      if (result?.success && result.path) {
+        setSevenZipPath(result.path);
+        setSevenZipStatus(`Found 7-Zip at ${result.path}`);
+      } else {
+        setSevenZipStatus(
+          "No 7-Zip install found. Atlas will use its bundled extractor, which cannot open .rar archives.",
+        );
+      }
+    } catch (err) {
+      setSevenZipStatus(`Detection failed: ${err?.message || err}`);
+    } finally {
+      setDetectingSevenZip(false);
     }
   };
 
@@ -244,25 +271,43 @@ const Library = () => {
 
       <div>
         <label className="block mb-1">7-Zip Executable Path</label>
-        <div className="flex gap-3">
+        {/* Stacks on narrow windows so neither button is clipped. */}
+        <div className="flex flex-col sm:flex-row gap-3">
           <input
             type="text"
-            className="flex-1 bg-secondary border border-border p-2 rounded"
+            className="flex-1 min-w-0 bg-secondary border border-border p-2 rounded"
             value={
               sevenZipPath ||
-              "(not set — will be asked during first extraction)"
+              "(not set — no 7-Zip install detected)"
             }
             readOnly
           />
-          <button
-            onClick={handleSetSevenZip}
-            className="bg-accent px-5 py-2 rounded hover:bg-accentHover"
-          >
-            Select 7z
-          </button>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={handleDetectSevenZip}
+              disabled={detectingSevenZip}
+              className="flex-1 sm:flex-none bg-secondary border border-border px-5 py-2 rounded hover:bg-primary disabled:opacity-50"
+            >
+              {detectingSevenZip ? "Detecting..." : "Detect"}
+            </button>
+            <button
+              type="button"
+              onClick={handleSetSevenZip}
+              className="flex-1 sm:flex-none bg-accent px-5 py-2 rounded hover:bg-accentHover"
+            >
+              Select 7z
+            </button>
+          </div>
         </div>
+        {sevenZipStatus && (
+          <p className="text-xs opacity-70 mt-1 break-all">{sevenZipStatus}</p>
+        )}
         <p className="text-xs opacity-60 mt-1">
-          Required for fast .7z / .rar extraction. Common locations:
+          Required for fast .7z extraction and for .rar archives, which the
+          bundled extractor cannot open. Atlas fills this in automatically on
+          first launch if 7-Zip is already installed — use Detect after
+          installing it, or Select 7z to point at a copy Atlas missed.
           <br />
           Windows: C:\Program Files\7-Zip\7z.exe
           <br />

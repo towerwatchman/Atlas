@@ -69,11 +69,15 @@ module.exports = function registerUpdaterHandlers(ctx) {
           ...ctx.lastUpdateStatus,
           status: 'installing',
         }, 'download-and-install-app-update')
-        // Silent install (no installer UI) so the NSIS mode/directory pages
-        // never run. This avoids the stale per-machine prompt and lets the
-        // /D= switch (set via autoUpdater.installDirectory) place the update
-        // in the current folder. Second arg relaunches the app afterward.
-        autoUpdater.quitAndInstall(true, true)
+        // NOT a silent install: quitAndInstall's first argument is isSilent,
+        // and passing true made electron-updater append /S to the NSIS
+        // installer, so the update applied with no window and no progress at
+        // all — indistinguishable from a hang. The installer UI now runs.
+        // The directory pages are still skipped because
+        // autoUpdater.installDirectory supplies /D= (see main.js), which the
+        // electron-builder NSIS template honors over the stale registry
+        // InstallLocation. Second arg relaunches the app afterward.
+        autoUpdater.quitAndInstall(false, true)
       } else {
         ctx.installAfterDownload = true
         await autoUpdater.downloadUpdate()
@@ -102,7 +106,8 @@ module.exports = function registerUpdaterHandlers(ctx) {
         ...ctx.lastUpdateStatus,
         status: 'installing',
       }, 'install-app-update')
-      autoUpdater.quitAndInstall(true, true)
+      // Non-silent: see the note in download-and-install-app-update.
+      autoUpdater.quitAndInstall(false, true)
       return { success: true }
     } catch (err) {
       const normalizedError = normalizeUpdateError(err)

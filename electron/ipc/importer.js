@@ -25,6 +25,7 @@ const {
   searchAtlasByLewdCornerId,
 } = require('../db/lewdcorner')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
+const { buildSevenZipCandidates, canRunSevenZip } = require('../utils/sevenZipDetect')
 
 let ownerMainWindow = null
 let nextScanId = 1
@@ -698,28 +699,18 @@ function getSevenZipExecutablePath() {
   return resolvePackagedModulePath(require("7zip-bin").path7za);
 }
 
+// Delegates to utils/sevenZipDetect so the import-time lookup and the
+// startup/Settings lookup can never disagree about where 7-Zip lives. This used
+// to be a hardcoded list of six Program Files paths, which missed every
+// non-default install location (the registry knows those) as well as
+// chocolatey/scoop/snap and anything merely on PATH.
 function getCommonSevenZipPaths() {
-  const possiblePaths = [];
-  if (process.platform === "win32") {
-    possiblePaths.push(
-      "C:\\Program Files\\7-Zip\\7z.exe",
-      "C:\\Program Files (x86)\\7-Zip\\7z.exe",
-      "C:\\Program Files\\7-Zip\\7zz.exe",
-      "C:\\Program Files (x86)\\7-Zip\\7zz.exe",
-      "C:\\Program Files\\7-Zip\\7za.exe",
-      "C:\\Program Files (x86)\\7-Zip\\7za.exe",
-    );
-  } else if (process.platform === "linux") {
-    possiblePaths.push("/usr/bin/7z", "/usr/bin/7zz", "/usr/local/bin/7z");
-  } else if (process.platform === "darwin") {
-    possiblePaths.push(
-      "/usr/local/bin/7z",
-      "/opt/homebrew/bin/7z",
-      "/usr/local/bin/7zz",
-      "/opt/homebrew/bin/7zz",
-    );
+  try {
+    return buildSevenZipCandidates();
+  } catch (err) {
+    console.warn("7-Zip candidate lookup failed:", err.message);
+    return [];
   }
-  return possiblePaths;
 }
 
 function saveSevenZipPath(sevenZipPath, currentConfig, currentConfigPath) {
@@ -776,38 +767,10 @@ function showMessageBox(ownerWindow, options) {
     : dialog.showMessageBox(options);
 }
 
+// Shared with utils/sevenZipDetect so the Settings "Detect" button and this
+// extraction path apply the same runnability test.
 function canSpawnSevenZip(candidate) {
-  return new Promise((resolve) => {
-    let settled = false;
-    let timer = null;
-    const finish = (usable) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      resolve(usable);
-    };
-
-    let child = null;
-    try {
-      child = cp.spawn(candidate, ["i"], {
-        stdio: "ignore",
-        windowsHide: true,
-      });
-    } catch {
-      finish(false);
-      return;
-    }
-
-    timer = setTimeout(() => {
-      try {
-        child.kill();
-      } catch {}
-      finish(false);
-    }, 5000);
-
-    child.on("error", () => finish(false));
-    child.on("close", (code) => finish(code === 0));
-  });
+  return canRunSevenZip(candidate);
 }
 
 async function testSevenZipCandidate(candidate) {

@@ -59,6 +59,7 @@ const cp = require('child_process')
 
 const { isNewerVersion } = require('./utils/versionUtils')
 const { normalizeUpdateError } = require('./utils/updateErrors')
+const { ensureSevenZipConfigured } = require('./utils/sevenZipDetect')
 const {
   addVersion, upsertVersion, updateVersion,
   findExistingRecordForImport, checkRecordExist, checkPathExist,
@@ -754,7 +755,7 @@ autoUpdater.on('update-downloaded', (info) => {
     sendUpdateStatus({ status: 'installing', version: info.version, percent: null }, 'update-downloaded')
     setTimeout(() => {
       try {
-        autoUpdater.quitAndInstall(true, true)
+        autoUpdater.quitAndInstall(false, true)
       } catch (err) {
         console.error('Auto install after download failed:', err)
         sendUpdateStatus({ status: 'downloaded', version: info.version, percent: null }, 'auto-install-failed')
@@ -2138,6 +2139,27 @@ app.whenReady().then(async () => {
   recordRunningBuildVersion()
 
   configureAppUpdateBranch(getConfiguredAppUpdateBranch(appConfig))
+
+  // Fill in Library.sevenZipPath from the local 7-Zip install on first launch
+  // (and repair it if the recorded binary has since been uninstalled). Runs
+  // here because appConfig is loaded and writeConfigSafely() is available, and
+  // it is cheap: a handful of reg.exe queries and stat() calls, with no process
+  // spawned per candidate (verify defaults to false). Must never block boot, so
+  // every failure mode inside is swallowed and reported, not thrown.
+  try {
+    const sevenZipResult = await ensureSevenZipConfigured({
+      config: appConfig,
+      writeConfig: (detectedPath) => {
+        appConfig.Library = { ...(appConfig.Library || {}), sevenZipPath: detectedPath }
+        writeConfigSafely()
+      },
+    })
+    if (sevenZipResult.reason === 'not-found') {
+      console.log('No local 7-Zip found; falling back to the bundled extractor.')
+    }
+  } catch (err) {
+    console.warn('7-Zip detection skipped:', err.message)
+  }
 
   // DB-only repairs. These are all filtered SQL passes with no filesystem
   // access, so they are cheap even on a large library and safe to run before the

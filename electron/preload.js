@@ -4,7 +4,14 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 contextBridge.exposeInMainWorld("electronAPI", {
   isWindows: () => process.platform === "win32",
   isLinux: () => process.platform === "linux",
-  // optional
+  // Ask the main process to locate an installed 7-Zip (registry, well-known
+  // folders, then PATH) and save it to Library.sevenZipPath. Backs the Detect
+  // button in Settings -> Library; the same lookup runs automatically on first
+  // launch, so the button is only needed after installing 7-Zip mid-session.
+  detectSevenZip: () => ipcRenderer.invoke("detect-seven-zip"),
+  // Kept for the settings UI's placeholder hint only. The real lookup lives in
+  // electron/utils/sevenZipDetect.js — do not treat this short list as the
+  // source of truth for where 7-Zip can be installed.
   getDefault7zPaths: () => {
     if (process.platform === "win32") {
       return [
