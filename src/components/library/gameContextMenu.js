@@ -89,7 +89,11 @@ export function buildGameContextMenu({ game, collections = [], collectionIdsByRe
     {
       label: 'Favorites',
       icon: game.isFavorite ? 'fa-check' : 'fa-heart',
-      data: { action: 'favorite', recordId, isFavorite: !game.isFavorite },
+      // Action name must match the case in handleContextAction
+      // (electron/ipc/windows.js). It was 'favorite' here but 'setFavorite'
+      // there, so every click fell through to the default branch and logged
+      // "Unknown action" instead of toggling anything.
+      data: { action: 'setFavorite', recordId, isFavorite: !game.isFavorite },
     },
     { type: 'separator' },
     ...(addTo?.submenu || []),

@@ -24,7 +24,7 @@ test('Favorites sits inside Add to, above the collections', () => {
   const items = buildGameContextMenu({ game: localGame(), collections: [{ id: 1, name: 'RPG' }] })
   const addTo = find(items, 'Add to')
   expect(labels(addTo.submenu)).toEqual(['Favorites', 'RPG', '+ New Collection'])
-  expect(addTo.submenu[0].data.action).toBe('favorite')
+  expect(addTo.submenu[0].data.action).toBe('setFavorite')
 })
 
 test('Play is the only item using the green variant', () => {
@@ -104,6 +104,51 @@ test('action payloads reuse the existing dispatch names', () => {
   const manage = find(items, 'Manage').submenu
   expect(find(manage, 'Rate Game…').data.action).toBe('rateTitleRequested')
   expect(find(manage, 'Delete Title and Files').data.action).toBe('deleteTitleAndFiles')
+})
+
+// Favorites silently did nothing for a while because the menu emitted
+// 'favorite' and the switch only had 'setFavorite' — a mismatch that no unit
+// test on either side could catch. This walks the whole built tree and asserts
+// every action name has a matching case, so the next rename fails loudly here.
+test('every action the menu emits has a case in handleContextAction', () => {
+  const windows = fs.readFileSync(
+    path.join(__dirname, '..', 'electron', 'ipc', 'windows.js'), 'utf8')
+  const handled = new Set(
+    [...windows.matchAll(/case\s+["']([A-Za-z]+)["']\s*:/g)].map((m) => m[1]))
+
+  const collect = (items, out = new Set()) => {
+    for (const item of items) {
+      if (item?.data?.action) out.add(item.data.action)
+      if (item?.submenu) collect(item.submenu, out)
+    }
+    return out
+  }
+
+  // A game with every optional branch turned on, so no action goes unvisited.
+  const game = localGame({
+    isFavorite: false,
+    url: 'https://example.com/game',
+    versions: [
+      { version: 'v1.0', version_id: 1, exec_path: '/g/a.exe' },
+      { version: 'v1.1', version_id: 2, exec_path: '/g/b.exe' },
+    ],
+  })
+  const items = buildGameContextMenu({
+    game,
+    collections: [{ id: 1, name: 'RPG' }, { id: 2, name: 'Done' }],
+    collectionIdsByRecord: new Map([[7, [2]]]),
+  })
+
+  // 'openLink' is a separate, still-open bug: the main process only has an
+  // 'openUrl' case that needs data.url, and the row's visibility condition
+  // checks game.url / game.f95_url / game.lewdcorner_url — none of which the
+  // games queries actually select (the real column comes back as `siteUrl`).
+  // Excluded here so this guard covers the rest; remove once that's decided.
+  const KNOWN_UNWIRED = new Set(['openLink'])
+
+  const unhandled = [...collect(items)]
+    .filter((action) => !handled.has(action) && !KNOWN_UNWIRED.has(action))
+  expect(unhandled).toEqual([])
 })
 
 test('the main process exposes a dispatch entry point with ctx', () => {
