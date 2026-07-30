@@ -1,5 +1,6 @@
 import { buildCollectionMenuItems } from '../collections/collectionMenu.js'
 import { sortVersionsDesc } from '../detail/page/gameDetailUtils.js'
+import { linkableGameLinks } from '../detail/gameLinks.js'
 
 // Item tree for a game's context menu.
 //
@@ -66,6 +67,32 @@ export function buildGameContextMenu({ game, collections = [], collectionIdsByRe
     })
   }
 
+  // ── Links ───────────────────────────────────────────────────────────────
+  // Sits above the isLocal gate on purpose: browse and wishlist rows carry
+  // external_ids and siteUrl even though they have no local record, and the
+  // store link is arguably most useful for a title that isn't in the library yet.
+  //
+  // Same builder as the details page, so the two lists cannot disagree. Store
+  // links are public store pages, never account-scoped library pages — a title
+  // can be listed without being owned, so an account URL would break for exactly
+  // the games most likely to need the link.
+  const links = linkableGameLinks(game)
+  if (links.length > 0) {
+    items.push({
+      label: 'Links',
+      icon: 'fa-link',
+      submenu: links.map((link) => ({
+        label: link.label,
+        icon: link.icon,
+        hint: link.value && link.value !== link.url ? String(link.value) : undefined,
+        // openUrl (not openLink) — it already exists in handleContextAction and
+        // takes a resolved url, which is why the url is resolved here rather
+        // than looked up again in the main process.
+        data: { action: 'openUrl', url: link.url },
+      })),
+    })
+  }
+
   if (!isLocal) {
     // Browse and wishlist rows have no local record, so nothing below applies.
     return items
@@ -125,10 +152,6 @@ export function buildGameContextMenu({ game, collections = [], collectionIdsByRe
         data: { action: 'openFolder', recordId, version: version.version },
       })),
     })
-  }
-
-  if (game.url || game.f95_url || game.lewdcorner_url) {
-    manage.push({ label: 'Open Web Link', icon: 'fa-link', data: { action: 'openLink', recordId } })
   }
 
   manage.push({ type: 'separator' })

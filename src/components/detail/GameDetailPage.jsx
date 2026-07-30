@@ -20,14 +20,12 @@ import {
   sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl, formatReleaseDate,
   isSteamGame, getMappedSteamAppId, isGogGame, getMappedGogId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
 } from './page/gameDetailUtils.js'
-import { buildExternalLinks } from './externalLinks.js'
-import gogLogo from '../../assets/icons/gog_logo.svg'
+import { buildGameLinks, gogStoreUrl } from './gameLinks.js'
 import GogIcon from '../ui/GogIcon.jsx'
 import PlaystatePicker from '../ui/PlaystatePicker.jsx'
 import { effectiveTitlePlaystate } from '../../utils/playstates.js'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
 
-const isValidHttpUrl = (url) => /^https?:\/\//i.test(String(url || '').trim())
 const isSteamInstallPath = (value) =>
   /(?:^|[\\/])steamapps[\\/]common(?:[\\/]|$)/i.test(String(value || ''))
 
@@ -65,67 +63,6 @@ const getPersonalRatingsOverall = (draft = {}) => {
   if (values.length === 0) return null
   const average = values.reduce((sum, value) => sum + value, 0) / values.length
   return Math.round(average * 10) / 10
-}
-
-const buildDetailExternalLinks = (game = {}, { hasSteamMapping = false, hasGogMapping = false, gogId = '' } = {}) => {
-  const links = []
-  // For F95/LewdCorner we want the details page to show just the numeric thread
-  // id (like Steam/GOG show their id), while the click target stays the full
-  // thread URL. Prefer an explicit id field on the game; otherwise pull the
-  // trailing numeric segment out of a /threads/slug.<id>/ url.
-  const threadIdFromUrl = (value) => {
-    const normalized = String(value ?? '').trim()
-    if (!normalized) return ''
-    if (/^\d+$/.test(normalized)) return normalized
-    const m = normalized.match(/\/threads\/(?:[^/\s.]+\.)?(\d+)(?:[/?#]|$)/i)
-    return m ? m[1] : ''
-  }
-  const siteUrl = String(game.siteUrl || game.site_url || '').trim()
-  if (isValidHttpUrl(siteUrl)) {
-    const isLc = siteUrl.includes('lewdcorner.com')
-    const displayId = threadIdFromUrl(
-      isLc ? (game.lc_id || game.lcId || siteUrl) : (game.f95_id || siteUrl),
-    )
-    links.push({
-      key: 'f95_thread',
-      label: isLc ? 'LewdCorner' : 'F95 Thread',
-      value: displayId || siteUrl,
-      url: siteUrl,
-      icon: 'fas fa-comments',
-    })
-  }
-  const lewdCornerUrl = String(game.lewdCornerSiteUrl || game.lewdcornerSiteUrl || '').trim()
-  if (isValidHttpUrl(lewdCornerUrl) && !links.some((existing) => existing.url === lewdCornerUrl)) {
-    const displayId = threadIdFromUrl(game.lc_id || game.lcId || lewdCornerUrl)
-    links.push({
-      key: 'lewdcorner',
-      label: 'LewdCorner',
-      value: displayId || lewdCornerUrl,
-      url: lewdCornerUrl,
-      icon: 'fas fa-link',
-    })
-  }
-  // A mapped GOG game (no atlas record) carries its id in gog_mappings, not
-  // external_ids, so inject the store link explicitly like Steam does. Prefer
-  // the real slug-based store URL (GOG does not resolve /game/{numericId}).
-  if (hasGogMapping && gogId) {
-    const gogUrl = String(game.gog_store_url || '').trim() || `https://www.gog.com/game/${gogId}`
-    if (isValidHttpUrl(gogUrl) && !links.some((existing) => existing.url === gogUrl)) {
-      links.push({ key: 'gog_id', label: 'GOG', value: String(gogId), url: gogUrl, icon: 'fab fa-gg', iconImage: gogLogo })
-    }
-  }
-  for (const link of buildExternalLinks(game.external_ids)) {
-    // Only suppress the external_ids Steam/GOG link when a LOCAL mapping already
-    // provides that store's link (installed games) -- otherwise the mapping's id
-    // and the external id would duplicate. In browse/catalog mode there is no
-    // local mapping, so external_ids IS the source of truth and its store links
-    // (incl. multiple Steam appids from admin manual links) must show. Exact-URL
-    // duplicates are still filtered by the check below.
-    if (link.url && links.some((existing) => existing.url === link.url)) continue
-    if (link.url && !isValidHttpUrl(link.url)) continue
-    links.push(link)
-  }
-  return links
 }
 
 const splitPreviewUrls = (value) => {
@@ -768,7 +705,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   const localVersion = actionVersion?.version || selectedVersion?.version || game.versions?.[0]?.version || game.version || ''
   const localImportIsArchive = isArchiveSourcePath(localImportPath, localArchiveExtensions)
 
-  const externalLinks = buildDetailExternalLinks(game, { hasSteamMapping: Boolean(steamAppId), hasGogMapping: Boolean(gogId), gogId })
+  const externalLinks = buildGameLinks(game)
   const personalRatingsDirty = JSON.stringify(personalRatingsDraft) !== JSON.stringify(personalRatingsSaved)
   const personalRatingsOverall = getPersonalRatingsOverall(personalRatingsDraft)
 
@@ -834,7 +771,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   const openWebsite = async () => { if (game.siteUrl) await window.electronAPI.openExternalUrl(game.siteUrl) }
   const openGog = gogId
     ? async () => {
-        const url = String(game.gog_store_url || '').trim() || `https://www.gog.com/game/${gogId}`
+        const url = gogStoreUrl(game, gogId)
         await window.electronAPI.openExternalUrl(url)
       }
     : null

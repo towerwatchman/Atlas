@@ -127,7 +127,8 @@ test('every action the menu emits has a case in handleContextAction', () => {
   // A game with every optional branch turned on, so no action goes unvisited.
   const game = localGame({
     isFavorite: false,
-    url: 'https://example.com/game',
+    siteUrl: 'https://f95zone.to/threads/game.12345/',
+    steam_id: '620',
     versions: [
       { version: 'v1.0', version_id: 1, exec_path: '/g/a.exe' },
       { version: 'v1.1', version_id: 2, exec_path: '/g/b.exe' },
@@ -139,15 +140,7 @@ test('every action the menu emits has a case in handleContextAction', () => {
     collectionIdsByRecord: new Map([[7, [2]]]),
   })
 
-  // 'openLink' is a separate, still-open bug: the main process only has an
-  // 'openUrl' case that needs data.url, and the row's visibility condition
-  // checks game.url / game.f95_url / game.lewdcorner_url — none of which the
-  // games queries actually select (the real column comes back as `siteUrl`).
-  // Excluded here so this guard covers the rest; remove once that's decided.
-  const KNOWN_UNWIRED = new Set(['openLink'])
-
-  const unhandled = [...collect(items)]
-    .filter((action) => !handled.has(action) && !KNOWN_UNWIRED.has(action))
+  const unhandled = [...collect(items)].filter((action) => !handled.has(action))
   expect(unhandled).toEqual([])
 })
 
@@ -183,6 +176,38 @@ test('the root menu does not clip its submenus', () => {
   expect(rootTag).not.toContain('overflow-hidden')
 })
 
+// "Remove from Collection" (Manage > Remove from Collection > <collection>) was
+// invisible. Not z-index: a submenu panel needs overflow-y:auto so a long
+// collection list can scroll, and any overflow other than `visible` makes that
+// panel a clipping box — so the third-level panel was drawn outside its
+// scrolling parent and clipped away entirely. No z-index could fix that, because
+// the pixels were never painted. Panels are portaled to the body instead, which
+// takes them out of every ancestor's clip box.
+test('submenu panels are portaled out of their scrolling parent', () => {
+  expect(menuSource).toContain('createPortal')
+  expect(menuSource).toMatch(/document\.body/)
+  // A portaled panel is positioned against the viewport, not its parent, so it
+  // cannot use left:100% any more.
+  expect(menuSource).not.toContain("left: '100%'")
+})
+
+// A portaled panel is not a DOM descendant of the root, so the outside-click
+// handler has to know about it or pointerdown would close the menu before the
+// click on a submenu item ever landed.
+test('the outside-click check accounts for portaled panels', () => {
+  expect(menuSource).toContain('panelsRef')
+  const start = menuSource.indexOf('const onPointerDown')
+  const body = menuSource.slice(start, start + 400)
+  expect(body).toMatch(/panelsRef\.current/)
+})
+
+// Link icons come through as full Font Awesome classes ('fab fa-steam'), so a
+// hardcoded `fas` prefix would silently break every brand glyph in Links.
+test('icons keep an explicit Font Awesome family', () => {
+  expect(menuSource).toContain('iconClassName')
+  expect(menuSource).not.toMatch(/className=\{`fas \$\{item\.icon\}/)
+})
+
 // A single open-key meant a nested submenu set the key to its own, which made
 // the parent's condition false and unmounted the branch the cursor was inside.
 test('submenu open state is tracked per depth', () => {
@@ -204,6 +229,85 @@ test('nested submenus are produced for the Manage branch', () => {
   })
   const nested = find(find(items, 'Manage').submenu, 'Remove from Collection')
   expect(nested.submenu.map((c) => c.label)).toEqual(['RPG'])
+})
+
+// ── Links ───────────────────────────────────────────────────────
+
+test('the Links submenu lists every resolvable link', () => {
+  const items = buildGameContextMenu({
+    game: localGame({
+      siteUrl: 'https://f95zone.to/threads/game.12345/',
+      steam_id: '620',
+      external_ids: { patreon: 'somedev', discord: 'https://discord.gg/abc' },
+    }),
+  })
+  const links = find(items, 'Links')
+  expect(labels(links.submenu)).toEqual(['F95 Thread', 'Steam', 'Patreon', 'Discord'])
+  // Every row must carry a resolved url, since the main process only has
+  // openUrl and it reads data.url.
+  for (const row of links.submenu) {
+    expect(row.data.action).toBe('openUrl')
+    expect(row.data.url).toMatch(/^https?:\/\//)
+  }
+})
+
+// The whole point of #1: a title can be listed without being owned, so the link
+// has to be the public store page and never an account-scoped library page.
+test('Steam and GOG links point at the public store page', () => {
+  const steam = find(buildGameContextMenu({ game: localGame({ steam_id: '620' }) }), 'Links')
+  expect(find(steam.submenu, 'Steam').data.url).toBe('https://store.steampowered.com/app/620')
+
+  const gog = find(buildGameContextMenu({
+    game: localGame({ gog_id: '1207658930', gog_store_url: 'https://www.gog.com/game/the_witcher' }),
+  }), 'Links')
+  expect(find(gog.submenu, 'GOG').data.url).toBe('https://www.gog.com/game/the_witcher')
+
+  for (const menu of [steam, gog]) {
+    for (const row of menu.submenu) {
+      expect(row.data.url).not.toMatch(/\/account\//)
+      expect(row.data.url).not.toMatch(/steamcommunity|\/id\/|\/profiles\//)
+    }
+  }
+})
+
+// A mapped id and the same id in external_ids resolve to one URL, so the game
+// must not get two Steam rows.
+test('a mapped id and the same external id collapse to one link', () => {
+  const items = buildGameContextMenu({
+    game: localGame({ steam_id: '620', external_ids: { steam_appid: '620' } }),
+  })
+  expect(labels(find(items, 'Links').submenu)).toEqual(['Steam'])
+})
+
+test('there is no Links row when the game has no links', () => {
+  expect(find(buildGameContextMenu({ game: localGame() }), 'Links')).toBeUndefined()
+})
+
+// Browse/catalog rows have no local record, but they do have external_ids — and
+// the store link matters most for a title that isn't in the library yet.
+test('catalog rows still get their links', () => {
+  const items = buildGameContextMenu({
+    game: {
+      title: 'Catalog Game',
+      isMetadataOnly: true,
+      external_ids: { steam_appid: '440' },
+      versions: [],
+    },
+  })
+  expect(labels(items)).toEqual(['Links'])
+  expect(find(items, 'Links').submenu[0].data.url).toBe('https://store.steampowered.com/app/440')
+})
+
+// The menu and the details page must not drift apart, which is the reason the
+// builder was extracted instead of copied.
+test('the menu and the details page share one link builder', () => {
+  const menu = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'components', 'library', 'gameContextMenu.js'), 'utf8')
+  const page = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'components', 'detail', 'GameDetailPage.jsx'), 'utf8')
+  expect(menu).toMatch(/from '\.\.\/detail\/gameLinks\.js'/)
+  expect(page).toMatch(/from '\.\/gameLinks\.js'/)
+  expect(page).not.toContain('buildDetailExternalLinks')
 })
 
 // ── Version ordering ────────────────────────────────────────────────────────
