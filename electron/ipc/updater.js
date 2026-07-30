@@ -69,31 +69,21 @@ module.exports = function registerUpdaterHandlers(ctx) {
           ...ctx.lastUpdateStatus,
           status: 'installing',
         }, 'download-and-install-app-update')
-        // Non-silent: the installer's own window IS the progress UI, and its
-        // finish page is both the "done" signal and the relaunch. This process
-        // has to exit for the installer to replace its own files, so nothing we
-        // render could cover that gap.
+        // MUST stay silent. BaseUpdater.quitAndInstall does:
+        //   install(isSilent, isSilent ? isForceRunAfter : this.autoRunAppAfterInstall)
+        // so the second argument here is only honoured when isSilent is true —
+        // but more importantly installSection.nsh's assisted-installer branch
+        // only auto-starts the app when ${isForceRun} AND ${Silent}. A
+        // non-silent update therefore installs correctly and then leaves Atlas
+        // closed, which is exactly what happened when this was tried.
         //
-        // No wizard page can appear on an update, so the visible installer is
-        // just progress + finish:
-        //   * no welcome/license page is configured
-        //   * the install-mode page is not compiled in (perMachine:true defines
-        //     INSTALL_MODE_PER_ALL_USERS, which assistedInstaller.nsh checks)
-        //   * the directory page is wrapped in skipPageIfUpdated, and --updated
-        //     is always passed
+        // Progress feedback comes from the SpiderBanner shown in
+        // build/installer.nsh's customInit, which works under /S because it is a
+        // plugin window rather than an installer page.
         //
-        // The relaunch comes from MUI_FINISHPAGE_RUN -> StartApp, which exists
-        // because runAfterFinish is true (so HIDE_RUN_AFTER_FINISH is undefined)
-        // and because build/installer.nsh does NOT define customFinishPage. That
-        // costs one click on Finish, which is the point: the user sees it complete
-        // rather than guessing.
-        //
-        // StartApp uses ExecShellAsUser, so Atlas does not inherit the installer's
-        // elevated token — important because Atlas launches game executables.
-        //
-        // /D= is passed either way, so the update still lands in the current
-        // folder.
-        autoUpdater.quitAndInstall(false, true)
+        // Silent also keeps the NSIS mode/directory pages from running and lets
+        // /D= place the update in the current folder.
+        autoUpdater.quitAndInstall(true, true)
       } else {
         ctx.installAfterDownload = true
         await autoUpdater.downloadUpdate()
@@ -122,8 +112,8 @@ module.exports = function registerUpdaterHandlers(ctx) {
         ...ctx.lastUpdateStatus,
         status: 'installing',
       }, 'install-app-update')
-      // See download-and-install-app-update above for why this is not silent.
-      autoUpdater.quitAndInstall(false, true)
+      // See download-and-install-app-update above for why this must be silent.
+      autoUpdater.quitAndInstall(true, true)
       return { success: true }
     } catch (err) {
       const normalizedError = normalizeUpdateError(err)

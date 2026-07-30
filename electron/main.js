@@ -675,11 +675,10 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
 
 configureAppUpdateBranch(getDefaultAppUpdateBranch())
 autoUpdater.autoDownload = false
-// quitAndInstall ignores its isForceRunAfter argument whenever isSilent is false
-// and reads this instead, so it is set explicitly rather than left to a library
-// default. It only controls the --force-run flag, which the assisted installer
-// acts on solely when ${Silent}; the visible finish page is what relaunches
-// Atlas. Kept true so a future switch back to a silent install still reopens.
+// Set explicitly rather than relying on the default. quitAndInstall ignores its
+// isForceRunAfter argument whenever isSilent is false and uses this instead, so
+// leaving it implicit makes whether the app reopens depend on a default we do
+// not control.
 autoUpdater.autoRunAppAfterInstall = true
 
 // ── Updater diagnostics ─────────────────────────────────────────────────────
@@ -760,9 +759,9 @@ autoUpdater.on('update-downloaded', (info) => {
     sendUpdateStatus({ status: 'installing', version: info.version, percent: null }, 'update-downloaded')
     setTimeout(() => {
       try {
-        // Not silent — see electron/ipc/updater.js. The installer window is the
-        // progress UI and its finish page relaunches Atlas.
-        autoUpdater.quitAndInstall(false, true)
+        // Silent — see electron/ipc/updater.js. A non-silent update never
+        // relaunches the app.
+        autoUpdater.quitAndInstall(true, true)
       } catch (err) {
         console.error('Auto install after download failed:', err)
         sendUpdateStatus({ status: 'downloaded', version: info.version, percent: null }, 'auto-install-failed')
