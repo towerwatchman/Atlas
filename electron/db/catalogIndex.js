@@ -797,6 +797,24 @@ module.exports = {
 // wishlist_entries on local_record_id, which is indexed.
 const buildIndexWhere = (search = {}, filters = {}) => {
   const parts = []
+
+  // ── LewdCorner free-tier gate ─────────────────────────────────────────────
+  // Anything carrying an lc_id is only browsable on the Free tier. Rows with no
+  // LewdCorner linkage are unaffected.
+  //
+  // NULL tier is excluded along with the paid tiers, which is deliberate but
+  // worth knowing: `tier` arrived via ALTER TABLE (see db/index.js), so LC rows
+  // scraped before that migration have no tier and are hidden until a rescrape
+  // fills it in.
+  //
+  // Read live from lewdcorner_data through the join rather than copied into
+  // catalog_index: no reindex is needed to adopt this, and a rescrape that
+  // changes a tier takes effect immediately instead of waiting for the row to be
+  // re-projected. It is a plain primary-key probe (lewdcorner_data.lc_id is the
+  // PK), and it sits in the shared WHERE so the count query and the page query
+  // agree — filtering only the page would size the grid's scrollbar for rows it
+  // never shows.
+  parts.push(`(ci.lc_id IS NULL OR lct.tier = 'Free')`)
   const params = []
 
   const escapeLike = (value) => String(value).replace(/[\\%_]/g, (c) => `\\${c}`)
@@ -1026,6 +1044,7 @@ const buildIndexOrderBy = (filters = {}) => {
 const CATALOG_INDEX_JOINS = `
   LEFT JOIN games AS lg ON lg.record_id = ci.local_record_id
   LEFT JOIN game_personal_ratings AS lr ON lr.record_id = ci.local_record_id
+  LEFT JOIN lewdcorner_data AS lct ON lct.lc_id = ci.lc_id
 `
 
 const queryCatalogIndex = async ({

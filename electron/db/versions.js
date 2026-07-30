@@ -1325,6 +1325,18 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
     const filters = options.filters && typeof options.filters === 'object' ? options.filters : {};
     const filterParams = [];
     const filterWhereParts = [];
+
+    // ── LewdCorner free-tier gate ───────────────────────────────────────────
+    // Mirrors buildIndexWhere in catalogIndex.js. Both paths have to carry it:
+    // this union is the fallback used whenever catalog_index is missing or stale,
+    // so filtering only the fast path would make the same browse show different
+    // rows depending on index state.
+    //
+    // No join needed here — all four union branches already select lc_id and
+    // lewdcornerTier (NULL in the steam and gog branches). NULL tier is excluded
+    // with the paid tiers, so LC rows scraped before the tier column was added
+    // stay hidden until a rescrape fills it in.
+    filterWhereParts.push(`(catalog.lc_id IS NULL OR catalog.lewdcornerTier = 'Free')`);
     const toArray = (value) => {
       if (Array.isArray(value)) return value.filter((item) => item !== undefined && item !== null && String(item).trim() !== '').map(String);
       if (value === undefined || value === null || value === '') return [];
