@@ -5,6 +5,7 @@ const fs = require('fs')
 const path = require('path')
 const ini = require('ini')
 const { BROWSE_MODE_ENABLED } = require('../features')
+const { LEGACY_SEARCH_TYPE_FIELDS, normalizeSearchFieldIds } = require('../db/searchFields')
 // Shared with electron/main.js. These used to be duplicated here and had
 // drifted: this copy was missing [Updates] and [WindowBounds] entirely, and
 // because the merge drops sections absent from the defaults, get-settings
@@ -93,6 +94,14 @@ const normalizeSavedFilterState = (filters = {}) => {
   for (const key of savedFilterArrayKeys) merged[key] = toSavedFilterArray(merged[key])
   merged.text = String(merged.text || '')
   merged.type = String(merged.type || 'all')
+  // Which fields the saved search looks at. Normalized through the shared
+  // registry so an unknown id from a newer build cannot persist a selection that
+  // matches nothing.
+  merged.searchFields = normalizeSearchFieldIds(
+    Array.isArray(merged.searchFields) && merged.searchFields.length > 0
+      ? merged.searchFields
+      : LEGACY_SEARCH_TYPE_FIELDS[merged.type],
+  )
   merged.sort = String(merged.sort || 'name')
   merged.sortDirection = merged.sortDirection === 'desc' ? 'desc' : 'asc'
   merged.dateField = ['none', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded'].includes(merged.dateField)

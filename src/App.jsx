@@ -25,7 +25,11 @@ import GameDetailPage from './components/detail/GameDetailPage.jsx'
 import RefreshMediaModal from './components/ui/RefreshMediaModal.jsx'
 import { useToast } from './components/ui/toast/ToastContext.jsx'
 import { useGames } from './hooks/useGames.js'
-import { defaultFilters, filterGamesWithState, normalizeFilterState, useFilters } from './hooks/useFilters.js'
+import {
+  defaultFilters, filterGamesWithState, normalizeFilterState, useFilters,
+  setDefaultSearchFieldIds, resolveSearchFieldIds,
+} from './hooks/useFilters.js'
+import { DEFAULT_SEARCH_FIELD_IDS, normalizeSearchFieldIds } from './utils/searchFields.js'
 import { useAppUpdate } from './hooks/useAppUpdate.js'
 import { useWindowState } from './hooks/useWindowState.js'
 import { useTheme } from './theme/ThemeProvider.jsx'
@@ -217,6 +221,21 @@ const App = () => {
   const browseAvailableRef = useRef(browseAvailable)
   useEffect(() => { browseAvailableRef.current = browseAvailable }, [browseAvailable])
 
+  // The user's default search scope ([Search] defaultFields). Held in state only
+  // so the scope picker can render "Reset to my default" and highlight it; the
+  // value the filter layer actually consults is the module-level default in
+  // useFilters.js, set by setDefaultSearchFieldIds below.
+  const [defaultSearchFieldIds, setDefaultSearchFieldIdsState] = useState(
+    () => [...DEFAULT_SEARCH_FIELD_IDS],
+  )
+
+  const applyDefaultSearchFields = useCallback((value) => {
+    const next = normalizeSearchFieldIds(value, DEFAULT_SEARCH_FIELD_IDS)
+    setDefaultSearchFieldIds(next)
+    setDefaultSearchFieldIdsState(next)
+    return next
+  }, [])
+
   const setAndPersistSidePanelMode = useCallback((requestedMode) => {
     const nextMode = normalizeSidePanelMode(requestedMode, undefined, browseAvailable)
     setSidebarMode(nextMode)
@@ -319,12 +338,20 @@ const App = () => {
     () => withWishlistStates(wishlistGames, wishlistIdentityKeys),
     [wishlistGames, wishlistIdentityKeys],
   )
+  // Resolved here rather than in the main process: the configured default lives
+  // in the renderer's config read, and Browse must search the same fields the
+  // Library does. `type` is still sent for a mismatched main/renderer pair.
+  const catalogSearchFields = resolveSearchFieldIds(activeFilters)
+  const catalogSearchFieldsKey = catalogSearchFields.join(',')
   const catalogSearch = useMemo(
     () => ({
       text: activeFilters.text,
       type: activeFilters.type,
+      fields: catalogSearchFieldsKey ? catalogSearchFieldsKey.split(',') : [],
     }),
-    [activeFilters.text, activeFilters.type],
+    // Keyed on the joined string so a new-but-equal array doesn't refire the
+    // catalog fetch; see lastFetchedCatalogParamsKeyRef below.
+    [activeFilters.text, activeFilters.type, catalogSearchFieldsKey],
   )
   const catalogQueryFilters = useMemo(
     () => activeFilters,
@@ -1410,6 +1437,9 @@ const App = () => {
       .then(([nsfwStatus, config]) => {
         const enabled = nsfwStatus?.enabled === true
         setNsfwEnabled(enabled)
+        // No need to touch activeFilters: an empty searchFields means "inherit
+        // the configured default", which resolveSearchFieldIds reads from here.
+        applyDefaultSearchFields(config?.Search?.defaultFields)
         // Whether the age/adult-content prompt still needs an answer
         // (config has never recorded one). We don't open it immediately
         // anymore — the first-run welcome page comes first (tracked by its
@@ -1582,6 +1612,10 @@ const App = () => {
     // so it can't safely read the latest libraryMode from a stale closure;
     // refreshing all three lists is cheap and keeps each one correct
     // whenever the user does switch to it.
+    const handleSearchDefaultsChanged = (_event, payload) => {
+      applyDefaultSearchFields(payload?.defaultFields)
+    }
+
     const handleMetadataChanged = () => {
       fetchGames()
       if (browseAvailableRef.current) {
@@ -2041,6 +2075,7 @@ const App = () => {
             <SearchSidebar
               isVisible={showSearchSidebar}
               searchText={activeFilters.text}
+              defaultSearchFieldIds={defaultSearchFieldIds}
               activeFilters={activeFilters}
               isCatalogMode={libraryMode === 'catalog'}
               userSavedFilters={userSavedFilters}
@@ -2340,6 +2375,7 @@ const App = () => {
           <SearchSidebar
             isVisible={showSearchSidebar}
             searchText={activeFilters.text}
+            defaultSearchFieldIds={defaultSearchFieldIds}
             activeFilters={activeFilters}
             isCatalogMode={libraryMode === 'catalog'}
             userSavedFilters={userSavedFilters}
@@ -2361,6 +2397,7 @@ const App = () => {
           <SearchSidebar
             isVisible={showSearchSidebar}
             searchText={activeFilters.text}
+            defaultSearchFieldIds={defaultSearchFieldIds}
             activeFilters={activeFilters}
             isCatalogMode={libraryMode === 'catalog'}
             userSavedFilters={userSavedFilters}

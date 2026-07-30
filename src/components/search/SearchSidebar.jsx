@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { builtInSavedFilters, getDefaultSortDirectionForSort, normalizeFilterState } from '../../hooks/useFilters.js'
 import SavedFiltersPanel from './SavedFiltersPanel.jsx'
+import SearchScopePicker from './SearchScopePicker.jsx'
 import { PLAYSTATE_OPTIONS } from '../../utils/playstates.js'
 
 // Collapsible accordion section — keeps the long filter list scannable so
@@ -70,6 +71,7 @@ const CATALOG_SORT_OPTIONS = [
 const SearchSidebar = ({
   isVisible,
   searchText = "",
+  defaultSearchFieldIds = [],
   activeFilters = {},
   isCatalogMode = false,
   userSavedFilters = [],
@@ -471,6 +473,15 @@ const SearchSidebar = ({
                 <i className="fas fa-times"></i>
               </button>
             )}
+          </div>
+          {/* Directly under the input, because the question it answers ("is this
+              searching titles or ids?") only comes up while looking at the box. */}
+          <div className="mt-2">
+            <SearchScopePicker
+              fieldIds={selectedFilters.searchFields}
+              defaultFieldIds={defaultSearchFieldIds}
+              onChange={(fields) => updateFilters({ searchFields: fields })}
+            />
           </div>
         </div>
 

@@ -40,6 +40,20 @@
 
 const dbModule = require('./index')
 const { buildRatingAverageSql } = require('./ratingCategories')
+const {
+  SEARCH_PREFIX_FIELDS, LEGACY_SEARCH_TYPE_FIELDS,
+  indexColumnsForSearchFieldIds, normalizeSearchFieldIds,
+} = require('./searchFields')
+
+// A search payload may carry `fields` (current) or `type` (legacy). Neither
+// present means the caller wants the default set.
+const resolveSearchFields = (search = {}) => {
+  if (Array.isArray(search.fields) && search.fields.length > 0) {
+    return normalizeSearchFieldIds(search.fields)
+  }
+  const legacy = LEGACY_SEARCH_TYPE_FIELDS[String(search.type || 'all').trim()]
+  return normalizeSearchFieldIds(legacy)
+}
 const getDb = () => dbModule.db
 const { withTransaction, isWriteLockBusy } = require('./writeLock')
 
@@ -797,37 +811,35 @@ const buildIndexWhere = (search = {}, filters = {}) => {
 
   // ── text search ───────────────────────────────────────────────────────────
   let text = String(search.text || '').trim()
-  let type = String(search.type || 'all').trim()
-  const prefixed = text.match(/^([a-z]+):\s*(.+)$/i)
+  // Which columns to search now comes from the shared registry rather than a
+  // per-file table, so Browse cannot search different fields from Library.
+  // `search.fields` is the current shape; `search.type` is the legacy single-mode
+  // value still written into saved_filters.json by older builds.
+  let fields = resolveSearchFields(search)
+  const prefixed = text.match(/^([a-z][a-z0-9]*):\s*(.+)$/i)
   if (prefixed) {
     const prefix = prefixed[1].toLowerCase()
-    text = prefixed[2].trim()
-    if (prefix === 'id') type = 'anyId'
-    if (prefix === 'f95') type = 'f95Id'
-    if (prefix === 'lc' || prefix === 'lewdcorner') type = 'lewdcornerId'
-    if (prefix === 'atlas') type = 'atlasId'
-    if (prefix === 'steam') type = 'steamId'
-    if (prefix === 'url') type = 'source'
+    const prefixFields = SEARCH_PREFIX_FIELDS[prefix]
+    // `url:` filters to a source and is handled by the browseSource clause
+    // below, so it is not a field override.
+    if (prefixFields) {
+      text = prefixed[2].trim()
+      fields = prefixFields
+    } else if (prefix === 'url') {
+      text = prefixed[2].trim()
+      fields = ['url']
+    }
   }
   const terms = text.split(/\s+/).map((t) => t.trim()).filter((t) => t && !t.startsWith('-'))
   if (terms.length > 0) {
-    const fieldsFor = {
-      title: ['title', 'short_name'],
-      creator: ['creator'],
-      atlasId: ['atlas_id', 'record_id'],
-      f95Id: ['f95_id'],
-      lewdcornerId: ['lc_id'],
-      steamId: ['steam_id'],
-      anyId: ['atlas_id', 'record_id', 'f95_id', 'lc_id', 'steam_id'],
-      source: ['site_url', 'source'],
-    }
-    // The catch-all search matches the precomputed search_text (title, name,
-    // creator, engine, status, category) plus tags_text, replacing a ten-column
-    // OR across the union.
-    const fields = fieldsFor[type] || ['search_text', 'tags_text']
+    // search_text is a precomputed concatenation of title, short_name, creator,
+    // engine, status and category. It stays a fast path, but ONLY when the
+    // selected fields are exactly what it bakes in — otherwise it would quietly
+    // widen the search to fields the user deselected.
+    const columns = indexColumnsForSearchFieldIds(fields)
     for (const term of terms) {
-      parts.push(`(${fields.map((f) => `LOWER(COALESCE(CAST(ci.${f} AS TEXT), '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`)
-      params.push(...fields.map(() => like(term)))
+      parts.push(`(${columns.map((f) => `LOWER(COALESCE(CAST(ci.${f} AS TEXT), '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`)
+      params.push(...columns.map(() => like(term)))
     }
   }
 

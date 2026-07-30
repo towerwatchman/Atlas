@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { formatPercent, sanitizePercentText } from '../../utils/formatPercent.js'
+import {
+  DEFAULT_SEARCH_FIELD_IDS, SEARCH_FIELDS, SEARCH_FIELD_GROUPS,
+  describeSearchFieldIds, normalizeSearchFieldIds, serializeSearchFieldIds,
+} from '../../utils/searchFields.js'
 
 const PACKAGE_NOT_READY_CODE = 'UPDATE_PACKAGE_NOT_READY'
 
@@ -19,6 +23,9 @@ const Interface = () => {
   // surfaced by the first-run prompt in App.jsx. See
   // electron/ipc/settings.js's get-nsfw-status / set-nsfw-enabled.
   const [nsfwEnabled, setNsfwEnabledState] = useState(false);
+  // Default set of fields the search box looks at. Lives in [Search], not
+  // [Interface], so it goes through its own save path below.
+  const [searchFields, setSearchFields] = useState(() => [...DEFAULT_SEARCH_FIELD_IDS]);
 
   const applyUpdateStatus = (status) => {
     if (!status?.status) return;
@@ -51,6 +58,7 @@ const Interface = () => {
       if (interfaceSettings.appUpdateBranch === "stable" || interfaceSettings.appUpdateBranch === "nightly") {
         setAppUpdateBranch(interfaceSettings.appUpdateBranch);
       }
+      setSearchFields(normalizeSearchFieldIds(config.Search?.defaultFields));
     });
 
     const removeUpdateListener = window.electronAPI.onUpdateStatus?.(
@@ -82,6 +90,26 @@ const Interface = () => {
         Interface: { ...config.Interface, ...updatedSettings },
       };
       window.electronAPI.saveSettings(newConfig);
+    });
+  };
+
+  // [Search] rather than [Interface], so this can't use the saveSettings()
+  // helper above. Writing the whole config back is the established pattern here
+  // (see the header of electron/config/configSchema.js for why a partial write
+  // is not safe).
+  const handleSearchFieldToggle = (fieldId) => {
+    const next = searchFields.includes(fieldId)
+      ? searchFields.filter((id) => id !== fieldId)
+      : [...searchFields, fieldId];
+    // Zero fields would match nothing, which looks like a broken search box.
+    if (next.length === 0) return;
+    const normalized = normalizeSearchFieldIds(next);
+    setSearchFields(normalized);
+    window.electronAPI.getConfig().then((config) => {
+      window.electronAPI.saveSettings({
+        ...config,
+        Search: { ...config.Search, defaultFields: serializeSearchFieldIds(normalized) },
+      });
     });
   };
 
@@ -218,6 +246,48 @@ const Interface = () => {
       </div>
       <p className="text-xs opacity-50 mb-2">
         This will only take effect once game has fully launched
+      </p>
+      <div className="border-t border-text opacity-25 my-2"></div>
+      <div className="mb-2">
+        <label className="block mb-2">Default search fields:</label>
+        {/* Wraps rather than using a fixed-width column, so the whole set stays
+            visible in a narrow settings pane. */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {SEARCH_FIELD_GROUPS.map((group) => {
+            const fields = SEARCH_FIELDS.filter((field) => field.group === group);
+            if (fields.length === 0) return null;
+            return (
+              <div key={group} className="min-w-[140px]">
+                <div className="text-[10px] font-bold uppercase tracking-wide opacity-50 mb-1">
+                  {group}
+                </div>
+                {fields.map((field) => {
+                  const checked = searchFields.includes(field.id);
+                  return (
+                    <label
+                      key={field.id}
+                      className="flex items-center gap-2 mb-1 cursor-pointer text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={checked && searchFields.length === 1}
+                        onChange={() => handleSearchFieldToggle(field.id)}
+                      />
+                      <span>{field.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <p className="text-xs opacity-50 mb-2">
+        What the search box looks at when you haven&apos;t picked a scope for a
+        specific search. Currently: {describeSearchFieldIds(searchFields)}. Prefixes
+        like <code>id:</code>, <code>f95:</code> or <code>title:</code> still
+        override this for a single query.
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
       <div className="flex items-center mb-2">

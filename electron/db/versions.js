@@ -10,6 +10,19 @@ const { toLocalAssetPath, normalizeMediaStorageMode, remoteBannerExpression,
 const { calculatePathSize } = require('../pathSize')
 const { effectiveTitlePlaystate } = require('./playstates')
 const { PERSONAL_RATING_CATEGORIES, buildRatingAverageSql, computeRatingAverage } = require('./ratingCategories')
+const {
+  SEARCH_PREFIX_FIELDS, LEGACY_SEARCH_TYPE_FIELDS,
+  unionColumnsForSearchFieldIds, normalizeSearchFieldIds,
+} = require('./searchFields')
+
+// A search payload may carry `fields` (current) or `type` (legacy, still in
+// saved_filters.json). Neither means "use the default set".
+const resolveSearchFields = (search = {}) => {
+  if (Array.isArray(search.fields) && search.fields.length > 0) {
+    return normalizeSearchFieldIds(search.fields)
+  }
+  return normalizeSearchFieldIds(LEGACY_SEARCH_TYPE_FIELDS[String(search.type || 'all').trim()])
+}
 
 const localMediaAssetSelect = (baseImagePath, assetType, fallbackExpression) => {
   const safeBaseImagePath = String(baseImagePath || '').replace(/'/g, "''");
@@ -1274,17 +1287,20 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
     const countOnly = options.countOnly === true;
     const search = options.search && typeof options.search === 'object' ? options.search : {};
     let searchText = String(search.text || '').trim();
-    let searchType = String(search.type || 'all').trim();
-    const prefixedSearch = searchText.match(/^([a-z]+):\s*(.+)$/i);
+    // Same shared registry as the catalog_index fast path and the renderer's JS
+    // filter — see electron/db/searchFields.js.
+    let searchFields = resolveSearchFields(search);
+    const prefixedSearch = searchText.match(/^([a-z][a-z0-9]*):\s*(.+)$/i);
     if (prefixedSearch) {
       const prefix = prefixedSearch[1].toLowerCase();
-      searchText = prefixedSearch[2].trim();
-      if (prefix === 'id') searchType = 'anyId';
-      if (prefix === 'f95') searchType = 'f95Id';
-      if (prefix === 'lc' || prefix === 'lewdcorner') searchType = 'lewdcornerId';
-      if (prefix === 'atlas') searchType = 'atlasId';
-      if (prefix === 'steam') searchType = 'steamId';
-      if (prefix === 'url') searchType = 'source';
+      const prefixFields = SEARCH_PREFIX_FIELDS[prefix];
+      if (prefixFields) {
+        searchText = prefixedSearch[2].trim();
+        searchFields = prefixFields;
+      } else if (prefix === 'url') {
+        searchText = prefixedSearch[2].trim();
+        searchFields = ['url'];
+      }
     }
     const escapeLike = (value) => String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
     const buildLikeTerm = (value) => `%${escapeLike(value).toLowerCase()}%`;
@@ -1304,36 +1320,7 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
     };
     let searchWhere = '';
     if (searchTerms.length > 0) {
-      if (searchType === 'title') {
-        searchWhere = addLikeConditions(['catalog.title', 'catalog.short_name'], searchTerms);
-      } else if (searchType === 'creator') {
-        searchWhere = addLikeConditions(['catalog.creator'], searchTerms);
-      } else if (searchType === 'atlasId') {
-        searchWhere = addLikeConditions(['catalog.atlas_id', 'catalog.record_id'], searchTerms);
-      } else if (searchType === 'f95Id') {
-        searchWhere = addLikeConditions(['catalog.f95_id'], searchTerms);
-      } else if (searchType === 'lewdcornerId') {
-        searchWhere = addLikeConditions(['catalog.lc_id'], searchTerms);
-      } else if (searchType === 'steamId') {
-        searchWhere = addLikeConditions(['catalog.steam_id'], searchTerms);
-      } else if (searchType === 'anyId') {
-        searchWhere = addLikeConditions(['catalog.atlas_id', 'catalog.record_id', 'catalog.f95_id', 'catalog.lc_id', 'catalog.steam_id'], searchTerms);
-      } else if (searchType === 'source') {
-        searchWhere = addLikeConditions(['catalog.source', 'catalog.siteUrl', 'catalog.lewdCornerSiteUrl'], searchTerms);
-      } else {
-        searchWhere = addLikeConditions([
-          'catalog.title',
-          'catalog.short_name',
-          'catalog.creator',
-          'catalog.f95_tags',
-          'catalog.tags',
-          'catalog.lewdcornerTags',
-          'catalog.lewdcornerPrefixes',
-          'catalog.engine',
-          'catalog.status',
-          'catalog.category',
-        ], searchTerms);
-      }
+      searchWhere = addLikeConditions(unionColumnsForSearchFieldIds(searchFields), searchTerms);
     }
     const filters = options.filters && typeof options.filters === 'object' ? options.filters : {};
     const filterParams = [];
