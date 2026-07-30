@@ -12,59 +12,66 @@ const installerNsh = () => read('build', 'installer.nsh')
 
 // ── The change ──────────────────────────────────────────────────────────────
 
-// Updates MUST install silently. installSection.nsh's assisted-installer branch
-// only auto-starts the app when ${isForceRun} AND ${Silent}, so a non-silent
-// update installs correctly and then leaves Atlas closed — which is exactly what
-// happened when this was tried. Feedback comes from the banner instead.
-test('updates install silently, everywhere', () => {
+// The installer is shown, not hidden. Its own window is the progress UI and its
+// finish page is both the "done" signal and the relaunch. Nothing we render could
+// cover the gap anyway, since this process must exit for the installer to replace
+// its own files.
+test('updates install non-silently, everywhere', () => {
   const calls = [
     ...(read('electron', 'ipc', 'updater.js').match(/quitAndInstall\([^)]*\)/g) || []),
     ...(read('electron', 'main.js').match(/quitAndInstall\([^)]*\)/g) || []),
   ]
   expect(calls).toHaveLength(3)
-  for (const call of calls) expect(call).toBe('quitAndInstall(true, true)')
+  for (const call of calls) expect(call).toBe('quitAndInstall(false, true)')
 })
 
-// The trap that broke the relaunch: quitAndInstall discards its isForceRunAfter
-// argument whenever isSilent is false, falling back to autoRunAppAfterInstall.
-// Pin both the guard in the template and our explicit opt-in.
-test('the app is opted in to relaunching after install', () => {
-  expect(read('electron', 'main.js')).toMatch(/autoUpdater\.autoRunAppAfterInstall = true/)
+// The relaunch is MUI_FINISHPAGE_RUN -> StartApp. It only exists when
+// HIDE_RUN_AFTER_FINISH is undefined, which requires runAfterFinish !== false.
+// Setting runAfterFinish:false would install updates and never reopen Atlas.
+test('runAfterFinish is enabled, so the finish page can relaunch', () => {
+  expect(JSON.parse(read('package.json')).build.nsis.runAfterFinish).not.toBe(false)
 
-  const base = read('node_modules', 'electron-updater', 'out', 'BaseUpdater.js')
-  expect(base).toContain('isSilent ? isForceRunAfter : this.autoRunAppAfterInstall')
+  const nsisTarget = read('node_modules', 'app-builder-lib', 'out', 'targets', 'nsis', 'NsisTarget.js')
+  expect(nsisTarget).toMatch(/runAfterFinish === false\)\s*\{\s*defines\.HIDE_RUN_AFTER_FINISH = null/)
+
+  const assisted = readTemplate('assistedInstaller.nsh')
+  const run = assisted.slice(assisted.indexOf('!ifndef HIDE_RUN_AFTER_FINISH'))
+  expect(run).toContain('!define MUI_FINISHPAGE_RUN')
+  expect(run).toMatch(/MUI_FINISHPAGE_RUN_FUNCTION\s+"StartApp"/)
 })
 
-// This is what actually restarts Atlas. If the guard ever changes, a silent
-// update would stop reopening the app.
-test('the template still auto-starts the app on a silent forced run', () => {
-  const section = readTemplate('installSection.nsh')
-  const assisted = section.slice(section.lastIndexOf('!else'))
-  expect(assisted).toMatch(/\$\{if\} \$\{isForceRun\}/)
-  expect(assisted).toMatch(/\$\{andIf\} \$\{Silent\}/)
-  expect(assisted).toContain('!insertmacro doStartApp')
-})
-
-// The banner is a plugin window, not an installer page, which is why it can be
-// shown under /S at all. oneClick.nsh uses the same call.
-test('a progress banner is shown for update installs', () => {
-  const nsh = installerNsh()
-  const init = nsh.slice(nsh.indexOf('!macro customInit'), nsh.indexOf('!macroend', nsh.indexOf('!macro customInit')))
-  expect(init).toContain('SpiderBanner::Show')
-  // Plugin calls need the plugins dir; .onInit runs before installSection does it.
-  expect(init.indexOf('InitPluginsDir')).toBeLessThan(init.indexOf('SpiderBanner::Show'))
-  // Only on updates — a first install already has the full wizard.
-  expect(init).toMatch(/\$\{If\} \$\{isUpdated\}/)
-  expect(readTemplate('installSection.nsh')).toContain('SpiderBanner::Show')
-})
-
-// The previous attempt suppressed the finish page and hand-rolled the relaunch.
-// Both are gone; the template's own path does it now.
-test('the hand-rolled relaunch and finish-page override are gone', () => {
+// StartApp is only compiled when customFinishPage is NOT defined. A previous
+// attempt defined it as empty to remove the click, which deleted the only thing
+// that relaunched the app: the install succeeded and Atlas stayed closed.
+test('installer.nsh does not override the finish page or hand-roll a relaunch', () => {
   const nsh = installerNsh()
   expect(nsh).not.toContain('customFinishPage')
   expect(nsh).not.toContain('ExecShellAsUser')
   expect(nsh).not.toContain('SetAutoClose')
+  expect(nsh).not.toContain('SpiderBanner')
+})
+
+// Atlas launches game executables, so it must not inherit the installer's
+// elevated token. The stock StartApp uses ExecShellAsUser for exactly this.
+test('the stock relaunch drops elevation and passes --updated', () => {
+  const assisted = readTemplate('assistedInstaller.nsh')
+  // Anchor the end search to the start: instFilesPre's FunctionEnd appears
+  // earlier in the file, so an unanchored indexOf slices backwards.
+  const startIdx = assisted.indexOf('Function StartApp')
+  const fn = assisted.slice(startIdx, assisted.indexOf('FunctionEnd', startIdx))
+  expect(fn).toContain('${StdUtils.ExecShellAsUser}')
+  expect(fn).toContain('$launchLink')
+  expect(fn).toContain('--updated')
+  expect(fn).not.toMatch(/^\s*Exec(Wait)?\s/m)
+})
+
+// quitAndInstall discards isForceRunAfter when isSilent is false and reads
+// autoRunAppAfterInstall instead, so it is set explicitly rather than left to a
+// library default.
+test('the relaunch opt-in is explicit, not inherited from a default', () => {
+  expect(read('electron', 'main.js')).toMatch(/autoUpdater\.autoRunAppAfterInstall = true/)
+  expect(read('node_modules', 'electron-updater', 'out', 'BaseUpdater.js'))
+    .toContain('isSilent ? isForceRunAfter : this.autoRunAppAfterInstall')
 })
 
 // ── Assumptions about electron-builder's templates ──────────────────────────
@@ -78,6 +85,26 @@ test('the hand-rolled relaunch and finish-page override are gone', () => {
 // perMachine:true defines INSTALL_MODE_PER_ALL_USERS, and the page is only
 // inserted when that is NOT defined. This was the "stale per-machine prompt"
 // the silent install was originally working around.
+// With the installer visible, this is what keeps an update from showing the
+// wizard. If an upgrade dropped it, every user would get a directory prompt
+// mid-update.
+test('the directory page is still skipped on updates', () => {
+  const assisted = readTemplate('assistedInstaller.nsh')
+  const dirPage = assisted.slice(
+    assisted.indexOf('!ifdef allowToChangeInstallationDirectory'),
+    assisted.indexOf('!insertmacro MUI_PAGE_DIRECTORY'),
+  )
+  expect(dirPage).toContain('!insertmacro skipPageIfUpdated')
+
+  const common = readTemplate('common.nsh')
+  const macro = common.slice(
+    common.indexOf('!macro skipPageIfUpdated'),
+    common.indexOf('!macroend', common.indexOf('!macro skipPageIfUpdated')),
+  )
+  expect(macro).toContain('${if} ${isUpdated}')
+  expect(macro).toContain('Abort')
+})
+
 test('the install-mode page is compiled out for perMachine builds', () => {
   const pkg = JSON.parse(read('package.json'))
   expect(pkg.build.nsis.perMachine).toBe(true)
