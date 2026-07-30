@@ -675,11 +675,6 @@ function configureAppUpdateBranch(branch, { resetStatus = false } = {}) {
 
 configureAppUpdateBranch(getDefaultAppUpdateBranch())
 autoUpdater.autoDownload = false
-// Set explicitly rather than relying on the default. quitAndInstall ignores its
-// isForceRunAfter argument whenever isSilent is false and uses this instead, so
-// leaving it implicit makes whether the app reopens depend on a default we do
-// not control.
-autoUpdater.autoRunAppAfterInstall = true
 
 // ── Updater diagnostics ─────────────────────────────────────────────────────
 // electron-updater's console output only appears in the main-process log, which
@@ -759,8 +754,6 @@ autoUpdater.on('update-downloaded', (info) => {
     sendUpdateStatus({ status: 'installing', version: info.version, percent: null }, 'update-downloaded')
     setTimeout(() => {
       try {
-        // Silent — see electron/ipc/updater.js. A non-silent update never
-        // relaunches the app.
         autoUpdater.quitAndInstall(true, true)
       } catch (err) {
         console.error('Auto install after download failed:', err)
