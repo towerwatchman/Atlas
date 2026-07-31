@@ -82,15 +82,17 @@
   },
   "main": "electron/main.js",
   "scripts": {
+    "sync:search-fields": "node scripts/sync-search-fields.js",
     "dev": "concurrently --kill-others \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
-    "check": "node scripts/check-js.js && node scripts/check-version-utils.js && node scripts/check-blank-version-repair.js && node scripts/check-gl-infos-parser.js && node scripts/check-format-percent.js && node scripts/check-media-assets.js && node scripts/check-steam-store-assets.js && node scripts/check-steam-local-media-sources.js && node scripts/check-banner-layouts.js && npm run test:run && vite build && git diff --check",
+    "check": "npm run lint && node scripts/check-js.js && node scripts/check-version-utils.js && node scripts/check-blank-version-repair.js && node scripts/check-gl-infos-parser.js && node scripts/check-format-percent.js && node scripts/check-media-assets.js && node scripts/check-steam-store-assets.js && node scripts/check-steam-local-media-sources.js && node scripts/check-banner-layouts.js && npm run test:run && vite build && git diff --check",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "build": "vite build && electron-builder --win --x64",
     "preview": "vite preview",
     "publish": "vite build && electron-builder --win --x64 -p always",
-    "format": "prettier --write \"src/**/*.{js,jsx,css}\" \"electron/**/*.{js,jsx}\""
+    "format": "prettier --write \"src/**/*.{js,jsx,css}\" \"electron/**/*.{js,jsx}\"",
+    "lint": "eslint ."
   },
   "build": {
     "appId": "com.towerwatchman.atlas",
@@ -132,7 +134,7 @@
     "nsis": {
       "allowToChangeInstallationDirectory": true,
       "oneClick": false,
-      "perMachine": false,
+      "perMachine": true,
       "deleteAppDataOnUninstall": false,
       "artifactName": "${productName}-Setup ${version}.${ext}",
       "include": "build/installer.nsh",
@@ -141,13 +143,24 @@
       "runAfterFinish": true,
       "shortcutName": "${productName}",
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "allowElevation": true
     },
     "linux": {
       "target": [
         "deb",
         "AppImage",
         "pacman"
+      ],
+      "icon": "build/icons"
+    },
+    "pacman": {
+      "depends": [
+        "gtk3",
+        "nss",
+        "libxss",
+        "libnotify",
+        "alsa-lib"
       ]
     }
   },
@@ -168,18 +181,25 @@
     "sqlite3": "^6.0.1"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.5.0",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
     "electron": "^42.1.0",
     "electron-builder": "^26.8.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.8.0",
+    "jsdom": "^26.1.0",
     "postcss": "^8.5.15",
     "prettier": "3.6.2",
     "tailwindcss": "^3.4.17",
     "vite": "^6.4.3",
     "vitest": "^4.1.10",
-    "wait-on": "^8.0.3"
+    "wait-on": "^8.0.3",
+    "ajv": "^8.17.1"
   },
   "engines": {
     "node": ">=22.0.0"

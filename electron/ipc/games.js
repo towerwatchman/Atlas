@@ -6,6 +6,12 @@ const path = require('path')
 const fs = require('fs')
 const cp = require('child_process')
 const { recordGameLaunchStarted, recordGamePlaytime, getLibraryStats } = require('../db/games')
+// Required directly rather than pulled from the ctx bundle: that bundle
+// re-exports a curated list, so adding exports to db/games.js alone left these
+// undefined and set-tag-override failed with "getTagState is not a function"
+// AFTER already writing the override.
+const { getTagState, clearTagOverride, getKnownTags, bulkEditTags } = require('../db/tagOverrides')
+const { sanitizeChildEnv, resolveLinuxLaunch, resolveEmulatorLaunch } = require('../launchEnv')
 const { getEmulatorByExtension } = require('../db/settings')
 const { getSteamIDbyRecord } = require('../db/steam')
 const { getGogIDbyRecord, addGogMapping } = require('../db/gog')
@@ -123,26 +129,41 @@ function trackChildPlaySession(child, session, recordId) {
 const isSteamInstallPath = (value) =>
   /(?:^|[\\/])steamapps[\\/]common(?:[\\/]|$)/i.test(String(value || ''))
 
-function isExecutablePath(filePath) {
+/**
+ * Spawn a tracked child.
+ *
+ * The play session is opened BEFORE the spawn. It used to be awaited after, and
+ * that await performs database writes, so it yields: a child that exited during
+ * it fired 'exit' before trackChildPlaySession attached a listener, the exit was
+ * lost, playtime went unrecorded and the PLAY button stayed on RUNNING forever.
+ * Rare on Windows, routine on Linux where a bad exec fails instantly.
+ *
+ * The environment is sanitised for every spawn. Under deb and pacman that is a
+ * no-op; under AppImage it removes the AppDir paths AppRun injected, which would
+ * otherwise hand the game Electron's bundled libraries.
+ */
+async function spawnTrackedGame(command, args, { recordId, version, cwd, shell = false }) {
+  const session = await startPlaySession(recordId, version, true)
   try {
-    // On Windows the executable bit concept isn't meaningful in the same way.
-    // `hasExecutable` already checked existence before calling this helper,
-    // so simply assume executable on Windows here.
-    if (process.platform === 'win32') return true
-
-    // On Unix-like systems, check the execute permission bit using access.
-    // fs.constants.X_OK checks whether the file is executable for the current
-    // process' real UID/GID.
-    fs.accessSync(filePath, fs.constants.X_OK)
-    return true
-  } catch (e) {
-    return false
+    const child = cp.spawn(command, args, {
+      cwd,
+      detached: true,
+      stdio: 'ignore',
+      shell,
+      env: sanitizeChildEnv(process.env),
+    })
+    trackChildPlaySession(child, session, recordId)
+    child.unref()
+    return child
+  } catch (err) {
+    // Spawn threw synchronously, so no exit will ever arrive to release it.
+    session?.release?.()
+    throw err
   }
 }
 
 async function launchGame({ execPath, gamePath, extension, recordId, version, source, sourceAppId }) {
   const hasExecutable = !!execPath && fs.existsSync(execPath)
-  const isExec = hasExecutable && isExecutablePath(execPath)
   // Source-aware Steam launch: a version tagged source='steam' (or one sitting
   // in a steamapps/common path) launches via the Steam client. Prefer the
   // version's own appid so the right title launches even when the record holds
@@ -170,35 +191,45 @@ async function launchGame({ execPath, gamePath, extension, recordId, version, so
   }
   const emulator = await getEmulatorByExtension(extension)
   if (emulator) {
-    const args = emulator.parameters ? emulator.parameters.split(' ') : []
-    args.push(execPath)
-    const child = cp.spawn(emulator.program_path, args, { detached: true, stdio: 'ignore' })
-    const session = await startPlaySession(recordId, version, true)
-    trackChildPlaySession(child, session, recordId)
-    child.unref()
-  } else if (process.platform === 'linux' && isExec) {
-    // On Linux desktop environments (KDE, etc.) shell.openPath delegates to
-    // xdg-open/KIO which will refuse to launch executables for security.
-    // If the file exists and has an executable bit, spawn it directly instead.
-    const child = cp.spawn(execPath, [], {
+    // The general wrapper mechanism: Wine, Proton, an interpreter, anything. It
+    // is checked first so a configured launcher always beats built-in handling.
+    const plan = resolveEmulatorLaunch({ emulator, execPath })
+    if (plan.error) throw new Error(plan.error)
+    await spawnTrackedGame(plan.command, plan.args, {
+      recordId,
+      version,
+      // Previously omitted, so an emulated game inherited Atlas's own working
+      // directory — /opt/Atlas on a package install, or the read-only AppImage
+      // mount. Ren'Py, Unity and RPG Maker resolve their assets relative to cwd,
+      // so under Wine they simply failed to find their data.
       cwd: path.dirname(execPath),
-      detached: true,
-      stdio: 'ignore',
-      shell: false,
     })
-    const session = await startPlaySession(recordId, version, true)
-    trackChildPlaySession(child, session, recordId)
-    child.unref()
-  } else if (['exe', 'bat', 'cmd'].includes(extension)) {
-    const child = cp.spawn(execPath, [], {
+  } else if (process.platform === 'linux') {
+    // shell.openPath on Linux goes through xdg-open/KIO, which refuses to
+    // execute binaries, so the child has to be spawned directly. resolveLinuxLaunch
+    // adds a missing execute bit (archives built on Windows carry no Unix mode,
+    // so an extracted Game.sh arrives at 0644) and routes Windows builds through
+    // Wine, reporting a readable error when Wine is absent.
+    const plan = resolveLinuxLaunch({ execPath, extension })
+    if (plan.error) throw new Error(plan.error)
+    if (plan.madeExecutable) {
+      console.log(`Added the execute bit to ${execPath}`)
+    }
+    await spawnTrackedGame(plan.command, plan.args, {
+      recordId,
+      version,
+      // Ren'Py, Unity and RPG Maker all resolve assets relative to the working
+      // directory, so this is required rather than tidiness. Under Wine the cwd
+      // is still the game folder, not Wine's.
       cwd: path.dirname(execPath),
-      detached: true,
-      stdio: 'ignore',
+    })
+  } else if (['exe', 'bat', 'cmd'].includes(extension)) {
+    await spawnTrackedGame(execPath, [], {
+      recordId,
+      version,
+      cwd: path.dirname(execPath),
       shell: extension === 'bat' || extension === 'cmd',
     })
-    const session = await startPlaySession(recordId, version, true)
-    trackChildPlaySession(child, session, recordId)
-    child.unref()
   } else {
     const openResult = await shell.openPath(execPath)
     if (openResult) throw new Error(openResult)
@@ -527,6 +558,77 @@ function registerGamesHandlers(ctx) {
   // Lets a window that mounts while a game is already running show RUNNING
   // instead of PLAY (e.g. navigating away from the detail page and back).
   ipcMain.handle('get-running-games', async () => getRunningGames())
+
+  // ── Tag overrides ────────────────────────────────────────────────────────
+  // Tags come from the catalog; a user can add to and remove from that list.
+  // Their edit is stored as a snapshot and wins until reset, which restores the
+  // catalog list. get-tag-state also returns catalogTags so the UI can show
+  // what a reset would go back to, and can seed the editor from the DB list.
+  ipcMain.handle('get-tag-state', async (event, recordId) => {
+    try {
+      return await getTagState(recordId)
+    } catch (err) {
+      console.error('get-tag-state failed:', err)
+      return { recordId, tags: [], catalogTags: [], overridden: false, added: [], removed: [] }
+    }
+  })
+
+  ipcMain.handle('set-tag-override', async (event, { recordId, tags } = {}) => {
+    try {
+      // Routed through updateGame so tag_mappings is rebuilt in the same step;
+      // the filter sidebar and library query both read tag_mappings, so writing
+      // the override alone would leave search disagreeing with the detail page.
+      await updateGame({ record_id: recordId, tags })
+      emitGameUpdated(recordId)
+      return { success: true, ...(await getTagState(recordId)) }
+    } catch (err) {
+      console.error('set-tag-override failed:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Autocomplete source. Cached per call is fine: the list is small and this is
+  // only hit when a tag field is focused.
+  ipcMain.handle('get-known-tags', async () => {
+    try {
+      return await getKnownTags()
+    } catch (err) {
+      console.error('get-known-tags failed:', err)
+      return []
+    }
+  })
+
+  ipcMain.handle('bulk-edit-tags', async (event, { recordIds, add, remove } = {}) => {
+    try {
+      const result = await bulkEditTags(recordIds || [], { add, remove })
+      if (result.success) {
+        // tag_mappings drives filtering, so rebuild it for each record that
+        // actually changed, then let every window refresh.
+        for (const entry of result.results) {
+          if (!entry.changed) continue
+          await updateGame({ record_id: entry.recordId, tags: entry.tags })
+          emitGameUpdated(entry.recordId)
+        }
+      }
+      return result
+    } catch (err) {
+      console.error('bulk-edit-tags failed:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('reset-tag-override', async (event, recordId) => {
+    try {
+      const catalogTags = await clearTagOverride(recordId)
+      // Rebuild tag_mappings from the catalog list so filters follow the reset.
+      await updateGame({ record_id: recordId, f95_tags: catalogTags.join(', ') })
+      emitGameUpdated(recordId)
+      return { success: true, ...(await getTagState(recordId)) }
+    } catch (err) {
+      console.error('reset-tag-override failed:', err)
+      return { success: false, error: err.message }
+    }
+  })
 
   ipcMain.handle('launch-game', async (event, data) => {
     try {

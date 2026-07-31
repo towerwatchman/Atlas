@@ -9,6 +9,20 @@ const { toLocalAssetPath, normalizeMediaStorageMode, remoteBannerExpression,
         buildBannerJoinClauses, buildBannerSelectFields, getAssetBasePath } = require('./helpers')
 const { calculatePathSize } = require('../pathSize')
 const { effectiveTitlePlaystate } = require('./playstates')
+const { PERSONAL_RATING_CATEGORIES, buildRatingAverageSql, computeRatingAverage } = require('./ratingCategories')
+const {
+  SEARCH_PREFIX_FIELDS, LEGACY_SEARCH_TYPE_FIELDS,
+  unionColumnsForSearchFieldIds, normalizeSearchFieldIds,
+} = require('./searchFields')
+
+// A search payload may carry `fields` (current) or `type` (legacy, still in
+// saved_filters.json). Neither means "use the default set".
+const resolveSearchFields = (search = {}) => {
+  if (Array.isArray(search.fields) && search.fields.length > 0) {
+    return normalizeSearchFieldIds(search.fields)
+  }
+  return normalizeSearchFieldIds(LEGACY_SEARCH_TYPE_FIELDS[String(search.type || 'all').trim()])
+}
 
 const localMediaAssetSelect = (baseImagePath, assetType, fallbackExpression) => {
   const safeBaseImagePath = String(baseImagePath || '').replace(/'/g, "''");
@@ -43,24 +57,26 @@ const normalizePersonalRating = (value) => {
   return Number.isFinite(number) ? number : null
 }
 
-const getPersonalRatingOverall = (row = {}) => {
-  const values = [
-    normalizePersonalRating(row.personal_rating_story),
-    normalizePersonalRating(row.personal_rating_graphics),
-    normalizePersonalRating(row.personal_rating_gameplay),
-    normalizePersonalRating(row.personal_rating_fappability),
-  ].filter((value) => value !== null)
-  if (values.length === 0) return null
-  const average = values.reduce((sum, value) => sum + value, 0) / values.length
-  return Math.round(average * 10) / 10
-}
+// Driven off PERSONAL_RATING_CATEGORIES so a new category needs no edit here.
+// computeRatingAverage also excludes zeros, which the old inline version did not.
+const getPersonalRatingOverall = (row = {}) =>
+  computeRatingAverage(
+    Object.fromEntries(
+      PERSONAL_RATING_CATEGORIES.map(({ key, column }) => [
+        key,
+        normalizePersonalRating(row[`personal_rating_${column}`]),
+      ]),
+    ),
+  )
 
 const applyPersonalRatings = (game, row = {}) => ({
   ...game,
-  personalRatingStory: normalizePersonalRating(row.personal_rating_story),
-  personalRatingGraphics: normalizePersonalRating(row.personal_rating_graphics),
-  personalRatingGameplay: normalizePersonalRating(row.personal_rating_gameplay),
-  personalRatingFappability: normalizePersonalRating(row.personal_rating_fappability),
+  ...Object.fromEntries(
+    PERSONAL_RATING_CATEGORIES.map(({ gameKey, column }) => [
+      gameKey,
+      normalizePersonalRating(row[`personal_rating_${column}`]),
+    ]),
+  ),
   personalRatingOverall: getPersonalRatingOverall(row),
   personalRatingUpdatedAt: normalizePersonalRating(row.personal_rating_updated_at),
 })
@@ -841,7 +857,11 @@ const getGame = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
         game_personal_ratings.story as personal_rating_story,
         game_personal_ratings.graphics as personal_rating_graphics,
         game_personal_ratings.gameplay as personal_rating_gameplay,
-        game_personal_ratings.fappability as personal_rating_fappability,
+        game_personal_ratings.characters as personal_rating_characters,
+        game_personal_ratings.sound as personal_rating_sound,
+        game_personal_ratings.writing as personal_rating_writing,
+        game_personal_ratings.polish as personal_rating_polish,
+        game_personal_ratings.replayability as personal_rating_replayability,
         game_personal_ratings.updated_at as personal_rating_updated_at,
         games.total_playtime,
         games.last_played_r,
@@ -994,7 +1014,11 @@ const getGames = (
         game_personal_ratings.story as personal_rating_story,
         game_personal_ratings.graphics as personal_rating_graphics,
         game_personal_ratings.gameplay as personal_rating_gameplay,
-        game_personal_ratings.fappability as personal_rating_fappability,
+        game_personal_ratings.characters as personal_rating_characters,
+        game_personal_ratings.sound as personal_rating_sound,
+        game_personal_ratings.writing as personal_rating_writing,
+        game_personal_ratings.polish as personal_rating_polish,
+        game_personal_ratings.replayability as personal_rating_replayability,
         game_personal_ratings.updated_at as personal_rating_updated_at,
         games.total_playtime,
         games.last_played_r,
@@ -1263,17 +1287,20 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
     const countOnly = options.countOnly === true;
     const search = options.search && typeof options.search === 'object' ? options.search : {};
     let searchText = String(search.text || '').trim();
-    let searchType = String(search.type || 'all').trim();
-    const prefixedSearch = searchText.match(/^([a-z]+):\s*(.+)$/i);
+    // Same shared registry as the catalog_index fast path and the renderer's JS
+    // filter — see electron/db/searchFields.js.
+    let searchFields = resolveSearchFields(search);
+    const prefixedSearch = searchText.match(/^([a-z][a-z0-9]*):\s*(.+)$/i);
     if (prefixedSearch) {
       const prefix = prefixedSearch[1].toLowerCase();
-      searchText = prefixedSearch[2].trim();
-      if (prefix === 'id') searchType = 'anyId';
-      if (prefix === 'f95') searchType = 'f95Id';
-      if (prefix === 'lc' || prefix === 'lewdcorner') searchType = 'lewdcornerId';
-      if (prefix === 'atlas') searchType = 'atlasId';
-      if (prefix === 'steam') searchType = 'steamId';
-      if (prefix === 'url') searchType = 'source';
+      const prefixFields = SEARCH_PREFIX_FIELDS[prefix];
+      if (prefixFields) {
+        searchText = prefixedSearch[2].trim();
+        searchFields = prefixFields;
+      } else if (prefix === 'url') {
+        searchText = prefixedSearch[2].trim();
+        searchFields = ['url'];
+      }
     }
     const escapeLike = (value) => String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
     const buildLikeTerm = (value) => `%${escapeLike(value).toLowerCase()}%`;
@@ -1293,40 +1320,23 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
     };
     let searchWhere = '';
     if (searchTerms.length > 0) {
-      if (searchType === 'title') {
-        searchWhere = addLikeConditions(['catalog.title', 'catalog.short_name'], searchTerms);
-      } else if (searchType === 'creator') {
-        searchWhere = addLikeConditions(['catalog.creator'], searchTerms);
-      } else if (searchType === 'atlasId') {
-        searchWhere = addLikeConditions(['catalog.atlas_id', 'catalog.record_id'], searchTerms);
-      } else if (searchType === 'f95Id') {
-        searchWhere = addLikeConditions(['catalog.f95_id'], searchTerms);
-      } else if (searchType === 'lewdcornerId') {
-        searchWhere = addLikeConditions(['catalog.lc_id'], searchTerms);
-      } else if (searchType === 'steamId') {
-        searchWhere = addLikeConditions(['catalog.steam_id'], searchTerms);
-      } else if (searchType === 'anyId') {
-        searchWhere = addLikeConditions(['catalog.atlas_id', 'catalog.record_id', 'catalog.f95_id', 'catalog.lc_id', 'catalog.steam_id'], searchTerms);
-      } else if (searchType === 'source') {
-        searchWhere = addLikeConditions(['catalog.source', 'catalog.siteUrl', 'catalog.lewdCornerSiteUrl'], searchTerms);
-      } else {
-        searchWhere = addLikeConditions([
-          'catalog.title',
-          'catalog.short_name',
-          'catalog.creator',
-          'catalog.f95_tags',
-          'catalog.tags',
-          'catalog.lewdcornerTags',
-          'catalog.lewdcornerPrefixes',
-          'catalog.engine',
-          'catalog.status',
-          'catalog.category',
-        ], searchTerms);
-      }
+      searchWhere = addLikeConditions(unionColumnsForSearchFieldIds(searchFields), searchTerms);
     }
     const filters = options.filters && typeof options.filters === 'object' ? options.filters : {};
     const filterParams = [];
     const filterWhereParts = [];
+
+    // ── LewdCorner free-tier gate ───────────────────────────────────────────
+    // Mirrors buildIndexWhere in catalogIndex.js. Both paths have to carry it:
+    // this union is the fallback used whenever catalog_index is missing or stale,
+    // so filtering only the fast path would make the same browse show different
+    // rows depending on index state.
+    //
+    // No join needed here — all four union branches already select lc_id and
+    // lewdcornerTier (NULL in the steam and gog branches). NULL tier is excluded
+    // with the paid tiers, so LC rows scraped before the tier column was added
+    // stay hidden until a rescrape fills it in.
+    filterWhereParts.push(`(catalog.lc_id IS NULL OR catalog.lewdcornerTier = 'Free')`);
     const toArray = (value) => {
       if (Array.isArray(value)) return value.filter((item) => item !== undefined && item !== null && String(item).trim() !== '').map(String);
       if (value === undefined || value === null || value === '') return [];
@@ -1484,16 +1494,11 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
            OR (wishlist.steam_id IS NOT NULL AND wishlist.steam_id = catalog.steam_id)
       )`);
     }
-    const personalRatingOverallExpr = `(
-      (COALESCE(local_ratings.story, 0) + COALESCE(local_ratings.graphics, 0) + COALESCE(local_ratings.gameplay, 0) + COALESCE(local_ratings.fappability, 0)) * 1.0
-      / NULLIF(
-          (CASE WHEN local_ratings.story IS NOT NULL THEN 1 ELSE 0 END) +
-          (CASE WHEN local_ratings.graphics IS NOT NULL THEN 1 ELSE 0 END) +
-          (CASE WHEN local_ratings.gameplay IS NOT NULL THEN 1 ELSE 0 END) +
-          (CASE WHEN local_ratings.fappability IS NOT NULL THEN 1 ELSE 0 END),
-          0
-        )
-    )`;
+    // Generated from ratingCategories.js. The previous literal version listed
+    // the columns by hand, still counted fappability, and treated an explicit 0
+    // as a real score, so rating one category 0 dragged the average down instead
+    // of being ignored.
+    const personalRatingOverallExpr = `(${buildRatingAverageSql('local_ratings')})`;
     const personalRatingMinValue = Number(filters.personalRatingMin);
     const personalRatingStatus = ['rated', 'unrated'].includes(filters.personalRatingStatus)
       ? filters.personalRatingStatus

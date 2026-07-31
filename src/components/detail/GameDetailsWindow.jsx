@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useTagState } from '../../hooks/useTagState.js'
 import WindowTitleBar from '../ui/WindowTitleBar.jsx'
 import RecordTab from './window/RecordTab.jsx'
 import VersionsTab from './window/VersionsTab.jsx'
@@ -180,6 +181,9 @@ const GameDetailWindow = () => {
   const [versions, setVersions] = useState([])
   const [selectedVersion, setSelectedVersion] = useState(null)
   const [formData, setFormData] = useState(EMPTY_FORM)
+  // Tags save on change rather than through the window's Save button, so they
+  // live outside formData entirely.
+  const tagState = useTagState(game?.record_id)
   // The values the form was seeded with, so a save can send only real edits
   // (see buildChangedPayload).
   const [baselineForm, setBaselineForm] = useState(EMPTY_FORM)
@@ -967,6 +971,7 @@ const GameDetailWindow = () => {
                 onChange={(e) => setFormData({ ...formData, [e.target.name]: e.target.value })}
                 onRevertField={handleRevertField}
                 onClearAllOverrides={handleClearAllOverrides}
+                tagState={tagState}
               />
             )}
             {activeTab === 'Versions' && (

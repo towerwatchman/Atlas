@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { builtInSavedFilters, getDefaultSortDirectionForSort, normalizeFilterState } from '../../hooks/useFilters.js'
 import SavedFiltersPanel from './SavedFiltersPanel.jsx'
+import SearchScopePicker from './SearchScopePicker.jsx'
 import { PLAYSTATE_OPTIONS } from '../../utils/playstates.js'
 
 // Collapsible accordion section — keeps the long filter list scannable so
@@ -38,7 +39,12 @@ const SORT_OPTIONS = [
   { value: 'creator', label: 'Creator', icon: 'fa-user' },
   { value: 'lastUpdated', label: 'Last Updated', icon: 'fa-clock' },
   { value: 'likes', label: 'Likes', icon: 'fa-thumbs-up' },
-  { value: 'rating', label: 'Rating', icon: 'fa-star' },
+  // Labelled "Online Rating" now that the detail card distinguishes the community
+  // score from the user's own. This is the F95/LewdCorner score.
+  { value: 'rating', label: 'Online Rating', icon: 'fa-star' },
+  // personalRating was already in sortTypes and had a working comparator in
+  // useFilters — it was simply never listed here, so the UI never offered it.
+  { value: 'personalRating', label: 'My Rating', icon: 'fa-user-check' },
   { value: 'newlyInstalled', label: 'Install Date', icon: 'fa-download' },
   { value: 'newlyPlayed', label: 'Last Played', icon: 'fa-play' },
   { value: 'playtime', label: 'Playtime', icon: 'fa-stopwatch' },
@@ -65,6 +71,7 @@ const CATALOG_SORT_OPTIONS = [
 const SearchSidebar = ({
   isVisible,
   searchText = "",
+  defaultSearchFieldIds = [],
   activeFilters = {},
   isCatalogMode = false,
   userSavedFilters = [],
@@ -466,6 +473,15 @@ const SearchSidebar = ({
                 <i className="fas fa-times"></i>
               </button>
             )}
+          </div>
+          {/* Directly under the input, because the question it answers ("is this
+              searching titles or ids?") only comes up while looking at the box. */}
+          <div className="mt-2">
+            <SearchScopePicker
+              fieldIds={selectedFilters.searchFields}
+              defaultFieldIds={defaultSearchFieldIds}
+              onChange={(fields) => updateFilters({ searchFields: fields })}
+            />
           </div>
         </div>
 

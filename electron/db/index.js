@@ -3,6 +3,13 @@
 const sqlite3 = require('sqlite3').verbose()
 const path = require('path')
 const fs = require('fs')
+// The startup migrations below rebuild whole tables inside explicit transactions
+// on the ONE shared sqlite connection. They must take the same write lock as
+// every other transactional writer (see electron/db/atlas.js) or their BEGIN
+// lands inside somebody else's open transaction and sqlite rejects it with
+// "cannot start a transaction within a transaction" — and worse, their COMMIT
+// can close a transaction they do not own.
+const { withWriteLock } = require('./writeLock')
 
 let db
 let cachedFilterOptions = null
@@ -54,6 +61,7 @@ function rebuildAtlasDataWithoutUnique() {
       .join(", ");
     const colNames = cols.map((c) => c.name).join(", ");
 
+    withWriteLock("migrate.rebuildAtlasData", () => new Promise((settle) => {
     db.serialize(() => {
       db.run("BEGIN TRANSACTION");
       db.run(`CREATE TABLE atlas_data_rebuild (${colDefs});`);
@@ -63,13 +71,14 @@ function rebuildAtlasDataWithoutUnique() {
       db.run(`DROP TABLE atlas_data;`);
       db.run(`ALTER TABLE atlas_data_rebuild RENAME TO atlas_data;`, (e) => {
         if (e) {
-          db.run("ROLLBACK");
+          db.run("ROLLBACK", () => settle());
           console.error("atlas_data rebuild failed, rolled back:", e);
           return;
         }
         db.run("COMMIT", (commitErr) => {
           if (commitErr) {
             console.error("atlas_data rebuild commit failed:", commitErr);
+            settle();
             return;
           }
           // DROP TABLE removed its indexes; recreate them.
@@ -78,9 +87,11 @@ function rebuildAtlasDataWithoutUnique() {
           db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_creator ON atlas_data(creator);`);
           db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_normalized_title ON atlas_data(normalized_title);`);
           console.log("atlas_data rebuilt without id_name UNIQUE constraint");
+          settle();
         });
       });
     });
+    }));
   });
 }
 
@@ -131,6 +142,7 @@ function rebuildF95WithoutAtlasIdUnique() {
       .join(", ");
     const colNames = cols.map((c) => c.name).join(", ");
 
+    withWriteLock("migrate.rebuildF95ZoneData", () => new Promise((settle) => {
     db.serialize(() => {
       db.run("BEGIN TRANSACTION");
       db.run(`CREATE TABLE f95_zone_data_rebuild (${colDefs});`);
@@ -140,19 +152,22 @@ function rebuildF95WithoutAtlasIdUnique() {
       db.run(`DROP TABLE f95_zone_data;`);
       db.run(`ALTER TABLE f95_zone_data_rebuild RENAME TO f95_zone_data;`, (e) => {
         if (e) {
-          db.run("ROLLBACK");
+          db.run("ROLLBACK", () => settle());
           console.error("f95_zone_data rebuild failed, rolled back:", e);
           return;
         }
         db.run("COMMIT", (commitErr) => {
           if (commitErr) {
             console.error("f95_zone_data rebuild commit failed:", commitErr);
+            settle();
             return;
           }
           console.log("f95_zone_data rebuilt without atlas_id UNIQUE constraint");
+          settle();
         });
       });
     });
+    }));
   });
 }
 
@@ -487,6 +502,10 @@ const initializeDatabase = (dataDir) => {
     // upstream) and a reliable revert target that does not depend on the source
     // still having a value.
     db.run(`ALTER TABLE game_metadata_overrides ADD COLUMN base_field_originals TEXT;`, () => {});
+    // User tag list, overriding the catalog tags. NULL means "not overridden"
+    // and inherits from atlas_data/f95_zone_data/lewdcorner_data; an empty
+    // string means "overridden to no tags", which is a different thing.
+    db.run(`ALTER TABLE game_metadata_overrides ADD COLUMN tags TEXT;`, () => {});
     // Marks an atlas record that is still referenced by the user (owned or
     // wishlisted) but no longer present in the latest full snapshot. 0 = present.
     db.run(`ALTER TABLE atlas_data ADD COLUMN removed_from_server INTEGER NOT NULL DEFAULT 0;`, () => {});
@@ -681,6 +700,26 @@ const initializeDatabase = (dataDir) => {
       );
     `);
 
+    // Rating categories added after the table shipped. Driven off
+    // ratingCategories.js so the list lives in one place; ALTER TABLE ADD COLUMN
+    // errors harmlessly when the column is already there, which is the same
+    // idempotent pattern used for the other added columns above.
+    //
+    // `fappability` is intentionally left in the CREATE above and never dropped:
+    // DROP COLUMN rewrites the table and destroys the data irreversibly, and the
+    // column is excluded from every read, write and average, so it is inert.
+    try {
+      const { PERSONAL_RATING_COLUMNS } = require("./ratingCategories");
+      for (const column of PERSONAL_RATING_COLUMNS) {
+        db.run(
+          `ALTER TABLE game_personal_ratings ADD COLUMN ${column} INTEGER;`,
+          () => {},
+        );
+      }
+    } catch (err) {
+      console.error("Failed to add personal rating columns:", err.message);
+    }
+
     // Add pre-computed normalized_title column if it doesn't exist. It is
     // populated/corrected in JS (see recomputeNormalizedTitles), NOT here — the
     // old SQL expression only stripped a few ASCII punctuation chars and did not
@@ -794,7 +833,12 @@ function sweepOrphanedRecords() {
          AND record_id NOT IN (SELECT record_id FROM games)`,
       function (err) {
         if (err) {
-          console.warn(`Orphan sweep skipped for ${tbl}:`, err.message);
+          // A missing table is an expected condition, not a problem: several
+          // test fixtures and older databases build only part of the schema.
+          // Anything else is worth surfacing.
+          if (!/no such table/i.test(err.message || "")) {
+            console.warn(`Orphan sweep skipped for ${tbl}:`, err.message);
+          }
         } else if (this.changes) {
           console.log(`Orphan sweep: removed ${this.changes} stale row(s) from ${tbl}`);
         }

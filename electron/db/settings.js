@@ -52,10 +52,17 @@ const removeEmulatorConfig = (extension) => {
 };
 
 const getEmulatorByExtension = (extension) => {
+  // Normalised both sides: the launcher passes a bare lowercase extension, but
+  // what the settings UI stored could carry a leading dot or different case, and
+  // an exact match would silently miss it.
+  const normalized = String(extension ?? '').trim().replace(/^\.+/, '').toLowerCase()
   return new Promise((resolve, reject) => {
+    if (!normalized) return resolve(undefined)
     getDb().get(
-      `SELECT * FROM emulators WHERE extension = ?`,
-      [extension],
+      `SELECT * FROM emulators
+        WHERE LOWER(LTRIM(extension, '.')) = ?
+        LIMIT 1`,
+      [normalized],
       (err, row) => {
         if (err) reject(err);
         else resolve(row);

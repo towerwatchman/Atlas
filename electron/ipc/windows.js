@@ -143,6 +143,20 @@ function handleContextAction(data, sender, ctx) {
       });
       break;
     }
+    case "rateTitleRequested": {
+      sender?.send("rate-title-requested", { recordId: data.recordId, title: data.title });
+      break;
+    }
+    case "collectionBulkTagRequested": {
+      // Same round-trip as rename/delete: a native menu cannot host a form, so
+      // the renderer owns the dialog and already knows which records belong to
+      // the collection.
+      sender?.send("collection-bulk-tag-requested", {
+        collectionId: data.collectionId,
+        name: data.name,
+      });
+      break;
+    }
     case "collectionDeleteRequested": {
       sender?.send("collection-delete-requested", {
         collectionId: data.collectionId,
@@ -222,6 +236,20 @@ module.exports = function registerWindowsHandlers(ctx) {
     console.log('Secondary window close requested; closing sender only')
     win.close()
     return { success: true, quitting: false }
+  })
+
+  // Entry point for the custom React context menu. It reuses handleContextAction
+  // rather than reimplementing a dozen actions in the renderer, so the native
+  // menu path and the custom one cannot drift — confirmations, elevation
+  // prompts and delete safeguards all still live in one place.
+  ipcMain.handle('run-context-action', async (event, data) => {
+    try {
+      handleContextAction(data, event.sender, ctx)
+      return { success: true }
+    } catch (err) {
+      console.error('run-context-action failed:', err)
+      return { success: false, error: err.message }
+    }
   })
 
   ipcMain.handle('select-file', async (event) => {

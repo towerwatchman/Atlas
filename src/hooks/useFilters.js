@@ -1,10 +1,33 @@
 import { useState, useMemo, useCallback } from 'react'
 import { getGameTitle, safeText } from '../utils/gameDisplay.js'
 import { effectiveTitlePlaystate } from '../utils/playstates.js'
+import {
+  DEFAULT_SEARCH_FIELD_IDS, LEGACY_SEARCH_TYPE_FIELDS, SEARCH_PREFIX_FIELDS,
+  normalizeSearchFieldIds,
+} from '../utils/searchFields.js'
+
+// The user's configured default field set, from [Search] defaultFields in
+// config.ini. Held at module scope because normalizeFilterState is a pure
+// function called from ~20 places (including saved-filter hydration and the
+// builtInSavedFilters below, which run at import time) and threading config
+// through all of them would be far more invasive than one setter called once at
+// startup. App.jsx calls this after reading the config.
+let configuredDefaultSearchFieldIds = [...DEFAULT_SEARCH_FIELD_IDS]
+
+export const setDefaultSearchFieldIds = (ids) => {
+  configuredDefaultSearchFieldIds = normalizeSearchFieldIds(ids, DEFAULT_SEARCH_FIELD_IDS)
+}
+
+export const getDefaultSearchFieldIds = () => [...configuredDefaultSearchFieldIds]
 
 export const defaultFilters = {
   text: '',
+  // Retained only so saved filters written by older builds still normalize.
+  // `searchFields` is what the search actually uses; see normalizeFilterState.
   type: 'all',
+  // Which fields the text query looks at. Empty/absent = the user's configured
+  // default. Replaces the old fixed `type: 'all'` column list.
+  searchFields: [],
   source: 'all',
   category: [],
   engine: [],
@@ -129,6 +152,15 @@ const normalizeIsoDateInput = (value) => {
   return Number.isNaN(parsed.getTime()) ? '' : text
 }
 
+// The fields a search should actually look at: an explicit selection if the user
+// made one, otherwise their configured default.
+export const resolveSearchFieldIds = (filters = {}) =>
+  normalizeSearchFieldIds(
+    Array.isArray(filters.searchFields) && filters.searchFields.length > 0
+      ? filters.searchFields
+      : configuredDefaultSearchFieldIds,
+  )
+
 export const normalizeFilterState = (filters = {}) => {
   const source = filters && typeof filters === 'object' ? filters : {}
   const hasSortDirection = Object.prototype.hasOwnProperty.call(source, 'sortDirection')
@@ -143,6 +175,21 @@ export const normalizeFilterState = (filters = {}) => {
   merged.excludedPlaystates = merged.excludedPlaystates.filter((value) => !includesExact(merged.playstates, value))
   merged.text = String(merged.text || '').trim()
   merged.type = normalizeSearchType(merged.type)
+  // `searchFields` wins when present. When it isn't, this is either a fresh
+  // default or a saved filter written before searchFields existed, so fall back
+  // to whatever the legacy `type` meant — with 'all' mapping to the user's
+  // configured default rather than the old fixed column list.
+  //
+  // An EMPTY array is meaningful and preserved: it means "inherit the configured
+  // default", resolved at match time by resolveSearchFieldIds. Baking the default
+  // in here instead would freeze whatever the default was when the filter state
+  // was first created — and the initial state is built at mount, before the
+  // config read resolves, so it would always freeze the built-in default.
+  const legacyFields = LEGACY_SEARCH_TYPE_FIELDS[merged.type]
+  const explicit = Array.isArray(source.searchFields) && source.searchFields.length > 0
+    ? source.searchFields
+    : legacyFields
+  merged.searchFields = explicit ? normalizeSearchFieldIds(explicit) : []
   merged.source = normalizeSourceType(merged.source)
   merged.sort = normalizeSortType(merged.sort)
   if (!hasSortDirection) {
@@ -575,20 +622,6 @@ const parseTextTerms = (query) => {
   return { positive, negative }
 }
 
-const getSearchableText = (game = {}) =>
-  cleanSearchText([
-    getGameTitle(game),
-    game.creator,
-    game.f95_tags,
-    game.tags,
-    game.lewdcornerTags,
-    game.lewdcorner_tags,
-    game.lewdcornerPrefixes,
-    game.engine,
-    game.status,
-    game.category,
-  ].join(' '))
-
 const getGameTagValues = (game = {}) => {
   const values = [
     ...splitListText(game.f95_tags),
@@ -666,6 +699,12 @@ const getSteamIdValues = (game = {}) => [
   ...getExternalArrayValues(game, ['steam_appids', 'steam_ids']),
 ]
 
+const getGogIdValues = (game = {}) => [
+  ...collectValues(game, ['gog_id', 'gogId', 'gog_appid', 'gogAppId']),
+  ...getExternalValues(game, ['gog_id', 'gogId', 'gog_appid', 'gogAppId']),
+  ...getExternalArrayValues(game, ['gog_ids', 'gog_appids']),
+]
+
 const getLewdCornerIdValues = (game = {}) => [
   ...collectValues(game, ['lc_id', 'lcId', 'lewdcornerId', 'lewdCornerId', 'lewdcorner_id']),
   ...getExternalValues(game, ['lc_id', 'lcId', 'lewdcornerId', 'lewdCornerId', 'lewdcorner_id']),
@@ -674,11 +713,6 @@ const getLewdCornerIdValues = (game = {}) => [
 const hasSteamMapping = (game = {}) =>
   getSteamIdValues(game).some((value) => /^\d+$/.test(cleanIdText(value))) ||
   getUrlValues(game).some((url) => urlMatchesSource(url, 'steam'))
-
-const idMatches = (values, query) => {
-  const needle = cleanIdText(query)
-  return needle !== '' && values.some((value) => cleanIdText(value).includes(needle))
-}
 
 const getUrlValues = (game = {}) => {
   const externalIds = getExternalIds(game)
@@ -716,6 +750,47 @@ const urlMatchesSource = (url, source) => {
   return false
 }
 
+// field id -> the values on a game object that field covers. The SQL columns for
+// the same field ids live in src/utils/searchFields.js; these are the renderer's
+// equivalent for game objects, which carry both snake_case and camelCase spellings
+// of most things depending on which query produced them.
+const SEARCH_FIELD_VALUE_GETTERS = {
+  title: (game) => [getGameTitle(game), game.short_name, game.shortName],
+  creator: (game) => [game.creator],
+  id: (game) => [
+    ...getAtlasIdValues(game),
+    ...getF95IdValues(game),
+    ...getLewdCornerIdValues(game),
+    ...getSteamIdValues(game),
+    ...getGogIdValues(game),
+  ],
+  atlasId: getAtlasIdValues,
+  f95Id: getF95IdValues,
+  lcId: getLewdCornerIdValues,
+  steamId: getSteamIdValues,
+  gogId: getGogIdValues,
+  tags: getGameTagValues,
+  engine: (game) => [game.engine],
+  status: (game) => [game.status],
+  category: (game) => [game.category],
+  language: (game) => [game.language],
+  url: getUrlValues,
+}
+
+// Cleaned, non-empty values for the selected fields only.
+const getSearchHaystack = (game = {}, fieldIds = []) => {
+  const out = []
+  for (const fieldId of fieldIds) {
+    const getter = SEARCH_FIELD_VALUE_GETTERS[fieldId]
+    if (!getter) continue
+    for (const value of getter(game) || []) {
+      const cleaned = cleanSearchText(value)
+      if (cleaned) out.push(cleaned)
+    }
+  }
+  return out
+}
+
 export const getGameSources = (game = {}) => {
   const sources = new Set()
   const explicitSource = cleanSearchText(game.source || game.sourceType)
@@ -739,19 +814,24 @@ export const getGameSources = (game = {}) => {
 
 export const getBrowseSources = getGameSources
 
-const parseSearchQuery = (text, type) => {
+// A leading `prefix:` overrides the selected fields for that one query. `url:`
+// is the odd one out and always has been: it filters to a SOURCE rather than
+// searching a url column, so it returns urlSource and leaves the fields alone.
+export const parseSearchQuery = (text, fields) => {
   const raw = String(text || '').trim()
-  const match = raw.match(/^([a-z]+):\s*(.+)$/i)
-  if (!match) return { type, query: raw, urlSource: null }
+  // A prefix may contain digits — `f95:` is the obvious one, and it never worked
+  // because this pattern was /^([a-z]+):/ , which cannot match the "95". That bug
+  // was present in all three search paths.
+  const match = raw.match(/^([a-z][a-z0-9]*):\s*(.+)$/i)
+  if (!match) return { fields, query: raw, urlSource: null }
   const prefix = match[1].toLowerCase()
   const query = match[2].trim()
-  if (prefix === 'id') return { type: 'anyId', query, urlSource: null }
-  if (prefix === 'f95') return { type: 'f95Id', query, urlSource: null }
-  if (prefix === 'lc' || prefix === 'lewdcorner') return { type: 'lewdcornerId', query, urlSource: null }
-  if (prefix === 'atlas') return { type: 'atlasId', query, urlSource: null }
-  if (prefix === 'steam') return { type: 'steamId', query, urlSource: null }
-  if (prefix === 'url') return { type, query, urlSource: normalizeSourceType(query) }
-  return { type, query: raw, urlSource: null }
+  if (prefix === 'url') return { fields, query, urlSource: normalizeSourceType(query) }
+  const prefixFields = SEARCH_PREFIX_FIELDS[prefix]
+  if (prefixFields) return { fields: prefixFields, query, urlSource: null }
+  // Not a recognised prefix — treat the whole thing as literal text, so a title
+  // containing a colon ("Ep 2: Reunion") still searches for itself.
+  return { fields, query: raw, urlSource: null }
 }
 
 const getBrowseDateRangeBounds = (range) => {
@@ -875,45 +955,29 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
   let result = [...(Array.isArray(games) ? games : [])]
 
   if (activeFilters.text) {
-    const { type, query, urlSource } = parseSearchQuery(activeFilters.text, activeFilters.type)
-    const lower = cleanSearchText(query)
-    const textTerms = ['all', 'title', 'creator'].includes(type)
-      ? parseTextTerms(query)
-      : null
+    const { fields, query, urlSource } = parseSearchQuery(activeFilters.text, resolveSearchFieldIds(activeFilters))
+    const terms = parseTextTerms(query)
     result = result.filter((game) => {
       if (urlSource && urlSource !== 'all') {
         return getGameSources(game).includes(urlSource)
       }
-      const title = cleanSearchText(getGameTitle(game))
-      const creator = cleanSearchText(game.creator)
-      if (textTerms) {
-        const searchableText = getSearchableText(game)
-        if (textTerms.negative.some((term) => term && searchableText.includes(term))) {
-          return false
-        }
-        if (type === 'title') {
-          return textTerms.positive.length === 0 || textTerms.positive.every((term) => title.includes(term))
-        }
-        if (type === 'creator') {
-          return textTerms.positive.length === 0 || textTerms.positive.every((term) => creator.includes(term))
-        }
-        return textTerms.positive.length === 0 || textTerms.positive.every((term) =>
-          title.includes(term) || creator.includes(term) || searchableText.includes(term)
-        )
-      }
-      if (type === 'atlasId') return idMatches(getAtlasIdValues(game), query)
-      if (type === 'f95Id') return idMatches(getF95IdValues(game), query)
-      if (type === 'lewdcornerId') return idMatches(getLewdCornerIdValues(game), query)
-      if (type === 'steamId') return idMatches(getSteamIdValues(game), query)
-      if (type === 'anyId') {
-        return (
-          idMatches(getAtlasIdValues(game), query) ||
-          idMatches(getF95IdValues(game), query) ||
-          idMatches(getLewdCornerIdValues(game), query) ||
-          idMatches(getSteamIdValues(game), query)
-        )
-      }
-      return title.includes(lower) || creator.includes(lower)
+      // One haystack built from just the selected fields. Both the positive and
+      // the negative terms are matched against it, so `-ntr` excludes on the
+      // fields you are actually searching — previously negatives always checked
+      // a fixed blob regardless of the search type, which meant `title:` plus a
+      // negative term silently consulted tags too.
+      // An ARRAY of per-field strings rather than one concatenated blob. Not a
+      // bug fix — terms are whitespace-split, so no single term could ever span
+      // the old blob's join — but it makes "OR across the selected fields" the
+      // literal structure of the code instead of an emergent property of string
+      // concatenation, and it stays correct if quoted phrase search is ever
+      // added (at which point the blob WOULD match across boundaries).
+      const haystack = getSearchHaystack(game, fields)
+      const matches = (term) => haystack.some((value) => value.includes(term))
+      if (terms.negative.some((term) => term && matches(term))) return false
+      if (terms.positive.length === 0) return true
+      // AND across terms, OR across fields — unchanged from before.
+      return terms.positive.every(matches)
     })
   }
 

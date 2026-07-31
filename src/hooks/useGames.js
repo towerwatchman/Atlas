@@ -206,6 +206,10 @@ export function useGames() {
     catalogLoadTokenRef.current = token
     catalogSearchRef.current = {
       text: String(search?.text || '').trim(),
+      // `fields` is what the backend reads now; `type` is still sent so a
+      // mismatched main/renderer pair during an in-place update degrades to the
+      // old single-mode behaviour rather than searching nothing.
+      fields: Array.isArray(search?.fields) ? [...search.fields] : [],
       type: String(search?.type || 'all'),
     }
     catalogFiltersRef.current = filters && typeof filters === 'object' ? filters : {}

@@ -1,17 +1,63 @@
-; Default install directory for FRESH installs only.
-; `preInit` is the hook electron-builder actually invokes (the previous
-; `customInstallDir` macro was never called by the template). At this point
-; the per-user install mode has already seeded $INSTDIR from the registry
-; (for upgrades) or the per-user default (for fresh installs). The NSIS /D=
-; switch, when present, overrides $INSTDIR afterward in setInstallModePerUser,
-; so passing /D= from electron-updater still wins for in-place updates.
+; Adopt an existing installation directory.
 ;
-; We only override the default when there is no recorded previous install,
-; so we don't stomp on an existing installation's location.
-!macro preInit
-  ReadRegStr $0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
+; This has to be customInit, NOT preInit. electron-builder's .onInit runs:
+;
+;     preInit  ->  check64BitAndSetRegView  ->  initMultiUser  ->  customInit
+;
+; so a preInit hook is doomed twice over: the 64-bit registry view is not set
+; yet, meaning a HKLM read hits the WOW6432Node redirect and finds nothing, and
+; initMultiUser then overwrites $INSTDIR regardless of what preInit set. An
+; earlier version of this file set $INSTDIR in preInit and the value was
+; silently discarded every time.
+;
+; electron-builder already handles the per-machine case on its own:
+; setInstallModePerAllUsers reads HKLM InstallLocation and falls back to
+; $PROGRAMFILES64\Atlas, which is exactly the wanted behaviour, so there is no
+; preInit macro here at all any more.
+;
+; The gap it does NOT cover is the per-user -> per-machine transition. Installs
+; made by the older perMachine:false build recorded themselves under HKCU, and
+; setInstallModePerAllUsers only ever consults HKLM — so every upgrade of one of
+; those looked like a fresh install and relocated to Program Files. This adopts
+; the HKCU location when HKLM has none.
+!macro customInit
+  ReadRegStr $0 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
   ${If} $0 == ""
-    StrCpy $INSTDIR "$LOCALAPPDATA\Atlas"
+    ReadRegStr $0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
+    ${If} $0 != ""
+    ${AndIf} ${FileExists} "$0\*.*"
+      DetailPrint "Existing per-user installation found at $0 - upgrading in place."
+      StrCpy $INSTDIR "$0"
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+; Atlas keeps its database, cache and artwork in <installDir>\data. Program Files
+; is not user-writable, so grant the local Users group modify rights on that ONE
+; subfolder while we still hold the installer's elevated token. The app then runs
+; unelevated for the rest of its life.
+;
+; This matters for security: Atlas launches game executables, and a child process
+; inherits its parent's elevation. A permanently elevated Atlas would run every
+; game it launches as administrator.
+;
+; The grant is scoped to data\ and launchers\ and never to $INSTDIR itself, which
+; holds Atlas.exe — a user-writable folder containing executables that something
+; elevated later runs is a privilege-escalation route.
+;
+; S-1-5-32-545 is the well-known SID for the local Users group; the name is
+; localised ("Benutzer", "Utilisateurs") so a name-based grant fails outside
+; English Windows. (OI)(CI) makes the grant inherit to files and subfolders.
+!macro customInstall
+  CreateDirectory "$INSTDIR\data"
+  CreateDirectory "$INSTDIR\launchers"
+  nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$INSTDIR\data" /grant "*S-1-5-32-545:(OI)(CI)M" /T /C /Q'
+  Pop $0
+  nsExec::ExecToLog '"$SYSDIR\icacls.exe" "$INSTDIR\launchers" /grant "*S-1-5-32-545:(OI)(CI)M" /T /C /Q'
+  Pop $1
+  ${If} $0 != 0
+    DetailPrint "Warning: could not grant write access to $INSTDIR\data (icacls returned $0)."
+    DetailPrint "Atlas will offer to repair this on first run."
   ${EndIf}
 !macroend
 

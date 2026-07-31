@@ -39,6 +39,21 @@
 // rebuild rather than silently serving a stale shape.
 
 const dbModule = require('./index')
+const { buildRatingAverageSql } = require('./ratingCategories')
+const {
+  SEARCH_PREFIX_FIELDS, LEGACY_SEARCH_TYPE_FIELDS,
+  indexColumnsForSearchFieldIds, normalizeSearchFieldIds,
+} = require('./searchFields')
+
+// A search payload may carry `fields` (current) or `type` (legacy). Neither
+// present means the caller wants the default set.
+const resolveSearchFields = (search = {}) => {
+  if (Array.isArray(search.fields) && search.fields.length > 0) {
+    return normalizeSearchFieldIds(search.fields)
+  }
+  const legacy = LEGACY_SEARCH_TYPE_FIELDS[String(search.type || 'all').trim()]
+  return normalizeSearchFieldIds(legacy)
+}
 const getDb = () => dbModule.db
 const { withTransaction, isWriteLockBusy } = require('./writeLock')
 
@@ -782,6 +797,24 @@ module.exports = {
 // wishlist_entries on local_record_id, which is indexed.
 const buildIndexWhere = (search = {}, filters = {}) => {
   const parts = []
+
+  // ── LewdCorner free-tier gate ─────────────────────────────────────────────
+  // Anything carrying an lc_id is only browsable on the Free tier. Rows with no
+  // LewdCorner linkage are unaffected.
+  //
+  // NULL tier is excluded along with the paid tiers, which is deliberate but
+  // worth knowing: `tier` arrived via ALTER TABLE (see db/index.js), so LC rows
+  // scraped before that migration have no tier and are hidden until a rescrape
+  // fills it in.
+  //
+  // Read live from lewdcorner_data through the join rather than copied into
+  // catalog_index: no reindex is needed to adopt this, and a rescrape that
+  // changes a tier takes effect immediately instead of waiting for the row to be
+  // re-projected. It is a plain primary-key probe (lewdcorner_data.lc_id is the
+  // PK), and it sits in the shared WHERE so the count query and the page query
+  // agree — filtering only the page would size the grid's scrollbar for rows it
+  // never shows.
+  parts.push(`(ci.lc_id IS NULL OR lct.tier = 'Free')`)
   const params = []
 
   const escapeLike = (value) => String(value).replace(/[\\%_]/g, (c) => `\\${c}`)
@@ -796,37 +829,35 @@ const buildIndexWhere = (search = {}, filters = {}) => {
 
   // ── text search ───────────────────────────────────────────────────────────
   let text = String(search.text || '').trim()
-  let type = String(search.type || 'all').trim()
-  const prefixed = text.match(/^([a-z]+):\s*(.+)$/i)
+  // Which columns to search now comes from the shared registry rather than a
+  // per-file table, so Browse cannot search different fields from Library.
+  // `search.fields` is the current shape; `search.type` is the legacy single-mode
+  // value still written into saved_filters.json by older builds.
+  let fields = resolveSearchFields(search)
+  const prefixed = text.match(/^([a-z][a-z0-9]*):\s*(.+)$/i)
   if (prefixed) {
     const prefix = prefixed[1].toLowerCase()
-    text = prefixed[2].trim()
-    if (prefix === 'id') type = 'anyId'
-    if (prefix === 'f95') type = 'f95Id'
-    if (prefix === 'lc' || prefix === 'lewdcorner') type = 'lewdcornerId'
-    if (prefix === 'atlas') type = 'atlasId'
-    if (prefix === 'steam') type = 'steamId'
-    if (prefix === 'url') type = 'source'
+    const prefixFields = SEARCH_PREFIX_FIELDS[prefix]
+    // `url:` filters to a source and is handled by the browseSource clause
+    // below, so it is not a field override.
+    if (prefixFields) {
+      text = prefixed[2].trim()
+      fields = prefixFields
+    } else if (prefix === 'url') {
+      text = prefixed[2].trim()
+      fields = ['url']
+    }
   }
   const terms = text.split(/\s+/).map((t) => t.trim()).filter((t) => t && !t.startsWith('-'))
   if (terms.length > 0) {
-    const fieldsFor = {
-      title: ['title', 'short_name'],
-      creator: ['creator'],
-      atlasId: ['atlas_id', 'record_id'],
-      f95Id: ['f95_id'],
-      lewdcornerId: ['lc_id'],
-      steamId: ['steam_id'],
-      anyId: ['atlas_id', 'record_id', 'f95_id', 'lc_id', 'steam_id'],
-      source: ['site_url', 'source'],
-    }
-    // The catch-all search matches the precomputed search_text (title, name,
-    // creator, engine, status, category) plus tags_text, replacing a ten-column
-    // OR across the union.
-    const fields = fieldsFor[type] || ['search_text', 'tags_text']
+    // search_text is a precomputed concatenation of title, short_name, creator,
+    // engine, status and category. It stays a fast path, but ONLY when the
+    // selected fields are exactly what it bakes in — otherwise it would quietly
+    // widen the search to fields the user deselected.
+    const columns = indexColumnsForSearchFieldIds(fields)
     for (const term of terms) {
-      parts.push(`(${fields.map((f) => `LOWER(COALESCE(CAST(ci.${f} AS TEXT), '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`)
-      params.push(...fields.map(() => like(term)))
+      parts.push(`(${columns.map((f) => `LOWER(COALESCE(CAST(ci.${f} AS TEXT), '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`)
+      params.push(...columns.map(() => like(term)))
     }
   }
 
@@ -922,13 +953,10 @@ const buildIndexWhere = (search = {}, filters = {}) => {
           OR (w.steam_id IS NOT NULL AND w.steam_id = ci.steam_id))`)
   }
 
-  const ratingExpr = `(
-    (COALESCE(lr.story,0) + COALESCE(lr.graphics,0) + COALESCE(lr.gameplay,0) + COALESCE(lr.fappability,0)) * 1.0
-    / NULLIF(
-        (CASE WHEN lr.story IS NOT NULL THEN 1 ELSE 0 END) +
-        (CASE WHEN lr.graphics IS NOT NULL THEN 1 ELSE 0 END) +
-        (CASE WHEN lr.gameplay IS NOT NULL THEN 1 ELSE 0 END) +
-        (CASE WHEN lr.fappability IS NOT NULL THEN 1 ELSE 0 END), 0))`
+  // Generated from ratingCategories.js. This was a second hand-written copy of
+  // the same average, and it drifted from the one in versions.js: both still
+  // counted fappability, and both treated an explicit 0 as a real score.
+  const ratingExpr = `(${buildRatingAverageSql('lr')})`
   const ratingMin = Number(filters.personalRatingMin)
   const ratingStatus = ['rated', 'unrated'].includes(filters.personalRatingStatus)
     ? filters.personalRatingStatus
@@ -1016,6 +1044,7 @@ const buildIndexOrderBy = (filters = {}) => {
 const CATALOG_INDEX_JOINS = `
   LEFT JOIN games AS lg ON lg.record_id = ci.local_record_id
   LEFT JOIN game_personal_ratings AS lr ON lr.record_id = ci.local_record_id
+  LEFT JOIN lewdcorner_data AS lct ON lct.lc_id = ci.lc_id
 `
 
 const queryCatalogIndex = async ({

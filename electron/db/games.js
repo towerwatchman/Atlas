@@ -14,6 +14,8 @@ const { OVERRIDE_FIELDS, OVERRIDE_COLUMNS, extractOverridePatch,
         inheritedSelect, INHERITED_JOINS, sameValue,
         BASE_FIELDS, BASE_COLUMNS, baseSourceSelect,
         parseBaseOriginals, serializeBaseOriginals } = require('./overrides')
+const { setTagOverride, getTagOverride, clearTagOverride, getTagState } = require('./tagOverrides')
+const { PERSONAL_RATING_CATEGORIES, computeRatingAverage } = require('./ratingCategories')
 
 let cachedFilterOptions = null
 const resetCachedFilterOptions = () => { cachedFilterOptions = null }
@@ -262,8 +264,21 @@ const updateGame = async (game, { recordBaseEdits = false } = {}) => {
     // Only rewrite tags when the caller actually supplied them. The old
     // unconditional call deleted every tag mapping whenever a partial payload
     // (e.g. the importer's five-key update) omitted tags.
-    if (hasKey(game, "tags") || hasKey(game, "f95_tags")) {
-      await replaceGameTags(recordId, game.tags ?? game.f95_tags ?? "");
+    //
+    // `tags` is a user edit (the renderer sends that key); `f95_tags` is a
+    // catalog refresh (the importer and scrapers send that one). The two are
+    // treated differently: a user edit is recorded as an override so it can be
+    // reset later, whereas a catalog refresh must NOT clobber a list the user
+    // has already customised.
+    if (hasKey(game, "tags")) {
+      const list = await setTagOverride(recordId, game.tags ?? "");
+      await replaceGameTags(recordId, list.join(", "));
+    } else if (hasKey(game, "f95_tags")) {
+      const existingOverride = await getTagOverride(recordId);
+      if (existingOverride === null) {
+        await replaceGameTags(recordId, game.f95_tags ?? "");
+      }
+      // else: the user owns this list now; leave it alone.
     }
 
     resetCachedFilterOptions();
@@ -646,31 +661,22 @@ const normalizePersonalRatingValue = (value) => {
   return Math.max(0, Math.min(10, Math.round(number)));
 };
 
-const computePersonalRatingOverall = (ratings) => {
-  const values = [
-    ratings.story,
-    ratings.graphics,
-    ratings.gameplay,
-    ratings.fappability,
-  ].filter((value) => Number.isFinite(value));
-  if (values.length === 0) return null;
-  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-  return Math.round(average * 10) / 10;
-};
+// Delegates so the write path and the read path cannot disagree about what the
+// average means. The old version counted an explicit 0 as a real score.
+const computePersonalRatingOverall = (ratings) => computeRatingAverage(ratings);
 
 const buildPersonalRatingPayload = (recordId, ratings, updatedAt = Math.floor(Date.now() / 1000)) => {
-  const normalized = {
-    story: normalizePersonalRatingValue(ratings?.story),
-    graphics: normalizePersonalRatingValue(ratings?.graphics),
-    gameplay: normalizePersonalRatingValue(ratings?.gameplay),
-    fappability: normalizePersonalRatingValue(ratings?.fappability),
-  };
+  const normalized = Object.fromEntries(
+    PERSONAL_RATING_CATEGORIES.map(({ key }) => [
+      key,
+      normalizePersonalRatingValue(ratings?.[key]),
+    ]),
+  );
   return {
     recordId,
-    personalRatingStory: normalized.story,
-    personalRatingGraphics: normalized.graphics,
-    personalRatingGameplay: normalized.gameplay,
-    personalRatingFappability: normalized.fappability,
+    ...Object.fromEntries(
+      PERSONAL_RATING_CATEGORIES.map(({ gameKey, key }) => [gameKey, normalized[key]]),
+    ),
     personalRatingOverall: computePersonalRatingOverall(normalized),
     personalRatingUpdatedAt: updatedAt,
   };
@@ -697,22 +703,21 @@ const setGamePersonalRatings = (recordId, ratings = {}) => {
         return;
       }
 
+      // Column list built from PERSONAL_RATING_CATEGORIES so adding a category
+      // needs no edit here. fappability is deliberately absent: the column still
+      // exists but is never written, so it holds whatever it last had and is
+      // excluded from every average.
+      const ratingColumns = PERSONAL_RATING_CATEGORIES.map(({ column }) => column);
       getDb().run(
         `INSERT INTO game_personal_ratings
-          (record_id, story, graphics, gameplay, fappability, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+          (record_id, ${ratingColumns.join(', ')}, updated_at)
+         VALUES (?, ${ratingColumns.map(() => '?').join(', ')}, ?)
          ON CONFLICT(record_id) DO UPDATE SET
-          story = excluded.story,
-          graphics = excluded.graphics,
-          gameplay = excluded.gameplay,
-          fappability = excluded.fappability,
+          ${ratingColumns.map((column) => `${column} = excluded.${column}`).join(',\n          ')},
           updated_at = excluded.updated_at`,
         [
           id,
-          payload.personalRatingStory,
-          payload.personalRatingGraphics,
-          payload.personalRatingGameplay,
-          payload.personalRatingFappability,
+          ...PERSONAL_RATING_CATEGORIES.map(({ gameKey }) => payload[gameKey] ?? null),
           updatedAt,
         ],
         (err) => {
@@ -909,11 +914,20 @@ const getUniqueFilterOptions = () => {
                         if (err) return reject(err);
                         options.languages = rows.map((r) => r.language);
 
-                        // Tags from source-specific remote tables
+                        // Catalog tags plus USER tags. Without the tags
+                        // table a user could add a tag and then be unable to
+                        // filter by it, because this list drives the filter
+                        // sidebar. game_metadata_overrides.tags is included too
+                        // so an override survives here even before its
+                        // tag_mappings rows are rebuilt.
                         getDb().all(
                           `SELECT tags FROM f95_zone_data WHERE tags IS NOT NULL
                            UNION ALL
-                           SELECT tags FROM lewdcorner_data WHERE tags IS NOT NULL`,
+                           SELECT tags FROM lewdcorner_data WHERE tags IS NOT NULL
+                           UNION ALL
+                           SELECT tag AS tags FROM tags WHERE tag IS NOT NULL
+                           UNION ALL
+                           SELECT tags FROM game_metadata_overrides WHERE tags IS NOT NULL`,
                           [],
                           (err, rows) => {
                             if (err) return reject(err);
@@ -1011,6 +1025,9 @@ const setManualMappings = async (recordId, mappings = {}) => {
 }
 
 module.exports = {
+  getTagState,
+  setTagOverride,
+  clearTagOverride,
   addGame,
   updateGame,
   removeGame,

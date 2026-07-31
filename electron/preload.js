@@ -4,7 +4,14 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 contextBridge.exposeInMainWorld("electronAPI", {
   isWindows: () => process.platform === "win32",
   isLinux: () => process.platform === "linux",
-  // optional
+  // Ask the main process to locate an installed 7-Zip (registry, well-known
+  // folders, then PATH) and save it to Library.sevenZipPath. Backs the Detect
+  // button in Settings -> Library; the same lookup runs automatically on first
+  // launch, so the button is only needed after installing 7-Zip mid-session.
+  detectSevenZip: () => ipcRenderer.invoke("detect-seven-zip"),
+  // Kept for the settings UI's placeholder hint only. The real lookup lives in
+  // electron/utils/sevenZipDetect.js — do not treat this short list as the
+  // source of truth for where 7-Zip can be installed.
   getDefault7zPaths: () => {
     if (process.platform === "win32") {
       return [
@@ -371,6 +378,26 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   getRunningGames: () => ipcRenderer.invoke("get-running-games"),
 
+  // ── Tag overrides ────────────────────────────────────────────────────────
+  // getTagState returns { tags, catalogTags, overridden, added, removed } so the
+  // editor can seed from the current list and show what reset would restore.
+  getTagState: (recordId) => ipcRenderer.invoke("get-tag-state", recordId),
+  setTagOverride: (payload) => ipcRenderer.invoke("set-tag-override", payload),
+  resetTagOverride: (recordId) => ipcRenderer.invoke("reset-tag-override", recordId),
+  // Autocomplete source, ordered by how often each tag is used.
+  getKnownTags: () => ipcRenderer.invoke("get-known-tags"),
+  // Applies add/remove on top of each record's own list rather than a shared
+  // snapshot, so bulk tagging never flattens games onto one tag list.
+  bulkEditTags: (payload) => ipcRenderer.invoke("bulk-edit-tags", payload),
+
+  // ── Data location ────────────────────────────────────────────────────────
+  // Atlas keeps its data in <installDir>/data with no AppData fallback. These
+  // back the client check: report where data lives and whether it is writable,
+  // repair the folder permissions, and move data from the old AppData location.
+  getDataLocationStatus: () => ipcRenderer.invoke("get-data-location-status"),
+  repairDataPermissions: () => ipcRenderer.invoke("repair-data-permissions"),
+  migrateLegacyData: () => ipcRenderer.invoke("migrate-legacy-data"),
+
   // ── Collections ──────────────────────────────────────────────────────────
   // Steam-style user groupings of local library titles. "Uncategorized" is
   // derived (a title in zero collections) and has no id of its own.
@@ -400,6 +427,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
     const handler = (event, payload) => callback(payload);
     ipcRenderer.on("collection-rename-requested", handler);
     return () => ipcRenderer.removeListener("collection-rename-requested", handler);
+  },
+  // "Rate this game" chosen in a native context menu; the renderer owns the modal.
+  // Runs one context-menu action. Used by the custom React menu; the payload is
+  // the same `data` object the native menu templates carry.
+  runContextAction: (data) => ipcRenderer.invoke("run-context-action", data),
+  onRateTitleRequested: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("rate-title-requested", handler);
+    return () => ipcRenderer.removeListener("rate-title-requested", handler);
+  },
+  onCollectionBulkTagRequested: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("collection-bulk-tag-requested", handler);
+    return () => ipcRenderer.removeListener("collection-bulk-tag-requested", handler);
   },
   onCollectionDeleteRequested: (callback) => {
     const handler = (event, payload) => callback(payload);
@@ -449,6 +490,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "collection-create-requested",
       "collection-rename-requested",
       "collection-delete-requested",
+      "collection-bulk-tag-requested",
+      "rate-title-requested",
       "update-status",
       "appearance-changed",
       "metadata-changed",

@@ -7,6 +7,8 @@
 // and can be reset on its own — so it is always clear which data is the user's
 // and which came from a source.
 
+import TagEditor from '../../tags/TagEditor.jsx'
+
 const LEFT_FIELDS = [
   { name: 'title', label: 'Title' },
   { name: 'mappings', label: 'Mappings', disabled: true, source: false },
@@ -125,6 +127,7 @@ export default function RecordTab({
   onChange,
   onRevertField,
   onClearAllOverrides,
+  tagState = null,
 }) {
   const byFormKey = new Map((overrides?.fields || []).map((f) => [f.formKey, f]))
   const customCount = overrides?.overriddenCount || 0
@@ -193,16 +196,29 @@ export default function RecordTab({
 
         <div className="md:col-span-2 space-y-2 mt-2 min-w-0">
           <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
-            <label htmlFor="record-tags" className="text-sm sm:w-28 sm:shrink-0 sm:pt-1" title="Coming soon">
-              Tags
-            </label>
-            <textarea
-              id="record-tags"
-              name="tags"
-              value={formData.tags ?? ''}
-              disabled
-              className={`${INPUT_BASE} border-border h-24 cursor-not-allowed opacity-60`}
-            />
+            <div className="flex items-center justify-between gap-2 sm:w-28 sm:shrink-0 sm:pt-1">
+              <label className="text-sm">Tags</label>
+              {tagState?.overridden && (
+                <CustomBadge label="Custom" onReset={tagState.resetTags} />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              {/* Its own editor rather than a text field: tags are a list, and
+                  the catalog / added / removed distinction cannot be shown in a
+                  textarea. Saves on every change, so it is not part of formData
+                  and does not go through the window's Save button. */}
+              <TagEditor
+                tags={tagState?.tags || []}
+                catalogTags={tagState?.catalogTags || []}
+                overridden={Boolean(tagState?.overridden)}
+                busy={Boolean(tagState?.busy)}
+                onChange={tagState?.applyTags}
+                onReset={tagState?.resetTags}
+              />
+              {tagState?.error && (
+                <p className="mt-1 text-xs text-danger">{tagState.error}</p>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">

@@ -5,6 +5,11 @@ import { defineConfig } from 'vitest/config'
 // — these are logic/behaviour contracts, not DOM tests; a page smoke-test env
 // can be added per-file later if needed.
 export default defineConfig({
+  // The React JSX transform. vite.config.js carries the react plugin but this
+  // config is separate, so without this JSX compiles to React.createElement
+  // calls with no React in scope and every rendered component throws
+  // "React is not defined".
+  esbuild: { jsx: 'automatic' },
   test: {
     // Only pick up our dedicated suite, not the legacy scripts/check-*.js files
     // (those still run directly via `npm run check`).

@@ -5,12 +5,14 @@ const fs = require('fs')
 const path = require('path')
 const ini = require('ini')
 const { BROWSE_MODE_ENABLED } = require('../features')
+const { LEGACY_SEARCH_TYPE_FIELDS, normalizeSearchFieldIds } = require('../db/searchFields')
 // Shared with electron/main.js. These used to be duplicated here and had
 // drifted: this copy was missing [Updates] and [WindowBounds] entirely, and
 // because the merge drops sections absent from the defaults, get-settings
 // stripped them — which the renderer then wrote back, deleting them from
 // config.ini on every single settings save.
 const { buildDefaultConfig, mergeWithDefaults } = require('../config/configSchema')
+const { detectSevenZipPath } = require('../utils/sevenZipDetect')
 
 
 const sanitizeFeatureSettings = (settings = {}) => {
@@ -93,6 +95,14 @@ const normalizeSavedFilterState = (filters = {}) => {
   for (const key of savedFilterArrayKeys) merged[key] = toSavedFilterArray(merged[key])
   merged.text = String(merged.text || '')
   merged.type = String(merged.type || 'all')
+  // Which fields the saved search looks at. Normalized through the shared
+  // registry so an unknown id from a newer build cannot persist a selection that
+  // matches nothing.
+  merged.searchFields = normalizeSearchFieldIds(
+    Array.isArray(merged.searchFields) && merged.searchFields.length > 0
+      ? merged.searchFields
+      : LEGACY_SEARCH_TYPE_FIELDS[merged.type],
+  )
   merged.sort = String(merged.sort || 'name')
   merged.sortDirection = merged.sortDirection === 'desc' ? 'desc' : 'asc'
   merged.dateField = ['none', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded'].includes(merged.dateField)
@@ -373,5 +383,27 @@ module.exports = function registerSettingsHandlers(ctx) {
 
   ipcMain.handle('remove-emulator-config', async (event, extension) => {
     return await ctx.removeEmulatorConfig(extension)
+  })
+
+  // Manual re-run of the startup lookup, for the Detect button next to the
+  // 7-Zip path in Settings -> Library. verify: true here (unlike startup) because
+  // the user is watching and a path that turns out not to run is worse than a
+  // second of spawning; overwrite: true because clicking Detect is an explicit
+  // request to replace whatever is in the field.
+  ipcMain.handle('detect-seven-zip', async () => {
+    try {
+      const detected = await detectSevenZipPath({ verify: true })
+      if (!detected) return { success: false, path: '' }
+      const current = ctx.appConfig || {}
+      ctx.appConfig = {
+        ...current,
+        Library: { ...(current.Library || {}), sevenZipPath: detected },
+      }
+      fs.writeFileSync(ctx.configPath, ini.stringify(ctx.appConfig))
+      return { success: true, path: detected }
+    } catch (err) {
+      console.error('detect-seven-zip error:', err)
+      return { success: false, path: '', error: err.message }
+    }
   })
 }

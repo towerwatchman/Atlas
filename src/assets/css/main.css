@@ -201,6 +201,25 @@
     clip-path: inset(0 round var(--radius-window-active, 0px));
     transform: translateZ(0);
   }
+  /* Smooth downscaling for game artwork.
+     Banners and previews are large source images (frequently 1920px wide)
+     drawn at a few hundred pixels, and that ratio changes continuously as the
+     window is resized, so every frame is a fresh resample at a fractional size.
+     The root layer above sets transform: translateZ(0), which promotes the whole
+     window to a GPU-composited layer, and images inside a composited layer are
+     filtered bilinearly by the GPU rather than going through Skia's CPU path
+     with its mipmapped downscaling. One bilinear step from 1920px to 537px
+     aliases hard, which reads as artwork looking oversharpened.
+     high-quality asks the compositor for the better filter. `smooth` is listed
+     first as the fallback: if a browser does not recognise high-quality it drops
+     that declaration and smooth still applies. Deliberately scoped to artwork —
+     applying it to icons or genuine pixel art would blur them, and the banner
+     editor's colour picker needs image-rendering: pixelated to sample exact
+     pixels, so it must not inherit this. */
+  .atlas-smooth-image {
+    image-rendering: smooth;
+    image-rendering: high-quality;
+  }
   :focus:not(:focus-visible) {
     outline: none;
   }

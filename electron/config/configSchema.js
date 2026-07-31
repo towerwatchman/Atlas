@@ -27,6 +27,8 @@
 // [Meta] configVersion so a 0.7-era file can be told apart from a current one —
 // previously there was no version marker anywhere, which is why stale keys could
 // accumulate indefinitely with no way to know what needed cleaning.
+const { DEFAULT_SEARCH_FIELD_IDS } = require('../db/searchFields')
+
 const CONFIG_VERSION = 3
 
 // Sections whose KEY NAMES are generated at runtime and therefore cannot be
@@ -151,6 +153,14 @@ const buildDefaultConfig = (dataDir = '') => ({
     // whose definition lives in templates/theme/*.json. The layout itself is NOT
     // stored here — see MIGRATED_KEYS above.
     bannerTemplate: 'Default',
+  },
+  // Which fields the search box looks at when no per-search override is chosen.
+  // Comma-separated field ids from electron/db/searchFields.js. Stored as a
+  // string rather than a list because ini has no array type and every other
+  // list-valued setting here (gameExtensions, sourceOrder, …) uses the same
+  // convention.
+  Search: {
+    defaultFields: DEFAULT_SEARCH_FIELD_IDS.join(','),
   },
   // Whether the user has opted in to NSFW/adult ("Browse mode") content.
   // Deliberately NOT folded into another section — nsfwConfigured detection
