@@ -679,6 +679,14 @@ const initializeDatabase = (dataDir) => {
     // versions). Separate from atlas_data.status (developer/thread status).
     db.run(`ALTER TABLE games ADD COLUMN playstate TEXT;`, () => {});
     db.run(`ALTER TABLE versions ADD COLUMN playstate TEXT;`, () => {});
+    // Free-form user notes. Entirely the user's own data — unlike description,
+    // there is no source value to fall back to, so notes are NOT an override and
+    // live directly on the row. Title-level notes are editable in the properties
+    // window (Record tab) and are where an external-library import (F95Checker's
+    // per-game `notes`) lands. The per-version column is written by nothing yet;
+    // it exists so per-build notes don't need a second migration later.
+    db.run(`ALTER TABLE games ADD COLUMN notes TEXT;`, () => {});
+    db.run(`ALTER TABLE versions ADD COLUMN notes TEXT;`, () => {});
     // Per-version source identity. A single title can hold versions from
     // different providers (an F95 build alongside a Steam build, etc.). `source`
     // tags where the version came from ('steam' | 'gog' | 'f95' | 'lewdcorner' |

@@ -314,6 +314,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openBannerEditor: () => ipcRenderer.invoke("open-banner-editor"),
   listSubfolders: (dirPath) => ipcRenderer.invoke("list-subfolders", dirPath),
   openImporterHelp: () => ipcRenderer.invoke("open-importer-help"),
+  // External library imports (F95Checker etc). Reachable from Settings ->
+  // Import; they open the normal importer window with a source id.
+  listExternalLibraries: () => ipcRenderer.invoke("list-external-libraries"),
+  describeExternalLibrary: (id) => ipcRenderer.invoke("describe-external-library", id),
+  selectExternalLibraryFile: (id) => ipcRenderer.invoke("select-external-library-file", id),
+  scanExternalLibrary: (params) => ipcRenderer.invoke("scan-external-library", params),
   captureScreens: () => ipcRenderer.invoke("capture-screens"),
   openThemesFolder: () => ipcRenderer.invoke("open-themes-folder"),
   openBannersFolder: () => ipcRenderer.invoke("open-banners-folder"),

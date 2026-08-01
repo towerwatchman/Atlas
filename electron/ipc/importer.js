@@ -26,6 +26,16 @@ const {
 } = require('../db/lewdcorner')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
 const { buildSevenZipCandidates, canRunSevenZip } = require('../utils/sevenZipDetect')
+const {
+  describeProvider,
+  readProviderLibrary,
+  listProviders,
+  getProvider,
+} = require('../scanners/externalLibrary')
+const {
+  applyExternalLibraryState,
+  makeCollectionResolver,
+} = require('../scanners/externalLibrary/applyState')
 
 let ownerMainWindow = null
 let nextScanId = 1
@@ -2808,6 +2818,56 @@ const findExistingRenpyRecord = async (game, db) => {
   );
 };
 
+// ── External library imports (F95Checker, and whatever comes next) ───────────
+//
+// Three handlers, all provider-agnostic: what tools exist, where a tool's data
+// is, and read it. The rows come back in the same shape a folder scan produces,
+// so the renderer feeds them straight into the existing review table and the
+// existing import writer takes them from there.
+
+ipcMain.handle("list-external-libraries", async () => {
+  try {
+    return { success: true, providers: listProviders() };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+// Detection status for the Settings cards: is the tool's database where we
+// expect it, and if not, which directories did we look in.
+ipcMain.handle("describe-external-library", async (event, id) => {
+  try {
+    return describeProvider(id);
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+// Manual picker fallback, used when auto-detection finds nothing (a portable
+// install, a non-default data directory, a database copied off another machine).
+ipcMain.handle("select-external-library-file", async (event, id) => {
+  const provider = getProvider(id);
+  if (!provider) return { success: false, error: `Unknown external library: ${id}` };
+  const parentWindow = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(parentWindow, {
+    title: `Select the ${provider.label} database`,
+    properties: ["openFile"],
+    filters: provider.fileFilters,
+  });
+  if (result.canceled || !result.filePaths?.length) {
+    return { success: false, canceled: true };
+  }
+  return { success: true, path: result.filePaths[0] };
+});
+
+ipcMain.handle("scan-external-library", async (event, { id, path: dbPath = "" } = {}) => {
+  try {
+    return await readProviderLibrary(id, dbPath);
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
 ipcMain.handle("select-renpy-save-directory", async (event) => {
   const ownerWindow = BrowserWindow.fromWebContents(event.sender);
   const result = await showOpenDialog(ownerWindow, {
@@ -3140,7 +3200,14 @@ ipcMain.handle("import-games", async (event, params) => {
     forceReimport = false,
     moveFoldersToLibrary = false,
     libraryFormat,
+    // Set only by an external-library import (F95Checker etc). Controls the two
+    // opt-in mappings; the rest of the user state always comes across.
+    externalLibraryOptions = {},
   } = params;
+  // One resolver per import run so a shared tab name creates a single collection
+  // and the collection list is read once rather than per row.
+  const resolveExternalCollection = makeCollectionResolver();
+  const externalStateWarnings = [];
   const shouldDeleteSourceArchive =
     deleteSourceArchiveAfterImport === true || (deleteSourceArchiveAfterImport === undefined && deleteAfter === true);
   const auditImportCleanup = (stage, details = {}) => {
@@ -3297,7 +3364,11 @@ ipcMain.handle("import-games", async (event, params) => {
       let archiveToDeleteAfterImport = null;
 
       // ── Structured move (non-archive) ───────────────────────────────────────
-      if (moveFoldersToLibrary && targetLibrary && !game.isArchive && !steamImport && !gogImport) {
+      // `game.externalState` marks a row that came from another library manager:
+      // it is already installed wherever that tool put it, so it is never moved.
+      // The `game.folder` test covers metadata-only rows (tracked but not
+      // installed), which have no source path to move from.
+      if (moveFoldersToLibrary && targetLibrary && !game.isArchive && !steamImport && !gogImport && !game.externalState && game.folder) {
         let destinationPath = buildStructuredImportPath(
           targetLibrary,
           destinationFormat,
@@ -3759,6 +3830,31 @@ ipcMain.handle("import-games", async (event, params) => {
         } catch (err) {
           console.error("Failed to add gog mapping:", err);
           throw err;
+        }
+      }
+
+      // External library (F95Checker etc): the user's own data — notes, rating,
+      // last played, finished, labels, tab. Runs here because it is keyed on the
+      // saved version and needs the mappings in place. Never fatal: a failure to
+      // copy a note must not roll back an otherwise good import.
+      if (game.externalState) {
+        try {
+          const stateResult = await applyExternalLibraryState({
+            recordId,
+            savedVersion,
+            state: game.externalState,
+            resolveCollection: resolveExternalCollection,
+            options: externalLibraryOptions,
+          });
+          if (stateResult?.warnings?.length) {
+            externalStateWarnings.push({ title: game.title, warnings: stateResult.warnings });
+          }
+        } catch (stateErr) {
+          console.warn(
+            `Failed to apply external library state for '${game.title}':`,
+            stateErr.message,
+          );
+          externalStateWarnings.push({ title: game.title, warnings: ["apply-failed"] });
         }
       }
 

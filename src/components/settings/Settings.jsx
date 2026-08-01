@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import Interface from './Interface.jsx'
 import Library from './Library.jsx'
+import ImportSources from './ImportSources.jsx'
 import Appearance from './Appearance.jsx'
 import Metadata from './Metadata.jsx'
 import Accounts from './Accounts.jsx'
@@ -19,6 +20,7 @@ const defaultSettingsTab = visibleSettingsTabs[0]?.name || "Interface"
 const SETTINGS_TOUR_STEPS = [
   { target: 'settings-Interface', title: 'Settings Sections', body: 'Each section here controls a part of Atlas. Let\u2019s hit the important ones.' },
   { target: 'LibraryFolder', tab: 'Library', title: 'Set your games folder', body: 'This is the most important setting: choose where your games live. Imports and extractions go here. You can skip it, but Atlas won\u2019t work as expected until it\u2019s set.' },
+  { target: 'ExternalLibraries', tab: 'Import', title: 'Coming from another tool?', body: 'If you track your games in F95Checker, Atlas can import that library \u2014 games, ratings, notes, finished state, labels and tabs \u2014 without moving anything on disk.' },
   { target: 'settings-Emulators', tab: 'Emulators', title: 'Emulators', body: 'Add emulators here and map file types to them, so games that need an emulator launch with the right one automatically.' },
   { target: 'settings-Appearance', tab: 'Appearance', title: 'Make it yours', body: 'Themes, banner layouts, and the look of your library live here.' },
   { target: 'MetadataSources', tab: 'Metadata', title: 'Supported sites', body: 'Atlas currently pulls metadata and art from F95Zone, LewdCorner, and Steam. Drag the sources to set which one wins when a game is found on more than one.' },
@@ -76,6 +78,8 @@ const Settings = () => {
         return <Interface />;
       case "Library":
         return <Library />;
+      case "Import":
+        return <ImportSources />;
       case "Emulators":
         return <EmulatorLauncher />;
       case "Appearance":

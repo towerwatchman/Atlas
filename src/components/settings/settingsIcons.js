@@ -12,6 +12,14 @@ export const settingsIcons = [
     viewBox: "0 0 32 32",
   },
   {
+    name: "Import",
+    icon: "import_icon",
+    // Download-into-tray glyph: this section is about bringing data in from
+    // outside Atlas.
+    path: "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
+    viewBox: "0 0 24 24",
+  },
+  {
     name: "Platforms",
     hidden: true,
     icon: "platforms_icon",

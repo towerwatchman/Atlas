@@ -248,6 +248,30 @@ export default function RecordTab({
               )}
             </div>
           </div>
+
+          {/* Notes are purely the user's own text: there is no source value, so
+              no override, no CustomBadge and nothing to reset to. Sits beside
+              Description because that is the other long-form field, and this is
+              where notes brought in from an external library import land. */}
+          <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
+            <div className="flex items-center gap-2 sm:w-28 sm:shrink-0 sm:pt-1">
+              <label htmlFor="record-notes" className="text-sm">Notes</label>
+            </div>
+            <div className="flex-1 min-w-0">
+              <textarea
+                id="record-notes"
+                name="notes"
+                value={formData.notes ?? ''}
+                onChange={onChange}
+                placeholder="Your own notes about this game"
+                className={`${INPUT_BASE} h-24 border-border`}
+              />
+              <p className="mt-0.5 text-[11px] text-muted">
+                Only ever yours — notes are never overwritten by catalog updates
+                or by importing a library again.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 

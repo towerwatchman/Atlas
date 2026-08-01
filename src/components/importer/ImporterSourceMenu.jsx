@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { importerSources } from './importerSources.js'
+import { menuImporterSources } from './importerSources.js'
 import GogIcon from '../ui/GogIcon.jsx'
 
 const placementClasses = {
@@ -68,7 +68,7 @@ export default function ImporterSourceMenu({
           aria-label={label}
           className={`${classes.menu} z-[1600] border border-border bg-primary shadow-lg rounded p-1 text-text`}
         >
-          {importerSources.map((source) => (
+          {menuImporterSources.map((source) => (
             <button
               key={source.id}
               type="button"

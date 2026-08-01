@@ -6,6 +6,7 @@ export const IMPORTER_SOURCE_IDS = {
   GOG: 'gog',
   RENPY: 'renpy',
   MANUAL: 'manual',
+  F95CHECKER: 'f95checker',
 }
 
 export const importerSources = [
@@ -46,7 +47,24 @@ export const importerSources = [
     iconType: 'font',
     icon: 'fas fa-save',
   },
+  {
+    id: IMPORTER_SOURCE_IDS.F95CHECKER,
+    label: 'F95Checker Library',
+    description: 'Import a F95Checker library',
+    iconType: 'font',
+    icon: 'fas fa-file-import',
+    // Deliberately absent from the + dropdown. External library imports are a
+    // one-time migration, not something you reach for while adding a game, and
+    // the whole point of routing them through Settings is to keep the importer's
+    // own source list short. The entry still lives here so the id validates in
+    // normalizeImporterSource and the source reaches the same importer window.
+    menu: false,
+  },
 ]
+
+// Sources offered in the + dropdown. Anything flagged `menu: false` is reachable
+// only from where it belongs (Settings -> Import) but is still a valid source id.
+export const menuImporterSources = importerSources.filter((item) => item.menu !== false)
 
 export function normalizeImporterSource(source) {
   const value = String(source || '').trim().toLowerCase()

@@ -246,6 +246,9 @@ const updateGame = async (game, { recordBaseEdits = false } = {}) => {
     if (hasKey(game, "creator"))     { baseAssignments.push("creator = ?");     baseParams.push(game.creator); basePending.creator = game.creator }
     if (hasKey(game, "engine"))      { baseAssignments.push("engine = ?");      baseParams.push(game.engine);  basePending.engine = game.engine }
     if (hasKey(game, "description")) { baseAssignments.push("description = ?"); baseParams.push(normalizeText(game.description)) }
+    // Notes are the user's own text with no source fallback, so they are a plain
+    // games column rather than an override (see the migration in db/index.js).
+    if (hasKey(game, "notes"))       { baseAssignments.push("notes = ?");       baseParams.push(normalizeText(game.notes)) }
 
     // Must run BEFORE the UPDATE, while the previous values are still readable.
     if (recordBaseEdits) {
@@ -654,6 +657,55 @@ const setVersionPlaystate = (recordId, versionId, playstate) => {
   });
 };
 
+// Same as setVersionPlaystate but identified by the version STRING rather than a
+// rowid. The importer needs this: it knows which version string it just wrote,
+// but not the rowid, and addVersion() may have renamed the version for
+// uniqueness — so the caller passes the version it actually saved.
+const setVersionPlaystateByVersion = (recordId, version, playstate) => {
+  const rid = Number.parseInt(recordId, 10);
+  const name = normalizeText(version);
+  if (!Number.isInteger(rid) || rid <= 0 || !name) {
+    return Promise.resolve({ success: false, error: "Invalid recordId or version" });
+  }
+  const next = normalizePlaystate(playstate);
+  return new Promise((resolve) => {
+    getDb().run(
+      `UPDATE versions SET playstate = ? WHERE record_id = ? AND version = ?`,
+      [next, rid, name],
+      function onRun(err) {
+        if (err) {
+          console.error("Error updating version playstate by name:", err);
+          resolve({ success: false, error: err.message });
+          return;
+        }
+        resolve({ success: Boolean(this.changes), recordId: rid, version: name, playstate: next });
+      },
+    );
+  });
+};
+
+// Title-level user notes. Empty string clears them.
+const setGameNotes = (recordId, notes) => {
+  const id = Number.parseInt(recordId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    return Promise.resolve({ success: false, error: "Invalid recordId" });
+  }
+  return new Promise((resolve) => {
+    getDb().run(
+      `UPDATE games SET notes = ? WHERE record_id = ?`,
+      [normalizeText(notes), id],
+      function onRun(err) {
+        if (err) {
+          console.error("Error updating game notes:", err);
+          resolve({ success: false, error: err.message });
+          return;
+        }
+        resolve({ success: Boolean(this.changes), recordId: id });
+      },
+    );
+  });
+};
+
 const normalizePersonalRatingValue = (value) => {
   if (value === undefined || value === null || value === '') return null;
   const number = Number(value);
@@ -731,6 +783,41 @@ const setGamePersonalRatings = (recordId, ratings = {}) => {
       );
     });
   });
+};
+
+// Set only the categories supplied, leaving the rest as they are.
+//
+// setGamePersonalRatings above writes EVERY column from PERSONAL_RATING_CATEGORIES
+// and nulls anything the caller omitted, which is correct for the rating modal
+// (it always submits the whole set) but destructive for an importer that only has
+// one category to contribute. Importing on top of a record the user has already
+// rated must not erase their scores, so this reads first and merges.
+const mergeGamePersonalRatings = async (recordId, partial = {}) => {
+  const id = Number.parseInt(recordId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    return { success: false, error: "Invalid recordId" };
+  }
+  const supplied = PERSONAL_RATING_CATEGORIES
+    .filter(({ key }) => normalizePersonalRatingValue(partial?.[key]) !== null);
+  if (supplied.length === 0) return { success: true, recordId: id, skipped: true };
+
+  const existing = await new Promise((resolve) => {
+    getDb().get(
+      `SELECT ${PERSONAL_RATING_CATEGORIES.map(({ column }) => column).join(', ')}
+       FROM game_personal_ratings WHERE record_id = ?`,
+      [id],
+      (err, row) => resolve(err ? null : row || null),
+    );
+  });
+
+  const merged = {};
+  for (const { key, column } of PERSONAL_RATING_CATEGORIES) {
+    const incoming = normalizePersonalRatingValue(partial?.[key]);
+    const current = normalizePersonalRatingValue(existing?.[column]);
+    // The user's own value always wins over an imported one.
+    merged[key] = current !== null && current > 0 ? current : incoming;
+  }
+  return setGamePersonalRatings(id, merged);
 };
 
 const getGameRecordIds = () => {
@@ -1041,7 +1128,10 @@ module.exports = {
   setGameFavorite,
   setGamePlaystate,
   setVersionPlaystate,
+  setVersionPlaystateByVersion,
+  setGameNotes,
   setGamePersonalRatings,
+  mergeGamePersonalRatings,
   setSelectedGameVersion,
   getUniqueFilterOptions,
   resetCachedFilterOptions,

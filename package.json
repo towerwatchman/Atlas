@@ -84,7 +84,7 @@
   "scripts": {
     "sync:search-fields": "node scripts/sync-search-fields.js",
     "dev": "concurrently --kill-others \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
-    "check": "npm run lint && node scripts/check-js.js && node scripts/check-version-utils.js && node scripts/check-blank-version-repair.js && node scripts/check-gl-infos-parser.js && node scripts/check-format-percent.js && node scripts/check-media-assets.js && node scripts/check-steam-store-assets.js && node scripts/check-steam-local-media-sources.js && node scripts/check-banner-layouts.js && npm run test:run && vite build && git diff --check",
+    "check": "npm run lint && node scripts/check-js.js && node scripts/check-version-utils.js && node scripts/check-blank-version-repair.js && node scripts/check-gl-infos-parser.js && node scripts/check-f95checker-parser.js && node scripts/check-format-percent.js && node scripts/check-media-assets.js && node scripts/check-steam-store-assets.js && node scripts/check-steam-local-media-sources.js && node scripts/check-banner-layouts.js && npm run test:run && vite build && git diff --check",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",

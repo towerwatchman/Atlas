@@ -26,7 +26,7 @@ const EMPTY_FORM = {
   title: '', mappings: '', platform: '', engine: '', developer: '',
   publisher: '', release_date: '', status: '', tags: '', description: '',
   category: '', latest_version: '', censored: '', language: '',
-  translations: '', genre: '', voice: '', rating: '',
+  translations: '', genre: '', voice: '', rating: '', notes: '',
 }
 
 const EMPTY_VERSION = {
@@ -96,6 +96,7 @@ function gameToFormData(g) {
     genre: g.genre || '',
     voice: g.voice || '',
     rating: g.rating || '',
+    notes: g.notes || '',
   }
 }
 
@@ -123,6 +124,8 @@ const FORM_TO_PAYLOAD = {
   voice: 'voice',
   rating: 'rating',
   description: 'overview',
+  // A real games column, not an override — see the migration in db/index.js.
+  notes: 'notes',
 }
 
 // Builds the sparse updateGame payload: only the fields whose value actually

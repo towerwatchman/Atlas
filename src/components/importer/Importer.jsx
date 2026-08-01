@@ -3,6 +3,7 @@ import SettingsStep from './steps/SettingsStep.jsx'
 import ScanStep from './steps/ScanStep.jsx'
 import SteamLibraryStep from './steps/SteamLibraryStep.jsx'
 import ManualAddStep from './steps/ManualAddStep.jsx'
+import ExternalLibraryStep from './steps/ExternalLibraryStep.jsx'
 import { normalizeImporterSource } from './importerSources.js'
 import { buildFolderRegex } from './folderRegex.js'
 import WindowTitleBar from '../ui/WindowTitleBar.jsx'
@@ -92,6 +93,11 @@ const Importer = () => {
   const [libraryFormat, setLibraryFormat] = useState(defaultSourceFolderStructure)
   const [askingForLibraryFolder, setAskingForLibraryFolder] = useState(false)
   const [importMode, setImportMode] = useState('games')
+  // Which external tool this window was opened for, and the two opt-in mappings
+  // chosen in ExternalLibraryStep. Passed through to import-games so the main
+  // process applies the same choices the user confirmed.
+  const [externalSourceId, setExternalSourceId] = useState('')
+  const [externalLibraryOptions, setExternalLibraryOptions] = useState(null)
   const [scanPath, setScanPath] = useState('')
   const [scanMessage, setScanMessage] = useState('')
 
@@ -756,7 +762,7 @@ const Importer = () => {
         startSteamScan(selected)
       } else {
         alert('No Steam games found and no Steam directory selected.')
-        setView('source')
+        setView('settings')
       }
     })
 
@@ -770,7 +776,7 @@ const Importer = () => {
         startGogScan(selected)
       } else {
         alert('No GOG games found and no GOG directory selected.')
-        setView('source')
+        setView('settings')
       }
     })
 
@@ -1175,6 +1181,17 @@ const Importer = () => {
         setView('manualAdd')
         return
       }
+      // External library managers (F95Checker etc). Opened from Settings ->
+      // Import rather than the + dropdown, but it is the same window and the
+      // same review/import path once rows exist.
+      if (safeSource === 'f95checker') {
+        resetImporterSourceState()
+        setExternalSourceId(safeSource)
+        setExternalLibraryOptions(null)
+        setImportMode('externalLibrary')
+        setView('externalLibrary')
+        return
+      }
       resetImporterSourceState()
       setImportMode('games')
       setView('settings')
@@ -1470,6 +1487,26 @@ const Importer = () => {
     setIsResolvingMatches(false)
   }
 
+  // Rows parsed out of an external library go through exactly the same review
+  // table, match resolution and import writer as a folder scan — the only
+  // difference is where the rows came from.
+  const acceptExternalLibraryRows = (rows, options) => {
+    const list = Array.isArray(rows) ? rows : []
+    setExternalLibraryOptions(options || null)
+    setGamesList(list)
+    setProgress({
+      ...initialScanProgress,
+      value: list.length,
+      total: list.length,
+      pendingMatch: list.length,
+      totalFound: list.length,
+    })
+    setProgressLabel('External Library Import')
+    setScanMessage('')
+    setView('scan')
+    resolvePendingMatches(list)
+  }
+
   const importGamesFunc = async () => {
     const gamesToImport = gamesList.filter((game) => isImportableGame(game, importOptions))
     if (gamesToImport.length === 0) { alert('No games to import'); return }
@@ -1536,6 +1573,21 @@ const Importer = () => {
       gameExt: gameExt.split(',').map((e) => e.trim()),
       forceReimport,
       libraryFormat,
+      // Only set for an external-library import; ignored otherwise.
+      ...(externalLibraryOptions
+        ? {
+            externalLibraryOptions,
+            // Hard override. These two come from the folder-scan settings, and
+            // an external import must obey neither: the games already live
+            // wherever the other tool put them, and the user asked to import a
+            // library, not to have their install folders relocated or their
+            // files deleted. Without this, someone who had "move folders to
+            // library" enabled from a previous scan would have their whole
+            // F95Checker library moved on disk as a side effect.
+            moveFoldersToLibrary: false,
+            deleteSourceArchiveAfterImport: false,
+          }
+        : {}),
     }
     try {
       // The main process closes this window itself once the import is committed
@@ -1666,13 +1718,31 @@ const Importer = () => {
               <ManualAddStep onBack={() => { setView('settings'); setImportMode('games') }} />
             </div>
           )}
+
+          {view === 'externalLibrary' && (
+            <div className="h-full -m-4">
+              <ExternalLibraryStep
+                sourceId={externalSourceId}
+                onRows={acceptExternalLibraryRows}
+                onBack={() => { setView('settings'); setImportMode('games') }}
+              />
+            </div>
+          )}
         </div>
 
         {/* Fixed footer action bar. Buttons share one height (h-9) and stay put
             regardless of content scroll. Left side is contextual; right side is
             the primary/secondary actions. */}
         <div className="shrink-0 border-t border-border bg-primary px-4 py-3 flex items-center justify-between gap-3">
-          {view === 'steamLibrary' ? (
+          {view === 'externalLibrary' ? (
+            <>
+              <div className="text-xs text-text/50">
+                Reading another tool&apos;s library. Nothing is written until you
+                confirm on the review screen.
+              </div>
+              <button onClick={() => window.electronAPI.closeWindow()} className="h-9 px-4 inline-flex items-center bg-danger hover:bg-dangerHover text-white rounded-buttonTheme transition-colors">Close</button>
+            </>
+          ) : view === 'steamLibrary' ? (
             <>
               <div className="text-xs text-text/50">
                 Browsing your Steam library. Open a game in your library to install, launch, or uninstall it.
