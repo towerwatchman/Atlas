@@ -5,6 +5,16 @@ import path from 'path'
 const le = require('../electron/launchEnv.js')
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-lx-'))
+
+// Tests that need real POSIX file modes. Windows has no execute bit: statSync
+// reports 0o666 for any writable file and access(X_OK) succeeds on everything,
+// so these assertions cannot hold there - not because the code is wrong, but
+// because the concept being asserted does not exist on that platform. They run
+// on Linux and macOS, which is where this code ships.
+//
+// Note this is NOT applied to the environment-sanitising tests above: those
+// parse POSIX strings and must give the same answer on every platform.
+const posixOnly = test.skipIf(process.platform === 'win32')
 const APPDIR = '/tmp/.mount_AtlasXk3n2'
 
 // Exactly what electron-builder's AppRun leaves in the environment. It saves no
@@ -76,7 +86,7 @@ test('a missing path is not executable', () => {
 
 // The common case, not an edge case: archives built on Windows carry no Unix
 // mode, so an extracted launcher arrives at 0644 and cannot be spawned.
-test('a missing execute bit is added', () => {
+posixOnly('a missing execute bit is added', () => {
   const script = path.join(tmp(), 'Game.sh')
   fs.writeFileSync(script, '#!/bin/sh\n', { mode: 0o644 })
   expect(le.isExecutableFile(script)).toBe(false)
@@ -88,7 +98,7 @@ test('a missing execute bit is added', () => {
 })
 
 // Execute mirrors read, so a private file does not become world-executable.
-test('permissions are widened only as far as read access already allows', () => {
+posixOnly('permissions are widened only as far as read access already allows', () => {
   const script = path.join(tmp(), 'private.sh')
   fs.writeFileSync(script, '#!/bin/sh\n', { mode: 0o600 })
   le.ensureExecutable(script)
@@ -103,7 +113,7 @@ test('an already-executable file is left alone', () => {
   expect(result.changed).toBe(false)
 })
 
-test('a directory cannot be made executable', () => {
+posixOnly('a directory cannot be made executable', () => {
   expect(le.ensureExecutable(tmp()).ok).toBe(false)
 })
 
@@ -128,7 +138,7 @@ test.each(['exe', 'bat', 'cmd', 'msi', 'EXE', '.exe'])(
   },
 )
 
-test('a native launcher resolves to itself and is made executable', () => {
+posixOnly('a native launcher resolves to itself and is made executable', () => {
   const script = path.join(tmp(), 'Game.sh')
   fs.writeFileSync(script, '#!/bin/sh\n', { mode: 0o644 })
   const plan = le.resolveLinuxLaunch({ execPath: script, extension: 'sh' })
@@ -139,7 +149,7 @@ test('a native launcher resolves to itself and is made executable', () => {
   expect(plan.madeExecutable).toBe(true)
 })
 
-test('a native launcher that cannot be prepared reports why', () => {
+posixOnly('a native launcher that cannot be prepared reports why', () => {
   const plan = le.resolveLinuxLaunch({ execPath: path.join(tmp(), 'missing'), extension: 'sh' })
   expect(plan.error).toBeTruthy()
 })
@@ -224,7 +234,7 @@ test('a bad program path is reported rather than left to fail at spawn', () => {
 
 // The emulator is the user's own tool, so this reports instead of chmod'ing it —
 // changing permissions outside our data directory is not ours to do.
-test('a non-executable emulator program explains the fix', () => {
+posixOnly('a non-executable emulator program explains the fix', () => {
   const program = path.join(tmp(), 'wine')
   fs.writeFileSync(program, '#!/bin/sh\n', { mode: 0o644 })
   const plan = le.resolveEmulatorLaunch({ emulator: { program_path: program }, execPath: '/g/g.exe' })
@@ -235,7 +245,7 @@ test('a non-executable emulator program explains the fix', () => {
 // End to end through a real wrapper script: proves the quoted argument survives
 // as ONE argv entry, that cwd is the game folder, and that the AppImage
 // LD_LIBRARY_PATH does not reach the child.
-test('a wrapper receives correct argv, cwd and a sanitised environment', () => {
+posixOnly('a wrapper receives correct argv, cwd and a sanitised environment', () => {
   const cp = require('child_process')
   const root = tmp()
   const gameDir = path.join(root, 'My Game')

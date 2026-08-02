@@ -46,24 +46,50 @@ const APPIMAGE_INJECTED_VARS = [
  * Only does anything when APPDIR is set, so it is a no-op under deb and pacman
  * and can be applied unconditionally.
  */
+// POSIX path handling for AppImage environment parsing. Deliberately not
+// path.delimiter / path.sep, which follow the host OS - see sanitizeChildEnv.
+const POSIX_PATH_DELIMITER = ':'
+
+// Normalise for COMPARISON only. Uses path.posix.normalize rather than resolve
+// so the result never depends on the current working directory, and strips a
+// trailing slash so "/usr/share" and "/usr/share/" compare equal.
+function normalizePosixPath(entry) {
+  const trimmed = String(entry || '').trim()
+  if (!trimmed) return ''
+  const normalized = path.posix.normalize(trimmed.replace(/\\/g, '/'))
+  return normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized
+}
+
 function sanitizeChildEnv(env = process.env) {
   const appDir = env.APPDIR
   const appImage = env.APPIMAGE
   const next = { ...env }
   if (!appDir) return next
 
-  const prefix = path.resolve(appDir)
+  // An AppImage environment is POSIX by definition: colon-separated, forward
+  // slashes, whatever machine happens to be reading it. Using the HOST's
+  // path.delimiter / path.sep / path.resolve here is a latent bug - on Windows
+  // the delimiter is ';', so the entire colon-separated value is treated as one
+  // entry and path.resolve mangles it into something under the AppDir prefix,
+  // which deletes the variable outright. Production only runs this on Linux
+  // where host and POSIX agree, so it never misbehaved in the field, but it
+  // made the behaviour impossible to test anywhere else. Pinned to path.posix
+  // so the result is identical on every platform.
+  const prefix = normalizePosixPath(appDir)
   const insideAppDir = (entry) => {
-    if (!entry) return false
-    const resolved = path.resolve(entry)
-    return resolved === prefix || resolved.startsWith(`${prefix}${path.sep}`)
+    const resolved = normalizePosixPath(entry)
+    if (!resolved || !prefix) return false
+    return resolved === prefix || resolved.startsWith(`${prefix}/`)
   }
 
   for (const key of APPIMAGE_INJECTED_VARS) {
     const value = next[key]
     if (!value) continue
-    const kept = value.split(path.delimiter).filter((entry) => entry && !insideAppDir(entry))
-    if (kept.length > 0) next[key] = kept.join(path.delimiter)
+    // Entries are filtered on their NORMALISED form but kept verbatim, so a
+    // trailing slash in something like "/usr/share/" survives untouched.
+    const kept = value.split(POSIX_PATH_DELIMITER)
+      .filter((entry) => entry && !insideAppDir(entry))
+    if (kept.length > 0) next[key] = kept.join(POSIX_PATH_DELIMITER)
     // Nothing left means every entry came from the AppDir. Delete rather than
     // set an empty string: an empty PATH or LD_LIBRARY_PATH is not the same as
     // an unset one, and an empty LD_LIBRARY_PATH makes the loader search the
