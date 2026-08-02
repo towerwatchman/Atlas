@@ -64,6 +64,10 @@ function registerDownloadsHandlers(ctx = {}) {
 
   manager.configure({
     resolveDownloadsDir,
+    // Per-host credentials keyed by plugin id. Every current plugin works
+    // anonymously, so an empty map is a valid state rather than an error -
+    // this exists so adding the credential store later needs no change here.
+    resolveHostCredentials: () => ctx.hostCredentials || {},
     onEvent: (type, payload) => {
       broadcast(type, payload);
       broadcastSummary();

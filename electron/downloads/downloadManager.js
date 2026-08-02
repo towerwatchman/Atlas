@@ -28,6 +28,7 @@ const http = require("http");
 const { pipeline } = require("stream/promises");
 
 const downloadsDb = require("./../db/downloads");
+const { resolveDirectUrl } = require("./hosts");
 
 // Concurrent transfers. Higher is not faster for a single host and gets you
 // rate-limited, so this stays small and is not user-configurable for now.
@@ -48,12 +49,16 @@ let watcher = null;
 let watchTimer = null;
 let attachHandler = null;
 let getDownloadsDir = () => "";
+// Per-host credentials, keyed by plugin id. Injected rather than required
+// so the manager never touches the credential store directly.
+let getHostCredentials = () => ({});
 
 // ── Events ───────────────────────────────────────────────────────────────────
 
-const configure = ({ onEvent, resolveDownloadsDir, onFileReady }) => {
+const configure = ({ onEvent, resolveDownloadsDir, onFileReady, resolveHostCredentials }) => {
   emitter = typeof onEvent === "function" ? onEvent : null;
   if (typeof resolveDownloadsDir === "function") getDownloadsDir = resolveDownloadsDir;
+  if (typeof resolveHostCredentials === "function") getHostCredentials = resolveHostCredentials;
   // Called with a completed file so the caller can extract it and attach the
   // version. Kept as an injected callback rather than a direct require so this
   // module has no dependency on the importer's internals.
@@ -190,11 +195,43 @@ const startTransfer = async (item) => {
         .catch(() => 0);
     }
     const headers = { "user-agent": "Atlas" };
+
+    // A resolved link is usually a share PAGE, not a file. Ask the host plugin
+    // to translate it before a single byte moves - without this, fetching
+    // https://pixeldrain.com/u/UPND8Ncr writes 4KB of HTML and calls it a game.
+    //
+    // Probing first also means a dead or rate-limited link fails immediately
+    // with a real reason, instead of after a partial transfer.
+    let transferUrl = item.url;
+    const probe = await resolveDirectUrl(item.url, getHostCredentials());
+    if (!probe.ok) {
+      const kind = probe.kind || "transient";
+      await setState(item.id, "failed", {
+        error: probe.error || "Could not prepare this download",
+        // Quota is terminal for now: retrying in 60s will not restore someone's
+        // daily transfer allowance, so the queue must not spin on it.
+        ...(kind === "quota" ? { receivedBytes: 0 } : {}),
+      });
+      return;
+    }
+    if (!probe.passthrough) {
+      transferUrl = probe.directUrl || item.url;
+      Object.assign(headers, probe.headers || {});
+      // The host knows the real filename and size; both are better than
+      // anything guessable from the URL, and the size gives an honest
+      // progress bar instead of an indeterminate one.
+      await downloadsDb.updateDownload(item.id, {
+        ...(probe.fileName && !item.fileName ? { fileName: probe.fileName } : {}),
+        ...(probe.fileSize ? { totalBytes: probe.fileSize } : {}),
+        host: probe.plugin || item.host,
+      });
+    }
+
     if (existingBytes > 0) headers.range = `bytes=${existingBytes}-`;
 
     await setState(item.id, "downloading", { error: "" });
 
-    const { response, finalUrl } = await requestWithRedirects(item.url, { headers });
+    const { response, finalUrl } = await requestWithRedirects(transferUrl, { headers });
     controller.response = response;
     const status = response.statusCode || 0;
 
@@ -219,7 +256,10 @@ const startTransfer = async (item) => {
 
     let filePath = item.filePath;
     if (!filePath || !isResume) {
-      const fileName = item.fileName || deriveFileName(item, response, finalUrl);
+      // Plugin-reported name wins: it is the uploader's actual filename,
+      // where deriveFileName can only guess from headers or the url path.
+      const fileName = probe.fileName || item.fileName
+        || deriveFileName(item, response, finalUrl);
       filePath = await uniquePath(path.join(downloadsDir, fileName));
       await downloadsDb.updateDownload(item.id, {
         filePath,

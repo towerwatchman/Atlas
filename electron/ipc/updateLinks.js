@@ -29,10 +29,13 @@ const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-// Hosts with a working download plugin. Until a plugin exists, offering the
-// link would hand the user a dead end, so the modal shows only what Atlas can
-// actually take delivery of. Extend as plugins land.
-const SUPPORTED_HOSTS = new Set([]);
+// Hosts with a working download plugin, read from the registry rather than
+// hand-maintained - a list that has to be updated alongside every new plugin
+// is a list that will drift. Offering a mirror with no plugin behind it hands
+// the user a link that downloads the host's html page instead of the game.
+const { supportedHostIds } = require("../downloads/hosts");
+
+const SUPPORTED_HOSTS = new Set(supportedHostIds());
 
 // threadId -> { at, payload }
 const cache = new Map();

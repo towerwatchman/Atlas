@@ -135,7 +135,7 @@ function Action({ icon, title, onClick, tone = 'default', disabled }) {
   )
 }
 
-export default function DownloadsPage({ gamesByRecordId = {}, onOpenGame }) {
+export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame }) {
   const [items, setItems] = useState([])
   const [rates, setRates] = useState({})
   const [busyId, setBusyId] = useState(null)
@@ -224,7 +224,10 @@ export default function DownloadsPage({ gamesByRecordId = {}, onOpenGame }) {
   }
 
   const renderItem = (item, { featured = false } = {}) => {
-    const game = item.recordId ? gamesByRecordId[item.recordId] : null
+    // gamesByRecordId is a Map keyed by Number(record_id), not a plain object.
+    // Bracket access on a Map silently returns undefined, which is why the
+    // cover art never appeared.
+    const game = item.recordId ? gamesByRecordId.get(Number(item.recordId)) || null : null
     const rate = rates[item.id] || 0
     const remaining = item.totalBytes > 0 && rate > 0
       ? (item.totalBytes - item.receivedBytes) / rate
