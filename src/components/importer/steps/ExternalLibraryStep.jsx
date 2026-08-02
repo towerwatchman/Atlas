@@ -73,6 +73,12 @@ const buildMappingRows = (summary, tabCount) => [
     count: summary.withTab,
   },
   {
+    from: 'Tracked, nothing on disk',
+    to: 'Watchlist',
+    detail: 'Pre-ticked on the review screen — untick any you want in the library',
+    count: summary.watchlist,
+  },
+  {
     from: 'Status, type, tags, description, score',
     to: 'Not imported',
     detail: 'Atlas already has these from its own catalog and keeps them updated',
@@ -269,6 +275,12 @@ export default function ExternalLibraryStep({
               value={summary.custom}
               tone={summary.custom ? 'warn' : 'muted'}
             />
+            <SummaryPill label="to watchlist" value={summary.watchlist ?? 0} />
+            <SummaryPill
+              label="no source link"
+              value={summary.unidentified ?? 0}
+              tone={summary.unidentified ? 'warn' : 'muted'}
+            />
           </div>
 
           <div className="rounded border border-border bg-primary overflow-hidden">
@@ -335,11 +347,27 @@ export default function ExternalLibraryStep({
               <div className="rounded border border-border p-3 text-xs text-muted">
                 <span className="text-text font-medium">{summary.custom}</span>{' '}
                 {summary.custom === 1 ? 'entry was' : 'entries were'} created by
-                hand in {label} rather than from a forum thread, so there is no
-                thread ID to match on. Atlas will try to match{' '}
-                {summary.custom === 1 ? 'it' : 'them'} by title and developer
-                instead &mdash; check {summary.custom === 1 ? 'it' : 'them'} on the
-                next screen.
+                hand in {label} rather than from a forum thread, so the entry ID
+                is not a thread ID.
+                {summary.recoveredIds > 0 && (
+                  <>
+                    {' '}
+                    <span className="text-text font-medium">{summary.recoveredIds}</span>{' '}
+                    of {summary.custom === 1 ? 'them' : 'those'} still link to a
+                    real thread, so Atlas reads the ID out of the link and
+                    matches on it exactly.
+                  </>
+                )}
+                {summary.unidentified > 0 && (
+                  <>
+                    {' '}
+                    <span className="text-text font-medium">{summary.unidentified}</span>{' '}
+                    {summary.unidentified === 1 ? 'has' : 'have'} no F95 or
+                    LewdCorner link at all and will be matched by title and
+                    developer &mdash; check {summary.unidentified === 1 ? 'it' : 'those'}{' '}
+                    on the next screen.
+                  </>
+                )}
               </div>
             )}
 
@@ -347,9 +375,21 @@ export default function ExternalLibraryStep({
               <div className="rounded border border-border p-3 text-xs text-muted">
                 <span className="text-text font-medium">{summary.missingInstall}</span>{' '}
                 {summary.missingInstall === 1 ? 'game has' : 'games have'} an
-                install path recorded in {label} that no longer exists. They will
-                be imported without a playable path, so you can point them at the
-                right folder later.
+                install path recorded in {label} that Atlas could not find. The
+                full path it looked for is shown in the Executable column on the
+                next screen.
+                {summary.relativePaths > 0 && (
+                  <>
+                    {' '}
+                    {label} stores most paths relative to its games folder
+                    {result?.exeBaseDir
+                      ? <> (<span className="text-text font-mono">{result.exeBaseDir}</span>)</>
+                      : ', which is not set in this database'}
+                    . If that folder is on a drive that is not connected right
+                    now, reconnect it and scan again rather than importing these
+                    without a path.
+                  </>
+                )}
               </div>
             )}
           </div>

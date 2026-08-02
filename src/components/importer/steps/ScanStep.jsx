@@ -13,6 +13,8 @@ export default function ScanStep({
   getRowImportStatus, onUpdateMatches, onHydrateManualF95Id, onHydrateManualLcId, onCancelMatch, onImport,
   onSelectRenpyFolder,
   setHideMatches, setIncludeUnmatched, setForceReimport,
+  showWatchlist = false, watchlistCount = 0, onToggleWatchlist,
+  onSetVisibleWatchlist,
 }) {
   const isRenpyMode = importMode === 'renpySaves'
 
@@ -50,6 +52,7 @@ export default function ScanStep({
           <span>Steam versions {visibleStats.steamVersion || 0}</span>
           <span>Missing launchable {visibleStats.missingLaunchable || 0}</span>
           <span>Empty folders {visibleStats.emptyFolder || 0}</span>
+          {showWatchlist && <span>Watchlist {watchlistCount}</span>}
           <span>Total rows {visibleStats.totalFound || 0}</span>
         </div>
       </div>
@@ -75,11 +78,35 @@ export default function ScanStep({
           getRowImportStatus={getRowImportStatus}
           showReplaceVersion={true}
           scanPath={scanPath}
+          showWatchlist={showWatchlist}
+          onToggleWatchlist={onToggleWatchlist}
         />
       </div>
 
       <div className="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-2 mt-3">
         <span className="text-sm text-text">Selected: {selectedRowCount}</span>
+        {showWatchlist && (
+          <>
+            <button
+              onClick={() => onSetVisibleWatchlist?.(true)}
+              disabled={selectedRowCount === 0}
+              className={`px-3 py-1 rounded-buttonTheme text-sm text-text ${selectedRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-button hover:bg-buttonHover'}`}
+              title="Mark the selected rows as watchlist instead of library imports"
+              style={{ pointerEvents: 'auto' }}
+            >
+              Watchlist selected
+            </button>
+            <button
+              onClick={() => onSetVisibleWatchlist?.(false)}
+              disabled={selectedRowCount === 0}
+              className={`px-3 py-1 rounded-buttonTheme text-sm text-text ${selectedRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-button hover:bg-buttonHover'}`}
+              title="Import the selected rows to the library instead of the watchlist"
+              style={{ pointerEvents: 'auto' }}
+            >
+              Import selected
+            </button>
+          </>
+        )}
         <button
           onClick={onDeleteSelectedRows}
           disabled={selectedRowCount === 0}

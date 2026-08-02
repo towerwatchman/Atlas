@@ -15,6 +15,7 @@ const SCAN_TABLE_COLUMNS = [
   { key: 'databaseMatch', width: 220, minWidth: 160 },
   { key: 'source', width: 280, minWidth: 160 },
   { key: 'status', width: 150, minWidth: 110 },
+  { key: 'watchlist', width: 90, minWidth: 76 },
   { key: 'actions', width: 220, minWidth: 180 },
 ]
 
@@ -90,14 +91,23 @@ export default function ScanTable({
   onToggleRowSelection, onSelectRowRange, onSetVisibleRowSelection,
   showReplaceVersion = true,
   scanPath = '',
+  // Only an external-library import can produce rows with nothing on disk, so
+  // the column stays hidden for folder/Steam/GOG scans rather than adding a
+  // permanently-empty checkbox to every import.
+  showWatchlist = false,
+  onToggleWatchlist,
 }) {
   const selectAllRef = useRef(null)
   const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS)
   // Columns the user has dragged to resize — auto-sizing leaves these alone.
   const manualResizeRef = useRef(new Set())
   const visibleColumns = useMemo(
-    () => (showReplaceVersion ? SCAN_TABLE_COLUMNS : SCAN_TABLE_COLUMNS.filter((column) => column.key !== 'replaceVersion')),
-    [showReplaceVersion],
+    () => SCAN_TABLE_COLUMNS.filter((column) => {
+      if (column.key === 'replaceVersion') return showReplaceVersion
+      if (column.key === 'watchlist') return showWatchlist
+      return true
+    }),
+    [showReplaceVersion, showWatchlist],
   )
   const visibleRowKeys = useMemo(() => sortedRows.map(({ game }) => getGameKey(game)), [getGameKey, sortedRows])
   const selectedVisibleCount = visibleRowKeys.filter((key) => selectedRowKeys.has(key)).length
@@ -262,6 +272,12 @@ export default function ScanTable({
           {renderSortableHeader('databaseMatch', 'Database Match')}
           {renderSortableHeader('source', 'Source')}
           {renderSortableHeader('status', 'Status')}
+          {showWatchlist && (
+            <th className="relative border border-border p-1" title="Add to watchlist instead of importing to the library">
+              Watchlist
+              {renderResizeHandle('watchlist')}
+            </th>
+          )}
           <th className="relative border border-border p-1 pr-3">
             Actions
             {renderResizeHandle('actions')}
@@ -273,7 +289,8 @@ export default function ScanTable({
           const rowStatus = getRowImportStatus(game)
           const statusText = rowStatus.text
           const statusClass =
-            rowStatus.type === 'alreadyImported' ? 'text-yellow-300'
+            rowStatus.type === 'watchlist' ? 'text-purple-300'
+            : rowStatus.type === 'alreadyImported' ? 'text-yellow-300'
             : rowStatus.type === 'pending' ? 'text-blue-200'
             : rowStatus.type === 'emptyFolder' ? 'text-gray-300'
             : rowStatus.type === 'repairPath' ? 'text-cyan-300'
@@ -400,7 +417,19 @@ export default function ScanTable({
                   <select value={game.selectedValue} onChange={(e) => onUpdateGame(gameKey, 'selectedValue', e.target.value)} className={ROW_SELECT_CLASS}>
                     {game.executables.map((opt) => <option key={opt.key} value={opt.key}>{opt.value}</option>)}
                   </select>
-                ) : game.singleExecutable}
+                ) : game.singleExecutable ? game.singleExecutable : game.installMissing ? (
+                  // The external library recorded an executable we could not
+                  // find. Show the FULL resolved path (base directory + the
+                  // relative fragment the other tool stored), because the
+                  // fragment on its own gives no clue which drive or folder
+                  // Atlas actually looked in.
+                  <span
+                    className="text-red-300"
+                    title={`Not found: ${game.recordedInstallPath || ''}`}
+                  >
+                    {game.recordedInstallPath || 'Not found'}
+                  </span>
+                ) : ''}
                 </div>
               </td>
               <td className="border border-border p-1" style={{ visibility: showMatchCell ? 'visible' : 'hidden' }}>
@@ -423,6 +452,23 @@ export default function ScanTable({
                 </div>
               </td>
               <td className={`border border-border p-1 ${statusClass}`}>{statusText}</td>
+              {showWatchlist && (
+                <td className="border border-border p-1 text-center">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(game.addToWatchlist)}
+                    onChange={() => onToggleWatchlist?.(gameKey)}
+                    title={
+                      game.addToWatchlist
+                        ? 'Will be added to the watchlist instead of the library'
+                        : 'Will be imported to the library'
+                    }
+                    aria-label={`Add ${game.title || 'game'} to watchlist`}
+                    className="h-4 w-4 accent-accent"
+                    style={{ pointerEvents: 'auto' }}
+                  />
+                </td>
+              )}
               <td className="border border-border p-1 min-w-[220px]">
                 <div className="flex flex-wrap gap-2">
                   <button onClick={() => onDeleteGame(gameKey)} className="bg-danger hover:bg-dangerHover text-text text-xs p-1 rounded-buttonTheme whitespace-nowrap" style={{ pointerEvents: 'auto' }}>Remove</button>

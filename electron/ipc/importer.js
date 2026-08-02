@@ -36,6 +36,7 @@ const {
   applyExternalLibraryState,
   makeCollectionResolver,
 } = require('../scanners/externalLibrary/applyState')
+const { addWishlistEntry } = require('../db/wishlist')
 
 let ownerMainWindow = null
 let nextScanId = 1
@@ -2868,6 +2869,53 @@ ipcMain.handle("scan-external-library", async (event, { id, path: dbPath = "" } 
   }
 });
 
+// ── Watchlist rows from an import ────────────────────────────────────────────
+//
+// Rows the user marked in the review table as "watch, don't import". These are
+// games another tool is tracking that have nothing on disk here, so creating a
+// library record for them would produce an entry with no version and no launch
+// path. They go to the wishlist instead, keeping whatever catalog identity the
+// match step resolved so the entry still hydrates a banner and metadata.
+//
+// addWishlistEntry already refuses a game that is in the library (it checks the
+// mapping tables), so a row the user mis-flagged cannot shadow a real record —
+// it comes back as `inLibrary` and is reported as skipped rather than failed.
+ipcMain.handle("add-import-watchlist-entries", async (event, games = []) => {
+  const rows = Array.isArray(games) ? games : [];
+  let added = 0;
+  let skipped = 0;
+  const failures = [];
+
+  for (const row of rows) {
+    if (!row) continue;
+    try {
+      const result = await addWishlistEntry({
+        source: getLewdCornerIdFromGame(row) && !row.f95Id ? "lewdcorner" : "f95",
+        atlas_id: row.atlasId || row.atlas_id || null,
+        f95_id: row.f95Id || row.f95_id || null,
+        lc_id: getLewdCornerIdFromGame(row) || null,
+        title: row.title,
+        creator: row.creator,
+        engine: row.engine && row.engine !== "Unknown" ? row.engine : null,
+        // The version the OTHER tool knows about is the thing the user is
+        // waiting on, so it is the useful one to record here — not the
+        // installed version, which by definition does not exist for these rows.
+        latest_version: row.latestVersion || row.version || null,
+        overview: row.description || row.overview || null,
+        site_url: row.sourceUrl || row.siteUrl || null,
+        note: row.externalState?.notes || null,
+      });
+      if (result?.success) added += 1;
+      else if (result?.inLibrary) skipped += 1;
+      else failures.push({ title: row.title, error: "Could not add to watchlist" });
+    } catch (err) {
+      failures.push({ title: row.title, error: err.message || String(err) });
+    }
+  }
+
+  return { success: failures.length === 0, added, skipped, failures };
+});
+
 ipcMain.handle("select-renpy-save-directory", async (event) => {
   const ownerWindow = BrowserWindow.fromWebContents(event.sender);
   const result = await showOpenDialog(ownerWindow, {
@@ -3009,17 +3057,27 @@ ipcMain.handle("search-atlas", async (event, params) => {
 ipcMain.handle("resolve-import-matches", async (event, games = []) => {
   const searchCache = new Map();
 
+  // An id lookup that finds nothing is not the same as "this game is not in the
+  // catalog". A thread id can be absent from Atlas's F95 mappings while the game
+  // itself is present under an Atlas or LewdCorner id, and a row imported from
+  // another tool can carry a thread id for a duplicate/moved thread. Falling
+  // through to title + creator gives the user a candidate list to choose from
+  // instead of a bare "no match", which is what the external-library reader has
+  // always documented this handler as doing.
   const resolveSearchData = async (game = {}) => {
     const f95Id = normalizeF95IdInput(game.f95Id);
+    const lcId = normalizeLewdCornerIdInput(game.lcId || game.lewdCornerId);
+    const title = game.lookupTitle || game.title;
+
     if (f95Id) {
       const byF95 = await searchAtlasByF95Id(f95Id);
-      return byF95;
+      if (byF95?.length) return byF95;
     }
-    const lcId = normalizeLewdCornerIdInput(game.lcId || game.lewdCornerId);
     if (lcId) {
-      return await searchAtlasByLewdCornerId(lcId);
+      const byLc = await searchAtlasByLewdCornerId(lcId);
+      if (byLc?.length) return byLc;
     }
-    return await searchAtlas(game.lookupTitle || game.title, game.creator);
+    return await searchAtlas(title, game.creator);
   };
 
   // ── Pre-warm search cache for all unique keys in parallel ──────────────

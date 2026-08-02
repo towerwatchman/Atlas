@@ -316,10 +316,55 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openImporterHelp: () => ipcRenderer.invoke("open-importer-help"),
   // External library imports (F95Checker etc). Reachable from Settings ->
   // Import; they open the normal importer window with a source id.
+  // ── Download manager ──────────────────────────────────────────────────
+  downloadsList: (options) => ipcRenderer.invoke("downloads-list", options),
+  downloadsEnqueue: (payload) => ipcRenderer.invoke("downloads-enqueue", payload),
+  downloadsAction: (params) => ipcRenderer.invoke("downloads-action", params),
+  downloadsRemove: (params) => ipcRenderer.invoke("downloads-remove", params),
+  downloadsReorder: (params) => ipcRenderer.invoke("downloads-reorder", params),
+  downloadsClearFinished: () => ipcRenderer.invoke("downloads-clear-finished"),
+  downloadsReveal: (params) => ipcRenderer.invoke("downloads-reveal", params),
+  downloadsFolder: () => ipcRenderer.invoke("downloads-folder"),
+  downloadsOpenFolder: () => ipcRenderer.invoke("downloads-open-folder"),
+  downloadsAttachFile: (params) => ipcRenderer.invoke("downloads-attach-file", params),
+  // Each returns its own unsubscribe function so a remounting panel does not
+  // stack duplicate listeners.
+  onDownloadAdded: (cb) => {
+    const handler = (event, item) => cb(item)
+    ipcRenderer.on("download-added", handler)
+    return () => ipcRenderer.removeListener("download-added", handler)
+  },
+  onDownloadUpdated: (cb) => {
+    const handler = (event, item) => cb(item)
+    ipcRenderer.on("download-updated", handler)
+    return () => ipcRenderer.removeListener("download-updated", handler)
+  },
+  onDownloadRemoved: (cb) => {
+    const handler = (event, payload) => cb(payload)
+    ipcRenderer.on("download-removed", handler)
+    return () => ipcRenderer.removeListener("download-removed", handler)
+  },
+  onDownloadComplete: (cb) => {
+    const handler = (event, item) => cb(item)
+    ipcRenderer.on("download-complete", handler)
+    return () => ipcRenderer.removeListener("download-complete", handler)
+  },
+  onDownloadsChanged: (cb) => {
+    const handler = (event, payload) => cb(payload)
+    ipcRenderer.on("downloads-changed", handler)
+    return () => ipcRenderer.removeListener("downloads-changed", handler)
+  },
+  onDownloadsSummary: (cb) => {
+    const handler = (event, payload) => cb(payload)
+    ipcRenderer.on("downloads-summary", handler)
+    return () => ipcRenderer.removeListener("downloads-summary", handler)
+  },
   listExternalLibraries: () => ipcRenderer.invoke("list-external-libraries"),
   describeExternalLibrary: (id) => ipcRenderer.invoke("describe-external-library", id),
   selectExternalLibraryFile: (id) => ipcRenderer.invoke("select-external-library-file", id),
   scanExternalLibrary: (params) => ipcRenderer.invoke("scan-external-library", params),
+  addImportWatchlistEntries: (games) =>
+    ipcRenderer.invoke("add-import-watchlist-entries", games),
   captureScreens: () => ipcRenderer.invoke("capture-screens"),
   openThemesFolder: () => ipcRenderer.invoke("open-themes-folder"),
   openBannersFolder: () => ipcRenderer.invoke("open-banners-folder"),

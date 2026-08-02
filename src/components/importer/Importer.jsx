@@ -169,6 +169,11 @@ const Importer = () => {
   }
 
   const isImportableGame = (game, { includeUnmatchedGames = false } = {}) => {
+    // A row flagged for the watchlist is deliberately NOT a library import: it
+    // has nothing on disk, so it would otherwise be rejected below for having
+    // no launchable anyway. Bailing out here keeps it out of the import payload
+    // and out of the "ready to import" counts.
+    if (game.addToWatchlist) return false
     if (game.sourceType === 'renpySave') {
       if ((game.scanStatus || 'new') !== 'new' || !game.savePath) return false
       if (hasDatabaseMatch(game) || hasSelectedDatabaseMatch(game)) return true
@@ -182,8 +187,11 @@ const Importer = () => {
 
   const importOptions = { includeUnmatchedGames: includeUnmatched }
   const importableGames = gamesList.filter((game) => isImportableGame(game, importOptions))
+  const watchlistGames = gamesList.filter((game) => game.addToWatchlist)
   const visibleStats = useMemo(() => deriveImportStats(gamesList), [gamesList])
-  const canImport = importableGames.length > 0
+  // Watchlist-only is a legitimate run: someone importing a tracking list they
+  // have installed none of should still be able to press the button.
+  const canImport = importableGames.length > 0 || watchlistGames.length > 0
 
   const getCleanId = (value) => {
     const id = String(value || '').trim()
@@ -214,6 +222,15 @@ const Importer = () => {
     const scanStatus = game.scanStatus || 'new'
 
     if (scanStatus === 'pendingMatch') return { text: 'Pending match', type: 'pending' }
+    // Checked in the review table (or defaulted because nothing is on disk).
+    // Reported before the launchable/importable checks below, which would
+    // otherwise flag every one of these rows as broken.
+    if (game.addToWatchlist) {
+      return {
+        text: game.watchlistCandidate ? 'Watchlist - not installed' : 'Watchlist',
+        type: 'watchlist',
+      }
+    }
     if (scanStatus === 'alreadyImported') return { text: 'Already imported', type: 'alreadyImported' }
     if (scanStatus === 'repairPath') return { text: 'Repair path', type: 'repairPath' }
     if (scanStatus === 'steamVersion') return { text: 'Add as Steam version', type: 'steamVersion' }
@@ -261,6 +278,7 @@ const Importer = () => {
     if (importMode === 'renpySaves') return 'No Ren\'Py save rows are ready to import'
     const newRows = gamesList.filter((game) => isNewScanRow(game) || isExistingImportRow(game))
     if (newRows.length === 0) return 'No new importable scan rows found'
+    if (watchlistGames.length > 0) return 'Only watchlist rows are ready'
     const hasUnmatched = newRows.some(isUnmatchedGame)
     if (hasUnmatched && !includeUnmatched) return "Unmatched rows require 'Import unmatched games'"
     return 'No eligible rows are ready to import'
@@ -1371,6 +1389,27 @@ const Importer = () => {
     deleteScanRowsByKeys([gameKey])
   }
 
+  const toggleRowWatchlist = (gameKey) => {
+    setGamesList((prev) => prev.map((game) => (
+      getScanGameKey(game) === gameKey
+        ? { ...game, addToWatchlist: !game.addToWatchlist }
+        : game
+    )))
+  }
+
+  // Bulk version of the same toggle, driven by the row selection. A 1,700-row
+  // library is not something anyone should have to reclassify one checkbox at a
+  // time, and the default (nothing on disk -> watchlist) will be wrong for
+  // anyone whose games live on a drive that is currently unmounted.
+  const setSelectedRowsWatchlist = (value) => {
+    if (selectedScanRowKeys.size === 0) return
+    setGamesList((prev) => prev.map((game) => (
+      selectedScanRowKeys.has(getScanGameKey(game))
+        ? { ...game, addToWatchlist: Boolean(value) }
+        : game
+    )))
+  }
+
   const handleResultChange = async (gameKey, value) => {
     const updatedGames = gamesList.map((game) =>
       getScanGameKey(game) === gameKey ? applySelectedMatch(game, value) : game
@@ -1509,6 +1548,39 @@ const Importer = () => {
 
   const importGamesFunc = async () => {
     const gamesToImport = gamesList.filter((game) => isImportableGame(game, importOptions))
+    const gamesToWatch = gamesList.filter((game) => game.addToWatchlist)
+
+    // ── Watchlist first ───────────────────────────────────────────────────
+    // Done before the library import because the import closes this window as
+    // soon as it commits, and a failure here is something the user needs to see
+    // while the review table is still in front of them. It is also the safe
+    // order: addWishlistEntry refuses anything already in the library, so a row
+    // that ends up in both lists resolves in the library's favour either way.
+    if (gamesToWatch.length > 0) {
+      try {
+        const watchResult = await window.electronAPI.addImportWatchlistEntries?.(gamesToWatch)
+        if (watchResult && !watchResult.success) {
+          const failed = watchResult.failures?.length || 0
+          const proceed = window.confirm(
+            `${failed} of ${gamesToWatch.length} watchlist entries could not be added.\n\n`
+            + `Continue with the ${gamesToImport.length} library import${gamesToImport.length === 1 ? '' : 's'}?`,
+          )
+          if (!proceed) return
+        }
+      } catch (err) {
+        const proceed = window.confirm(
+          `Adding to the watchlist failed: ${err.message || 'Unknown error'}\n\n`
+          + 'Continue with the library import?',
+        )
+        if (!proceed) return
+      }
+      // Nothing to import alongside them — the watchlist WAS the import.
+      if (gamesToImport.length === 0) {
+        window.electronAPI.closeWindow()
+        return
+      }
+    }
+
     if (gamesToImport.length === 0) { alert('No games to import'); return }
     if (importMode === 'renpySaves') {
       try {
@@ -1704,6 +1776,10 @@ const Importer = () => {
               getGameKey={getScanGameKey} getRowImportStatus={getRowImportStatus}
               setHideMatches={setHideMatches} setIncludeUnmatched={setIncludeUnmatched}
               setForceReimport={setForceReimport}
+              showWatchlist={importMode === 'externalLibrary'}
+              watchlistCount={watchlistGames.length}
+              onToggleWatchlist={toggleRowWatchlist}
+              onSetVisibleWatchlist={setSelectedRowsWatchlist}
             />
           )}
 
