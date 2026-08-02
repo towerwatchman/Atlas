@@ -278,7 +278,6 @@ const Importer = () => {
     if (importMode === 'renpySaves') return 'No Ren\'Py save rows are ready to import'
     const newRows = gamesList.filter((game) => isNewScanRow(game) || isExistingImportRow(game))
     if (newRows.length === 0) return 'No new importable scan rows found'
-    if (watchlistGames.length > 0) return 'Only watchlist rows are ready'
     const hasUnmatched = newRows.some(isUnmatchedGame)
     if (hasUnmatched && !includeUnmatched) return "Unmatched rows require 'Import unmatched games'"
     return 'No eligible rows are ready to import'

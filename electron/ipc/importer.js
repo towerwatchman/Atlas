@@ -2889,11 +2889,17 @@ ipcMain.handle("add-import-watchlist-entries", async (event, games = []) => {
   for (const row of rows) {
     if (!row) continue;
     try {
+      const rowLcId = getLewdCornerIdFromGame(row);
+      const rowF95Id = row.f95Id || row.f95_id || null;
       const result = await addWishlistEntry({
-        source: getLewdCornerIdFromGame(row) && !row.f95Id ? "lewdcorner" : "f95",
+        // Left unset when the row carries no source id, so normalizeSource
+        // derives it (and the identity key) the same way the renderer's
+        // getWishlistIdentityKey does. Asserting "f95" for a game with no F95
+        // id would produce an identity key the UI would never match against.
+        source: rowF95Id ? "f95" : rowLcId ? "lewdcorner" : undefined,
         atlas_id: row.atlasId || row.atlas_id || null,
-        f95_id: row.f95Id || row.f95_id || null,
-        lc_id: getLewdCornerIdFromGame(row) || null,
+        f95_id: rowF95Id,
+        lc_id: rowLcId || null,
         title: row.title,
         creator: row.creator,
         engine: row.engine && row.engine !== "Unknown" ? row.engine : null,
@@ -3064,6 +3070,13 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
   // through to title + creator gives the user a candidate list to choose from
   // instead of a bare "no match", which is what the external-library reader has
   // always documented this handler as doing.
+  //
+  // HOW the match was found is returned alongside it, and matters: a row's
+  // thread id is only PROVEN to belong to the matched catalog game when the id
+  // lookup is what found it. If a title fallback found it instead, stamping the
+  // unverified id onto the row would write a f95_zone_mappings / lewdcorner_
+  // mappings row asserting a link the catalog does not make. So a fallback
+  // match contributes its metadata but never its caller-supplied id.
   const resolveSearchData = async (game = {}) => {
     const f95Id = normalizeF95IdInput(game.f95Id);
     const lcId = normalizeLewdCornerIdInput(game.lcId || game.lewdCornerId);
@@ -3071,13 +3084,20 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
 
     if (f95Id) {
       const byF95 = await searchAtlasByF95Id(f95Id);
-      if (byF95?.length) return byF95;
+      if (byF95?.length) return { rows: byF95, matchedBy: "f95Id" };
     }
     if (lcId) {
       const byLc = await searchAtlasByLewdCornerId(lcId);
-      if (byLc?.length) return byLc;
+      if (byLc?.length) return { rows: byLc, matchedBy: "lcId" };
     }
-    return await searchAtlas(title, game.creator);
+    const byTitle = await searchAtlas(title, game.creator);
+    return {
+      rows: byTitle || [],
+      // "fallback" only when an id lookup was actually tried and missed. A row
+      // with no ids at all has always been title-matched and is not newly
+      // uncertain, so it keeps the plain "Match Found" wording.
+      matchedBy: f95Id || lcId ? "titleFallback" : "title",
+    };
   };
 
   // ── Pre-warm search cache for all unique keys in parallel ──────────────
@@ -3106,7 +3126,7 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
         searchCache.set(cacheKey, data);
       } catch (err) {
         console.error("resolve-import-matches pre-warm failed:", err);
-        searchCache.set(cacheKey, []);
+        searchCache.set(cacheKey, { rows: [], matchedBy: "none" });
       }
     }),
   );
@@ -3126,18 +3146,59 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
         : `atlas:${game.lookupTitle || game.title}|${game.creator}`;
 
     try {
-      const data = searchCache.get(cacheKey) || [];
+      const cached = searchCache.get(cacheKey) || { rows: [], matchedBy: "none" };
+      const data = cached.rows || [];
+      const isFallback = cached.matchedBy === "titleFallback";
+
+      // Withhold the unverified id from a fallback match so no mapping is
+      // written for a link the catalog does not assert. applyImportMatchData
+      // falls back to `game.f95Id`/`game.lcId` as well as to its options
+      // argument, so both have to be overridden explicitly — passing an empty
+      // options object is not enough to stop the row's own id coming through.
+      const withVerifiedIdsOnly = (matched, match) => (isFallback
+        ? {
+            ...matched,
+            f95Id: String(match.f95_id || match.f95Id || ""),
+            lcId: String(match.lc_id || match.lcId || match.lewdCornerId || ""),
+            lewdCornerId: String(match.lc_id || match.lcId || match.lewdCornerId || ""),
+            // Kept so the review table can still show the user which id came
+            // out of the source library and failed to resolve.
+            unverifiedF95Id: f95Id || "",
+            unverifiedLcId: lcId || "",
+            matchedByTitleFallback: true,
+          }
+        : matched);
 
       if (data.length === 1) {
         return await hydrateImportMatch({
-          ...applyImportMatchData(game, data[0], { f95Id, lcId }),
-          results: [{ key: "match", value: "Match Found" }],
+          ...withVerifiedIdsOnly(
+            applyImportMatchData(game, data[0], isFallback ? {} : { f95Id, lcId }),
+            data[0],
+          ),
+          results: [{
+            key: "match",
+            value: isFallback ? "Title match (ID not in catalog)" : "Match Found",
+          }],
           resultSelectedValue: "match",
           resultVisibility: "visible",
         }, "match");
       } else if (data.length > 1) {
         const results = data.map(buildImportMatchResult).filter((result) => result.key);
-        return await chooseInstalledImportMatch({ ...game, results }, results);
+        // hydrateImportMatch also falls back to the row's own f95Id/lcId when
+        // the candidate the user picks has none, so the unverified ids are
+        // stripped from the row itself before the candidate list is built.
+        const base = isFallback
+          ? {
+              ...game,
+              f95Id: "",
+              lcId: "",
+              lewdCornerId: "",
+              unverifiedF95Id: f95Id || "",
+              unverifiedLcId: lcId || "",
+              matchedByTitleFallback: true,
+            }
+          : game;
+        return await chooseInstalledImportMatch({ ...base, results }, results);
       } else {
         const unmatchedGame = await hydrateImportMatch({
           ...game,
@@ -3149,10 +3210,12 @@ ipcMain.handle("resolve-import-matches", async (event, games = []) => {
           resultSelectedValue: "",
           resultVisibility: "hidden",
         }, "");
+        // Both the id lookup AND the title fallback came back empty, so say so
+        // rather than implying only the id was tried.
         return f95Id
-          ? { ...unmatchedGame, f95Id, scanMessage: "No F95 match found" }
+          ? { ...unmatchedGame, f95Id, scanMessage: "No F95 or title match found" }
           : lcId
-            ? { ...unmatchedGame, lcId, lewdCornerId: lcId, scanMessage: "No LewdCorner match found" }
+            ? { ...unmatchedGame, lcId, lewdCornerId: lcId, scanMessage: "No LewdCorner or title match found" }
           : unmatchedGame;
       }
     } catch (err) {
