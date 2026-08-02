@@ -327,6 +327,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   downloadsFolder: () => ipcRenderer.invoke("downloads-folder"),
   downloadsOpenFolder: () => ipcRenderer.invoke("downloads-open-folder"),
   downloadsAttachFile: (params) => ipcRenderer.invoke("downloads-attach-file", params),
+  downloadsResolveMasked: (params) => ipcRenderer.invoke("downloads-resolve-masked", params),
   // Each returns its own unsubscribe function so a remounting panel does not
   // stack duplicate listeners.
   onDownloadAdded: (cb) => {
