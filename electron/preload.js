@@ -330,6 +330,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   downloadsResolveMasked: (params) => ipcRenderer.invoke("downloads-resolve-masked", params),
   downloadsInstall: (params) => ipcRenderer.invoke("downloads-install", params),
   downloadsSuggestVersion: (params) => ipcRenderer.invoke("downloads-suggest-version", params),
+  hostsList: () => ipcRenderer.invoke("hosts-list"),
+  hostsSaveAccount: (params) => ipcRenderer.invoke("hosts-save-account", params),
+  hostsRemoveAccount: (params) => ipcRenderer.invoke("hosts-remove-account", params),
+  hostsQuota: (params) => ipcRenderer.invoke("hosts-quota", params),
   updateLinksGet: (params) => ipcRenderer.invoke("update-links-get", params),
   updateLinksClearCache: (params) => ipcRenderer.invoke("update-links-clear-cache", params),
   // Each returns its own unsubscribe function so a remounting panel does not

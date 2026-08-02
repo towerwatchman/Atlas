@@ -41,13 +41,42 @@ const MAX_REDIRECTS = 10;
 // complete — browsers write partials in place, so size stability is the signal.
 const WATCH_SETTLE_MS = 2500;
 
+// ── Retry policy ─────────────────────────────────────────────────────────────
+// A transient failure gets one automatic retry after a pause; a second failure
+// stops and waits for the user. Quota is terminal immediately - waiting sixty
+// seconds does not restore a daily transfer allowance, and retrying into a wall
+// just burns through the queue. Auth is terminal for the same reason:
+// credentials do not fix themselves.
+const RETRY_DELAY_MS = 60_000;
+const MAX_AUTO_RETRIES = 1;
+const TERMINAL_KINDS = new Set(["quota", "auth", "fatal"]);
+
+// Reasons a user can act on, rather than a raw error they cannot.
+const KIND_MESSAGES = {
+  quota: "Transfer limit reached on this host. Try again later, or add an account in Settings.",
+  auth: "The host rejected your account details. Check them in Settings.",
+  fatal: "This link is no longer available.",
+};
+
+// Per-session attempt counts and pending retry timers, keyed by download id.
+// Not persisted: a restart is a reasonable moment to try again.
+const attempts = new Map();
+const retryTimers = new Map();
+
+const cancelRetry = (id) => {
+  const timer = retryTimers.get(id);
+  if (timer) {
+    clearTimeout(timer);
+    retryTimers.delete(id);
+  }
+};
+
 // Live transfers, keyed by download id, so pause/cancel can reach into them.
 const active = new Map();
 let runnerScheduled = false;
 let emitter = null;
 let watcher = null;
 let watchTimer = null;
-let attachHandler = null;
 let getDownloadsDir = () => "";
 // Per-host credentials, keyed by plugin id. Injected rather than required
 // so the manager never touches the credential store directly.
@@ -55,14 +84,13 @@ let getHostCredentials = () => ({});
 
 // ── Events ───────────────────────────────────────────────────────────────────
 
-const configure = ({ onEvent, resolveDownloadsDir, onFileReady, resolveHostCredentials }) => {
+const configure = ({ onEvent, resolveDownloadsDir, resolveHostCredentials }) => {
   emitter = typeof onEvent === "function" ? onEvent : null;
   if (typeof resolveDownloadsDir === "function") getDownloadsDir = resolveDownloadsDir;
   if (typeof resolveHostCredentials === "function") getHostCredentials = resolveHostCredentials;
   // Called with a completed file so the caller can extract it and attach the
   // version. Kept as an injected callback rather than a direct require so this
   // module has no dependency on the importer's internals.
-  attachHandler = typeof onFileReady === "function" ? onFileReady : null;
 };
 
 const emit = (type, payload) => {
@@ -205,13 +233,8 @@ const startTransfer = async (item) => {
     let transferUrl = item.url;
     const probe = await resolveDirectUrl(item.url, getHostCredentials());
     if (!probe.ok) {
-      const kind = probe.kind || "transient";
-      await setState(item.id, "failed", {
-        error: probe.error || "Could not prepare this download",
-        // Quota is terminal for now: retrying in 60s will not restore someone's
-        // daily transfer allowance, so the queue must not spin on it.
-        ...(kind === "quota" ? { receivedBytes: 0 } : {}),
-      });
+      await handleFailure(item.id, probe.kind || "transient",
+        probe.error || "Could not prepare this download");
       return;
     }
     if (!probe.passthrough) {
@@ -315,7 +338,9 @@ const startTransfer = async (item) => {
     } else if (controllerState?.paused) {
       await setState(item.id, "paused");
     } else {
-      await setState(item.id, "failed", { error: err.message || String(err) });
+      // Socket-level failures never reach a plugin's classifier, so they are
+      // treated as transient and get the one retry.
+      await handleFailure(item.id, "transient", err.message || String(err));
     }
   } finally {
     active.delete(item.id);
@@ -357,6 +382,7 @@ const finishFile = async (id, filePath, receivedBytes) => {
   // choosing a version string that becomes a folder name and may REPLACE an
   // existing build - so it waits for the user to confirm rather than acting on
   // a filename guess. The renderer drives the rest via downloads-install.
+  attempts.delete(id);
   await setState(id, "ready");
   emit("download-complete", await downloadsDb.getDownload(id));
 };
@@ -368,6 +394,49 @@ const finishFile = async (id, filePath, receivedBytes) => {
 const setItemState = (id, state, patch = {}) => setState(id, state, patch);
 
 // ── Queue runner ─────────────────────────────────────────────────────────────
+
+/**
+ * Record a failure and decide what happens next.
+ *
+ * Terminal kinds stop immediately with an explanation. A transient failure gets
+ * one automatic retry; the second stops and waits, because something silently
+ * retrying forever is worse than something that says it failed.
+ */
+const handleFailure = async (id, kind, message) => {
+  const used = attempts.get(id) || 0;
+
+  if (TERMINAL_KINDS.has(kind)) {
+    attempts.delete(id);
+    await setState(id, "failed", {
+      error: KIND_MESSAGES[kind] || message,
+      // Quota and auth leave the partial file alone: those bytes are still
+      // good and a later resume should not start from zero.
+      ...(kind === "fatal" ? { receivedBytes: 0 } : {}),
+    });
+    return;
+  }
+
+  if (used >= MAX_AUTO_RETRIES) {
+    attempts.delete(id);
+    await setState(id, "failed", { error: `${message} (retried once)` });
+    return;
+  }
+
+  attempts.set(id, used + 1);
+  await setState(id, "paused", {
+    error: `${message} — retrying in ${Math.round(RETRY_DELAY_MS / 1000)}s`,
+  });
+  cancelRetry(id);
+  retryTimers.set(id, setTimeout(async () => {
+    retryTimers.delete(id);
+    const current = await downloadsDb.getDownload(id).catch(() => null);
+    // Only resume if the user has not cancelled or removed it meanwhile.
+    if (!current || current.state !== "paused") return;
+    await downloadsDb.updateDownload(id, { state: "queued", error: "" });
+    await publish(id);
+    scheduleRunner();
+  }, RETRY_DELAY_MS));
+};
 
 const scheduleRunner = () => {
   if (runnerScheduled) return;
@@ -401,6 +470,8 @@ const enqueue = async (payload) => {
 };
 
 const pause = async (id) => {
+  // An explicit pause overrides a pending automatic retry.
+  cancelRetry(id);
   const controller = active.get(id);
   if (controller) {
     controller.paused = true;
@@ -432,6 +503,8 @@ const resume = async (id) => {
 };
 
 const cancel = async (id) => {
+  cancelRetry(id);
+  attempts.delete(id);
   const controller = active.get(id);
   if (controller) {
     controller.canceled = true;
@@ -447,6 +520,9 @@ const cancel = async (id) => {
 };
 
 const retry = async (id) => {
+  // A manual retry resets the automatic counter: the user has intervened.
+  cancelRetry(id);
+  attempts.delete(id);
   const item = await downloadsDb.getDownload(id);
   if (!item) return { success: false, error: "Download not found" };
   // A failed partial may be corrupt, so a retry starts clean rather than trying

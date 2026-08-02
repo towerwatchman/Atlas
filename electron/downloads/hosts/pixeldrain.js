@@ -154,12 +154,20 @@ async function probe(url, credentials = {}) {
   };
 }
 
-/** Cheap credential check for the Settings screen. */
+/**
+ * Confirm a key works, and report what the account is.
+ *
+ * /api/user is the documented account endpoint. Its exact response shape is not
+ * something we can pin down offline, so every field is read defensively and a
+ * parse failure degrades to "the key works, we just cannot describe it" rather
+ * than reporting a valid key as broken.
+ */
 async function validate(credentials = {}) {
   const apiKey = String(credentials?.apiKey || credentials?.password || "").trim();
   if (!apiKey) return { ok: true, anonymous: true };
+
   try {
-    const response = await fetch(`${BASE}/api/user/files`, {
+    const response = await fetch(`${BASE}/api/user`, {
       headers: { "user-agent": "Atlas", ...authHeaders(credentials) },
     });
     if (response.status === 401 || response.status === 403) {
@@ -168,7 +176,61 @@ async function validate(credentials = {}) {
     if (!response.ok) {
       return { ok: false, error: `Pixeldrain returned ${response.status}` };
     }
-    return { ok: true, anonymous: false };
+    const info = await response.json().catch(() => null);
+    return {
+      ok: true,
+      anonymous: false,
+      username: String(info?.username || "").trim(),
+      // Subscription naming varies; take whatever is there and show it as-is
+      // rather than mapping to names that might not match theirs.
+      plan: String(info?.subscription?.name || info?.subscription?.id || "").trim(),
+    };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+/**
+ * Transfer allowance, when the host will tell us.
+ *
+ * Pixeldrain caps transfer rather than requests, and the cap is what users
+ * actually hit mid-queue. Reporting it turns "download failed" into "you have
+ * used your daily transfer" - the difference between a bug report and an
+ * understood limit.
+ *
+ * Field names are read defensively across several plausible spellings because
+ * the response shape could not be verified offline. Unknown is a valid answer;
+ * inventing a number would be worse.
+ */
+async function getQuota(credentials = {}) {
+  try {
+    const response = await fetch(`${BASE}/api/user`, {
+      headers: { "user-agent": "Atlas", ...authHeaders(credentials) },
+    });
+    if (!response.ok) {
+      return { ok: false, error: `Pixeldrain returned ${response.status}` };
+    }
+    const info = await response.json().catch(() => null);
+    if (!info) return { ok: false, error: "Could not read the quota response" };
+
+    const pick = (...keys) => {
+      for (const key of keys) {
+        const value = info?.[key] ?? info?.subscription?.[key];
+        if (typeof value === "number" && Number.isFinite(value)) return value;
+      }
+      return null;
+    };
+    const used = pick("transfer_used", "transferUsed", "monthly_transfer_used");
+    const cap = pick("transfer_cap", "transferCap", "monthly_transfer_cap");
+
+    return {
+      ok: true,
+      used,
+      cap,
+      // Only meaningful when both numbers came back.
+      remaining: used != null && cap != null ? Math.max(0, cap - used) : null,
+      plan: String(info?.subscription?.name || "").trim(),
+    };
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
   }
@@ -178,9 +240,21 @@ module.exports = {
   id,
   label,
   supportsAnonymous,
+  // What the Settings form should ask for. An API key is preferred over a
+  // password: a leaked scoped key is a smaller problem than a leaked account.
+  credentialFields: [
+    {
+      key: "apiKey",
+      label: "API key",
+      type: "password",
+      help: "Found under your Pixeldrain account settings. Optional - "
+        + "downloads work without one, but an account raises the transfer limit.",
+    },
+  ],
   matches,
   probe,
   validate,
+  getQuota,
   classifyError,
   // Exported for tests
   fileIdFrom,
