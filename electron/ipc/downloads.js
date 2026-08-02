@@ -55,6 +55,10 @@ const broadcastSummary = async () => {
       active: items.length,
       running: running.length,
       awaitingFile: items.filter((item) => item.state === "awaiting_file").length,
+      // Downloads sitting at the confirmation step. Surfaced separately so the
+      // footer can say "N ready to install" rather than lumping them in with
+      // queued items still waiting on bytes.
+      ready: items.filter((item) => item.state === "ready").length,
       failed: items.filter((item) => item.state === "failed").length,
       percent: totalBytes > 0 ? Math.round((receivedBytes / totalBytes) * 100) : null,
     });

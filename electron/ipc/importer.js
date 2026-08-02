@@ -12,6 +12,10 @@ const { calculatePathSize } = require('../pathSize')
 const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
         checkRecordExist, checkPathExist } = require('../db/atlas')
 const { getGame } = require('../db/versions')
+// db/index exposes `db` as a getter populated after initializeDatabase().
+// Read through the module at call time; capturing it at require time
+// would bind null.
+const dbModule = require('../db/index')
 const { fetchAndStoreSteamData, isSteamAppInstalled } = require('../scanners/steamscanner')
 const { fetchAndStoreGogData, startGogScan } = require('../scanners/gogscanner')
 const { findExecutables } = require("../scanners/executableScanner");
@@ -1106,7 +1110,7 @@ async function replaceInstalledVersionAfterImport({
   const selectedVersionId = Number.parseInt(replaceVersionId, 10);
   const oldVersion = oldVersionSnapshot || (Number.isInteger(selectedVersionId) && selectedVersionId > 0
     ? await dbGet(
-        db,
+        dbModule.db,
         `SELECT rowid AS version_id, version, game_path, exec_path
          FROM versions WHERE rowid = ? AND record_id = ? LIMIT 1`,
         [selectedVersionId, recordId],
@@ -1129,7 +1133,7 @@ async function replaceInstalledVersionAfterImport({
   });
   if (!oldPath) {
     if (oldVersion.version_id) {
-      await dbRun(db, `DELETE FROM versions WHERE rowid = ? AND record_id = ?`, [oldVersion.version_id, recordId]);
+      await dbRun(dbModule.db, `DELETE FROM versions WHERE rowid = ? AND record_id = ?`, [oldVersion.version_id, recordId]);
     } else {
       await deleteVersion(recordId, selectedReplaceVersion);
     }
@@ -1243,7 +1247,7 @@ async function replaceInstalledVersionAfterImport({
   }
 
   if (deleteDatabaseRow && oldVersion.version_id) {
-    const deleteRowResult = await dbRun(db, `DELETE FROM versions WHERE rowid = ? AND record_id = ?`, [oldVersion.version_id, recordId]);
+    const deleteRowResult = await dbRun(dbModule.db, `DELETE FROM versions WHERE rowid = ? AND record_id = ?`, [oldVersion.version_id, recordId]);
     audit("database-delete-result", {
       resolvedVersionId: oldVersion.version_id,
       changes: deleteRowResult?.changes ?? null,
@@ -4640,7 +4644,7 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
         replaceTargetId = installed.version_id ?? null;
       }
     }
-    const savedVersion = await addVersion(
+    const addResult = await addVersion(
       {
         version: finalVersion,
         folder: gamePath,
@@ -4651,6 +4655,11 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
       },
       item.recordId,
     );
+    // addVersion resolves { version }, not a string. Reading it as a string put
+    // "[object Object]" into the version column and the replacement audit.
+    // It can also differ from what we asked for, since addVersion renames for
+    // uniqueness - so this is the value everything downstream must use.
+    const savedVersion = addResult?.version || finalVersion;
 
     // Replacing swaps the previously installed build out; keep-both simply
     // leaves it alone. Never fatal - the new version is already attached, and
@@ -4663,6 +4672,11 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
           newGamePath: gamePath,
           replaceVersion: replaceTarget,
           replaceVersionId: replaceTargetId,
+          // The old version row goes. The normal import path passes false here
+          // because it deletes the row itself later; this path does not, so
+          // leaving the default meant the superseded version stayed in the
+          // library list after a successful replace.
+          deleteDatabaseRow: true,
           libraryRoot: targetLibrary,
           auditDataDir: dataDir,
           sender: ownerWindow,

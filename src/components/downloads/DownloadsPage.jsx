@@ -70,25 +70,122 @@ const formatWhen = (timestamp) => {
     : `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`
 }
 
+// Banners can be video as well as still images. Matching the library's
+// convention: GIF is an image and animates in an <img> on its own, only
+// mp4/webm need a <video>. Rendering a video url in an <img> yields a broken
+// icon, which is what the downloads list was doing.
+const VIDEO_EXTENSIONS = /\.(mp4|webm|m4v|mov)$/i
+const isVideoUrl = (url) =>
+  typeof url === 'string' && VIDEO_EXTENSIONS.test(url.split(/[?#]/)[0])
+
 // Wide capsule, same proportions Steam uses in this list.
 function Cover({ game, title }) {
-  const src = game?.banner_url ? toMediaSrc(game.banner_url) : ''
+  const raw = game?.banner_url || ''
+  const src = raw ? toMediaSrc(raw) : ''
+  const [failed, setFailed] = useState(false)
+  const video = isVideoUrl(raw)
+
   return (
     <div className="w-[120px] sm:w-[160px] aspect-[184/69] shrink-0 rounded overflow-hidden bg-tertiary border border-border">
-      {src ? (
-        <img
-          src={src}
-          alt=""
-          loading="lazy"
-          className="w-full h-full object-cover"
-          onError={(event) => { event.currentTarget.style.display = 'none' }}
-        />
+      {src && !failed ? (
+        video ? (
+          // Muted + playsInline so it can autoplay; a banner that demands a
+          // click to move would be worse than a still.
+          <video
+            src={src}
+            className="w-full h-full object-cover"
+            autoPlay
+            loop
+            muted
+            playsInline
+            onError={() => setFailed(true)}
+          />
+        ) : (
+          <img
+            src={src}
+            alt=""
+            loading="lazy"
+            className="w-full h-full object-cover"
+            onError={() => setFailed(true)}
+          />
+        )
       ) : (
         <div className="w-full h-full flex items-center justify-center text-muted">
           <i className="fas fa-gamepad text-lg" aria-hidden="true"></i>
         </div>
       )}
       <span className="sr-only">{title}</span>
+    </div>
+  )
+}
+
+// ── 4. Throughput graph ──────────────────────────────────────────────────────
+// Aggregate across active transfers, matching Steam's. Per-item lines were the
+// alternative; aggregate is what the screenshot shows and stays readable when
+// several downloads run at once.
+//
+// Drawn as an SVG path rather than a canvas so it inherits theme colours and
+// scales with the layout without a resize observer.
+function SpeedGraph({ samples, current, peak }) {
+  const width = 600
+  const height = 64
+  // Scale to the window's own peak, not the session peak: a graph flattened
+  // by one earlier burst tells you nothing about what is happening now.
+  const windowPeak = Math.max(1, ...samples)
+  const step = samples.length > 1 ? width / (samples.length - 1) : width
+
+  const points = samples.map((value, index) => {
+    const x = index * step
+    const y = height - (value / windowPeak) * (height - 6) - 3
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  })
+  const line = points.length > 1 ? `M${points.join(' L')}` : ''
+  const area = line ? `${line} L${width},${height} L0,${height} Z` : ''
+
+  return (
+    <div className="rounded border border-border bg-primary/50 p-3">
+      <div className="flex items-baseline justify-between mb-2">
+        <span className="text-[10px] uppercase tracking-wide text-muted">Download speed</span>
+        <span className="text-sm text-text tabular-nums">{formatRate(current)}</span>
+      </div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        className="w-full h-16 block"
+        role="img"
+        aria-label={`Download speed, currently ${formatRate(current)}`}
+      >
+        <defs>
+          <linearGradient id="dlspeed" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="currentColor" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {[0.25, 0.5, 0.75].map((fraction) => (
+          <line
+            key={fraction}
+            x1="0" x2={width}
+            y1={height * fraction} y2={height * fraction}
+            stroke="currentColor" strokeOpacity="0.08" strokeWidth="1"
+            className="text-text"
+          />
+        ))}
+        {area && <path d={area} fill="url(#dlspeed)" className="text-accent" />}
+        {line && (
+          <path
+            d={line}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+            className="text-accent"
+          />
+        )}
+      </svg>
+      <div className="flex justify-between mt-1 text-[10px] text-muted">
+        <span>60s</span>
+        <span>peak {formatRate(peak)}</span>
+      </div>
     </div>
   )
 }
@@ -140,6 +237,9 @@ function Action({ icon, title, onClick, tone = 'default', disabled }) {
 export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame }) {
   const [items, setItems] = useState([])
   const [rates, setRates] = useState({})
+  // Mirror of `rates` for the sampling interval, so the timer is created once
+  // rather than torn down and rebuilt on every progress update.
+  const ratesRef = useRef({})
   const [busyId, setBusyId] = useState(null)
   const [folder, setFolder] = useState('')
   // The item awaiting install confirmation, plus the version Atlas suggests
@@ -147,6 +247,9 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
   const [installTarget, setInstallTarget] = useState(null)
   const samplesRef = useRef(new Map())
   const peakRef = useRef(0)
+  // 60 one-second samples of aggregate throughput. Kept in state rather than a
+  // ref because the graph has to re-render as it fills.
+  const [speedHistory, setSpeedHistory] = useState(() => new Array(60).fill(0))
 
   const refresh = useCallback(async () => {
     try {
@@ -180,7 +283,11 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
         const elapsed = (stamp - previous.stamp) / 1000
         const gained = (item.receivedBytes || 0) - previous.bytes
         if (elapsed >= 0.25 && gained >= 0) {
-          setRates((prev) => ({ ...prev, [item.id]: gained / elapsed }))
+          setRates((prev) => {
+            const next = { ...prev, [item.id]: gained / elapsed }
+            ratesRef.current = next
+            return next
+          })
         }
       }
       samplesRef.current.set(item.id, { bytes: item.receivedBytes || 0, stamp })
@@ -197,6 +304,17 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
     return () => offs.forEach((off) => { if (typeof off === 'function') off() })
   }, [refresh])
 
+  // Fixed 1s tick so the x-axis is real time. Sampling on progress events
+  // instead would make the axis depend on transfer speed, which is exactly the
+  // variable being plotted.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const total = Object.values(ratesRef.current).reduce((sum, rate) => sum + rate, 0)
+      setSpeedHistory((prev) => [...prev.slice(1), total])
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
+
   const act = useCallback(async (action, id) => {
     setBusyId(id)
     try {
@@ -205,6 +323,16 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
       setBusyId(null)
     }
   }, [])
+
+  // Drop rate entries for anything no longer downloading, otherwise a finished
+  // transfer keeps contributing its last speed to the aggregate indefinitely.
+  useEffect(() => {
+    const live = new Set(items.filter((i) => i.state === 'downloading').map((i) => i.id))
+    const pruned = Object.fromEntries(
+      Object.entries(ratesRef.current).filter(([id]) => live.has(Number(id))),
+    )
+    ratesRef.current = pruned
+  }, [items])
 
   const { current, upNext, finished } = useMemo(() => ({
     current: items.filter((item) => ACTIVE_STATES.includes(item.state)),
@@ -254,7 +382,10 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
     const tone = item.state === 'failed' ? 'danger' : item.state === 'done' ? 'success' : 'accent'
 
     return (
-      <div key={item.id} className="flex items-center gap-3 sm:gap-4 py-3 border-b border-border/60 last:border-b-0">
+      <div
+        key={item.id}
+        className="group flex items-center gap-3 sm:gap-4 p-3 mb-2 rounded-lg border border-border bg-primary/60 transition-colors hover:bg-tertiary/50 hover:border-accent/40"
+      >
         <button
           type="button"
           onClick={() => game && onOpenGame?.(game)}
@@ -376,7 +507,7 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
         <div className="flex-1 h-px bg-border" />
         {action}
       </div>
-      <div className="mt-1">{children}</div>
+      <div className="mt-2">{children}</div>
     </section>
   )
 
@@ -403,6 +534,15 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
       </div>
 
       <div className="px-4 sm:px-6 py-4 pb-10 max-w-6xl">
+        {(current.length > 0 || speedHistory.some((value) => value > 0)) && (
+          <div className="mb-5">
+            <SpeedGraph
+              samples={speedHistory}
+              current={totalRate}
+              peak={peakRef.current}
+            />
+          </div>
+        )}
         {items.length === 0 && (
           <div className="py-16 text-center">
             <i className="fas fa-download text-3xl text-muted/50" aria-hidden="true"></i>

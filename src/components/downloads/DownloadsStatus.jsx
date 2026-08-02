@@ -60,20 +60,26 @@ export default function DownloadsStatus({ onOpen, active = false }) {
   }, [])
 
   const { active: activeCount, running, failed, awaitingFile, percent } = summary
+  const readyCount = summary.ready || 0
 
-  let label = ''
+  // The word "Downloads" is always present, with the current state after a
+  // dash - so the control reads the same whether or not anything is happening,
+  // rather than appearing and disappearing.
+  let state = 'Idle'
   if (running > 0) {
-    label = percent === null
+    state = percent === null
       ? `Downloading ${running} item${running === 1 ? '' : 's'}`
-      : `Downloading — ${percent}%`
+      : `Downloading ${percent}%`
   } else if (failed > 0) {
-    label = `${failed} failed`
+    state = `${failed} failed`
+  } else if (readyCount > 0) {
+    state = `${readyCount} ready to install`
   } else if (awaitingFile > 0) {
-    label = `${awaitingFile} waiting for your browser`
+    state = `${awaitingFile} waiting on your browser`
   } else if (activeCount > 0) {
-    label = `${activeCount} queued`
+    state = `${activeCount} queued`
   } else if (completed > 0) {
-    label = `${completed} of ${completed} complete`
+    state = `${completed} of ${completed} complete`
   }
 
   return (
@@ -81,19 +87,29 @@ export default function DownloadsStatus({ onOpen, active = false }) {
       type="button"
       onClick={onOpen}
       title="Downloads"
-      className={`h-full px-2.5 inline-flex items-center gap-2 text-xs transition-colors ${
-        active ? 'text-text bg-selected' : 'text-muted hover:text-text hover:bg-tertiary'
-      }`}
+      // No background on the control itself - only the icon and text change
+      // colour. A filled block in the footer read as a heavy button next to the
+      // flat controls either side of it.
+      className="group h-full px-2.5 inline-flex items-center gap-2 text-xs bg-transparent"
     >
-      <span className="relative inline-flex items-center">
+      <span
+        className={`relative inline-flex items-center transition-colors ${
+          active ? 'text-accent' : 'text-muted group-hover:text-text'
+        }`}
+      >
         <i className="fas fa-download text-sm" aria-hidden="true"></i>
         {failed > 0 && (
           <span className="absolute -top-1 -right-1.5 w-1.5 h-1.5 rounded-full bg-danger" />
         )}
       </span>
-      {label && (
-        <span className="hidden sm:inline whitespace-nowrap">{label}</span>
-      )}
+      <span
+        className={`whitespace-nowrap transition-colors ${
+          active ? 'text-accent' : 'text-muted group-hover:text-text'
+        }`}
+      >
+        <span className="hidden sm:inline">Downloads</span>
+        <span className="hidden md:inline"> &ndash; {state}</span>
+      </span>
       {running > 0 && (
         <span className="hidden md:block w-20">
           <span className="block h-1 rounded-full bg-tertiary overflow-hidden">
