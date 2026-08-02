@@ -136,11 +136,16 @@ async function probe(url, credentials = {}) {
     return { ok: false, kind: classifyError(err), error: err.message || String(err) };
   }
 
-  if (!response.ok || info?.success === false) {
+  // A null `info` means the body would not parse. That has to fail: with a 200
+  // and info === null, `info?.success === false` is undefined rather than true,
+  // so an earlier version of this guard let a garbage response through as a
+  // successful probe with an empty filename and zero size.
+  if (!response.ok || !info || info.success === false) {
     return {
       ok: false,
       kind: classifyError(null, { status: response.status, body: info }),
-      error: info?.message || `Pixeldrain returned ${response.status}`,
+      error: info?.message
+        || (info ? `Pixeldrain returned ${response.status}` : "Unreadable response from Pixeldrain"),
     };
   }
 

@@ -101,6 +101,161 @@ const ok = (condition, message) => { assert.ok(condition, message); checks += 1;
        "mega rejected with a reason");
   }
 
+  // ── probe / validate / getQuota, with fetch stubbed ───────────────────────
+  //
+  // These were previously untested because they make network calls, which left
+  // the three most consequential functions in the plugin unverified: probe
+  // decides whether any bytes move at all, and getQuota reads a field whose
+  // documented meaning is easy to get backwards.
+
+  const realFetch = global.fetch;
+  const stub = (handler) => { global.fetch = handler; };
+  const jsonResponse = (body, status = 200) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  });
+
+  try {
+    // ── probe: the happy path ───────────────────────────────────────────────
+    // The real failure this whole layer exists for: /u/{id} is an HTML page,
+    // the bytes live at /api/file/{id}.
+    {
+      let requested = null;
+      stub(async (url) => {
+        requested = url;
+        return jsonResponse({ id: "UPND8Ncr", name: "AFamilyVenture-0.09.zip",
+                              size: 1234567, mime_type: "application/zip" });
+      });
+      const result = await pixeldrain.probe("https://pixeldrain.com/u/UPND8Ncr");
+      eq(result.ok, true, "probe succeeds");
+      eq(requested, "https://pixeldrain.com/api/file/UPND8Ncr/info", "hits the info endpoint");
+      eq(result.directUrl, "https://pixeldrain.com/api/file/UPND8Ncr?download",
+         "share page becomes a direct file url");
+      eq(result.fileName, "AFamilyVenture-0.09.zip", "real filename from the host");
+      eq(result.fileSize, 1234567, "size for an honest progress bar");
+    }
+
+    // An api key must reach the info call AND come back for the transfer, since
+    // the limit applies to the download too, not just the lookup.
+    {
+      let sentAuth = null;
+      stub(async (url, init) => {
+        sentAuth = init?.headers?.authorization;
+        return jsonResponse({ id: "abc", name: "g.zip", size: 1 });
+      });
+      const result = await pixeldrain.probe("https://pixeldrain.com/u/abc", { apiKey: "k" });
+      ok(sentAuth?.startsWith("Basic "), "probe sends auth when a key is present");
+      eq(result.headers.authorization, sentAuth, "and returns it for the transfer");
+    }
+
+    // ── probe: failures classify correctly ──────────────────────────────────
+    {
+      stub(async () => jsonResponse(
+        { success: false, value: "file_not_found", message: "gone" }, 404));
+      const result = await pixeldrain.probe("https://pixeldrain.com/u/missing");
+      eq(result.ok, false, "404 fails");
+      eq(result.kind, "fatal", "a missing file is not worth retrying");
+    }
+    {
+      // 403 + rate-limit value. Per the docs this fires on hotlinking, which a
+      // direct api fetch IS - so free users will meet it on popular files.
+      stub(async () => jsonResponse(
+        { success: false, value: "file_rate_limited_captcha_required" }, 403));
+      const result = await pixeldrain.probe("https://pixeldrain.com/u/hot");
+      eq(result.kind, "quota", "rate limiting is quota, not auth, despite the 403");
+    }
+    {
+      // The other 403. Same status, completely different meaning, and it must
+      // NOT be treated as a quota the user can wait out.
+      stub(async () => jsonResponse(
+        { success: false, value: "virus_detected_captcha_required" }, 403));
+      const result = await pixeldrain.probe("https://pixeldrain.com/u/bad");
+      eq(result.kind, "blocked", "a malware flag is terminal and distinct from quota");
+    }
+    {
+      stub(async () => { throw new Error("ECONNRESET"); });
+      const result = await pixeldrain.probe("https://pixeldrain.com/u/x");
+      eq(result.ok, false, "network error fails");
+      eq(result.kind, "transient", "and is retryable");
+    }
+    {
+      // A non-JSON body means something intercepted the request.
+      stub(async () => ({ ok: true, status: 200, json: async () => { throw new Error("not json"); } }));
+      const result = await pixeldrain.probe("https://pixeldrain.com/u/x");
+      eq(result.ok, false, "unparseable response is a failure, not a silent pass");
+    }
+
+    // ── getQuota ────────────────────────────────────────────────────────────
+    {
+      stub(async () => jsonResponse({
+        username: "tower",
+        monthly_transfer_used: 5_000_000,
+        monthly_transfer_cap: 20_000_000,
+        subscription: { name: "Pro" },
+      }));
+      const result = await pixeldrain.getQuota({ apiKey: "k" });
+      eq(result.ok, true, "quota read");
+      eq(result.used, 5_000_000, "documented field name monthly_transfer_used");
+      eq(result.cap, 20_000_000, "documented field name monthly_transfer_cap");
+      eq(result.remaining, 15_000_000, "remaining computed");
+      eq(result.plan, "Pro", "plan reported");
+    }
+    {
+      // THE one worth pinning. The docs state a cap of 0 means NO custom cap.
+      // Reading it as a literal limit reported "0 of 0 bytes" to every user who
+      // had not configured one.
+      stub(async () => jsonResponse({
+        monthly_transfer_used: 5_000_000, monthly_transfer_cap: 0,
+      }));
+      const result = await pixeldrain.getQuota({ apiKey: "k" });
+      eq(result.cap, null, "a cap of 0 is not a cap");
+      eq(result.unlimited, true, "it means unlimited");
+      eq(result.remaining, null, "so nothing is 'remaining'");
+      eq(result.used, 5_000_000, "usage still reported");
+    }
+
+    // ── validate ────────────────────────────────────────────────────────────
+    {
+      // No key is a valid state: downloads work anonymously.
+      const result = await pixeldrain.validate({});
+      eq(result.ok, true, "no key validates as anonymous");
+      eq(result.anonymous, true, "and says so");
+    }
+    {
+      stub(async () => jsonResponse({ username: "tower", subscription: { name: "Pro" } }));
+      const result = await pixeldrain.validate({ apiKey: "good" });
+      eq(result.ok, true, "good key accepted");
+      eq(result.username, "tower", "username surfaced for the settings row");
+      eq(result.plan, "Pro", "plan surfaced");
+    }
+    {
+      stub(async () => jsonResponse({ success: false }, 401));
+      const result = await pixeldrain.validate({ apiKey: "bad" });
+      eq(result.ok, false, "bad key rejected before being stored");
+      ok(/rejected/i.test(result.error), "with a message the user can act on");
+    }
+    {
+      // A shape change must not report a working key as broken.
+      stub(async () => ({ ok: true, status: 200, json: async () => { throw new Error("x"); } }));
+      const result = await pixeldrain.validate({ apiKey: "good" });
+      eq(result.ok, true, "unparseable body still counts as a valid key");
+      eq(result.username, "", "just with nothing to describe it");
+    }
+
+    // ── resolveDirectUrl end to end through the registry ────────────────────
+    {
+      stub(async () => jsonResponse({ id: "z", name: "game.zip", size: 42 }));
+      const result = await registry.resolveDirectUrl("https://pixeldrain.com/u/z");
+      eq(result.ok, true, "registry routes to the plugin");
+      eq(result.plugin, "pixeldrain", "and reports which one");
+      eq(result.directUrl, "https://pixeldrain.com/api/file/z?download", "translated");
+      eq(result.passthrough, undefined, "not a passthrough");
+    }
+  } finally {
+    global.fetch = realFetch;
+  }
+
   console.log(`Host plugin checks passed (${checks} assertions)`);
 })().catch((err) => {
   console.error(err);

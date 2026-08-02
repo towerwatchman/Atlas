@@ -11,7 +11,11 @@ const { Worker } = require('worker_threads')
 const { calculatePathSize } = require('../pathSize')
 const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
         checkRecordExist, checkPathExist } = require('../db/atlas')
-const { getGame } = require('../db/versions')
+// getVersionPathsForRecord is used inside replaceInstalledVersionAfterImport
+// but was never imported. Same latent bug as the bare `db`: the only prior
+// caller passes deleteDatabaseRow:false and never reaches those lines, so
+// nothing exercised them until the download install path enabled the delete.
+const { getGame, getVersionPathsForRecord } = require('../db/versions')
 // db/index exposes `db` as a getter populated after initializeDatabase().
 // Read through the module at call time; capturing it at require time
 // would bind null.
