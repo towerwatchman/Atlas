@@ -11,13 +11,21 @@
 // offline, and the landing page loads reCAPTCHA. A real browser is the only
 // honest way through.
 //
-// What this deliberately does NOT do: click anything. No auto-clicking
-// .host_link, no synthetic events, no user-agent games, no headless pass. The
-// window is shown, the user acts, and Atlas watches the address bar. That
-// keeps a human satisfying the check rather than a script imitating one, and
-// it is also the only version that does not put the user's forum account at
-// risk. If that boundary ever needs revisiting, it should be a deliberate
-// decision and not something that drifts in as a convenience.
+// Two-stage resolve. The window is created HIDDEN and the continue link is
+// clicked programmatically; if that produces a destination within a few
+// seconds, the user never sees anything. If it does not - because reCAPTCHA
+// decided to challenge, or the markup changed - the window is revealed and the
+// user finishes it themselves.
+//
+// Clicking programmatically is done on the basis that F95zone confirmed it is
+// acceptable. It is also long-established in this ecosystem: F95Checker's
+// css_redirect does the same, as does the public userscript.
+//
+// What is still NOT done here: no user-agent spoofing, no stealth flags, no
+// solving service, and no attempt to make automated traffic look human. The
+// click is a click. If the site decides a human is needed, the fallback shows
+// the page and lets one answer - the automation is a convenience on the happy
+// path, never a way around a challenge that actually fires.
 //
 // ── The fragment problem ─────────────────────────────────────────────────────
 //
@@ -45,6 +53,37 @@ const {
 // Long enough for a slow challenge, short enough that a forgotten window does
 // not pin a queue slot indefinitely.
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
+
+// How long the hidden attempt gets before the window is revealed. Generous
+// enough for a cold page load plus reCAPTCHA initialising on a slow
+// connection, short enough that a user staring at a stalled download does not
+// wait long for something to appear.
+const DEFAULT_HEADLESS_MS = 9000;
+
+// Injected after load. Waits for the continue link to exist before clicking,
+// because it is added by /assets/js/masked.js after reCAPTCHA initialises -
+// clicking earlier hits nothing. A MutationObserver rather than a poll for the
+// same reason the userscript uses one: the element arrives late and there is
+// no load event marking it.
+//
+// The 400ms settle is NOT about looking human. reCAPTCHA attaches its own
+// handler to this element, and clicking in the same tick it appears can fire
+// before that handler is bound, which silently does nothing.
+const CLICK_HOST_LINK = `
+  (function () {
+    var clicked = false;
+    function attempt() {
+      if (clicked) return;
+      var el = document.querySelector('.host_link');
+      if (!el) return;
+      clicked = true;
+      setTimeout(function () { el.click(); }, 400);
+    }
+    var observer = new MutationObserver(attempt);
+    observer.observe(document.body, { childList: true, subtree: true });
+    attempt();
+  })();
+`;
 
 // Cookie header -> individual cookies on the window's session, so F95 sees the
 // user's real login. Stored cookies come back as a single header string, which
@@ -96,6 +135,10 @@ function resolveMaskedLink(maskedUrl, options = {}) {
     cookieHeader = "",
     title = "",
     timeoutMs = DEFAULT_TIMEOUT_MS,
+    // Set false to go straight to a visible window - useful if the automated
+    // path ever starts misbehaving in the field.
+    headless = true,
+    headlessTimeoutMs = DEFAULT_HEADLESS_MS,
   } = options;
 
   return new Promise((resolve) => {
@@ -135,11 +178,31 @@ function resolveMaskedLink(maskedUrl, options = {}) {
 
     let settled = false;
     let timer = null;
+    let revealTimer = null;
+    let revealed = false;
+    // Which path produced the answer. Reported in the result so the first real
+    // runs show whether the hidden attempt is actually working, rather than
+    // this being assumed.
+    let resolvedVia = headless ? "headless" : "visible";
+
+    // Show the window and stop pretending this will resolve itself.
+    const reveal = (reason) => {
+      if (revealed || settled) return;
+      revealed = true;
+      resolvedVia = `visible:${reason}`;
+      try {
+        if (!win.isDestroyed()) {
+          win.show();
+          win.focus();
+        }
+      } catch { /* window gone */ }
+    };
 
     const finish = (result) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      if (revealTimer) clearTimeout(revealTimer);
       const diagnostics = {
         // Which sources produced an off-site URL, and did each keep the
         // fragment. Log this on the first real resolve.
@@ -149,6 +212,8 @@ function resolveMaskedLink(maskedUrl, options = {}) {
           host: hostOf(url) || "?",
         })),
         fragmentSources: candidates.filter((entry) => entry.fragment).map((entry) => entry.source),
+        resolvedVia,
+        revealed,
       };
       try {
         if (!win.isDestroyed()) win.destroy();
@@ -224,6 +289,18 @@ function resolveMaskedLink(maskedUrl, options = {}) {
       callback({ cancel: false });
     });
 
+    // Click the continue link once the page has loaded. Harmless when the
+    // element never appears - the reveal timer covers that case.
+    contents.on("did-finish-load", () => {
+      if (settled) return;
+      const current = contents.getURL();
+      // Only on the gate page; never inject into the destination host.
+      if (!isGateUrl(current)) return;
+      contents.executeJavaScript(CLICK_HOST_LINK, true).catch(() => {
+        // A failed injection is not fatal; the window will be revealed.
+      });
+    });
+
     // ── User closed the window ──────────────────────────────────────────────
     win.on("closed", () => {
       if (settled) return;
@@ -238,6 +315,11 @@ function resolveMaskedLink(maskedUrl, options = {}) {
       finish({ ok: false, error: "Resolve window crashed" });
     });
 
+    // Hidden attempt gets a short window before the user is brought in.
+    if (headless) {
+      revealTimer = setTimeout(() => reveal("timeout"), headlessTimeoutMs);
+    }
+
     timer = setTimeout(() => {
       if (!settleFromCandidates()) {
         finish({ ok: false, timedOut: true, error: "Timed out waiting for the download link" });
@@ -249,11 +331,15 @@ function resolveMaskedLink(maskedUrl, options = {}) {
       try {
         await applyCookies(ses, cookieHeader, `https://${F95_HOST}/`);
         await contents.loadURL(maskedUrl);
-        if (!win.isDestroyed()) win.show();
+        // Stay hidden while the automated attempt runs. reveal() brings it up
+        // if that does not pan out.
+        if (!headless) reveal("requested");
       } catch (err) {
         // ERR_ABORTED is expected when we preventDefault a navigation we were
         // already happy with, so only report it if nothing was captured.
         if (!settleFromCandidates()) {
+          // A load failure is exactly when a human should get a look.
+          reveal("load-error");
           finish({ ok: false, error: err.message || String(err) });
         }
       }
