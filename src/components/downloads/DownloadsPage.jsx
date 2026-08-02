@@ -550,7 +550,15 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
   }
 
   return (
-    <div className="h-full overflow-y-auto">
+    // No scroll container here. #gameGrid is already overflow-y-auto, and
+    // nesting a second scroller inside it meant two reserved scrollbar
+    // gutters - the inner one showing as dead space down the right of the
+    // page. CollectionsView, the sibling view, sets no overflow for the
+    // same reason and lets the grid do the scrolling.
+    //
+    // The sticky header still works: it now sticks against #gameGrid
+    // rather than against a nested box, which is what was wanted anyway.
+    <div>
       {/* Header: throughput, mirroring Steam's network/peak/disk row. */}
       {/* Header uses the same surface as a hovered card, so it reads as a
           distinct band above the list rather than blending into it. Opaque
@@ -585,7 +593,7 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
         </div>
       </div>
 
-      <div className="px-4 sm:px-6 py-4 pb-10 w-full">
+      <div className="px-4 sm:px-6 py-4 pb-10">
 
         {items.length === 0 && (
           <div className="py-16 text-center">

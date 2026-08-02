@@ -2130,7 +2130,13 @@ const App = () => {
                 : showLibrarySidebar ? 'ml-[260px]' : 'ml-[60px]'
           }`}
           ref={gameGridRef}
-          style={{ overflowX: 'hidden' }}
+          // overflowY: 'scroll' rather than 'auto' so the track is always
+          // drawn. The space is reserved either way; with 'auto' a short view
+          // left it as an unexplained blank strip down the right, which is
+          // what showed on the downloads page. An always-visible track also
+          // stops the grid shifting horizontally when a filter narrows the
+          // results enough to remove the scrollbar.
+          style={{ overflowX: 'hidden', overflowY: 'scroll' }}
         >
           {!selectedGame && libraryView !== 'collections' && activeCollection && (
             <div className="mx-3 mb-1 mt-3 flex items-center gap-3 rounded border border-border bg-secondary px-4 py-2 text-sm text-text">
