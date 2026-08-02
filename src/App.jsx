@@ -23,7 +23,8 @@ import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
 import RefreshMediaModal from './components/ui/RefreshMediaModal.jsx'
-import DownloadsDock from './components/downloads/DownloadsDock.jsx'
+import DownloadsPage from './components/downloads/DownloadsPage.jsx'
+import DownloadsStatus from './components/downloads/DownloadsStatus.jsx'
 import { useToast } from './components/ui/toast/ToastContext.jsx'
 import { useGames } from './hooks/useGames.js'
 import {
@@ -667,6 +668,16 @@ const App = () => {
     setLibraryMode('local')
     setSelectedGame(null)
     setLibraryView('collections')
+  }, [])
+
+  // Downloads is a full view rather than an overlay: transfers are long
+  // running and people leave the screen open to watch them, which wants room
+  // for cover art and per-item detail. Same shape as openCollections so the
+  // back-to-library affordances keep working.
+  const openDownloads = useCallback(() => {
+    setLibraryMode('local')
+    setSelectedGame(null)
+    setLibraryView('downloads')
   }, [])
 
   // Opening a collection is a filtered local view, exactly like Favorites: it
@@ -2186,6 +2197,11 @@ const App = () => {
               openRatingFor={pendingRatingRecordId}
               onRatingOpened={() => setPendingRatingRecordId(null)}
             />
+          ) : libraryView === 'downloads' ? (
+            <DownloadsPage
+              gamesByRecordId={gamesByRecordId}
+              onOpenGame={selectGame}
+            />
           ) : libraryView === 'collections' ? (
             <CollectionsView
               collections={collections}
@@ -2592,7 +2608,12 @@ const App = () => {
               : `${installedGameCount} Games Installed, ${totalVersions} Total Versions`}
           </span>
         </div>
-        <div aria-hidden="true"></div>
+        <div className="justify-self-end flex items-center h-full">
+          <DownloadsStatus
+            onOpen={openDownloads}
+            active={libraryView === 'downloads'}
+          />
+        </div>
       </div>
 
       {/* First-run NSFW / adult-content opt-in prompt. Shown once, only
@@ -2655,10 +2676,6 @@ const App = () => {
         onClose={() => { if (!refreshLibraryBusy) setRefreshLibraryModalOpen(false) }}
       />
 
-      {/* Bottom-right download status button and the panel it opens. Fully
-          self-contained: it owns its own queue state and subscribes to the main
-          process directly, so it does not participate in App's view routing. */}
-      <DownloadsDock />
     </div>
   )
 }
