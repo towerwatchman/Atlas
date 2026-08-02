@@ -102,6 +102,12 @@ const buildDefaultConfig = (dataDir = '') => ({
   Library: {
     rootPath: dataDir,
     gameFolder: '',
+    // Where downloaded archives land BEFORE they are installed.
+    // Deliberately not derived from gameFolder: the library folder holds
+    // installed games, and dropping half-finished archives into it means
+    // a library scan sees partial downloads as games. Empty falls back to
+    // the OS downloads directory, never to a subfolder of the library.
+    downloadsFolder: '',
     gameExtensions: 'exe,swf,flv,f4v,rag,cmd,bat,jar,html',
     extractionExtensions: 'zip,7z,rar',
     libraryFolderStructure: '{creator}/{title}/{version}',

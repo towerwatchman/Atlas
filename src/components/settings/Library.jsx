@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 const Library = () => {
   const [rootPath, setRootPath] = useState("");
   const [gameFolder, setGameFolder] = useState("");
+  const [downloadsFolder, setDownloadsFolder] = useState("");
   const [gameExtensions, setGameExtensions] = useState(
     "exe,swf,flv,f4v,rag,cmd,bat,jar,html",
   );
@@ -24,6 +25,7 @@ const Library = () => {
       const lib = config.Library || {};
       setRootPath(lib.rootPath || "./data");
       setGameFolder(lib.gameFolder || "");
+      setDownloadsFolder(lib.downloadsFolder || "");
       setGameExtensions(
         lib.gameExtensions || "exe,swf,flv,f4v,rag,cmd,bat,jar,html",
       );
@@ -76,6 +78,21 @@ const Library = () => {
       setGameFolder(path);
       saveLibrarySetting("gameFolder", path);
     }
+  };
+
+  const handleSetDownloadsFolder = async () => {
+    const path = await window.electronAPI.selectDirectory();
+    if (path) {
+      setDownloadsFolder(path);
+      saveLibrarySetting("downloadsFolder", path);
+    }
+  };
+
+  // Clearing falls back to the OS downloads directory rather than to a folder
+  // inside the library, which must never hold in-progress archives.
+  const handleClearDownloadsFolder = () => {
+    setDownloadsFolder("");
+    saveLibrarySetting("downloadsFolder", "");
   };
 
   const handleSetSevenZip = async () => {
@@ -203,6 +220,40 @@ const Library = () => {
         </div>
         <p className="text-xs opacity-60 mt-1">
           Newly imported / extracted games will be placed here.
+        </p>
+      </div>
+
+      {/* Downloads Folder */}
+      <div>
+        <label className="block mb-1">Downloads Folder</label>
+        <div className="flex gap-3">
+          <input
+            type="text"
+            className="flex-1 bg-secondary border border-border p-2 rounded"
+            value={downloadsFolder}
+            placeholder="Default: your system Downloads folder"
+            readOnly
+          />
+          <button
+            onClick={handleSetDownloadsFolder}
+            className="bg-accent px-5 py-2 rounded hover:bg-accentHover"
+          >
+            Set Folder
+          </button>
+          {downloadsFolder && (
+            <button
+              onClick={handleClearDownloadsFolder}
+              className="bg-button px-4 py-2 rounded hover:bg-buttonHover"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+        <p className="text-xs opacity-60 mt-1">
+          Where downloaded archives are saved before they are installed. Keep
+          this separate from the game folder &mdash; that one is scanned for
+          installed games, and in-progress downloads sitting there get picked up
+          as titles.
         </p>
       </div>
 

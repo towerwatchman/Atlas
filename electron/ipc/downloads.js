@@ -23,13 +23,15 @@ let handlerCtx = null;
 
 const getLiveConfig = () => handlerCtx?.appConfig || {};
 
+// Downloads never live inside the library folder. That folder holds installed
+// games and gets scanned as such, so parking in-progress archives there means
+// a scan picks up half-written files as titles. When the user has not chosen a
+// location we use the OS downloads directory, which is somewhere they already
+// expect downloads to appear.
 const resolveDownloadsDir = () => {
   const config = getLiveConfig();
   const explicit = String(config?.Library?.downloadsFolder || "").trim();
   if (explicit) return explicit;
-  const gameFolder = String(config?.Library?.gameFolder || "").trim();
-  if (gameFolder) return path.join(gameFolder, "_downloads");
-  // Last resort so a fresh install still has somewhere valid to write.
   return path.join(app.getPath("downloads"), "Atlas");
 };
 
