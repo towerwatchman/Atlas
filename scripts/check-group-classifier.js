@@ -20,14 +20,22 @@ const {
 } = require("../electron/downloads/groupClassifier");
 
 let checks = 0;
-const accepts = (group, note) => {
-  const verdict = classifyGroup(group);
+
+// Platform is pinned explicitly on every call. The classifier now filters on
+// the running OS, so leaving it implicit would make these tests pass on Windows
+// and fail on Linux - the same environment dependence that had to be unpicked
+// from linux-launch.test.js. Windows is the default here because it is what the
+// bulk of the recorded vocabulary was gathered against.
+const WIN = { platform: 'win32' };
+
+const accepts = (group, note, options = WIN) => {
+  const verdict = classifyGroup(group, null, options);
   assert.ok(verdict.accepted, `expected ACCEPT for ${JSON.stringify(group)} (${note}) - got: ${verdict.reason}`);
   checks += 1;
   return verdict;
 };
-const rejects = (group, note) => {
-  const verdict = classifyGroup(group);
+const rejects = (group, note, options = WIN) => {
+  const verdict = classifyGroup(group, null, options);
   assert.ok(!verdict.accepted, `expected REJECT for ${JSON.stringify(group)} (${note}) - got: ${verdict.reason}`);
   checks += 1;
   return verdict;
@@ -36,7 +44,13 @@ const rejects = (group, note) => {
 // ── The orderly top of the distribution ─────────────────────────────────────
 accepts("Win", "52612 links");
 accepts("Win/Linux", "24678");
-accepts("Linux", "5894");
+// On Windows a Linux-only build is unusable, so it must not be offered. This
+// was the reported bug: Linux items showing up on a Windows machine.
+rejects("Linux", "5894 - Linux-only build on a Windows machine");
+accepts("Linux", "5894 - and accepted on Linux", { platform: 'linux' });
+rejects("Win", "Windows-only build on a Linux machine", { platform: 'linux' });
+// A combined heading suits both, so it passes either way.
+accepts("Win/Linux", "combined heading on Linux", { platform: 'linux' });
 accepts("All", "3415");
 accepts("", "3322 links have an empty heading - ordinary downloads");
 accepts("Win/Linux/Mac", "1307 - includes a platform we want");
@@ -123,13 +137,13 @@ rejects("LOP Gold Update Only", "unknown heading, but kind check still fires");
 
 // ── The scraper's own type field wins when it disagrees ─────────────────────
 {
-  const verdict = classifyGroup("Win", { type: "save" });
+  const verdict = classifyGroup("Win", { type: "save" }, WIN);
   assert.ok(!verdict.accepted, "type=save must reject even under a Win heading");
   assert.strictEqual(verdict.kind, "save");
   checks += 1;
 }
 {
-  const verdict = classifyGroup("Win", { type: "game" });
+  const verdict = classifyGroup("Win", { type: "game" }, WIN);
   assert.ok(verdict.accepted, "type=game is the normal case");
   checks += 1;
 }
@@ -167,7 +181,7 @@ checks += 8;
     { host: "pixeldrain.com", group: "Mac", label: "PIXELDRAIN", type: "game" },
     { host: "mega.nz", group: "Android", label: "MEGA", type: "game" },
   ];
-  const result = selectDownloadableLinks(links);
+  const result = selectDownloadableLinks(links, { platform: 'win32' });
   assert.strictEqual(result.singles.length, 3, "only the Win/Linux row survives");
   assert.strictEqual(result.rejected.length, 3);
   assert.strictEqual(result.multiPart.length, 0);
@@ -176,6 +190,7 @@ checks += 8;
   // Host gating for the "only show hosts we have plugins for" rule.
   const gated = selectDownloadableLinks(links, {
     supportedHosts: new Set(["mega", "pixeldrain"]),
+    platform: 'win32',
   });
   assert.strictEqual(gated.singles.length, 2, "workupload filtered out");
   assert.ok(gated.rejected.some((entry) => /no plugin for workupload/.test(entry.verdict.reason)));
@@ -189,7 +204,7 @@ checks += 8;
     { host: "mega.nz", group: "Win Part 2", type: "game" },
     { host: "mega.nz", group: "Win Part 3", type: "game" },
   ];
-  const result = selectDownloadableLinks(links);
+  const result = selectDownloadableLinks(links, { platform: 'win32' });
   // Split archives are never offered, complete or not.
   assert.strictEqual(result.singles.length, 0, "parts must not be offered");
   assert.strictEqual(result.multiPart.length, 1);
@@ -209,7 +224,7 @@ checks += 8;
     { host: "mega.nz", group: "Win Part 1", type: "game" },
     { host: "mega.nz", group: "Win Part 3", type: "game" },
   ];
-  const result = selectDownloadableLinks(links);
+  const result = selectDownloadableLinks(links, { platform: 'win32' });
   assert.strictEqual(result.multiPart.length, 1);
   assert.strictEqual(result.multiPart[0].complete, false, "gap must be detected");
   checks += 2;
@@ -222,7 +237,7 @@ checks += 8;
     { host: "mega.nz", group: "Win Part 1", type: "game" },
     { host: "pixeldrain.com", group: "Win Part 2", type: "game" },
   ];
-  const result = selectDownloadableLinks(links);
+  const result = selectDownloadableLinks(links, { platform: 'win32' });
   assert.strictEqual(result.multiPart.length, 2, "one set per host");
   assert.ok(result.multiPart.every((set) => set.complete === false));
   assert.strictEqual(result.hiddenMultiPart.sets, 2);
@@ -234,7 +249,7 @@ checks += 8;
   // downloads should never be told parts were omitted.
   const result = selectDownloadableLinks([
     { host: "mega.nz", group: "Win/Linux", type: "game" },
-  ]);
+  ], { platform: 'win32' });
   assert.strictEqual(result.singles.length, 1);
   assert.strictEqual(result.hiddenMultiPart.sets, 0, "no disclaimer when nothing hidden");
   assert.strictEqual(result.hiddenMultiPart.links, 0);

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import SteamConnect from './SteamConnect.jsx'
+import DownloadAccounts from './DownloadAccounts.jsx'
 
 // Sites Atlas can authenticate against for login-gated media. Steam is handled
 // separately below (OpenID + Web API key, not username/password), so it isn't
@@ -50,12 +51,17 @@ const Accounts = () => {
 
   return (
     <div className="text-text max-w-2xl">
-      <p className="text-sm text-text/70 mb-4">
-        Add a site account so Atlas can use your login when fetching artwork and
-        previews that are hidden behind a members-only wall. Your username and
-        password are stored encrypted on this device and are used only to keep
-        the session cookie fresh — nothing is sent anywhere except the site you
-        log in to.
+      {/* Two distinct kinds of account live on this page and they are easy to
+          confuse. Game sites are forums Atlas signs in to for metadata, art and
+          download links. File hosts are where the archives physically live. A
+          user can have one without the other, so each section says plainly what
+          it is for rather than relying on the reader to infer it. */}
+      <h3 className="text-base font-medium text-text">Game sites</h3>
+      <p className="text-sm text-text/70 mt-1 mb-4">
+        Forums Atlas signs in to for artwork, metadata and download links that
+        are behind a members-only wall. Your username and password are stored
+        encrypted on this device and are used only to keep the session cookie
+        fresh — nothing is sent anywhere except the site you log in to.
       </p>
 
       <div className="flex flex-col gap-2">
@@ -115,6 +121,10 @@ const Accounts = () => {
           on this device.
         </p>
         <SteamConnect />
+      </div>
+
+      <div className="mt-8 pt-6 border-t border-border">
+        <DownloadAccounts />
       </div>
 
       {modalOpen && (

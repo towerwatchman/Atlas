@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import HostIcon from './HostIcon.jsx'
 
 // ── Update modal ─────────────────────────────────────────────────────────────
 //
@@ -15,24 +16,6 @@ import { useCallback, useEffect, useState } from 'react'
 // there is nothing Atlas can take delivery of, and a game whose thread offers
 // only unsupported hosts genuinely has no options here - saying so plainly
 // beats an empty list that looks broken.
-
-const HOST_ICONS = {
-  'mega.nz': 'fa-cloud',
-  'pixeldrain.com': 'fa-droplet',
-  'gofile.io': 'fa-file-arrow-down',
-  'workupload.com': 'fa-upload',
-  'mixdrop.ag': 'fa-circle-down',
-  'mediafire.com': 'fa-fire',
-  'uploadhaven.com': 'fa-box-archive',
-}
-
-const hostIcon = (host) => {
-  const key = String(host || '').toLowerCase()
-  for (const [name, icon] of Object.entries(HOST_ICONS)) {
-    if (key.includes(name.split('.')[0])) return icon
-  }
-  return 'fa-link'
-}
 
 const prettyHost = (host) => String(host || '').replace(/^www\./, '')
 
@@ -210,7 +193,7 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
                           : 'hover:bg-tertiary'
                       }`}
                     >
-                      <i className={`fas ${hostIcon(link.host)} text-base text-muted w-5 text-center`} aria-hidden="true"></i>
+                      <HostIcon host={link.host} className="w-5 h-5 text-muted" />
                       <span className="flex-1 min-w-0">
                         <span className="block text-sm text-text truncate">
                           {prettyHost(link.host)}

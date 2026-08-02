@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import Interface from './Interface.jsx'
 import Library from './Library.jsx'
 import ImportSources from './ImportSources.jsx'
-import DownloadAccounts from './DownloadAccounts.jsx'
 import Appearance from './Appearance.jsx'
 import Metadata from './Metadata.jsx'
 import Accounts from './Accounts.jsx'
@@ -79,8 +78,6 @@ const Settings = () => {
         return <Interface />;
       case "Library":
         return <Library />;
-      case "Downloads":
-        return <DownloadAccounts />;
       case "Import":
         return <ImportSources />;
       case "Emulators":

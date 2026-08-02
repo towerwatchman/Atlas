@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import SafeImage from '../ui/SafeImage.jsx'
+import { useImageFallback } from '../../hooks/useImageFallback.js'
+import HostIcon from './HostIcon.jsx'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
 import InstallModal from './InstallModal.jsx'
 
@@ -79,20 +82,29 @@ const isVideoUrl = (url) =>
   typeof url === 'string' && VIDEO_EXTENSIONS.test(url.split(/[?#]/)[0])
 
 // Wide capsule, same proportions Steam uses in this list.
-function Cover({ game, title }) {
-  const raw = game?.banner_url || ''
-  const src = raw ? toMediaSrc(raw) : ''
+// Same chain GameBanner uses. banner_candidates lists every known source for
+// a game's art in preference order; banner_url is just its head, and for a
+// Steam-sourced entry that head is a CDN url that does not load.
+const bannerChainFor = (game) =>
+  game?.banner_candidates || (game?.banner_url ? [game.banner_url] : [])
+
+const Cover = memo(function Cover({ game, title }) {
+  // Walks the chain and settles on the first url that actually loads, which is
+  // exactly what the library grid does.
+  const { src: raw } = useImageFallback(bannerChainFor(game))
   const [failed, setFailed] = useState(false)
   const video = isVideoUrl(raw)
 
   return (
     <div className="w-[120px] sm:w-[160px] aspect-[184/69] shrink-0 rounded overflow-hidden bg-tertiary border border-border">
-      {src && !failed ? (
+      {raw && !failed ? (
         video ? (
-          // Muted + playsInline so it can autoplay; a banner that demands a
-          // click to move would be worse than a still.
+          // Only mp4/webm need a video element. Muted + playsInline so it can
+          // autoplay; a banner that needs a click to move would be worse than
+          // a still. toMediaSrc is applied here because SafeImage does it
+          // internally and this branch bypasses it.
           <video
-            src={src}
+            src={toMediaSrc(raw)}
             className="w-full h-full object-cover"
             autoPlay
             loop
@@ -101,12 +113,20 @@ function Cover({ game, title }) {
             onError={() => setFailed(true)}
           />
         ) : (
-          <img
-            src={src}
+          // GIF, AVIF, WebP and stills all go through here. SafeImage handles
+          // the scheme rewrite and its own fallback.
+          <SafeImage
+            src={raw}
             alt=""
-            loading="lazy"
             className="w-full h-full object-cover"
-            onError={() => setFailed(true)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            onError={() => {
+              // Reached only when every candidate in the chain has failed.
+              console.warn('[downloads] no usable banner', {
+                title,
+                tried: bannerChainFor(game),
+              })
+            }}
           />
         )
       ) : (
@@ -116,6 +136,25 @@ function Cover({ game, title }) {
       )}
       <span className="sr-only">{title}</span>
     </div>
+  )
+})
+
+// Declared at module scope, NOT inside DownloadsPage. A component defined in a
+// render body is a brand new type every render, so React remounts its whole
+// subtree rather than updating it - which reloads banners and restarts
+// animations. That was the cause of the flashing GIFs.
+function Section({ title, count, children, action }) {
+  return (
+    <section className="mt-6 first:mt-0">
+      <div className="flex items-center gap-3">
+        <h2 className="text-lg text-text whitespace-nowrap">
+          {title} <span className="text-muted text-base">({count})</span>
+        </h2>
+        <div className="flex-1 h-px bg-border" />
+        {action}
+      </div>
+      <div className="mt-2">{children}</div>
+    </section>
   )
 }
 
@@ -143,8 +182,8 @@ function SpeedGraph({ samples, current, peak }) {
   const area = line ? `${line} L${width},${height} L0,${height} Z` : ''
 
   return (
-    <div className="rounded border border-border bg-primary/50 p-3">
-      <div className="flex items-baseline justify-between mb-2">
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
         <span className="text-[10px] uppercase tracking-wide text-muted">Download speed</span>
         <span className="text-sm text-text tabular-nums">{formatRate(current)}</span>
       </div>
@@ -206,14 +245,21 @@ function ProgressBar({ percent, indeterminate = false, tone = 'accent' }) {
   )
 }
 
-function Stat({ label, value, accent }) {
+// `wide` reserves room for a throughput reading, whose width changes constantly
+// as the rate moves - without it the header shifts on every sample. It is opt-in
+// rather than applied to every Stat: "Active" is usually a single digit, and
+// forcing 86px on it left an obvious dead gap before the folder button.
+//
+// tabular-nums keeps digits the same width, so a changing value no longer nudges
+// its neighbours even within the reserved space.
+function Stat({ label, value, accent, wide = false }) {
   return (
-    <div className="min-w-[86px]">
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted">
+    <div className={wide ? 'min-w-[86px]' : ''}>
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted whitespace-nowrap">
         <span className={`inline-block w-2 h-[3px] rounded-full ${accent}`} />
         {label}
       </div>
-      <div className="text-sm text-text font-medium mt-0.5">{value}</div>
+      <div className="text-sm text-text font-medium mt-0.5 tabular-nums">{value}</div>
     </div>
   )
 }
@@ -384,7 +430,7 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
     return (
       <div
         key={item.id}
-        className="group flex items-center gap-3 sm:gap-4 p-3 mb-2 rounded-lg border border-border bg-primary/60 transition-colors hover:bg-tertiary/50 hover:border-accent/40"
+        className="group flex items-center gap-3 sm:gap-4 p-3 mb-2 rounded-lg border border-border bg-secondary transition-colors cursor-default hover:bg-selected hover:border-accent"
       >
         <button
           type="button"
@@ -414,7 +460,12 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
             )}
             {transferring && <span className="text-text">{formatRate(rate)}</span>}
             {transferring && remaining && <span>{formatEta(remaining)}</span>}
-            {item.host && <span>{item.host}</span>}
+            {item.host && (
+              <span className="inline-flex items-center gap-1">
+                <HostIcon host={item.host} />
+                {item.host}
+              </span>
+            )}
             {item.onComplete === 'add' && <span>keeps both versions</span>}
             {item.state === 'done' && item.completedAt && (
               <span>{formatWhen(item.completedAt)}</span>
@@ -498,28 +549,19 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
     )
   }
 
-  const Section = ({ title, count, children, action }) => (
-    <section className="mt-6 first:mt-0">
-      <div className="flex items-center gap-3">
-        <h2 className="text-lg text-text whitespace-nowrap">
-          {title} <span className="text-muted text-base">({count})</span>
-        </h2>
-        <div className="flex-1 h-px bg-border" />
-        {action}
-      </div>
-      <div className="mt-2">{children}</div>
-    </section>
-  )
-
   return (
     <div className="h-full overflow-y-auto">
       {/* Header: throughput, mirroring Steam's network/peak/disk row. */}
-      <div className="sticky top-0 z-10 bg-primary/95 backdrop-blur border-b border-border">
+      {/* Header uses the same surface as a hovered card, so it reads as a
+          distinct band above the list rather than blending into it. Opaque
+          rather than the previous translucent bg-primary/95, which let the
+          list show through while scrolling underneath. */}
+      <div className="sticky top-0 z-10 bg-selected border-b border-border">
         <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
           <h1 className="text-xl text-text">Downloads</h1>
-          <div className="flex items-center gap-4 sm:gap-6">
-            <Stat label="Network" value={formatRate(totalRate)} accent="bg-accent" />
-            <Stat label="Peak" value={formatRate(peakRef.current)} accent="bg-accent/60" />
+          <div className="flex items-center gap-4 sm:gap-5">
+            <Stat label="Network" value={formatRate(totalRate)} accent="bg-accent" wide />
+            <Stat label="Peak" value={formatRate(peakRef.current)} accent="bg-accent/60" wide />
             <Stat label="Active" value={String(current.length)} accent="bg-success" />
             <button
               type="button"
@@ -531,18 +573,20 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
             </button>
           </div>
         </div>
+        {/* Always rendered. Hiding it when idle made the header jump every time
+            a download started or finished, and a flat line is itself
+            information - it says nothing is transferring. */}
+        <div className="px-4 sm:px-6 pb-3">
+          <SpeedGraph
+            samples={speedHistory}
+            current={totalRate}
+            peak={peakRef.current}
+          />
+        </div>
       </div>
 
-      <div className="px-4 sm:px-6 py-4 pb-10 max-w-6xl">
-        {(current.length > 0 || speedHistory.some((value) => value > 0)) && (
-          <div className="mb-5">
-            <SpeedGraph
-              samples={speedHistory}
-              current={totalRate}
-              peak={peakRef.current}
-            />
-          </div>
-        )}
+      <div className="px-4 sm:px-6 py-4 pb-10 w-full">
+
         {items.length === 0 && (
           <div className="py-16 text-center">
             <i className="fas fa-download text-3xl text-muted/50" aria-hidden="true"></i>

@@ -51,6 +51,28 @@ const PLATFORM_TOKENS = {
   any: "all",
 };
 
+// Which platforms this machine can actually run. Offering a Linux-only build
+// to a Windows user is a download they cannot use, and "Win/Linux" headings
+// mean the reverse filter matters just as much - a Linux user should not be
+// shown Windows-only builds either.
+//
+// "all" and unlabeled always pass: they are the poster saying the download
+// suits everyone, and rejecting those would hide most of the library.
+const PLATFORM_SETS = {
+  win32: new Set(["win", "all"]),
+  linux: new Set(["linux", "all"]),
+  darwin: new Set(["mac", "all"]),
+};
+
+// Default derived from the running process. Overridable so the classifier can
+// be tested for every platform from any machine.
+const platformKey = () =>
+  typeof process !== "undefined" && process.platform ? process.platform : "win32";
+
+const wantedFor = (platform) =>
+  PLATFORM_SETS[platform || platformKey()] || PLATFORM_SETS.win32;
+
+// Kept for callers that want the full set rather than the current machine's.
 const WANTED_PLATFORMS = new Set(["win", "linux", "all"]);
 
 // A hit on any of these disqualifies the link regardless of platform.
@@ -109,7 +131,8 @@ const tokenize = (value) =>
  *   requiresAllParts: boolean, raw: string
  * }}
  */
-function classifyGroup(group, link = null) {
+function classifyGroup(group, link = null, options = {}) {
+  const wanted = wantedFor(options.platform);
   const raw = String(group == null ? "" : group).trim();
   const tokens = tokenize(raw);
 
@@ -181,15 +204,15 @@ function classifyGroup(group, link = null) {
     return result;
   }
 
-  const wanted = result.platforms.filter((platform) => WANTED_PLATFORMS.has(platform));
-  if (wanted.length > 0) {
+  const usable = result.platforms.filter((platform) => wanted.has(platform));
+  if (usable.length > 0) {
     result.accepted = true;
-    result.reason = `targets ${wanted.join(", ")}`;
+    result.reason = `targets ${usable.join(", ")}`;
     return result;
   }
 
   result.accepted = false;
-  result.reason = `targets ${result.platforms.join(", ")} only`;
+  result.reason = `targets ${result.platforms.join(", ")}, not this system`;
   return result;
 }
 
@@ -206,12 +229,12 @@ function classifyGroup(group, link = null) {
  * @param {boolean} [options.allowCompressed]    default true
  */
 function selectDownloadableLinks(links, options = {}) {
-  const { supportedHosts = null, allowCompressed = true } = options;
+  const { supportedHosts = null, allowCompressed = true, platform = null } = options;
   const accepted = [];
   const rejected = [];
 
   for (const link of Array.isArray(links) ? links : []) {
-    const verdict = classifyGroup(link?.group, link);
+    const verdict = classifyGroup(link?.group, link, { platform });
     const entry = { link, verdict };
 
     if (!verdict.accepted) {
@@ -296,6 +319,8 @@ function isContiguous(indexes, declaredTotal) {
 
 module.exports = {
   classifyGroup,
+  wantedFor,
+  PLATFORM_SETS,
   selectDownloadableLinks,
   isContiguous,
   tokenize,

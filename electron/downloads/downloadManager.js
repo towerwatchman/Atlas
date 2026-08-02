@@ -49,13 +49,14 @@ const WATCH_SETTLE_MS = 2500;
 // credentials do not fix themselves.
 const RETRY_DELAY_MS = 60_000;
 const MAX_AUTO_RETRIES = 1;
-const TERMINAL_KINDS = new Set(["quota", "auth", "fatal"]);
+const TERMINAL_KINDS = new Set(["quota", "auth", "fatal", "blocked"]);
 
 // Reasons a user can act on, rather than a raw error they cannot.
 const KIND_MESSAGES = {
   quota: "Transfer limit reached on this host. Try again later, or add an account in Settings.",
   auth: "The host rejected your account details. Check them in Settings.",
   fatal: "This link is no longer available.",
+  blocked: "The host has flagged this file as malware and blocked automatic downloads.",
 };
 
 // Per-session attempt counts and pending retry timers, keyed by download id.
@@ -246,7 +247,10 @@ const startTransfer = async (item) => {
       await downloadsDb.updateDownload(item.id, {
         ...(probe.fileName && !item.fileName ? { fileName: probe.fileName } : {}),
         ...(probe.fileSize ? { totalBytes: probe.fileSize } : {}),
-        host: probe.plugin || item.host,
+        // Keep the real hostname. Overwriting it with the plugin id
+        // ("pixeldrain" rather than "pixeldrain.com") broke the favicon lookup
+        // and made the row read less clearly.
+        host: item.host || probe.plugin,
       });
     }
 

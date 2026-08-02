@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import HostIcon from '../downloads/HostIcon.jsx'
 
 // ── Settings: Download Accounts ──────────────────────────────────────────────
 //
@@ -101,6 +102,7 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
+            <HostIcon host={plugin.id} className="w-4 h-4 text-text" />
             <span className="text-sm text-text">{plugin.label}</span>
             <span
               className={`text-[10px] px-1.5 py-0.5 rounded border ${
@@ -234,12 +236,13 @@ export default function DownloadAccounts() {
   return (
     <div className="space-y-4 max-w-3xl">
       <div>
-        <h3 className="text-base font-medium text-text">Download accounts</h3>
-        <p className="text-xs text-muted mt-1">
-          Optional sign-ins for the file hosts Atlas downloads from. An account
-          usually raises the transfer limit. Details are verified with the host
-          before they are saved, and stored encrypted by your operating system —
-          Atlas never writes them in readable form and never displays them again.
+        <h3 className="text-base font-medium text-text">File hosts</h3>
+        <p className="text-sm text-text/70 mt-1">
+          Where game archives are actually downloaded from — Pixeldrain, Mega and
+          the like. These are separate from your game-site logins above and are
+          optional: downloads work anonymously, an account usually just raises
+          the transfer limit. Details are verified with the host before being
+          saved, and stored encrypted by your operating system.
         </p>
       </div>
 

@@ -78,7 +78,14 @@ function classifyError(err, { status = 0, body = null } = {}) {
   const message = String(err?.message || body?.message || "").toLowerCase();
   const text = `${value} ${message}`;
 
-  if (/rate_?limit|captcha|transfer_?limit|bandwidth/.test(text)) return "quota";
+  // Per the API docs these are two different 403s and must not be conflated.
+  // virus_detected_captcha_required means the file is flagged as malware - no
+  // amount of waiting or upgrading fixes that, so it is terminal.
+  if (/virus_detected/.test(text)) return "blocked";
+  // file_rate_limited_captcha_required (403) fires when a file has 3x more
+  // downloads than views, or when hotlinking is detected. ip_rate_limit_reached
+  // is 429. Both are "come back later", not an auth problem.
+  if (/rate_?limit|captcha|transfer_?limit|bandwidth|hotlink/.test(text)) return "quota";
   if (status === 429) return "quota";
   if (/unauthor|forbidden|invalid.*key|auth/.test(text)) return "auth";
   if (status === 401 || status === 403) return "auth";
@@ -157,10 +164,10 @@ async function probe(url, credentials = {}) {
 /**
  * Confirm a key works, and report what the account is.
  *
- * /api/user is the documented account endpoint. Its exact response shape is not
- * something we can pin down offline, so every field is read defensively and a
- * parse failure degrades to "the key works, we just cannot describe it" rather
- * than reporting a valid key as broken.
+ * GET /user is the documented account endpoint and returns id, username,
+ * email, subscription and the monthly transfer counters. Fields are still read
+ * defensively so a shape change degrades to "the key works, we just cannot
+ * describe it" rather than reporting a valid key as broken.
  */
 async function validate(credentials = {}) {
   const apiKey = String(credentials?.apiKey || credentials?.password || "").trim();
@@ -220,14 +227,20 @@ async function getQuota(credentials = {}) {
       }
       return null;
     };
-    const used = pick("transfer_used", "transferUsed", "monthly_transfer_used");
-    const cap = pick("transfer_cap", "transferCap", "monthly_transfer_cap");
+    // Field names confirmed against the API docs: GET /user returns
+    // monthly_transfer_used and monthly_transfer_cap.
+    const used = pick("monthly_transfer_used", "transfer_used");
+    const rawCap = pick("monthly_transfer_cap", "transfer_cap");
+    // The docs are explicit that a cap of 0 means NO custom cap is configured.
+    // Treating it as a real limit would report "0 of 0 bytes remaining" to
+    // every user who has not set one.
+    const cap = rawCap && rawCap > 0 ? rawCap : null;
 
     return {
       ok: true,
       used,
       cap,
-      // Only meaningful when both numbers came back.
+      unlimited: rawCap === 0,
       remaining: used != null && cap != null ? Math.max(0, cap - used) : null,
       plan: String(info?.subscription?.name || "").trim(),
     };
