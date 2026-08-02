@@ -12,6 +12,13 @@ export const settingsIcons = [
     viewBox: "0 0 32 32",
   },
   {
+    name: "Downloads",
+    icon: "downloads_icon",
+    // Down-arrow into a tray: the download manager and its host accounts.
+    path: "M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z",
+    viewBox: "0 0 24 24",
+  },
+  {
     name: "Import",
     icon: "import_icon",
     // Download-into-tray glyph: this section is about bringing data in from
