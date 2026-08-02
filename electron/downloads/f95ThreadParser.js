@@ -19,12 +19,47 @@
 // change here too. The shared fixtures under the scraper repo are the way to
 // check both implementations agree.
 //
-// Uses jsdom (already a dependency) rather than regex. The bucket logic is
-// order-dependent - a <b> heading applies to every <a> that follows it until
-// the next heading - so it needs real document-order traversal, which is
-// exactly what regex cannot give.
+// Parsed with a linear tag scan rather than a DOM library. jsdom was used
+// originally and shipped broken: it was a devDependency, so electron-builder
+// left it out and every packaged install crashed with "cannot find module
+// 'jsdom'" the first time an update was checked.
+//
+// A full DOM was never needed. The bucket logic only ever reads <b> text and
+// <a href> IN DOCUMENT ORDER, which a sequential scan gives directly - and it
+// adds no runtime dependency to an app that would otherwise ship jsdom's whole
+// tree for two element types. scripts/check-f95-thread-parser.js runs 652
+// assertions over the real captured threads, so equivalence is measured rather
+// than assumed.
 
-const { JSDOM } = require("jsdom");
+// One match per tag. Attribute values may contain ">", so the character class
+// excludes quotes and steps over quoted runs.
+const TAG = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+
+const ATTR = /([a-zA-Z-]+)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/g;
+
+function parseAttributes(raw) {
+  const out = {};
+  let match;
+  ATTR.lastIndex = 0;
+  while ((match = ATTR.exec(raw || "")) !== null) {
+    out[match[1].toLowerCase()] = match[3] ?? match[4] ?? match[5] ?? "";
+  }
+  return out;
+}
+
+// Text with tags removed and entities collapsed enough for heading comparison.
+function stripTags(html) {
+  return String(html || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 // File hosts seen in the wild. Ordered longest-first so "mixdrop.ag" is not
 // shadowed by a shorter substring match. Frequencies from a 164k-link scan:
@@ -138,11 +173,44 @@ function classifyType(section, group, label, name) {
   return "other";
 }
 
-/** Every descendant element in document order - BeautifulSoup's .descendants. */
-function* walk(root) {
-  for (const child of root.children) {
-    yield child;
-    yield* walk(child);
+/**
+ * Emit the <b> and <a> elements of a fragment in document order.
+ *
+ * Only those two matter: a <b> sets the current heading, and every <a> after it
+ * inherits that heading until the next one. Nesting is irrelevant to that rule,
+ * which is why a flat scan is equivalent to the tree walk it replaces - and why
+ * no DOM is needed.
+ *
+ * For each element the opening tag's attributes are parsed and the inner HTML
+ * up to the matching close tag is captured, so callers can read both the href
+ * and the visible label.
+ */
+function* walkElements(fragment) {
+  const scanner = new RegExp(TAG.source, "g");
+  let match;
+  while ((match = scanner.exec(fragment)) !== null) {
+    const closing = match[1] === "/";
+    const name = match[2].toLowerCase();
+    if (closing || (name !== "b" && name !== "a")) continue;
+
+    const attrs = parseAttributes(match[3]);
+    const contentStart = match.index + match[0].length;
+
+    // Find the matching close, allowing for the same tag nested inside.
+    const inner = new RegExp(`</?${name}\\b`, "gi");
+    inner.lastIndex = contentStart;
+    let depth = 1;
+    let contentEnd = fragment.length;
+    let step;
+    while ((step = inner.exec(fragment)) !== null) {
+      depth += step[0][1] === "/" ? -1 : 1;
+      if (depth === 0) {
+        contentEnd = step.index;
+        break;
+      }
+    }
+
+    yield { tag: name, attrs, html: fragment.slice(contentStart, contentEnd) };
   }
 }
 
@@ -164,21 +232,38 @@ function parseThreadDownloads(html) {
     found: false,
   };
 
-  const dom = new JSDOM(String(html || ""));
-  const document = dom.window.document;
+  const source = String(html || "");
 
-  const root = document.documentElement;
-  if (root) {
-    out.loggedIn = root.getAttribute("data-logged-in") === "true";
-    const key = root.getAttribute("data-content-key") || "";
-    const match = key.match(/thread-(\d+)/);
-    if (match) out.threadId = match[1];
+  // <html> carries the session and thread markers as attributes.
+  const htmlTag = source.match(/<html\b([^>]*)>/i);
+  if (htmlTag) {
+    const attrs = parseAttributes(htmlTag[1]);
+    out.loggedIn = attrs["data-logged-in"] === "true";
+    const key = attrs["data-content-key"] || "";
+    const keyMatch = key.match(/thread-(\d+)/);
+    if (keyMatch) out.threadId = keyMatch[1];
   }
 
-  // First post body. Everything below lives inside it.
-  const body = document.querySelector("div.bbWrapper");
-  if (!body) return out;
+  // First post body. Everything below lives inside it, so the scan is bounded
+  // to that region by tracking div depth to the matching close tag.
+  const openMatch = source.match(/<div\b[^>]*class="[^"]*\bbbWrapper\b[^"]*"[^>]*>/i);
+  if (!openMatch) return out;
   out.found = true;
+
+  const bodyStart = openMatch.index + openMatch[0].length;
+  let depth = 1;
+  let bodyEnd = source.length;
+  TAG.lastIndex = bodyStart;
+  let scan;
+  while ((scan = TAG.exec(source)) !== null) {
+    if (scan[2].toLowerCase() !== "div") continue;
+    depth += scan[1] === "/" ? -1 : 1;
+    if (depth === 0) {
+      bodyEnd = scan.index;
+      break;
+    }
+  }
+  const body = source.slice(bodyStart, bodyEnd);
 
   const buckets = {
     downloads: out.downloads,
@@ -193,11 +278,11 @@ function parseThreadDownloads(html) {
   let patchActive = false;
   let started = false;     // have we reached the first real download link yet
 
-  for (const node of walk(body)) {
-    const tag = node.tagName ? node.tagName.toLowerCase() : "";
+  for (const node of walkElements(body)) {
+    const tag = node.tag;
 
     if (tag === "b") {
-      const norm = (node.textContent || "").replace(/\s+/g, " ").trim()
+      const norm = stripTags(node.html)
         .replace(/:$/, "").trim().toLowerCase();
       if (norm === "extras" || norm === "extra") {
         divider = "extras"; patchActive = false; group = "";
@@ -207,7 +292,7 @@ function parseThreadDownloads(html) {
         divider = null; patchActive = false; group = "";
       } else {
         // A merged "DOWNLOAD Win/Linux" heading carries the group after the word.
-        const heading = (node.textContent || "").replace(/\s+/g, " ").trim()
+        const heading = stripTags(node.html)
           .replace(/:$/, "").trim().replace(/^download\s+/i, "");
         group = heading;
         // Patch tracking only matters once we are inside the download area.
@@ -221,19 +306,19 @@ function parseThreadDownloads(html) {
     }
 
     if (tag !== "a") continue;
-    const href = node.getAttribute("href");
+    const href = node.attrs.href;
     if (!href) continue;
 
-    const classes = node.getAttribute("class") || "";
-    if (classes.includes("js-lbImage") || node.querySelector("img")) continue; // screenshot
+    const classes = node.attrs.class || "";
+    // An anchor wrapping an image is a screenshot thumbnail, not a download.
+    if (classes.includes("js-lbImage") || /<img\b/i.test(node.html)) continue;
     if (href.includes("/members/")) continue; // @mention or credit
 
     const url = unwrap(href);
     const known = downloadHost(url);
     const host = known || hostOf(url);
     const isFile = Boolean(known) || url.includes("attachments.f95zone.to");
-    const label = (node.textContent || "").replace(/\s+/g, " ").trim()
-      || filenameFromUrl(url);
+    const label = stripTags(node.html) || filenameFromUrl(url);
 
     if (isFile) started = true;
 

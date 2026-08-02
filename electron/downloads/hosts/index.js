@@ -30,10 +30,11 @@
 // runner acts on the classification, never on the raw error.
 
 const pixeldrain = require("./pixeldrain");
+const buzzheavier = require("./buzzheavier");
 
-// Order matters only for overlapping matchers, which there currently are none
-// of. Add Gofile and Mega here as they land.
-const plugins = [pixeldrain];
+// Order matters only for overlapping matchers, of which there are none: each
+// plugin claims a distinct domain. Add Gofile and Mega here as they land.
+const plugins = [pixeldrain, buzzheavier];
 
 /** The plugin that handles this URL, or null when nothing does. */
 function pluginFor(url) {

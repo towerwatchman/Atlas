@@ -13,6 +13,7 @@
 
 const assert = require("assert");
 const pixeldrain = require("../electron/downloads/hosts/pixeldrain");
+const buzzheavier = require("../electron/downloads/hosts/buzzheavier");
 const registry = require("../electron/downloads/hosts");
 const { selectDownloadableLinks } = require("../electron/downloads/groupClassifier");
 
@@ -252,6 +253,135 @@ const ok = (condition, message) => { assert.ok(condition, message); checks += 1;
       eq(result.directUrl, "https://pixeldrain.com/api/file/z?download", "translated");
       eq(result.passthrough, undefined, "not a passthrough");
     }
+  } finally {
+    global.fetch = realFetch;
+  }
+
+  // ── Buzzheavier ───────────────────────────────────────────────────────────
+  //
+  // Its resolve path is inferred from the site running on htmx rather than from
+  // their docs, so these tests pin the inference itself: the request shape sent,
+  // the header read, and what happens when neither is what we expected.
+
+  // Link recognition, including their short domain and their own site routes.
+  ok(buzzheavier.matches("https://buzzheavier.com/abc123"), "main domain matched");
+  ok(buzzheavier.matches("https://bzzhr.co/abc123"), "short domain matched");
+  ok(!buzzheavier.matches("https://pixeldrain.com/u/x"), "other hosts not claimed");
+  eq(buzzheavier.fileIdFrom("https://buzzheavier.com/abc123xyz"), "abc123xyz", "id extracted");
+  eq(buzzheavier.fileIdFrom("https://bzzhr.co/abc123xyz"), "abc123xyz", "id from short domain");
+  // A site page is not a share, and treating one as an id would queue nonsense.
+  eq(buzzheavier.fileIdFrom("https://buzzheavier.com/pricing"), null, "site route is not a file id");
+  eq(buzzheavier.fileIdFrom("https://buzzheavier.com/api/account"), null, "api route is not a file id");
+
+  // Bearer, per their documented Authorization header.
+  eq(buzzheavier.authHeaders({ accountId: "acc-1" }).authorization, "Bearer acc-1",
+     "account id sent as a bearer token");
+  eq(Object.keys(buzzheavier.authHeaders({})).length, 0, "anonymous sends no auth");
+
+  // Cloudflare fronts this host, so a challenge is "not right now" rather than
+  // a permanent failure - retrying later is reasonable, giving up is not.
+  eq(buzzheavier.classifyError(null, { body: { message: "Just a moment..." } }), "quota",
+     "cloudflare challenge is quota, not fatal");
+  eq(buzzheavier.classifyError(null, { status: 429 }), "quota", "429 is quota");
+  eq(buzzheavier.classifyError(null, { status: 401 }), "auth", "401 is auth");
+  eq(buzzheavier.classifyError(null, { status: 404 }), "fatal", "404 is fatal");
+  eq(buzzheavier.classifyError(new Error("ETIMEDOUT")), "transient", "timeout retries");
+
+  try {
+    // ── probe: htmx answers with HX-Redirect rather than a 3xx ──────────────
+    {
+      let seen = null;
+      stub(async (url, init) => {
+        seen = { url, headers: init?.headers, redirect: init?.redirect };
+        return {
+          ok: true,
+          status: 200,
+          headers: new Map([["hx-redirect", "https://cdn.buzzheavier.com/f/game-v1.zip"]]),
+        };
+      });
+      // fetch's Headers has .get(); a Map does too, which is why it stands in.
+      const result = await buzzheavier.probe("https://buzzheavier.com/abc123");
+      eq(result.ok, true, "probe resolves");
+      eq(seen.url, "https://buzzheavier.com/abc123/download", "hits the download route");
+      eq(seen.headers["hx-request"], "true", "identifies as an htmx request");
+      eq(seen.redirect, "manual", "does not follow - the header IS the answer");
+      eq(result.directUrl, "https://cdn.buzzheavier.com/f/game-v1.zip", "direct url taken from the header");
+      eq(result.fileName, "game-v1.zip", "filename derived from the resolved url");
+      eq(result.headers.referer, "https://buzzheavier.com/abc123", "referer carried to the transfer");
+    }
+
+    // A relative location must be resolved against the site, not queued as-is.
+    {
+      stub(async () => ({ ok: true, status: 200,
+        headers: new Map([["hx-redirect", "/dl/xyz/game.zip"]]) }));
+      const result = await buzzheavier.probe("https://buzzheavier.com/abc123");
+      eq(result.directUrl, "https://buzzheavier.com/dl/xyz/game.zip", "relative redirect made absolute");
+    }
+
+    // ── The inference being wrong is an expected outcome, not a crash ────────
+    {
+      stub(async () => ({
+        ok: true, status: 200, headers: new Map(),
+        text: async () => "<html><head><title>Just a moment...</title>cf-chl",
+      }));
+      const result = await buzzheavier.probe("https://buzzheavier.com/abc123");
+      eq(result.ok, false, "challenge page fails");
+      eq(result.kind, "quota", "and is retryable rather than terminal");
+      ok(/challenge/i.test(result.error), "says what happened");
+    }
+    {
+      // No redirect and no challenge means the route shape changed. The
+      // diagnostic is the point: one failed run should say what to fix.
+      stub(async () => ({
+        ok: true, status: 200, headers: new Map([["content-type", "text/html"]]),
+        text: async () => "<html>a normal page</html>",
+      }));
+      const result = await buzzheavier.probe("https://buzzheavier.com/abc123");
+      eq(result.ok, false, "no location fails");
+      ok(result.diagnostic, "and carries a diagnostic");
+      eq(result.diagnostic.status, 200, "with the status");
+      ok(result.diagnostic.headers["content-type"], "and the response headers");
+      ok(result.diagnostic.bodyStart.length > 0, "and the start of the body");
+    }
+    {
+      stub(async () => { throw new Error("ECONNRESET"); });
+      const result = await buzzheavier.probe("https://buzzheavier.com/abc123");
+      eq(result.kind, "transient", "network failure retries");
+    }
+    {
+      const result = await buzzheavier.probe("https://buzzheavier.com/pricing");
+      eq(result.ok, false, "a site page is refused");
+      eq(result.kind, "fatal", "without a pointless retry");
+    }
+
+    // ── validate ────────────────────────────────────────────────────────────
+    {
+      const result = await buzzheavier.validate({});
+      eq(result.ok, true, "no account is valid - public links need none");
+      eq(result.anonymous, true, "reported as anonymous");
+    }
+    {
+      stub(async () => jsonResponse({ username: "tower", plan: "pro" }));
+      const result = await buzzheavier.validate({ accountId: "good" });
+      eq(result.ok, true, "good account accepted");
+      eq(result.username, "tower", "username surfaced");
+    }
+    {
+      stub(async () => jsonResponse({}, 401));
+      const result = await buzzheavier.validate({ accountId: "bad" });
+      eq(result.ok, false, "bad account rejected before storage");
+    }
+    {
+      // An unpublished schema must not fail a working account.
+      stub(async () => ({ ok: true, status: 200, json: async () => { throw new Error("x"); } }));
+      const result = await buzzheavier.validate({ accountId: "good" });
+      eq(result.ok, true, "unparseable body still counts as valid");
+    }
+
+    // ── Registry ────────────────────────────────────────────────────────────
+    eq(registry.pluginFor("https://buzzheavier.com/abc123")?.id, "buzzheavier", "routed");
+    ok(registry.supportedHostIds().includes("buzzheavier"), "listed as supported");
+    eq(registry.supportedHostIds().length, 2, "two plugins registered");
   } finally {
     global.fetch = realFetch;
   }
