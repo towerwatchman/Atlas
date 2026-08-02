@@ -4,7 +4,7 @@ import { getGameTitle } from '../../utils/gameDisplay.js'
 import BannerLayoutRenderer from './bannerLayout/BannerLayoutRenderer.jsx'
 import { useBannerTemplate } from '../../theme/BannerTemplateProvider.jsx'
 
-const GameBanner = ({ game, onSelect, onContextMenu }) => {
+const GameBanner = ({ game, onSelect, onContextMenu, onOpenUpdate = null }) => {
   // Resolved once per window by BannerTemplateProvider (see src/theme/
   // BannerTemplateProvider.jsx) instead of once per card — previously every
   // <GameBanner> instance fetched this itself via getSelectedBannerTemplate()
@@ -41,6 +41,7 @@ const GameBanner = ({ game, onSelect, onContextMenu }) => {
             layout={selectedTemplate.value}
             onSelect={onSelect}
             onContextMenu={handleContextMenu}
+            onOpenUpdate={onOpenUpdate}
           />
         )
 

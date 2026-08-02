@@ -46,14 +46,32 @@ function clearUpdateLinkCache(threadId = null) {
 
 async function fetchThreadHtml(threadId) {
   const url = THREAD_URL.replace("{id}", encodeURIComponent(String(threadId)));
-  await accountStore.ensureFreshCookies?.("f95").catch(() => {});
-  const cookieHeader = await accountStore.getCookieHeaderForUrl?.(url).catch(() => "");
+  // ensureFreshCookies is async and returns a boolean; getCookieHeaderForUrl is
+  // SYNCHRONOUS and returns a string. Getting that wrong is what produced
+  // ".catch is not a function" - neither is a thenable to be chained onto.
+  //
+  // A false return is meaningful rather than incidental: browser-added accounts
+  // store no password, so an expired session cannot be refreshed headlessly and
+  // the user has to sign in again. Saying so beats a generic failure.
+  let fresh = false;
+  try {
+    fresh = await accountStore.ensureFreshCookies("f95");
+  } catch (err) {
+    console.warn("Could not refresh F95 cookies:", err.message);
+  }
+  const cookieHeader = accountStore.getCookieHeaderForUrl(url) || "";
   if (!cookieHeader) {
     const error = new Error(
       "You need to be signed in to F95zone to see download links. Add your account in Settings.",
     );
     error.code = "NO_SESSION";
     throw error;
+  }
+  if (!fresh) {
+    // Cookies exist but did not verify. Try them anyway - checkCookiesLive can
+    // fail on a transient network blip - and let the logged-in check below
+    // catch a genuinely dead session.
+    console.warn("F95 cookies did not verify as fresh; attempting the fetch anyway");
   }
   const response = await fetch(url, {
     headers: {

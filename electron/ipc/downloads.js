@@ -87,8 +87,16 @@ function registerDownloadsHandlers(ctx = {}) {
       if (!url) return { ok: false, error: "No URL supplied" };
       // Refresh first so an expired cookie fails here, with a clear message,
       // rather than as a mystery captcha loop in the window.
-      await accountStore.ensureFreshCookies?.("f95").catch(() => {});
-      const cookieHeader = await accountStore.getCookieHeaderForUrl?.(url).catch(() => "");
+      // Same shape as updateLinks: ensureFreshCookies is async,
+      // getCookieHeaderForUrl is SYNCHRONOUS and returns a string. Neither is a
+      // thenable, so neither can be .catch()'d - that mistake is what produced
+      // ".catch is not a function" at runtime.
+      try {
+        await accountStore.ensureFreshCookies("f95");
+      } catch (err) {
+        console.warn("Could not refresh F95 cookies:", err.message);
+      }
+      const cookieHeader = accountStore.getCookieHeaderForUrl(url) || "";
       const parentWindow = BrowserWindow.fromWebContents(event.sender);
       const result = await resolveMaskedLink(url, { parentWindow, cookieHeader, title });
       if (result?.diagnostics) {

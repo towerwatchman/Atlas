@@ -185,7 +185,7 @@ const renderMarkerIcon = (fieldId, scale = 1, baseFontSize = 10) => {
   )
 }
 
-const BannerField = ({ field, game, index, inPanel = false }) => {
+const BannerField = ({ field, game, index, inPanel = false, onOpenUpdate = null }) => {
   // Dividers are decorative lines, not data — render before any resolver logic.
   if (field?.type === 'divider') {
     const vertical = field.orientation === 'vertical'
@@ -260,6 +260,14 @@ const BannerField = ({ field, game, index, inPanel = false }) => {
         style={style}
         onClick={(event) => {
           event.stopPropagation()
+          // Prefer the in-app mirror picker. Opening the thread in a browser is
+          // the fallback for callers that have not wired it (the settings
+          // preview grid and the banner editor both render this read-only), and
+          // for catalog rows with no local record to update.
+          if (onOpenUpdate) {
+            onOpenUpdate(game)
+            return
+          }
           if (isValidHttpUrl(game.siteUrl)) {
             window.electronAPI.openExternalUrl(game.siteUrl)
           } else {
@@ -365,7 +373,7 @@ const Overlay = ({ position, overlay }) => {
   )
 }
 
-const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
+const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu, onOpenUpdate = null }) => {
   const normalizedLayout = normalizeBannerLayout(layout)
   const displayTitle = getGameTitle(game)
   const imageConfig = normalizedLayout?.image || {}
@@ -567,7 +575,7 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
               style={{ gap: panel.gap }}
             >
               {ordered.map((field, index) => (
-                <BannerField key={`${field.id}-${index}`} field={field} game={game} index={index} inPanel />
+                <BannerField key={`${field.id}-${index}`} field={field} game={game} index={index} inPanel onOpenUpdate={onOpenUpdate} />
               ))}
             </div>
           )
@@ -684,7 +692,7 @@ const BannerLayoutRenderer = ({ game, layout, onSelect, onContextMenu }) => {
           return (
             <div key={slot} className={slotClasses[slot] || slotClasses['bottom-left']}>
               {fields.map((field, index) => (
-                <BannerField key={`${field.id}-${index}`} field={field} game={game} index={index} />
+                <BannerField key={`${field.id}-${index}`} field={field} game={game} index={index} onOpenUpdate={onOpenUpdate} />
               ))}
             </div>
           )

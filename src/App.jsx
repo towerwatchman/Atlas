@@ -24,6 +24,7 @@ import SearchSidebar from './components/search/SearchSidebar.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
 import RefreshMediaModal from './components/ui/RefreshMediaModal.jsx'
 import DownloadsPage from './components/downloads/DownloadsPage.jsx'
+import UpdateModal from './components/downloads/UpdateModal.jsx'
 import DownloadsStatus from './components/downloads/DownloadsStatus.jsx'
 import { useToast } from './components/ui/toast/ToastContext.jsx'
 import { useGames } from './hooks/useGames.js'
@@ -674,6 +675,13 @@ const App = () => {
   // running and people leave the screen open to watch them, which wants room
   // for cover art and per-item detail. Same shape as openCollections so the
   // back-to-library affordances keep working.
+  // The mirror picker lives here, not on the detail page, so it sits above
+  // whatever view is open. Update All walks a list of games and swaps the
+  // target underneath the same modal; a page-owned modal would force a
+  // navigation per game and drag the detail view along with it.
+  const [updateModalGame, setUpdateModalGame] = useState(null)
+  const openUpdateModal = useCallback((game) => { if (game) setUpdateModalGame(game) }, [])
+
   const openDownloads = useCallback(() => {
     setLibraryMode('local')
     setSelectedGame(null)
@@ -978,6 +986,7 @@ const App = () => {
           game={game}
           onSelect={() => selectGame(game)}
           onContextMenu={openGameContextMenu}
+          onOpenUpdate={openUpdateModal}
         />
       </div>
     )
@@ -2191,6 +2200,7 @@ const App = () => {
           {selectedGame ? (
             <GameDetailPage
               game={selectedGame}
+              onOpenUpdate={openUpdateModal}
               onBack={goBackToLibrary}
               onRefresh={refreshDetailGame}
               onWishlistChanged={handleWishlistChanged}
@@ -2667,13 +2677,19 @@ const App = () => {
         onClose={handleWelcomeTourClose}
       />
 
-      <RefreshMediaModal
-        open={refreshLibraryModalOpen}
-        scope="library"
-        busy={refreshLibraryBusy}
-        progress={refreshLibraryProgress}
-        onConfirm={confirmLibraryRefresh}
-        onClose={() => { if (!refreshLibraryBusy) setRefreshLibraryModalOpen(false) }}
+      <UpdateModal
+        game={updateModalGame}
+        open={Boolean(updateModalGame)}
+        onClose={() => setUpdateModalGame(null)}
+      />
+
+      <RefreshMediaModal
+        open={refreshLibraryModalOpen}
+        scope="library"
+        busy={refreshLibraryBusy}
+        progress={refreshLibraryProgress}
+        onConfirm={confirmLibraryRefresh}
+        onClose={() => { if (!refreshLibraryBusy) setRefreshLibraryModalOpen(false) }}
       />
 
     </div>
