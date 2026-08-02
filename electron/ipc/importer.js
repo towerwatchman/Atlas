@@ -4512,6 +4512,216 @@ ipcMain.handle(
   },
 );
 
+
+// ── Install a completed download ────────────────────────────────────────────
+//
+// Lives here rather than in the download manager because extraction needs the
+// importer's context: the resolved 7-Zip binary (including its user-prompt
+// fallback), the live config, and the owning window for progress. Duplicating
+// that elsewhere would mean a second, less-tested extraction path.
+//
+// The user has already confirmed the version in the install modal, so this
+// does not guess. `version` is taken as given.
+ipcMain.handle("downloads-install", async (event, { id, version, onComplete, keepArchive = false } = {}) => {
+  const downloadsDb = require("../db/downloads");
+  const downloadManager = require("../downloads/downloadManager");
+
+  const fail = async (message) => {
+    await downloadManager.setItemState(id, "failed", { error: message });
+    return { success: false, error: message };
+  };
+
+  try {
+    const item = await downloadsDb.getDownload(id);
+    if (!item) return { success: false, error: "Download not found" };
+    if (!item.filePath || !fs.existsSync(item.filePath)) {
+      return fail("The downloaded file is missing. Try downloading again.");
+    }
+    if (!item.recordId) {
+      return fail("This download is not linked to a game in your library.");
+    }
+
+    const record = await getGame(
+      item.recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode(),
+    );
+    if (!record) return fail("The game this download belongs to no longer exists.");
+
+    const currentConfig = ctx.appConfig || appConfig || {};
+    const targetLibrary = String(currentConfig?.Library?.gameFolder || "").trim();
+    if (!targetLibrary) {
+      return fail("No game folder is set. Choose one in Settings > Library.");
+    }
+
+    const finalVersion = normalizeVersionName(version || item.version);
+    const ownerWindow = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+    const notify = (text, progress = 0) => {
+      try {
+        ownerWindow?.webContents?.send("import-progress", { text, progress });
+      } catch { /* window gone */ }
+    };
+
+    // Same layout as a normal import, so downloads and imports are
+    // indistinguishable on disk.
+    const targetBase = getUniquePath(
+      buildStructuredImportPath(
+        targetLibrary,
+        currentConfig?.Library?.libraryFolderStructure,
+        {
+          creator: record.creator,
+          title: record.title,
+          version: finalVersion,
+        },
+      ),
+    );
+
+    await downloadManager.setItemState(id, "extracting", { error: "" });
+
+    const resolvedSevenZip = await resolveSevenZipExecutablePath({
+      configuredPath: currentConfig?.Library?.sevenZipPath,
+      currentConfig,
+      currentConfigPath: configPath,
+      ownerWindow,
+      notify: (text) => notify(text, 10),
+    });
+    if (!resolvedSevenZip?.path) return fail("7-Zip is required to install this download.");
+
+    const extraction = await extractArchiveWithFallback({
+      archivePath: item.filePath,
+      finalPath: targetBase,
+      sevenZipBin: resolvedSevenZip.path,
+      session: { canceled: false, cancelRequested: false },
+      progressWindow: ownerWindow,
+      useBundledRarExtractor:
+        isRarArchivePath(item.filePath) && resolvedSevenZip.source === "bundled",
+      currentConfig,
+      currentConfigPath: configPath,
+      ownerWindow,
+      notify: (text) => notify(text, 40),
+      label: record.title || item.title || "",
+    });
+    let gamePath = extraction.finalPath || targetBase;
+
+    // Archives routinely wrap everything in one folder. Flatten it, or every
+    // game ends up one level deeper than the library layout expects.
+    const items = await fsp.readdir(gamePath, { withFileTypes: true }).catch(() => []);
+    const dirs = items.filter((entry) => entry.isDirectory());
+    const files = items.filter((entry) => entry.isFile());
+    if (dirs.length === 1 && files.length === 0) {
+      const subPath = path.join(gamePath, dirs[0].name);
+      for (const entry of await fsp.readdir(subPath)) {
+        await fsp.rename(path.join(subPath, entry), path.join(gamePath, entry));
+      }
+      await fsp.rmdir(subPath).catch(() => {});
+    }
+
+    await downloadManager.setItemState(id, "importing");
+
+    const extensions = getConfiguredGameExtensions(currentConfig);
+    const relativeExec = findExecutables(gamePath, extensions)[0] || "";
+    const execPath = relativeExec ? path.join(gamePath, relativeExec) : "";
+    const folderSize = await calculatePathSizeSafe(gamePath);
+
+    // The version to replace is the one currently INSTALLED, not item.version -
+    // that field holds the version being downloaded, so using it meant asking
+    // to replace the build we were about to create. Prefer the record's
+    // selected version, falling back to any installed one.
+    let replaceTarget = "";
+    let replaceTargetId = null;
+    if (onComplete === "replace") {
+      const existing = Array.isArray(record.versions) ? record.versions : [];
+      const selected = existing.find(
+        (entry) => entry.version_id != null
+          && String(entry.version_id) === String(record.selected_version_id),
+      );
+      const installed = selected
+        || existing.find((entry) => entry.is_installed !== false && entry.version);
+      if (installed) {
+        replaceTarget = String(installed.version || "");
+        replaceTargetId = installed.version_id ?? null;
+      }
+    }
+    const savedVersion = await addVersion(
+      {
+        version: finalVersion,
+        folder: gamePath,
+        execPath,
+        folderSize,
+        in_place: 1,
+        source: "download",
+      },
+      item.recordId,
+    );
+
+    // Replacing swaps the previously installed build out; keep-both simply
+    // leaves it alone. Never fatal - the new version is already attached, and
+    // failing here would leave the queue looking broken over a cleanup step.
+    if (onComplete === "replace" && replaceTarget && replaceTarget !== savedVersion) {
+      try {
+        await replaceInstalledVersionAfterImport({
+          recordId: item.recordId,
+          newVersion: savedVersion,
+          newGamePath: gamePath,
+          replaceVersion: replaceTarget,
+          replaceVersionId: replaceTargetId,
+          libraryRoot: targetLibrary,
+          auditDataDir: dataDir,
+          sender: ownerWindow,
+        });
+      } catch (err) {
+        console.warn("Version replace after download failed:", err.message);
+      }
+    }
+
+    await downloadManager.setItemState(id, "done", {
+      completedAt: item.completedAt || Math.floor(Date.now() / 1000),
+      // Marks the archive as consumed, so the Install action stops offering
+      // itself for this item.
+      installedAt: Math.floor(Date.now() / 1000),
+      version: savedVersion || finalVersion,
+      error: "",
+    });
+    // 5. The archive has been consumed. Deleting is the default - these are
+    // multi-gigabyte files and keeping them silently fills a disk - but the
+    // user can opt to keep it from the install prompt.
+    let archiveDeleted = false;
+    if (!keepArchive && item.filePath) {
+      try {
+        await fsp.rm(item.filePath, { force: true });
+        archiveDeleted = true;
+        await downloadsDb.updateDownload(id, { filePath: "" });
+      } catch (err) {
+        // Never fatal: the install succeeded, and a leftover archive is a
+        // tidiness problem rather than a broken outcome.
+        console.warn("Could not delete the archive after install:", err.message);
+      }
+    }
+
+    // 3/4. Tell every window the record changed, so the library banner drops
+    // its update badge and the detail page re-sorts its version list. Same
+    // event and payload the normal import path uses.
+    const refreshedGame = await getGame(
+      item.recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode(),
+    ).catch(() => null);
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) {
+        win.webContents.send("game-updated", refreshedGame || item.recordId);
+      }
+    });
+
+    notify("", 100);
+    return {
+      success: true,
+      version: savedVersion || finalVersion,
+      gamePath,
+      archiveDeleted,
+    };
+  } catch (err) {
+    console.error("downloads-install failed:", err);
+    return fail(err.message || String(err));
+  }
+});
+
+
 }
 
 // Test-only surface: pure, side-effect-free import helpers exposed so the

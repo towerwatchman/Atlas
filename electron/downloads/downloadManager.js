@@ -353,37 +353,19 @@ const finishFile = async (id, filePath, receivedBytes) => {
     fileName: path.basename(filePath),
   });
 
-  if (!attachHandler) {
-    // Nothing wired to extract and attach: the bytes are on disk and the user
-    // can import manually, which is a better outcome than reporting failure.
-    await setState(id, "done", { completedAt: Math.floor(Date.now() / 1000) });
-    return;
-  }
-
-  try {
-    await setState(id, "extracting");
-    const result = await attachHandler({
-      item: await downloadsDb.getDownload(id),
-      filePath,
-      setState: (state, patch) => setState(id, state, patch),
-    });
-    if (result?.success) {
-      await setState(id, "done", {
-        completedAt: Math.floor(Date.now() / 1000),
-        version: result.version || item.version || "",
-        recordId: result.recordId ?? item.recordId ?? null,
-        error: "",
-      });
-      emit("download-complete", await downloadsDb.getDownload(id));
-    } else {
-      await setState(id, "failed", {
-        error: result?.error || "Could not add the downloaded version",
-      });
-    }
-  } catch (err) {
-    await setState(id, "failed", { error: err.message || String(err) });
-  }
+  // Stop here. The bytes are on disk and verified, but installing means
+  // choosing a version string that becomes a folder name and may REPLACE an
+  // existing build - so it waits for the user to confirm rather than acting on
+  // a filename guess. The renderer drives the rest via downloads-install.
+  await setState(id, "ready");
+  emit("download-complete", await downloadsDb.getDownload(id));
 };
+
+// State transitions for callers outside this module - specifically the
+// installer in ipc/importer.js, which owns extraction because that is where
+// the 7-Zip resolution and config context live. Routing through here keeps the
+// event broadcast in one place instead of two.
+const setItemState = (id, state, patch = {}) => setState(id, state, patch);
 
 // ── Queue runner ─────────────────────────────────────────────────────────────
 
@@ -619,6 +601,7 @@ const start = async () => {
 
 module.exports = {
   configure,
+  setItemState,
   start,
   stopWatching,
   startWatching,

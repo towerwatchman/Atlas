@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
+import InstallModal from './InstallModal.jsx'
 
 // ── Downloads page ───────────────────────────────────────────────────────────
 //
@@ -20,6 +21,7 @@ import { toMediaSrc } from '../../utils/mediaSrc.js'
 
 const STATE_LABELS = {
   queued: 'Queued',
+  ready: 'Ready to install',
   downloading: 'Downloading',
   paused: 'Paused',
   awaiting_file: 'Waiting for your browser download',
@@ -32,7 +34,7 @@ const STATE_LABELS = {
 }
 
 const ACTIVE_STATES = ['downloading', 'verifying', 'extracting', 'importing']
-const WAITING_STATES = ['queued', 'paused', 'awaiting_file', 'failed']
+const WAITING_STATES = ['queued', 'paused', 'awaiting_file', 'failed', 'ready']
 const FINISHED_STATES = ['done', 'canceled']
 const WORKING_STATES = ['verifying', 'extracting', 'importing']
 
@@ -140,6 +142,9 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
   const [rates, setRates] = useState({})
   const [busyId, setBusyId] = useState(null)
   const [folder, setFolder] = useState('')
+  // The item awaiting install confirmation, plus the version Atlas suggests
+  // for it. Null when the modal is closed.
+  const [installTarget, setInstallTarget] = useState(null)
   const samplesRef = useRef(new Map())
   const peakRef = useRef(0)
 
@@ -212,6 +217,18 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
   const totalRate = current.reduce((sum, item) => sum + (rates[item.id] || 0), 0)
   if (totalRate > peakRef.current) peakRef.current = totalRate
 
+  // The version suggestion is derived in the main process, where the parser
+  // and the catalog version both live; the modal only presents it.
+  const openInstall = async (item) => {
+    let suggestion = null
+    try {
+      suggestion = await window.electronAPI.downloadsSuggestVersion?.({ id: item.id })
+    } catch {
+      // A failed suggestion is not fatal - the field is editable anyway.
+    }
+    setInstallTarget({ item, suggestion: suggestion?.ok ? suggestion : null })
+  }
+
   const move = async (id, direction) => {
     const ordered = [...current, ...upNext].map((item) => item.id)
     const index = ordered.indexOf(id)
@@ -271,6 +288,9 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
             {item.state === 'done' && item.completedAt && (
               <span>{formatWhen(item.completedAt)}</span>
             )}
+            {item.state === 'done' && !item.installedAt && item.filePath && (
+              <span className="text-amber-400">downloaded, not installed</span>
+            )}
           </div>
 
           {item.error && <div className="mt-1 text-xs text-danger break-words">{item.error}</div>}
@@ -311,6 +331,18 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
           )}
           {item.state === 'failed' && (
             <Action icon="fa-rotate-right" title="Retry" onClick={() => act('retry', item.id)} disabled={busyId === item.id} />
+          )}
+          {/* `installable` covers both a fresh `ready` item and a `done` one
+              whose archive is still on disk but was never installed - which is
+              every download from before the install step existed. */}
+          {item.installable && (
+            <button
+              type="button"
+              onClick={() => openInstall(item)}
+              className="h-8 px-3 mr-1 text-xs rounded-buttonTheme bg-accent hover:bg-accentHover text-white whitespace-nowrap"
+            >
+              Install
+            </button>
           )}
           {WAITING_STATES.includes(item.state) && (
             <>
@@ -413,6 +445,14 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
           </Section>
         )}
       </div>
+
+      <InstallModal
+        item={installTarget?.item}
+        suggestion={installTarget?.suggestion}
+        open={Boolean(installTarget)}
+        onClose={() => setInstallTarget(null)}
+        onInstalled={() => { setInstallTarget(null); refresh() }}
+      />
     </div>
   )
 }

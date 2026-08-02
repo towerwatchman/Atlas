@@ -17,6 +17,11 @@
 //   downloading -> bytes moving
 //   paused      -> user paused, or the app was closed mid-transfer
 //   verifying   -> download finished, checking the file is intact/complete
+//   ready       -> bytes on disk and verified, WAITING FOR THE USER to
+//                  confirm the version before anything is installed. A
+//                  download never installs itself: the version string
+//                  becomes a folder name and can replace an existing build,
+//                  so it gets a confirmation step.
 //   extracting  -> unpacking into the library
 //   importing   -> attaching as a version to the record
 //   done        -> finished, version attached
@@ -57,7 +62,12 @@ const DOWNLOADS_DDL = `
     queue_order INTEGER DEFAULT 0,
     created_at INTEGER,
     updated_at INTEGER,
-    completed_at INTEGER
+    completed_at INTEGER,
+    -- When the archive was installed into the library. Distinct from
+    -- completed_at, which only means the bytes finished transferring.
+    -- Null on a finished download that was never installed - including
+    -- everything downloaded before the install step existed.
+    installed_at INTEGER
   )
 `;
 
@@ -122,11 +132,20 @@ const mapRow = (row) => {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at,
+    installedAt: row.installed_at,
+    // A finished download whose archive is still on disk and was never
+    // installed. Drives the Install action, including for items that
+    // predate the install step.
+    installable: Boolean(row.file_path) && !row.installed_at
+      && ['ready', 'done'].includes(row.state),
   };
 };
 
 const initializeDownloads = async () => {
   await run(DOWNLOADS_DDL);
+  // Added after the table shipped, so existing installs need it bolted on.
+  // Failure means it is already there.
+  await run(`ALTER TABLE downloads ADD COLUMN installed_at INTEGER`).catch(() => {});
   for (const sql of DOWNLOADS_INDEXES) await run(sql);
   // Anything the app was actively working on when it exited is not actually in
   // progress any more. Park it as paused, keeping received_bytes so a resume can
@@ -214,6 +233,7 @@ const updateDownload = async (id, patch = {}) => {
     onComplete: "on_complete",
     queueOrder: "queue_order",
     completedAt: "completed_at",
+    installedAt: "installed_at",
   };
   const assignments = [];
   const params = [];

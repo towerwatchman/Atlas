@@ -120,6 +120,29 @@ function registerDownloadsHandlers(ctx = {}) {
     }
   });
 
+  // Version suggestion for the install prompt. Lives here rather than in the
+  // renderer because it reconciles the archive filename against the catalog's
+  // version, and the parser and the record both sit on this side.
+  ipcMain.handle("downloads-suggest-version", async (event, { id } = {}) => {
+    try {
+      const item = await downloadsDb.getDownload(id);
+      if (!item) return { ok: false, error: "Download not found" };
+      const { suggestVersion } = require("../downloads/versionFromFile");
+      let catalogVersion = item.version || "";
+      if (item.recordId) {
+        try {
+          const record = await require("../db/versions").getGame(item.recordId);
+          catalogVersion = record?.latestVersion || record?.latest_version || catalogVersion;
+        } catch {
+          // Falling back to the queued version is fine; the field is editable.
+        }
+      }
+      return { ok: true, ...suggestVersion(item.fileName || "", catalogVersion) };
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
+  });
+
   ipcMain.handle("downloads-list", async (event, options = {}) => {
     try {
       return { success: true, items: await downloadsDb.listDownloads(options) };
