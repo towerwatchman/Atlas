@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import UpdateModal from '../downloads/UpdateModal.jsx'
 import RatingModal from './RatingModal.jsx'
 import {
   PERSONAL_RATING_CATEGORIES, RATING_MAX,
@@ -162,6 +163,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   const [localReplaceVersionId, setLocalReplaceVersionId] = useState('')
   const [localDeleteSourceArchive, setLocalDeleteSourceArchive] = useState(false)
   const [showLocalImportPanel, setShowLocalImportPanel] = useState(false)
+  const [updateModalOpen, setUpdateModalOpen] = useState(false)
   const [localArchiveExtensions, setLocalArchiveExtensions] = useState(['zip', '7z', 'rar'])
   const [personalRatingsDraft, setPersonalRatingsDraft] = useState(() => buildPersonalRatingsDraft(game))
   const [personalRatingsSaved, setPersonalRatingsSaved] = useState(() => buildPersonalRatingsDraft(game))
@@ -1201,6 +1203,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         onToggleFavorite={toggleFavorite}
         onRefreshMedia={refreshMetadataAndImages}
         onOpenWebsite={openWebsite}
+        onOpenUpdate={() => setUpdateModalOpen(true)}
         onOpenSteam={openSteam}
         onOpenGog={openGog}
         onUninstallSteam={uninstallSteam}
@@ -1754,6 +1757,14 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         busy={isRefreshingMedia}
         onConfirm={doRefreshMedia}
         onClose={() => { if (!isRefreshingMedia) setRefreshModalOpen(false) }}
+      />
+
+      {/* Mirror picker for the UPDATE button. Fetches the thread under the
+          user's own F95 session, since masked links are minted per account. */}
+      <UpdateModal
+        game={game}
+        open={updateModalOpen}
+        onClose={() => setUpdateModalOpen(false)}
       />
     </div>
   )

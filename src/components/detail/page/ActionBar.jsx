@@ -12,6 +12,9 @@ export default function ActionBar({
   onOpenWebsite, onOpenSteam, onOpenGog, onUninstallSteam, onToggleFavorite, onToggleLocalImport,
   onRemoveTitle, onDeleteTitle, onBack, onToggleEditLayout, editingLayout = false,
   onToggleInfo, showInfo = false, showBack = false,
+  // Opens the mirror picker. Falls back to the old behaviour when the
+  // caller has not wired it, so the button is never dead.
+  onOpenUpdate = null,
 }) {
   const showInstallCta = !canLaunch && canInstallFromDetail
   // When the title is Steam-owned but not installed, the primary CTA hands off
@@ -97,11 +100,11 @@ export default function ActionBar({
         {/* UPDATE */}
         {game.isUpdateAvailable && (
           <button
-            onClick={canManageLocalTitle ? onToggleLocalImport : onOpenWebsite}
+            onClick={onOpenUpdate || (canManageLocalTitle ? onToggleLocalImport : onOpenWebsite)}
             style={{ ...ACTION_BTN, minWidth: 130, background: 'var(--color-detail-accent)', color: 'var(--color-detail-accent-text)' }}
             onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.12)' }}
             onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
-            title={canManageLocalTitle ? 'Open update/import panel' : 'Open update page'}
+            title={onOpenUpdate ? 'Choose a download mirror' : (canManageLocalTitle ? 'Open update/import panel' : 'Open update page')}
           >
             <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <i className="fas fa-arrow-up" style={{ fontSize: 11 }}></i>UPDATE
