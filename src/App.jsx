@@ -23,6 +23,7 @@ import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
 import RefreshMediaModal from './components/ui/RefreshMediaModal.jsx'
+import DownloadsDock from './components/downloads/DownloadsDock.jsx'
 import { useToast } from './components/ui/toast/ToastContext.jsx'
 import { useGames } from './hooks/useGames.js'
 import {
@@ -2645,14 +2646,19 @@ const App = () => {
         onClose={handleWelcomeTourClose}
       />
 
-      <RefreshMediaModal
-        open={refreshLibraryModalOpen}
-        scope="library"
-        busy={refreshLibraryBusy}
-        progress={refreshLibraryProgress}
-        onConfirm={confirmLibraryRefresh}
-        onClose={() => { if (!refreshLibraryBusy) setRefreshLibraryModalOpen(false) }}
+      <RefreshMediaModal
+        open={refreshLibraryModalOpen}
+        scope="library"
+        busy={refreshLibraryBusy}
+        progress={refreshLibraryProgress}
+        onConfirm={confirmLibraryRefresh}
+        onClose={() => { if (!refreshLibraryBusy) setRefreshLibraryModalOpen(false) }}
       />
+
+      {/* Bottom-right download status button and the panel it opens. Fully
+          self-contained: it owns its own queue state and subscribes to the main
+          process directly, so it does not participate in App's view routing. */}
+      <DownloadsDock />
     </div>
   )
 }

@@ -136,6 +136,7 @@ const registerImporterHandlers = require('./ipc/importer')
 const registerThemeHandlers = require('./ipc/themes')
 const registerAccountsHandlers = require('./ipc/accounts')
 const registerCollectionsHandlers = require('./ipc/collections')
+const registerDownloadsHandlers = require('./ipc/downloads')
 const {
   resolveDataRoot, grantUsersModify, isElevated,
   getLegacyDataDirs, directorySize, migrateLegacyData,
@@ -2339,6 +2340,7 @@ app.whenReady().then(async () => {
   registerThemeHandlers(ctx)
   registerAccountsHandlers(ctx)
   registerCollectionsHandlers(ctx)
+  registerDownloadsHandlers(ctx)
 
   if (appConfig?.Interface?.checkForAppUpdatesOnStartup) {
     autoUpdater.checkForUpdates().catch((err) => {

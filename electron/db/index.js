@@ -685,6 +685,10 @@ const initializeDatabase = (dataDir) => {
     // window (Record tab) and are where an external-library import (F95Checker's
     // per-game `notes`) lands. The per-version column is written by nothing yet;
     // it exists so per-build notes don't need a second migration later.
+    // Download queue. Created here with the rest of the schema so the manager
+    // can assume it exists; see db/downloads.js for the state machine.
+    db.run(require('./downloads').DOWNLOADS_DDL);
+    for (const indexSql of require('./downloads').DOWNLOADS_INDEXES) db.run(indexSql);
     db.run(`ALTER TABLE games ADD COLUMN notes TEXT;`, () => {});
     db.run(`ALTER TABLE versions ADD COLUMN notes TEXT;`, () => {});
     // Per-version source identity. A single title can hold versions from
