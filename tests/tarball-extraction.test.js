@@ -2,20 +2,27 @@ import { test, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 
-const src = fs.readFileSync(
+// These moved from ipc/importer.js to library/importRules.js. The source-text
+// assertion below follows them.
+// The source-text assertions span BOTH files now: the extension defaults moved
+// to importRules.js, while extractArchive / unwrapNestedTarball stayed in
+// importer.js. Concatenated so each assertion finds its target wherever it
+// currently lives, and so a future move of either does not silently pass by
+// matching nothing.
+const src = [
+  path.join(__dirname, '..', 'electron', 'library', 'importRules.js'),
   path.join(__dirname, '..', 'electron', 'ipc', 'importer.js'),
-  'utf8',
-)
+].map((file) => fs.readFileSync(file, 'utf8')).join('\n')
 
-// Mirrors TARBALL_SUFFIXES / getArchiveExtension in importer.js. Those are module
-// -private, and importing importer.js pulls in electron, so the behaviour is
-// restated here and the source is asserted against separately below.
-const TARBALL_SUFFIXES = [
-  '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.tbz',
-  '.tar.xz', '.txz', '.tar.zst', '.tzst', '.tar.lz4', '.tar.lzma',
-]
-const isCompoundTarball = (p) =>
-  TARBALL_SUFFIXES.some((s) => String(p).toLowerCase().endsWith(s))
+// Previously this file re-declared TARBALL_SUFFIXES and isCompoundTarball,
+// because importing importer.js dragged in electron and the originals were
+// module-private. importRules.js has no electron dependency, so the REAL
+// implementations can be imported and a duplicated copy that could silently
+// drift out of step is no longer needed.
+const {
+  TARBALL_SUFFIXES,
+  isCompoundTarballPath: isCompoundTarball,
+} = require('../electron/library/importRules')
 
 test.each([
   'Game.tar.bz2', 'Game.tar.gz', 'Game.tar.xz', 'Game.tgz',
