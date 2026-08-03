@@ -234,7 +234,7 @@ export default function ExternalLibraryStep({
               value={summary.custom}
               tone={summary.custom ? 'warn' : 'muted'}
             />
-            <SummaryPill label="to wishlist" value={summary.watchlist ?? 0} />
+            <SummaryPill label="to wishlist" value={summary.wishlist ?? 0} />
             <SummaryPill
               label="no source link"
               value={summary.unidentified ?? 0}
@@ -399,13 +399,13 @@ export default function ExternalLibraryStep({
               </div>
             )}
 
-            {(summary.watchlistMissingPath > 0 || summary.watchlistNoLaunchable > 0) && (
+            {(summary.wishlistMissingPath > 0 || summary.wishlistNoLaunchable > 0) && (
               <div className="rounded border border-border p-3 text-xs text-muted">
                 <span className="text-text font-medium">
-                  {(summary.watchlistMissingPath || 0) + (summary.watchlistNoLaunchable || 0)}
+                  {(summary.wishlistMissingPath || 0) + (summary.wishlistNoLaunchable || 0)}
                 </span>{' '}
-                of the {summary.watchlist} going to the wishlist{' '}
-                {(summary.watchlistMissingPath || 0) + (summary.watchlistNoLaunchable || 0) === 1
+                of the {summary.wishlist} going to the wishlist{' '}
+                {(summary.wishlistMissingPath || 0) + (summary.wishlistNoLaunchable || 0) === 1
                   ? 'is a game'
                   : 'are games'}{' '}
                 {label} thinks you have installed, but Atlas could not find anything to

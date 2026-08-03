@@ -15,7 +15,7 @@ const SCAN_TABLE_COLUMNS = [
   { key: 'databaseMatch', width: 220, minWidth: 160 },
   { key: 'source', width: 280, minWidth: 160 },
   { key: 'status', width: 150, minWidth: 110 },
-  { key: 'watchlist', width: 90, minWidth: 76 },
+  { key: 'wishlist', width: 90, minWidth: 76 },
   { key: 'actions', width: 220, minWidth: 180 },
 ]
 
@@ -94,8 +94,8 @@ export default function ScanTable({
   // Only an external-library import can produce rows with nothing on disk, so
   // the column stays hidden for folder/Steam/GOG scans rather than adding a
   // permanently-empty checkbox to every import.
-  showWatchlist = false,
-  onToggleWatchlist,
+  showWishlist = false,
+  onToggleWishlist,
 }) {
   const selectAllRef = useRef(null)
   const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS)
@@ -104,10 +104,10 @@ export default function ScanTable({
   const visibleColumns = useMemo(
     () => SCAN_TABLE_COLUMNS.filter((column) => {
       if (column.key === 'replaceVersion') return showReplaceVersion
-      if (column.key === 'watchlist') return showWatchlist
+      if (column.key === 'wishlist') return showWishlist
       return true
     }),
-    [showReplaceVersion, showWatchlist],
+    [showReplaceVersion, showWishlist],
   )
   const visibleRowKeys = useMemo(() => sortedRows.map(({ game }) => getGameKey(game)), [getGameKey, sortedRows])
   const selectedVisibleCount = visibleRowKeys.filter((key) => selectedRowKeys.has(key)).length
@@ -272,10 +272,10 @@ export default function ScanTable({
           {renderSortableHeader('databaseMatch', 'Database Match')}
           {renderSortableHeader('source', 'Source')}
           {renderSortableHeader('status', 'Status')}
-          {showWatchlist && (
+          {showWishlist && (
             <th className="relative border border-border p-1" title="Add to the wishlist instead of importing to the library">
               Wishlist
-              {renderResizeHandle('watchlist')}
+              {renderResizeHandle('wishlist')}
             </th>
           )}
           <th className="relative border border-border p-1 pr-3">
@@ -289,7 +289,7 @@ export default function ScanTable({
           const rowStatus = getRowImportStatus(game)
           const statusText = rowStatus.text
           const statusClass =
-            rowStatus.type === 'watchlist' ? 'text-purple-300'
+            rowStatus.type === 'wishlist' ? 'text-purple-300'
             : rowStatus.type === 'alreadyImported' ? 'text-yellow-300'
             : rowStatus.type === 'pending' ? 'text-blue-200'
             : rowStatus.type === 'emptyFolder' ? 'text-gray-300'
@@ -452,14 +452,14 @@ export default function ScanTable({
                 </div>
               </td>
               <td className={`border border-border p-1 ${statusClass}`}>{statusText}</td>
-              {showWatchlist && (
+              {showWishlist && (
                 <td className="border border-border p-1 text-center">
                   <input
                     type="checkbox"
-                    checked={Boolean(game.addToWatchlist)}
-                    onChange={() => onToggleWatchlist?.(gameKey)}
+                    checked={Boolean(game.addToWishlist)}
+                    onChange={() => onToggleWishlist?.(gameKey)}
                     title={
-                      game.addToWatchlist
+                      game.addToWishlist
                         ? 'Will be added to the wishlist instead of the library'
                         // Unticking a row with nothing launchable does not import
                         // it — there is no executable to import — it drops it from

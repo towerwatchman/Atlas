@@ -532,7 +532,9 @@ const buildImportRow = (game) => {
     // Matching is deferred to resolve-import-matches, which tries the thread id
     // first and falls back to title + creator.
     scanStatus: "pendingMatch",
-    scanMessage: "Pending match",
+    // The review table computes the visible label from whether the row
+    // carries an id; this is the fallback for anywhere else it surfaces.
+    scanMessage: "Matching against the catalog",
 
     externalState: {
       source: "xlibrary",
@@ -578,9 +580,9 @@ const buildImportRow = (game) => {
 
     // ── Wishlist ────────────────────────────────────────────────────────────
     isInstalled: hasLaunchable,
-    watchlistCandidate: !hasLaunchable,
-    addToWatchlist: !hasLaunchable,
-    watchlistReason: hasLaunchable
+    wishlistCandidate: !hasLaunchable,
+    addToWishlist: !hasLaunchable,
+    wishlistReason: hasLaunchable
       ? ""
       : install.missing
         ? "install-path-missing"
@@ -656,7 +658,7 @@ const buildMapping = (summary) => [
     from: "Nothing launchable on disk",
     to: "Wishlist",
     detail: "Pre-ticked on the review screen — untick any you want as library records",
-    count: summary.watchlist,
+    count: summary.wishlist,
   },
   {
     from: "Forum tags, status, description, cover, screenshots",
@@ -775,7 +777,7 @@ const readXLibraryExport = async (filePath) => {
   let customCount = 0;
   let unidentifiedCount = 0;
   let lewdCornerCount = 0;
-  let watchlistCount = 0;
+  let wishlistCount = 0;
   let conflictedIdCount = 0;
   let unknownStatusCount = 0;
   let droppedRatingCategories = 0;
@@ -795,7 +797,7 @@ const readXLibraryExport = async (filePath) => {
     if (built.isCustomEntry) customCount += 1;
     if (!built.f95Id && !built.lcId) unidentifiedCount += 1;
     if (built.lcId) lewdCornerCount += 1;
-    if (built.addToWatchlist) watchlistCount += 1;
+    if (built.addToWishlist) wishlistCount += 1;
     if (built.f95IdConflicted) conflictedIdCount += 1;
     if (built.unknownCompletionStatus) unknownStatusCount += 1;
     droppedRatingCategories += built.droppedRatingCategories;
@@ -819,7 +821,7 @@ const readXLibraryExport = async (filePath) => {
     conflictedIds: conflictedIdCount,
     lewdCorner: lewdCornerCount,
     unidentified: unidentifiedCount,
-    watchlist: watchlistCount,
+    wishlist: wishlistCount,
     otherFolderConfigs: otherFolderConfigCount,
     unknownCompletionStatus: unknownStatusCount,
     droppedRatingCategories,

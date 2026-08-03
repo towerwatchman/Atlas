@@ -382,7 +382,9 @@ const buildImportRow = (row, { labelsById, tabsById, exeBaseDir = "" }) => {
     // Matching is deferred to resolve-import-matches, which looks up f95Id
     // first and falls back to title/creator — exactly what these rows need.
     scanStatus: "pendingMatch",
-    scanMessage: "Pending match",
+    // The review table computes the visible label from whether the row
+    // carries an id; this is the fallback for anywhere else it surfaces.
+    scanMessage: "Matching against the catalog",
 
     externalState: {
       source: "f95checker",
@@ -410,7 +412,7 @@ const buildImportRow = (row, { labelsById, tabsById, exeBaseDir = "" }) => {
     recordedRawInstallPath: install.recordedRawPath || "",
     installPathWasRelative: Boolean(install.wasRelative),
 
-    // ── Watchlist ───────────────────────────────────────────────────────────
+    // ── Wishlist ───────────────────────────────────────────────────────────
     // A row F95Checker is tracking that Atlas cannot launch isn't a game the
     // user owns here — it's a game they're watching. Importing it as a library
     // record would create an entry with no version and no launch path, which is
@@ -422,24 +424,24 @@ const buildImportRow = (row, { labelsById, tabsById, exeBaseDir = "" }) => {
     // installed version, which left two populations belonging to neither list:
     // a row whose recorded path no longer exists (library moved, or its drive is
     // not mounted), and a row with an `installed` version string but no
-    // executable. Both failed the importer's launchable check AND the watchlist
+    // executable. Both failed the importer's launchable check AND the wishlist
     // check, so they were silently dropped by the import — which for anyone
     // whose games live on an unmounted drive is the entire library.
     //
-    // Note this is about DISK, not about catalog matching: a watchlist entry
+    // Note this is about DISK, not about catalog matching: a wishlist entry
     // still wants its Atlas match so it can carry a banner and metadata.
     //
     // A directory-only entry counts as not launchable for the same reason: Atlas
     // needs an executable to write a version row, so a folder with nothing
     // resolvable beneath it cannot be imported either.
     isInstalled: Boolean(install.singleExecutable),
-    watchlistCandidate: !install.singleExecutable,
-    addToWatchlist: !install.singleExecutable,
-    // Why the row is going to the watchlist, so the import step can break the
+    wishlistCandidate: !install.singleExecutable,
+    addToWishlist: !install.singleExecutable,
+    // Why the row is going to the wishlist, so the import step can break the
     // count down instead of reporting one opaque number. "Not installed" is the
     // expected case; the other two mean something is wrong the user may want to
     // fix before importing.
-    watchlistReason: install.singleExecutable
+    wishlistReason: install.singleExecutable
       ? ""
       : install.missing
         ? "install-path-missing"
@@ -511,7 +513,7 @@ const buildMapping = (summary, tabs = []) => [
     from: "Nothing launchable on disk",
     to: "Wishlist",
     detail: "Pre-ticked on the review screen — untick any you want as library records",
-    count: summary.watchlist,
+    count: summary.wishlist,
   },
   {
     from: "Status, type, tags, description, score",
@@ -597,11 +599,11 @@ const readF95CheckerLibrary = async (dbPath) => {
     let recoveredIdCount = 0;
     let lewdCornerCount = 0;
     let unidentifiedCount = 0;
-    let watchlistCount = 0;
+    let wishlistCount = 0;
     let relativePathCount = 0;
     // Broken down by reason: "not installed" is expected, the other two mean
     // something the user may want to fix before importing.
-    const watchlistReasons = {
+    const wishlistReasons = {
       "not-installed": 0,
       "install-path-missing": 0,
       "no-launchable": 0,
@@ -626,10 +628,10 @@ const readF95CheckerLibrary = async (dbPath) => {
       if (built.f95IdFromUrl) recoveredIdCount += 1;
       if (built.lcId) lewdCornerCount += 1;
       if (!built.f95Id && !built.lcId) unidentifiedCount += 1;
-      if (built.addToWatchlist) {
-        watchlistCount += 1;
-        if (built.watchlistReason in watchlistReasons) {
-          watchlistReasons[built.watchlistReason] += 1;
+      if (built.addToWishlist) {
+        wishlistCount += 1;
+        if (built.wishlistReason in wishlistReasons) {
+          wishlistReasons[built.wishlistReason] += 1;
         }
       }
       if (built.installPathWasRelative) relativePathCount += 1;
@@ -652,13 +654,13 @@ const readF95CheckerLibrary = async (dbPath) => {
       recoveredIds: recoveredIdCount,
       lewdCorner: lewdCornerCount,
       unidentified: unidentifiedCount,
-      watchlist: watchlistCount,
-      // Rows going to the watchlist because their recorded install path did not
+      wishlist: wishlistCount,
+      // Rows going to the wishlist because their recorded install path did not
       // resolve, rather than because nothing was ever installed. A large number
       // here almost always means one shared cause — see exeBaseDir.
-      watchlistMissingPath: watchlistReasons["install-path-missing"],
-      watchlistNoLaunchable: watchlistReasons["no-launchable"],
-      watchlistNotInstalled: watchlistReasons["not-installed"],
+      wishlistMissingPath: wishlistReasons["install-path-missing"],
+      wishlistNoLaunchable: wishlistReasons["no-launchable"],
+      wishlistNotInstalled: wishlistReasons["not-installed"],
       relativePaths: relativePathCount,
       withLabels: rows.filter((row) => row.externalState.labels.length > 0).length,
       withTab: rows.filter((row) => row.externalState.tab).length,

@@ -372,8 +372,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   describeExternalLibrary: (id) => ipcRenderer.invoke("describe-external-library", id),
   selectExternalLibraryFile: (id) => ipcRenderer.invoke("select-external-library-file", id),
   scanExternalLibrary: (params) => ipcRenderer.invoke("scan-external-library", params),
-  addImportWatchlistEntries: (games) =>
-    ipcRenderer.invoke("add-import-watchlist-entries", games),
+  addImportWishlistEntries: (games) =>
+    ipcRenderer.invoke("add-import-wishlist-entries", games),
   captureScreens: () => ipcRenderer.invoke("capture-screens"),
   openThemesFolder: () => ipcRenderer.invoke("open-themes-folder"),
   openBannersFolder: () => ipcRenderer.invoke("open-banners-folder"),

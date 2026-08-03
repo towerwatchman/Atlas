@@ -331,7 +331,7 @@ function buildFixture(dir) {
     eq(installed.in_place, 1, "external imports stay in place");
     eq(installed.scanStatus, "pendingMatch");
     eq(installed.isInstalled, true);
-    eq(installed.addToWatchlist, false, "a launchable install goes to the library");
+    eq(installed.addToWishlist, false, "a launchable install goes to the library");
 
     // Two configurations in the same folder are two ways to launch one install,
     // so both are offered in the review table's picker.
@@ -376,8 +376,8 @@ function buildFixture(dir) {
 
     // ── The wishlist rows ─────────────────────────────────────────────────
     const tracked = byTitle.get("Tracked Game");
-    eq(tracked.addToWatchlist, true, "nothing on disk");
-    eq(tracked.watchlistReason, "not-installed");
+    eq(tracked.addToWishlist, true, "nothing on disk");
+    eq(tracked.wishlistReason, "not-installed");
     eq(tracked.version, "v0.1", "falls back to the thread version");
     eq(tracked.externalState.playstate, "planned", "In Queue maps to planned");
     eq(tracked.engine, "RPGM", "RPG Maker is normalised");
@@ -386,8 +386,8 @@ function buildFixture(dir) {
     // longer resolves cannot be imported, so it must reach the wishlist rather
     // than being dropped by both paths.
     const moved = byTitle.get("Moved Game");
-    eq(moved.addToWatchlist, true, "a broken install path must not be dropped");
-    eq(moved.watchlistReason, "install-path-missing");
+    eq(moved.addToWishlist, true, "a broken install path must not be dropped");
+    eq(moved.wishlistReason, "install-path-missing");
     eq(moved.installMissing, true);
     eq(moved.folder, "", "a path that does not resolve is not used");
     ok(moved.recordedInstallPath.endsWith("Missing.exe"), "the path tried is reported");
@@ -432,7 +432,7 @@ function buildFixture(dir) {
     for (const row of result.rows) {
       check(() =>
         assert.notStrictEqual(
-          Boolean(row.singleExecutable) === Boolean(row.addToWatchlist),
+          Boolean(row.singleExecutable) === Boolean(row.addToWishlist),
           true,
           `row '${row.title}' is in both or neither destination`,
         ));
@@ -440,9 +440,9 @@ function buildFixture(dir) {
 
     // ── Summary ───────────────────────────────────────────────────────────
     eq(result.summary.installed, 2, "the two rows with a resolvable executable");
-    eq(result.summary.watchlist, 6);
+    eq(result.summary.wishlist, 6);
     eq(
-      result.summary.installed + result.summary.watchlist,
+      result.summary.installed + result.summary.wishlist,
       result.rows.length,
       "the two destinations account for every row",
     );

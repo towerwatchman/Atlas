@@ -257,12 +257,12 @@ async function buildFixture(dir) {
     // The test is whether an executable RESOLVED, not whether one was recorded.
     // Anything Atlas cannot launch goes to the wishlist; anything it can goes to
     // the library.
-    assert.strictEqual(wishlisted.watchlistCandidate, true, "nothing on disk");
-    assert.strictEqual(wishlisted.addToWatchlist, true, "pre-ticked for review");
-    assert.strictEqual(wishlisted.watchlistReason, "not-installed");
-    assert.strictEqual(installed.addToWatchlist, false, "installed goes to library");
-    assert.strictEqual(installed.watchlistReason, "", "no reason when it imports");
-    assert.strictEqual(relative.addToWatchlist, false, "a resolved relative path imports");
+    assert.strictEqual(wishlisted.wishlistCandidate, true, "nothing on disk");
+    assert.strictEqual(wishlisted.addToWishlist, true, "pre-ticked for review");
+    assert.strictEqual(wishlisted.wishlistReason, "not-installed");
+    assert.strictEqual(installed.addToWishlist, false, "installed goes to library");
+    assert.strictEqual(installed.wishlistReason, "", "no reason when it imports");
+    assert.strictEqual(relative.addToWishlist, false, "a resolved relative path imports");
 
     // The regression this guards. A row whose recorded executable no longer
     // exists fails the importer's launchable check, so it can never become a
@@ -270,11 +270,11 @@ async function buildFixture(dir) {
     // either, which meant pressing Import silently dropped it. For anyone whose
     // library lives on a drive that is not currently mounted, that was every row.
     assert.strictEqual(
-      byTitle.get("Moved Game").addToWatchlist,
+      byTitle.get("Moved Game").addToWishlist,
       true,
       "a recorded-but-missing path must not fall between both lists",
     );
-    assert.strictEqual(byTitle.get("Moved Game").watchlistReason, "install-path-missing");
+    assert.strictEqual(byTitle.get("Moved Game").wishlistReason, "install-path-missing");
     assert.strictEqual(byTitle.get("Moved Game").isInstalled, false);
 
     // Every row must belong to exactly one destination: a library import or the
@@ -282,7 +282,7 @@ async function buildFixture(dir) {
     // asserted over the whole fixture rather than row by row.
     for (const row of result.rows) {
       assert.notStrictEqual(
-        Boolean(row.singleExecutable) === Boolean(row.addToWatchlist),
+        Boolean(row.singleExecutable) === Boolean(row.addToWishlist),
         true,
         `row '${row.title}' is in both or neither destination`,
       );
@@ -300,7 +300,7 @@ async function buildFixture(dir) {
     assert.strictEqual(result.summary.installed, 2, "absolute + relative both resolve");
     assert.strictEqual(result.summary.missingInstall, 1);
     assert.strictEqual(
-      result.summary.installed + result.summary.watchlist,
+      result.summary.installed + result.summary.wishlist,
       result.rows.length,
       "the two destinations must account for every row",
     );
@@ -308,13 +308,13 @@ async function buildFixture(dir) {
     assert.strictEqual(result.summary.lewdCorner, 1);
     assert.strictEqual(result.summary.unidentified, 1, "only the custom entry with no link");
     assert.strictEqual(
-      result.summary.watchlist,
+      result.summary.wishlist,
       6,
       "everything Atlas cannot launch, not just the never-installed row",
     );
-    assert.strictEqual(result.summary.watchlistMissingPath, 1, "the moved game");
+    assert.strictEqual(result.summary.wishlistMissingPath, 1, "the moved game");
     assert.strictEqual(
-      result.summary.watchlistNotInstalled + result.summary.watchlistNoLaunchable,
+      result.summary.wishlistNotInstalled + result.summary.wishlistNoLaunchable,
       5,
       "the rest had nothing recorded to launch",
     );

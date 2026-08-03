@@ -4,6 +4,7 @@ import ScanStep from './steps/ScanStep.jsx'
 import SteamLibraryStep from './steps/SteamLibraryStep.jsx'
 import ManualAddStep from './steps/ManualAddStep.jsx'
 import ExternalLibraryStep from './steps/ExternalLibraryStep.jsx'
+import ImportPlanModal from './ImportPlanModal.jsx'
 import { EXTERNAL_LIBRARY_SOURCE_IDS, normalizeImporterSource } from './importerSources.js'
 import { buildFolderRegex } from './folderRegex.js'
 import WindowTitleBar from '../ui/WindowTitleBar.jsx'
@@ -98,6 +99,15 @@ const Importer = () => {
   // process applies the same choices the user confirmed.
   const [externalSourceId, setExternalSourceId] = useState('')
   const [externalLibraryOptions, setExternalLibraryOptions] = useState(null)
+  // Import confirmation. `phase` drives one modal through plan -> working ->
+  // result; see ImportPlanModal for why those are one component.
+  const [importPhase, setImportPhase] = useState(null)
+  const [importPlan, setImportPlan] = useState(null)
+  const [importResult, setImportResult] = useState(null)
+  const [importBusyLabel, setImportBusyLabel] = useState('')
+  // Resolved by the result modal's Continue button, so a mixed run pauses long
+  // enough for the wishlist numbers to be read before the window is closed.
+  const pendingImportContinueRef = useRef(null)
   const [scanPath, setScanPath] = useState('')
   const [scanMessage, setScanMessage] = useState('')
 
@@ -169,11 +179,11 @@ const Importer = () => {
   }
 
   const isImportableGame = (game, { includeUnmatchedGames = false } = {}) => {
-    // A row flagged for the watchlist is deliberately NOT a library import: it
+    // A row flagged for the wishlist is deliberately NOT a library import: it
     // has nothing on disk, so it would otherwise be rejected below for having
     // no launchable anyway. Bailing out here keeps it out of the import payload
     // and out of the "ready to import" counts.
-    if (game.addToWatchlist) return false
+    if (game.addToWishlist) return false
     if (game.sourceType === 'renpySave') {
       if ((game.scanStatus || 'new') !== 'new' || !game.savePath) return false
       if (hasDatabaseMatch(game) || hasSelectedDatabaseMatch(game)) return true
@@ -187,22 +197,26 @@ const Importer = () => {
 
   const importOptions = { includeUnmatchedGames: includeUnmatched }
   const importableGames = gamesList.filter((game) => isImportableGame(game, importOptions))
-  const watchlistGames = gamesList.filter((game) => game.addToWatchlist)
+  const wishlistGames = gamesList.filter((game) => game.addToWishlist)
   // Rows that belong to NEITHER bucket. Pressing Import writes the library rows
   // and the wishlist rows; anything here is silently left behind, which for a
   // 2,000-row external library import is the difference between "it worked" and
   // "half my library is missing and nothing said so". Rows already in the
   // library are excluded — those are correctly skipped, not lost.
   const droppedGames = gamesList.filter((game) => (
-    !game.addToWatchlist
+    !game.addToWishlist
     && !isImportableGame(game, importOptions)
     && game.scanStatus !== 'alreadyImported'
     && game.scanStatus !== 'pendingMatch'
   ))
+  // Counted separately. A row still being matched is not importable yet, so
+  // pressing Import drops it — and because matching a large library takes
+  // minutes, that window is wide open rather than theoretical.
+  const pendingMatchGames = gamesList.filter((game) => game.scanStatus === 'pendingMatch')
   const visibleStats = useMemo(() => deriveImportStats(gamesList), [gamesList])
-  // Watchlist-only is a legitimate run: someone importing a tracking list they
+  // Wishlist-only is a legitimate run: someone importing a tracking list they
   // have installed none of should still be able to press the button.
-  const canImport = importableGames.length > 0 || watchlistGames.length > 0
+  const canImport = importableGames.length > 0 || wishlistGames.length > 0
 
   const getCleanId = (value) => {
     const id = String(value || '').trim()
@@ -210,6 +224,23 @@ const Importer = () => {
   }
 
   const hasText = (value) => String(value || '').trim().length > 0
+
+  // Whether a row can be matched by a direct id lookup rather than a title
+  // search. Used by both the row status and the resolver, so the two can never
+  // disagree about which rows are identified.
+  //
+  // Ordering matters in the resolver because the two paths are not equally cheap
+  // or equally certain: an id lookup is a single indexed hit, while a title
+  // search scans and then has to be reviewed. Doing id rows first means an
+  // external library import — where nearly every row carries a thread id — shows
+  // almost the whole table matched within the first few chunks, instead of
+  // leaving 2,000 rows in a pending state while title guesses are worked through
+  // in arrival order.
+  const hasSourceIdForMatch = (game = {}) => Boolean(
+    getCleanId(game.f95Id || game.f95_id)
+    || getCleanId(game.lcId || game.lc_id || game.lewdCornerId)
+    || getCleanId(game.atlasId || game.atlas_id),
+  )
 
   const isBadScanRow = (game = {}) => {
     const isRenpySave = game.sourceType === 'renpySave'
@@ -232,23 +263,39 @@ const Importer = () => {
   const getRowImportStatus = (game) => {
     const scanStatus = game.scanStatus || 'new'
 
-    if (scanStatus === 'pendingMatch') return { text: 'Pending match', type: 'pending' }
+    if (scanStatus === 'pendingMatch') {
+      // A row that already carries a thread id is not waiting to be identified —
+      // it is waiting for the catalog lookup that turns that id into an Atlas
+      // record (which is what supplies the banner and metadata, and what the
+      // importer requires before it will write a row). Saying "Pending match"
+      // for those reads as "Atlas does not know what this is", which is wrong
+      // and alarming across two thousand rows. Only a row with no id at all is
+      // genuinely unidentified and dependent on a title guess.
+      return {
+        text: hasSourceIdForMatch(game) ? 'Looking up ID\u2026' : 'Matching by title\u2026',
+        type: 'pending',
+      }
+    }
     // Checked in the review table (or defaulted because nothing is on disk).
     // Reported before the launchable/importable checks below, which would
     // otherwise flag every one of these rows as broken.
-    if (game.addToWatchlist) {
+    if (game.addToWishlist) {
       // Say WHY when the reader knows. "Not installed" is the expected case; a
       // recorded path that no longer resolves is worth distinguishing, because
       // that one is usually fixable (unmounted drive, moved library) and the
       // user may want to fix it and rescan rather than wishlist the game.
-      const watchlistText = {
-        'install-path-missing': 'Wishlist - install path missing',
-        'no-launchable': 'Wishlist - nothing launchable',
-        'not-installed': 'Wishlist - not installed',
-      }[game.watchlistReason]
+      const wishlistText = {
+        'install-path-missing': 'To wishlist (install path missing)',
+        'no-launchable': 'To wishlist (nothing launchable)',
+        'not-installed': 'To wishlist (not installed)',
+      }[game.wishlistReason]
       return {
-        text: watchlistText || (game.watchlistCandidate ? 'Wishlist - not installed' : 'Wishlist'),
-        type: 'watchlist',
+        // Phrased as an action with a reason in parentheses. "Wishlist - not
+        // installed" reads as a statement about the wishlist rather than about
+        // the game, which is exactly how it gets misread as the feature being
+        // unavailable.
+        text: wishlistText || (game.wishlistCandidate ? 'To wishlist (not installed)' : 'To wishlist'),
+        type: 'wishlist',
       }
     }
     if (scanStatus === 'alreadyImported') return { text: 'Already imported', type: 'alreadyImported' }
@@ -294,6 +341,12 @@ const Importer = () => {
   }
 
   const getImportDisabledReason = () => {
+    // Checked before canImport: with matching still running the button is
+    // disabled even though rows may already qualify, and "no eligible rows"
+    // would be the wrong explanation for that.
+    if (isResolvingMatches) {
+      return 'Still matching against the catalog — rows are not importable until it finishes'
+    }
     if (canImport) return ''
     if (importMode === 'renpySaves') return 'No Ren\'Py save rows are ready to import'
     const newRows = gamesList.filter((game) => isNewScanRow(game) || isExistingImportRow(game))
@@ -665,14 +718,23 @@ const Importer = () => {
   }
 
   const resolvePendingMatches = async (rows) => {
-    const pendingRows = rows.filter((game) => game.scanStatus === 'pendingMatch')
-    if (pendingRows.length === 0) return
+    const allPending = rows.filter((game) => game.scanStatus === 'pendingMatch')
+    if (allPending.length === 0) return
+    const pendingRows = [
+      ...allPending.filter(hasSourceIdForMatch),
+      ...allPending.filter((game) => !hasSourceIdForMatch(game)),
+    ]
     matchCancelRef.current = false
     setIsResolvingMatches(true)
     setProgressLabel('Resolving Matches')
     setProgress((prev) => ({ ...prev, value: 0, total: pendingRows.length }))
     await new Promise((r) => setTimeout(r, 16))
-    const chunkSize = 10
+    // The handler already pre-warms each chunk's unique lookups in parallel, so
+    // the cost per chunk is one IPC round trip rather than one per row. Ten made
+    // 2,348 rows into 235 sequential round trips; 50 makes it 47. Kept bounded
+    // rather than sending everything at once so the table still fills in
+    // visibly and Stop Matching stays responsive.
+    const chunkSize = 50
     let resolvedCount = 0
     for (let i = 0; i < pendingRows.length; i += chunkSize) {
       if (matchCancelRef.current) break
@@ -1241,6 +1303,12 @@ const Importer = () => {
     return () => window.electronAPI.removeAllListeners?.('import-source')
   }, [])
 
+  // Editing one of these invalidates whatever match the row already has, and is
+  // the only reason to look a matched row up again. Tracked as a flag rather than
+  // by re-deriving it, because the previous value is gone by the time Update
+  // Matches runs.
+  const MATCH_INPUT_FIELDS = ['f95Id', 'lcId', 'lewdCornerId', 'atlasId', 'title', 'lookupTitle', 'creator']
+
   const updateGame = (gameKey, field, value) => {
     setGamesList((prev) => prev.map((game) => {
       if (getScanGameKey(game) !== gameKey) return game
@@ -1248,6 +1316,7 @@ const Importer = () => {
       return {
         ...game,
         [field]: value,
+        ...(MATCH_INPUT_FIELDS.includes(field) ? { matchDirty: true } : {}),
         ...(manuallyCorrected
           ? {
               scanStatus: 'new',
@@ -1409,23 +1478,23 @@ const Importer = () => {
     deleteScanRowsByKeys([gameKey])
   }
 
-  const toggleRowWatchlist = (gameKey) => {
+  const toggleRowWishlist = (gameKey) => {
     setGamesList((prev) => prev.map((game) => (
       getScanGameKey(game) === gameKey
-        ? { ...game, addToWatchlist: !game.addToWatchlist }
+        ? { ...game, addToWishlist: !game.addToWishlist }
         : game
     )))
   }
 
   // Bulk version of the same toggle, driven by the row selection. A 1,700-row
   // library is not something anyone should have to reclassify one checkbox at a
-  // time, and the default (nothing on disk -> watchlist) will be wrong for
+  // time, and the default (nothing on disk -> wishlist) will be wrong for
   // anyone whose games live on a drive that is currently unmounted.
-  const setSelectedRowsWatchlist = (value) => {
+  const setSelectedRowsWishlist = (value) => {
     if (selectedScanRowKeys.size === 0) return
     setGamesList((prev) => prev.map((game) => (
       selectedScanRowKeys.has(getScanGameKey(game))
-        ? { ...game, addToWatchlist: Boolean(value) }
+        ? { ...game, addToWishlist: Boolean(value) }
         : game
     )))
   }
@@ -1439,9 +1508,29 @@ const Importer = () => {
     )
   }
 
+  // Which rows Update Matches has anything to do for: one that has never been
+  // matched, or one whose identifying fields the user has since edited. A row
+  // that is already matched and untouched would resolve to the same answer, so
+  // looking it up again costs a query and a UI tick for nothing — on a 2,300-row
+  // library that was the whole runtime of the button.
+  const needsMatchUpdate = (game) => {
+    if (game.scanStatus === 'pendingMatch') return true
+    if (game.matchDirty) return true
+    // Never matched: no candidates and nothing chosen.
+    if (!hasDatabaseMatch(game) && !hasSelectedDatabaseMatch(game)) return true
+    return false
+  }
+
   const updateMatches = async () => {
-    const total = gamesList.length
-    if (total === 0) return
+    if (gamesList.length === 0) return
+    const staleKeys = new Set(
+      gamesList.filter(needsMatchUpdate).map((game) => getScanGameKey(game)),
+    )
+    if (staleKeys.size === 0) {
+      setScanMessage('Every row is already matched. Edit an ID or title to re-check one.')
+      return
+    }
+    const total = staleKeys.size
     matchCancelRef.current = false
     setIsResolvingMatches(true)
     setProgressLabel('Updating Matches')
@@ -1450,11 +1539,18 @@ const Importer = () => {
     let updatedGames = gamesList.map((game) => ({ ...game }))
     const originalF95ByKey = new Map(updatedGames.map((game) => [getScanGameKey(game), normalizeF95IdInput(game.f95Id)]))
     const originalLcByKey = new Map(updatedGames.map((game) => [getScanGameKey(game), normalizeLcIdInput(game.lcId || game.lewdCornerId)]))
+    // Counts only the rows actually being worked, so the progress bar measures
+    // the work rather than the list length.
+    let processed = 0
     for (let i = 0; i < updatedGames.length; i++) {
       if (matchCancelRef.current) break
       let game = { ...updatedGames[i] }
+      // Not stale: skip with no query and no tick. Yielding per row was costing
+      // one event-loop turn for every already-matched game in the library.
+      if (!staleKeys.has(getScanGameKey(game))) continue
       if (!isNewScanRow(game) && game.scanStatus !== 'pendingMatch') {
-        setProgress((prev) => ({ ...prev, value: i + 1 }))
+        processed += 1
+        setProgress((prev) => ({ ...prev, value: processed }))
         await new Promise((r) => setTimeout(r, 0))
         continue
       }
@@ -1462,8 +1558,9 @@ const Importer = () => {
       const lcIdStr = normalizeLcIdInput(game.lcId || game.lewdCornerId)
       game = { ...game, f95Id: f95IdStr, lcId: lcIdStr || game.lcId || '', lewdCornerId: lcIdStr || game.lewdCornerId || '' }
       if (game.sourceType !== 'renpySave' && !f95IdStr && !lcIdStr && game.atlasId && game.results?.length === 1 && game.results[0]?.key === 'match' && game.resultVisibility === 'visible') {
-        updatedGames[i] = game
-        setProgress((prev) => ({ ...prev, value: i + 1 }))
+        updatedGames[i] = { ...game, matchDirty: false }
+        processed += 1
+        setProgress((prev) => ({ ...prev, value: processed }))
         await new Promise((r) => setTimeout(r, 0))
         continue
       }
@@ -1506,9 +1603,10 @@ const Importer = () => {
         else if (lcIdStr) game = { ...game, lcId: lcIdStr, lewdCornerId: lcIdStr, scanMessage: 'No LewdCorner match found' }
         if (matchCancelRef.current) break
       }
-      updatedGames[i] = game
-      setProgress((prev) => ({ ...prev, value: i + 1 }))
-      window.electronAPI.sendUpdateProgress({ value: i + 1, total })
+      updatedGames[i] = { ...game, matchDirty: false }
+      processed += 1
+        setProgress((prev) => ({ ...prev, value: processed }))
+      window.electronAPI.sendUpdateProgress({ value: processed, total })
       await new Promise((r) => setTimeout(r, 50))
     }
     if (!matchCancelRef.current) {
@@ -1566,59 +1664,106 @@ const Importer = () => {
     resolvePendingMatches(list)
   }
 
+  // What pressing Import will do, in the three numbers that matter. Built here
+  // rather than inside the modal so the modal renders a decision it was handed
+  // instead of recomputing one — the numbers shown must be the numbers acted on.
+  const buildImportPlan = () => {
+    const library = gamesList.filter((game) => isImportableGame(game, importOptions)).length
+    const wishlist = gamesList.filter((game) => game.addToWishlist).length
+    const skipReasons = [...new Set(droppedGames.map((game) => getRowImportStatus(game).text))]
+    const warnings = []
+    if (pendingMatchGames.length > 0) {
+      warnings.push(
+        `${pendingMatchGames.length} row${pendingMatchGames.length === 1 ? '' : 's'} are still `
+        + 'being matched and would be skipped. Let matching finish first.',
+      )
+    }
+    if (importMode === 'externalLibrary' && library === 0 && wishlist > 0) {
+      warnings.push(
+        'Nothing launchable was found on disk, so this run only adds wishlist entries. '
+        + 'If your games are on a drive that is not connected, connect it and read the library again.',
+      )
+    }
+    return {
+      library,
+      wishlist,
+      skipped: droppedGames.length,
+      pending: pendingMatchGames.length,
+      skipReasons,
+      warnings,
+      sourceLabel: externalSourceId === 'xlibrary' ? 'XLibrary' : 'F95Checker',
+      // Only meaningful for an external library import; the folder scanner
+      // carries no personal data to copy.
+      carries: importMode === 'externalLibrary'
+        ? ['ratings', 'notes', 'progress', 'playtime', 'last played', 'tags']
+        : [],
+    }
+  }
+
+  const requestImport = () => {
+    setImportResult(null)
+    setImportPlan(buildImportPlan())
+    setImportPhase('plan')
+  }
+
+  const cancelImport = () => {
+    setImportPhase(null)
+    setImportPlan(null)
+  }
+
   const importGamesFunc = async () => {
     const gamesToImport = gamesList.filter((game) => isImportableGame(game, importOptions))
-    const gamesToWatch = gamesList.filter((game) => game.addToWatchlist)
+    const gamesToWishlist = gamesList.filter((game) => game.addToWishlist)
 
-    // ── Nothing silently dropped ──────────────────────────────────────────
-    // A row that is neither importable nor flagged for the wishlist is about to
-    // be left behind. That is sometimes what the user wants (they unticked it),
-    // so it is a confirmation rather than a block — but it is never something
-    // they should discover afterwards by noticing a game is missing.
-    if (droppedGames.length > 0) {
-      const reasons = [...new Set(droppedGames.map((game) => getRowImportStatus(game).text))]
-      const proceed = window.confirm(
-        `${droppedGames.length} row${droppedGames.length === 1 ? '' : 's'} will be skipped `
-        + `entirely — not imported, and not added to the wishlist.\n\n`
-        + `Reason${reasons.length === 1 ? '' : 's'}: ${reasons.slice(0, 4).join(', ')}`
-        + `${reasons.length > 4 ? ', …' : ''}\n\n`
-        + `Continue anyway?`,
-      )
-      if (!proceed) return
-    }
-
-    // ── Watchlist first ───────────────────────────────────────────────────
+    // ── Wishlist first ───────────────────────────────────────────────────
     // Done before the library import because the import closes this window as
     // soon as it commits, and a failure here is something the user needs to see
     // while the review table is still in front of them. It is also the safe
     // order: addWishlistEntry refuses anything already in the library, so a row
     // that ends up in both lists resolves in the library's favour either way.
-    if (gamesToWatch.length > 0) {
+    if (gamesToWishlist.length > 0) {
+      setImportPhase('working')
+      setImportBusyLabel(
+        `Adding ${gamesToWishlist.length} game${gamesToWishlist.length === 1 ? '' : 's'} to your wishlist\u2026`,
+      )
+      let wishlistResult = null
       try {
-        const watchResult = await window.electronAPI.addImportWatchlistEntries?.(gamesToWatch)
-        if (watchResult && !watchResult.success) {
-          const failed = watchResult.failures?.length || 0
-          const proceed = window.confirm(
-            `${failed} of ${gamesToWatch.length} watchlist entries could not be added.\n\n`
-            + `Continue with the ${gamesToImport.length} library import${gamesToImport.length === 1 ? '' : 's'}?`,
-          )
-          if (!proceed) return
+        wishlistResult = await window.electronAPI.addImportWishlistEntries?.(gamesToWishlist)
+        // The preload exposes this with optional chaining, so a channel rename
+        // that misses one side returns undefined rather than throwing — which
+        // would look exactly like a successful run that wishlisted nothing.
+        if (!wishlistResult) {
+          throw new Error('The wishlist import channel is unavailable')
         }
       } catch (err) {
-        const proceed = window.confirm(
-          `Adding to the watchlist failed: ${err.message || 'Unknown error'}\n\n`
-          + 'Continue with the library import?',
+        setImportPhase(null)
+        alert(
+          `Adding to the wishlist failed: ${err.message || 'Unknown error'}\n\n`
+          + 'Nothing was imported. Your library is unchanged.',
         )
-        if (!proceed) return
-      }
-      // Nothing to import alongside them — the watchlist WAS the import.
-      if (gamesToImport.length === 0) {
-        window.electronAPI.closeWindow()
         return
       }
+
+      // Report it. This is the only point at which it can be reported: for a
+      // mixed run the main process closes this window the moment the library
+      // import commits, and the wishlist has already finished by then.
+      setImportResult({
+        wishlist: {
+          added: wishlistResult.added || 0,
+          skipped: wishlistResult.skipped || 0,
+          failures: wishlistResult.failures || [],
+        },
+        library: gamesToImport.length,
+      })
+      setImportPhase('result')
+      // Nothing to import alongside them — the wishlist WAS the import. The
+      // result modal's Done button closes the window.
+      if (gamesToImport.length === 0) return
+      // Otherwise wait for the user to acknowledge before the window disappears.
+      await new Promise((resolve) => { pendingImportContinueRef.current = resolve })
     }
 
-    if (gamesToImport.length === 0) { alert('No games to import'); return }
+    if (gamesToImport.length === 0) { setImportPhase(null); alert('No games to import'); return }
     if (importMode === 'renpySaves') {
       try {
         const result = await window.electronAPI.importRenpySaveGames(gamesToImport)
@@ -1651,7 +1796,10 @@ const Importer = () => {
         // call rejects, so the UI can't get stuck on "Waiting for selection".
         setAskingForLibraryFolder(false)
       }
-      if (!selected) return alert('A games folder is required to import. Import canceled.')
+      if (!selected) {
+        setImportPhase(null)
+        return alert('A games folder is required to import. Import canceled.')
+      }
       try {
         const saveResult = await window.electronAPI.setDefaultGameFolder(selected)
         if (saveResult.success) { finalLibraryPath = selected; setDefaultLibraryPath(selected) }
@@ -1706,6 +1854,7 @@ const Importer = () => {
       // the import started, which means it needs to be shown in the wizard.
       const results = await window.electronAPI.importGames(importParams)
       if (results?.success === false) {
+        setImportPhase(null)
         alert(results.error || 'Import failed')
         return
       }
@@ -1714,8 +1863,26 @@ const Importer = () => {
       // A destroyed window can reject the pending invoke; the import itself is
       // still running in the main process, so don't alarm the user about it.
       if (/destroyed|closed/i.test(String(err?.message || ''))) return
+      // Anything else has to clear the modal, or a failure leaves a spinner on
+      // screen with no way out.
+      setImportPhase(null)
       alert(`Import failed: ${err.message || 'Unknown error'}`)
     }
+  }
+
+  // Continue from the result phase: either the run is over (close the window) or
+  // the library import is waiting on this acknowledgement.
+  const acknowledgeImportResult = () => {
+    const resume = pendingImportContinueRef.current
+    if (resume) {
+      pendingImportContinueRef.current = null
+      setImportPhase('working')
+      setImportBusyLabel('Starting the library import\u2026')
+      resume()
+      return
+    }
+    setImportPhase(null)
+    window.electronAPI.closeWindow()
   }
 
   const handleAutoSelectChange = async (e) => {
@@ -1808,15 +1975,15 @@ const Importer = () => {
               onResultChange={handleResultChange} onUpdateMatches={updateMatches}
               onHydrateManualF95Id={hydrateManualF95Id}
               onHydrateManualLcId={hydrateManualLcId}
-              onCancelMatch={cancelScanOrMatch} onImport={importGamesFunc}
+              onCancelMatch={cancelScanOrMatch} onImport={requestImport}
               onSelectRenpyFolder={selectRenpySaveFolder}
               getGameKey={getScanGameKey} getRowImportStatus={getRowImportStatus}
               setHideMatches={setHideMatches} setIncludeUnmatched={setIncludeUnmatched}
               setForceReimport={setForceReimport}
-              showWatchlist={importMode === 'externalLibrary'}
-              watchlistCount={watchlistGames.length}
-              onToggleWatchlist={toggleRowWatchlist}
-              onSetVisibleWatchlist={setSelectedRowsWatchlist}
+              showWishlist={importMode === 'externalLibrary'}
+              wishlistCount={wishlistGames.length}
+              onToggleWishlist={toggleRowWishlist}
+              onSetVisibleWishlist={setSelectedRowsWishlist}
             />
           )}
 
@@ -1909,9 +2076,9 @@ const Importer = () => {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={importGamesFunc}
-                  disabled={!canImport || isScanActive || isCancelingScan}
-                  className={`h-9 px-6 inline-flex items-center rounded-buttonTheme font-medium transition-colors ${(canImport && !isScanActive && !isCancelingScan) ? 'bg-success hover:bg-successHover text-white' : 'bg-tertiary cursor-not-allowed opacity-70 text-muted'}`}
+                  onClick={requestImport}
+                  disabled={!canImport || isScanActive || isCancelingScan || isResolvingMatches}
+                  className={`h-9 px-6 inline-flex items-center rounded-buttonTheme font-medium transition-colors ${(canImport && !isScanActive && !isCancelingScan && !isResolvingMatches) ? 'bg-success hover:bg-successHover text-white' : 'bg-tertiary cursor-not-allowed opacity-70 text-muted'}`}
                   title={getImportDisabledReason()}
                 >
                   Import
@@ -1924,6 +2091,20 @@ const Importer = () => {
           )}
         </div>
       </div>
+
+      {/* Sits outside the scrolling body so it overlays the whole window rather
+          than scrolling with the row table. */}
+      {importPhase && (
+        <ImportPlanModal
+          phase={importPhase}
+          plan={importPlan}
+          result={importResult}
+          busyLabel={importBusyLabel}
+          onContinue={importGamesFunc}
+          onCancel={cancelImport}
+          onClose={acknowledgeImportResult}
+        />
+      )}
     </div>
   )
 }

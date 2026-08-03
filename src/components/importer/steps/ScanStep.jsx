@@ -13,8 +13,8 @@ export default function ScanStep({
   getRowImportStatus, onUpdateMatches, onHydrateManualF95Id, onHydrateManualLcId, onCancelMatch, onImport,
   onSelectRenpyFolder,
   setHideMatches, setIncludeUnmatched, setForceReimport,
-  showWatchlist = false, watchlistCount = 0, onToggleWatchlist,
-  onSetVisibleWatchlist,
+  showWishlist = false, wishlistCount = 0, onToggleWishlist,
+  onSetVisibleWishlist,
 }) {
   const isRenpyMode = importMode === 'renpySaves'
 
@@ -45,14 +45,14 @@ export default function ScanStep({
         )}
         <div className="mb-4 flex flex-wrap gap-4 text-sm">
           <span>Ready {visibleStats.potential || 0}</span>
-          <span>Pending matches {visibleStats.pendingMatch || 0}</span>
+          <span>Matching {visibleStats.pendingMatch || 0}</span>
           <span>Archives {visibleStats.archives || 0}</span>
           <span>Already imported {visibleStats.alreadyImported || 0}</span>
           <span>Repairs {visibleStats.repairPath || 0}</span>
           <span>Steam versions {visibleStats.steamVersion || 0}</span>
           <span>Missing launchable {visibleStats.missingLaunchable || 0}</span>
           <span>Empty folders {visibleStats.emptyFolder || 0}</span>
-          {showWatchlist && <span>Watchlist {watchlistCount}</span>}
+          {showWishlist && <span>Wishlist {wishlistCount}</span>}
           <span>Total rows {visibleStats.totalFound || 0}</span>
         </div>
       </div>
@@ -78,29 +78,29 @@ export default function ScanStep({
           getRowImportStatus={getRowImportStatus}
           showReplaceVersion={true}
           scanPath={scanPath}
-          showWatchlist={showWatchlist}
-          onToggleWatchlist={onToggleWatchlist}
+          showWishlist={showWishlist}
+          onToggleWishlist={onToggleWishlist}
         />
       </div>
 
       <div className="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-2 mt-3">
         <span className="text-sm text-text">Selected: {selectedRowCount}</span>
-        {showWatchlist && (
+        {showWishlist && (
           <>
             <button
-              onClick={() => onSetVisibleWatchlist?.(true)}
+              onClick={() => onSetVisibleWishlist?.(true)}
               disabled={selectedRowCount === 0}
               className={`px-3 py-1 rounded-buttonTheme text-sm text-text ${selectedRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-button hover:bg-buttonHover'}`}
-              title="Mark the selected rows as watchlist instead of library imports"
+              title="Mark the selected rows as wishlist instead of library imports"
               style={{ pointerEvents: 'auto' }}
             >
-              Watchlist selected
+              Wishlist selected
             </button>
             <button
-              onClick={() => onSetVisibleWatchlist?.(false)}
+              onClick={() => onSetVisibleWishlist?.(false)}
               disabled={selectedRowCount === 0}
               className={`px-3 py-1 rounded-buttonTheme text-sm text-text ${selectedRowCount === 0 ? 'bg-tertiary cursor-not-allowed opacity-70' : 'bg-button hover:bg-buttonHover'}`}
-              title="Import the selected rows to the library instead of the watchlist"
+              title="Import the selected rows to the library instead of the wishlist"
               style={{ pointerEvents: 'auto' }}
             >
               Import selected

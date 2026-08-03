@@ -2748,7 +2748,7 @@ ipcMain.handle("scan-external-library", async (event, { id, path: dbPath = "" } 
   }
 });
 
-// ── Watchlist rows from an import ────────────────────────────────────────────
+// ── Wishlist rows from an import ────────────────────────────────────────────
 //
 // Rows the user marked in the review table as "watch, don't import". These are
 // games another tool is tracking that have nothing on disk here, so creating a
@@ -2759,7 +2759,7 @@ ipcMain.handle("scan-external-library", async (event, { id, path: dbPath = "" } 
 // addWishlistEntry already refuses a game that is in the library (it checks the
 // mapping tables), so a row the user mis-flagged cannot shadow a real record —
 // it comes back as `inLibrary` and is reported as skipped rather than failed.
-ipcMain.handle("add-import-watchlist-entries", async (event, games = []) => {
+ipcMain.handle("add-import-wishlist-entries", async (event, games = []) => {
   const rows = Array.isArray(games) ? games : [];
   let added = 0;
   let skipped = 0;
@@ -2792,7 +2792,7 @@ ipcMain.handle("add-import-watchlist-entries", async (event, games = []) => {
       });
       if (result?.success) added += 1;
       else if (result?.inLibrary) skipped += 1;
-      else failures.push({ title: row.title, error: "Could not add to watchlist" });
+      else failures.push({ title: row.title, error: "Could not add to wishlist" });
     } catch (err) {
       failures.push({ title: row.title, error: err.message || String(err) });
     }
