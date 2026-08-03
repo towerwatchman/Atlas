@@ -17,10 +17,28 @@
 //      `xlibrary-data-<date>.json`, which is what someone hands over when the
 //      library is on another machine.
 //
-// The two differ only in wrapping: the export is `{ games: [...], settings: {} }`
-// while the canonical file is the games array on its own. Both shapes are
-// accepted and which one was read is reported back, because the difference
-// changes what "up to date" means and the UI should not have to guess.
+// They differ in wrapping, and the live file differs more than first assumed:
+//
+//   Live library   { family: "library.games", schemaVersion: 8,
+//                    documents: [ { id, family, schemaVersion, createdAt,
+//                                   updatedAt, revision, data: {…game…} } ] }
+//   Dated export   { games: [ {…game…} ], settings: { schemaVersion: 4, … } }
+//
+// The live file is a DOCUMENT STORE: each entry is an envelope carrying store
+// metadata and the game itself sits one level down in `data`. A bare array is
+// accepted too, since that was the original assumption and costs nothing to keep.
+//
+// Verified against a real 1,523-game live file: the inner object is a superset of
+// the export's game shape (identical fields plus `importSource` and `url`), which
+// is why one row builder serves every shape once the envelope is off.
+//
+// The two also version themselves on SEPARATE SCALES — the live store reported
+// schemaVersion 8 while an export of the same library reported 4 — so each shape
+// carries its own known version. One shared constant would report a perfectly
+// current live file as newer than Atlas understands.
+//
+// Which shape was read is reported back, because the difference changes what
+// "up to date" means and the UI should not have to guess.
 //
 // Neither is transactional. Unlike the F95Checker path there is no journal
 // sidecar to tell us a write was in progress, so a file caught mid-write parses
@@ -107,7 +125,12 @@ const EXPORT_FILENAME_HINT = "xlibrary-data-<date>.json";
 // The schema this reader was written against. A newer export is still read (the
 // fields below are additive in practice) but the mismatch is reported so an
 // unexpected shape is attributable instead of mysterious.
-const KNOWN_SCHEMA_VERSION = 4;
+const KNOWN_SCHEMA_VERSION = 4;          // dated export
+const KNOWN_LIVE_SCHEMA_VERSION = 8;     // live document store
+// The document family the live file declares. A positive identity check: XLibrary
+// writes several stores side by side, so being handed the wrong one should say
+// which was expected rather than reporting no games.
+const LIBRARY_FAMILY = "library.games";
 
 // ── Vocabulary mapping ──────────────────────────────────────────────────────
 
@@ -731,10 +754,24 @@ const locateDatabase = () => {
  * nothing and is the obvious alternative name for the same wrapper.
  */
 const extractGames = (parsed) => {
-  if (Array.isArray(parsed)) return { games: parsed, shape: "live" };
-  if (Array.isArray(parsed?.games)) return { games: parsed.games, shape: "export" };
-  if (Array.isArray(parsed?.data)) return { games: parsed.data, shape: "export" };
-  return { games: null, shape: "" };
+  // Live document store. Each document is an envelope; the game is in `data`.
+  // Envelopes with no usable payload are dropped rather than becoming empty rows,
+  // and counted so a partial read is visible instead of looking like a smaller
+  // library.
+  if (Array.isArray(parsed?.documents)) {
+    const games = [];
+    let dropped = 0;
+    for (const doc of parsed.documents) {
+      const payload = doc && typeof doc.data === "object" && doc.data ? doc.data : null;
+      if (payload) games.push(payload);
+      else dropped += 1;
+    }
+    return { games, shape: "documents", family: String(parsed.family || ""), dropped };
+  }
+  if (Array.isArray(parsed)) return { games: parsed, shape: "live", family: "", dropped: 0 };
+  if (Array.isArray(parsed?.games)) return { games: parsed.games, shape: "export", family: "", dropped: 0 };
+  if (Array.isArray(parsed?.data)) return { games: parsed.data, shape: "export", family: "", dropped: 0 };
+  return { games: null, shape: "", family: String(parsed?.family || ""), dropped: 0 };
 };
 
 /** Read an XLibrary export into importer rows. */
@@ -757,19 +794,44 @@ const readXLibraryExport = async (filePath) => {
     );
   }
 
-  const { games, shape } = extractGames(parsed);
+  const { games, shape, family, dropped } = extractGames(parsed);
   if (!games) {
+    // A wrong-but-related file is the likely mistake, since XLibrary keeps
+    // several document stores side by side. Naming the family it declared turns
+    // "this didn't work" into "you picked library.collections".
+    if (family && family !== LIBRARY_FAMILY) {
+      throw new Error(
+        `That file is XLibrary's "${family}" store, not its games library. `
+        + `Look for ${LIVE_LIBRARY_FILENAME}, whose family is "${LIBRARY_FAMILY}".`,
+      );
+    }
     throw new Error(
-      "That JSON file is not an XLibrary library: it is neither a list of games nor "
-      + `an object with a "games" list. Look for ${LIVE_LIBRARY_FILENAME} in `
+      "That JSON file is not an XLibrary library: it has no documents list, no games "
+      + `list and is not a list of games. Look for ${LIVE_LIBRARY_FILENAME} in `
       + "XLibrary's data folder, or a file named xlibrary-data-<date>.json.",
     );
   }
+  // A document store that declares another family parses fine but is the wrong
+  // data, so this is checked after the shape rather than instead of it.
+  if (shape === "documents" && family && family !== LIBRARY_FAMILY) {
+    throw new Error(
+      `That file is XLibrary's "${family}" store, not its games library. `
+      + `Look for ${LIVE_LIBRARY_FILENAME}, whose family is "${LIBRARY_FAMILY}".`,
+    );
+  }
 
-  // Only the export carries settings, so the live file reports no version. Zero
-  // therefore means "not stated", not "version zero", and must never read as
+  // Version, from wherever this shape states it. The live store puts it at the
+  // top level and the export nests it under `settings`, and the two count on
+  // separate scales — so the comparison below is against the constant for THIS
+  // shape. Zero means "not stated", not "version zero", and must never read as
   // older or newer than what this reader knows.
-  const schemaVersion = Number.parseInt(parsed?.settings?.schemaVersion, 10) || 0;
+  const schemaVersion = Number.parseInt(
+    shape === "documents" ? parsed?.schemaVersion : parsed?.settings?.schemaVersion,
+    10,
+  ) || 0;
+  const knownSchemaVersion = shape === "documents"
+    ? KNOWN_LIVE_SCHEMA_VERSION
+    : KNOWN_SCHEMA_VERSION;
 
   const rows = [];
   let installedCount = 0;
@@ -812,6 +874,9 @@ const readXLibraryExport = async (filePath) => {
     // summary pills read the same for both providers.
     archived: 0,
     skipped: skippedCount,
+    // Document envelopes that carried no game payload. Reported so a partial read
+    // is visible rather than looking like a smaller library.
+    droppedDocuments: dropped || 0,
     custom: customCount,
     installed: installedCount,
     missingInstall: missingInstallCount,
@@ -868,8 +933,8 @@ const readXLibraryExport = async (filePath) => {
     sourceShape: shape,
     schemaVersion,
     // A live file states no version, so it can never be reported as newer.
-    schemaNewerThanKnown: schemaVersion > 0 && schemaVersion > KNOWN_SCHEMA_VERSION,
-    knownSchemaVersion: KNOWN_SCHEMA_VERSION,
+    schemaNewerThanKnown: schemaVersion > 0 && schemaVersion > knownSchemaVersion,
+    knownSchemaVersion,
     // No live database, so nothing can be mid-write.
     journalPresent: false,
     tabs: [],
@@ -881,6 +946,8 @@ module.exports = {
   LIVE_LIBRARY_FILENAME,
   LIVE_LIBRARY_SUBPATH,
   KNOWN_SCHEMA_VERSION,
+  KNOWN_LIVE_SCHEMA_VERSION,
+  LIBRARY_FAMILY,
   getCandidateDataDirs,
   getCandidatePaths,
   locateDatabase,

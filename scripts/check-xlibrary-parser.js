@@ -566,16 +566,115 @@ function buildFixture(dir) {
     eq(emptyResult.success, true, "an empty library reads successfully");
     eq(emptyResult.rows.length, 0);
 
-    // Returns the list AND which shape it came from, because the shape decides
-    // whether the snapshot-staleness note applies.
-    deep(extractGames([{ name: "x" }]), { games: [{ name: "x" }], shape: "live" });
-    deep(extractGames({ games: [] }), { games: [], shape: "export" });
-    deep(extractGames({ data: [] }), { games: [], shape: "export" });
+    // Returns the list, which shape it came from, and the declared family. The
+    // shape decides whether the staleness note applies and which schema constant
+    // the version is compared against.
+    deep(extractGames([{ name: "x" }]), {
+      games: [{ name: "x" }], shape: "live", family: "", dropped: 0,
+    });
+    deep(extractGames({ games: [] }), { games: [], shape: "export", family: "", dropped: 0 });
+    deep(extractGames({ data: [] }), { games: [], shape: "export", family: "", dropped: 0 });
     // null rather than [], so "wrong file" stays distinguishable from "empty
     // library" — an empty library is a real state and must not read as an error.
-    deep(extractGames({ items: [] }), { games: null, shape: "" });
-    deep(extractGames(null), { games: null, shape: "" });
-    deep(extractGames("string"), { games: null, shape: "" });
+    deep(extractGames({ items: [] }), { games: null, shape: "", family: "", dropped: 0 });
+    deep(extractGames(null), { games: null, shape: "", family: "", dropped: 0 });
+    deep(extractGames("string"), { games: null, shape: "", family: "", dropped: 0 });
+
+    // ── The live document store ───────────────────────────────────────────
+    // The real library.games.json is not a bare array: it is a document store
+    // whose entries are envelopes carrying store metadata, with the game one
+    // level down in `data`. Reading it as a list of games finds nothing, which is
+    // exactly how it presented — "the program is not picking it up".
+    {
+      const store = {
+        family: "library.games",
+        schemaVersion: 8,
+        documents: [
+          {
+            id: "doc-1",
+            family: "library.games",
+            schemaVersion: 8,
+            createdAt: "2025-12-27T08:26:21.102Z",
+            updatedAt: "2026-07-08T00:00:14.393Z",
+            revision: 3,
+            data: {
+              id: "doc-1",
+              name: "Document Store Game",
+              developer: "Dev Doc",
+              engine: "RenPy",
+              version: "v1.0",
+              completionStatus: "Completed",
+              // Present in the live file and absent from the export. Additive,
+              // so it must not disturb anything.
+              importSource: "F95Checker",
+              url: "https://f95zone.to/threads/other.111/",
+              launchSettings: { configurations: [] },
+              primaryProvider: "f95zone",
+              externalLinks: [f95Link(260665, "doc-game")],
+            },
+          },
+          // An envelope with no payload must be dropped and counted, not turned
+          // into an empty row.
+          { id: "doc-2", family: "library.games", schemaVersion: 8 },
+        ],
+      };
+      const unwrapped = extractGames(store);
+      eq(unwrapped.shape, "documents");
+      eq(unwrapped.family, "library.games");
+      eq(unwrapped.games.length, 1, "the payload is unwrapped from the envelope");
+      eq(unwrapped.dropped, 1, "the empty envelope is counted");
+      eq(unwrapped.games[0].name, "Document Store Game");
+
+      const storePath = path.join(dir, "library.games.json");
+      fs.writeFileSync(storePath, JSON.stringify(store));
+      const storeResult = await readXLibraryExport(storePath);
+      eq(storeResult.success, true, "a document store reads successfully");
+      eq(storeResult.rows.length, 1);
+      eq(storeResult.summary.droppedDocuments, 1);
+      eq(storeResult.rows[0].title, "Document Store Game");
+      eq(storeResult.rows[0].f95Id, "260665", "ids still resolve inside an envelope");
+      eq(storeResult.rows[0].engine, "Ren'Py", "and so does engine normalisation");
+      eq(storeResult.rows[0].externalState.playstate, "finished");
+      eq(storeResult.sourceShape, "documents");
+
+      // The scales differ: the live store was at 8 while an export of the same
+      // library reported 4. Comparing both against one constant would report a
+      // current live file as newer than Atlas understands.
+      eq(storeResult.schemaVersion, 8);
+      eq(storeResult.knownSchemaVersion, 8, "compared against the live constant");
+      eq(storeResult.schemaNewerThanKnown, false, "8 is current for a live store");
+    }
+
+    // A newer live store is still read, but flagged.
+    {
+      const newer = path.join(dir, "newer.json");
+      fs.writeFileSync(newer, JSON.stringify({
+        family: "library.games",
+        schemaVersion: 99,
+        documents: [{ data: { name: "Future Game", launchSettings: {} } }],
+      }));
+      const result = await readXLibraryExport(newer);
+      eq(result.success, true, "a newer store is still read");
+      eq(result.schemaNewerThanKnown, true, "and the mismatch is reported");
+    }
+
+    // The wrong store from the same folder is the likely mistake, so it is named
+    // rather than reported as "no games".
+    {
+      const wrongFamily = path.join(dir, "library.collections.json");
+      fs.writeFileSync(wrongFamily, JSON.stringify({
+        family: "library.collections",
+        schemaVersion: 2,
+        documents: [{ data: { name: "Not a game" } }],
+      }));
+      await check(async () => {
+        await assert.rejects(
+          () => readXLibraryExport(wrongFamily),
+          /library\.collections/,
+          "the wrong store names the family it actually is",
+        );
+      });
+    }
 
     // ── Auto-detection ────────────────────────────────────────────────────
     // Every platform must produce a candidate directory: returning none would
