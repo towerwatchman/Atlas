@@ -19,6 +19,7 @@ const manager = require("../downloads/downloadManager");
 const credentialStore = require("../downloads/credentialStore");
 const { getPlugin, listPlugins } = require("../downloads/hosts");
 const { resolveMaskedLink } = require("../downloads/maskedResolver");
+const { toLocalRecordId } = require("../downloads/recordId");
 const accountStore = require("../accounts/accountStore");
 
 let handlerCtx = null;
@@ -241,7 +242,20 @@ function registerDownloadsHandlers(ctx = {}) {
 
   ipcMain.handle("downloads-enqueue", async (event, payload = {}) => {
     try {
-      const result = await manager.enqueue(payload);
+      // A Browse row's record_id is a synthetic string (`catalog:30956`), not a
+      // library record. It is truthy, so storing it made every downstream
+      // `if (!recordId)` check treat it as a real record, and the install then
+      // failed against a games table that had never heard of it. Normalised here,
+      // at the boundary where renderer payloads arrive, so the rule lives once.
+      const localRecordId = toLocalRecordId(payload.recordId);
+      const result = await manager.enqueue({
+        ...payload,
+        recordId: localRecordId,
+        // Nothing to replace without a library record, whatever the caller asked
+        // for. Decided here rather than in the renderer so the renderer does not
+        // need to know how to recognise a catalog id.
+        onComplete: localRecordId ? payload.onComplete : "add",
+      });
       await broadcastSummary();
       return result;
     } catch (err) {

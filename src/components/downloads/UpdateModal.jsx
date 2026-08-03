@@ -95,10 +95,11 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
         url: resolved.url,
         host: resolved.host || link.host,
         source: 'f95',
-        // Nothing to replace when the game is not in the library yet: a browse
-        // row has no record and no installed build, so 'replace' would be a
-        // request Atlas could not honour.
-        onComplete: game?.record_id ? 'replace' : 'add',
+        // Left as 'replace'. A Browse row's record_id is a synthetic `catalog:…`
+        // string rather than null, so testing it here was wrong — the main
+        // process normalises the id and downgrades this to 'add' when there is no
+        // library record, which keeps that rule in one place.
+        onComplete: 'replace',
       })
       if (queued?.success) {
         onQueued?.(queued.item)

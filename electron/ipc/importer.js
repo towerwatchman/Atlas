@@ -16,6 +16,7 @@ const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
 // caller passes deleteDatabaseRow:false and never reaches those lines, so
 // nothing exercised them until the download install path enabled the delete.
 const { getGame, getVersionPathsForRecord } = require('../db/versions')
+const { isLocalRecordId } = require('../downloads/recordId')
 // db/index exposes `db` as a getter populated after initializeDatabase().
 // Read through the module at call time; capturing it at require time
 // would bind null.
@@ -4586,7 +4587,11 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
     if (!item.filePath || !fs.existsSync(item.filePath)) {
       return fail("The downloaded file is missing. Try downloading again.", "missing-file");
     }
-    if (!item.recordId) {
+    // A catalog placeholder (`catalog:30956`) is TRUTHY, so this guard used to let
+    // one through and the record lookup below then reported the game as "no longer
+    // in your library" — about a game that had never been in it. Rows queued before
+    // the enqueue normalisation still carry one, so it is recognised here too.
+    if (!isLocalRecordId(item.recordId)) {
       // Reachable from browse mode: the download was started from a catalog
       // entry, so there is no local record to attach a version to yet. The file
       // is downloaded and kept — this is a "do that first", not a dead end, so
