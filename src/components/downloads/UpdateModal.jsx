@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import HostIcon from './HostIcon.jsx'
+import { buildThreadUrl } from './threadUrl.js'
 
 // ── Update modal ─────────────────────────────────────────────────────────────
 //
@@ -28,6 +29,15 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
 
   const threadId = game?.f95_id || game?.f95Id || null
   const title = game?.title || 'this game'
+
+  // Where "Open thread" goes. See threadUrl.js for why this is not a template
+  // string built from an id that may not exist.
+  const threadUrl = buildThreadUrl({
+    siteUrl: game?.siteUrl || game?.site_url,
+    lewdCornerSiteUrl: game?.lewdCornerSiteUrl || game?.lewdcornerSiteUrl,
+    f95Id: data?.threadId || threadId,
+    lcId: game?.lc_id || game?.lcId || game?.lewdCornerId,
+  })
 
   const load = useCallback(async (force = false) => {
     if (!threadId) {
@@ -161,14 +171,21 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
                 This thread doesn&rsquo;t offer a mirror Atlas can download from
                 yet. You can still grab it from the thread yourself.
               </p>
-              <button
-                type="button"
-                onClick={() => window.electronAPI.openExternal?.(
-                  `https://f95zone.to/threads/${data?.threadId || threadId}/`)}
-                className="mt-3 h-8 px-3 text-xs rounded-buttonTheme bg-button hover:bg-buttonHover text-text"
-              >
-                Open thread
-              </button>
+              {threadUrl ? (
+                <button
+                  type="button"
+                  onClick={() => window.electronAPI.openExternal?.(threadUrl)}
+                  className="mt-3 h-8 px-3 text-xs rounded-buttonTheme bg-button hover:bg-buttonHover text-text"
+                >
+                  Open thread
+                </button>
+              ) : (
+                // No link to offer. Saying so beats a button that goes nowhere.
+                <p className="mt-3 text-[11px] text-muted">
+                  Atlas has no thread link stored for this game either, so there is
+                  nothing to open. Refresh its metadata to pick one up.
+                </p>
+              )}
             </div>
           )}
 

@@ -17,7 +17,7 @@ import { useEffect, useState } from 'react'
 
 const CONFIDENCE_NOTE = {
   high: '',
-  medium: 'Taken from the catalog rather than the file — worth a check.',
+  medium: 'Taken from your library rather than the file — worth a check.',
   low: 'Atlas is not confident about this one. Please confirm before installing.',
 }
 
@@ -124,11 +124,13 @@ export default function InstallModal({ item, suggestion, open, onClose, onInstal
               <p className="font-medium text-amber-400">Version mismatch</p>
               <p className="mt-1">
                 The file looks like{' '}
-                <span className="font-mono">{suggestion.fileVersion}</span>, but the
-                catalog says{' '}
+                <span className="font-mono">{suggestion.fileVersion}</span>, but your
+                library says the latest is{' '}
                 <span className="font-mono">{suggestion.catalogVersion}</span>. The
-                file usually wins, since it describes what you actually downloaded
-                — but check before replacing anything.
+                library version is filled in above, because it matches how this
+                game&rsquo;s other versions are named. If the file is right, use{' '}
+                <span className="font-mono">{suggestion.fileVersion}</span> instead
+                &mdash; the field is editable.
               </p>
             </div>
           )}

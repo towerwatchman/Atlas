@@ -12,10 +12,17 @@
 // pre-filled and editable, and a low-confidence guess is surfaced as such
 // rather than quietly accepted.
 //
-// The catalog's version is the better source when it agrees with the file.
-// When they disagree, that is worth showing the user rather than silently
-// picking one - a mismatch usually means the thread updated between the link
-// being minted and the download finishing.
+// The catalog's version is the DEFAULT, agreeing or not. Two reasons: it is a
+// curated value that already matches how every other version of this game is
+// named in the library, whereas the filename guess is extracted from freeform
+// uploader text ("AFamilyVenture-0.09_V4-Fix_Supporter-pc.zip"); and the string
+// becomes a folder name and is what a later replace matches against, so a
+// consistent shape matters more than fidelity to one uploader's spelling.
+//
+// A disagreement is still surfaced in full — both values, flagged as a mismatch —
+// because the field is editable and the file version is sometimes the right
+// answer (a link minted before the thread updated). What changed is only which
+// one is pre-filled; nothing is decided silently either way.
 
 // Noise that routinely sits next to a version and must not be swallowed into
 // it. Order matters: longer phrases first.
@@ -111,22 +118,25 @@ function suggestVersion(fileName, catalogVersion = "") {
   const catalog = String(catalogVersion || "").trim();
 
   if (!catalog) {
+    // Nothing known for this game, so the filename is all there is.
     return {
       version: guess.version,
       confidence: guess.confidence,
       mismatch: false,
       catalogVersion: "",
       fileVersion: guess.version,
+      source: guess.version ? "filename" : "none",
     };
   }
   if (!guess.version) {
-    // Nothing in the filename: take the catalog's word, but it is unverified.
+    // Nothing parseable in the filename: the catalog's word, unverified.
     return {
       version: catalog,
       confidence: "medium",
       mismatch: false,
       catalogVersion: catalog,
       fileVersion: "",
+      source: "catalog",
     };
   }
 
@@ -135,13 +145,17 @@ function suggestVersion(fileName, catalogVersion = "") {
   const agree = loose(guess.version) === loose(catalog);
 
   return {
-    // On disagreement prefer the FILE: it describes the bytes actually on
-    // disk, where the catalog describes what the thread advertises.
-    version: agree ? catalog : guess.version,
+    // The catalog version either way. On agreement it is simply the tidier
+    // spelling of the same thing; on disagreement it is the default the user can
+    // override from the mismatch panel, which shows both values.
+    version: catalog,
+    // A disagreement is still low confidence — the prompt asks for a look, it
+    // just no longer pre-fills the uploader's guess.
     confidence: agree ? "high" : "low",
     mismatch: !agree,
     catalogVersion: catalog,
     fileVersion: guess.version,
+    source: "catalog",
   };
 }
 

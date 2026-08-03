@@ -77,14 +77,36 @@ eq(versionFromFileName("Game-Part2.zip").version, "", "bare integer is not a ver
   eq(result.confidence, "high", "agreement is high confidence");
 }
 {
-  // Real disagreement. The file describes the bytes on disk; the catalog
-  // describes what the thread advertises. The file wins, but it is flagged.
+  // Real disagreement. The catalog version is what gets pre-filled: it is the
+  // curated value, it matches how the game's other versions are already named in
+  // the library, and it is what a later replace matches against. The filename
+  // guess comes from freeform uploader text, so it is reported rather than used.
   const result = suggestVersion("Game-v0.9.2.zip", "0.9.5");
   eq(result.mismatch, true, "disagreement detected");
-  eq(result.version, "v0.9.2", "file wins - it describes the actual bytes");
-  eq(result.confidence, "low", "and confidence drops so the prompt says so");
+  eq(result.version, "0.9.5", "the catalog version is the default");
+  eq(result.confidence, "low", "confidence still drops so the prompt asks for a look");
   eq(result.catalogVersion, "0.9.5", "both reported for the user to settle");
-  eq(result.fileVersion, "v0.9.2", "both reported");
+  eq(result.fileVersion, "v0.9.2", "both reported, so the mismatch panel can show them");
+  eq(result.source, "catalog", "and the default's origin is stated");
+}
+{
+  // The mismatch panel is the whole reason the file version is still carried.
+  // Losing either value would leave the user unable to settle it, so both are
+  // asserted present and distinct.
+  const result = suggestVersion("Game-Ch5-Fix.zip", "v1.2");
+  eq(result.mismatch, true, "chapter numbering vs a dotted version disagrees");
+  eq(result.version, "v1.2", "catalog default");
+  eq(result.fileVersion, "5", "the parsed value survives for the panel");
+  eq(result.catalogVersion, "v1.2");
+}
+{
+  // A catalog version that is not a number at all still wins. XLibrary and F95
+  // both carry labels like "Christmas Special", and rewriting one to a parsed
+  // "0.10" from the filename would name the folder after the wrong build.
+  const result = suggestVersion("Game-0.10-pc.zip", "Christmas Special");
+  eq(result.version, "Christmas Special", "a non-numeric catalog label is respected");
+  eq(result.mismatch, true, "and the disagreement is still reported");
+  eq(result.fileVersion, "0.10");
 }
 {
   // Filename has nothing usable: fall back to the catalog, unverified.
