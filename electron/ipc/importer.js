@@ -2727,7 +2727,10 @@ ipcMain.handle("select-external-library-file", async (event, id) => {
   if (!provider) return { success: false, error: `Unknown external library: ${id}` };
   const parentWindow = BrowserWindow.fromWebContents(event.sender);
   const result = await dialog.showOpenDialog(parentWindow, {
-    title: `Select the ${provider.label} database`,
+    // Not every provider's input is a database — XLibrary's is a JSON library
+    // file — and a dialog naming the wrong kind of file is how a user concludes
+    // they have nothing to select.
+    title: `Select the ${provider.label} ${provider.sourceNoun || "database"}`,
     properties: ["openFile"],
     filters: provider.fileFilters,
   });

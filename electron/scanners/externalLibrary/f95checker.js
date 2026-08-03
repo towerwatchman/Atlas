@@ -88,10 +88,14 @@ const getCandidateDataDirs = () => {
   ];
 };
 
-// First existing db.sqlite3 across the candidate data dirs, or null.
+// The exact file paths detection tests, in order. Reported to the UI so a failed
+// detection can say what it actually looked for rather than only where.
+const getCandidatePaths = () =>
+  getCandidateDataDirs().map((dir) => path.join(dir, DB_FILENAME));
+
+// First existing db.sqlite3 across the candidate paths, or null.
 const locateDatabase = () => {
-  for (const dir of getCandidateDataDirs()) {
-    const candidate = path.join(dir, DB_FILENAME);
+  for (const candidate of getCandidatePaths()) {
     try {
       if (fs.statSync(candidate).isFile()) return candidate;
     } catch {
@@ -407,19 +411,138 @@ const buildImportRow = (row, { labelsById, tabsById, exeBaseDir = "" }) => {
     installPathWasRelative: Boolean(install.wasRelative),
 
     // ── Watchlist ───────────────────────────────────────────────────────────
-    // A row F95Checker is tracking but that has nothing on disk isn't a game
-    // the user owns — it's a game they're watching. Importing it as a library
-    // record would create an entry with no version and no launch path, which
-    // is exactly the dead row the review table already flags as "Missing
-    // launchable". Defaulted here, overridable per row in the review table.
+    // A row F95Checker is tracking that Atlas cannot launch isn't a game the
+    // user owns here — it's a game they're watching. Importing it as a library
+    // record would create an entry with no version and no launch path, which is
+    // exactly the dead row the review table flags as "Missing launchable".
+    // Defaulted here, overridable per row (and in bulk) in the review table.
+    //
+    // The test is whether an EXECUTABLE resolved, not whether one was recorded.
+    // An earlier rule asked only whether the row had no executables and no
+    // installed version, which left two populations belonging to neither list:
+    // a row whose recorded path no longer exists (library moved, or its drive is
+    // not mounted), and a row with an `installed` version string but no
+    // executable. Both failed the importer's launchable check AND the watchlist
+    // check, so they were silently dropped by the import — which for anyone
+    // whose games live on an unmounted drive is the entire library.
     //
     // Note this is about DISK, not about catalog matching: a watchlist entry
     // still wants its Atlas match so it can carry a banner and metadata.
-    isInstalled: Boolean(install.folder),
-    watchlistCandidate: executables.length === 0 && !installedVersion,
-    addToWatchlist: executables.length === 0 && !installedVersion,
+    //
+    // A directory-only entry counts as not launchable for the same reason: Atlas
+    // needs an executable to write a version row, so a folder with nothing
+    // resolvable beneath it cannot be imported either.
+    isInstalled: Boolean(install.singleExecutable),
+    watchlistCandidate: !install.singleExecutable,
+    addToWatchlist: !install.singleExecutable,
+    // Why the row is going to the watchlist, so the import step can break the
+    // count down instead of reporting one opaque number. "Not installed" is the
+    // expected case; the other two mean something is wrong the user may want to
+    // fix before importing.
+    watchlistReason: install.singleExecutable
+      ? ""
+      : install.missing
+        ? "install-path-missing"
+        : executables.length > 0 || installedVersion
+          ? "no-launchable"
+          : "not-installed",
   };
 };
+
+// ── Mapping table for the import step ───────────────────────────────────────
+
+// What goes where, with counts off the user's own library. Built here rather
+// than in the UI so the step stays provider-agnostic and each reader describes
+// its own mapping — including the parts it drops, since leaving those out would
+// be the same as hiding them.
+const buildMapping = (summary, tabs = []) => [
+  {
+    from: "Game + developer",
+    to: "Title and creator",
+    detail: "Matched against the Atlas catalog by thread ID",
+    count: summary.imported,
+  },
+  {
+    from: "Installed version + executable",
+    to: "Version, game path, executable",
+    detail: "Left where they are on disk — nothing is moved or copied",
+    count: summary.installed,
+  },
+  {
+    from: "Finished version",
+    to: 'Playstate "finished"',
+    detail: "Set on the matching version where possible",
+    count: summary.withFinished,
+  },
+  {
+    from: "Last launched",
+    to: "Last played",
+    detail: "F95Checker stores no playtime, so playtime stays empty",
+    count: summary.imported,
+    muted: true,
+  },
+  {
+    from: "Rating (0-5)",
+    to: "Story rating (0-10)",
+    detail: "Doubled to the Atlas scale — see the note below",
+    count: summary.withRating,
+  },
+  {
+    from: "Notes",
+    to: "Notes",
+    detail: "Editable afterwards under the game\u2019s Record tab",
+    count: summary.withNotes,
+  },
+  {
+    from: "Labels",
+    to: "Tags",
+    detail: "Added alongside the catalog tags, not replacing them",
+    count: summary.withLabels,
+  },
+  {
+    from: "Tabs",
+    to: "Collections",
+    detail: tabs.length
+      ? `${tabs.length} collection${tabs.length === 1 ? "" : "s"} will be created or reused`
+      : "No tabs in this library",
+    count: summary.withTab,
+  },
+  {
+    from: "Nothing launchable on disk",
+    to: "Wishlist",
+    detail: "Pre-ticked on the review screen — untick any you want as library records",
+    count: summary.watchlist,
+  },
+  {
+    from: "Status, type, tags, description, score",
+    to: "Not imported",
+    detail: "Atlas already has these from its own catalog and keeps them updated",
+    count: null,
+    muted: true,
+  },
+];
+
+// The mappings the user can decline. Only the two with consequences beyond the
+// import itself: creating collections, and pinning a game's tag list.
+const buildOptionalMappings = (tabs = []) => [
+  {
+    key: "importTabsAsCollections",
+    label: "Recreate tabs as collections",
+    detail: tabs.length > 0
+      ? `Creates or reuses: ${tabs.join(", ")}`
+      : "No tabs found in this library",
+    default: true,
+  },
+  {
+    key: "importLabelsAsTags",
+    label: "Import labels as tags",
+    detail:
+      "Labels are added alongside the catalog tags. Because editing a game\u2019s tags "
+      + "marks the list as yours, those games will stop picking up new tags from "
+      + "catalog updates.",
+    default: true,
+  },
+];
 
 // Read a F95Checker database into importer rows.
 //
@@ -476,6 +599,13 @@ const readF95CheckerLibrary = async (dbPath) => {
     let unidentifiedCount = 0;
     let watchlistCount = 0;
     let relativePathCount = 0;
+    // Broken down by reason: "not installed" is expected, the other two mean
+    // something the user may want to fix before importing.
+    const watchlistReasons = {
+      "not-installed": 0,
+      "install-path-missing": 0,
+      "no-launchable": 0,
+    };
 
     for (const row of gameRows) {
       // Their `archived` column is an INTEGER boolean, but create_table's
@@ -488,15 +618,58 @@ const readF95CheckerLibrary = async (dbPath) => {
       }
       const built = buildImportRow(row, { labelsById, tabsById, exeBaseDir });
       if (built.isCustomEntry) customCount += 1;
-      if (built.folder) installedCount += 1;
+      // Counted by launchability rather than by a resolved folder, so the
+      // "installed on disk" figure is the number of rows that will actually
+      // become library records.
+      if (built.isInstalled) installedCount += 1;
       if (built.installMissing) missingInstallCount += 1;
       if (built.f95IdFromUrl) recoveredIdCount += 1;
       if (built.lcId) lewdCornerCount += 1;
       if (!built.f95Id && !built.lcId) unidentifiedCount += 1;
-      if (built.addToWatchlist) watchlistCount += 1;
+      if (built.addToWatchlist) {
+        watchlistCount += 1;
+        if (built.watchlistReason in watchlistReasons) {
+          watchlistReasons[built.watchlistReason] += 1;
+        }
+      }
       if (built.installPathWasRelative) relativePathCount += 1;
       rows.push(built);
     }
+
+    const tabs = Array.from(
+      new Set(rows.map((row) => row.externalState.tab).filter(Boolean)),
+    ).sort();
+
+    const summary = {
+      total: gameRows.length,
+      imported: rows.length,
+      archived: archivedCount,
+      custom: customCount,
+      installed: installedCount,
+      missingInstall: missingInstallCount,
+      // Custom rows rescued by parsing their thread URL — these would
+      // otherwise reach the catalog with no identifier at all.
+      recoveredIds: recoveredIdCount,
+      lewdCorner: lewdCornerCount,
+      unidentified: unidentifiedCount,
+      watchlist: watchlistCount,
+      // Rows going to the watchlist because their recorded install path did not
+      // resolve, rather than because nothing was ever installed. A large number
+      // here almost always means one shared cause — see exeBaseDir.
+      watchlistMissingPath: watchlistReasons["install-path-missing"],
+      watchlistNoLaunchable: watchlistReasons["no-launchable"],
+      watchlistNotInstalled: watchlistReasons["not-installed"],
+      relativePaths: relativePathCount,
+      withLabels: rows.filter((row) => row.externalState.labels.length > 0).length,
+      withTab: rows.filter((row) => row.externalState.tab).length,
+      withNotes: rows.filter((row) => row.externalState.notes).length,
+      withRating: rows.filter((row) => row.externalState.rating).length,
+      withFinished: rows.filter((row) => row.externalState.isFinished).length,
+      // Reported for parity with the XLibrary reader, whose mapping table shares
+      // the same shape. F95Checker stores neither, so both are always zero.
+      withPlaystate: 0,
+      withPlaytime: 0,
+    };
 
     return {
       success: true,
@@ -505,30 +678,13 @@ const readF95CheckerLibrary = async (dbPath) => {
       rows,
       // The base directory relative executables were resolved against. Shown in
       // the import step: if it is empty or points somewhere unmounted, every
-      // "missing install" below has one shared cause, and saying so up front is
-      // far more useful than 900 individually-broken rows.
+      // "missing install" has one shared cause, and saying so up front is far
+      // more useful than 900 individually-broken rows.
       exeBaseDir,
-      summary: {
-        total: gameRows.length,
-        imported: rows.length,
-        archived: archivedCount,
-        custom: customCount,
-        installed: installedCount,
-        missingInstall: missingInstallCount,
-        // Custom rows rescued by parsing their thread URL — these would
-        // otherwise reach the catalog with no identifier at all.
-        recoveredIds: recoveredIdCount,
-        lewdCorner: lewdCornerCount,
-        unidentified: unidentifiedCount,
-        watchlist: watchlistCount,
-        relativePaths: relativePathCount,
-        withLabels: rows.filter((row) => row.externalState.labels.length > 0).length,
-        withTab: rows.filter((row) => row.externalState.tab).length,
-        withNotes: rows.filter((row) => row.externalState.notes).length,
-        withRating: rows.filter((row) => row.externalState.rating).length,
-        withFinished: rows.filter((row) => row.externalState.isFinished).length,
-      },
-      tabs: Array.from(new Set(rows.map((row) => row.externalState.tab).filter(Boolean))).sort(),
+      summary,
+      mapping: buildMapping(summary, tabs),
+      optionalMappings: buildOptionalMappings(tabs),
+      tabs,
       // A journal sidecar means F95Checker is open (or was killed mid-write), so
       // the snapshot can be up to save_loop()'s 30s behind their UI.
       journalPresent: snapshot.journalPresent,
@@ -542,8 +698,11 @@ const readF95CheckerLibrary = async (dbPath) => {
 module.exports = {
   DB_FILENAME,
   getCandidateDataDirs,
+  getCandidatePaths,
   locateDatabase,
   readF95CheckerLibrary,
+  buildMapping,
+  buildOptionalMappings,
   // Exported for scripts/check-f95checker-parser.js
   parseJsonArray,
   resolveInstallPaths,

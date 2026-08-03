@@ -12,6 +12,17 @@
 // must not lose their own notes, ratings or tags. Every write below either fills
 // a gap or merges.
 //
+// A second rule follows from the first: every write must be IDEMPOTENT. Running
+// the same import twice has to leave the database in the state one run would.
+// That rules out any accumulating write, which is why playtime is set here
+// rather than going through recordGamePlaytime() — see the note on it below.
+//
+// Not every reader supplies every field. F95Checker has no playtime and records
+// which version was finished; XLibrary has playtime and per-category ratings but
+// only a whole-game progress status. Each block below is written against the
+// field, not against the provider, so a reader contributes whatever it has and
+// stays silent about the rest.
+//
 // Deliberately NOT imported: forum metadata of any kind (status, type, catalog
 // tags, description, changelog, community score). Atlas has all of it from its
 // own catalog and it is refreshed on sync, so copying it in would create stale
@@ -124,12 +135,27 @@ const applyExternalLibraryState = async ({
   }
 
   // ── Rating ────────────────────────────────────────────────────────────────
-  // Lands in Story because Atlas has no single overall category. mergeGame-
-  // PersonalRatings leaves every other category alone and lets an existing user
-  // value win, so this can never erase a real rating.
-  const scaledRating = toPersonalScale(state.rating);
-  if (scaledRating !== null) {
-    const result = await mergeGamePersonalRatings(id, { story: scaledRating });
+  // An overall score lands in Story because Atlas has no single overall
+  // category. mergeGamePersonalRatings leaves every other category alone and
+  // lets an existing user value win, so this can never erase a real rating.
+  //
+  // Per-category scores, where the source has them, are applied on top and win
+  // over the overall figure for the categories they cover: "story 5" is a
+  // statement about the story, whereas an overall 5 landing in Story is a
+  // compromise. Both are on a 0-5 scale and converted the same way.
+  const categoryRatings =
+    state.categoryRatings && typeof state.categoryRatings === "object"
+      ? state.categoryRatings
+      : {};
+  const ratingPatch = {};
+  const overallRating = toPersonalScale(state.rating);
+  if (overallRating !== null) ratingPatch.story = overallRating;
+  for (const [category, value] of Object.entries(categoryRatings)) {
+    const scaled = toPersonalScale(value);
+    if (scaled !== null) ratingPatch[category] = scaled;
+  }
+  if (Object.keys(ratingPatch).length > 0) {
+    const result = await mergeGamePersonalRatings(id, ratingPatch);
     if (result?.success && !result.skipped) applied.push("rating");
   }
 
@@ -177,6 +203,58 @@ const applyExternalLibraryState = async ({
       const result = await setGamePlaystate(id, "finished");
       if (result?.success) applied.push("finishedTitle");
       warnings.push("finished-older-version");
+    }
+  }
+
+  // ── Playstate ─────────────────────────────────────────────────────────────
+  // Some tools track progress as one status per game (XLibrary's
+  // completionStatus) rather than per version, so this is a title-level write.
+  // Fill only: a playstate the user has already set in Atlas is their own
+  // judgement about a build they actually have, and an import must not overrule
+  // it. `null` from the reader means "no playstate", which is not the same as
+  // "unknown", and is skipped rather than written as a clearing update.
+  //
+  // The `finished` block above handles the different case where the source
+  // records WHICH version was finished; a reader supplying that will not also
+  // supply a playstate, so the two never fight over the same row.
+  if (state.playstate) {
+    const row = await dbGet(`SELECT playstate FROM games WHERE record_id = ?`, [id]);
+    if (row && !row.playstate) {
+      const result = await setGamePlaystate(id, state.playstate);
+      if (result?.success) applied.push("playstate");
+    } else if (row?.playstate) {
+      warnings.push("playstate-kept-existing");
+    }
+  }
+
+  // ── Playtime ──────────────────────────────────────────────────────────────
+  // Minutes, already converted by the reader.
+  //
+  // Deliberately NOT routed through recordGamePlaytime(): that ADDS to the
+  // running total, which is right for a real launch and wrong for an import —
+  // re-running an import would double every figure, and running it three times
+  // would triple it. These are plain fill-only writes instead, so an import is
+  // idempotent and can never inflate a total the user has been accumulating in
+  // Atlas.
+  const playtimeMinutes = Number.parseInt(state.playtimeMinutes, 10) || 0;
+  if (playtimeMinutes > 0) {
+    const totalResult = await dbRun(
+      `UPDATE games SET total_playtime = ?
+       WHERE record_id = ? AND (total_playtime IS NULL OR total_playtime = 0)`,
+      [playtimeMinutes, id],
+    );
+    if (totalResult.changes) applied.push("playtime");
+    else warnings.push("playtime-kept-existing");
+    // The imported version is the only one that can carry it: the source tracks
+    // a per-game total, and attributing it to the build that is installed is the
+    // closest honest placement.
+    if (savedVersion) {
+      await dbRun(
+        `UPDATE versions SET version_playtime = ?
+         WHERE record_id = ? AND version = ?
+           AND (version_playtime IS NULL OR version_playtime = 0)`,
+        [playtimeMinutes, id, savedVersion],
+      );
     }
   }
 

@@ -2,90 +2,27 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 // ── External library import step ─────────────────────────────────────────────
 //
-// Entry screen for importing another tool's library (F95Checker today). Opened
-// from Settings -> Import, not from the importer's own source dropdown, so the
-// importer stays a short list of ways to add a game.
+// Entry screen for importing another tool's library. Opened from Settings ->
+// Import, not from the importer's own source dropdown, so the importer stays a
+// short list of ways to add a game.
 //
 // Its job is to make the mapping VISIBLE before anything is written. An import
-// like this silently moves a lot of personal data — ratings, notes, finished
-// state, groupings — and the two places it can't map cleanly (a 0-5 rating into
-// eight categories, and a game finished at a build that isn't installed) are
-// exactly the places a user would notice later and assume Atlas got it wrong.
-// So the field mapping is shown as a table with live counts off their own data,
-// and the two lossy mappings are explained where they happen.
+// like this silently moves a lot of personal data — ratings, notes, progress,
+// playtime, groupings — and the places it cannot map cleanly (a 0-5 rating into
+// eight categories, a game finished at a build that is not installed, a
+// category the destination has no home for) are exactly the places a user would
+// notice later and assume Atlas got it wrong.
+//
+// The mapping table itself comes from the READER, not from here. Each provider
+// describes what it maps, what it drops and the count behind each row, because
+// only the reader knows: F95Checker has tabs and no playtime, XLibrary has
+// playtime and no tabs. A table hardcoded here was accurate for exactly one
+// provider and quietly wrong for the next one added.
 //
 // Nothing here writes: it produces rows and hands them to the importer's normal
 // review table, where every row can still be corrected or removed.
 
 const CHECK = 'accent-accent h-4 w-4 rounded border-border bg-tertiary'
-
-// What goes where. `count` reads off the summary so the numbers are the user's
-// own, not a generic promise. Rows with no destination are listed too — leaving
-// them out would be the same as hiding that they're dropped.
-const buildMappingRows = (summary, tabCount) => [
-  {
-    from: 'Game + developer',
-    to: 'Title and creator',
-    detail: 'Matched against the Atlas catalog by thread ID',
-    count: summary.imported,
-  },
-  {
-    from: 'Installed version + executable',
-    to: 'Version, game path, executable',
-    detail: 'Left where they are on disk — nothing is moved or copied',
-    count: summary.installed,
-  },
-  {
-    from: 'Finished version',
-    to: 'Playstate "finished"',
-    detail: 'Set on the matching version where possible',
-    count: summary.withFinished,
-  },
-  {
-    from: 'Last launched',
-    to: 'Last played',
-    detail: 'F95Checker stores no playtime, so playtime stays empty',
-    count: summary.withRating >= 0 ? summary.imported : 0,
-    muted: true,
-  },
-  {
-    from: 'Rating (0-5)',
-    to: 'Story rating (0-10)',
-    detail: 'Doubled to the Atlas scale — see the note below',
-    count: summary.withRating,
-  },
-  {
-    from: 'Notes',
-    to: 'Notes',
-    detail: 'Editable afterwards under the game\u2019s Record tab',
-    count: summary.withNotes,
-  },
-  {
-    from: 'Labels',
-    to: 'Tags',
-    detail: 'Added alongside the catalog tags, not replacing them',
-    count: summary.withLabels,
-  },
-  {
-    from: 'Tabs',
-    to: 'Collections',
-    detail: tabCount ? `${tabCount} collection${tabCount === 1 ? '' : 's'} will be created or reused` : 'No tabs in this library',
-    count: summary.withTab,
-  },
-  {
-    from: 'Tracked, nothing on disk',
-    to: 'Watchlist',
-    detail: 'Pre-ticked on the review screen — untick any you want in the library',
-    count: summary.watchlist,
-  },
-  {
-    from: 'Status, type, tags, description, score',
-    to: 'Not imported',
-    detail: 'Atlas already has these from its own catalog and keeps them updated',
-    count: null,
-    muted: true,
-  },
-]
 
 function SummaryPill({ label, value, tone = 'default' }) {
   const tones = {
@@ -112,10 +49,12 @@ export default function ExternalLibraryStep({
   const [reading, setReading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
-  const [importLabelsAsTags, setImportLabelsAsTags] = useState(true)
-  const [importTabsAsCollections, setImportTabsAsCollections] = useState(true)
+  // Keyed by the option's `key` as declared by the reader, so a provider can
+  // offer none, one or several without this component knowing which.
+  const [optionValues, setOptionValues] = useState({})
 
   const label = info?.label || 'External library'
+  const sourceNoun = info?.sourceNoun || 'database'
 
   // Auto-detect on mount. Detection failing is a normal outcome (portable
   // install, custom data dir, database copied from another machine), so it shows
@@ -166,6 +105,13 @@ export default function ExternalLibraryStep({
         return
       }
       setResult(scanned)
+      // Defaults come from the reader's own declaration rather than from state
+      // initialised before we knew which provider this is.
+      setOptionValues(
+        Object.fromEntries(
+          (scanned.optionalMappings || []).map((option) => [option.key, option.default !== false]),
+        ),
+      )
       if (scanned.dbPath) setDbPath(scanned.dbPath)
     } catch (err) {
       setError(err.message || 'Could not read the library')
@@ -175,14 +121,12 @@ export default function ExternalLibraryStep({
   }, [sourceId, dbPath])
 
   const summary = result?.summary
-  const mappingRows = useMemo(
-    () => (summary ? buildMappingRows(summary, (result?.tabs || []).length) : []),
-    [summary, result],
-  )
+  const mappingRows = useMemo(() => result?.mapping || [], [result])
+  const optionalMappings = useMemo(() => result?.optionalMappings || [], [result])
 
   const proceed = () => {
     if (!result?.rows?.length) return
-    onRows?.(result.rows, { importLabelsAsTags, importTabsAsCollections })
+    onRows?.(result.rows, { ...optionValues })
   }
 
   if (loading) {
@@ -198,23 +142,27 @@ export default function ExternalLibraryStep({
       <div>
         <h2 className="text-lg font-medium text-text">Import from {label}</h2>
         <p className="text-xs text-muted mt-1 max-w-2xl">
-          Atlas reads a copy of the {label} database and never writes to it. Your
-          games stay where they are on disk.
+          Atlas reads the {label} {sourceNoun} and never writes to it. Your games
+          stay where they are on disk.
         </p>
       </div>
 
       {/* ── Source file ──────────────────────────────────────────────────── */}
       <div className="rounded border border-border bg-primary p-3 space-y-2">
         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-          <label className="text-sm sm:w-24 sm:shrink-0" htmlFor="external-db-path">
-            Database
+          <label className="text-sm sm:w-24 sm:shrink-0 capitalize" htmlFor="external-db-path">
+            {sourceNoun}
           </label>
           <input
             id="external-db-path"
             type="text"
             value={dbPath}
             onChange={(event) => { setDbPath(event.target.value); setResult(null) }}
-            placeholder={`Path to ${info?.databaseName || 'the database file'}`}
+            placeholder={
+              info?.pickerHint
+                ? `Path to ${info.pickerHint}`
+                : `Path to ${info?.databaseName || `the ${sourceNoun}`}`
+            }
             className="flex-1 min-w-0 bg-tertiary border border-border rounded p-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-accent"
           />
           <div className="flex items-center gap-2">
@@ -240,14 +188,25 @@ export default function ExternalLibraryStep({
           </div>
         </div>
 
+        {/* Detection failing is a normal outcome — a portable install, a custom
+            data directory, or a library copied off another machine — so this
+            shows the exact paths that were tested rather than only the
+            directories. A directory plus a bare filename can describe a path
+            detection never tried, which sends the user looking in the wrong
+            place. Either way the picker above is always available. */}
         {info && !info.detected && !result && (
           <div className="text-xs text-muted">
-            <p className="text-amber-400">No {label} database found automatically.</p>
-            <p className="mt-1">Atlas looked in:</p>
-            <ul className="mt-0.5 space-y-0.5 font-mono text-[11px]">
-              {(info.searchedDirs || []).map((dir) => <li key={dir}>{dir}</li>)}
+            <p className="text-amber-400">No {label} {sourceNoun} found automatically.</p>
+            <p className="mt-1">Atlas looked for:</p>
+            <ul className="mt-0.5 space-y-0.5 font-mono text-[11px] break-all">
+              {(info.searchedPaths?.length ? info.searchedPaths : info.searchedDirs || [])
+                .map((target) => <li key={target}>{target}</li>)}
             </ul>
-            <p className="mt-1">Use Browse to point at the file yourself.</p>
+            <p className="mt-1">
+              Use <span className="text-text">Browse</span> to pick the file
+              yourself, or paste its path above. A copy from another machine works
+              here too.
+            </p>
           </div>
         )}
 
@@ -275,7 +234,7 @@ export default function ExternalLibraryStep({
               value={summary.custom}
               tone={summary.custom ? 'warn' : 'muted'}
             />
-            <SummaryPill label="to watchlist" value={summary.watchlist ?? 0} />
+            <SummaryPill label="to wishlist" value={summary.watchlist ?? 0} />
             <SummaryPill
               label="no source link"
               value={summary.unidentified ?? 0}
@@ -329,6 +288,75 @@ export default function ExternalLibraryStep({
                   another category later can make the overall number go down.
                   Ratings you have already set in Atlas are never overwritten.
                 </p>
+                {summary.withCategoryRatings > 0 && (
+                  <p className="mt-2">
+                    <span className="font-medium">{summary.withCategoryRatings}</span>{' '}
+                    {summary.withCategoryRatings === 1 ? 'game also has' : 'games also have'}{' '}
+                    per-category scores. Those map onto the matching Atlas categories by
+                    name and take precedence over the overall figure for the categories
+                    they cover.
+                    {summary.droppedRatingCategories > 0 && (
+                      <>
+                        {' '}
+                        <span className="font-medium">{summary.droppedRatingCategories}</span>{' '}
+                        {summary.droppedRatingCategories === 1 ? 'score is' : 'scores are'} in a
+                        category Atlas does not have and{' '}
+                        {summary.droppedRatingCategories === 1 ? 'is' : 'are'} not imported,
+                        rather than being folded into a category where{' '}
+                        {summary.droppedRatingCategories === 1 ? 'it' : 'they'} would skew
+                        the average.
+                      </>
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* An export cannot tell us how stale it is beyond its own
+                timestamp, so the timestamp is what gets shown. */}
+            {result.exportedAt && (
+              <div className="rounded border border-border p-3 text-xs text-muted">
+                This export was written{' '}
+                <span className="text-text">
+                  {new Date(result.exportedAt).toLocaleString()}
+                </span>
+                . Anything you changed in {label} after that is not in the file —
+                export again if that matters.
+              </div>
+            )}
+
+            {result.schemaNewerThanKnown && (
+              <div className="rounded border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-text">
+                <p className="font-medium text-amber-400">Newer {label} export format</p>
+                <p className="mt-1">
+                  This file reports format version{' '}
+                  <span className="font-mono">{result.schemaVersion}</span>, and Atlas
+                  was written against version{' '}
+                  <span className="font-mono">{result.knownSchemaVersion}</span>. It has
+                  been read anyway, but check the counts below against what you expect
+                  before continuing.
+                </p>
+              </div>
+            )}
+
+            {summary.unknownCompletionStatus > 0 && (
+              <div className="rounded border border-border p-3 text-xs text-muted">
+                <span className="text-text font-medium">{summary.unknownCompletionStatus}</span>{' '}
+                {summary.unknownCompletionStatus === 1 ? 'game has' : 'games have'} a
+                progress status Atlas does not recognise, so{' '}
+                {summary.unknownCompletionStatus === 1 ? 'it keeps' : 'they keep'} no
+                playstate rather than being guessed at.
+              </div>
+            )}
+
+            {summary.otherFolderConfigs > 0 && (
+              <div className="rounded border border-border p-3 text-xs text-muted">
+                <span className="text-text font-medium">{summary.otherFolderConfigs}</span>{' '}
+                {summary.otherFolderConfigs === 1 ? 'game has' : 'games have'} launch
+                entries in more than one folder, which is a second install of the same
+                game. One Atlas version points at one folder, so the default launch
+                entry is used and the others are left out — add them as extra versions
+                afterwards if you want them.
               </div>
             )}
 
@@ -371,6 +399,22 @@ export default function ExternalLibraryStep({
               </div>
             )}
 
+            {(summary.watchlistMissingPath > 0 || summary.watchlistNoLaunchable > 0) && (
+              <div className="rounded border border-border p-3 text-xs text-muted">
+                <span className="text-text font-medium">
+                  {(summary.watchlistMissingPath || 0) + (summary.watchlistNoLaunchable || 0)}
+                </span>{' '}
+                of the {summary.watchlist} going to the wishlist{' '}
+                {(summary.watchlistMissingPath || 0) + (summary.watchlistNoLaunchable || 0) === 1
+                  ? 'is a game'
+                  : 'are games'}{' '}
+                {label} thinks you have installed, but Atlas could not find anything to
+                launch. They go to the wishlist rather than being skipped, so nothing is
+                lost either way — but if the drive they live on is not connected right
+                now, reconnect it and read the library again to import them properly.
+              </div>
+            )}
+
             {summary.missingInstall > 0 && (
               <div className="rounded border border-border p-3 text-xs text-muted">
                 <span className="text-text font-medium">{summary.missingInstall}</span>{' '}
@@ -395,45 +439,31 @@ export default function ExternalLibraryStep({
           </div>
 
           {/* ── Opt-in mappings ───────────────────────────────────────────── */}
-          <div className="rounded border border-border bg-primary p-3 space-y-3">
-            <h3 className="text-sm font-medium text-text">Optional</h3>
-
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={importTabsAsCollections}
-                onChange={(event) => setImportTabsAsCollections(event.target.checked)}
-                className={`${CHECK} mt-0.5`}
-              />
-              <span className="text-xs">
-                <span className="text-text">Recreate tabs as collections</span>
-                <span className="block text-muted">
-                  {(result.tabs || []).length > 0
-                    ? `Creates or reuses: ${result.tabs.join(', ')}`
-                    : 'No tabs found in this library'}
-                </span>
-              </span>
-            </label>
-
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={importLabelsAsTags}
-                onChange={(event) => setImportLabelsAsTags(event.target.checked)}
-                className={`${CHECK} mt-0.5`}
-              />
-              <span className="text-xs">
-                <span className="text-text">Import labels as tags</span>
-                {/* Worth stating plainly: this is the one optional mapping with a
-                    lasting side effect, because any tag edit pins the list. */}
-                <span className="block text-muted">
-                  Labels are added alongside the catalog tags. Because editing a
-                  game&rsquo;s tags marks the list as yours, those games will stop
-                  picking up new tags from catalog updates.
-                </span>
-              </span>
-            </label>
-          </div>
+          {/* Declared by the reader. Only mappings with a consequence beyond the
+              import itself are optional — creating collections, and pinning a
+              game's tag list. Everything else always comes across. */}
+          {optionalMappings.length > 0 && (
+            <div className="rounded border border-border bg-primary p-3 space-y-3">
+              <h3 className="text-sm font-medium text-text">Optional</h3>
+              {optionalMappings.map((option) => (
+                <label key={option.key} className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={optionValues[option.key] !== false}
+                    onChange={(event) =>
+                      setOptionValues((prev) => ({ ...prev, [option.key]: event.target.checked }))}
+                    className={`${CHECK} mt-0.5`}
+                  />
+                  <span className="text-xs">
+                    <span className="text-text">{option.label}</span>
+                    {option.detail && (
+                      <span className="block text-muted">{option.detail}</span>
+                    )}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 pb-2">
             <button

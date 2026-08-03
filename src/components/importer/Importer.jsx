@@ -4,7 +4,7 @@ import ScanStep from './steps/ScanStep.jsx'
 import SteamLibraryStep from './steps/SteamLibraryStep.jsx'
 import ManualAddStep from './steps/ManualAddStep.jsx'
 import ExternalLibraryStep from './steps/ExternalLibraryStep.jsx'
-import { normalizeImporterSource } from './importerSources.js'
+import { EXTERNAL_LIBRARY_SOURCE_IDS, normalizeImporterSource } from './importerSources.js'
 import { buildFolderRegex } from './folderRegex.js'
 import WindowTitleBar from '../ui/WindowTitleBar.jsx'
 
@@ -188,6 +188,17 @@ const Importer = () => {
   const importOptions = { includeUnmatchedGames: includeUnmatched }
   const importableGames = gamesList.filter((game) => isImportableGame(game, importOptions))
   const watchlistGames = gamesList.filter((game) => game.addToWatchlist)
+  // Rows that belong to NEITHER bucket. Pressing Import writes the library rows
+  // and the wishlist rows; anything here is silently left behind, which for a
+  // 2,000-row external library import is the difference between "it worked" and
+  // "half my library is missing and nothing said so". Rows already in the
+  // library are excluded — those are correctly skipped, not lost.
+  const droppedGames = gamesList.filter((game) => (
+    !game.addToWatchlist
+    && !isImportableGame(game, importOptions)
+    && game.scanStatus !== 'alreadyImported'
+    && game.scanStatus !== 'pendingMatch'
+  ))
   const visibleStats = useMemo(() => deriveImportStats(gamesList), [gamesList])
   // Watchlist-only is a legitimate run: someone importing a tracking list they
   // have installed none of should still be able to press the button.
@@ -226,8 +237,17 @@ const Importer = () => {
     // Reported before the launchable/importable checks below, which would
     // otherwise flag every one of these rows as broken.
     if (game.addToWatchlist) {
+      // Say WHY when the reader knows. "Not installed" is the expected case; a
+      // recorded path that no longer resolves is worth distinguishing, because
+      // that one is usually fixable (unmounted drive, moved library) and the
+      // user may want to fix it and rescan rather than wishlist the game.
+      const watchlistText = {
+        'install-path-missing': 'Wishlist - install path missing',
+        'no-launchable': 'Wishlist - nothing launchable',
+        'not-installed': 'Wishlist - not installed',
+      }[game.watchlistReason]
       return {
-        text: game.watchlistCandidate ? 'Watchlist - not installed' : 'Watchlist',
+        text: watchlistText || (game.watchlistCandidate ? 'Wishlist - not installed' : 'Wishlist'),
         type: 'watchlist',
       }
     }
@@ -1198,10 +1218,11 @@ const Importer = () => {
         setView('manualAdd')
         return
       }
-      // External library managers (F95Checker etc). Opened from Settings ->
+      // External library managers (F95Checker, XLibrary). Opened from Settings ->
       // Import rather than the + dropdown, but it is the same window and the
-      // same review/import path once rows exist.
-      if (safeSource === 'f95checker') {
+      // same review/import path once rows exist. Driven by the shared id list so
+      // adding a provider does not need a branch here.
+      if (EXTERNAL_LIBRARY_SOURCE_IDS.includes(safeSource)) {
         resetImporterSourceState()
         setExternalSourceId(safeSource)
         setExternalLibraryOptions(null)
@@ -1548,6 +1569,23 @@ const Importer = () => {
   const importGamesFunc = async () => {
     const gamesToImport = gamesList.filter((game) => isImportableGame(game, importOptions))
     const gamesToWatch = gamesList.filter((game) => game.addToWatchlist)
+
+    // ── Nothing silently dropped ──────────────────────────────────────────
+    // A row that is neither importable nor flagged for the wishlist is about to
+    // be left behind. That is sometimes what the user wants (they unticked it),
+    // so it is a confirmation rather than a block — but it is never something
+    // they should discover afterwards by noticing a game is missing.
+    if (droppedGames.length > 0) {
+      const reasons = [...new Set(droppedGames.map((game) => getRowImportStatus(game).text))]
+      const proceed = window.confirm(
+        `${droppedGames.length} row${droppedGames.length === 1 ? '' : 's'} will be skipped `
+        + `entirely — not imported, and not added to the wishlist.\n\n`
+        + `Reason${reasons.length === 1 ? '' : 's'}: ${reasons.slice(0, 4).join(', ')}`
+        + `${reasons.length > 4 ? ', …' : ''}\n\n`
+        + `Continue anyway?`,
+      )
+      if (!proceed) return
+    }
 
     // ── Watchlist first ───────────────────────────────────────────────────
     // Done before the library import because the import closes this window as

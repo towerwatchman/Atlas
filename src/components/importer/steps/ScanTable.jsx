@@ -273,8 +273,8 @@ export default function ScanTable({
           {renderSortableHeader('source', 'Source')}
           {renderSortableHeader('status', 'Status')}
           {showWatchlist && (
-            <th className="relative border border-border p-1" title="Add to watchlist instead of importing to the library">
-              Watchlist
+            <th className="relative border border-border p-1" title="Add to the wishlist instead of importing to the library">
+              Wishlist
               {renderResizeHandle('watchlist')}
             </th>
           )}
@@ -460,10 +460,16 @@ export default function ScanTable({
                     onChange={() => onToggleWatchlist?.(gameKey)}
                     title={
                       game.addToWatchlist
-                        ? 'Will be added to the watchlist instead of the library'
-                        : 'Will be imported to the library'
+                        ? 'Will be added to the wishlist instead of the library'
+                        // Unticking a row with nothing launchable does not import
+                        // it — there is no executable to import — it drops it from
+                        // the run entirely, so say so rather than promising a
+                        // library import that cannot happen.
+                        : game.singleExecutable
+                          ? 'Will be imported to the library'
+                          : 'Nothing launchable on disk: unticked, this row is skipped entirely'
                     }
-                    aria-label={`Add ${game.title || 'game'} to watchlist`}
+                    aria-label={`Add ${game.title || 'game'} to the wishlist`}
                     className="h-4 w-4 accent-accent"
                     style={{ pointerEvents: 'auto' }}
                   />

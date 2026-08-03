@@ -253,16 +253,40 @@ async function buildFixture(dir) {
     assert.strictEqual(relative.installMissing, false);
     assert.strictEqual(relative.isInstalled, true);
 
-    // ── Watchlist defaults ──────────────────────────────────────────────────
-    // Nothing on disk -> watchlist; anything installed -> library.
+    // ── Wishlist defaults ───────────────────────────────────────────────────
+    // The test is whether an executable RESOLVED, not whether one was recorded.
+    // Anything Atlas cannot launch goes to the wishlist; anything it can goes to
+    // the library.
     assert.strictEqual(wishlisted.watchlistCandidate, true, "nothing on disk");
     assert.strictEqual(wishlisted.addToWatchlist, true, "pre-ticked for review");
+    assert.strictEqual(wishlisted.watchlistReason, "not-installed");
     assert.strictEqual(installed.addToWatchlist, false, "installed goes to library");
+    assert.strictEqual(installed.watchlistReason, "", "no reason when it imports");
+    assert.strictEqual(relative.addToWatchlist, false, "a resolved relative path imports");
+
+    // The regression this guards. A row whose recorded executable no longer
+    // exists fails the importer's launchable check, so it can never become a
+    // library record — and under the old rule it was not a wishlist candidate
+    // either, which meant pressing Import silently dropped it. For anyone whose
+    // library lives on a drive that is not currently mounted, that was every row.
     assert.strictEqual(
       byTitle.get("Moved Game").addToWatchlist,
-      false,
-      "a recorded-but-missing path is a broken install, not a watchlist entry",
+      true,
+      "a recorded-but-missing path must not fall between both lists",
     );
+    assert.strictEqual(byTitle.get("Moved Game").watchlistReason, "install-path-missing");
+    assert.strictEqual(byTitle.get("Moved Game").isInstalled, false);
+
+    // Every row must belong to exactly one destination: a library import or the
+    // wishlist. This is the invariant the dropped-row bug violated, so it is
+    // asserted over the whole fixture rather than row by row.
+    for (const row of result.rows) {
+      assert.notStrictEqual(
+        Boolean(row.singleExecutable) === Boolean(row.addToWatchlist),
+        true,
+        `row '${row.title}' is in both or neither destination`,
+      );
+    }
 
     // ── Recorded-but-gone install path ──────────────────────────────────────
     const moved = byTitle.get("Moved Game");
@@ -275,10 +299,25 @@ async function buildFixture(dir) {
     assert.strictEqual(result.summary.custom, 3);
     assert.strictEqual(result.summary.installed, 2, "absolute + relative both resolve");
     assert.strictEqual(result.summary.missingInstall, 1);
+    assert.strictEqual(
+      result.summary.installed + result.summary.watchlist,
+      result.rows.length,
+      "the two destinations must account for every row",
+    );
     assert.strictEqual(result.summary.recoveredIds, 1, "one id came from a URL");
     assert.strictEqual(result.summary.lewdCorner, 1);
     assert.strictEqual(result.summary.unidentified, 1, "only the custom entry with no link");
-    assert.strictEqual(result.summary.watchlist, 1, "only the row with nothing on disk");
+    assert.strictEqual(
+      result.summary.watchlist,
+      6,
+      "everything Atlas cannot launch, not just the never-installed row",
+    );
+    assert.strictEqual(result.summary.watchlistMissingPath, 1, "the moved game");
+    assert.strictEqual(
+      result.summary.watchlistNotInstalled + result.summary.watchlistNoLaunchable,
+      5,
+      "the rest had nothing recorded to launch",
+    );
     assert.strictEqual(result.summary.relativePaths, 0, "the relative one resolved");
     assert.strictEqual(result.exeBaseDir, baseDir, "base dir read from settings");
     assert.strictEqual(result.summary.withNotes, 2);
@@ -287,6 +326,29 @@ async function buildFixture(dir) {
     assert.strictEqual(result.summary.withLabels, 1);
     assert.strictEqual(result.summary.withTab, 2);
     assert.deepStrictEqual(result.tabs, ["Backlog", "Playing"]);
+
+    // ── Mapping table ───────────────────────────────────────────────────────
+    // Owned by the reader rather than the UI, so it is checked here: the import
+    // step renders whatever this returns and would silently show nothing if the
+    // shape changed.
+    assert.ok(Array.isArray(result.mapping) && result.mapping.length > 0, "mapping rows exist");
+    for (const row of result.mapping) {
+      assert.ok(row.from && row.to, "every mapping row names a source and a destination");
+    }
+    assert.ok(
+      result.mapping.some((row) => /wishlist/i.test(row.to)),
+      "the wishlist destination is disclosed to the user",
+    );
+    assert.ok(
+      result.mapping.some((row) => row.to === "Not imported"),
+      "what is dropped is disclosed too",
+    );
+    const optionKeys = (result.optionalMappings || []).map((option) => option.key);
+    assert.deepStrictEqual(
+      optionKeys.sort(),
+      ["importLabelsAsTags", "importTabsAsCollections"],
+      "both opt-in mappings are offered",
+    );
 
     // ── Helpers ─────────────────────────────────────────────────────────────
     assert.deepStrictEqual(parseJsonArray('["a","b"]'), ["a", "b"]);

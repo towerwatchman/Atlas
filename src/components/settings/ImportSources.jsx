@@ -66,9 +66,10 @@ export default function ImportSources() {
         <h3 className="text-base font-medium text-text">External libraries</h3>
         <p className="text-xs text-muted mt-1">
           Already track your games in another tool? Atlas can read its library and
-          bring across your games along with your ratings, notes, finished state,
-          labels and groupings. Your games are not moved, and the other tool&rsquo;s
-          data is only ever read.
+          bring across your games along with your ratings, notes, progress,
+          playtime, tags and groupings &mdash; whichever of those the tool records.
+          Your games are not moved, and the other tool&rsquo;s data is only ever
+          read.
         </p>
       </div>
 
@@ -78,6 +79,7 @@ export default function ImportSources() {
         {providers.map((provider) => {
           const detail = details[provider.id]
           const detected = Boolean(detail?.detected)
+          const sourceNoun = detail?.sourceNoun || provider.sourceNoun || 'database'
           return (
             <div
               key={provider.id}
@@ -106,7 +108,7 @@ export default function ImportSources() {
                 ) : (
                   <p className="text-[11px] text-muted mt-1">
                     No {provider.databaseName} in the usual location. You can point
-                    Atlas at the file yourself in the importer.
+                    Atlas at the {sourceNoun} yourself in the importer.
                   </p>
                 )}
               </div>

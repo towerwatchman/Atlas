@@ -7,6 +7,7 @@ export const IMPORTER_SOURCE_IDS = {
   RENPY: 'renpy',
   MANUAL: 'manual',
   F95CHECKER: 'f95checker',
+  XLIBRARY: 'xlibrary',
 }
 
 export const importerSources = [
@@ -59,8 +60,27 @@ export const importerSources = [
     // own source list short. The entry still lives here so the id validates in
     // normalizeImporterSource and the source reaches the same importer window.
     menu: false,
+    externalLibrary: true,
+  },
+  {
+    id: IMPORTER_SOURCE_IDS.XLIBRARY,
+    label: 'XLibrary',
+    description: 'Import an XLibrary export',
+    iconType: 'font',
+    icon: 'fas fa-file-import',
+    // Same reasoning as F95Checker above: reachable from Settings -> Import only,
+    // not from the + dropdown.
+    menu: false,
+    externalLibrary: true,
   },
 ]
+
+// Sources handled by the external-library reader registry in
+// electron/scanners/externalLibrary. Derived rather than hand-listed so the
+// importer can route all of them with one check instead of a branch per tool.
+export const EXTERNAL_LIBRARY_SOURCE_IDS = importerSources
+  .filter((item) => item.externalLibrary === true)
+  .map((item) => item.id)
 
 // Sources offered in the + dropdown. Anything flagged `menu: false` is reachable
 // only from where it belongs (Settings -> Import) but is still a valid source id.
