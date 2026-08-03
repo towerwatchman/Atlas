@@ -122,6 +122,10 @@ const { initializeDatabase } = require('./db/index')
 // initializeDatabase() runs. Read it live via dbIndex.db inside buildCtx instead.
 const dbIndex = require('./db/index')
 
+const {
+  listProviders: listExternalLibraryProviders,
+} = require('./scanners/externalLibrary')
+
 const { startSteamScan } = require('./scanners/steamscanner')
 const { startScan } = require('./scanners/f95scanner')
 const { deletePathWithElevationFallback } = require('./deleteUtils')
@@ -1497,10 +1501,26 @@ function createThemeBuilderWindow() {
   })
 }
 
+// Sources the importer window implements itself. External-library sources are
+// NOT listed here: they are derived from the reader registry below.
+const BUILT_IN_IMPORTER_SOURCES = ['atlas', 'steam', 'gog', 'renpy', 'manual']
+
 function normalizeImporterSource(source) {
   const value = String(source || '').trim().toLowerCase()
-  // Keep in sync with importerSources.js in the renderer.
-  return ['atlas', 'steam', 'gog', 'renpy', 'manual', 'f95checker'].includes(value) ? value : 'atlas'
+  // This list used to be a hand-maintained copy of the renderer's, carrying a
+  // "keep in sync with importerSources.js" comment — and it drifted the first
+  // time a provider was added. An id missing here does not error: it falls back
+  // to 'atlas', so clicking "Import library" on the new provider silently opened
+  // the ordinary folder importer instead, which looks like a broken button
+  // rather than a routing failure.
+  //
+  // External-library ids now come from the reader registry, which is the one
+  // place a provider is actually defined, so adding a reader is enough.
+  const allowed = [
+    ...BUILT_IN_IMPORTER_SOURCES,
+    ...listExternalLibraryProviders().map((provider) => provider.id),
+  ]
+  return allowed.includes(value) ? value : 'atlas'
 }
 
 function createBannerEditorWindow() {
