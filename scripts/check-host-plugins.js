@@ -280,8 +280,19 @@ const ok = (condition, message) => { assert.ok(condition, message); checks += 1;
 
   // Cloudflare fronts this host, so a challenge is "not right now" rather than
   // a permanent failure - retrying later is reasonable, giving up is not.
-  eq(buzzheavier.classifyError(null, { body: { message: "Just a moment..." } }), "quota",
-     "cloudflare challenge is quota, not fatal");
+  // A Cloudflare challenge is its own kind. It was previously folded into
+  // quota, which told the user to wait or add an account - neither of which
+  // does anything about a browser check. cf-mitigated is set explicitly by
+  // Cloudflare, so it is a reliable signal to match on.
+  eq(buzzheavier.classifyError(null, { body: { message: "Just a moment..." } }), "challenge",
+     "cloudflare challenge is its own kind, not quota");
+  eq(buzzheavier.classifyError(null, { body: { message: "cf-mitigated: challenge" } }), "challenge",
+     "the cf-mitigated header value is recognised");
+  // The plugin declares it needs a real browser, which is what routes it to
+  // the Electron window instead of a fetch.
+  ok(buzzheavier.requiresBrowser === true, "declares that it requires a browser");
+  ok(buzzheavier.gateHosts.includes("bzzhr.to"), "short domain counts as the gate");
+  eq(buzzheavier.browserPath("abc123"), "/abc123/download", "browser path built from the id");
   eq(buzzheavier.classifyError(null, { status: 429 }), "quota", "429 is quota");
   eq(buzzheavier.classifyError(null, { status: 401 }), "auth", "401 is auth");
   eq(buzzheavier.classifyError(null, { status: 404 }), "fatal", "404 is fatal");
@@ -308,6 +319,51 @@ const ok = (condition, message) => { assert.ok(condition, message); checks += 1;
       eq(result.directUrl, "https://cdn.buzzheavier.com/f/game-v1.zip", "direct url taken from the header");
       eq(result.fileName, "game-v1.zip", "filename derived from the resolved url");
       eq(result.headers.referer, "https://buzzheavier.com/abc123", "referer carried to the transfer");
+    }
+
+    // THE bug: requests must go to the origin the link was posted on. Asking
+    // buzzheavier.com for a bzzhr.to id is a cross-domain request that
+    // Cloudflare answers with a challenge, which surfaced to the user as
+    // "transfer limit reached" - a wrong conclusion from a wrong request.
+    {
+      let seen = null;
+      stub(async (url, init) => {
+        seen = { url, headers: init?.headers };
+        return { ok: true, status: 200,
+          headers: new Map([["hx-redirect", "https://cdn.bzzhr.to/f/g.zip"]]) };
+      });
+      await buzzheavier.probe("https://bzzhr.to/zo4x4mws69ix");
+      eq(seen.url, "https://bzzhr.to/zo4x4mws69ix/download",
+         "short-domain link is requested on the short domain");
+      eq(seen.headers.referer, "https://bzzhr.to/zo4x4mws69ix",
+         "and the referer matches that origin");
+    }
+    {
+      let seen = null;
+      stub(async (url) => {
+        seen = url;
+        return { ok: true, status: 200,
+          headers: new Map([["hx-redirect", "https://cdn.buzzheavier.com/f/g.zip"]]) };
+      });
+      await buzzheavier.probe("https://buzzheavier.com/abc123");
+      eq(seen, "https://buzzheavier.com/abc123/download", "main domain unaffected");
+    }
+    // A relative redirect resolves against the link's own origin, not the
+    // main domain - otherwise a bzzhr.to download points at buzzheavier.com.
+    {
+      stub(async () => ({ ok: true, status: 200,
+        headers: new Map([["hx-redirect", "/dl/xyz/game.zip"]]) }));
+      const result = await buzzheavier.probe("https://bzzhr.to/abc123");
+      eq(result.directUrl, "https://bzzhr.to/dl/xyz/game.zip",
+         "relative redirect stays on the short domain");
+    }
+    // A failed probe must say which URL it asked for.
+    {
+      stub(async () => ({ ok: true, status: 200, headers: new Map(),
+        text: async () => "<html>nothing useful</html>" }));
+      const result = await buzzheavier.probe("https://bzzhr.to/abc123");
+      eq(result.diagnostic.requested, "https://bzzhr.to/abc123/download",
+         "diagnostic names the request that failed");
     }
 
     // A relative location must be resolved against the site, not queued as-is.
@@ -381,7 +437,12 @@ const ok = (condition, message) => { assert.ok(condition, message); checks += 1;
     // ── Registry ────────────────────────────────────────────────────────────
     eq(registry.pluginFor("https://buzzheavier.com/abc123")?.id, "buzzheavier", "routed");
     ok(registry.supportedHostIds().includes("buzzheavier"), "listed as supported");
-    eq(registry.supportedHostIds().length, 2, "two plugins registered");
+    // supportedHostIds returns host LABELS, not plugin ids, so aliases count
+    // too. bzzhr must be present or every Buzzheavier mirror is gated out:
+    // the classifier matches on the first label of the host, and "bzzhr.to"
+    // does not begin with the plugin id.
+    ok(registry.supportedHostIds().includes("bzzhr"), "short domain alias is supported");
+    eq(registry.supportedHostIds().length, 3, "two plugins, three host labels");
   } finally {
     global.fetch = realFetch;
   }

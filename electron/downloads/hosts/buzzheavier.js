@@ -17,12 +17,28 @@
 // expected. One real download either confirms it or says exactly what to
 // change, which beats a silent wrong guess.
 
-const BASE = "https://buzzheavier.com";
+// Account endpoints live on the main domain.
+const API_BASE = "https://buzzheavier.com";
+
+// Downloads must be requested from the SAME origin the link was posted on.
+// Shares appear as bzzhr.to; asking buzzheavier.com for a bzzhr.to id was the
+// original bug - a cross-domain request that Cloudflare answered with a
+// challenge, which then surfaced to the user as "transfer limit reached".
+function originFor(url) {
+  try {
+    return new URL(String(url)).origin;
+  } catch {
+    return API_BASE;
+  }
+}
 
 // Share links appear on the main domain and their short domain. Ids are short
 // alphanumerics; a trailing slug can be ignored.
+// Confirmed against a real thread: shares are posted as bzzhr.to. An earlier
+// guess of bzzhr.co matched nothing.
 const LINK_PATTERNS = [
   /buzzheavier\.com\/(?:f\/)?([a-zA-Z0-9]{4,})/i,
+  /bzzhr\.to\/(?:f\/)?([a-zA-Z0-9]{4,})/i,
   /bzzhr\.co\/(?:f\/)?([a-zA-Z0-9]{4,})/i,
 ];
 
@@ -34,7 +50,7 @@ const label = "Buzzheavier";
 const supportsAnonymous = true;
 
 function matches(url) {
-  return /(^|\/\/|\.)(buzzheavier\.com|bzzhr\.co)\//i.test(String(url || ""));
+  return /(^|\/\/|\.)(buzzheavier\.com|bzzhr\.to|bzzhr\.co)\//i.test(String(url || ""));
 }
 
 function fileIdFrom(url) {
@@ -62,7 +78,12 @@ function authHeaders(credentials) {
 function classifyError(err, { status = 0, body = null } = {}) {
   const text = `${String(body?.message || "")} ${String(err?.message || "")}`.toLowerCase();
 
-  if (/turnstile|challenge|captcha|cf-chl|just a moment/.test(text)) return "quota";
+  // cf-mitigated: challenge is set explicitly by Cloudflare, so it is a
+  // reliable signal - and it is NOT a quota. Reporting it as one told users to
+  // wait or add an account, neither of which does anything.
+  if (/cf-mitigated|turnstile|challenge|captcha|cf-chl|just a moment/.test(text)) {
+    return "challenge";
+  }
   if (status === 429) return "quota";
   if (/rate.?limit|too many/.test(text)) return "quota";
   if (status === 401 || status === 403) return "auth";
@@ -86,19 +107,20 @@ async function probe(url, credentials = {}) {
     return { ok: false, kind: "fatal", error: "Not a recognisable Buzzheavier link" };
   }
 
+  const base = originFor(url);
   const headers = {
     "user-agent": "Mozilla/5.0 Atlas/1.0",
     // Marks this as the page's own download interaction. Without them the
     // route answers with the HTML page instead of a redirect.
     "hx-request": "true",
-    "hx-current-url": `${BASE}/${fileId}`,
-    referer: `${BASE}/${fileId}`,
+    "hx-current-url": `${base}/${fileId}`,
+    referer: `${base}/${fileId}`,
     ...authHeaders(credentials),
   };
 
   let response;
   try {
-    response = await fetch(`${BASE}/${fileId}/download`, { headers, redirect: "manual" });
+    response = await fetch(`${base}/${fileId}/download`, { headers, redirect: "manual" });
   } catch (err) {
     return { ok: false, kind: classifyError(err), error: err.message || String(err) };
   }
@@ -118,6 +140,7 @@ async function probe(url, credentials = {}) {
         : `Buzzheavier gave no download location (HTTP ${response.status}).`,
       // Surfaced so a route change is diagnosable from one failed run.
       diagnostic: {
+        requested: `${base}/${fileId}/download`,
         status: response.status,
         headers: Object.fromEntries(response.headers.entries()),
         bodyStart: snippet,
@@ -125,7 +148,7 @@ async function probe(url, credentials = {}) {
     };
   }
 
-  const directUrl = redirect.startsWith("http") ? redirect : `${BASE}${redirect}`;
+  const directUrl = redirect.startsWith("http") ? redirect : `${base}${redirect}`;
 
   // The filename is not returned by this route, so derive it from the resolved
   // URL; the transfer's Content-Disposition takes over if it has one.
@@ -144,7 +167,7 @@ async function probe(url, credentials = {}) {
     // Unknown up front. The manager reads Content-Length on the transfer and
     // shows an indeterminate bar until then, which is honest.
     fileSize: 0,
-    headers: { referer: `${BASE}/${fileId}`, ...authHeaders(credentials) },
+    headers: { referer: `${base}/${fileId}`, ...authHeaders(credentials) },
   };
 }
 
@@ -154,7 +177,7 @@ async function validate(credentials = {}) {
   if (!token) return { ok: true, anonymous: true };
 
   try {
-    const response = await fetch(`${BASE}/api/account`, {
+    const response = await fetch(`${API_BASE}/api/account`, {
       headers: { "user-agent": "Atlas", ...authHeaders(credentials) },
     });
     if (response.status === 401 || response.status === 403) {
@@ -187,7 +210,7 @@ async function getQuota(credentials = {}) {
   if (!token) return { ok: false, error: "No account configured" };
 
   try {
-    const response = await fetch(`${BASE}/api/account`, {
+    const response = await fetch(`${API_BASE}/api/account`, {
       headers: { "user-agent": "Atlas", ...authHeaders(credentials) },
     });
     if (!response.ok) return { ok: false, error: `Buzzheavier returned ${response.status}` };
@@ -224,6 +247,21 @@ module.exports = {
   id,
   label,
   supportsAnonymous,
+  // Host strings this plugin serves. groupClassifier gates mirrors on the first
+  // label of the host ("bzzhr.to" -> "bzzhr"), which does not equal the plugin
+  // id - without the alias every Buzzheavier mirror is filtered out as
+  // unsupported even though the plugin handles it.
+  hostAliases: ["buzzheavier", "bzzhr"],
+  // Cloudflare challenges the download route: it answers a plain fetch with
+  // 403 + cf-mitigated: challenge, and asks for User-Agent Client Hints that
+  // only a real browser supplies. Rather than impersonate one, the manager
+  // resolves this host in the Electron window that already exists - which
+  // clears silently because it genuinely is Chromium.
+  requiresBrowser: true,
+  // The window treats these as "not yet arrived"; anything else is the file.
+  gateHosts: ["bzzhr.to", "buzzheavier.com", "bzzhr.co"],
+  // Path appended to the share URL to reach the download route.
+  browserPath: (fileId) => `/${fileId}/download`,
   credentialFields: [
     {
       key: "accountId",

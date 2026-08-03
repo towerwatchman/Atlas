@@ -139,7 +139,11 @@ function resolveMaskedLink(maskedUrl, options = {}) {
     // path ever starts misbehaving in the field.
     headless = true,
     headlessTimeoutMs = DEFAULT_HEADLESS_MS,
+    // Hosts that count as "still on the gate". Defaults to F95; a host plugin
+    // passes its own so the window knows when it has reached the real file.
+    gateHosts = undefined,
   } = options;
+  const onGate = (target) => isGateUrl(target, gateHosts);
 
   return new Promise((resolve) => {
     if (!isNavigableHttp(maskedUrl)) {
@@ -230,7 +234,7 @@ function resolveMaskedLink(maskedUrl, options = {}) {
     };
 
     const settleFromCandidates = () => {
-      const best = pickBestCandidate(candidates);
+      const best = pickBestCandidate(candidates, gateHosts);
       if (!best) return false;
       finish({
         ok: true,
@@ -251,7 +255,7 @@ function resolveMaskedLink(maskedUrl, options = {}) {
 
     contents.on("will-navigate", (event, url) => {
       note("will-navigate", url);
-      if (!isGateUrl(url)) {
+      if (!onGate(url)) {
         // Stop before the destination actually loads. There is no reason to
         // render Mega's web app; we only wanted the address.
         event.preventDefault();
@@ -261,7 +265,7 @@ function resolveMaskedLink(maskedUrl, options = {}) {
 
     contents.on("will-redirect", (event, url) => {
       note("will-redirect", url);
-      if (!isGateUrl(url)) {
+      if (!onGate(url)) {
         event.preventDefault();
         settleFromCandidates();
       }
@@ -269,13 +273,13 @@ function resolveMaskedLink(maskedUrl, options = {}) {
 
     contents.on("did-navigate", (event, url) => {
       note("did-navigate", url);
-      if (!isGateUrl(url)) settleFromCandidates();
+      if (!onGate(url)) settleFromCandidates();
     });
 
     // New-window / target=_blank: F95's continue link may open this way.
     contents.setWindowOpenHandler(({ url }) => {
       note("window-open", url);
-      if (!isGateUrl(url)) {
+      if (!onGate(url)) {
         settleFromCandidates();
         return { action: "deny" };
       }
@@ -295,7 +299,7 @@ function resolveMaskedLink(maskedUrl, options = {}) {
       if (settled) return;
       const current = contents.getURL();
       // Only on the gate page; never inject into the destination host.
-      if (!isGateUrl(current)) return;
+      if (!onGate(current)) return;
       contents.executeJavaScript(CLICK_HOST_LINK, true).catch(() => {
         // A failed injection is not fatal; the window will be revealed.
       });

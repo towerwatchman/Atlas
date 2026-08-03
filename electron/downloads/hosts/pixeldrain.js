@@ -258,6 +258,7 @@ module.exports = {
   id,
   label,
   supportsAnonymous,
+  hostAliases: ["pixeldrain"],
   // What the Settings form should ask for. An API key is preferred over a
   // password: a leaked scoped key is a smaller problem than a leaked account.
   credentialFields: [

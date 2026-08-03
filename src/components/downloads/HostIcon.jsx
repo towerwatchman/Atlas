@@ -110,6 +110,11 @@ const MARKS = {
   'mega.co.nz': MegaMark,
   buzzheavier: BuzzheavierMark,
   'buzzheavier.com': BuzzheavierMark,
+  // Shares are posted on the short domain, so a queue row's host is usually
+  // this rather than the plugin id.
+  bzzhr: BuzzheavierMark,
+  'bzzhr.to': BuzzheavierMark,
+  'bzzhr.co': BuzzheavierMark,
   gofile: GofileMark,
   'gofile.io': GofileMark,
 }

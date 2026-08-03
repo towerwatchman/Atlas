@@ -18,11 +18,18 @@
 
 const F95_HOST = "f95zone.to";
 
-/** Still on the F95 gate, rather than at the destination host. */
-function isGateUrl(url) {
+/**
+ * Still on the gate, rather than at the destination host.
+ *
+ * `gateHosts` defaults to F95 because that was the first use, but the window is
+ * not F95-specific: any host that answers a download request with a redirect -
+ * including one behind a Cloudflare challenge - is the same problem, and a real
+ * browser is the thing that solves it.
+ */
+function isGateUrl(url, gateHosts = [F95_HOST]) {
   try {
     const host = new URL(url).hostname.replace(/^www\./, "");
-    return host === F95_HOST || host.endsWith(`.${F95_HOST}`);
+    return gateHosts.some((gate) => host === gate || host.endsWith(`.${gate}`));
   } catch {
     // Unparseable: treat as not-yet-resolved rather than accidentally
     // accepting it as a destination.
@@ -48,9 +55,9 @@ function hasFragment(url) {
  * Off-site and http(s) only; a fragment-bearing candidate always beats one
  * without, even if the fragmentless one arrived first. Otherwise earliest wins.
  */
-function pickBestCandidate(candidates) {
+function pickBestCandidate(candidates, gateHosts) {
   const usable = (candidates || []).filter(
-    (entry) => entry && isNavigableHttp(entry.url) && !isGateUrl(entry.url),
+    (entry) => entry && isNavigableHttp(entry.url) && !isGateUrl(entry.url, gateHosts),
   );
   if (usable.length === 0) return null;
   const withFragment = usable.filter((entry) => hasFragment(entry.url));

@@ -54,9 +54,22 @@ function getPlugin(pluginId) {
   return plugins.find((plugin) => plugin.id === key) || null;
 }
 
-/** Host ids with a working plugin - drives which mirrors the update modal offers. */
+/**
+ * Every host label a plugin can serve - drives which mirrors the update modal
+ * offers.
+ *
+ * Includes aliases, not just plugin ids. A host's domain does not always start
+ * with its plugin id: Buzzheavier posts links as bzzhr.to, and the classifier
+ * gates on the first label of the host, so "bzzhr" has to be in this set or
+ * every one of its mirrors is filtered out as unsupported.
+ */
 function supportedHostIds() {
-  return plugins.map((plugin) => plugin.id);
+  const out = new Set();
+  for (const plugin of plugins) {
+    out.add(plugin.id);
+    for (const alias of plugin.hostAliases || []) out.add(alias);
+  }
+  return Array.from(out);
 }
 
 function listPlugins() {

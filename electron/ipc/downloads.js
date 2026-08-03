@@ -76,6 +76,11 @@ function registerDownloadsHandlers(ctx = {}) {
     // added in Settings takes effect without a restart. Anonymous is still a
     // valid state: every current plugin works without an account.
     resolveHostCredentials: () => credentialStore.getAllCredentials(),
+    // Host plugins that declare requiresBrowser resolve through the same
+    // Electron window the F95 masked links use. It is not F95-specific: it
+    // loads a url and reports where the browser landed, which is exactly
+    // what a Cloudflare-challenged host needs.
+    browserResolver: (url, options) => resolveMaskedLink(url, options),
     onEvent: (type, payload) => {
       broadcast(type, payload);
       broadcastSummary();

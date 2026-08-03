@@ -28,7 +28,7 @@ const http = require("http");
 const { pipeline } = require("stream/promises");
 
 const downloadsDb = require("./../db/downloads");
-const { resolveDirectUrl } = require("./hosts");
+const { resolveDirectUrl, pluginFor } = require("./hosts");
 
 // Concurrent transfers. Higher is not faster for a single host and gets you
 // rate-limited, so this stays small and is not user-configurable for now.
@@ -49,7 +49,7 @@ const WATCH_SETTLE_MS = 2500;
 // credentials do not fix themselves.
 const RETRY_DELAY_MS = 60_000;
 const MAX_AUTO_RETRIES = 1;
-const TERMINAL_KINDS = new Set(["quota", "auth", "fatal", "blocked"]);
+const TERMINAL_KINDS = new Set(["quota", "auth", "fatal", "blocked", "challenge"]);
 
 // Reasons a user can act on, rather than a raw error they cannot.
 const KIND_MESSAGES = {
@@ -57,6 +57,7 @@ const KIND_MESSAGES = {
   auth: "The host rejected your account details. Check them in Settings.",
   fatal: "This link is no longer available.",
   blocked: "The host has flagged this file as malware and blocked automatic downloads.",
+  challenge: "This host asked for a browser check that could not be completed. Open the link in your browser and Atlas will pick up the file.",
 };
 
 // Per-session attempt counts and pending retry timers, keyed by download id.
@@ -82,13 +83,17 @@ let getDownloadsDir = () => "";
 // Per-host credentials, keyed by plugin id. Injected rather than required
 // so the manager never touches the credential store directly.
 let getHostCredentials = () => ({});
+// Opens a URL in a real browser window and reports where it landed. Injected
+// rather than required so the manager keeps no dependency on Electron.
+let resolveInBrowser = null;
 
 // ── Events ───────────────────────────────────────────────────────────────────
 
-const configure = ({ onEvent, resolveDownloadsDir, resolveHostCredentials }) => {
+const configure = ({ onEvent, resolveDownloadsDir, resolveHostCredentials, browserResolver }) => {
   emitter = typeof onEvent === "function" ? onEvent : null;
   if (typeof resolveDownloadsDir === "function") getDownloadsDir = resolveDownloadsDir;
   if (typeof resolveHostCredentials === "function") getHostCredentials = resolveHostCredentials;
+  if (typeof browserResolver === "function") resolveInBrowser = browserResolver;
   // Called with a completed file so the caller can extract it and attach the
   // version. Kept as an injected callback rather than a direct require so this
   // module has no dependency on the importer's internals.
@@ -232,8 +237,68 @@ const startTransfer = async (item) => {
     // Probing first also means a dead or rate-limited link fails immediately
     // with a real reason, instead of after a partial transfer.
     let transferUrl = item.url;
-    const probe = await resolveDirectUrl(item.url, getHostCredentials());
+    let resolvedInBrowser = false;
+
+    // Hosts fronted by a challenge cannot be resolved from Node: Cloudflare
+    // asks for User-Agent Client Hints that only a real browser answers. The
+    // Electron window already clears those honestly, so it is used here rather
+    // than trying to imitate a browser from a fetch.
+    const plugin = pluginFor(item.url);
+    if (plugin?.requiresBrowser && resolveInBrowser) {
+      const fileId = plugin.fileIdFrom ? plugin.fileIdFrom(item.url) : null;
+      if (!fileId) {
+        await handleFailure(item.id, "fatal", "Could not read a file id from this link");
+        return;
+      }
+      let origin;
+      try {
+        origin = new URL(item.url).origin;
+      } catch {
+        await handleFailure(item.id, "fatal", "Malformed link");
+        return;
+      }
+      const target = plugin.browserPath
+        ? `${origin}${plugin.browserPath(fileId)}`
+        : item.url;
+
+      await setState(item.id, "downloading", { error: "" });
+      const resolved = await resolveInBrowser(target, {
+        gateHosts: plugin.gateHosts,
+        title: item.title,
+      }).catch((err) => ({ ok: false, error: err.message }));
+
+      if (!resolved?.ok || !resolved.url) {
+        await handleFailure(
+          item.id,
+          resolved?.canceled ? "challenge" : "transient",
+          resolved?.error || "The browser did not reach a download link",
+        );
+        return;
+      }
+      transferUrl = resolved.url;
+      resolvedInBrowser = true;
+      await downloadsDb.updateDownload(item.id, { host: item.host || plugin.id });
+    }
+
+    // Skipped when the window already produced the file URL: re-probing would
+    // walk straight back into the challenge it just cleared.
+    const probe = resolvedInBrowser
+      ? { ok: true, passthrough: true }
+      : await resolveDirectUrl(item.url, getHostCredentials());
     if (!probe.ok) {
+      // A plugin may attach a diagnostic describing what it actually saw.
+      // Logging it is the difference between "transfer limit reached" and
+      // knowing which URL was requested and what came back - the classified
+      // kind alone is a conclusion, not evidence.
+      if (probe.diagnostic) {
+        console.log("[download-probe]", JSON.stringify({
+          host: item.host,
+          url: item.url,
+          kind: probe.kind,
+          error: probe.error,
+          ...probe.diagnostic,
+        }));
+      }
       await handleFailure(item.id, probe.kind || "transient",
         probe.error || "Could not prepare this download");
       return;

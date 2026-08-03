@@ -66,6 +66,14 @@ function stripTags(html) {
 // mega 41.8k, pixeldrain 38.9k, mixdrop 24.0k, workupload 21.2k, gofile 21.3k,
 // uploadhaven 10.8k, mediafire 5.5k, then a long tail.
 const DOWNLOAD_HOSTS = [
+  // Longest first so a shorter entry cannot shadow a more specific one.
+  // buzzheavier/datanodes/vikingfile were missing entirely: this list was built
+  // from a metrics run whose top hosts predate them, so their links were not
+  // classified as files and were dropped before reaching the classifier.
+  "buzzheavier.com",
+  "vikingfile.com",
+  "datanodes.to",
+  "bzzhr.to",
   "pixeldrain.com",
   "workupload.com",
   "uploadhaven.com",
