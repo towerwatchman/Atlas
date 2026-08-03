@@ -136,16 +136,37 @@ function registerDownloadsHandlers(ctx = {}) {
       const item = await downloadsDb.getDownload(id);
       if (!item) return { ok: false, error: "Download not found" };
       const { suggestVersion } = require("../downloads/versionFromFile");
+      const { isInstalledVersion } = require("../downloads/replaceTarget");
       let catalogVersion = item.version || "";
+      // The versions this download could replace, so the install modal can ask
+      // instead of leaving the main process to infer it. Inference chose a
+      // directory to delete with nothing on screen saying which.
+      let versions = [];
+      let selectedVersionId = null;
       if (item.recordId) {
         try {
           const record = await require("../db/versions").getGame(item.recordId);
           catalogVersion = record?.latestVersion || record?.latest_version || catalogVersion;
+          selectedVersionId = record?.selected_version_id ?? null;
+          versions = (Array.isArray(record?.versions) ? record.versions : [])
+            .filter((entry) => entry && String(entry.version || "").trim())
+            .map((entry) => ({
+              versionId: entry.version_id ?? null,
+              version: String(entry.version).trim(),
+              installed: isInstalledVersion(entry),
+              gamePath: entry.game_path || "",
+            }));
         } catch {
-          // Falling back to the queued version is fine; the field is editable.
+          // Falling back to the queued version is fine; the field is editable
+          // and the picker simply has nothing to offer.
         }
       }
-      return { ok: true, ...suggestVersion(item.fileName || "", catalogVersion) };
+      return {
+        ok: true,
+        ...suggestVersion(item.fileName || "", catalogVersion),
+        versions,
+        selectedVersionId,
+      };
     } catch (err) {
       return { ok: false, error: err.message || String(err) };
     }

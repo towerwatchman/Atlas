@@ -24,6 +24,10 @@ const CONFIDENCE_NOTE = {
 export default function InstallModal({ item, suggestion, open, onClose, onInstalled }) {
   const [version, setVersion] = useState('')
   const [mode, setMode] = useState('replace')
+  // Which existing build to replace. Asked rather than inferred: this decides
+  // which directory is deleted, and the main process was choosing it with
+  // nothing on screen saying which.
+  const [replaceVersionId, setReplaceVersionId] = useState('')
   // Deleting the archive is the default: these are multi-gigabyte files and
   // keeping every one silently fills a disk.
   const [keepArchive, setKeepArchive] = useState(false)
@@ -34,9 +38,24 @@ export default function InstallModal({ item, suggestion, open, onClose, onInstal
     setVersion(suggestion?.version || item?.version || '')
     setMode(item?.onComplete === 'add' ? 'add' : 'replace')
     setKeepArchive(false)
+    // Default to the build the library treats as current, then the only
+    // installed one. Never to "whichever came first", which is what the main
+    // process used to do.
+    const installed = (suggestion?.versions || []).filter((entry) => entry.installed)
+    const preselected = installed.find(
+      (entry) => String(entry.versionId) === String(suggestion?.selectedVersionId),
+    ) || (installed.length === 1 ? installed[0] : null)
+    setReplaceVersionId(preselected?.versionId != null ? String(preselected.versionId) : '')
   }, [open, suggestion, item])
 
   if (!open || !item) return null
+
+  // Installed builds are the only ones with files to replace. An uninstalled row
+  // is a database entry with nothing on disk, so replacing it would delete
+  // nothing and only confuse the choice. Declared above confirm() because it is
+  // read there as well as in the markup.
+  const replaceOptions = (suggestion?.versions || []).filter((entry) => entry.installed)
+  const soleReplaceTarget = replaceOptions.length === 1 ? replaceOptions[0] : null
 
   // Dismiss straight away rather than holding the dialog open behind a
   // spinner. Extraction takes minutes on a large archive, and the download
@@ -46,11 +65,18 @@ export default function InstallModal({ item, suggestion, open, onClose, onInstal
   const confirm = () => {
     const clean = String(version || '').trim()
     if (!clean) { setError('A version is required.'); return }
+    if (mode === 'replace' && replaceOptions.length > 1 && !replaceVersionId) {
+      setError('Choose which version to replace.')
+      return
+    }
     const request = {
       id: item.id,
       version: clean,
       onComplete: mode,
       keepArchive,
+      // Only meaningful when replacing. Sent as a version id rather than a name
+      // because names are not unique enough to delete a folder on.
+      replaceVersionId: mode === 'replace' && replaceVersionId ? Number(replaceVersionId) : null,
     }
     onClose?.()
     Promise.resolve(window.electronAPI.downloadsInstall?.(request))
@@ -115,16 +141,57 @@ export default function InstallModal({ item, suggestion, open, onClose, onInstal
                 name="install-mode"
                 checked={mode === 'replace'}
                 onChange={() => setMode('replace')}
-               
+                disabled={replaceOptions.length === 0}
                 className="mt-0.5 accent-accent"
               />
               <span className="text-xs">
-                <span className="text-text">Replace the installed version</span>
+                <span className="text-text">Replace an installed version</span>
                 <span className="block text-muted">
-                  The previous build is swapped out.
+                  {replaceOptions.length === 0
+                    ? 'No installed version to replace — this will be added as a new version.'
+                    : 'The old build\u2019s folder is deleted once the new one is in place.'}
                 </span>
               </span>
             </label>
+
+            {/* Which build. One installed version needs no choice, but it is
+                still named: this deletes a folder, and "Replace the installed
+                version" never said which one that was. */}
+            {mode === 'replace' && replaceOptions.length > 0 && (
+              <div className="mt-2 ml-6">
+                <label htmlFor="replace-version" className="block text-[11px] text-muted mb-1">
+                  Version to replace
+                </label>
+                {soleReplaceTarget ? (
+                  <p className="text-xs text-text">
+                    <span className="font-mono">{soleReplaceTarget.version}</span>
+                    <span className="block text-[11px] text-muted font-mono break-all">
+                      {soleReplaceTarget.gamePath}
+                    </span>
+                  </p>
+                ) : (
+                  <>
+                    <select
+                      id="replace-version"
+                      value={replaceVersionId}
+                      onChange={(event) => { setReplaceVersionId(event.target.value); setError('') }}
+                      className="w-full bg-tertiary border border-border rounded p-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+                    >
+                      <option value="">Choose a version&hellip;</option>
+                      {replaceOptions.map((entry) => (
+                        <option key={entry.versionId ?? entry.version} value={String(entry.versionId ?? '')}>
+                          {entry.version}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-amber-400 mt-1">
+                      This game has {replaceOptions.length} installed versions. Atlas will not
+                      guess which to delete.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
             <label className="flex items-start gap-2 cursor-pointer mt-2">
               <input
                 type="radio"

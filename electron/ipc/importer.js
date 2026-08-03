@@ -4533,7 +4533,7 @@ ipcMain.handle(
 //
 // The user has already confirmed the version in the install modal, so this
 // does not guess. `version` is taken as given.
-ipcMain.handle("downloads-install", async (event, { id, version, onComplete, keepArchive = false } = {}) => {
+ipcMain.handle("downloads-install", async (event, { id, version, onComplete, keepArchive = false, replaceVersionId = null } = {}) => {
   const downloadsDb = require("../db/downloads");
   const downloadManager = require("../downloads/downloadManager");
 
@@ -4632,24 +4632,36 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
     const execPath = relativeExec ? path.join(gamePath, relativeExec) : "";
     const folderSize = await calculatePathSizeSafe(gamePath);
 
-    // The version to replace is the one currently INSTALLED, not item.version -
-    // that field holds the version being downloaded, so using it meant asking
-    // to replace the build we were about to create. Prefer the record's
-    // selected version, falling back to any installed one.
+    // Which build this replaces. Decided by electron/downloads/replaceTarget.js
+    // rather than inline: this chooses a directory to DELETE, and the inline
+    // version filtered on `entry.is_installed` while getGame() emits
+    // `isInstalled`, so it silently targeted whichever row came first. The
+    // chooser is pure and tested, and it refuses to guess between several
+    // installed builds instead of picking one.
+    const { chooseReplaceTarget, describeReplaceOutcome } =
+      require("../downloads/replaceTarget");
     let replaceTarget = "";
     let replaceTargetId = null;
+    let replaceChoice = null;
     if (onComplete === "replace") {
-      const existing = Array.isArray(record.versions) ? record.versions : [];
-      const selected = existing.find(
-        (entry) => entry.version_id != null
-          && String(entry.version_id) === String(record.selected_version_id),
-      );
-      const installed = selected
-        || existing.find((entry) => entry.is_installed !== false && entry.version);
-      if (installed) {
-        replaceTarget = String(installed.version || "");
-        replaceTargetId = installed.version_id ?? null;
-      }
+      replaceChoice = chooseReplaceTarget({
+        versions: record.versions,
+        selectedVersionId: record.selected_version_id,
+        // The install modal asks which version to replace; an inferred answer
+        // is only the fallback for a caller that did not.
+        requestedVersionId: replaceVersionId,
+      });
+      replaceTarget = replaceChoice.version;
+      replaceTargetId = replaceChoice.versionId;
+      console.log("[downloads-install] replace target", JSON.stringify({
+        recordId: item.recordId,
+        requestedVersionId: replaceVersionId,
+        selectedVersionId: record.selected_version_id,
+        chosen: replaceTarget,
+        chosenId: replaceTargetId,
+        reason: replaceChoice.reason,
+        versionCount: Array.isArray(record.versions) ? record.versions.length : 0,
+      }));
     }
     const addResult = await addVersion(
       {
@@ -4668,29 +4680,50 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
     // uniqueness - so this is the value everything downstream must use.
     const savedVersion = addResult?.version || finalVersion;
 
-    // Replacing swaps the previously installed build out; keep-both simply
-    // leaves it alone. Never fatal - the new version is already attached, and
-    // failing here would leave the queue looking broken over a cleanup step.
-    if (onComplete === "replace" && replaceTarget && replaceTarget !== savedVersion) {
-      try {
-        await replaceInstalledVersionAfterImport({
-          recordId: item.recordId,
-          newVersion: savedVersion,
-          newGamePath: gamePath,
-          replaceVersion: replaceTarget,
-          replaceVersionId: replaceTargetId,
-          // The old version row goes. The normal import path passes false here
-          // because it deletes the row itself later; this path does not, so
-          // leaving the default meant the superseded version stayed in the
-          // library list after a successful replace.
-          deleteDatabaseRow: true,
-          libraryRoot: targetLibrary,
-          auditDataDir: dataDir,
-          sender: ownerWindow,
-        });
-      } catch (err) {
-        console.warn("Version replace after download failed:", err.message);
+    // Replacing swaps the previously installed build out; keep-both leaves it
+    // alone. Never fatal — the new version is already attached, and failing here
+    // would leave the queue looking broken over a cleanup step.
+    //
+    // Every outcome is RECORDED. This used to only catch thrown errors, and each
+    // of the six ways a replace can decline returns rather than throws, so a
+    // replace that did nothing was indistinguishable from one that worked. That
+    // is the single reason "replace does not work" was undiagnosable: there was
+    // no signal to diagnose.
+    let replaceOutcome = null;
+    if (onComplete === "replace") {
+      if (!replaceTarget) {
+        replaceOutcome = { replaced: false, reason: replaceChoice?.reason || "no-target" };
+      } else if (replaceTarget === savedVersion) {
+        replaceOutcome = { replaced: false, reason: "same-version-label" };
+      } else {
+        try {
+          const result = await replaceInstalledVersionAfterImport({
+            recordId: item.recordId,
+            newVersion: savedVersion,
+            newGamePath: gamePath,
+            replaceVersion: replaceTarget,
+            replaceVersionId: replaceTargetId,
+            // The old version row goes. The normal import path passes false
+            // because it deletes the row itself later; this path does not, so
+            // the default left the superseded version in the library list after
+            // a successful replace.
+            deleteDatabaseRow: true,
+            libraryRoot: targetLibrary,
+            auditDataDir: dataDir,
+            sender: ownerWindow,
+          });
+          replaceOutcome = result || { replaced: false, reason: "no-result" };
+        } catch (err) {
+          console.warn("Version replace after download failed:", err.message);
+          replaceOutcome = { replaced: false, reason: "error", error: err.message };
+        }
       }
+      console.log("[downloads-install] replace outcome", JSON.stringify({
+        recordId: item.recordId,
+        replaceTarget,
+        savedVersion,
+        ...replaceOutcome,
+      }));
     }
 
     await downloadManager.setItemState(id, "done", {
@@ -4730,11 +4763,22 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
     });
 
     notify("", 100);
+    // A declined replace is reported back so the renderer can say so. The new
+    // version IS installed either way, so this is a notice rather than an error
+    // — but the user asked for the old build to go, and silence about it not
+    // going is what made this look broken.
+    const replaceMessage = replaceOutcome ? describeReplaceOutcome(replaceOutcome) : "";
     return {
       success: true,
       version: savedVersion || finalVersion,
       gamePath,
       archiveDeleted,
+      replaced: replaceOutcome?.replaced === true,
+      replaceReason: replaceOutcome?.reason || "",
+      replaceMessage,
+      // Present when several installed builds meant Atlas would not guess, so
+      // the UI can offer the choice instead of just reporting a refusal.
+      replaceCandidates: replaceOutcome?.candidates || replaceChoice?.candidates || [],
     };
   } catch (err) {
     console.error("downloads-install failed:", err);

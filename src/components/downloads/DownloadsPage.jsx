@@ -291,6 +291,9 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
   // The item awaiting install confirmation, plus the version Atlas suggests
   // for it. Null when the modal is closed.
   const [installTarget, setInstallTarget] = useState(null)
+  // A one-off notice after installing: currently only "the old version was not
+  // removed, and here is why".
+  const [installNotice, setInstallNotice] = useState(null)
   const samplesRef = useRef(new Map())
   const peakRef = useRef(0)
   // 60 one-second samples of aggregate throughput. Kept in state rather than a
@@ -638,12 +641,42 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
         )}
       </div>
 
+      {installNotice && (
+        <div className="fixed inset-0 z-[1500] bg-black/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-lg border border-border bg-primary shadow-2xl">
+            <div className="px-4 py-3 border-b border-border">
+              <h2 className="text-base text-text">Installed{installNotice.title ? ` ${installNotice.title}` : ''}</h2>
+            </div>
+            <p className="px-4 py-3 text-xs text-text">{installNotice.message}</p>
+            <div className="px-4 py-3 border-t border-border flex justify-end">
+              <button
+                type="button"
+                onClick={() => setInstallNotice(null)}
+                className="h-8 px-4 text-xs rounded-buttonTheme bg-accent hover:bg-accentHover text-white"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <InstallModal
         item={installTarget?.item}
         suggestion={installTarget?.suggestion}
         open={Boolean(installTarget)}
         onClose={() => setInstallTarget(null)}
-        onInstalled={() => { setInstallTarget(null); refresh() }}
+        onInstalled={(result) => {
+          setInstallTarget(null)
+          refresh()
+          // The new version installs either way, so a declined replace is a
+          // notice rather than an error — but the user asked for the old build
+          // to go, and saying nothing about it staying is what made this read as
+          // broken rather than as a refusal.
+          if (result?.success && result.replaceMessage) {
+            setInstallNotice({ title: result.version || '', message: result.replaceMessage })
+          }
+        }}
       />
     </div>
   )
