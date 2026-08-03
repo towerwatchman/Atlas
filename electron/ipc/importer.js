@@ -4533,20 +4533,58 @@ ipcMain.handle(
 //
 // The user has already confirmed the version in the install modal, so this
 // does not guess. `version` is taken as given.
+// Only one install may run at a time. Extraction is CPU- and disk-bound and each
+// one spawns 7-Zip, so two at once take longer than two in sequence and compete
+// for the same disk. More importantly they can collide: both resolve a target
+// path from the same library layout, both flatten a single wrapped folder, and a
+// replace deletes a directory — concurrent runs against one game could have one
+// deleting what the other just wrote.
+//
+// A module-level flag rather than a queue: the caller is a person clicking
+// Install, so the honest answer to a second click is "one at a time", not a
+// silent backlog that starts minutes later with no indication it is waiting.
+let installInProgress = null;
+
 ipcMain.handle("downloads-install", async (event, { id, version, onComplete, keepArchive = false, replaceVersionId = null } = {}) => {
   const downloadsDb = require("../db/downloads");
   const downloadManager = require("../downloads/downloadManager");
 
-  const fail = async (message) => {
+  // `step` names where the failure actually happened. Without it every message
+  // is a bare sentence with no way to tell which stage produced it, and a stale
+  // one from an earlier attempt is indistinguishable from a fresh one.
+  const fail = async (message, step = "install") => {
+    console.log("[downloads-install] failed", JSON.stringify({ downloadId: id, step, message }));
     await downloadManager.setItemState(id, "failed", { error: message });
-    return { success: false, error: message };
+    return { success: false, error: message, step };
   };
 
+  if (installInProgress !== null) {
+    console.log("[downloads-install] refused, already installing", JSON.stringify({
+      requested: id,
+      running: installInProgress,
+    }));
+    return {
+      success: false,
+      busy: true,
+      installingId: installInProgress,
+      error: "Another install is already running. Wait for it to finish, then install this one.",
+    };
+  }
+  installInProgress = id;
+
   try {
+    // Clear any error left by a previous attempt before doing anything else.
+    // fail() writes its message into the download row and leaves it there, so a
+    // later attempt that failed somewhere else — or was refused by the lock above
+    // without touching the row — still displayed the OLD message. That makes a
+    // failure look like it is happening in a place it is not, which is the worst
+    // possible property for an error to have while diagnosing one.
+    await downloadsDb.updateDownload(id, { error: "" }).catch(() => {});
+
     const item = await downloadsDb.getDownload(id);
     if (!item) return { success: false, error: "Download not found" };
     if (!item.filePath || !fs.existsSync(item.filePath)) {
-      return fail("The downloaded file is missing. Try downloading again.");
+      return fail("The downloaded file is missing. Try downloading again.", "missing-file");
     }
     if (!item.recordId) {
       // Reachable from browse mode: the download was started from a catalog
@@ -4556,18 +4594,67 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
       return fail(
         "This download came from Browse, so the game is not in your library yet. "
         + "Add it to your library first, then install this download from the Downloads page.",
+        "no-record-id",
       );
     }
 
-    const record = await getGame(
-      item.recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode(),
-    );
-    if (!record) return fail("The game this download belongs to no longer exists.");
+    // Two different failures used to share one message. getGame() joins a dozen
+    // tables and resolves null when the base row is missing, but it can also
+    // reject — and both surfaced as "no longer exists", which is a claim about
+    // the library rather than a report of what happened. The record id is now
+    // named, because the answer to "why" is almost always which id was asked for.
+    let record = null;
+    let recordLookupError = "";
+    try {
+      record = await getGame(
+        item.recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode(),
+      );
+    } catch (lookupErr) {
+      recordLookupError = lookupErr?.message || String(lookupErr);
+    }
+    if (!record) {
+      // Asked directly, so the message can distinguish "the game was removed"
+      // from "the lookup itself failed". A download row keeps the record id it
+      // was queued against, and re-importing a library creates NEW record ids —
+      // so a queue item from before a re-import points at a row that is gone.
+      const stillExists = await dbGet(
+        dbModule.db,
+        `SELECT record_id, title FROM games WHERE record_id = ? LIMIT 1`,
+        [item.recordId],
+      ).catch(() => null);
+      console.log("[downloads-install] record lookup failed", JSON.stringify({
+        downloadId: id,
+        recordId: item.recordId,
+        recordIdType: typeof item.recordId,
+        gamesRowExists: Boolean(stillExists),
+        gamesRowTitle: stillExists?.title || "",
+        lookupError: recordLookupError,
+      }));
+      if (recordLookupError) {
+        return fail(`Could not read this game from the library: ${recordLookupError}`, "record-lookup-threw");
+      }
+      if (stillExists) {
+        // The row is there but getGame could not assemble it. That is a data
+        // problem inside the record, not a missing game, and saying "no longer
+        // exists" about a game sitting in the library is simply wrong.
+        return fail(
+          `"${stillExists.title || item.title}" is still in your library, but Atlas could not `
+          + "load its details. Open the game and use Refresh Media, or re-import it, then try again.",
+          "record-details-unreadable",
+        );
+      }
+      return fail(
+        `This download was queued for a game that is no longer in your library `
+        + `(record ${item.recordId}). If you re-imported your library the ids changed — `
+        + `remove this download and start it again from the game's page.`,
+        "record-row-missing",
+      );
+    }
 
     const currentConfig = ctx.appConfig || appConfig || {};
     const targetLibrary = String(currentConfig?.Library?.gameFolder || "").trim();
     if (!targetLibrary) {
-      return fail("No game folder is set. Choose one in Settings > Library.");
+      return fail("No game folder is set. Choose one in Settings > Library.", "no-library-folder");
     }
 
     const finalVersion = normalizeVersionName(version || item.version);
@@ -4601,7 +4688,7 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
       ownerWindow,
       notify: (text) => notify(text, 10),
     });
-    if (!resolvedSevenZip?.path) return fail("7-Zip is required to install this download.");
+    if (!resolvedSevenZip?.path) return fail("7-Zip is required to install this download.", "no-7zip");
 
     const extraction = await extractArchiveWithFallback({
       archivePath: item.filePath,
@@ -4789,7 +4876,11 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
     };
   } catch (err) {
     console.error("downloads-install failed:", err);
-    return fail(err.message || String(err));
+    return fail(err.message || String(err), "unhandled");
+  } finally {
+    // Released on every path, including the early returns above — a lock left
+    // set by a failed install would block every later one until a restart.
+    installInProgress = null;
   }
 });
 

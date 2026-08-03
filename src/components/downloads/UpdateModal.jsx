@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import HostIcon from './HostIcon.jsx'
 import { buildThreadUrl } from './threadUrl.js'
+import { groupLinksBySection } from './linkSections.js'
 
 // ── Update modal ─────────────────────────────────────────────────────────────
 //
@@ -32,6 +33,10 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
 
   // Where "Open thread" goes. See threadUrl.js for why this is not a template
   // string built from an id that may not exist.
+  // Links grouped by the post's own bold headings. See linkSections.js: a flat
+  // list made "Season 1" and "Old Version" look like mirrors of the current
+  // build, so an update could install an older one over a newer one.
+  const sections = groupLinksBySection(data?.links)
   const threadUrl = buildThreadUrl({
     siteUrl: game?.siteUrl || game?.site_url,
     lewdCornerSiteUrl: game?.lewdCornerSiteUrl || game?.lewdcornerSiteUrl,
@@ -197,9 +202,25 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
               <p className="text-xs text-muted">
                 Choose a mirror. F95zone will ask you to confirm in a browser
                 window before the download starts.
+                {sections.length > 1 && ' This thread offers more than one build \u2014 check which section you are picking from.'}
               </p>
-              <div className="space-y-1.5">
-                {links.map((link) => {
+              {sections.map((section) => (
+                <div key={section.title} className="space-y-1.5">
+                  {/* Headings only appear when there is more than one section.
+                      With a single section they would be a label on a list that
+                      has no alternative, which is noise. */}
+                  {sections.length > 1 && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className={`text-[11px] font-medium ${section.isLatest ? 'text-accent' : 'text-muted'}`}>
+                        {section.title}
+                      </span>
+                      <span className="flex-1 h-px bg-border" />
+                      {!section.isLatest && (
+                        <span className="text-[10px] text-amber-400">not the current build</span>
+                      )}
+                    </div>
+                  )}
+                {section.links.map((link) => {
                   const busy = resolvingUrl === link.url
                   return (
                     <button
@@ -219,9 +240,14 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
                           {prettyHost(link.host)}
                         </span>
                         <span className="block text-[11px] text-muted truncate">
-                          {[link.group || 'Unlabeled',
+                          {[
+                            // The section heading is already above the row when
+                            // there is more than one, so repeating it per link
+                            // just crowds out what actually differs.
+                            sections.length > 1 ? null : (link.group || null),
                             link.compressed ? 'compressed build' : null,
-                          ].filter(Boolean).join(' · ')}
+                            (link.platforms || []).join('/') || null,
+                          ].filter(Boolean).join(' · ') || prettyHost(link.host)}
                         </span>
                       </span>
                       {busy ? (
@@ -232,7 +258,8 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
                     </button>
                   )
                 })}
-              </div>
+                </div>
+              ))}
             </>
           )}
 

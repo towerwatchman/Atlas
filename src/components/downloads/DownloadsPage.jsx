@@ -383,6 +383,14 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
     ratesRef.current = pruned
   }, [items])
 
+  // An install already running. The main process refuses a second one, so the
+  // button reflects that instead of letting the user find out by clicking. The
+  // states are the ones downloads-install sets while it works.
+  const installingItem = useMemo(
+    () => items.find((item) => item.state === 'extracting' || item.state === 'importing') || null,
+    [items],
+  )
+
   const { current, upNext, finished } = useMemo(() => ({
     current: items.filter((item) => ACTIVE_STATES.includes(item.state)),
     upNext: items.filter((item) => WAITING_STATES.includes(item.state)),
@@ -496,8 +504,12 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
             </div>
           )}
 
+          {/* No width cap on the bar below. `max-w-2xl` stopped it well short of
+              the card on any reasonably sized window; the details column already
+              ends where the action buttons begin, so filling it is the full width
+              actually available. */}
           {(transferring || working || item.state === 'paused') && (
-            <div className="mt-2 max-w-2xl">
+            <div className="mt-2 w-full">
               <ProgressBar
                 percent={item.percent ?? 0}
                 indeterminate={working || (transferring && item.percent === null)}
@@ -524,7 +536,15 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
             <button
               type="button"
               onClick={() => openInstall(item)}
-              className="h-8 px-3 mr-1 text-xs rounded-buttonTheme bg-accent hover:bg-accentHover text-white whitespace-nowrap"
+              disabled={Boolean(installingItem)}
+              title={installingItem
+                ? `Installing ${installingItem.title || 'another game'} — one at a time`
+                : 'Install this download'}
+              className={`h-8 px-3 mr-1 text-xs rounded-buttonTheme whitespace-nowrap ${
+                installingItem
+                  ? 'bg-tertiary text-muted cursor-not-allowed'
+                  : 'bg-accent hover:bg-accentHover text-white'
+              }`}
             >
               Install
             </button>
@@ -673,6 +693,13 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
           // notice rather than an error — but the user asked for the old build
           // to go, and saying nothing about it staying is what made this read as
           // broken rather than as a refusal.
+          if (result?.busy) {
+            setInstallNotice({
+              title: '',
+              message: result.error || 'Another install is already running.',
+            })
+            return
+          }
           if (result?.success && result.replaceMessage) {
             setInstallNotice({ title: result.version || '', message: result.replaceMessage })
           }
