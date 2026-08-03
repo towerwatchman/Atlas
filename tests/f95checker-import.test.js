@@ -9,7 +9,7 @@
 //      as absolute made an entire installed library import as uninstalled.
 //   2. Thread ids surviving on custom (user-created) entries via their URL.
 //      Discarding them made real, catalogued games look unmatchable.
-//   3. Which rows default to the watchlist rather than the library.
+//   3. Which rows default to the wishlist rather than the library.
 //
 // These are deliberately filesystem-free: buildImportRow's stat() behaviour is
 // the check script's job, while everything asserted here is decision logic.
@@ -193,26 +193,48 @@ describe('buildImportRow: source identification', () => {
   })
 })
 
-describe('buildImportRow: watchlist defaults', () => {
+describe('buildImportRow: wishlist defaults', () => {
+  // The rule is whether an executable RESOLVED on disk, not whether one was
+  // recorded. The earlier rule asked only about `executables` and `installed`,
+  // which left rows that satisfy neither the importer's launchable check nor the
+  // wishlist check — so pressing Import wrote them nowhere and said nothing.
   it('flags a tracked game with nothing on disk', () => {
     const row = build({ executables: '[]', installed: '' })
-    expect(row.watchlistCandidate).toBe(true)
-    expect(row.addToWatchlist).toBe(true)
+    expect(row.wishlistCandidate).toBe(true)
+    expect(row.addToWishlist).toBe(true)
     expect(row.isInstalled).toBe(false)
+    expect(row.wishlistReason).toBe('not-installed')
   })
 
-  it('does not flag a row that records an executable', () => {
-    // Even when the path does not resolve: that is a BROKEN install the user
-    // should repair, not a game they are merely watching.
+  it('flags a row whose recorded executable does not resolve', () => {
+    // This is the regression the rule change fixed. Atlas cannot launch it, so it
+    // cannot become a library record — and under the old rule it was not a
+    // wishlist candidate either, so it was silently dropped by both paths. For a
+    // library on a drive that is not mounted, that was every row.
     const row = build({ executables: JSON.stringify(['Game/g.exe']), installed: '' })
-    expect(row.watchlistCandidate).toBe(false)
-    expect(row.addToWatchlist).toBe(false)
+    expect(row.addToWishlist).toBe(true)
+    expect(row.isInstalled).toBe(false)
+    expect(row.wishlistReason).toBe('install-path-missing')
   })
 
-  it('does not flag a row with an installed version recorded', () => {
+  it('flags a row with an installed version but nothing to launch', () => {
     const row = build({ executables: '[]', installed: 'v1.2' })
-    expect(row.watchlistCandidate).toBe(false)
-    expect(row.addToWatchlist).toBe(false)
+    expect(row.addToWishlist).toBe(true)
+    expect(row.isInstalled).toBe(false)
+    expect(row.wishlistReason).toBe('no-launchable')
+  })
+
+  // Every row belongs to exactly one destination: a library record or the
+  // wishlist. Asserted as an invariant because that is what the old rule broke.
+  it('never leaves a row in both destinations or neither', () => {
+    for (const fixture of [
+      { executables: '[]', installed: '' },
+      { executables: JSON.stringify(['Game/g.exe']), installed: '' },
+      { executables: '[]', installed: 'v1.2' },
+    ]) {
+      const row = build(fixture)
+      expect(Boolean(row.singleExecutable)).not.toBe(Boolean(row.addToWishlist))
+    }
   })
 })
 

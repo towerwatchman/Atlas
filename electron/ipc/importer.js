@@ -4549,7 +4549,14 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
       return fail("The downloaded file is missing. Try downloading again.");
     }
     if (!item.recordId) {
-      return fail("This download is not linked to a game in your library.");
+      // Reachable from browse mode: the download was started from a catalog
+      // entry, so there is no local record to attach a version to yet. The file
+      // is downloaded and kept — this is a "do that first", not a dead end, so
+      // it says which step is missing rather than reporting a broken link.
+      return fail(
+        "This download came from Browse, so the game is not in your library yet. "
+        + "Add it to your library first, then install this download from the Downloads page.",
+      );
     }
 
     const record = await getGame(

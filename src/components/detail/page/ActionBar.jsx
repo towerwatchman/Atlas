@@ -1,4 +1,4 @@
-import { LAUNCH_STATE, ACTION_BTN, STEAM_GREEN, STEAM_BLUE, STEAM_YELLOW, STEAM_GRAY, iconBtn } from './gameDetailUtils.js'
+import { LAUNCH_STATE, ACTION_BTN, STEAM_GREEN, STEAM_BLUE, STEAM_YELLOW, STEAM_GRAY, iconBtn, resolveActionBarRoutes } from './gameDetailUtils.js'
 import GogIcon from '../../ui/GogIcon.jsx'
 
 export default function ActionBar({
@@ -16,7 +16,20 @@ export default function ActionBar({
   // caller has not wired it, so the button is never dead.
   onOpenUpdate = null,
 }) {
-  const showInstallCta = !canLaunch && canInstallFromDetail
+  // Routing lives in gameDetailUtils.resolveActionBarRoutes so it is asserted
+  // rather than expressed as a chain of || inside JSX — see the note there on
+  // how the local import panel came to be unreachable.
+  const routes = resolveActionBarRoutes({
+    canLaunch,
+    canInstallFromDetail,
+    canManageLocalTitle,
+    hasOpenUpdate: Boolean(onOpenUpdate),
+    hasLocalImport: typeof onToggleLocalImport === 'function',
+    hasSteamInstall: typeof onSteamInstall === 'function',
+  })
+  const showInstallCta = routes.showInstallCta
+  const onInstallCta = routes.installRoute === 'mirrors' ? onOpenUpdate : onToggleLocalImport
+  const showLocalImportAction = routes.showLocalImportAction
   // When the title is Steam-owned but not installed, the primary CTA hands off
   // to the Steam client (steam://install) rather than opening Atlas's local
   // import panel — mirroring how Steam's own Install button behaves.
@@ -81,7 +94,7 @@ export default function ActionBar({
 
         {/* PLAY */}
         <button
-          onClick={steamInstallCta ? onSteamInstall : showInstallCta ? onToggleLocalImport : onLaunch}
+          onClick={steamInstallCta ? onSteamInstall : showInstallCta ? onInstallCta : onLaunch}
           disabled={!showInstallCta && !canLaunch && launchState === LAUNCH_STATE.IDLE}
           style={{
             ...ACTION_BTN, minWidth: 130, background: playBg, color: playColor,
@@ -100,15 +113,29 @@ export default function ActionBar({
         {/* UPDATE */}
         {game.isUpdateAvailable && (
           <button
-            onClick={onOpenUpdate || (canManageLocalTitle ? onToggleLocalImport : onOpenWebsite)}
+            onClick={onOpenUpdate || onOpenWebsite}
             style={{ ...ACTION_BTN, minWidth: 130, background: 'var(--color-detail-accent)', color: 'var(--color-detail-accent-text)' }}
             onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.12)' }}
             onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
-            title={onOpenUpdate ? 'Choose a download mirror' : (canManageLocalTitle ? 'Open update/import panel' : 'Open update page')}
+            title={onOpenUpdate ? 'Choose a download mirror' : 'Open the game\u2019s page'}
           >
             <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <i className="fas fa-arrow-up" style={{ fontSize: 11 }}></i>UPDATE
             </span>
+          </button>
+        )}
+
+        {/* Add a version from an archive or a local folder. Kept next to UPDATE
+            because it is the other way to get a new build in, and separate from
+            it because they are not the same action. */}
+        {showLocalImportAction && (
+          <button
+            onClick={onToggleLocalImport}
+            title="Add a version from an archive or folder"
+            style={iconBtn(false)}
+            className="hover:bg-secondary hover:border-border"
+          >
+            <i className="fas fa-file-import" style={{ fontSize: 13 }}></i>
           </button>
         )}
 

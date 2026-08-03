@@ -90,7 +90,10 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
         url: resolved.url,
         host: resolved.host || link.host,
         source: 'f95',
-        onComplete: 'replace',
+        // Nothing to replace when the game is not in the library yet: a browse
+        // row has no record and no installed build, so 'replace' would be a
+        // request Atlas could not honour.
+        onComplete: game?.record_id ? 'replace' : 'add',
       })
       if (queued?.success) {
         onQueued?.(queued.item)

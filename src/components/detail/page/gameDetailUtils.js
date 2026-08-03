@@ -299,3 +299,50 @@ export const iconBtn = (disabled) => ({
   color: 'inherit',
   transition: 'background 0.15s, border-color 0.15s',
 })
+
+// ── Action bar routing ───────────────────────────────────────────────────────
+//
+// Which action each primary button performs. Extracted because getting this
+// wrong does not break anything visibly — the button still renders and still
+// does *something* — it just silently removes a capability.
+//
+// That is exactly what happened: wiring the mirror picker onto the UPDATE button
+// as `onOpenUpdate || (canManageLocalTitle ? onToggleLocalImport : onOpenWebsite)`
+// meant that for any local title the picker always won, and the update/import
+// panel — the only route to adding a version from an archive or a folder already
+// on disk — became unreachable for an installed game. No error, no dead button,
+// just a feature that was there last release and now is not.
+//
+// So the routes are named and asserted rather than expressed as a chain of ||
+// inside JSX.
+export function resolveActionBarRoutes({
+  canLaunch = false,
+  canInstallFromDetail = false,
+  canManageLocalTitle = true,
+  hasOpenUpdate = false,
+  hasLocalImport = true,
+  hasSteamInstall = false,
+} = {}) {
+  const showInstallCta = !canLaunch && canInstallFromDetail
+  // A browse row has no local record, so there is nothing on disk to point at:
+  // its INSTALL button wants the mirror picker, which is how the game gets here
+  // in the first place.
+  const installOpensMirrors = hasOpenUpdate && !canManageLocalTitle
+  return {
+    showInstallCta,
+    installOpensMirrors,
+    // What the primary button does.
+    installRoute: !showInstallCta
+      ? 'launch'
+      : hasSteamInstall
+        ? 'steam'
+        : installOpensMirrors
+          ? 'mirrors'
+          : 'localImport',
+    // The UPDATE button never routes to the local import panel any more.
+    updateRoute: hasOpenUpdate ? 'mirrors' : 'website',
+    // The local import panel has its own control whenever it is applicable, so
+    // it cannot be displaced by whatever the other buttons are wired to.
+    showLocalImportAction: canManageLocalTitle && hasLocalImport,
+  }
+}
