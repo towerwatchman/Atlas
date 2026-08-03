@@ -25,6 +25,7 @@
 
 const dbModule = require("./index");
 const { parseCatalogRef } = require("../library/catalogRef");
+const { syntheticTitleSql, fallbackCreatorSql } = require("../library/catalogIdentity");
 
 const getDb = () => dbModule.db;
 
@@ -95,8 +96,8 @@ const QUERIES = {
     SELECT
       lc.atlas_id AS atlasId,
       ${siblings("lc.atlas_id")},
-      COALESCE(NULLIF(a.title, ''), 'LewdCorner #' || lc.lc_id) AS title,
-      COALESCE(NULLIF(a.creator, ''), NULLIF(a.developer, ''), 'Unknown') AS creator,
+      COALESCE(NULLIF(a.title, ''), ${syntheticTitleSql("lewdcorner", "lc.lc_id")}) AS title,
+      COALESCE(NULLIF(a.creator, ''), NULLIF(a.developer, ''), ${fallbackCreatorSql()}) AS creator,
       a.engine AS engine,
       a.overview AS description,
       a.version AS latestVersion

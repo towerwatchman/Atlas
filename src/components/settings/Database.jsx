@@ -283,6 +283,11 @@ export default function Database() {
   }, [loadIndexStatus])
 
   const summary = result?.summary
+  // Catalog-side orphan counts. Surfaced because the question they answer --
+  // "why does this row have no name" -- previously needed hand-written SQL
+  // against data.db, and the answer changes as the catalog updates, so a
+  // comment could not carry it.
+  const catalogOrphans = result?.catalogOrphans
   const items = result?.items || []
 
   return (
@@ -525,6 +530,60 @@ export default function Database() {
           </div>
         )}
       </div>
+
+      {catalogOrphans && (
+        <div className="border border-border rounded p-4 text-sm space-y-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-text">Catalog rows with no Atlas entry</span>
+            <span className={catalogOrphans.withoutIdentity > 0 ? 'text-amber-400' : 'text-muted'}>
+              {catalogOrphans.withoutIdentity === 0
+                ? 'None \u2014 every catalog row resolves to an Atlas entry'
+                : `${catalogOrphans.withoutIdentity} shown without a real title`}
+            </span>
+          </div>
+          <table className="w-full text-xs">
+            <thead className="text-muted">
+              <tr>
+                <th className="text-left font-normal py-1">Source</th>
+                <th className="text-right font-normal py-1">Rows</th>
+                <th className="text-right font-normal py-1">No Atlas id</th>
+                <th className="text-right font-normal py-1">Dangling</th>
+              </tr>
+            </thead>
+            <tbody>
+              {catalogOrphans.sources.map((source) => (
+                <tr key={source.provider} className="border-t border-border">
+                  <td className="py-1 text-text">
+                    {source.provider}
+                    {/* Says why a non-zero count may still be invisible, so the
+                        numbers cannot be misread as tiles the user should see. */}
+                    {!source.shownInBrowse && (
+                      <span className="text-muted"> (not shown in Browse)</span>
+                    )}
+                    {source.carriesOwnTitle && (
+                      <span className="text-muted"> (has its own title)</span>
+                    )}
+                  </td>
+                  <td className="py-1 text-right text-muted">{source.unavailable ? '\u2014' : source.total}</td>
+                  <td className={`py-1 text-right ${source.noAtlasId > 0 ? 'text-amber-400' : 'text-muted'}`}>
+                    {source.unavailable ? '\u2014' : source.noAtlasId}
+                  </td>
+                  <td className={`py-1 text-right ${source.dangling > 0 ? 'text-danger' : 'text-muted'}`}>
+                    {source.unavailable ? '\u2014' : source.dangling}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {catalogOrphans.dangling > 0 && (
+            <p className="text-xs text-muted">
+              A dangling row points at an Atlas entry this database does not have, so its
+              name and metadata are missing locally rather than missing upstream. Check for a
+              database update; the identity comes back with the Atlas row.
+            </p>
+          )}
+        </div>
+      )}
 
       {error && <div className="text-sm text-danger">{error}</div>}
 

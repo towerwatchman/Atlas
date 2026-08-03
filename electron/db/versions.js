@@ -40,6 +40,12 @@ const localMediaAssetSelect = (baseImagePath, assetType, fallbackExpression) => 
         )`;
 };
 
+// Synthetic display identity for orphan branch rows. See catalogIdentity.js
+// for what these rows are and why they have no name of their own -- the
+// browse INDEX (db/catalogIndex.js) must produce byte-identical strings or
+// search stops matching rows the grid shows.
+const { syntheticTitleSql, fallbackCreatorSql } = require('../library/catalogIdentity');
+
 const getTableColumns = (tableName) =>
   new Promise((resolve) => {
     getDb().all(`PRAGMA table_info(${tableName})`, (err, rows) => {
@@ -1949,8 +1955,8 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
           lewdcorner_data.lc_id as lc_id,
           lewdcorner_data.lc_id as lcId,
           lewdcorner_data.lc_id as lewdCornerId,
-          'LewdCorner #' || lewdcorner_data.lc_id as title,
-          'Unknown' as creator,
+          ${syntheticTitleSql('lewdcorner', 'lewdcorner_data.lc_id')} as title,
+          ${fallbackCreatorSql()} as creator,
           NULL as engine,
           NULL as description,
           0 as total_playtime,
@@ -1994,7 +2000,7 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
           NULL AS voice,
           NULL AS publisher,
           NULL AS steam_developer,
-          'LewdCorner #' || lewdcorner_data.lc_id AS short_name,
+          ${syntheticTitleSql('lewdcorner', 'lewdcorner_data.lc_id')} AS short_name,
           NULL as external_ids,
           NULL as atlas_banner_wide,
           NULL as atlas_banner,

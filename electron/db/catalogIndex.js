@@ -39,6 +39,7 @@
 // rebuild rather than silently serving a stale shape.
 
 const dbModule = require('./index')
+const { syntheticTitle, FALLBACK_CREATOR } = require('../library/catalogIdentity')
 const { buildRatingAverageSql } = require('./ratingCategories')
 const {
   SEARCH_PREFIX_FIELDS, LEGACY_SEARCH_TYPE_FIELDS,
@@ -676,17 +677,20 @@ const rebuildOrphanBranches = async ({ onProgress, chunkSize, nowMs }) => {
             (SELECT MIN(lm.record_id) FROM lewdcorner_mappings lm WHERE lm.lc_id = ld.lc_id) AS local_record_id
      ${LC_WHERE} ORDER BY ld.lc_id LIMIT ? OFFSET ?`,
     (row, now) => {
-      // Matches lewdcorner_branch_base's synthetic display values — these rows
-      // carry no title of their own.
-      const title = `LewdCorner #${row.lc_id}`
+      // MUST equal what lewdcorner_branch_base renders: this index is what gets
+      // searched and that query is what gets shown, so a drift between them
+      // makes a row unfindable by the exact name on its own tile. Both now come
+      // from library/catalogIdentity.js, which also explains why these rows have
+      // no name of their own and why that is not a bug to be fixed here.
+      const title = syntheticTitle('lewdcorner', row.lc_id)
       const tuMs = parseDateToMs(row.thread_updated)
       const tpMs = parseDateToMs(row.register_date)
       return [
         `lewdcorner:${row.lc_id}`, `catalog:lewdcorner:${row.lc_id}`, 'lewdcorner',
         null, null, null, row.lc_id, null,
         row.local_record_id ?? null, row.local_record_id != null ? 1 : 0,
-        title, title, 'Unknown', null, null, null, null, null,
-        joinText(row.tags, row.prefixes), joinText(title, 'Unknown'),
+        title, title, FALLBACK_CREATOR, null, null, null, null, null,
+        joinText(row.tags, row.prefixes), joinText(title, FALLBACK_CREATOR),
         row.site_url ?? null, toNumberOrNull(row.rating), toNumberOrNull(row.likes),
         dateTier(tuMs, now), tuMs, dateTier(tpMs, now), tpMs, 2, null, null, 0,
       ]
