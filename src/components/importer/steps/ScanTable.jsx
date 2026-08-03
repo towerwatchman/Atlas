@@ -451,7 +451,17 @@ export default function ScanTable({
                   {sourceDisplay}
                 </div>
               </td>
-              <td className={`border border-border p-1 ${statusClass}`}>{statusText}</td>
+              {/* The hint explains a status that would otherwise only alarm —
+                  notably which file was looked for and not found. */}
+              <td
+                className={`border border-border p-1 ${statusClass}`}
+                title={rowStatus.hint || undefined}
+              >
+                {statusText}
+                {rowStatus.hint && (
+                  <i className="fas fa-circle-info ml-1.5 opacity-60" aria-hidden="true"></i>
+                )}
+              </td>
               {showWishlist && (
                 <td className="border border-border p-1 text-center">
                   <input

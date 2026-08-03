@@ -5,6 +5,7 @@ import SteamLibraryStep from './steps/SteamLibraryStep.jsx'
 import ManualAddStep from './steps/ManualAddStep.jsx'
 import ExternalLibraryStep from './steps/ExternalLibraryStep.jsx'
 import ImportPlanModal from './ImportPlanModal.jsx'
+import { getScanGameKey, hasStableScanKey } from './scanRowKey.js'
 import { EXTERNAL_LIBRARY_SOURCE_IDS, normalizeImporterSource } from './importerSources.js'
 import { buildFolderRegex } from './folderRegex.js'
 import WindowTitleBar from '../ui/WindowTitleBar.jsx'
@@ -140,13 +141,6 @@ const Importer = () => {
   }, [])
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  const getScanGameKey = (game) => {
-    if (game?.sourceType === 'renpySave') return `renpy:${game.savePath || game.saveId || game.title}`
-    if (game?.sourceFile) return `source:${game.sourceFile}`
-    if (game?.folder && game?.singleExecutable) return `folder-file:${game.folder}/${game.singleExecutable}`
-    if (game?.folder) return `folder:${game.folder}`
-    return [game?.sourceFile, game?.folder, game?.singleExecutable, game?.title, game?.creator, game?.version, game?.f95Id, game?.lcId, game?.lewdCornerId, game?.atlasId].join('|')
-  }
 
   const isNewScanRow = (game) => ['new', 'repairPath', 'steamVersion', 'lewdCornerVersion'].includes(game.scanStatus || 'new')
   const isExistingImportRow = (game) => game.scanStatus === 'alreadyImported' && forceReimport
@@ -285,10 +279,26 @@ const Importer = () => {
       // that one is usually fixable (unmounted drive, moved library) and the
       // user may want to fix it and rescan rather than wishlist the game.
       const wishlistText = {
-        'install-path-missing': 'To wishlist (install path missing)',
-        'no-launchable': 'To wishlist (nothing launchable)',
+        // "install path missing" was accurate and unhelpful: it describes a
+        // field rather than what happened. What happened is that the source tool
+        // has this game recorded as installed, and the file it names is not
+        // there — so Atlas has nothing to launch and cannot make a library row.
+        'install-path-missing': 'To wishlist (file not found on disk)',
+        'no-launchable': 'To wishlist (no executable found)',
         'not-installed': 'To wishlist (not installed)',
       }[game.wishlistReason]
+      // The path that was tried, so "file not found" is answerable rather than
+      // just alarming. Without it the user has no way to tell an unplugged drive
+      // from a genuinely uninstalled game.
+      const hint = game.wishlistReason === 'install-path-missing' && game.recordedInstallPath
+        ? `${game.title || 'This game'} is recorded as installed, but Atlas could not find:\n`
+          + `${game.recordedInstallPath}\n\n`
+          + 'If that drive is not connected, connect it and read the library again to import '
+          + 'it properly. Otherwise it goes to your wishlist, so nothing is lost.'
+        : game.wishlistReason === 'no-launchable'
+          ? 'The source records a location for this game but no runnable file was found inside '
+            + 'it, so there is nothing for Atlas to launch.'
+          : 'Tracked in the source tool with nothing installed here.'
       return {
         // Phrased as an action with a reason in parentheses. "Wishlist - not
         // installed" reads as a statement about the wishlist rather than about
@@ -296,6 +306,7 @@ const Importer = () => {
         // unavailable.
         text: wishlistText || (game.wishlistCandidate ? 'To wishlist (not installed)' : 'To wishlist'),
         type: 'wishlist',
+        hint,
       }
     }
     if (scanStatus === 'alreadyImported') return { text: 'Already imported', type: 'alreadyImported' }
@@ -745,6 +756,18 @@ const Importer = () => {
       if (matchCancelRef.current) break
       resolvedCount += resolvedChunk.length
       const resolvedByKey = new Map(resolvedChunk.map((game) => [getScanGameKey(game), game]))
+      // A row whose key is not stable across resolution cannot be written back:
+      // its key is derived from title/creator/atlasId, all of which resolution
+      // rewrites. That used to fail silently and leave the row in pendingMatch
+      // forever, so it is reported rather than swallowed.
+      const unstable = chunk.filter((game) => !hasStableScanKey(game))
+      if (unstable.length > 0) {
+        console.warn(
+          `${unstable.length} scan row(s) have no stable identity and could not be `
+          + 'updated after matching:',
+          unstable.map((game) => game.title),
+        )
+      }
       setGamesList((prev) => prev.map((game) => resolvedByKey.get(getScanGameKey(game)) || game))
       setProgress((prev) => ({ ...prev, value: resolvedCount }))
       window.electronAPI.sendUpdateProgress({ value: resolvedCount, total: pendingRows.length })
