@@ -16,7 +16,7 @@ const { getImportRecordStatus, getAtlasData, findExistingRecordForImport,
 // caller passes deleteDatabaseRow:false and never reaches those lines, so
 // nothing exercised them until the download install path enabled the delete.
 const { getGame, getVersionPathsForRecord } = require('../db/versions')
-const { isLocalRecordId } = require('../downloads/recordId')
+const { toLocalRecordId } = require('../downloads/recordId')
 // db/index exposes `db` as a getter populated after initializeDatabase().
 // Read through the module at call time; capturing it at require time
 // would bind null.
@@ -27,6 +27,13 @@ const { findExecutables } = require("../scanners/executableScanner");
 const { getDefaultRenpySaveRoot, scanRenpySaveFolders } = require("../scanners/renpySaveScanner");
 const { findRecordBySteamId, recordHasSteamMapping, uniqueSteamVersionLabel, findAtlasBySteamId } = require('../db/steam')
 const { findRecordByGogId, addGogMapping, getGogIDbyRecord } = require('../db/gog')
+// One implementation of catalog-entry -> library-record, shared by the
+// drag-and-drop importer below and the Browse-download promotion in
+// downloads-install. See library/catalogRecord.js for the resolution order and
+// why it is not a second copy.
+const { resolveCatalogRecord, ensureCatalogRecord } = require('../library/catalogRecord')
+const { getCatalogEntryByRef } = require('../db/catalogEntry')
+const { toCatalogRef, describeCatalogRef } = require('../library/catalogRef')
 const {
   addLewdCornerMapping,
   findRecordByLewdCornerId,
@@ -1434,6 +1441,24 @@ module.exports = function registerImporterHandlers(ctx) {
   } = ctx
   ownerMainWindow = mainWindow
 
+  // Database access for library/catalogRecord.js, injected rather than imported
+  // so the resolution order can be asserted in tests without sqlite. Read
+  // through dbModule at CALL time: db/index exposes `db` as a getter populated
+  // after initializeDatabase(), so a value captured at registration can be null.
+  const buildCatalogRecordDeps = () => ({
+    dbGet: (sql, params) => dbGet(dbModule.db || db, sql, params),
+    dbRun: (sql, params) => dbRun(dbModule.db || db, sql, params),
+    addGame,
+    updateGame,
+    addAtlasMapping,
+    addLewdCornerMapping,
+    addSteamMapping,
+    addGogMapping,
+    findRecordByLewdCornerId,
+    findRecordBySteamId,
+    findRecordByGogId,
+  })
+
   // ── Phase 3: import owned Steam games (incl. not installed) ────────────────
   //
   // Creates a metadata-only library record for an owned Steam game the user
@@ -1938,35 +1963,25 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
       f95Id,
       lcId,
       steamId,
+      // Was missing from this object while the resolution query below read the
+      // outer `gogId` directly. Now that both the lookup and the mapping writes
+      // take their ids from one identity object, it has to be on it.
+      gogId,
     };
 
-    let recordId = null;
-    const mappingRow = await dbGet(
-      db,
-      `SELECT record_id FROM atlas_mappings WHERE ? IS NOT NULL AND atlas_id = ?
-       UNION
-       SELECT record_id FROM lewdcorner_mappings WHERE ? IS NOT NULL AND lc_id = ?
-       UNION
-       SELECT record_id FROM f95_zone_mappings WHERE ? IS NOT NULL AND f95_id = ?
-       UNION
-       SELECT record_id FROM steam_mappings WHERE ? IS NOT NULL AND steam_id = ?
-       UNION
-       SELECT record_id FROM gog_mappings WHERE ? IS NOT NULL AND gog_id = ?
-       LIMIT 1`,
-      [atlasId, atlasId, lcId, lcId, f95Id, f95Id, steamId, steamId, gogId, gogId],
-    );
-    if (mappingRow?.record_id) recordId = mappingRow.record_id;
-    if (!recordId && lcId) recordId = await findRecordByLewdCornerId(lcId);
-    if (!recordId && steamId) recordId = await findRecordBySteamId(steamId);
-    if (!recordId && gogId) recordId = await findRecordByGogId(gogId);
-    if (!recordId) {
-      const titleRow = await dbGet(
-        db,
-        `SELECT record_id FROM games WHERE title = ? AND creator = ? LIMIT 1`,
-        [importGame.title, importGame.creator],
-      );
-      if (titleRow?.record_id) recordId = titleRow.record_id;
-    }
+    // Which record this belongs to, if any. The lookup itself now lives in
+    // library/catalogRecord.js so the download installer promoting a Browse
+    // download uses THIS implementation rather than a second copy of it — a
+    // second one would have been the fourth instance of one-rule-in-two-places
+    // in this area, and the previous three all failed silently.
+    //
+    // Resolved here and CREATED later (after extraction, below), which is why
+    // this is the resolve-only call: the version-conflict check needs to know
+    // whether a record exists before anything is extracted, but a record must
+    // not be created for an import that then fails to produce a game folder.
+    const catalogRecordDeps = buildCatalogRecordDeps();
+    const resolvedRecord = await resolveCatalogRecord(catalogRecordDeps, importGame);
+    let recordId = resolvedRecord.recordId;
 
     if (recordId) {
       const existingVersion = await dbGet(
@@ -2092,35 +2107,17 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
 
     if (!gamePath) throw new Error("Import did not produce a game folder");
 
-    if (!recordId) {
-      // Blank fields are kept blank on the scan rows (task: don't show
-      // "Unknown" in the table); the "Unknown"/"Untitled" fallbacks are applied
-      // here, at import time, so the DB never stores an empty title/creator.
-      const importEngine = (importGame.engine && String(importGame.engine).trim()) || "Unknown";
-      const importCreator = (importGame.creator && String(importGame.creator).trim()) || "Unknown";
-      const importTitle = (importGame.title && String(importGame.title).trim()) || "Untitled";
-      recordId = await addGame({
-        title: importTitle,
-        creator: importCreator,
-        engine: importEngine,
-        description: importGame.description,
-      });
-      if (importGame.description) {
-        await updateGame({
-          record_id: recordId,
-          title: importTitle,
-          creator: importCreator,
-          engine: importEngine,
-          description: importGame.description,
-        });
-      }
-    }
-
-    if (atlasId) await addAtlasMapping(recordId, atlasId);
-    if (lcId) await addLewdCornerMapping(recordId, lcId);
-    if (f95Id) await dbRun(db, `INSERT OR IGNORE INTO f95_zone_mappings (record_id, f95_id) VALUES (?, ?)`, [recordId, f95Id]);
-    if (steamId) await addSteamMapping(recordId, steamId);
-    if (gogId) await addGogMapping(recordId, gogId);
+    // Create the record if nothing was resolved, then write every mapping the
+    // catalog entry carries. Both live in library/catalogRecord.js, including
+    // the "Unknown"/"Untitled" fallbacks that used to be applied inline here —
+    // blank fields stay blank on the scan rows (the table should not show
+    // "Unknown"), so the fallbacks belong at the point of writing to the DB.
+    //
+    // Mappings are written whether or not the record is new, which is what this
+    // code always did: a title-matched record has no atlas mapping until
+    // something adds one, and without it no banner or metadata hydrates.
+    const ensured = await ensureCatalogRecord(catalogRecordDeps, importGame);
+    recordId = ensured.recordId;
 
     notify(`Saving ${importGame.title} ${version}...`, 85);
     await upsertVersion(
@@ -4587,20 +4584,81 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
     if (!item.filePath || !fs.existsSync(item.filePath)) {
       return fail("The downloaded file is missing. Try downloading again.", "missing-file");
     }
-    // A catalog placeholder (`catalog:30956`) is TRUTHY, so this guard used to let
-    // one through and the record lookup below then reported the game as "no longer
-    // in your library" — about a game that had never been in it. Rows queued before
-    // the enqueue normalisation still carry one, so it is recognised here too.
-    if (!isLocalRecordId(item.recordId)) {
-      // Reachable from browse mode: the download was started from a catalog
-      // entry, so there is no local record to attach a version to yet. The file
-      // is downloaded and kept — this is a "do that first", not a dead end, so
-      // it says which step is missing rather than reporting a broken link.
-      return fail(
-        "This download came from Browse, so the game is not in your library yet. "
-        + "Add it to your library first, then install this download from the Downloads page.",
-        "no-record-id",
-      );
+    // ── Promote a Browse download to a library record ──────────────────────
+    //
+    // A catalog placeholder (`catalog:30956`) is TRUTHY, so this guard used to
+    // let one through and the record lookup below then reported the game as "no
+    // longer in your library" — about a game that had never been in it. Rows
+    // queued before the enqueue normalisation still carry one, so the positive
+    // test stays.
+    //
+    // What changed is what happens next. This used to refuse with "add it to
+    // your library first", which was a limitation dressed up as instructions:
+    // a download IS the game arriving, and requiring a manual add before it can
+    // land is a step with no purpose. The record is created here instead.
+    //
+    // Created at INSTALL and not at enqueue, deliberately. Enqueue-time creation
+    // would show the game in the library the moment the download starts (with
+    // cover art, which is genuinely nicer), but a cancelled or failed download
+    // would leave a record with no versions behind, and nothing cleans those up.
+    let recordId = toLocalRecordId(item.recordId);
+    let promotion = null;
+    if (recordId === null) {
+      const ref = toCatalogRef(item.catalogRef);
+      if (!ref) {
+        // No ref: either a row queued before this column existed, or a payload
+        // that never carried an id at all. Distinguished from the promotion
+        // failures below because the remedy is different — this one really does
+        // need the download starting again.
+        return fail(
+          "This download did not record which game it came from, so Atlas cannot add it "
+          + "to your library. It was queued before Atlas could do this — remove it and "
+          + "start the download again from Browse.",
+          "no-catalog-ref",
+        );
+      }
+
+      const entry = await getCatalogEntryByRef(ref).catch((err) => {
+        console.log("[downloads-install] catalog lookup threw", JSON.stringify({
+          downloadId: id, ref, message: err?.message || String(err),
+        }));
+        return null;
+      });
+      if (!entry) {
+        // The catalog refreshes independently of the download queue, so an
+        // entry can retire between a download starting and finishing. Creating a
+        // record from an empty row would produce an "Untitled" game, so it says
+        // so instead.
+        return fail(
+          `This download came from ${describeCatalogRef(ref) || ref}, which is no longer in `
+          + "Atlas's catalog. Install it from the game's page after adding it manually, or "
+          + "check for a database update and try again.",
+          "catalog-entry-missing",
+        );
+      }
+
+      // allowTitleMatch is false: a title+creator resemblance is a heuristic,
+      // not a link, and it is the same heuristic that produced duplicate titles
+      // before. It is not that the result is refused — `games` has
+      // UNIQUE (title, creator, engine) and addGame() returns the existing
+      // record_id on a title hit, so a separate row for the same title cannot
+      // be created — it is that ensureCatalogRecord REPORTS it as
+      // titleCollision rather than absorbing it, and the outcome below says so.
+      const ensured = await ensureCatalogRecord(buildCatalogRecordDeps(), entry, {
+        allowTitleMatch: false,
+      });
+      recordId = ensured.recordId;
+      promotion = { ...ensured, ref };
+      console.log("[downloads-install] promote", JSON.stringify({
+        downloadId: id,
+        ref,
+        recordId,
+        created: ensured.created,
+        via: ensured.via,
+        titleCollision: ensured.titleCollision,
+        mappings: ensured.mappings,
+        title: entry.title,
+      }));
     }
 
     // Two different failures used to share one message. getGame() joins a dozen
@@ -4612,7 +4670,7 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
     let recordLookupError = "";
     try {
       record = await getGame(
-        item.recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode(),
+        recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode(),
       );
     } catch (lookupErr) {
       recordLookupError = lookupErr?.message || String(lookupErr);
@@ -4625,12 +4683,20 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
       const stillExists = await dbGet(
         dbModule.db,
         `SELECT record_id, title FROM games WHERE record_id = ? LIMIT 1`,
-        [item.recordId],
+        [recordId],
       ).catch(() => null);
       console.log("[downloads-install] record lookup failed", JSON.stringify({
         downloadId: id,
-        recordId: item.recordId,
-        recordIdType: typeof item.recordId,
+        recordId: recordId,
+        // `recordIdType` used to be logged here to catch a `catalog:…` string
+        // reaching this point. It cannot any more — the id is a validated
+        // integer or the handler already returned — so the useful question is
+        // whether this record was just promoted. A record created seconds ago
+        // that getGame cannot assemble is a different fault from a stale queue
+        // item, and it points at the promotion rather than at the library.
+        promoted: promotion !== null,
+        promotedRef: promotion?.ref || "",
+        promotedCreated: promotion?.created === true,
         gamesRowExists: Boolean(stillExists),
         gamesRowTitle: stillExists?.title || "",
         lookupError: recordLookupError,
@@ -4648,9 +4714,18 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
           "record-details-unreadable",
         );
       }
+      if (promotion) {
+        // The record was created moments ago and is already unreadable, so the
+        // stale-queue-item explanation below would be actively misleading.
+        return fail(
+          `Atlas added "${item.title}" to your library but could not read the new record `
+          + `back (record ${recordId}). The download is still here — try installing it again.`,
+          "promoted-record-unreadable",
+        );
+      }
       return fail(
         `This download was queued for a game that is no longer in your library `
-        + `(record ${item.recordId}). If you re-imported your library the ids changed — `
+        + `(record ${recordId}). If you re-imported your library the ids changed — `
         + `remove this download and start it again from the game's page.`,
         "record-row-missing",
       );
@@ -4753,7 +4828,7 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
       replaceTarget = replaceChoice.version;
       replaceTargetId = replaceChoice.versionId;
       console.log("[downloads-install] replace target", JSON.stringify({
-        recordId: item.recordId,
+        recordId: recordId,
         requestedVersionId: replaceVersionId,
         selectedVersionId: record.selected_version_id,
         chosen: replaceTarget,
@@ -4771,7 +4846,7 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
         in_place: 1,
         source: "download",
       },
-      item.recordId,
+      recordId,
     );
     // addVersion resolves { version }, not a string. Reading it as a string put
     // "[object Object]" into the version column and the replacement audit.
@@ -4797,7 +4872,7 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
       } else {
         try {
           const result = await replaceInstalledVersionAfterImport({
-            recordId: item.recordId,
+            recordId: recordId,
             newVersion: savedVersion,
             newGamePath: gamePath,
             replaceVersion: replaceTarget,
@@ -4818,7 +4893,7 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
         }
       }
       console.log("[downloads-install] replace outcome", JSON.stringify({
-        recordId: item.recordId,
+        recordId: recordId,
         replaceTarget,
         savedVersion,
         ...replaceOutcome,
@@ -4832,7 +4907,38 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
       installedAt: Math.floor(Date.now() / 1000),
       version: savedVersion || finalVersion,
       error: "",
+      // A promoted download now HAS a library record, so the row stops being a
+      // catalog orphan. Written on success only: a row that still carries a null
+      // record_id is one that never installed, which is what makes the Downloads
+      // page able to show cover art for this item afterwards (it looks the game
+      // up by recordId) and what stops a retry re-running the promotion.
+      ...(promotion ? { recordId } : {}),
     });
+
+    // The game is in the library now, so a wishlist entry for it is stale.
+    // Best-effort and after the install has actually succeeded — dropping a
+    // wishlist entry for an install that then failed would quietly lose
+    // something the user put there deliberately.
+    //
+    // The identity is rebuilt by db/wishlist.js from the same ids the Browse row
+    // carried, so it lands on the same key the entry was created under.
+    let wishlistRemoved = false;
+    if (promotion) {
+      try {
+        const { removeWishlistEntry } = require("../db/wishlist");
+        const removal = await removeWishlistEntry({
+          atlas_id: promotion.identity?.atlasId ?? null,
+          f95_id: promotion.identity?.f95Id ?? null,
+          lc_id: promotion.identity?.lcId ?? null,
+          steam_id: promotion.identity?.steamId ?? null,
+          title: promotion.identity?.title || item.title,
+          creator: promotion.identity?.creator || item.creator,
+        });
+        wishlistRemoved = removal?.removed === true;
+      } catch (err) {
+        console.warn("Could not clear the wishlist entry after install:", err.message);
+      }
+    }
     // 5. The archive has been consumed. Deleting is the default - these are
     // multi-gigabyte files and keeping them silently fills a disk - but the
     // user can opt to keep it from the install prompt.
@@ -4853,11 +4959,11 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
     // its update badge and the detail page re-sorts its version list. Same
     // event and payload the normal import path uses.
     const refreshedGame = await getGame(
-      item.recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode(),
+      recordId, getAssetBasePath(), process.defaultApp, getMediaStorageMode(),
     ).catch(() => null);
     BrowserWindow.getAllWindows().forEach((win) => {
       if (!win.isDestroyed()) {
-        win.webContents.send("game-updated", refreshedGame || item.recordId);
+        win.webContents.send("game-updated", refreshedGame || recordId);
       }
     });
 
@@ -4878,6 +4984,16 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
       // Present when several installed builds meant Atlas would not guess, so
       // the UI can offer the choice instead of just reporting a refusal.
       replaceCandidates: replaceOutcome?.candidates || replaceChoice?.candidates || [],
+      recordId,
+      // What the promotion did, when there was one. `attachedByTitle` is the one
+      // the user needs to see: it means the download landed on a record that
+      // matched by name alone rather than by any id, which is the only outcome
+      // here that might not be the game they meant.
+      promoted: promotion !== null,
+      promotedCreated: promotion?.created === true,
+      attachedByTitle: promotion?.titleCollision === true,
+      promotedTitle: promotion?.identity?.title || "",
+      wishlistRemoved,
     };
   } catch (err) {
     console.error("downloads-install failed:", err);

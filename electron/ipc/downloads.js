@@ -20,6 +20,7 @@ const credentialStore = require("../downloads/credentialStore");
 const { getPlugin, listPlugins } = require("../downloads/hosts");
 const { resolveMaskedLink } = require("../downloads/maskedResolver");
 const { toLocalRecordId } = require("../downloads/recordId");
+const { toCatalogRef } = require("../library/catalogRef");
 const accountStore = require("../accounts/accountStore");
 
 let handlerCtx = null;
@@ -144,6 +145,12 @@ function registerDownloadsHandlers(ctx = {}) {
       // directory to delete with nothing on screen saying which.
       let versions = [];
       let selectedVersionId = null;
+      // Whether installing this will CREATE a library record rather than add a
+      // version to one. The modal needs to know because its whole vocabulary
+      // changes: there is nothing to replace, and "added as a new version" is
+      // the wrong thing to tell someone whose game is about to appear in their
+      // library for the first time.
+      const willCreateRecord = !item.recordId && Boolean(item.catalogRef);
       if (item.recordId) {
         try {
           const record = await require("../db/versions").getGame(item.recordId);
@@ -167,6 +174,7 @@ function registerDownloadsHandlers(ctx = {}) {
         ...suggestVersion(item.fileName || "", catalogVersion),
         versions,
         selectedVersionId,
+        willCreateRecord,
       };
     } catch (err) {
       return { ok: false, error: err.message || String(err) };
@@ -248,9 +256,21 @@ function registerDownloadsHandlers(ctx = {}) {
       // failed against a games table that had never heard of it. Normalised here,
       // at the boundary where renderer payloads arrive, so the rule lives once.
       const localRecordId = toLocalRecordId(payload.recordId);
+      // …and the identity it carried is KEPT rather than discarded with it.
+      // Nulling recordId was correct and incomplete: it made the install stop
+      // failing against a games table that had never heard of the id, but it
+      // also left nothing to say which catalog entry the download was for, so
+      // the install could only refuse. The ref is that missing half.
+      //
+      // Normalised through the same kind of boundary function for the same
+      // reason: the renderer sends whatever the row happened to carry, and a
+      // real record id (`412`) is not a ref, so sending both fields for every
+      // download is safe and neither caller needs to know the difference.
+      const catalogRef = toCatalogRef(payload.catalogRef ?? payload.recordId);
       const result = await manager.enqueue({
         ...payload,
         recordId: localRecordId,
+        catalogRef,
         // Nothing to replace without a library record, whatever the caller asked
         // for. Decided here rather than in the renderer so the renderer does not
         // need to know how to recognise a catalog id.

@@ -67,7 +67,22 @@ const DOWNLOADS_DDL = `
     -- completed_at, which only means the bytes finished transferring.
     -- Null on a finished download that was never installed - including
     -- everything downloaded before the install step existed.
-    installed_at INTEGER
+    installed_at INTEGER,
+    -- The catalog entry a Browse download came from, as a 'catalog:...' ref
+    -- (see library/catalogRef.js). Null for a download started from a game
+    -- that is already in the library, which has a real record_id instead.
+    --
+    -- NOTE: no backticks in this comment. The DDL is a JS template literal, so
+    -- a backtick here terminates the string and the module stops parsing --
+    -- which is exactly what happened on the first attempt at this column.
+    --
+    -- Both columns exist because they answer different questions and a Browse
+    -- row can only answer the second: record_id is NULLED for one, since a
+    -- synthetic 'catalog:30956' in an INTEGER column referencing games is not
+    -- a record and pretending it is was the original bug. Nulling it lost the
+    -- identity with it, so the download could never be promoted - this column
+    -- is what survives that boundary.
+    catalog_ref TEXT
   )
 `;
 
@@ -133,6 +148,7 @@ const mapRow = (row) => {
     updatedAt: row.updated_at,
     completedAt: row.completed_at,
     installedAt: row.installed_at,
+    catalogRef: row.catalog_ref || "",
     // A finished download whose archive is still on disk and was never
     // installed. Drives the Install action, including for items that
     // predate the install step.
@@ -146,6 +162,7 @@ const initializeDownloads = async () => {
   // Added after the table shipped, so existing installs need it bolted on.
   // Failure means it is already there.
   await run(`ALTER TABLE downloads ADD COLUMN installed_at INTEGER`).catch(() => {});
+  await run(`ALTER TABLE downloads ADD COLUMN catalog_ref TEXT`).catch(() => {});
   for (const sql of DOWNLOADS_INDEXES) await run(sql);
   // Anything the app was actively working on when it exited is not actually in
   // progress any more. Park it as paused, keeping received_bytes so a resume can
@@ -187,6 +204,7 @@ const enqueueDownload = async ({
   fileName = "",
   onComplete = "replace",
   state = null,
+  catalogRef = null,
 }) => {
   const clean = String(title || "").trim();
   if (!clean) return { success: false, error: "A title is required" };
@@ -202,12 +220,12 @@ const enqueueDownload = async ({
   const result = await run(
     `INSERT INTO downloads
        (record_id, title, creator, version, url, host, source, file_name,
-        state, on_complete, queue_order, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        state, on_complete, queue_order, created_at, updated_at, catalog_ref)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       recordId, clean, creator, version, url, host, source, fileName,
       initialState, onComplete === "add" ? "add" : "replace",
-      tail?.next || 0, timestamp, timestamp,
+      tail?.next || 0, timestamp, timestamp, catalogRef || null,
     ],
   );
   return { success: true, id: result.lastID, item: await getDownload(result.lastID) };
@@ -234,6 +252,7 @@ const updateDownload = async (id, patch = {}) => {
     queueOrder: "queue_order",
     completedAt: "completed_at",
     installedAt: "installed_at",
+    catalogRef: "catalog_ref",
   };
   const assignments = [];
   const params = [];

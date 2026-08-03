@@ -700,6 +700,23 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
             })
             return
           }
+          // A download promoted onto a record that matched by TITLE rather than
+          // by any id is the one outcome here worth interrupting for: no atlas,
+          // f95, LewdCorner or Steam id linked these two, only the name did, so
+          // it may not be the game that was meant. Everything else about a
+          // promotion is the expected result and needs no dialog.
+          if (result?.success && result.attachedByTitle) {
+            setInstallNotice({
+              title: result.version || '',
+              message:
+                `Atlas added this version to the existing library entry for `
+                + `"${result.promotedTitle || installTarget?.item?.title || 'this game'}", which matched by `
+                + `name only — no store or thread id linked them. If that is a different `
+                + `game, move the version from its page.`
+                + (result.replaceMessage ? ` ${result.replaceMessage}` : ''),
+            })
+            return
+          }
           if (result?.success && result.replaceMessage) {
             setInstallNotice({ title: result.version || '', message: result.replaceMessage })
           }

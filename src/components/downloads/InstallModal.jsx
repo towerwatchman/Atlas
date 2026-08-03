@@ -56,6 +56,11 @@ export default function InstallModal({ item, suggestion, open, onClose, onInstal
   // read there as well as in the markup.
   const replaceOptions = (suggestion?.versions || []).filter((entry) => entry.installed)
   const soleReplaceTarget = replaceOptions.length === 1 ? replaceOptions[0] : null
+  // A download started from Browse has no library record yet, and installing it
+  // creates one. Worth saying out loud: this dialog otherwise reads as though the
+  // game is already in the library and only the version is in question, and this
+  // path used to refuse outright with "add it to your library first".
+  const willCreateRecord = suggestion?.willCreateRecord === true
 
   // Dismiss straight away rather than holding the dialog open behind a
   // spinner. Extraction takes minutes on a large archive, and the download
@@ -100,6 +105,17 @@ export default function InstallModal({ item, suggestion, open, onClose, onInstal
         </div>
 
         <div className="p-4 space-y-4">
+          {willCreateRecord && (
+            <div className="rounded border border-accent/40 bg-accent/5 p-3 text-xs text-text">
+              <p className="font-medium text-accent">New game</p>
+              <p className="mt-1">
+                This came from Browse, so installing it adds{' '}
+                <span className="font-medium">{item.title}</span> to your library as a
+                new game with this version. Nothing needs adding first.
+              </p>
+            </div>
+          )}
+
           <div>
             <label htmlFor="install-version" className="block text-sm text-text mb-1">
               Version
@@ -135,7 +151,7 @@ export default function InstallModal({ item, suggestion, open, onClose, onInstal
             </div>
           )}
 
-          <div>
+          <div className={willCreateRecord ? 'hidden' : ''}>
             <span className="block text-sm text-text mb-1.5">When installed</span>
             <label className="flex items-start gap-2 cursor-pointer">
               <input

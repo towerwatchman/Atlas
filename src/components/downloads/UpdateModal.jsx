@@ -88,7 +88,23 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
         return
       }
       const queued = await window.electronAPI.downloadsEnqueue?.({
-        recordId: game?.record_id ?? null,
+        // Every browse row already knows whether it is in the library:
+        // local_record_id is projected as localRecordId in all four branches of
+        // the catalog union, resolved from the atlas / f95 / lewdcorner / steam
+        // MAPPINGS — never from a title guess. Sending it means a download for a
+        // game already in the library attaches to that record instead of being
+        // treated as a catalog orphan.
+        //
+        // This was the duplicate-record risk: record_id here is `catalog:30956`
+        // even when localRecordId is 412, so promoting on install would have
+        // created a second record for a game already present.
+        recordId:
+          game?.localRecordId ?? game?.local_record_id ?? game?.record_id ?? null,
+        // Sent unconditionally. For a library game this is a plain integer and
+        // the main process rejects it as a ref; for a browse row it is the
+        // `catalog:…` string that survives the record_id being nulled. Neither
+        // side has to know which case it is in.
+        catalogRef: game?.record_id ?? null,
         title,
         creator: game?.creator || '',
         version: game?.latestVersion || game?.latest_version || '',
