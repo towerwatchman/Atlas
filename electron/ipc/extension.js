@@ -14,10 +14,23 @@ function registerExtensionHandlers(ctx) {
   ipcMain.handle('get-extension-status', async () => {
     const config = getConfig()
     const extConfig = config.Extension || {}
+    const port = extConfig.rpcPort || 57096
+    const rpcEnabled = extConfig.rpcEnabled ?? true
+
+    const isRunning = await isExtensionServerRunning()
+    if (rpcEnabled && !isRunning) {
+      startExtensionServer({
+        port,
+        getConfig: () => ctx.getConfig(),
+      })
+      // Small delay for server to start listening
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+
     return {
-      running: isExtensionServerRunning(),
-      port: extConfig.rpcPort || 57096,
-      rpcEnabled: extConfig.rpcEnabled ?? true,
+      running: await isExtensionServerRunning(),
+      port,
+      rpcEnabled,
       backgroundAdd: extConfig.backgroundAdd ?? true,
       iconGlow: extConfig.iconGlow ?? true,
       highlightTags: extConfig.highlightTags ?? false,
@@ -48,7 +61,7 @@ function registerExtensionHandlers(ctx) {
 
     return {
       success: true,
-      running: isExtensionServerRunning(),
+      running: await isExtensionServerRunning(),
       port: extConfig.rpcPort || 57096,
     }
   })

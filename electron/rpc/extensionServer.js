@@ -22,8 +22,8 @@ let activePort = 57096
 let getConfigFn = null
 
 const THREAD_ID_PATTERNS = {
-  f95: /(?:^|\/\/|\.)f95zone\.to\/threads\/(?:([^/?#]*)\.)?(\d+)/i,
-  lewdcorner: /(?:^|\/\/|\.)lewdcorner\.com\/threads\/(?:([^/?#]*)\.)?(\d+)/i,
+  f95: /(?:^|\/\/|\.)f95zone\.to\/threads\/(?:([^/?#]*)[.-])?(\d+)/i,
+  lewdcorner: /(?:^|\/\/|\.)lewdcorner\.com\/threads\/(?:([^/?#]*)[.-])?(\d+)/i,
 }
 
 function extractThreadInfo(rawUrl) {
@@ -120,38 +120,50 @@ async function getGamesList() {
     const rows = await queryDbAll(`
       SELECT 
         g.record_id,
-        f.f95_id AS f95_id,
-        lc.lc_id AS lc_id,
+        COALESCE(
+          fm.f95_id,
+          (SELECT f95_data.f95_id FROM f95_zone_data f95_data WHERE f95_data.atlas_id = am.atlas_id LIMIT 1),
+          (SELECT f95_data2.f95_id FROM f95_zone_data f95_data2 JOIN atlas_data a2 ON a2.atlas_id = f95_data2.atlas_id WHERE LOWER(a2.title) = LOWER(g.title) LIMIT 1)
+        ) AS f95_id,
+        COALESCE(
+          lm.lc_id,
+          (SELECT lc_data.lc_id FROM lewdcorner_data lc_data WHERE lc_data.atlas_id = am.atlas_id LIMIT 1)
+        ) AS lc_id,
         g.title,
         g.creator,
         g.notes,
-        g.rating,
+        NULL AS rating,
         v.version AS installed_version,
-        CASE WHEN v.installed IS NOT NULL AND v.installed != '' THEN 1 ELSE 0 END AS installed,
-        CASE WHEN v.finished IS NOT NULL AND v.finished != '' THEN 1 ELSE 0 END AS finished,
+        CASE WHEN v.version IS NOT NULL AND v.version != '' THEN 1 ELSE 0 END AS installed,
+        CASE WHEN g.playstate = 'completed' THEN 1 ELSE 0 END AS installed_finished,
         0 AS is_wishlist
       FROM games g
-      LEFT JOIN f95_zone_mappings f ON f.record_id = g.record_id
-      LEFT JOIN lewdcorner_data lc ON lc.record_id = g.record_id
+      LEFT JOIN f95_zone_mappings fm ON fm.record_id = g.record_id
+      LEFT JOIN atlas_mappings am ON am.record_id = g.record_id
+      LEFT JOIN lewdcorner_mappings lm ON lm.record_id = g.record_id
       LEFT JOIN versions v ON v.record_id = g.record_id
-      WHERE f.f95_id IS NOT NULL OR lc.lc_id IS NOT NULL
 
       UNION ALL
 
       SELECT 
-        w.record_id,
-        w.f95_id AS f95_id,
-        w.lc_id AS lc_id,
+        w.wishlist_id AS record_id,
+        COALESCE(
+          w.f95_id,
+          (SELECT f95_data.f95_id FROM f95_zone_data f95_data WHERE f95_data.atlas_id = w.atlas_id LIMIT 1)
+        ) AS f95_id,
+        COALESCE(
+          w.lc_id,
+          (SELECT lc_data.lc_id FROM lewdcorner_data lc_data WHERE lc_data.atlas_id = w.atlas_id LIMIT 1)
+        ) AS lc_id,
         w.title,
         w.creator,
-        w.notes,
+        w.note AS notes,
         w.rating,
-        w.installed_version AS installed_version,
+        w.latest_version AS installed_version,
         0 AS installed,
-        0 AS finished,
+        0 AS installed_finished,
         1 AS is_wishlist
-      FROM wishlist w
-      WHERE w.f95_id IS NOT NULL OR w.lc_id IS NOT NULL
+      FROM wishlist_entries w
     `)
 
     return rows.map((r) => {
@@ -170,7 +182,7 @@ async function getGamesList() {
         rating: r.rating || null,
         installed: Boolean(r.installed),
         installedVersion: r.installed_version || '',
-        isFinished: Boolean(r.finished),
+        isFinished: Boolean(r.installed_finished),
         isWishlist: Boolean(r.is_wishlist),
         color: r.installed ? '#22c55e' : r.is_wishlist ? '#a855f7' : '#3b82f6',
         icon: r.installed ? 'installed' : r.is_wishlist ? 'wishlist' : 'tracked',
@@ -199,16 +211,9 @@ async function addGameUrl(rawUrl) {
       if (existingMapping) {
         return { success: true, status: 'already_exists', recordId: existingMapping.record_id, f95Id: id }
       }
-      const existingWishlist = await queryDbGet(
-        `SELECT record_id FROM wishlist WHERE f95_id = ?`,
-        [id],
-      )
-      if (existingWishlist) {
-        return { success: true, status: 'already_wishlisted', recordId: existingWishlist.record_id, f95Id: id }
-      }
     } else if (forum === 'lewdcorner') {
       const existingLC = await queryDbGet(
-        `SELECT record_id FROM lewdcorner_data WHERE lc_id = ?`,
+        `SELECT record_id FROM lewdcorner_mappings WHERE lc_id = ?`,
         [id],
       )
       if (existingLC) {
@@ -221,33 +226,35 @@ async function addGameUrl(rawUrl) {
         `SELECT record_id, title FROM games WHERE LOWER(title) = LOWER(?) LIMIT 1`,
         [slugTitle],
       )
-      if (titleMatch && forum === 'f95') {
-        await queryDbRun(
-          `INSERT OR REPLACE INTO f95_zone_mappings (record_id, f95_id) VALUES (?, ?)`,
-          [titleMatch.record_id, id],
-        )
-        return { success: true, status: 'linked_existing', recordId: titleMatch.record_id, f95Id: id }
+      if (titleMatch) {
+        if (forum === 'f95') {
+          await queryDbRun(
+            `INSERT OR REPLACE INTO f95_zone_mappings (record_id, f95_id) VALUES (?, ?)`,
+            [titleMatch.record_id, id],
+          )
+        } else if (forum === 'lewdcorner') {
+          await queryDbRun(
+            `INSERT OR REPLACE INTO lewdcorner_mappings (record_id, lc_id) VALUES (?, ?)`,
+            [titleMatch.record_id, id],
+          )
+        }
+        return { success: true, status: 'linked_existing', recordId: titleMatch.record_id, f95Id: forum === 'f95' ? id : null, lcId: forum === 'lewdcorner' ? id : null }
       }
     }
 
-    const wishlistTitle = slugTitle
-      ? slugTitle.charAt(0).toUpperCase() + slugTitle.slice(1)
+    const formattedTitle = slugTitle
+      ? slugTitle.split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
       : `${forum.toUpperCase()} Thread ${id}`
-    const recordId = `wishlist_${forum}_${id}_${Date.now()}`
 
-    if (forum === 'f95') {
-      await queryDbRun(
-        `INSERT OR REPLACE INTO wishlist (record_id, f95_id, title, creator, added_on)
-         VALUES (?, ?, ?, ?, ?)`,
-        [recordId, id, wishlistTitle, 'Unknown', Math.floor(Date.now() / 1000)],
-      )
-    } else {
-      await queryDbRun(
-        `INSERT OR REPLACE INTO wishlist (record_id, lc_id, title, creator, added_on)
-         VALUES (?, ?, ?, ?, ?)`,
-        [recordId, id, wishlistTitle, 'Unknown', Math.floor(Date.now() / 1000)],
-      )
-    }
+    const wishlistModule = require('../db/wishlist')
+    const wishlistRes = await wishlistModule.addWishlistEntry({
+      source: forum,
+      title: formattedTitle,
+      creator: 'Unknown',
+      siteUrl: rawUrl,
+      f95_id: forum === 'f95' ? numericId : null,
+      lc_id: forum === 'lewdcorner' ? numericId : null,
+    })
 
     const BW = getBrowserWindow()
     if (BW) {
@@ -256,7 +263,12 @@ async function addGameUrl(rawUrl) {
       })
     }
 
-    return { success: true, status: 'added_wishlist', recordId, f95Id: id }
+    return {
+      success: true,
+      status: wishlistRes?.inLibrary ? 'linked_existing' : 'added_wishlist',
+      recordId: wishlistRes?.recordId || wishlistRes?.identityKey,
+      f95Id: id,
+    }
   } catch (err) {
     console.error('[ExtensionServer] Error adding game URL:', err)
     return { success: false, reason: err.message }
@@ -360,13 +372,21 @@ function startExtensionServer(options = {}) {
   server = http.createServer(handleRequest)
 
   server.on('error', (err) => {
-    console.warn(`[ExtensionServer] Could not start server on localhost:${port}:`, err.message)
+    console.warn(`[ExtensionServer] Server error on localhost:${port}:`, err.message)
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[ExtensionServer] Port ${port} is already in use by another process.`)
+    }
     server = null
   })
 
-  server.listen(port, '127.0.0.1', () => {
-    console.log(`[ExtensionServer] Atlas RPC server listening on http://127.0.0.1:${port}`)
-  })
+  try {
+    server.listen(port, '127.0.0.1', () => {
+      console.log(`[ExtensionServer] Atlas RPC server listening on http://127.0.0.1:${port}`)
+    })
+  } catch (err) {
+    console.warn(`[ExtensionServer] Failed to listen on 127.0.0.1:${port}:`, err.message)
+    server = null
+  }
 }
 
 function stopExtensionServer() {
@@ -380,8 +400,22 @@ function stopExtensionServer() {
   }
 }
 
-function isExtensionServerRunning() {
-  return server !== null
+async function isExtensionServerRunning() {
+  if (server !== null) return true
+  try {
+    return await new Promise((resolve) => {
+      const req = http.get(`http://127.0.0.1:${activePort}/api/status`, (res) => {
+        resolve(res.statusCode === 200)
+      })
+      req.on('error', () => resolve(false))
+      req.setTimeout(300, () => {
+        req.destroy()
+        resolve(false)
+      })
+    })
+  } catch {
+    return false
+  }
 }
 
 module.exports = {
