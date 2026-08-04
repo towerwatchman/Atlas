@@ -1,91 +1,141 @@
 import { describe, it, expect } from 'vitest'
-import { groupLinksBySection, hasMultipleSections, LATEST_SECTION } from '../src/components/downloads/linkSections.js'
+import {
+  buildDownloadOptions,
+  hasMultipleOptions,
+  FULL_ARCHIVE,
+} from '../src/components/downloads/linkSections.js'
 
-// Flat presentation let "Season 1" and "Old Version" look like mirrors of the
-// current build, so someone updating a game could install an older one over a
-// newer one. These assert the grouping and, importantly, the ordering.
+// The choice the user is making is WHICH BUILD, then which mirror of it. A flat
+// list let "Season 1" and the current build look interchangeable, so an update
+// could install an older build over a newer one. These assert the grouping and,
+// importantly, the ordering.
 
-const link = (host, group = '') => ({ url: `https://${host}/f/${group || 'latest'}`, host, group, label: 'Download' })
+const link = (host, group = '', platform = '') => ({
+  url: `https://${host}/f/${group || 'latest'}${platform}`,
+  host,
+  group,
+  platform,
+  label: 'Download',
+})
 
-describe('groupLinksBySection', () => {
-  it('puts ungrouped links under a heading that says they are current', () => {
-    const sections = groupLinksBySection([link('pixeldrain.com'), link('bzzhr.to')])
-    expect(sections).toHaveLength(1)
-    expect(sections[0].title).toBe(LATEST_SECTION)
-    expect(sections[0].isLatest).toBe(true)
-    expect(sections[0].links).toHaveLength(2)
+describe('buildDownloadOptions', () => {
+  it('names the unlabeled block rather than leaving it blank', () => {
+    const options = buildDownloadOptions([link('pixeldrain.com'), link('bzzhr.to')])
+    expect(options).toHaveLength(1)
+    expect(options[0].title).toBe(FULL_ARCHIVE)
+    expect(options[0].isUnlabeled).toBe(true)
+    expect(options[0].links).toHaveLength(2)
   })
 
-  it('keeps each other heading verbatim as its own section', () => {
-    const sections = groupLinksBySection([
+  it('keeps each build heading verbatim as its own option', () => {
+    const options = buildDownloadOptions([
       link('pixeldrain.com'),
-      link('bzzhr.to', 'Season 1'),
-      link('pixeldrain.com', 'Old Version'),
-      link('bzzhr.to', 'Season 1'),
+      link('bzzhr.to', 'Season 1 720p'),
+      link('pixeldrain.com', 'Season 2 Final 4K'),
+      link('bzzhr.to', 'Season 1 720p'),
     ])
-    expect(sections.map((s) => s.title)).toEqual([LATEST_SECTION, 'Season 1', 'Old Version'])
-    expect(sections[1].links).toHaveLength(2)
-    expect(sections[1].isLatest).toBe(false)
+    expect(options.map((o) => o.title)).toEqual([
+      FULL_ARCHIVE, 'Season 1 720p', 'Season 2 Final 4K',
+    ])
+    expect(options[1].links).toHaveLength(2)
+    expect(options[1].isUnlabeled).toBe(false)
   })
 
-  it('leads with the current build even when the post lists it last', () => {
-    // A thread that puts "Season 1" above its current download must not bury the
-    // thing the user came for.
-    const sections = groupLinksBySection([
+  it('does NOT collapse two builds that share a platform', () => {
+    // The FreshWomen bug, at this layer. Both DLCs were posted under
+    // "<b>Win/Linux/Mac</b>", and while platform was part of `group` they became
+    // one option named after the platform. Now platform is its own field and the
+    // two builds stay two builds.
+    const options = buildDownloadOptions([
+      link('mega.nz', "Chloe's: Desire Express DLC", 'Win/Linux/Mac'),
+      link('mega.nz', 'Julia in Japan DLC', 'Win/Linux/Mac'),
+    ])
+    expect(options.map((o) => o.title)).toEqual([
+      "Chloe's: Desire Express DLC", 'Julia in Japan DLC',
+    ])
+  })
+
+  it('collects the distinct platforms of an option for its badge', () => {
+    const options = buildDownloadOptions([
+      link('mega.nz', 'Season 2', 'Win/Linux'),
+      link('pixeldrain.com', 'Season 2', 'Win/Linux'),
+      link('bzzhr.to', 'Season 2', 'Mac'),
+    ])
+    expect(options).toHaveLength(1)
+    expect(options[0].platforms).toEqual(['Win/Linux', 'Mac'])
+  })
+
+  it('has no platforms when the poster gave none', () => {
+    expect(buildDownloadOptions([link('mega.nz', 'Season 2')])[0].platforms).toEqual([])
+  })
+
+  it('leads with the unlabeled block even when the post lists it last', () => {
+    const options = buildDownloadOptions([
       link('pixeldrain.com', 'Season 1'),
       link('bzzhr.to', 'Old Version'),
       link('pixeldrain.com'),
     ])
-    expect(sections[0].title).toBe(LATEST_SECTION)
+    expect(options[0].title).toBe(FULL_ARCHIVE)
     // Everything else keeps the post's order, which is meaningful.
-    expect(sections.slice(1).map((s) => s.title)).toEqual(['Season 1', 'Old Version'])
+    expect(options.slice(1).map((o) => o.title)).toEqual(['Season 1', 'Old Version'])
   })
 
-  it('preserves the order links arrived in within a section', () => {
-    const sections = groupLinksBySection([
+  it('preserves the order mirrors arrived in within an option', () => {
+    const options = buildDownloadOptions([
       link('pixeldrain.com', 'Season 2'),
       link('bzzhr.to', 'Season 2'),
       link('datanodes.to', 'Season 2'),
     ])
-    expect(sections[0].links.map((l) => l.host)).toEqual([
+    expect(options[0].links.map((l) => l.host)).toEqual([
       'pixeldrain.com', 'bzzhr.to', 'datanodes.to',
     ])
   })
 
-  it('treats whitespace-only and missing headings as current', () => {
-    const sections = groupLinksBySection([
+  it('never produces an option with no mirrors', () => {
+    // "Options with no supported-host mirrors are skipped entirely" is satisfied
+    // by construction: options are built FROM the already-filtered link list, so
+    // a build whose every mirror was on an unsupported host never appears. Pinned
+    // so that starting from headings instead would fail here rather than ship an
+    // empty option the user can click.
+    for (const option of buildDownloadOptions([link('mega.nz', 'A'), link('mega.nz', 'B')])) {
+      expect(option.links.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('treats whitespace-only and missing headings as unlabeled', () => {
+    const options = buildDownloadOptions([
       { url: 'a', host: 'h', group: '   ' },
       { url: 'b', host: 'h' },
       { url: 'c', host: 'h', group: null },
     ])
-    expect(sections).toHaveLength(1)
-    expect(sections[0].title).toBe(LATEST_SECTION)
-    expect(sections[0].links).toHaveLength(3)
+    expect(options).toHaveLength(1)
+    expect(options[0].title).toBe(FULL_ARCHIVE)
+    expect(options[0].links).toHaveLength(3)
   })
 
   it('survives empty and malformed input', () => {
-    expect(groupLinksBySection([])).toEqual([])
-    expect(groupLinksBySection()).toEqual([])
-    expect(groupLinksBySection(null)).toEqual([])
-    expect(groupLinksBySection([null, undefined])).toEqual([])
+    expect(buildDownloadOptions([])).toEqual([])
+    expect(buildDownloadOptions()).toEqual([])
+    expect(buildDownloadOptions(null)).toEqual([])
+    expect(buildDownloadOptions([null, undefined])).toEqual([])
   })
 
   it('does not merge headings that differ only in case or spacing', () => {
     // Deliberate: these are the poster's words and Atlas cannot tell whether
-    // "season 1" and "Season 1" are the same section in a given post. Showing
-    // both is honest; merging them would be a guess.
-    const sections = groupLinksBySection([link('h', 'Season 1'), link('h', 'season 1')])
-    expect(sections.map((s) => s.title)).toEqual(['Season 1', 'season 1'])
+    // "season 1" and "Season 1" are the same build in a given post. Showing both
+    // is honest; merging them would be a guess.
+    const options = buildDownloadOptions([link('h', 'Season 1'), link('h', 'season 1')])
+    expect(options.map((o) => o.title)).toEqual(['Season 1', 'season 1'])
   })
 })
 
-describe('hasMultipleSections', () => {
-  it('is false when the headings would add nothing', () => {
-    expect(hasMultipleSections([link('a'), link('b')])).toBe(false)
-    expect(hasMultipleSections([])).toBe(false)
+describe('hasMultipleOptions', () => {
+  it('is false when the build headings would add nothing', () => {
+    expect(hasMultipleOptions([link('a'), link('b')])).toBe(false)
+    expect(hasMultipleOptions([])).toBe(false)
   })
 
-  it('is true as soon as there is a choice to make', () => {
-    expect(hasMultipleSections([link('a'), link('b', 'Old Version')])).toBe(true)
+  it('is true as soon as there is a build to choose between', () => {
+    expect(hasMultipleOptions([link('a'), link('b', 'Old Version')])).toBe(true)
   })
 })

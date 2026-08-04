@@ -47,19 +47,36 @@ function parseAttributes(raw) {
   return out;
 }
 
-// Text with tags removed and entities collapsed enough for heading comparison.
-function stripTags(html) {
-  return String(html || "")
-    .replace(/<[^>]*>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+// stripTags now lives in headingLines, next to the line splitting that has to
+// run BEFORE it. Keeping it here is what let the <br> handling be written the
+// wrong way round for so long: stripTags deletes <br>, so any caller that
+// stripped first had already lost the line structure.
+const {
+  stripTags,
+  splitHeadingLines,
+  applyHeadingLines,
+  emptyHeading,
+  headingLabel,
+  classifyHeadingLine,
+} = require("./headingLines");
+
+// The KIND axis, shared with the update modal's filter. The old patch test was
+// `heading.includes("patch")`, a substring check that missed "Update Only"
+// entirely - a partial update, bucketed as a full game and offered as one, which
+// with on_complete: 'replace' means deleting a working install to put a fragment
+// in its place. KIND_MARKERS already knew about it; the parser just was not
+// asking.
+const { classifyGroup } = require("./groupClassifier");
+
+// Kinds that mean "the links below this heading patch an install rather than
+// being one". Anything else resets the flag.
+const PATCH_KINDS = new Set([
+  "update-only",
+  "update",
+  "patch",
+  "hotfix",
+  "incremental",
+]);
 
 // File hosts seen in the wild. Ordered longest-first so "mixdrop.ag" is not
 // shadowed by a shorter substring match. Frequencies from a 164k-link scan:
@@ -282,7 +299,10 @@ function parseThreadDownloads(html) {
 
   const seen = new Set();
   let divider = null;      // null -> downloads area | 'extras' | 'translations'
-  let group = "";
+  // Three fields where there was one string. See headingLines.js: `group` doing
+  // double duty as build label AND platform is what merged "Season 2 Final" with
+  // "4K Win/Linux/Mac" and collapsed two DLCs into one entry called "Win/Linux/Mac".
+  let heading = emptyHeading();
   let patchActive = false;
   let started = false;     // have we reached the first real download link yet
 
@@ -290,24 +310,34 @@ function parseThreadDownloads(html) {
     const tag = node.tag;
 
     if (tag === "b") {
-      const norm = stripTags(node.html)
-        .replace(/:$/, "").trim().toLowerCase();
-      if (norm === "extras" || norm === "extra") {
-        divider = "extras"; patchActive = false; group = "";
-      } else if (norm === "translations" || norm === "translation") {
-        divider = "translations"; patchActive = false; group = "";
-      } else if (norm === "download" || norm === "downloads") {
-        divider = null; patchActive = false; group = "";
-      } else {
-        // A merged "DOWNLOAD Win/Linux" heading carries the group after the word.
-        const heading = stripTags(node.html)
-          .replace(/:$/, "").trim().replace(/^download\s+/i, "");
-        group = heading;
-        // Patch tracking only matters once we are inside the download area.
-        if (started) {
-          const low = heading.toLowerCase();
-          if (low.includes("patch")) patchActive = true;
-          else if (low.includes("season")) patchActive = false;
+      // Split on <br> FIRST. One bold routinely stacks build, quality and
+      // platform on separate lines, and each line means something different.
+      for (const line of splitHeadingLines(node.html)) {
+        const norm = line.toLowerCase();
+        if (norm === "extras" || norm === "extra") {
+          divider = "extras"; patchActive = false; heading = emptyHeading();
+          continue;
+        }
+        if (norm === "translations" || norm === "translation") {
+          divider = "translations"; patchActive = false; heading = emptyHeading();
+          continue;
+        }
+        if (norm === "download" || norm === "downloads") {
+          divider = null; patchActive = false; heading = emptyHeading();
+          continue;
+        }
+        // A merged "DOWNLOAD Win/Linux" on one line still carries the heading
+        // after the word. With the split above this is now the rare case rather
+        // than the common one.
+        const text = line.replace(/^download\s+/i, "").trim();
+        if (!text) continue;
+        const kindOfLine = classifyHeadingLine(text);
+        heading = applyHeadingLines(heading, [text]);
+        // Patch tracking hangs off the BUILD line, not off any line: a bare
+        // "Win/Linux" says nothing about whether the section is a patch, and
+        // re-deciding on it is how the old substring test flip-flopped.
+        if (started && kindOfLine === "build") {
+          patchActive = PATCH_KINDS.has(classifyGroup(text).kind);
         }
       }
       continue;
@@ -333,7 +363,10 @@ function parseThreadDownloads(html) {
     let bucketName;
     if (divider === "extras" || divider === "translations") {
       bucketName = divider;
-    } else if (started && (patchActive || group.toLowerCase().includes("patch"))) {
+    } else if (
+      started &&
+      (patchActive || PATCH_KINDS.has(classifyGroup(headingLabel(heading)).kind))
+    ) {
       bucketName = "patches";
     } else if (isFile) {
       bucketName = "downloads";
@@ -350,17 +383,23 @@ function parseThreadDownloads(html) {
     } else if (bucketName === "translations") {
       kind = "translation";
     } else if (bucketName === "extras") {
-      kind = classifyType("extras", group, label, "");
+      kind = classifyType("extras", headingLabel(heading), label, "");
       if (kind === "other") {
         const alt = classifyType("extras", "", "", filenameFromUrl(url));
         if (alt !== "other") kind = alt;
       }
     } else {
-      kind = classifyType("download", group, label, "");
+      kind = classifyType("download", headingLabel(heading), label, "");
     }
 
     buckets[bucketName].push({
-      group,
+      // The poster's build heading, verbatim, with only a 4K/1080p/720p line
+      // folded in. Empty when the post gave no build heading - the DISPLAY layer
+      // names that case, so the parser and the UI cannot disagree about a string.
+      group: headingLabel(heading),
+      // Platform as its own axis, raw as written ("Win/Linux/Mac"). A filter,
+      // not part of the option's name.
+      platform: heading.platform,
       label,
       type: kind,
       host,
@@ -374,6 +413,7 @@ function parseThreadDownloads(html) {
 
 module.exports = {
   parseThreadDownloads,
+  stripTags,
   unwrap,
   isMasked,
   hostOf,

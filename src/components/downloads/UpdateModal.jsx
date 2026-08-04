@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import HostIcon from './HostIcon.jsx'
 import { buildThreadUrl } from './threadUrl.js'
-import { groupLinksBySection } from './linkSections.js'
+import { buildDownloadOptions } from './linkSections.js'
 
 // ── Update modal ─────────────────────────────────────────────────────────────
 //
@@ -33,10 +33,10 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
 
   // Where "Open thread" goes. See threadUrl.js for why this is not a template
   // string built from an id that may not exist.
-  // Links grouped by the post's own bold headings. See linkSections.js: a flat
-  // list made "Season 1" and "Old Version" look like mirrors of the current
-  // build, so an update could install an older one over a newer one.
-  const sections = groupLinksBySection(data?.links)
+  // Grouped into the BUILDS the poster offered, not a flat mirror list. See
+  // linkSections.js: the choice is which build first, which mirror second, and a
+  // flat list made "Season 1" and the current build look interchangeable.
+  const options = buildDownloadOptions(data?.links)
   const threadUrl = buildThreadUrl({
     siteUrl: game?.siteUrl || game?.site_url,
     lewdCornerSiteUrl: game?.lewdCornerSiteUrl || game?.lewdcornerSiteUrl,
@@ -134,13 +134,14 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
 
   const links = data?.links || []
   const hidden = data?.hiddenMultiPart
+  const hiddenPlatform = data?.hiddenPlatform
 
   return (
     <div
       className="fixed inset-0 z-[1500] bg-black/60 flex items-center justify-center p-4"
       onClick={(event) => { if (event.target === event.currentTarget) onClose?.() }}
     >
-      <div className="w-full max-w-lg max-h-[80vh] flex flex-col rounded-lg border border-border bg-primary shadow-2xl overflow-hidden">
+      <div className="w-full max-w-xl max-h-[85vh] sm:max-h-[80vh] flex flex-col rounded-lg border border-border bg-primary shadow-2xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-base text-text truncate">Update {title}</h2>
@@ -199,7 +200,12 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
               {threadUrl ? (
                 <button
                   type="button"
-                  onClick={() => window.electronAPI.openExternal?.(threadUrl)}
+                  // openExternalUrl, not openExternal. The wrong name plus `?.` made
+                  // this button do nothing at all: no error, no console warning,
+                  // because optional chaining on a missing method is a silent no-op.
+                  // scripts/check-preload-api.js now reconciles every call site
+                  // against what preload exposes.
+                  onClick={() => window.electronAPI.openExternalUrl?.(threadUrl)}
                   className="mt-3 h-8 px-3 text-xs rounded-buttonTheme bg-button hover:bg-buttonHover text-text"
                 >
                   Open thread
@@ -217,67 +223,106 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
           {!loading && !error && links.length > 0 && (
             <>
               <p className="text-xs text-muted">
-                Choose a mirror. F95zone will ask you to confirm in a browser
-                window before the download starts.
-                {sections.length > 1 && ' This thread offers more than one build \u2014 check which section you are picking from.'}
+                {options.length > 1
+                  ? 'This thread offers more than one build. Pick the build first, then a mirror.'
+                  : 'Choose a mirror.'}{' '}
+                F95zone will ask you to confirm in a browser window before the
+                download starts.
               </p>
-              {sections.map((section) => (
-                <div key={section.title} className="space-y-1.5">
-                  {/* Headings only appear when there is more than one section.
-                      With a single section they would be a label on a list that
-                      has no alternative, which is noise. */}
-                  {sections.length > 1 && (
-                    <div className="flex items-center gap-2 pt-1">
-                      <span className={`text-[11px] font-medium ${section.isLatest ? 'text-accent' : 'text-muted'}`}>
-                        {section.title}
+              {options.map((option) => (
+                <div key={option.title} className="space-y-1.5">
+                  {/* The build label only appears when there is a build to choose
+                      between. With one option it is a caption on a list that has
+                      no alternative, which is noise.
+
+                      There is deliberately no "not the current build" warning any
+                      more. It was written for the flat list, where nothing else
+                      distinguished the sections; now the option is NAMED with the
+                      poster's own heading, which says it better and says it for
+                      the newest build too - where the old badge was simply wrong. */}
+                  {options.length > 1 && (
+                    <div className="flex items-baseline gap-2 pt-1">
+                      <span className={`text-xs font-medium ${option.isUnlabeled ? 'text-accent' : 'text-text'}`}>
+                        {option.title}
                       </span>
-                      <span className="flex-1 h-px bg-border" />
-                      {!section.isLatest && (
-                        <span className="text-[10px] text-amber-400">not the current build</span>
+                      {/* Platform is an axis of its own now, so it is a badge on
+                          the build rather than words inside its name. */}
+                      {option.platforms.length > 0 && (
+                        <span className="text-[10px] text-muted shrink-0">
+                          {option.platforms.join(' \u00b7 ')}
+                        </span>
                       )}
+                      <span className="flex-1 h-px bg-border" />
+                      <span className="text-[10px] text-muted shrink-0">
+                        {option.links.length}{' '}
+                        {option.links.length === 1 ? 'mirror' : 'mirrors'}
+                      </span>
                     </div>
                   )}
-                {section.links.map((link) => {
-                  const busy = resolvingUrl === link.url
-                  return (
-                    <button
-                      key={link.url}
-                      type="button"
-                      onClick={() => choose(link)}
-                      disabled={Boolean(resolvingUrl)}
-                      className={`w-full flex items-center gap-3 rounded border border-border p-2.5 text-left transition-colors ${
-                        resolvingUrl && !busy
-                          ? 'opacity-50 cursor-not-allowed'
-                          : 'hover:bg-tertiary'
-                      }`}
-                    >
-                      <HostIcon host={link.host} className="w-5 h-5 text-muted" />
-                      <span className="flex-1 min-w-0">
-                        <span className="block text-sm text-text truncate">
-                          {prettyHost(link.host)}
-                        </span>
-                        <span className="block text-[11px] text-muted truncate">
-                          {[
-                            // The section heading is already above the row when
-                            // there is more than one, so repeating it per link
-                            // just crowds out what actually differs.
-                            sections.length > 1 ? null : (link.group || null),
-                            link.compressed ? 'compressed build' : null,
-                            (link.platforms || []).join('/') || null,
-                          ].filter(Boolean).join(' · ') || prettyHost(link.host)}
-                        </span>
-                      </span>
-                      {busy ? (
-                        <i className="fas fa-circle-notch fa-spin text-sm text-accent" aria-hidden="true"></i>
-                      ) : (
-                        <i className="fas fa-chevron-right text-xs text-muted" aria-hidden="true"></i>
-                      )}
-                    </button>
-                  )
-                })}
+                  {/* Mirror chips, not full-width rows. A row per link made a
+                      four-mirror build four screens tall while carrying one word
+                      of information each; these are sized to fit the longest host
+                      name in the data ("Buzzheavier.com") and wrap. On a narrow
+                      window they fall back to one per row on their own, because
+                      the basis is a min-width rather than a fraction. */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {option.links.map((link) => {
+                      const busy = resolvingUrl === link.url
+                      return (
+                        <button
+                          key={link.url}
+                          type="button"
+                          onClick={() => choose(link)}
+                          disabled={Boolean(resolvingUrl)}
+                          title={[prettyHost(link.host), option.title, link.compressed ? 'compressed build' : null]
+                            .filter(Boolean).join(' \u2014 ')}
+                          className={`grow sm:grow-0 basis-full sm:basis-[9.5rem] min-w-0 inline-flex items-center gap-2 rounded border border-border px-2.5 py-2 text-left transition-colors ${
+                            resolvingUrl && !busy
+                              ? 'opacity-50 cursor-not-allowed'
+                              : 'hover:bg-tertiary hover:border-accent/50'
+                          }`}
+                        >
+                          {busy ? (
+                            <i className="fas fa-circle-notch fa-spin text-xs text-accent shrink-0" aria-hidden="true"></i>
+                          ) : (
+                            <HostIcon host={link.host} className="w-4 h-4 shrink-0 text-muted" />
+                          )}
+                          <span className="min-w-0 flex-1">
+                            {/* The bare host, which is what the thread itself
+                                shows. The subtitle that used to repeat the group
+                                here is gone: it is the heading above now. */}
+                            <span className="block text-xs text-text truncate">
+                              {prettyHost(link.host)}
+                            </span>
+                            {link.compressed && (
+                              <span className="block text-[10px] text-amber-400 truncate">
+                                compressed
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               ))}
             </>
+          )}
+
+          {/* Builds this machine cannot run. Shown as a count rather than as
+              greyed rows: it is not a choice, so it should not look like one -
+              but a thread that visibly has downloads while Atlas shows none of
+              them needs to say why. */}
+          {!loading && hiddenPlatform?.links > 0 && (
+            <div className="rounded border border-border p-3 text-xs text-muted">
+              <span className="text-text font-medium">
+                {hiddenPlatform.links}{' '}
+                {hiddenPlatform.links === 1 ? 'mirror' : 'mirrors'}
+              </span>{' '}
+              {hiddenPlatform.links === 1 ? 'was' : 'were'} posted for{' '}
+              {hiddenPlatform.platforms.join(' / ') || 'another platform'}, which
+              this machine can&rsquo;t run.
+            </div>
           )}
 
           {/* Only shown when split archives were actually found. */}

@@ -27,6 +27,7 @@ const {
   filenameFromUrl,
   classifyType,
 } = require("../electron/downloads/f95ThreadParser");
+const { selectDownloadableLinks } = require("../electron/downloads/groupClassifier");
 
 let checks = 0;
 const check = (condition, message) => {
@@ -97,11 +98,19 @@ const page = (inner) => `<!doctype html><html data-logged-in="true"
   assert.strictEqual(result.downloads.length, 3);
   checks += 3;
 
-  // A group heading applies to every link after it until the next heading.
-  assert.strictEqual(result.downloads[0].group, "Win/Linux");
-  assert.strictEqual(result.downloads[1].group, "Win/Linux");
-  assert.strictEqual(result.downloads[2].group, "Mac");
-  checks += 3;
+  // A heading applies to every link after it until the next one. What CHANGED
+  // here: "Win/Linux" is a platform-only bold, so it now sets `platform` and
+  // leaves `group` empty rather than becoming the build's name. These three
+  // links are the whole game with nothing further said about it, which the
+  // display layer names "Full Archive" - and the Mac links are a different
+  // platform of the same build, not a different build.
+  assert.strictEqual(result.downloads[0].group, "");
+  assert.strictEqual(result.downloads[1].group, "");
+  assert.strictEqual(result.downloads[2].group, "");
+  assert.strictEqual(result.downloads[0].platform, "Win/Linux");
+  assert.strictEqual(result.downloads[1].platform, "Win/Linux");
+  assert.strictEqual(result.downloads[2].platform, "Mac");
+  checks += 6;
 
   assert.strictEqual(result.downloads[0].host, "mega.nz");
   assert.strictEqual(result.downloads[0].masked, true);
@@ -115,9 +124,11 @@ const page = (inner) => `<!doctype html><html data-logged-in="true"
     <b>DOWNLOAD Win/Linux</b>
     <a href="https://mixdrop.ag/f/abc">MIXDROP</a>
   `));
-  assert.strictEqual(result.downloads[0].group, "Win/Linux");
+  // Same split: the stripped remainder is a platform, so it lands on `platform`.
+  assert.strictEqual(result.downloads[0].group, "");
+  assert.strictEqual(result.downloads[0].platform, "Win/Linux");
   assert.strictEqual(result.downloads[0].masked, false, "mixdrop links are not masked");
-  checks += 2;
+  checks += 3;
 }
 
 {
@@ -186,6 +197,141 @@ const page = (inner) => `<!doctype html><html data-logged-in="true"
 
 const fixtureDir = process.env.F95_FIXTURES || path.resolve(
   __dirname, "..", "..", "atlas-gamedb", "scraper", "fixtures");
+
+// ── Build headings, from the structures observed on real threads ────────────
+//
+// Every case below is a <br>-stacked bold recorded in the session handoff with
+// its observed-vs-wanted label. These assertions FAIL against the flatten-first
+// parser, which is the only thing that makes them worth having: stripTags
+// deletes <br>, so "Season 1<br>1080p<br>Win/Linux" arrived as one string and
+// one string could not be both a build label and a platform.
+
+const wrapBody = (inner) =>
+  `<html data-logged-in="true" data-content-key="thread-95982">` +
+  `<div class="bbWrapper">${inner}</div></html>`;
+const mirror = (n) => `<a href="https://f95zone.to/masked/mega.nz/1/2/s/i/p${n}">MEGA</a>`;
+
+{
+  // FreshWomen. Four rows, all four wrong before this.
+  const parsed = parseThreadDownloads(wrapBody(`
+    <b>DOWNLOAD</b>
+    <b>Season 2 Final</b>
+    <b>4K<br>Win/Linux/Mac</b>            ${mirror(1)}
+    <b>Season 1<br>1080p<br>Win/Linux</b> ${mirror(2)}
+    <b>720p<br>Win/Linux</b>              ${mirror(3)}
+    <b>Chloe's: Desire Express DLC</b>
+    <b>Win/Linux/Mac</b>                  ${mirror(4)}
+    <b>Julia in Japan DLC</b>
+    <b>Win/Linux/Mac</b>                  ${mirror(5)}
+  `));
+
+  assert.deepStrictEqual(
+    parsed.downloads.map((link) => link.group),
+    [
+      // A platform-only bold no longer erases the build above it.
+      "Season 2 Final 4K",
+      "Season 1 1080p",
+      // 720p inherits "Season 1" and REPLACES 1080p rather than stacking on it.
+      "Season 1 720p",
+      // Two DLCs under one shared "Win/Linux/Mac" stay two builds.
+      "Chloe's: Desire Express DLC",
+      "Julia in Japan DLC",
+    ],
+    "FreshWomen build labels",
+  );
+  assert.deepStrictEqual(
+    parsed.downloads.map((link) => link.platform),
+    ["Win/Linux/Mac", "Win/Linux", "Win/Linux", "Win/Linux/Mac", "Win/Linux/Mac"],
+    "FreshWomen platforms, as their own axis",
+  );
+  checks += 2;
+}
+
+{
+  // doc 5. "Update Only" is a partial update; offered as a full game with
+  // on_complete: 'replace' it would delete a working install and leave a
+  // fragment. The old test was heading.includes("patch"), which never matched.
+  const parsed = parseThreadDownloads(wrapBody(`
+    <b>DOWNLOAD</b>
+    <b>v0.9 Full<br>Win/Linux</b>   ${mirror(1)}
+    <b>Update Only<br>Win/Linux</b> ${mirror(2)}
+  `));
+  assert.deepStrictEqual(parsed.downloads.map((l) => l.group), ["v0.9 Full"],
+    "Update Only is not offered as a download");
+  assert.deepStrictEqual(parsed.patches.map((l) => l.group), ["Update Only"],
+    "Update Only is bucketed as a patch");
+  checks += 2;
+}
+
+{
+  // A "Split" bold followed by bare mirrors. Nothing said "Part 1", so the
+  // multi-part detector had nothing to match and every fragment was offered as a
+  // whole game. Split is a KIND now, and KIND outranks platform.
+  const parsed = parseThreadDownloads(wrapBody(
+    `<b>DOWNLOAD</b><b>Split<br>Win</b>${mirror(1)}${mirror(2)}`));
+  const selection = selectDownloadableLinks(parsed.downloads, { platform: "win32" });
+  check(selection.singles.length === 0, "a Split heading offers nothing");
+  check(selection.rejected.every((entry) => entry.verdict.kind === "split"),
+    "Split is refused on kind, not on platform");
+}
+
+{
+  // Patch tracking hangs off the BUILD line. A bare platform bold says nothing
+  // about whether the section is a patch, and re-deciding on it is how the old
+  // substring test flip-flopped mid-section.
+  const parsed = parseThreadDownloads(wrapBody(`
+    <b>DOWNLOAD</b>
+    <b>Patch v3</b>
+    <b>Win/Linux</b> ${mirror(1)}
+    <b>Win/Mac</b>   ${mirror(2)}
+  `));
+  check(parsed.downloads.length === 0, "a platform bold does not end a patch section");
+  check(parsed.patches.length === 2, "both mirrors stay in the patch bucket");
+}
+
+{
+  // A build heading with no links directly beneath it is SKIPPED - the next
+  // heading wins. This is FreshWomen's "Season 1&2 + DLCs", and it is pinned
+  // deliberately rather than left incidental.
+  //
+  // It is also, for now, Summer's Gone's "DLC" - where the wanted answer was
+  // "DLC: Valentine". Those two cases are structurally identical and the handoff
+  // gave them opposite answers, so prefixing has to be decided on MEANING.
+  // Prefixing only a generic parent would give both answers for the FIRST child
+  // and then get every sibling after it wrong: "Voidseeker" arriving after links
+  // is indistinguishable from a new top-level "Season 3 - 64%" arriving after
+  // links, and only container nesting separates them. walkElements is flat by
+  // design, so persistent parent scope is not knowable here - which makes the
+  // prefix question and the nesting question ONE question, not two.
+  const parsed = parseThreadDownloads(wrapBody(`
+    <b>DOWNLOAD</b>
+    <b>Season 1&amp;2 + DLCs</b>
+    <b>Season 2 Final<br>Win/Linux</b> ${mirror(1)}
+  `));
+  assert.deepStrictEqual(parsed.downloads.map((l) => l.group), ["Season 2 Final"],
+    "a heading with no links beneath it is skipped");
+  checks += 1;
+}
+
+{
+  // Builds refused on platform are counted, not dropped in silence. A thread
+  // that visibly has downloads while Atlas shows none of them has to say why.
+  const parsed = parseThreadDownloads(wrapBody(`
+    <b>DOWNLOAD</b>
+    <b>Season 2<br>Win/Linux</b> ${mirror(1)}
+    <b>Season 2<br>Mac</b>       ${mirror(2)}
+  `));
+  const selection = selectDownloadableLinks(parsed.downloads, { platform: "win32" });
+  check(selection.singles.length === 1, "the usable build is offered");
+  check(selection.hiddenPlatform.links === 1, "the Mac build is counted as hidden");
+  check(selection.hiddenPlatform.platforms.includes("mac"), "and names the platform");
+  // A kind rejection must not be counted as a platform rejection.
+  const withPatch = selectDownloadableLinks(
+    [{ group: "Update Only", platform: "Win", host: "mega.nz", url: "x" }],
+    { platform: "win32" });
+  check(withPatch.hiddenPlatform.links === 0,
+    "a patch is not reported as hidden on platform");
+}
 
 if (fs.existsSync(fixtureDir)) {
   const files = fs.readdirSync(fixtureDir)

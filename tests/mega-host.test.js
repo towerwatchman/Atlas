@@ -338,9 +338,23 @@ describe('MEGA account crypto', () => {
     expect(n).toBe(p * q)
 
     const sid = crypto.randomBytes(43)
+    // The plaintext is the session id LEFT-aligned in a modulus-width buffer, so
+    // its leading byte is sid[0] and the integer it forms must be a valid RSA
+    // plaintext: strictly less than n, and with no leading zero byte for
+    // decryptSessionId's leading-zero strip to eat.
+    //
+    // Random bytes satisfy neither. n's top byte is uniform-ish over [0x80,0xFF],
+    // so a raw sid[0] exceeded it about a quarter of the time and the modPow
+    // wrapped; sid[0] === 0 broke it a further 1-in-256. This test failed 2 runs
+    // in 8 on a pristine tree and passed at the end of the last session by luck.
+    // Clamping sid[0] into [1, nTop-1] makes the comparison decide on the first
+    // byte alone, which is what makes it deterministic rather than merely likelier.
+    const nTop = Number(n >> BigInt((n.toString(16).length / 2 - 1) * 8) & 0xffn)
+    sid[0] = (sid[0] % (nTop - 1)) + 1
     const width = Math.ceil(n.toString(16).length / 2)
     const padded = Buffer.alloc(width)
     sid.copy(padded, 0)
+    expect(BigInt(`0x${padded.toString('hex')}`) < n).toBe(true)
     const cipher = account.modPow(BigInt(`0x${padded.toString('hex')}`), big(jwk.e), n)
 
     expect(account.decryptSessionId(account.toBase64Url(mpi(cipher)), { d, n }))
@@ -443,5 +457,138 @@ describe('mega plugin account surface', () => {
   it('classifies the two-factor error codes as auth', () => {
     expect(mega.classifyError(null, { body: '-26' })).toBe('auth')
     expect(mega.classifyError(null, { body: '-27' })).toBe('auth')
+  })
+})
+
+describe('describeHttpStatus', () => {
+  it('names an unreadable proof-of-work challenge for a bare 402', () => {
+    // A 402 is MEGA asking for proof of work. Reaching this message means the
+    // challenge header was missing or unparseable, which is a different problem
+    // from the work being too slow - and neither is a wrong password.
+    const message = mega.describeHttpStatus(402, '')
+    expect(message).toMatch(/402/)
+    expect(message).toMatch(/proof-of-work challenge/i)
+    expect(message).toMatch(/anonymous downloads are unaffected/i)
+    expect(message).not.toMatch(/password/i)
+  })
+
+  it('distinguishes a proof of work that ran out of time', () => {
+    // Retryable and CPU-bound, so it says so rather than reporting a refusal.
+    const message = mega.describeHttpStatus(402, 'the proof of work did not finish in time')
+    expect(message).toMatch(/did not finish in time/i)
+    expect(message).toMatch(/trying again/i)
+  })
+
+  it('includes whatever MEGA said, when it said anything', () => {
+    // The body used to be discarded, which is why a 402 arrived with no evidence.
+    expect(mega.describeHttpStatus(402, '-15')).toMatch(/MEGA said: -15/)
+    expect(mega.describeHttpStatus(500, 'try later')).toMatch(/MEGA said: try later/)
+  })
+
+  it('truncates nothing it was not given', () => {
+    expect(mega.describeHttpStatus(500, '')).not.toMatch(/MEGA said/)
+  })
+
+  it('marks 5xx as worth retrying and 429 as rate limiting', () => {
+    expect(mega.describeHttpStatus(503, '')).toMatch(/worth retrying/i)
+    expect(mega.describeHttpStatus(429, '')).toMatch(/rate limiting/i)
+  })
+})
+
+describe('the MAC is CBC, and identical to the per-block definition', () => {
+  const crypto = require('crypto')
+  const { cbcMacSpan, encryptBlock } = require('../electron/downloads/hosts/megaDecrypt')
+
+  // MEGA defines the chunk MAC as `mac = E(K, mac XOR block)` iterated. Written
+  // literally that allocates an OpenSSL cipher context per 16 bytes, which
+  // measured 5 MB/s against 93 MB/s for the AES-CTR beside it - the integrity
+  // check was capping MEGA downloads at ~10 MB/s on a gigabit line.
+  //
+  // Iterated `E(K, mac XOR block)` IS CBC, so the MAC is the last ciphertext
+  // block of one CBC pass. This is the reference implementation of the literal
+  // definition, kept solely to prove the fast path agrees with it: "these are the
+  // same operation" is the whole basis for the change, so it is asserted rather
+  // than reasoned about.
+  const naiveMac = (key, startMac, data) => {
+    let mac = Buffer.from(startMac)
+    for (let i = 0; i < data.length; i += 16) {
+      const working = Buffer.from(mac)
+      for (let j = 0; j < 16; j += 1) working[j] ^= data[i + j]
+      mac = encryptBlock(key, working)
+    }
+    return mac
+  }
+
+  it('agrees with the per-block loop on a single block', () => {
+    const key = crypto.randomBytes(16)
+    const mac = crypto.randomBytes(16)
+    const data = crypto.randomBytes(16)
+    expect(cbcMacSpan(key, mac, data).equals(naiveMac(key, mac, data))).toBe(true)
+  })
+
+  it('agrees across many blocks', () => {
+    const key = crypto.randomBytes(16)
+    const mac = crypto.randomBytes(16)
+    for (const blocks of [2, 3, 17, 256, 1024]) {
+      const data = crypto.randomBytes(blocks * 16)
+      expect(cbcMacSpan(key, mac, data).equals(naiveMac(key, mac, data)))
+        .toBe(true)
+    }
+  })
+
+  it('agrees when a span is split, which is what arriving network chunks do', () => {
+    // The stream feeds spans of whatever size the socket delivered, clipped to
+    // chunk boundaries. Splitting a span must not change the result, or the MAC
+    // would depend on network timing.
+    const key = crypto.randomBytes(16)
+    const start = crypto.randomBytes(16)
+    const data = crypto.randomBytes(64 * 16)
+    const whole = cbcMacSpan(key, start, data)
+    let piecewise = start
+    for (const cut of [[0, 16], [16, 400], [400, 640], [640, 1024]]) {
+      piecewise = cbcMacSpan(key, piecewise, data.subarray(cut[0], cut[1]))
+    }
+    expect(piecewise.equals(whole)).toBe(true)
+  })
+
+  it('returns the running mac unchanged for an empty span', () => {
+    const key = crypto.randomBytes(16)
+    const mac = crypto.randomBytes(16)
+    expect(cbcMacSpan(key, mac, Buffer.alloc(0)).equals(mac)).toBe(true)
+  })
+
+  it('produces the same meta-MAC as before for a multi-chunk file', async () => {
+    // End to end: a file spanning several chunk boundaries must still verify,
+    // which is the property the download depends on.
+    const { createMegaDecryptStream } = require('../electron/downloads/hosts/megaDecrypt')
+    const key = crypto.randomBytes(16)
+    const nonce = crypto.randomBytes(8)
+    // 900KB crosses the 128K, 256K and 384K chunks and lands inside the fourth.
+    const plain = crypto.randomBytes(900 * 1024)
+    const enc = crypto.createCipheriv('aes-128-ctr', key, Buffer.concat([nonce, Buffer.alloc(8)]))
+    const cipher = Buffer.concat([enc.update(plain), enc.final()])
+
+    const run = (stream) => new Promise((resolve, reject) => {
+      const out = []
+      stream.on('data', (d) => out.push(d))
+      stream.on('end', () => resolve(Buffer.concat(out)))
+      stream.on('error', reject)
+      // Written in odd-sized pieces so spans do not align to chunk boundaries.
+      let offset = 0
+      while (offset < cipher.length) {
+        const end = Math.min(offset + 7777, cipher.length)
+        stream.write(cipher.subarray(offset, end))
+        offset = end
+      }
+      stream.end()
+    })
+
+    const first = createMegaDecryptStream({ key, nonce })
+    expect((await run(first)).equals(plain)).toBe(true)
+    const mac = first.computedMac()
+
+    const second = createMegaDecryptStream({ key, nonce, metaMac: mac })
+    await run(second)
+    expect(second.verify()).toBe(true)
   })
 })
