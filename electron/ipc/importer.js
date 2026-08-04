@@ -1000,6 +1000,12 @@ async function replaceInstalledVersionAfterImport({
     allowedDeletionPath: hadOldFiles ? oldPathAllowed : null,
     trustCapturedBeforeVersionUpdate: trustedOldPath !== null,
   });
+  // Declared out here, NOT inside `if (hadOldFiles)`. The save-restore step
+  // further down runs after that block closes, so a block-scoped `let` here is
+  // invisible to it and reading it throws ReferenceError on every call --
+  // including the happy path -- which meant saves were backed up and then
+  // silently never restored. Keep this at function scope.
+  let saveBackup = null;
   if (hadOldFiles) {
     if (!oldPathAllowed) {
       return {
@@ -1027,7 +1033,6 @@ async function replaceInstalledVersionAfterImport({
       };
     }
 
-    let saveBackup = null;
     try {
       saveBackup = await backupSaveArtifacts({
         oldGamePath: resolvedOldPath,
@@ -4919,4 +4924,10 @@ module.exports.__testables = {
   isRarArchivePath,
   getConfiguredExtractionExtensions,
   getConfiguredGameExtensions,
+  // Exposed so the save-preservation restore path can be exercised directly.
+  // Callable without registerImporterHandlers(ctx): the helpers it needs
+  // (normalizeForPathCompare, removeEmptyParentDirectories, isAllowedDeletionPath)
+  // are module-level function declarations, and passing oldVersionSnapshot +
+  // trustedOldPath + deleteDatabaseRow:false keeps it off the database entirely.
+  replaceInstalledVersionAfterImport,
 };

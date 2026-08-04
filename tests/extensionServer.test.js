@@ -57,8 +57,11 @@ describe('Extension Server & Thread Parser', () => {
       stopExtensionServer()
     })
 
-    it('reports server running status', () => {
-      expect(isExtensionServerRunning()).toBe(true)
+    // isExtensionServerRunning is async, so without `await` this compared a
+    // Promise against `true` and always failed -- the "is the server up?"
+    // contract was never actually asserted.
+    it('reports server running status', async () => {
+      await expect(isExtensionServerRunning()).resolves.toBe(true)
     })
 
     it('responds to GET /api/status with ok status', async () => {
