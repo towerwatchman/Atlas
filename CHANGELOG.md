@@ -3,6 +3,23 @@
 ## Unreleased
 
 ### Fixed
+- An open context submenu closed every time the import progress bar ticked, wherever the cursor was, which made "Add to > <collection>" effectively unusable during an import. Nothing about progress touches the menu -- the path ran entirely through React identity.
+- `App.jsx` holds `importProgress` in state, so every `import-progress` IPC event re-renders App. Its call site passes `onClose={() => setGameMenu(null)}`, a NEW function on every render. `ContextMenu`'s listener effect listed `onClose` in its dependencies AND called `setOpenPath([])` in its body, so a fresh identity re-ran the effect and wiped the open-submenu path. The menu was reacting to its parent re-rendering rather than to user input; progress was merely the state that changes several times a second, and any parent state at any cadence would have done it.
+- `setOpenPath([])` now lives in its own effect keyed on `open` alone, which is the only thing that should reset navigation. It still has a real job -- the component returns null while closed rather than unmounting, so reopening on a different game would otherwise inherit the previous submenu -- and that is asserted separately, because losing it would be a worse bug than the one being fixed.
+- `onClose` is read through a ref, so the window listeners are registered once per open instead of once per parent render. A ref rather than asking the caller for a `useCallback`: a menu that stays open only while its parent happens not to re-render is not a fixed menu, and the next call site would reintroduce the bug. The ref is refreshed every render, so the closer is stable AND never stale -- which is asserted by checking that an outside click calls the LATEST `onClose` and not the one captured at open.
+- `src/App.jsx` is deliberately unchanged. Stabilising that one call site would have hidden this rather than fixed it, and the component is now correct for every caller.
+
+### Added
+- `tests/context-menu-stability.test.jsx` (7). Written before the fix and confirmed to reproduce the report: three tests failed on the pre-fix component -- one tick, a burst of twenty-five, and the two-level `Manage > Remove from Collection > RPG` path -- while the four guard tests for Escape, outside pointerdown, portaled-submenu clicks and reopen-resets passed both before and after, which is what makes them guards.
+- Rendering was the only way to catch this. `context-menu.test.js` asserts what `buildGameContextMenu` produces and passes either way; nothing had ever mounted the component.
+
+### Notes
+- Audited the rest of `src/` for the same shape -- an effect that calls a setter in its body while naming a prop callback in its dependencies. Two other candidates, both benign: the app-update toast effect calls `setAppUpdateNotice` inside an `onDismiss` callback rather than in the effect body, and the ratings effect has an early-return guard that its own body satisfies on the next render. Neither is worth changing.
+- Not changed, but observed while in there: `SubmenuAnchor` rebuilds its `submenu` element array on every render, so the measuring layout effect re-runs and calls `getBoundingClientRect` on each open panel per parent render. It recomputes the same position, so it is waste rather than a bug, and memoising it would need care because that identity is currently the only signal that the submenu's contents changed.
+
+## Unreleased
+
+### Fixed
 - The download button offered a flat list of MIRRORS where the thread offers BUILDS, and the labels on them were wrong on every real thread checked. `group` was one string doing two jobs -- build label and platform -- and headings were read as flattened text rather than as lines. `stripTags` deletes `<br>` and collapses whitespace, so `<b>Season 1<br>1080p<br>Win/Linux</b>` arrived as one string, and a platform-only `<b>Win/Linux/Mac</b>` REPLACED the group entirely.
 - On FreshWomen that produced `4KWin/Linux/Mac` where the build is `Season 2 Final 4K` -- the platform merged in AND the build label above it erased. Two DLCs posted under separate headings but a shared `<b>Win/Linux/Mac</b>` collapsed into one option named after a platform. `Season 1` was gone by the time `<b>720p<br>Win/Linux</b>` arrived, leaving a build called `720p`. Only `Season 1 1080p` was right, and only by luck: those two words happened to share one bold.
 - `electron/downloads/headingLines.js`: splits a bold on `<br>` BEFORE stripping tags, then gives each line its own job. A platform-only line sets the platform and LEAVES THE BUILD LABEL ALONE, which is the whole point. `4K`/`1080p`/`720p` fill a separate quality slot. Anything else replaces the base label.

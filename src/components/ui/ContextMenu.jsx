@@ -53,6 +53,25 @@ export default function ContextMenu({ open, x = 0, y = 0, items = [], onClose, o
     return () => panelsRef.current.delete(node)
   }, [])
 
+  // onClose read through a ref so it is NOT an effect dependency.
+  //
+  // The call site passes `onClose={() => setGameMenu(null)}` - a new function on
+  // every parent render - and the listener effect below both listed onClose in
+  // its dependencies and reset the open submenu path in its body. So anything
+  // that re-rendered App closed the open submenu, wherever the cursor was. The
+  // import progress bar was the visible symptom because it ticks several times a
+  // second, but any parent state at any cadence did it.
+  //
+  // A ref rather than asking the caller for a useCallback: a menu that only stays
+  // open while its parent happens not to re-render is not a fixed menu, and the
+  // next call site would reintroduce it. The ref is kept current on every render,
+  // so `close` is stable AND never stale.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+  const close = useCallback(() => onCloseRef.current?.(), [])
+
   // Measured after paint so the real height is known before deciding to clamp.
   useLayoutEffect(() => {
     if (!open || !rootRef.current) return
@@ -65,13 +84,22 @@ export default function ContextMenu({ open, x = 0, y = 0, items = [], onClose, o
     })
   }, [open, x, y, items])
 
+  // Collapsing the submenus is tied to the menu OPENING, which is the only thing
+  // that should reset navigation. It used to live in the listener effect below,
+  // where it ran again on every re-registration - and the listeners re-registered
+  // on every parent render. Reopening on a different game must still start fresh,
+  // since the component is never unmounted (it returns null while closed) and the
+  // path would otherwise persist.
+  useEffect(() => {
+    if (open) setOpenPath([])
+  }, [open])
+
   useEffect(() => {
     if (!open) return undefined
-    setOpenPath([])
     const onKey = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault()
-        onClose?.()
+        close()
       }
     }
     // `capture` so the menu closes before an underlying element handles the
@@ -81,26 +109,28 @@ export default function ContextMenu({ open, x = 0, y = 0, items = [], onClose, o
       for (const panel of panelsRef.current) {
         if (panel.contains(event.target)) return
       }
-      onClose?.()
+      close()
     }
     window.addEventListener('keydown', onKey)
     window.addEventListener('pointerdown', onPointerDown, true)
-    window.addEventListener('blur', onClose)
-    window.addEventListener('resize', onClose)
+    window.addEventListener('blur', close)
+    window.addEventListener('resize', close)
     return () => {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('pointerdown', onPointerDown, true)
-      window.removeEventListener('blur', onClose)
-      window.removeEventListener('resize', onClose)
+      window.removeEventListener('blur', close)
+      window.removeEventListener('resize', close)
     }
-  }, [open, onClose])
+    // `close` is stable, so these listeners are registered once per open rather
+    // than once per parent render.
+  }, [open, close])
 
   const run = useCallback((item) => {
     if (!item || item.disabled) return
-    onClose?.()
+    close()
     if (item.data) onAction?.(item.data)
     else item.onSelect?.()
-  }, [onAction, onClose])
+  }, [onAction, close])
 
   if (!open) return null
 
