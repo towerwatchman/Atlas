@@ -99,6 +99,10 @@ const {
 const { getCatalogIndexStatus, rebuildCatalogIndex } = require('./db/catalogIndex')
 const { isWriteLockBusy, activeWriteLockLabel } = require('./db/writeLock')
 const { buildDefaultConfig, mergeWithDefaults } = require('./config/configSchema')
+// Shared across main.js, ipc/importer.js and ipc/games.js. Was a local Map here
+// passed through ctx, which module-level functions in importer.js could not
+// see -- see library/recentlyDeleted.js for what that cost.
+const recentlyDeleted = require('./library/recentlyDeleted')
 const { sanitizeConfigFile } = require('./config/configSanitizer')
 const { migrateActiveLayoutToFile, readActiveLayout, writeActiveLayout } = require('./config/bannerLayoutStore')
 
@@ -151,7 +155,6 @@ const accountStore = require('./accounts/accountStore')
 // ── Shared mutable state ────────────────────────────────────────────────────
 
 const contextMenuData = new Map()
-const recentlyDeletedGamePaths = new Map()
 const gameDetailsRecordMap = new Map()
 
 let contextMenuId = 0
@@ -831,7 +834,7 @@ async function isAllowedDeletionPath(recordId, folderPath) {
   if (!recordId || !folderPath || typeof folderPath !== 'string') return false
   const resolvedPath = path.resolve(folderPath)
   const knownVersionPaths = await getVersionPathsForRecord(recordId)
-  const recentlyDeletedPaths = recentlyDeletedGamePaths.get(recordId) || []
+  const recentlyDeletedPaths = recentlyDeleted.pathsFor(recordId)
   if (
     [...knownVersionPaths, ...recentlyDeletedPaths].some(
       (knownPath) => normalizeForPathCompare(knownPath) === normalizeForPathCompare(resolvedPath)
@@ -898,8 +901,7 @@ async function deleteTitleRecord(recordId, { deleteFiles = false } = {}) {
     }
     const result = await deleteGameCompletely(recordId, getAssetBasePath(), process.defaultApp)
     if (!result.success) return result
-    recentlyDeletedGamePaths.set(recordId, versionPaths)
-    setTimeout(() => recentlyDeletedGamePaths.delete(recordId), 5 * 60 * 1000)
+    recentlyDeleted.remember(recordId, versionPaths)
     BrowserWindow.getAllWindows().forEach((win) => {
       if (!win.isDestroyed()) win.webContents.send('game-deleted', recordId)
     })
@@ -1748,7 +1750,7 @@ function buildCtx() {
     readActiveBannerLayout: () => readActiveLayout(dataDir, appConfig),
     writeActiveBannerLayout: (layout) => writeActiveLayout(dataDir, layout),
     nsfwConfigured,
-    contextMenuData, contextMenuId, recentlyDeletedGamePaths, gameDetailsRecordMap,
+    contextMenuData, contextMenuId, gameDetailsRecordMap,
     activeImportSession, activeScanSession, activeLibraryValidation, isQuitting,
     // updater state
     autoUpdater, lastUpdateStatus, updateInfo, updateDownloaded, installAfterDownload,

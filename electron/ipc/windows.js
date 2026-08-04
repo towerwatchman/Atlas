@@ -59,7 +59,7 @@ function handleContextAction(data, sender, ctx) {
     case "removeTitleFromLibrary": {
       const senderWindow = BrowserWindow.fromWebContents(sender);
       dialog
-        .showMessageBox(senderWindow || mainWindow, {
+        .showMessageBox(senderWindow || ctx.mainWindow, {
           type: "warning",
           buttons: ["Remove from Library", "Cancel"],
           defaultId: 1,
@@ -83,7 +83,7 @@ function handleContextAction(data, sender, ctx) {
     case "deleteTitleAndFiles": {
       const senderWindow = BrowserWindow.fromWebContents(sender);
       dialog
-        .showMessageBox(senderWindow || mainWindow, {
+        .showMessageBox(senderWindow || ctx.mainWindow, {
           type: "warning",
           buttons: ["Delete Files", "Cancel"],
           defaultId: 1,

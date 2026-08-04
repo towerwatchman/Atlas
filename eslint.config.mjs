@@ -87,25 +87,24 @@ export default [
       globals: { React: 'readonly' },
     },
   },
-  // ── Known debt ────────────────────────────────────────────────────────────
-  // These two files have ~18 genuine no-undef hits: module-scope functions
-  // referencing names that only exist inside registerImporterHandlers(ctx) /
-  // the equivalent in windows.js. Each is a latent ReferenceError that throws
-  // only when that path runs — the same bug already fixed for `appConfig` in
-  // importer.js, where removeEmptyParentDirectories() referenced a binding that
-  // did not exist at module scope.
+  // ── no-undef is enforced everywhere ───────────────────────────────────────
+  // This is where the importer.js / windows.js exemption used to be. Those two
+  // files carried 13 no-undef hits, downgraded to warnings as tracked debt:
+  // module-scope functions referencing names that only exist inside
+  // registerXHandlers(ctx). Every one was a latent ReferenceError that threw only
+  // when its path ran.
   //
-  // Downgraded to a warning so the rule can be enforced everywhere else
-  // immediately rather than waiting on the cleanup. This is tracked debt, NOT a
-  // decision that the findings are false positives. Known offenders include
-  // `db`, `mainWindow`, `defaultConfig`, `getVersionPathsForRecord`,
-  // `deleteGameCompletely`, `recentlyDeletedGamePaths`, `copyFolderWithProgress`.
-  {
-    files: ['electron/ipc/importer.js', 'electron/ipc/windows.js'],
-    rules: {
-      'no-undef': 'warn',
-    },
-  },
+  // One of them shipped. `recentlyDeletedGamePaths` at importer.js line 1013 sat
+  // in isAllowedDeletionPath(), which replaceInstalledVersionAfterImport() calls
+  // from module scope -- so version replace threw on every attempt it ever made,
+  // while the same function called from inside a handler resolved the ctx copy
+  // and worked. The rule had named it correctly from the start; downgrading it
+  // buried the finding among 77 warnings where nobody would read it.
+  //
+  // The exemption is gone and no-undef is an error for every file. Do not add a
+  // per-file downgrade back: this rule catches a class of bug that is invisible
+  // to tests (the code parses, bundles, and only throws on the one path that
+  // reaches it) and the cost of clearing it is a require in the right scope.
   // ── Tests ─────────────────────────────────────────────────────────────────
   {
     files: ['tests/**/*.{js,jsx}'],

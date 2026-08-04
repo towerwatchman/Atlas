@@ -240,7 +240,7 @@ async function launchGame({ execPath, gamePath, extension, recordId, version, so
 function registerGamesHandlers(ctx) {
   const {
     getAssetBasePath, getMediaStorageMode, appConfig, configPath,
-    gameDetailsRecordMap, recentlyDeletedGamePaths,
+    gameDetailsRecordMap,
     getMetadataSourceOrder,
     // db functions
     addGame, getGame, getGames, getCatalogGames, getGameRecordIds, removeGame, updateGame,

@@ -27,6 +27,15 @@ const { findExecutables } = require("../scanners/executableScanner");
 const { getDefaultRenpySaveRoot, scanRenpySaveFolders } = require("../scanners/renpySaveScanner");
 const { findRecordBySteamId, recordHasSteamMapping, uniqueSteamVersionLabel, findAtlasBySteamId } = require('../db/steam')
 const { findRecordByGogId, addGogMapping, getGogIDbyRecord } = require('../db/gog')
+// Required at MODULE level, not taken through ctx, because the functions below
+// that use them are themselves at module level and cannot see a binding created
+// inside registerImporterHandlers(). That mismatch is what made version replace
+// throw `recentlyDeletedGamePaths is not defined` on every single attempt while
+// every in-handler caller worked -- see library/recentlyDeleted.js.
+const { getVersionForRecord } = require('../db/versions')
+const { deleteVersion } = require('../db/games')
+const recentlyDeleted = require('../library/recentlyDeleted')
+const { buildDefaultConfig } = require('../config/configSchema')
 // One implementation of catalog-entry -> library-record, shared by the
 // drag-and-drop importer below and the Browse-download promotion in
 // downloads-install. See library/catalogRecord.js for the resolution order and
@@ -224,95 +233,23 @@ function getUniqueTempPath(basePath) {
   return getUniquePath(`${basePath}.__atlas_extract_${Date.now()}`);
 }
 
-function getSingleDirectoryChild(dirPath) {
-  const entries = fs
-    .readdirSync(dirPath, { withFileTypes: true })
-    .filter(
-      (entry) =>
-        !entry.name.startsWith("__MACOSX") &&
-        ![".DS_Store", "Thumbs.db", "desktop.ini"].includes(entry.name),
-    );
-  if (entries.length !== 1 || !entries[0].isDirectory()) return null;
-  return path.join(dirPath, entries[0].name);
-}
+// getSingleDirectoryChild() removed: its only caller was
+// getNormalizedArchiveRoot(), itself dead. Orphaned by that removal, which is
+// the cascade scripts/check-ipc-dead-code.js exists to keep finding.
 
-function getNormalizedArchiveRoot(extractPath, extensions) {
-  const singleChildDir = getSingleDirectoryChild(extractPath);
 
-  if (!singleChildDir) {
-    return { rootPath: extractPath };
-  }
+// getNormalizedArchiveRoot() removed: no callers. The live path flattens a
+// single wrapped folder inline in downloads-install and import-catalog-entry.
 
-  const childExecs = findExecutables(singleChildDir, extensions);
-  if (childExecs.length === 0) {
-    return { rootPath: extractPath };
-  }
 
-  return { rootPath: singleChildDir };
-}
+// moveFolderFast() removed: it had no callers, and its EXDEV fallback called
+// copyFolderWithProgress(), which is not defined anywhere in the codebase. A
+// cross-device move would have thrown a ReferenceError, so the dead code was
+// hiding a broken implementation rather than an unused working one.
 
-async function moveFolderFast(source, destination, onProgress, shouldCancel) {
-  if (shouldCancel()) throw createImportCancelledError();
-  await fs.promises.mkdir(path.dirname(destination), { recursive: true });
 
-  try {
-    await fs.promises.rename(source, destination);
-    onProgress?.({ type: "done", percent: 100, copied: 0, total: 0 });
-    return "rename";
-  } catch (err) {
-    if (err.code !== "EXDEV") throw err;
-  }
+// getArchiveInfo() removed: no callers.
 
-  await copyFolderWithProgress(source, destination, onProgress, shouldCancel);
-  const deleteResult = await deletePathWithElevationFallback(source, {
-    recursive: true,
-    force: true,
-    description: "Delete original source folder",
-    window: ownerMainWindow,
-  });
-  if (!deleteResult.success) throw new Error(deleteResult.error || "Source cleanup skipped");
-  return "copy";
-}
-
-async function getArchiveInfo(archivePath, sevenZipBin) {
-  if (!sevenZipBin || (!isPathCommand(sevenZipBin) && !fs.existsSync(sevenZipBin))) {
-    return { totalFiles: 0, totalUncompressedBytes: 0 };
-  }
-  return new Promise((resolve, reject) => {
-    const child = cp.spawn(sevenZipBin, ["l", archivePath, "-y"], {
-      windowsHide: true,
-    });
-    let output = "";
-    child.stdout.on("data", (d) => (output += d.toString()));
-    child.stderr.on("data", (d) => (output += d.toString()));
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code !== 0) {
-        reject(new Error(`7z l failed with code ${code}\nOutput:\n${output}`));
-        return;
-      }
-      let totalFiles = 0;
-      let totalUncompressedBytes = 0;
-      const lines = output.split("\n");
-      for (const line of lines) {
-        // Match summary line: "12345 files, 67890 bytes"
-        const summaryMatch = line.match(/(\d+)\s+files?,\s+(\d+)\s+bytes/i);
-        if (summaryMatch) {
-          totalFiles = parseInt(summaryMatch[1], 10);
-          totalUncompressedBytes = parseInt(summaryMatch[2], 10);
-          break;
-        }
-        // Match individual file lines (columns: Date Time Attr Size Compressed Name)
-        const fileMatch = line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+(\d+)\s+\d+\s+/);
-        if (fileMatch) {
-          totalUncompressedBytes += parseInt(fileMatch[1], 10);
-          totalFiles++;
-        }
-      }
-      resolve({ totalFiles, totalUncompressedBytes });
-    });
-  });
-}
 
 /**
  * If an extraction produced nothing but a single .tar, extract that too.
@@ -774,39 +711,9 @@ async function resolveSevenZipExecutablePath({
   return { path: selectedPath, source: "manual" };
 }
 
-function extractArchiveWithSevenZip(archivePath, extractPath) {
-  return new Promise((resolve, reject) => {
-    const sevenZipPath = getSevenZipExecutablePath();
-    const child = cp.spawn(
-      sevenZipPath,
-      ["x", archivePath, `-o${extractPath}`, "-y"],
-      { windowsHide: true },
-    );
-    let stderr = "";
-    let stdout = "";
+// extractArchiveWithSevenZip() removed: no callers. Superseded by
+// extractArchiveWithFallback(), which is what every import path uses.
 
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(
-        new Error(
-          `7-Zip extraction failed with exit code ${code}: ${
-            stderr || stdout || "No output"
-          }`,
-        ),
-      );
-    });
-  });
-}
 
 function createImportCancelledError() {
   const err = new Error("Import canceled by user");
@@ -896,121 +803,28 @@ async function removeEmptyParentDirectories(startPath, stopAtPath) {
   }
 }
 
-function dedupeDeletionPaths(paths = []) {
-  const seen = new Set();
-  return paths
-    .filter(Boolean)
-    .map((p) => path.resolve(p))
-    .filter((p) => {
-      const key = normalizeForPathCompare(p);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .sort((a, b) => b.length - a.length);
-}
+// dedupeDeletionPaths() removed: an unreachable copy of main.js:855, whose only
+// caller here was one of the deleted delete helpers. main.js still uses its own.
 
-async function deleteLinkedGameFolders(recordId, versionPaths) {
-  const pathsToDelete = dedupeDeletionPaths(versionPaths);
 
-  for (const targetPath of pathsToDelete) {
-    const resolvedPath = path.resolve(targetPath);
-    const parsedPath = path.parse(resolvedPath);
-
-    if (resolvedPath === parsedPath.root) {
-      throw new Error("Refusing to delete a drive root");
-    }
-
-    if (!(await isAllowedDeletionPath(recordId, resolvedPath))) {
-      throw new Error(`Folder is not linked to this game: ${resolvedPath}`);
-    }
-
-    const stat = await fs.promises.stat(resolvedPath).catch(() => null);
-    if (!stat) continue;
-
-    if (!stat.isDirectory()) {
-      throw new Error(`Path is not a directory: ${resolvedPath}`);
-    }
-
-    const deleteResult = await deletePathWithElevationFallback(resolvedPath, {
-      recursive: true,
-      force: true,
-      description: "Delete game folder",
-      window: ownerMainWindow,
-      validatePath: async (candidatePath) => {
-        if (candidatePath === path.parse(candidatePath).root) {
-          throw new Error("Refusing to delete a drive root");
-        }
-        if (!(await isAllowedDeletionPath(recordId, candidatePath))) {
-          throw new Error(`Folder is not linked to this game: ${candidatePath}`);
-        }
-      },
-    });
-    if (!deleteResult.success) throw new Error(deleteResult.error || "Delete skipped");
-    await removeEmptyParentDirectories(
-      resolvedPath,
-      getLiveConfig()?.Library?.gameFolder,
-    );
-  }
-}
-
-async function deleteTitleRecord(recordId, { deleteFiles = false } = {}) {
-  if (!recordId) {
-    return { success: false, error: "Missing record id" };
-  }
-
-  try {
-    const versionPaths = await getVersionPathsForRecord(recordId);
-
-    if (deleteFiles) {
-      await deleteLinkedGameFolders(recordId, versionPaths);
-    }
-
-    const result = await deleteGameCompletely(
-      recordId,
-      getAssetBasePath(),
-      process.defaultApp,
-    );
-
-    if (!result.success) return result;
-
-    recentlyDeletedGamePaths.set(recordId, versionPaths);
-    setTimeout(() => recentlyDeletedGamePaths.delete(recordId), 5 * 60 * 1000);
-
-    BrowserWindow.getAllWindows().forEach((win) => {
-      if (!win.isDestroyed()) {
-        win.webContents.send("game-deleted", recordId);
-      }
-    });
-
-    return { success: true };
-  } catch (err) {
-    console.error("delete-title failed:", err);
-    return { success: false, error: err.message };
-  }
-}
-
-async function getTrustedVersion(recordId, version) {
-  if (!recordId) {
-    throw new Error("Missing record id");
-  }
-
-  const selectedVersion = await getVersionForRecord(recordId, version);
-  if (!selectedVersion) {
-    throw new Error("Version not found");
-  }
-  if (!selectedVersion.isInstalled) {
-    throw new Error("Version is not installed or its paths are missing");
-  }
-  return selectedVersion;
-}
+// deleteLinkedGameFolders / deleteTitleRecord / getTrustedVersion used to sit
+// here as module-level copies of main.js's. They had no callers: every reference
+// inside registerImporterHandlers resolved the ctx-provided originals, which
+// SHADOW a module-level name of the same identifier. Unreachable duplicates that
+// still referenced ctx-only bindings, so they were four latent ReferenceErrors
+// behind code that could never run. Removed rather than repaired.
 
 async function isAllowedDeletionPath(recordId, folderPath, libraryRoot = null) {
   if (!recordId || !folderPath || typeof folderPath !== "string") return false;
 
   const resolvedPath = path.resolve(folderPath);
   const knownVersionPaths = await getVersionPathsForRecord(recordId);
-  const recentlyDeletedPaths = recentlyDeletedGamePaths.get(recordId) || [];
+  // THE BUG. This line referenced a ctx-only binding from module scope, so it
+  // threw before reaching the early return below -- which is why the previous
+  // session's note that "isAllowedDeletionPath returns true for any recorded
+  // path before it checks the games folder" was right about the logic and wrong
+  // about the outcome: that return was unreachable.
+  const recentlyDeletedPaths = recentlyDeleted.pathsFor(recordId);
   if (
     [...knownVersionPaths, ...recentlyDeletedPaths].some(
       (knownPath) => normalizeForPathCompare(knownPath) === normalizeForPathCompare(resolvedPath),
@@ -1019,10 +833,17 @@ async function isAllowedDeletionPath(recordId, folderPath, libraryRoot = null) {
     return true;
   }
 
+  // Falls back to the configured library folder when no root is passed. main.js's
+  // copy of this function takes two arguments and reads the config itself; this
+  // one takes an explicit root. Without the fallback, dropping the ctx version
+  // (which used to shadow this one inside the handlers) would have quietly made
+  // the two-argument call sites stricter and broken deletions that used to be
+  // allowed. Same behaviour either way now.
+  const root = libraryRoot || getLiveConfig()?.Library?.gameFolder;
   return Boolean(
-    libraryRoot &&
-      fs.existsSync(libraryRoot) &&
-      isPathInside(libraryRoot, resolvedPath),
+    root &&
+      fs.existsSync(root) &&
+      isPathInside(root, resolvedPath),
   );
 }
 
@@ -1437,7 +1258,7 @@ module.exports = function registerImporterHandlers(ctx) {
     showExecutableChooser, executableChooserWindow,
     startSteamScan, startScan, getAssetBasePath, getMediaStorageMode,
     getMetadataSourceOrder,
-    recentlyDeletedGamePaths, db,
+    db,
   } = ctx
   ownerMainWindow = mainWindow
 
@@ -3242,7 +3063,7 @@ ipcMain.handle("import-games", async (event, params) => {
   const destinationFormat =
     libraryFormat ||
     liveConfig?.Library?.libraryFolderStructure ||
-    defaultConfig.Library.libraryFolderStructure;
+    buildDefaultConfig().Library.libraryFolderStructure;
   const gamesDir = path.join(dataDir, "games");
   if (!fs.existsSync(gamesDir)) fs.mkdirSync(gamesDir, { recursive: true });
 
