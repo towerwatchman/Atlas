@@ -146,6 +146,8 @@ const registerAccountsHandlers = require('./ipc/accounts')
 const registerCollectionsHandlers = require('./ipc/collections')
 const registerDownloadsHandlers = require('./ipc/downloads')
 const registerUpdateLinkHandlers = require('./ipc/updateLinks')
+const { registerExtensionHandlers } = require('./ipc/extension')
+const { startExtensionServer, stopExtensionServer } = require('./rpc/extensionServer')
 const {
   resolveDataRoot, grantUsersModify, isElevated,
   getLegacyDataDirs, directorySize, migrateLegacyData,
@@ -2365,6 +2367,15 @@ app.whenReady().then(async () => {
   registerCollectionsHandlers(ctx)
   registerDownloadsHandlers(ctx)
   registerUpdateLinkHandlers(ctx)
+  registerExtensionHandlers(ctx)
+
+  const extConfig = appConfig?.Extension || {}
+  if (extConfig.rpcEnabled !== false) {
+    startExtensionServer({
+      port: extConfig.rpcPort || 57096,
+      getConfig: () => appConfig,
+    })
+  }
 
   if (appConfig?.Interface?.checkForAppUpdatesOnStartup) {
     autoUpdater.checkForUpdates().catch((err) => {
@@ -2390,7 +2401,10 @@ app.whenReady().then(async () => {
   }
 })
 
-app.on('before-quit', () => { isQuitting = true })
+app.on('before-quit', () => {
+  stopExtensionServer()
+  isQuitting = true
+})
 
 app.on('window-all-closed', () => {
   // During boot the only window on screen may be the transient progress window

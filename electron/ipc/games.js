@@ -244,7 +244,7 @@ function registerGamesHandlers(ctx) {
     getMetadataSourceOrder,
     // db functions
     addGame, getGame, getGames, getCatalogGames, getGameRecordIds, removeGame, updateGame,
-    addWishlistEntry, removeWishlistEntry, toggleWishlistEntry,
+    addWishlistEntry, removeWishlistEntry, toggleWishlistEntry, isWishlistEntry,
     getWishlistEntries, getWishlistEntryIdentities,
     upsertVersion, updateVersion, deleteGameCompletely, getUniqueFilterOptions,
     updateFolderSize, countVersions, deleteVersion, getVersionForRecord,
@@ -437,6 +437,10 @@ function registerGamesHandlers(ctx) {
 
   ipcMain.handle('wishlist-toggle', async (_, entry = {}) => {
     return await toggleWishlistEntry(entry)
+  })
+
+  ipcMain.handle('wishlist-check', async (_, identity = {}) => {
+    return await isWishlistEntry(identity)
   })
 
   ipcMain.handle('wishlist-list', async () => {

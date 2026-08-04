@@ -403,12 +403,27 @@ const addWishlistEntry = async (entry = {}) => {
 
 const getWishlistEntry = (identity = {}) => {
   const normalized = normalizeWishlistIdentity(identity)
+  const f95Id = normalizeId(identity.f95_id ?? identity.f95Id ?? normalized.f95Id)
+  const atlasId = normalizeId(identity.atlas_id ?? identity.atlasId ?? normalized.atlasId)
+  const lcId = normalizeId(identity.lc_id ?? identity.lcId ?? identity.lewdCornerId ?? normalized.lcId)
+  const steamId = normalizeId(identity.steam_id ?? identity.steamId ?? normalized.steamId)
+
   return new Promise((resolve, reject) => {
     getDb().get(
       `${wishlistHydratedSelect}
        WHERE wishlist_entries.identity_key = ?
+          OR (wishlist_entries.f95_id IS NOT NULL AND wishlist_entries.f95_id = ?)
+          OR (wishlist_entries.atlas_id IS NOT NULL AND wishlist_entries.atlas_id = ?)
+          OR (wishlist_entries.lc_id IS NOT NULL AND wishlist_entries.lc_id = ?)
+          OR (wishlist_entries.steam_id IS NOT NULL AND wishlist_entries.steam_id = ?)
        LIMIT 1`,
-      [normalized.identityKey],
+      [
+        normalized.identityKey,
+        f95Id || '___NONE___',
+        atlasId || '___NONE___',
+        lcId || '___NONE___',
+        steamId || '___NONE___',
+      ],
       (err, row) => {
         if (err) reject(err)
         else resolve(row ? mapWishlistRow(row) : null)

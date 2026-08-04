@@ -383,7 +383,13 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   useEffect(() => {
     setShowInfo(false)
     setLightboxIndex(null)
-    setIsWishlisted(game?.isWishlisted === true || game?.isWishlistEntry === true)
+    const initialWish = game?.isWishlisted === true || game?.isWishlistEntry === true
+    setIsWishlisted(initialWish)
+    if (window.electronAPI?.isWishlistEntry && game) {
+      window.electronAPI.isWishlistEntry(game).then((isWish) => {
+        if (typeof isWish === 'boolean') setIsWishlisted(isWish)
+      })
+    }
     setIsFavorite(game?.isFavorite === true || game?.is_favorite === 1)
     setCatalogImportPath('')
     setCatalogImportVersion(String(game?.latestVersion || game?.latest_version || 'Unknown').trim() || 'Unknown')

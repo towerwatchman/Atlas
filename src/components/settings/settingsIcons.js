@@ -78,6 +78,12 @@ export const settingsIcons = [
     viewBox: "0 0 32 32",
   },
   {
+    name: "Extension",
+    icon: "extension_icon",
+    path: "M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.4 0 2.5 1.1 2.5 2.5s-1.1 2.5-2.5 2.5H2v4c0 1.1.9 2 2 2h3.8v-1.5c0-1.4 1.1-2.5 2.5-2.5s2.5 1.1 2.5 2.5V23H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z",
+    viewBox: "0 0 24 24",
+  },
+  {
     name: "Storage",
     hidden: true,
     icon: "database_icon",

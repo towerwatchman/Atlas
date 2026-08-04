@@ -140,6 +140,14 @@ const buildDefaultConfig = (dataDir = '') => ({
     includeUnmatched: false,
     forceReimport: false,
   },
+  Extension: {
+    rpcEnabled: true,
+    rpcPort: 57096,
+    backgroundAdd: true,
+    iconGlow: true,
+    highlightTags: false,
+    tagHighlights: {},
+  },
   Performance: {
     maxHeapSize: 4096,
     mediaDownloadConcurrency: 3,

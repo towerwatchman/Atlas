@@ -28,6 +28,8 @@ Atlas is for the user that wants ease of use, quality of life and have the softw
 
 For discussion about future releases and new features please visit our [Discord Server](https://discord.gg/XpTHvYbYyz).
 
+We have an threads here: [F95Zone](https://f95zone.to/threads/305805/) & [LewdCorner](https://lewdcorner.com/threads/23964/)
+
 ## Adult / Lewd Game Support
 Atlas includes optional support for browsing and managing adult-oriented games and visual novels, with metadata sourced from:
 - [F95Zone](https://f95zone.to/)

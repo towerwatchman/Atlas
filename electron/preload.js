@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   removeWishlistEntry: (identity) =>
     ipcRenderer.invoke("wishlist-remove", identity),
   toggleWishlistEntry: (entry) => ipcRenderer.invoke("wishlist-toggle", entry),
+  isWishlistEntry: (identity) => ipcRenderer.invoke("wishlist-check", identity),
   getWishlistEntries: () => ipcRenderer.invoke("wishlist-list"),
   getWishlistEntryIdentities: () => ipcRenderer.invoke("wishlist-identities"),
   validateLibraryPaths: () => ipcRenderer.invoke("validate-library-paths"),
@@ -668,6 +669,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("game-deleted", (event, recordId) => callback(recordId));
   },
   getUniqueFilterOptions: () => ipcRenderer.invoke("get-unique-filter-options"),
+  getExtensionStatus: () => ipcRenderer.invoke("get-extension-status"),
+  saveExtensionSettings: (settings) => ipcRenderer.invoke("save-extension-settings", settings),
 });
 
 contextBridge.exposeInMainWorld("electronIPC", {
