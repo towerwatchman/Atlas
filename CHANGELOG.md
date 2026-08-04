@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### Added
+- MEGA sign-in pays the proof of work. MEGA gates its account commands behind hashcash: the request comes back HTTP 402 with an `X-Hashcash` challenge and the retry must carry a nonce that costs real CPU to find. `apiCall` now detects the 402, solves the challenge, and retries with the answer. Public-link downloads are untouched -- they were never gated, which is why anonymous downloading worked long before this existed.
+- `workers/megaHashcashWorker.js` and `electron/downloads/hosts/megaHashcashPool.js`: the search runs on worker threads. Each nonce rehashes 12 MB in full -- the nonce is in SHA-256's first block and the hash is sequential, so nothing downstream can be reused -- which is hundreds of gigabytes of hashing per sign-in. On the main thread that would freeze the app for the whole time.
+- Workers take disjoint slices by stride, so worker i tries nonces i, i+N, i+2N and no coordination is needed beyond stopping the losers. Capped at 8, matching the SDK's desktop cap, and one core is left alone: the app has a UI to keep responsive and saturating every core to shave seconds off a once-per-session cost is the wrong trade.
+- The worker path is resolved through the same `app.asar` -> `app.asar.unpacked` rule `importer.js` applies to `extractWorker.js`, and `workers/**/*` is already in the build's file list. The resolver guards its `electron` require so the pool still loads in tests that run outside Electron.
+- Retried exactly ONCE. A fresh challenge on the second attempt means something other than difficulty is wrong -- an expired timestamp, a changed policy -- and looping would spend minutes of CPU per lap discovering that.
+- A proof of work that runs out of budget reports that specifically, as retryable and CPU-bound, rather than as a refusal. A 402 with no readable challenge is a third, separate message. None of the three mentions a password, because none of them is about one.
+
+### Diagnosed
+- The HTTP 402 on MEGA sign-in is a PROOF OF WORK demand, not a credential problem. MEGA gates its account commands behind hashcash: the 402 carries an `X-Hashcash` challenge and the client must burn CPU to find a nonce and retry with the answer. Public-link downloads are not gated, which is exactly the asymmetry seen -- `a:"g"` succeeded while `a:"us"` returned 402 with an empty body. The `us0` call returns 200 normally, so the gate is on the second call only.
+- Found in the response headers rather than guessed: `Access-Control-Allow-Headers: Content-Type, X-Hashcash, MEGA-Chrome-Antileak`. HTTP 402 "Payment Required" is literally the status MEGA uses for it.
+
+### Added
+- `electron/downloads/hosts/megaHashcash.js`: the solver, transcribed from MEGA's SDK (`src/hashcash.cpp`, `src/posix/net.cpp`) rather than reconstructed. Every constant is load-bearing and a wrong one yields a proof MEGA silently rejects, which is indistinguishable from a wrong password.
+- The challenge is `<version>:<easiness>:<timestamp>:<b64token>` and the answer goes back as `X-Hashcash: 1:<b64token>:<b64prefix>` -- the token returns, the easiness and timestamp do not. The message is a 4-byte big-endian nonce followed by the 48-byte token tiled 262,144 times (12,582,916 bytes), SHA-256'd whole, accepted when the leading 32 bits big-endian are at or below `(((e & 63) << 1) + 1) << ((e >> 6) * 7 + 3)`.
+- The threshold is forced unsigned. The shift passes 2^31 at higher difficulties and JS bitwise operators are signed, so without it the threshold goes negative and nothing ever passes -- asserted across all 256 values.
+- `verifyHashcash` mirrors the SDK's own offline verifier, which is the only way to know a solver is correct without asking MEGA. `solveHashcash` takes a budget and returns null on exhausting it, because that is a real outcome the caller has to choose how to handle rather than an error, and it takes a `startNonce`/`stride` so the space can be split across workers unchanged.
+- `tests/mega-hashcash.test.js`: 14 tests asserting the constants against the SDK -- threshold 74,752 at MEGA's example easiness of 100, a 12,582,916-byte buffer, the token tiled to the last repetition, the same four challenge validations MEGA's parser makes, and a solve/verify round trip at an easiness cheap enough to run in a test.
+
+### Not done
+- Hashcash is NOT wired into the login yet, because it is not free. At MEGA's example easiness of 100 the threshold is one nonce in ~57,000 and each attempt rehashes 12 MB in full -- the nonce is in the first block and SHA-256 is sequential, so nothing can be reused. That is roughly 700 GB of SHA-256 per sign-in, which is why MEGA's own client spends up to 8 threads and a 300-second budget on it. Single-threaded in Node it would block for minutes, so this needs `worker_threads` and a decision about a sign-in that costs a minute of full CPU.
+
+## Unreleased
+
+### Fixed
+- `electron/downloads/hosts/mega.js`: a non-2xx response from MEGA now KEEPS the body. The first real sign-in attempt returned HTTP 402 and there was nothing to explain it, because the code discarded exactly the thing that would have -- a bare status is a conclusion with no evidence. A `[mega-login]` line now records which of the two calls failed (`us0` or `us`), the status, the body, the detected account version, and whether a two-factor code was sent.
+- The 402 message does not claim a wrong password. An anonymous `a:"g"` call succeeds with an identical request shape, so this is specific to the account commands rather than to the transport or the credentials, and saying otherwise sends someone to change a password that was already correct. The message records what is known and does not guess at the cause.
+- HTTP-level rejections are described rather than reported as a number: 403, 429 as rate limiting, and 5xx as worth retrying, each carrying MEGA's own body when there is one.
+
+### Changed
+- `electron/downloads/hosts/mega.js`: the API sequence number increments across calls instead of being hardcoded to `id=1`. MEGA uses it to collapse a retried request rather than run it twice, so a fixed value made every call from a session look like a repeat of the first.
+- A `user-agent` is sent, following the convention `pixeldrain.js` already uses. MEGA's own clients identify themselves and the anonymous path is the only one confirmed to work without one -- offered as a candidate for the 402 rather than as a diagnosis.
+- `tests/mega-host.test.js`: 4 further tests (54 total) asserting the 402 message names neither a password nor a cause, and that MEGA's body is surfaced when present.
+
 ### Changed
 - `src/components/settings/DownloadAccounts.jsx`: the Pixeldrain and MEGA sign-in forms open in a centred modal, matching the site accounts above them (`Accounts.jsx` / `AddAccountModal`) -- same overlay, same panel, same header and close button. Signing in to a host is the same kind of act as signing in to a site, and the forms were the odd ones out.
 - It was a panel expanding inside the card, which pushed every card below it down the page and read as part of the list rather than as a task. MEGA made that worse: three fields with help text under each is a tall form to unfold in place.

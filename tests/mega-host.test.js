@@ -445,3 +445,38 @@ describe('mega plugin account surface', () => {
     expect(mega.classifyError(null, { body: '-27' })).toBe('auth')
   })
 })
+
+describe('describeHttpStatus', () => {
+  it('names an unreadable proof-of-work challenge for a bare 402', () => {
+    // A 402 is MEGA asking for proof of work. Reaching this message means the
+    // challenge header was missing or unparseable, which is a different problem
+    // from the work being too slow - and neither is a wrong password.
+    const message = mega.describeHttpStatus(402, '')
+    expect(message).toMatch(/402/)
+    expect(message).toMatch(/proof-of-work challenge/i)
+    expect(message).toMatch(/anonymous downloads are unaffected/i)
+    expect(message).not.toMatch(/password/i)
+  })
+
+  it('distinguishes a proof of work that ran out of time', () => {
+    // Retryable and CPU-bound, so it says so rather than reporting a refusal.
+    const message = mega.describeHttpStatus(402, 'the proof of work did not finish in time')
+    expect(message).toMatch(/did not finish in time/i)
+    expect(message).toMatch(/trying again/i)
+  })
+
+  it('includes whatever MEGA said, when it said anything', () => {
+    // The body used to be discarded, which is why a 402 arrived with no evidence.
+    expect(mega.describeHttpStatus(402, '-15')).toMatch(/MEGA said: -15/)
+    expect(mega.describeHttpStatus(500, 'try later')).toMatch(/MEGA said: try later/)
+  })
+
+  it('truncates nothing it was not given', () => {
+    expect(mega.describeHttpStatus(500, '')).not.toMatch(/MEGA said/)
+  })
+
+  it('marks 5xx as worth retrying and 429 as rate limiting', () => {
+    expect(mega.describeHttpStatus(503, '')).toMatch(/worth retrying/i)
+    expect(mega.describeHttpStatus(429, '')).toMatch(/rate limiting/i)
+  })
+})

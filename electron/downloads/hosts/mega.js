@@ -21,6 +21,8 @@ const {
   fileNameFromAttributes,
 } = require("./megaLink");
 const account = require("./megaAccount");
+const { parseHashcashChallenge, formatHashcashHeader } = require("./megaHashcash");
+const { solveWithWorkers } = require("./megaHashcashPool");
 
 const API = "https://g.api.mega.co.nz/cs";
 
@@ -62,16 +64,109 @@ function sessionFrom(credentials) {
   return session || null;
 }
 
-async function apiCall(body, session) {
+// A sequence number MEGA expects to increase across calls from one client. It is
+// not authentication; it is how MEGA collapses a retried request rather than
+// running it twice.
+let requestSequence = Math.floor(Date.now() / 1000);
+
+async function sendRequest(body, session, extraHeaders = {}) {
   const suffix = session ? `&sid=${encodeURIComponent(session)}` : "";
-  const response = await fetch(`${API}?id=1${suffix}`, {
+  requestSequence += 1;
+  const response = await fetch(`${API}?id=${requestSequence}${suffix}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      // Sent because MEGA's own clients identify themselves and the anonymous
+      // path is the only one confirmed to work without it. Following the
+      // convention pixeldrain.js already uses rather than imitating a browser.
+      "user-agent": "Atlas",
+      ...extraHeaders,
+    },
     body: JSON.stringify(body),
   });
-  if (!response.ok) return { httpStatus: response.status };
+  if (!response.ok) {
+    // The body is KEPT. A bare status is a conclusion with no evidence: the
+    // first real login attempt returned 402 and there was nothing to explain it,
+    // because this line used to discard exactly the thing that would have.
+    const text = await response.text().catch(() => "");
+    return {
+      httpStatus: response.status,
+      httpBody: text.slice(0, 500),
+      hashcash: response.headers.get("x-hashcash") || "",
+    };
+  }
   const payload = await response.json();
   return { entry: Array.isArray(payload) ? payload[0] : payload };
+}
+
+/**
+ * A MEGA API call, paying the proof of work if MEGA asks for it.
+ *
+ * MEGA gates its ACCOUNT commands behind hashcash: the request comes back 402
+ * with an `X-Hashcash` challenge, and the retry has to carry a nonce that costs
+ * real CPU to find. Public-link downloads are not gated, which is why anonymous
+ * downloading worked long before any of this existed.
+ *
+ * Retried exactly ONCE. A fresh challenge on the second attempt means something
+ * other than difficulty is wrong -- an expired timestamp, a changed policy -- and
+ * looping would spend minutes of CPU per lap discovering that.
+ */
+async function apiCall(body, session, { onProgress = null } = {}) {
+  const first = await sendRequest(body, session);
+  if (first.httpStatus !== 402) return first;
+
+  const challenge = parseHashcashChallenge(first.hashcash);
+  if (!challenge) {
+    console.log("[mega-hashcash] 402 with no usable challenge", JSON.stringify({
+      header: first.hashcash || "(none)", body: first.httpBody || "",
+    }));
+    return first;
+  }
+
+  const prefix = await solveWithWorkers({
+    token: challenge.token,
+    easiness: challenge.easiness,
+    onProgress,
+  }).catch((err) => {
+    console.log("[mega-hashcash] solver failed", JSON.stringify({ message: err.message }));
+    return null;
+  });
+  if (!prefix) {
+    return {
+      httpStatus: 402,
+      httpBody: "the proof of work did not finish in time",
+      hashcash: first.hashcash,
+      hashcashTimedOut: true,
+    };
+  }
+
+  return sendRequest(body, session, {
+    "x-hashcash": formatHashcashHeader(challenge.token, prefix),
+  });
+}
+
+/** HTTP-level rejections MEGA uses instead of its own negative codes. */
+function describeHttpStatus(status, body) {
+  const detail = String(body || "").trim();
+  const suffix = detail ? ` MEGA said: ${detail}` : "";
+  if (status === 402 && /proof of work/i.test(String(body || ""))) {
+    return "Signing in to MEGA needs a proof-of-work calculation, and it did not "
+      + "finish in time. Trying again usually works; it is CPU-bound, so closing "
+      + "other heavy work helps.";
+  }
+  if (status === 402) {
+    // Recorded rather than diagnosed. What is known: an anonymous `a:"g"` call
+    // succeeds with an identical request shape, so this is specific to the
+    // account commands rather than to the transport. What is not known is why,
+    // and guessing in the message would send someone looking in the wrong place.
+    return "MEGA refused the sign-in request (HTTP 402) and did not send a "
+      + "proof-of-work challenge Atlas could read. Anonymous downloads are "
+      + `unaffected.${suffix}`;
+  }
+  if (status === 403) return `MEGA denied the request (HTTP 403).${suffix}`;
+  if (status === 429) return `MEGA is rate limiting this connection (HTTP 429).${suffix}`;
+  if (status >= 500) return `MEGA's API is having trouble (HTTP ${status}). Worth retrying.${suffix}`;
+  return `MEGA's API returned ${status}.${suffix}`;
 }
 
 async function probe(url, credentials = {}) {
@@ -113,8 +208,11 @@ async function probe(url, credentials = {}) {
       return {
         ok: false,
         kind: result.httpStatus >= 500 ? "transient" : "fatal",
-        error: `MEGA's API returned ${result.httpStatus}.`,
-        diagnostic: { status: result.httpStatus, fileId: link.id, authenticated: Boolean(session) },
+        error: describeHttpStatus(result.httpStatus, result.httpBody),
+        diagnostic: {
+          status: result.httpStatus, body: result.httpBody || "",
+          fileId: link.id, authenticated: Boolean(session),
+        },
       };
     }
   } catch (err) {
@@ -196,7 +294,11 @@ async function validate(credentials = {}) {
     // salt and derive their hash from the email instead.
     const saltResult = await apiCall([{ a: "us0", user: email }], null);
     if (saltResult.httpStatus) {
-      return { ok: false, error: `MEGA's API returned ${saltResult.httpStatus}.` };
+      // Logged with the step, so the next 402 says which of the two calls it was.
+      console.log("[mega-login]", JSON.stringify({
+        step: "us0", status: saltResult.httpStatus, body: saltResult.httpBody || "",
+      }));
+      return { ok: false, error: describeHttpStatus(saltResult.httpStatus, saltResult.httpBody) };
     }
     const saltEntry = saltResult.entry;
     if (typeof saltEntry === "number") {
@@ -218,9 +320,19 @@ async function validate(credentials = {}) {
 
     const request = { a: "us", user: email, uh: account.toBase64Url(passwordHash) };
     if (mfa) request.mfa = mfa;
-    const loginResult = await apiCall([request], null);
+    const loginResult = await apiCall([request], null, {
+      onProgress: (info) => {
+        // MEGA charges CPU for a sign-in. Logged so a minute of silence has an
+        // explanation somewhere rather than looking like a hang.
+        console.log("[mega-login] solving proof of work", JSON.stringify(info));
+      },
+    });
     if (loginResult.httpStatus) {
-      return { ok: false, error: `MEGA's API returned ${loginResult.httpStatus}.` };
+      console.log("[mega-login]", JSON.stringify({
+        step: "us", status: loginResult.httpStatus, body: loginResult.httpBody || "",
+        accountVersion: version, sentMfa: Boolean(mfa),
+      }));
+      return { ok: false, error: describeHttpStatus(loginResult.httpStatus, loginResult.httpBody) };
     }
     const login = loginResult.entry;
     if (typeof login === "number") {
@@ -278,7 +390,7 @@ async function getQuota(credentials = {}) {
   try {
     const result = await apiCall([{ a: "uq", xfer: 1, strg: 1, pro: 1 }], session);
     if (result.httpStatus) {
-      return { ok: false, error: `MEGA's API returned ${result.httpStatus}.` };
+      return { ok: false, error: describeHttpStatus(result.httpStatus, result.httpBody) };
     }
     const entry = result.entry;
     if (typeof entry === "number") {
@@ -336,6 +448,8 @@ module.exports = {
   validate,
   getQuota,
   classifyError,
+  // Exported for tests
+  describeHttpStatus,
   // Exported for tests
   fileIdFrom,
   ERROR_CODES,
