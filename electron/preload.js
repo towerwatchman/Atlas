@@ -668,6 +668,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("game-deleted", (event, recordId) => callback(recordId));
   },
   getUniqueFilterOptions: () => ipcRenderer.invoke("get-unique-filter-options"),
+  getExtensionStatus: () => ipcRenderer.invoke("get-extension-status"),
+  saveExtensionSettings: (settings) => ipcRenderer.invoke("save-extension-settings", settings),
 });
 
 contextBridge.exposeInMainWorld("electronIPC", {

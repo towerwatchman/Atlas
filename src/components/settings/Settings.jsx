@@ -6,6 +6,7 @@ import Appearance from './Appearance.jsx'
 import Metadata from './Metadata.jsx'
 import Accounts from './Accounts.jsx'
 import Database from './Database.jsx'
+import ExtensionSettings from './ExtensionSettings.jsx'
 import EmulatorLauncher from './EmulatorLauncher.jsx'
 import { settingsIcons } from './settingsIcons.js'
 import WelcomeTour from '../ui/WelcomeTour.jsx'
@@ -90,6 +91,8 @@ const Settings = () => {
         return <Accounts />;
       case "Database":
         return <Database />;
+      case "Extension":
+        return <ExtensionSettings />;
       default:
         return <Interface />;
     }
