@@ -1,14 +1,12 @@
-node_modules/ dist/ *.log
-node_modules
+node_modules/
+dist/
+*.log
 src/assets/css/tailwind.output.css
 src/data/data.db
 /src/data/images
 /src/data/logs
 /src/data/updates
 /dist/win-unpacked
-/dist
-/dist
-/dist
 data/data.db
 /src/_data
 src/data/config.ini
@@ -16,3 +14,6 @@ src/data/config.ini
 /electron/data
 *.zip
 /release
+scripts/test-*.js
+.temp_*
+scratch/
