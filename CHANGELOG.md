@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+- MEGA downloads were capped around 10 MB/s on a gigabit line, and the cause was the integrity check rather than the network. MEGA defines the chunk MAC as `mac = E(K, mac XOR block)` iterated over the chunk, and written literally that allocates an OpenSSL cipher context for every 16 BYTES -- about 655,000 allocations a second at 10 MB/s. Measured at 5 MB/s against 93 MB/s for the AES-CTR decryption beside it: the integrity check was 19x slower than the decryption it accompanied.
+- Iterated `E(K, mac XOR block)` is the definition of CBC, so the chunk MAC is simply the LAST CIPHERTEXT BLOCK of one AES-CBC pass over the chunk with the running mac as the IV. One cipher context per span instead of one per block, with OpenSSL running the chain internally. Measured 5 MB/s -> **188 MB/s** on a two-core machine, which is past a gigabit line.
+- Spans are clipped to the chunk boundary, since that is where the running mac folds into the file mac and the next chunk restarts from `nonce || nonce`. Chunk sizes are all multiples of 128KB, so a boundary is always block-aligned.
+- `tests/mega-host.test.js`: the fast path is pinned against a naive implementation of MEGA's literal per-block definition, kept in the test purely as the reference. "These are the same operation" is the entire basis for the change, so it is asserted rather than reasoned about -- one block, many blocks, and a span split at arbitrary offsets, because the stream is fed whatever the socket delivered and a MAC that depended on network timing would be worse than a slow one. Plus an end-to-end file crossing four chunk boundaries in 7,777-byte writes.
+
+### Notes
+- Verified from MEGA's own `transferslot.cpp` that their client decrypts per piece IN FLIGHT on background threads (`REQ_DECRYPTING`, `outputPiece->finalize(...)`) across several parallel connections, accumulating a `chunkmac_map` that is folded by `macsmac()` at the end -- it does not download the encrypted file and decrypt it afterwards. A second pass would have moved this cost rather than removed it: 2.4 GB at the old 5 MB/s is eight minutes of post-processing plus double the disk I/O.
+- That map is also `unserialize`d for resume, which corrects an earlier note here: a resumed transfer does not need to re-read its partial file to rebuild the MAC. Chunk MACs are independent, so the ones already computed can be persisted and folded at the end. Still the case that this implementation reports `null` rather than a verdict after a resume.
+- A single TCP stream to one MEGA storage node still will not saturate a gigabit link -- bandwidth-delay product -- which is why MEGA uses several connections per file. Unchanged here, and now the remaining ceiling.
+
 ### Added
 - MEGA sign-in pays the proof of work. MEGA gates its account commands behind hashcash: the request comes back HTTP 402 with an `X-Hashcash` challenge and the retry must carry a nonce that costs real CPU to find. `apiCall` now detects the 402, solves the challenge, and retries with the answer. Public-link downloads are untouched -- they were never gated, which is why anonymous downloading worked long before this existed.
 - `workers/megaHashcashWorker.js` and `electron/downloads/hosts/megaHashcashPool.js`: the search runs on worker threads. Each nonce rehashes 12 MB in full -- the nonce is in SHA-256's first block and the hash is sequential, so nothing downstream can be reused -- which is hundreds of gigabytes of hashing per sign-in. On the main thread that would freeze the app for the whole time.
