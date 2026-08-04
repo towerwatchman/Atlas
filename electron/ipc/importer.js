@@ -50,6 +50,7 @@ const {
   searchAtlasByLewdCornerId,
 } = require('../db/lewdcorner')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
+const { backupSaveArtifacts, restoreSaveArtifacts } = require('../utils/savePreservation')
 const { buildSevenZipCandidates, canRunSevenZip } = require('../utils/sevenZipDetect')
 const {
   describeProvider,
@@ -1026,6 +1027,23 @@ async function replaceInstalledVersionAfterImport({
       };
     }
 
+    let saveBackup = null;
+    try {
+      saveBackup = await backupSaveArtifacts({
+        oldGamePath: resolvedOldPath,
+        recordId,
+        appDataDir: auditDataDir || process.cwd(),
+      });
+      audit("save-backup-result", {
+        success: Boolean(saveBackup?.success),
+        artifactCount: saveBackup?.artifacts?.length || 0,
+        backupDir: saveBackup?.backupDir || null,
+      });
+    } catch (saveErr) {
+      console.warn("Failed to backup save artifacts:", saveErr.message);
+      audit("save-backup-failed", { error: saveErr.message });
+    }
+
     try {
       const deleteResult = await deletePathWithElevationFallback(resolvedOldPath, {
         recursive: true,
@@ -1079,6 +1097,58 @@ async function replaceInstalledVersionAfterImport({
     }
   }
 
+  // Restore save artifacts into resolvedNewPath
+  if (saveBackup && saveBackup.success && saveBackup.artifacts?.length > 0 && resolvedNewPath && fs.existsSync(resolvedNewPath)) {
+    try {
+      const restoreResult = await restoreSaveArtifacts({
+        backupManifest: saveBackup,
+        newGamePath: resolvedNewPath,
+      });
+      audit("save-restore-result", restoreResult);
+    } catch (restoreErr) {
+      console.warn("Failed to restore save artifacts:", restoreErr.message);
+      audit("save-restore-failed", { error: restoreErr.message });
+    }
+  }
+
+  // Folder Name Cleanup (e.g. ExampleGame (1) -> ExampleGame)
+  let finalNewGamePath = resolvedNewPath;
+  if (
+    resolvedOldPath &&
+    resolvedNewPath &&
+    !fs.existsSync(resolvedOldPath) &&
+    fs.existsSync(resolvedNewPath)
+  ) {
+    const newBase = path.basename(resolvedNewPath);
+    if (/\s*\(\d+\)$/.test(newBase)) {
+      try {
+        await fs.promises.rename(resolvedNewPath, resolvedOldPath);
+        finalNewGamePath = resolvedOldPath;
+        audit("folder-renamed", { from: resolvedNewPath, to: finalNewGamePath });
+
+        if (recordId && newVersion) {
+          const newVerRow = await dbGet(
+            dbModule.db,
+            `SELECT rowid AS version_id, game_path, exec_path FROM versions WHERE record_id = ? AND version = ? LIMIT 1`,
+            [recordId, newVersion]
+          );
+          if (newVerRow && newVerRow.game_path) {
+            const relExec = newVerRow.exec_path ? path.relative(newVerRow.game_path, newVerRow.exec_path) : "";
+            const newExecPath = relExec ? path.join(finalNewGamePath, relExec) : newVerRow.exec_path;
+            await dbRun(
+              dbModule.db,
+              `UPDATE versions SET game_path = ?, exec_path = ? WHERE rowid = ?`,
+              [finalNewGamePath, newExecPath, newVerRow.version_id]
+            );
+          }
+        }
+      } catch (renameErr) {
+        console.warn("Failed to rename update folder to original clean name:", renameErr.message);
+        audit("folder-rename-failed", { error: renameErr.message });
+      }
+    }
+  }
+
   if (deleteDatabaseRow && oldVersion.version_id) {
     const deleteRowResult = await dbRun(dbModule.db, `DELETE FROM versions WHERE rowid = ? AND record_id = ?`, [oldVersion.version_id, recordId]);
     audit("database-delete-result", {
@@ -1100,8 +1170,8 @@ async function replaceInstalledVersionAfterImport({
     canCancel: true,
   });
 
-  audit("complete", { deletedFiles: hadOldFiles, databaseRowUpdatedInPlace: !deleteDatabaseRow });
-  return { replaced: true, deletedFiles: hadOldFiles };
+  audit("complete", { deletedFiles: hadOldFiles, databaseRowUpdatedInPlace: !deleteDatabaseRow, newGamePath: finalNewGamePath });
+  return { replaced: true, deletedFiles: hadOldFiles, newGamePath: finalNewGamePath };
 }
 
 
