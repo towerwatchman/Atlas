@@ -291,10 +291,157 @@ describe('mega plugin', () => {
     expect(mega.classifyError(null, { body: '-3' })).toBe('transient')
     expect(mega.classifyError(null, { body: '-15' })).toBe('auth')
   })
+})
 
-  it('says accounts are not supported yet rather than accepting details', async () => {
-    const result = await mega.validate({ email: 'a@b.c', password: 'x' })
+describe('MEGA account crypto', () => {
+  const account = require('../electron/downloads/hosts/megaAccount')
+
+  const mpi = (value) => {
+    let hex = value.toString(16)
+    if (hex.length % 2) hex = `0${hex}`
+    const body = Buffer.from(hex, 'hex')
+    const length = Buffer.alloc(2)
+    length.writeUInt16BE(value.toString(2).length)
+    return Buffer.concat([length, body])
+  }
+
+  it('parses MEGA\u2019s MPI sequence', () => {
+    // 2-byte big-endian BIT length, then that many bits rounded up to bytes.
+    const parsed = account.parseMpiSequence(Buffer.concat([mpi(65537n), mpi(255n)]), 2)
+    expect(parsed).toEqual([65537n, 255n])
+  })
+
+  it('returns null on a truncated MPI rather than a short integer', () => {
+    // A silently-wrong modulus produces a session id that looks like data and is
+    // rejected by the server with no clue why.
+    const length = Buffer.alloc(2)
+    length.writeUInt16BE(2048)
+    expect(account.parseMpiSequence(Buffer.concat([length, Buffer.alloc(8)]), 1)).toBeNull()
+    expect(account.parseMpiSequence(Buffer.alloc(1), 1)).toBeNull()
+  })
+
+  it('does modular exponentiation', () => {
+    expect(account.modPow(4n, 13n, 497n)).toBe(445n)
+    expect(account.modPow(123n, 0n, 7n)).toBe(1n)
+    expect(account.modPow(5n, 3n, 1n)).toBe(0n)
+  })
+
+  it('round-trips a session id through a real RSA key', async () => {
+    // The whole point of the login: MEGA stores the private EXPONENT in privk, so
+    // decryption is c^d mod (p*q) - one modPow, no PKCS#8 reconstruction and no
+    // use for the CRT coefficient that privk also carries.
+    const crypto = await import('node:crypto')
+    const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 })
+    const jwk = privateKey.export({ format: 'jwk' })
+    const big = (b64) => BigInt(`0x${Buffer.from(b64, 'base64url').toString('hex')}`)
+    const p = big(jwk.p); const q = big(jwk.q); const d = big(jwk.d); const n = big(jwk.n)
+    expect(n).toBe(p * q)
+
+    const sid = crypto.randomBytes(43)
+    const width = Math.ceil(n.toString(16).length / 2)
+    const padded = Buffer.alloc(width)
+    sid.copy(padded, 0)
+    const cipher = account.modPow(BigInt(`0x${padded.toString('hex')}`), big(jwk.e), n)
+
+    expect(account.decryptSessionId(account.toBase64Url(mpi(cipher)), { d, n }))
+      .toBe(account.toBase64Url(sid))
+  })
+
+  it('reads p, q and d back out of a privk-shaped buffer', async () => {
+    const crypto = await import('node:crypto')
+    const key = crypto.randomBytes(16)
+    const p = 0xC5n; const q = 0xD7n; const d = 0x1234n
+    const plain = Buffer.concat([mpi(p), mpi(q), mpi(d), mpi(1n)])
+    // privk is AES-ECB wrapped under the master key and block aligned.
+    const padded = Buffer.alloc(Math.ceil(plain.length / 16) * 16)
+    plain.copy(padded)
+    const wrapped = account.aesEcb(key, padded, 'encrypt')
+    const parsed = account.decryptPrivateKey(account.toBase64Url(wrapped), key)
+    expect(parsed).toMatchObject({ p, q, d })
+    expect(parsed.n).toBe(p * q)
+  })
+
+  it('derives a stable v2 key and splits it 16/16', () => {
+    // PBKDF2-SHA512, 100k iterations, 32 bytes: the first half unwraps the master
+    // key, the second half is the proof sent to the server. Swapping them fails
+    // with "wrong password" against a correct password.
+    const first = account.deriveKeyV2('correct horse', 'c2FsdHlzYWx0')
+    const second = account.deriveKeyV2('correct horse', 'c2FsdHlzYWx0')
+    expect(first.derivedKey.length).toBe(16)
+    expect(first.passwordHash.length).toBe(16)
+    expect(first.derivedKey.equals(second.derivedKey)).toBe(true)
+    expect(first.derivedKey.equals(first.passwordHash)).toBe(false)
+    // A different password must not collide.
+    expect(account.deriveKeyV2('other', 'c2FsdHlzYWx0').derivedKey.equals(first.derivedKey))
+      .toBe(false)
+  })
+
+  it('rejects an unreadable salt instead of deriving from nothing', () => {
+    expect(account.deriveKeyV2('pw', 'not base64!')).toBeNull()
+    expect(account.deriveKeyV2('pw', '')).toBeNull()
+  })
+
+  it('derives a v1 key deterministically', () => {
+    // Legacy accounts cannot be migrated from the client, so this path stays.
+    const key = account.prepareKeyV1('hunter2')
+    expect(key.length).toBe(16)
+    expect(account.prepareKeyV1('hunter2').equals(key)).toBe(true)
+    expect(account.prepareKeyV1('hunter3').equals(key)).toBe(false)
+  })
+
+  it('produces an 8-byte v1 password hash', () => {
+    const key = account.prepareKeyV1('pw')
+    const hash = account.stringHashV1('USER@example.com', key)
+    expect(hash.length).toBe(8)
+    // Email is lowercased before hashing, so case must not change the result.
+    expect(account.stringHashV1('user@example.com', key).equals(hash)).toBe(true)
+  })
+
+  it('unwraps a master key of exactly one block', () => {
+    const derived = Buffer.alloc(16, 7)
+    const master = Buffer.alloc(16, 3)
+    const wrapped = account.aesEcb(derived, master, 'encrypt')
+    expect(account.decryptMasterKey(account.toBase64Url(wrapped), derived).equals(master)).toBe(true)
+    // Anything not 16 bytes is not a wrapped master key.
+    expect(account.decryptMasterKey(account.toBase64Url(Buffer.alloc(8)), derived)).toBeNull()
+  })
+
+  it('round-trips MEGA base64url, unpadded and url-safe', () => {
+    const bytes = Buffer.from([251, 255, 190, 0, 1])
+    const encoded = account.toBase64Url(bytes)
+    expect(encoded).not.toMatch(/[+/=]/)
+    expect(account.fromBase64Url(encoded).equals(bytes)).toBe(true)
+    expect(account.fromBase64Url('has spaces')).toBeNull()
+  })
+})
+
+describe('mega plugin account surface', () => {
+  it('asks for email, password and an optional two-factor code', () => {
+    const keys = mega.credentialFields.map((f) => f.key)
+    expect(keys).toEqual(['email', 'password', 'mfa'])
+  })
+
+  it('says the password is not stored, in the field help', () => {
+    // The plugin returns replacement secrets so only the session is persisted;
+    // the form has to say so, because a password field implies otherwise.
+    const password = mega.credentialFields.find((f) => f.key === 'password')
+    expect(password.help).toMatch(/never the password/i)
+  })
+
+  it('requires both an email and a password before calling MEGA', async () => {
+    expect((await mega.validate({})).ok).toBe(false)
+    expect((await mega.validate({ email: 'a@b.c' })).error).toMatch(/both required/i)
+    expect((await mega.validate({ password: 'x' })).error).toMatch(/both required/i)
+  })
+
+  it('refuses a quota lookup with no session rather than calling anonymously', async () => {
+    const result = await mega.getQuota({})
     expect(result.ok).toBe(false)
-    expect(result.error).toMatch(/does not sign in/i)
+    expect(result.error).toMatch(/sign in/i)
+  })
+
+  it('classifies the two-factor error codes as auth', () => {
+    expect(mega.classifyError(null, { body: '-26' })).toBe('auth')
+    expect(mega.classifyError(null, { body: '-27' })).toBe('auth')
   })
 })

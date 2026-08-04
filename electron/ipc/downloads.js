@@ -209,7 +209,16 @@ function registerDownloadsHandlers(ctx = {}) {
       if (!check?.ok) {
         return { ok: false, error: check?.error || "Those details were rejected" };
       }
-      const saved = credentialStore.saveCredentials(hostId, secrets, {
+      // A plugin may return REPLACEMENT secrets, and then those are what get
+      // stored rather than what the user typed. MEGA uses this to keep a session
+      // and discard the password: the password is needed once, to sign in, and
+      // persisting it would mean a copied config could be replayed as a login.
+      // The two-factor code must not be stored either -- it is single-use and
+      // would be worse than useless on disk.
+      const toStore = check.secrets && typeof check.secrets === "object"
+        ? check.secrets
+        : secrets;
+      const saved = credentialStore.saveCredentials(hostId, toStore, {
         ...meta,
         username: check.username || meta.username || "",
         label: check.plan || meta.label || "",

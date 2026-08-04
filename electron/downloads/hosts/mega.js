@@ -20,6 +20,7 @@ const {
   decryptAttributes,
   fileNameFromAttributes,
 } = require("./megaLink");
+const account = require("./megaAccount");
 
 const API = "https://g.api.mega.co.nz/cs";
 
@@ -38,6 +39,8 @@ const ERROR_CODES = {
   "-16": { kind: "fatal", message: "This MEGA account has been blocked." },
   "-17": { kind: "quota", message: "MEGA's transfer quota is exhausted. It resets periodically." },
   "-18": { kind: "transient", message: "This MEGA file is temporarily unavailable." },
+  "-26": { kind: "auth", message: "This MEGA account needs a two-factor code." },
+  "-27": { kind: "auth", message: "That two-factor code was not accepted." },
 };
 
 function errorFor(code) {
@@ -54,7 +57,24 @@ function fileIdFrom(url) {
   return parseMegaLink(url)?.id || null;
 }
 
-async function probe(url) {
+function sessionFrom(credentials) {
+  const session = String(credentials?.session || "").trim();
+  return session || null;
+}
+
+async function apiCall(body, session) {
+  const suffix = session ? `&sid=${encodeURIComponent(session)}` : "";
+  const response = await fetch(`${API}?id=1${suffix}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) return { httpStatus: response.status };
+  const payload = await response.json();
+  return { entry: Array.isArray(payload) ? payload[0] : payload };
+}
+
+async function probe(url, credentials = {}) {
   const link = parseMegaLink(url);
   if (!link) return { ok: false, kind: "fatal", error: "That is not a MEGA link." };
 
@@ -80,24 +100,23 @@ async function probe(url) {
     };
   }
 
-  let payload;
+  // The session, when there is one, is what buys the account's transfer quota
+  // instead of the anonymous allowance. It changes nothing else about the
+  // download: the key still comes from the link, not from the account.
+  const session = sessionFrom(credentials);
+  let result;
   try {
-    const response = await fetch(`${API}?id=1`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      // ONLY the id. The key after the # is never sent: including it returns
-      // [-2], which is how this was first got wrong.
-      body: JSON.stringify([{ a: "g", g: 1, p: link.id }]),
-    });
-    if (!response.ok) {
+    // ONLY the id. The key after the # is never sent: including it returns
+    // [-2], which is how this was first got wrong.
+    result = await apiCall([{ a: "g", g: 1, p: link.id }], session);
+    if (result.httpStatus) {
       return {
         ok: false,
-        kind: response.status >= 500 ? "transient" : "fatal",
-        error: `MEGA's API returned ${response.status}.`,
-        diagnostic: { status: response.status, fileId: link.id },
+        kind: result.httpStatus >= 500 ? "transient" : "fatal",
+        error: `MEGA's API returned ${result.httpStatus}.`,
+        diagnostic: { status: result.httpStatus, fileId: link.id, authenticated: Boolean(session) },
       };
     }
-    payload = await response.json();
   } catch (err) {
     return {
       ok: false,
@@ -108,12 +127,12 @@ async function probe(url) {
   }
 
   // Either `-2` or `[-2]`; a success is `[{ … }]`.
-  const entry = Array.isArray(payload) ? payload[0] : payload;
+  const entry = result.entry;
   if (typeof entry === "number") {
     const mapped = errorFor(entry);
     return {
       ok: false, kind: mapped.kind, error: mapped.message,
-      diagnostic: { megaError: entry, fileId: link.id },
+      diagnostic: { megaError: entry, fileId: link.id, authenticated: Boolean(session) },
     };
   }
   if (!entry || typeof entry !== "object" || !entry.g) {
@@ -155,14 +174,127 @@ async function probe(url) {
   };
 }
 
-async function validate() {
-  // No account support yet, and saying so is better than accepting details that
-  // would do nothing. Anonymous downloads are unaffected.
-  return {
-    ok: false,
-    error: "Atlas does not sign in to MEGA yet. Public links download without an "
-      + "account; an account would only raise the transfer quota.",
-  };
+/**
+ * Sign in and return a SESSION, never the password.
+ *
+ * The password is used once, here, and discarded: `secrets` in the result
+ * replaces what gets written to the credential store, so a copied config cannot
+ * be replayed as a login. The cost is that an expired session needs signing in
+ * again rather than being refreshed silently -- the same trade the F95
+ * browser-added accounts already make.
+ */
+async function validate(credentials = {}) {
+  const email = String(credentials.email || "").trim().toLowerCase();
+  const password = String(credentials.password || "");
+  const mfa = String(credentials.mfa || "").replace(/\s+/g, "");
+  if (!email || !password) {
+    return { ok: false, error: "An email address and password are both required." };
+  }
+
+  try {
+    // Which account generation, and the salt for v2. v1 accounts predate the
+    // salt and derive their hash from the email instead.
+    const saltResult = await apiCall([{ a: "us0", user: email }], null);
+    if (saltResult.httpStatus) {
+      return { ok: false, error: `MEGA's API returned ${saltResult.httpStatus}.` };
+    }
+    const saltEntry = saltResult.entry;
+    if (typeof saltEntry === "number") {
+      return { ok: false, error: errorFor(saltEntry).message };
+    }
+
+    const version = Number(saltEntry?.v) || 1;
+    let derivedKey;
+    let passwordHash;
+    if (version >= 2) {
+      const derived = account.deriveKeyV2(password, saltEntry.s);
+      if (!derived) return { ok: false, error: "MEGA sent an unreadable password salt." };
+      derivedKey = derived.derivedKey;
+      passwordHash = derived.passwordHash;
+    } else {
+      derivedKey = account.prepareKeyV1(password);
+      passwordHash = account.stringHashV1(email, derivedKey);
+    }
+
+    const request = { a: "us", user: email, uh: account.toBase64Url(passwordHash) };
+    if (mfa) request.mfa = mfa;
+    const loginResult = await apiCall([request], null);
+    if (loginResult.httpStatus) {
+      return { ok: false, error: `MEGA's API returned ${loginResult.httpStatus}.` };
+    }
+    const login = loginResult.entry;
+    if (typeof login === "number") {
+      const mapped = errorFor(login);
+      // -9 on the login step is a wrong password far more often than a missing
+      // account, since us0 above already confirmed the account exists.
+      if (login === -9) {
+        return { ok: false, error: "MEGA rejected that password." };
+      }
+      return { ok: false, error: mapped.message };
+    }
+
+    // A session key login returns tsid directly; a password login returns csid
+    // and needs the RSA step.
+    let sessionId = null;
+    if (login.tsid) {
+      sessionId = String(login.tsid);
+    } else {
+      const masterKey = account.decryptMasterKey(login.k, derivedKey);
+      if (!masterKey) return { ok: false, error: "MEGA sent an unreadable master key." };
+      const privateKey = account.decryptPrivateKey(login.privk, masterKey);
+      if (!privateKey) {
+        // The master key is what decrypts privk, so unreadable components here
+        // almost always mean the password was wrong in a way the server accepted
+        // the hash for -- worth saying rather than reporting a crypto failure.
+        return { ok: false, error: "Could not read this account's keys. Check the password." };
+      }
+      sessionId = account.decryptSessionId(login.csid, privateKey);
+      if (!sessionId) return { ok: false, error: "Could not complete MEGA's session challenge." };
+    }
+
+    // Display detail only. A failure here does not invalidate the session.
+    let label = "";
+    const quota = await getQuota({ session: sessionId }).catch(() => null);
+    if (quota?.ok && quota.totalBytes) {
+      label = quota.pro ? "Pro" : "Free";
+    }
+
+    return {
+      ok: true,
+      username: email,
+      plan: label,
+      // Replaces what is stored: the session, and nothing that can be replayed.
+      secrets: { session: sessionId },
+    };
+  } catch (err) {
+    return { ok: false, error: `Could not reach MEGA: ${err.message}` };
+  }
+}
+
+/** Storage and transfer allowance, for the Settings readout. */
+async function getQuota(credentials = {}) {
+  const session = sessionFrom(credentials);
+  if (!session) return { ok: false, error: "Sign in to MEGA to see your quota." };
+  try {
+    const result = await apiCall([{ a: "uq", xfer: 1, strg: 1, pro: 1 }], session);
+    if (result.httpStatus) {
+      return { ok: false, error: `MEGA's API returned ${result.httpStatus}.` };
+    }
+    const entry = result.entry;
+    if (typeof entry === "number") {
+      return { ok: false, error: errorFor(entry).message };
+    }
+    return {
+      ok: true,
+      usedBytes: Number(entry?.cstrg) || 0,
+      totalBytes: Number(entry?.mstrg) || 0,
+      transferUsedBytes: Number(entry?.caxfer ?? entry?.csxfer) || 0,
+      transferTotalBytes: Number(entry?.mxfer) || 0,
+      pro: Number(entry?.utype) > 0,
+    };
+  } catch (err) {
+    return { ok: false, error: `Could not reach MEGA: ${err.message}` };
+  }
 }
 
 function classifyError(err, { status, body } = {}) {
@@ -183,10 +315,18 @@ module.exports = {
   // The mirror gate matches the FIRST LABEL of the host, so mega.nz and
   // mega.co.nz both present as "mega".
   hostAliases: ["mega"],
-  credentialFields: [],
+  credentialFields: [
+    { key: "email", label: "Email", type: "text",
+      help: "The email address on your MEGA account." },
+    { key: "password", label: "Password", type: "password",
+      help: "Used once to sign in. Atlas stores the resulting session, never the password." },
+    { key: "mfa", label: "Two-factor code", type: "text",
+      help: "Only if two-factor authentication is enabled. Leave blank otherwise." },
+  ],
   matches,
   probe,
   validate,
+  getQuota,
   classifyError,
   // Exported for tests
   fileIdFrom,
