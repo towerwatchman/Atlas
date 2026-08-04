@@ -338,9 +338,23 @@ describe('MEGA account crypto', () => {
     expect(n).toBe(p * q)
 
     const sid = crypto.randomBytes(43)
+    // The plaintext is the session id LEFT-aligned in a modulus-width buffer, so
+    // its leading byte is sid[0] and the integer it forms must be a valid RSA
+    // plaintext: strictly less than n, and with no leading zero byte for
+    // decryptSessionId's leading-zero strip to eat.
+    //
+    // Random bytes satisfy neither. n's top byte is uniform-ish over [0x80,0xFF],
+    // so a raw sid[0] exceeded it about a quarter of the time and the modPow
+    // wrapped; sid[0] === 0 broke it a further 1-in-256. This test failed 2 runs
+    // in 8 on a pristine tree and passed at the end of the last session by luck.
+    // Clamping sid[0] into [1, nTop-1] makes the comparison decide on the first
+    // byte alone, which is what makes it deterministic rather than merely likelier.
+    const nTop = Number(n >> BigInt((n.toString(16).length / 2 - 1) * 8) & 0xffn)
+    sid[0] = (sid[0] % (nTop - 1)) + 1
     const width = Math.ceil(n.toString(16).length / 2)
     const padded = Buffer.alloc(width)
     sid.copy(padded, 0)
+    expect(BigInt(`0x${padded.toString('hex')}`) < n).toBe(true)
     const cipher = account.modPow(BigInt(`0x${padded.toString('hex')}`), big(jwk.e), n)
 
     expect(account.decryptSessionId(account.toBase64Url(mpi(cipher)), { d, n }))

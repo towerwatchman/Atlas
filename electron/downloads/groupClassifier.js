@@ -79,6 +79,12 @@ const WANTED_PLATFORMS = new Set(["win", "linux", "all"]);
 // Ordered most-specific first so the reported reason is the useful one.
 const KIND_MARKERS = [
   [/\bupdate\s*only\b/i, "update-only"],
+  // A "Split" heading means the poster chopped the archive up. Those were
+  // already refused when the individual links said "Part 1", but a bold that
+  // says Split once and then lists bare mirrors gave nothing for PART to match,
+  // so every fragment was offered as a whole game. \b on both sides so
+  // "Splitscreen" is not caught.
+  [/\bsplit\b/i, "split"],
   [/\bupdate\b/i, "update"],
   [/\bpatch(es)?\b/i, "patch"],
   [/\bhotfix\b/i, "hotfix"],
@@ -134,7 +140,16 @@ const tokenize = (value) =>
 function classifyGroup(group, link = null, options = {}) {
   const wanted = wantedFor(options.platform);
   const raw = String(group == null ? "" : group).trim();
-  const tokens = tokenize(raw);
+  // Platform used to be embedded in `group`, so tokenizing the heading was the
+  // same thing as reading the platform. headingLines now splits them onto
+  // separate fields, and tokenizing `raw` alone would find no platform token in
+  // "Season 2 Final 4K" - every link would classify as unlabeled and the
+  // platform filter would quietly stop filtering. So the platform text is
+  // tokenized alongside it, from the option, the link, or the explicit option.
+  const platformText = String(
+    options.platformText ?? link?.platform ?? "",
+  ).trim();
+  const tokens = tokenize(platformText ? `${raw} ${platformText}` : raw);
 
   const result = {
     raw,
@@ -234,7 +249,10 @@ function selectDownloadableLinks(links, options = {}) {
   const rejected = [];
 
   for (const link of Array.isArray(links) ? links : []) {
-    const verdict = classifyGroup(link?.group, link, { platform });
+    const verdict = classifyGroup(link?.group, link, {
+      platform,
+      platformText: link?.platform,
+    });
     const entry = { link, verdict };
 
     if (!verdict.accepted) {
@@ -296,7 +314,34 @@ function selectDownloadableLinks(links, options = {}) {
     hosts: Array.from(new Set(multiPart.map((set) => set.host))).filter(Boolean),
   };
 
-  return { singles, multiPart, hiddenMultiPart, rejected };
+  // Builds refused for PLATFORM, summarised the same way and for the same
+  // reason: an omission the user cannot see is one they cannot report. Now that
+  // headingLines gives platform its own axis, a build posted only for Mac or
+  // Android disappears from a Windows machine's list with nothing said, and the
+  // thread visibly has downloads the app claims not to find.
+  //
+  // Summarised rather than shown as greyed rows: a build this machine cannot run
+  // is not a choice, and rendering it as one invites the click. Counting it, and
+  // naming the platforms, tells the user the list is complete without offering
+  // them a download that would not launch.
+  //
+  // Only platform rejections, not kind rejections. A patch or a soundtrack was
+  // never a candidate for this list and saying "3 builds hidden" about them would
+  // be a lie about what the thread offers.
+  const platformRejected = rejected.filter(
+    (entry) => entry.verdict.kind === "game" && entry.verdict.platforms.length > 0,
+  );
+  const hiddenPlatform = {
+    links: platformRejected.length,
+    builds: Array.from(
+      new Set(platformRejected.map((entry) => entry.verdict.raw).filter(Boolean)),
+    ),
+    platforms: Array.from(
+      new Set(platformRejected.flatMap((entry) => entry.verdict.platforms)),
+    ),
+  };
+
+  return { singles, multiPart, hiddenMultiPart, hiddenPlatform, rejected };
 }
 
 // Parts must run 1..n with no gaps, and match the declared total if given.
@@ -321,6 +366,7 @@ module.exports = {
   classifyGroup,
   wantedFor,
   PLATFORM_SETS,
+  PLATFORM_TOKENS,
   selectDownloadableLinks,
   isContiguous,
   tokenize,

@@ -130,7 +130,10 @@ async function getUpdateLinks(threadId, { force = false } = {}) {
       url: link.url,
       host: link.host,
       label: link.label,
+      // The build label alone. Platform travels beside it rather than inside it,
+      // so two DLCs that were both posted for Win/Linux/Mac stay two options.
       group: link.group,
+      platform: link.platform || '',
       masked: link.masked,
       compressed: verdict.compressed,
       platforms: verdict.platforms,
@@ -138,6 +141,9 @@ async function getUpdateLinks(threadId, { force = false } = {}) {
     // Only non-zero when split archives were actually found, so the modal can
     // stay silent for the games that have none.
     hiddenMultiPart: selection.hiddenMultiPart,
+    // Same contract for builds refused on platform. Platform is its own axis now,
+    // so these vanish from the list unless something says so.
+    hiddenPlatform: selection.hiddenPlatform,
     // Counted rather than listed: useful as "12 links were for other
     // platforms" without cluttering the modal.
     rejectedCount: selection.rejected.length,
