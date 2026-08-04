@@ -36,7 +36,12 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [quota, setQuota] = useState(null)
-  const [expanded, setExpanded] = useState(false)
+  // A centred modal rather than a panel expanding inside the card, matching the
+  // site accounts above (Accounts.jsx / AddAccountModal). Signing in to a host
+  // is the same kind of act as signing in to a site, and MEGA's form is three
+  // fields with help text under each -- inline it pushed every card below it
+  // down the page and read as part of the list rather than as a task.
+  const [modalOpen, setModalOpen] = useState(false)
 
   const fields = plugin.credentialFields || []
   const hasAccount = Boolean(account)
@@ -66,7 +71,7 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
       if (result?.ok) {
         // Clear the inputs: the value is stored and will never be read back.
         setValues({})
-        setExpanded(false)
+        setModalOpen(false)
         setNotice(
           result.validated?.username
             ? `Signed in as ${result.validated.username}`
@@ -143,7 +148,7 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
           {fields.length > 0 && (
             <button
               type="button"
-              onClick={() => setExpanded((value) => !value)}
+              onClick={() => { setValues({}); setError(''); setModalOpen(true) }}
               disabled={busy || !available}
               className="h-8 px-3 text-xs rounded-buttonTheme bg-accent hover:bg-accentHover text-white disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -153,54 +158,81 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
         </div>
       </div>
 
-      {expanded && (
-        <div className="mt-3 pt-3 border-t border-border space-y-2">
-          {fields.map((field) => (
-            <div key={field.key}>
-              <label
-                htmlFor={`${plugin.id}-${field.key}`}
-                className="block text-xs text-text mb-1"
-              >
-                {field.label}
-              </label>
-              <input
-                id={`${plugin.id}-${field.key}`}
-                type={field.type === 'password' ? 'password' : 'text'}
-                value={values[field.key] || ''}
-                onChange={(event) =>
-                  setValues((prev) => ({ ...prev, [field.key]: event.target.value }))}
+      {/* The modal owns the error while it is open, and a failed save keeps it
+          open, so the card only reports the outcome that closed it. */}
+      {notice && <p className="text-xs text-success mt-2">{notice}</p>}
+      {modalOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
+          onClick={() => { if (!busy) { setModalOpen(false); setValues({}); setError('') } }}
+        >
+          <div
+            className="w-full max-w-md rounded-lg border border-border bg-secondary shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <h3 className="text-lg font-semibold text-text">
+                {hasAccount ? `Replace ${plugin.label} account` : `Add ${plugin.label} account`}
+              </h3>
+              <button
+                type="button"
+                onClick={() => { setModalOpen(false); setValues({}); setError('') }}
                 disabled={busy}
-                autoComplete="off"
-                className="w-full bg-tertiary border border-border rounded p-2 text-xs focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
-              />
-              {field.help && (
-                <p className="text-[11px] text-muted mt-1">{field.help}</p>
-              )}
+                aria-label="Close"
+                className="w-7 h-7 flex items-center justify-center rounded hover:bg-highlight text-text disabled:opacity-40"
+              >
+                <i className="fas fa-times" />
+              </button>
             </div>
-          ))}
-          <div className="flex items-center gap-2 pt-1">
-            <button
-              type="button"
-              onClick={save}
-              disabled={busy || !canSubmit}
-              className="h-8 px-3 text-xs rounded-buttonTheme bg-accent hover:bg-accentHover text-white disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {busy ? 'Checking…' : 'Verify and save'}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setExpanded(false); setValues({}); setError('') }}
-              disabled={busy}
-              className="h-8 px-3 text-xs rounded-buttonTheme bg-button hover:bg-buttonHover text-text"
-            >
-              Cancel
-            </button>
+
+            <div className="px-4 py-4 flex flex-col gap-3">
+              {fields.map((field) => (
+                <label
+                  key={field.key}
+                  htmlFor={`${plugin.id}-${field.key}`}
+                  className="flex flex-col gap-1 text-sm text-text"
+                >
+                  {field.label}
+                  <input
+                    id={`${plugin.id}-${field.key}`}
+                    type={field.type === 'password' ? 'password' : 'text'}
+                    value={values[field.key] || ''}
+                    onChange={(event) =>
+                      setValues((prev) => ({ ...prev, [field.key]: event.target.value }))}
+                    disabled={busy}
+                    autoComplete="off"
+                    className="bg-primary border border-border text-text rounded p-2 focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+                  />
+                  {field.help && (
+                    <span className="text-[11px] text-muted font-normal">{field.help}</span>
+                  )}
+                </label>
+              ))}
+
+              {error && <p className="text-xs text-danger">{error}</p>}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+              <button
+                type="button"
+                onClick={() => { setModalOpen(false); setValues({}); setError('') }}
+                disabled={busy}
+                className="h-8 px-3 text-xs rounded-buttonTheme bg-button hover:bg-buttonHover text-text disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={save}
+                disabled={busy || !canSubmit}
+                className="h-8 px-4 text-xs rounded-buttonTheme bg-accent hover:bg-accentHover text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {busy ? 'Checking\u2026' : 'Verify and save'}
+              </button>
+            </div>
           </div>
         </div>
       )}
-
-      {error && <p className="text-xs text-danger mt-2">{error}</p>}
-      {notice && <p className="text-xs text-success mt-2">{notice}</p>}
     </div>
   )
 }

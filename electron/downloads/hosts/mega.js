@@ -255,7 +255,7 @@ async function validate(credentials = {}) {
     // Display detail only. A failure here does not invalidate the session.
     let label = "";
     const quota = await getQuota({ session: sessionId }).catch(() => null);
-    if (quota?.ok && quota.totalBytes) {
+    if (quota?.ok) {
       label = quota.pro ? "Pro" : "Free";
     }
 
@@ -284,12 +284,20 @@ async function getQuota(credentials = {}) {
     if (typeof entry === "number") {
       return { ok: false, error: errorFor(entry).message };
     }
+    // `used` and `cap` are the keys the Settings readout reads, matching
+    // pixeldrain. Reporting transfer rather than storage because that is the
+    // limit an account raises and therefore the number that matters here.
+    const used = Number(entry?.caxfer ?? entry?.csxfer) || 0;
+    const rawCap = Number(entry?.mxfer) || 0;
     return {
       ok: true,
-      usedBytes: Number(entry?.cstrg) || 0,
-      totalBytes: Number(entry?.mstrg) || 0,
-      transferUsedBytes: Number(entry?.caxfer ?? entry?.csxfer) || 0,
-      transferTotalBytes: Number(entry?.mxfer) || 0,
+      used,
+      // A free account reports no transfer allowance of its own, so a zero cap
+      // is "not stated" rather than "nothing left" -- the same distinction
+      // pixeldrain draws for an unset custom cap.
+      cap: rawCap > 0 ? rawCap : null,
+      storageUsed: Number(entry?.cstrg) || 0,
+      storageCap: Number(entry?.mstrg) || 0,
       pro: Number(entry?.utype) > 0,
     };
   } catch (err) {

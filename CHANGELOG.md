@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+- `src/components/settings/DownloadAccounts.jsx`: the Pixeldrain and MEGA sign-in forms open in a centred modal, matching the site accounts above them (`Accounts.jsx` / `AddAccountModal`) -- same overlay, same panel, same header and close button. Signing in to a host is the same kind of act as signing in to a site, and the forms were the odd ones out.
+- It was a panel expanding inside the card, which pushed every card below it down the page and read as part of the list rather than as a task. MEGA made that worse: three fields with help text under each is a tall form to unfold in place.
+- Opening clears whatever was typed before, and Cancel, the close button and a click outside all discard it. Reopening never shows an abandoned value, because these are credentials rather than a draft worth restoring.
+- The card no longer renders the error. A failed save keeps the modal open, so the modal owns the message while it is up and the card only reports the outcome that closed it -- previously both rendered and a rejection appeared twice.
+- `electron/downloads/hosts/mega.js`: `getQuota` returns `used` and `cap`, the keys the readout actually reads. It was returning `usedBytes`/`totalBytes`, so MEGA's quota line would have rendered nothing at all -- found by reading the component this change touched rather than by anything failing. A zero transfer cap is reported as `null` rather than zero, since a free account states no allowance of its own and "0 of 0" is not what that means; the same distinction Pixeldrain draws for an unset custom cap.
+- `tests/download-accounts.test.jsx`: 10 tests covering the modal -- that no form shows until asked for, that it is a centred overlay, a field per `credentialField` with its help text, a masked password, submit disabled until something is entered, discard on cancel and on an outside click, no close on an inside click, and that a rejection keeps the modal open while a success closes it and reports the user on the card.
+
 ### Added
 - MEGA accounts. Signing in attributes a download to the account, so public-link transfers draw on its quota instead of the anonymous allowance. The key still comes from the link, never from the account -- an account changes which quota a transfer is billed to and nothing else about how it decrypts.
 - `electron/downloads/hosts/megaAccount.js`: the login crypto, pure and offline-testable. Asks which account generation an email is (`us0`), derives the password key, exchanges it for a session, and unwraps the keys. v2 is PBKDF2-SHA512 at 100,000 iterations producing 32 bytes split 16/16 -- first half unwraps the master key, second half is the proof sent to the server, and swapping them fails with "wrong password" against a correct password. v1 (legacy, unmigratable from the client) is MEGA's AES-based derivation with the hash taken from the lowercased email.
