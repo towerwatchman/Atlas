@@ -29,6 +29,16 @@ const { pipeline } = require("stream/promises");
 
 const downloadsDb = require("./../db/downloads");
 const { resolveDirectUrl, pluginFor } = require("./hosts");
+// Contract extension for hosts that serve ciphertext. See hosts/megaDecrypt.js:
+// MEGA has no URL that yields plaintext, so rather than give it a private
+// downloader -- a second copy of the resume, progress and cancellation logic
+// below -- a plugin may return a `decrypt` descriptor and the response is piped
+// through the transform it names.
+const { createMegaDecryptStream } = require("./hosts/megaDecrypt");
+
+const DECRYPT_FACTORIES = {
+  mega: (spec, startOffset) => createMegaDecryptStream({ ...spec, startOffset }),
+};
 
 // Concurrent transfers. Higher is not faster for a single host and gets you
 // rate-limited, so this stays small and is not user-configurable for now.
@@ -282,6 +292,8 @@ const startTransfer = async (item) => {
 
     // Skipped when the window already produced the file URL: re-probing would
     // walk straight back into the challenge it just cleared.
+    // Set by a plugin whose bytes arrive encrypted. Null for every other host.
+    let decryptSpec = null;
     const probe = resolvedInBrowser
       ? { ok: true, passthrough: true }
       : await resolveDirectUrl(item.url, getHostCredentials());
@@ -305,6 +317,7 @@ const startTransfer = async (item) => {
     }
     if (!probe.passthrough) {
       transferUrl = probe.directUrl || item.url;
+      decryptSpec = probe.decrypt || null;
       Object.assign(headers, probe.headers || {});
       // The host knows the real filename and size; both are better than
       // anything guessable from the URL, and the size gives an honest
@@ -386,7 +399,33 @@ const startTransfer = async (item) => {
       }
     });
 
-    await pipeline(response, fileStream);
+    // Insert the plugin's transform when there is one. The manager still owns the
+    // transfer: progress is counted on the response above, so a percentage still
+    // reflects bytes received rather than bytes decrypted, and cancellation still
+    // destroys the same stream.
+    let decryptStream = null;
+    if (decryptSpec) {
+      const factory = DECRYPT_FACTORIES[decryptSpec.kind];
+      if (!factory) {
+        await handleFailure(item.id, "fatal",
+          `This download needs a decryption method Atlas does not have: ${decryptSpec.kind}`);
+        return;
+      }
+      try {
+        decryptStream = factory(decryptSpec, existingBytes);
+      } catch (err) {
+        // A resume that cannot be aligned to the cipher's block boundary. Failing
+        // is right: the alternative is a file of noise that passes every length
+        // check the completion step makes.
+        await handleFailure(item.id, "fatal",
+          `Could not resume this encrypted download: ${err.message}`);
+        return;
+      }
+    }
+
+    await (decryptStream
+      ? pipeline(response, decryptStream, fileStream)
+      : pipeline(response, fileStream));
 
     if (controller.canceled) {
       await fsp.rm(filePath, { force: true }).catch(() => {});
@@ -396,6 +435,31 @@ const startTransfer = async (item) => {
     if (controller.paused) {
       await setState(item.id, "paused", { receivedBytes: received });
       return;
+    }
+
+    // Integrity, where the host gives us something to check against. Only
+    // possible once the last byte has arrived, so a large file can transfer
+    // completely and still be rejected here -- the message has to say that the
+    // bytes are wrong rather than something generic, because the file looks
+    // perfectly complete by every other measure.
+    if (decryptStream) {
+      const verified = decryptStream.verify();
+      if (verified === false) {
+        await fsp.rm(filePath, { force: true }).catch(() => {});
+        await handleFailure(item.id, "transient",
+          "The file downloaded but failed MEGA's integrity check, so it is corrupt. "
+          + "The partial file was removed; retrying downloads it again.");
+        return;
+      }
+      // null means "not computed", which a resumed transfer cannot do: the MAC is
+      // sequential over the whole file and this stream only saw part of it.
+      // Distinguished from a failure rather than collapsed into one boolean.
+      if (verified === null) {
+        console.log("[download-verify]", JSON.stringify({
+          id: item.id, host: item.host, reason: "mac-not-computed",
+          resumed: existingBytes > 0,
+        }));
+      }
     }
 
     await downloadsDb.updateDownload(item.id, { receivedBytes: received });

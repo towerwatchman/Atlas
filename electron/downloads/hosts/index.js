@@ -31,10 +31,11 @@
 
 const pixeldrain = require("./pixeldrain");
 const buzzheavier = require("./buzzheavier");
+const mega = require("./mega");
 
 // Order matters only for overlapping matchers, of which there are none: each
 // plugin claims a distinct domain. Add Gofile and Mega here as they land.
-const plugins = [pixeldrain, buzzheavier];
+const plugins = [pixeldrain, buzzheavier, mega];
 
 // A plugin can be present but not offered. `disabled: true` keeps it resolvable
 // for a download already in the queue while removing it from everything that

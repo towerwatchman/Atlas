@@ -96,10 +96,14 @@ const ok = (condition, message) => { assert.ok(condition, message); checks += 1;
       { host: "workupload.com", group: "Win/Linux", type: "game" },
     ];
     const result = selectDownloadableLinks(links, { supportedHosts: supported });
-    eq(result.singles.length, 1, "only the host with a plugin is offered");
-    eq(result.singles[0].link.host, "pixeldrain.com", "and it is pixeldrain");
-    ok(result.rejected.some((entry) => /no plugin for mega/.test(entry.verdict.reason)),
-       "mega rejected with a reason");
+    // Two offered now that MEGA has a plugin. This assertion previously proved the
+    // opposite -- that mega.nz was rejected for having none -- so its inversion is
+    // what demonstrates MEGA links actually reach the mirror list.
+    eq(result.singles.length, 2, "both hosts with a plugin are offered");
+    const offered = result.singles.map((entry) => entry.link.host).sort();
+    eq(offered.join(","), "mega.nz,pixeldrain.com", "pixeldrain and mega");
+    ok(result.rejected.some((entry) => /no plugin for workupload/.test(entry.verdict.reason)),
+       "a host with no plugin is still rejected with a reason");
   }
 
   // ── probe / validate / getQuota, with fetch stubbed ───────────────────────
@@ -451,7 +455,9 @@ const ok = (condition, message) => { assert.ok(condition, message); checks += 1;
     // it would need "buzz" in the supported set, and no plugin has ever claimed
     // it. Asserted so a future alias cannot reintroduce it by accident.
     ok(!registry.supportedHostIds().includes("buzz"), "buzz.to is not offered either");
-    eq(registry.supportedHostIds().length, 1, "one offered plugin, one host label");
+    // pixeldrain and mega. Buzzheavier is present but disabled, so it adds none.
+    eq(registry.supportedHostIds().length, 2, "two offered plugins, two host labels");
+    ok(registry.supportedHostIds().includes("mega"), "mega is offered");
   } finally {
     global.fetch = realFetch;
   }
