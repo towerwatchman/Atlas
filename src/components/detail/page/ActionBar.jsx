@@ -1,5 +1,6 @@
 import { LAUNCH_STATE, ACTION_BTN, STEAM_GREEN, STEAM_BLUE, STEAM_YELLOW, STEAM_GRAY, iconBtn, resolveActionBarRoutes } from './gameDetailUtils.js'
 import GogIcon from '../../ui/GogIcon.jsx'
+import SplitButtonMenu from './SplitButtonMenu.jsx'
 
 export default function ActionBar({
   game, actionVersion, latestVersion, canLaunch, canOpenFolder,
@@ -23,13 +24,38 @@ export default function ActionBar({
     canLaunch,
     canInstallFromDetail,
     canManageLocalTitle,
+    canManageWishlist,
     hasOpenUpdate: Boolean(onOpenUpdate),
     hasLocalImport: typeof onToggleLocalImport === 'function',
     hasSteamInstall: typeof onSteamInstall === 'function',
   })
   const showInstallCta = routes.showInstallCta
   const onInstallCta = routes.installRoute === 'mirrors' ? onOpenUpdate : onToggleLocalImport
-  const showLocalImportAction = routes.showLocalImportAction
+  // Manual install lives behind a caret rather than in a button of its own: it is
+  // a real route into the library but not the common one, and a full-size button
+  // of its own competed with the primary action for attention and width.
+  //
+  // The caret hangs off UPDATE when there is one, because that is the rightmost
+  // primary action and the two are the same kind of thing -- get a new build in.
+  // With no UPDATE it hangs off PLAY/INSTALL instead, and takes that button's
+  // colour, so it is green beside PLAY and accent beside INSTALL or UPDATE.
+  const showInstallMenu = routes.showInstallMenu
+  const caretHost = !showInstallMenu ? 'none' : game.isUpdateAvailable ? 'update' : 'primary'
+  // One entry today. The panel picks its own mode -- 'Install / Import Files' for
+  // a catalog row, 'Update / Import Files' for a library title -- from
+  // canManageWishlist, so a single handler serves both and only the wording here
+  // differs.
+  const installMenuItems = [
+    {
+      id: 'manual-install',
+      label: 'Manual Install',
+      description: canManageWishlist
+        ? 'Install from an archive, folder, or executable you already have.'
+        : 'Add or replace a version from an archive, folder, or executable.',
+      icon: 'fas fa-file-import',
+      onSelect: onToggleLocalImport,
+    },
+  ]
   // When the title is Steam-owned but not installed, the primary CTA hands off
   // to the Steam client (steam://install) rather than opening Atlas's local
   // import panel — mirroring how Steam's own Install button behaves.
@@ -92,52 +118,69 @@ export default function ActionBar({
           </button>
         )}
 
-        {/* PLAY */}
-        <button
-          onClick={steamInstallCta ? onSteamInstall : showInstallCta ? onInstallCta : onLaunch}
-          disabled={!showInstallCta && !canLaunch && launchState === LAUNCH_STATE.IDLE}
-          style={{
-            ...ACTION_BTN, minWidth: 130, background: playBg, color: playColor,
-            cursor: showInstallCta ? 'pointer'
-              : launchState === LAUNCH_STATE.LAUNCHING ? 'wait'
-              : launchState === LAUNCH_STATE.RUNNING ? 'default'
-              : !canLaunch ? 'not-allowed' : 'pointer',
-            opacity: !showInstallCta && !canLaunch && launchState === LAUNCH_STATE.IDLE ? 0.5 : 1,
-          }}
-          onMouseEnter={(e) => { if (showInstallCta || canLaunch || launchState !== LAUNCH_STATE.IDLE) e.currentTarget.style.filter = 'brightness(1.12)' }}
-          onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
-        >
-          {playLabel}
-        </button>
+        {/* PLAY / INSTALL. Declared as a value so the caret can wrap it without
+            the markup being written out twice for the wrapped and bare cases. */}
+        {(() => {
+          const primaryButton = (
+            <button
+              onClick={steamInstallCta ? onSteamInstall : showInstallCta ? onInstallCta : onLaunch}
+              disabled={!showInstallCta && !canLaunch && launchState === LAUNCH_STATE.IDLE}
+              style={{
+                ...ACTION_BTN, minWidth: 130, background: playBg, color: playColor,
+                cursor: showInstallCta ? 'pointer'
+                  : launchState === LAUNCH_STATE.LAUNCHING ? 'wait'
+                  : launchState === LAUNCH_STATE.RUNNING ? 'default'
+                  : !canLaunch ? 'not-allowed' : 'pointer',
+                opacity: !showInstallCta && !canLaunch && launchState === LAUNCH_STATE.IDLE ? 0.5 : 1,
+              }}
+              onMouseEnter={(e) => { if (showInstallCta || canLaunch || launchState !== LAUNCH_STATE.IDLE) e.currentTarget.style.filter = 'brightness(1.12)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
+            >
+              {playLabel}
+            </button>
+          )
+          const updateButton = game.isUpdateAvailable ? (
+            <button
+              onClick={onOpenUpdate || onOpenWebsite}
+              style={{ ...ACTION_BTN, minWidth: 130, background: 'var(--color-detail-accent)', color: 'var(--color-detail-accent-text)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.12)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
+              title={onOpenUpdate ? 'Choose a download mirror' : 'Open the game\u2019s page'}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <i className="fas fa-arrow-up" style={{ fontSize: 11 }}></i>UPDATE
+              </span>
+            </button>
+          ) : null
+          return (
+            <>
+              {/* The caret takes the colour of whatever it hangs from, so it is
+                  green beside PLAY and accent beside INSTALL or UPDATE. playBg is
+                  already green only when the button really is PLAY. */}
+              {caretHost === 'primary' ? (
+                <SplitButtonMenu
+                  label="More install options"
+                  items={installMenuItems}
+                  caretBackground={playBg}
+                  caretColor={playColor}
+                >
+                  {primaryButton}
+                </SplitButtonMenu>
+              ) : primaryButton}
 
-        {/* UPDATE */}
-        {game.isUpdateAvailable && (
-          <button
-            onClick={onOpenUpdate || onOpenWebsite}
-            style={{ ...ACTION_BTN, minWidth: 130, background: 'var(--color-detail-accent)', color: 'var(--color-detail-accent-text)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.12)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
-            title={onOpenUpdate ? 'Choose a download mirror' : 'Open the game\u2019s page'}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <i className="fas fa-arrow-up" style={{ fontSize: 11 }}></i>UPDATE
-            </span>
-          </button>
-        )}
-
-        {/* Add a version from an archive or a local folder. Kept next to UPDATE
-            because it is the other way to get a new build in, and separate from
-            it because they are not the same action. */}
-        {showLocalImportAction && (
-          <button
-            onClick={onToggleLocalImport}
-            title="Add a version from an archive or folder"
-            style={iconBtn(false)}
-            className="hover:bg-secondary hover:border-border"
-          >
-            <i className="fas fa-file-import" style={{ fontSize: 13 }}></i>
-          </button>
-        )}
+              {updateButton && (caretHost === 'update' ? (
+                <SplitButtonMenu
+                  label="More install options"
+                  items={installMenuItems}
+                  caretBackground="var(--color-detail-accent)"
+                  caretColor="var(--color-detail-accent-text)"
+                >
+                  {updateButton}
+                </SplitButtonMenu>
+              ) : updateButton)}
+            </>
+          )
+        })()}
 
         {/* Version indicator */}
         {actionVersion && (

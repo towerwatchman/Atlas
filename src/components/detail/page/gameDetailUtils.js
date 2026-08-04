@@ -319,6 +319,10 @@ export function resolveActionBarRoutes({
   canLaunch = false,
   canInstallFromDetail = false,
   canManageLocalTitle = true,
+  // A catalog or wishlist row. Distinct from canManageLocalTitle rather than its
+  // inverse: both are false for a metadata-only title, and conflating them is
+  // what hid the manual install below.
+  canManageWishlist = false,
   hasOpenUpdate = false,
   hasLocalImport = true,
   hasSteamInstall = false,
@@ -341,8 +345,42 @@ export function resolveActionBarRoutes({
           : 'localImport',
     // The UPDATE button never routes to the local import panel any more.
     updateRoute: hasOpenUpdate ? 'mirrors' : 'website',
-    // The local import panel has its own control whenever it is applicable, so
-    // it cannot be displaced by whatever the other buttons are wired to.
+    // Retained for callers that render the local import panel's own control.
+    // ActionBar no longer uses it: the caret below covers both cases, and two
+    // controls for one panel is what "one rule in two places" looks like in UI.
     showLocalImportAction: canManageLocalTitle && hasLocalImport,
+    // ── The split button caret ────────────────────────────────────────────
+    //
+    // Where manual install lives. The primary button keeps the primary action --
+    // launch, or fetch a build -- and the caret offers the build you already
+    // have.
+    //
+    // Shown for a library title as well as a browse row, because the panel serves
+    // both: it picks 'Install / Import Files' or 'Update / Import Files' from
+    // canManageWishlist off the same handler. A library title reaching it through
+    // the caret is what makes the caret green -- it inherits the colour of the
+    // button it hangs from, and only a real PLAY button is green.
+    //
+    // The import panel has had a full 'catalog' mode all along -- it titles
+    // itself "Install / Import Files", imports through import-catalog-entry, and
+    // renders whenever canManageWishlist is true. Nothing opened it, because the
+    // only trigger was gated on canManageLocalTitle, which is false for every
+    // browse row. So the mode existed for a row that could not reach it.
+    //
+    // Worse, it looked intermittent rather than absent. installOpensMirrors is
+    // `hasOpenUpdate && !canManageLocalTitle`, so a browse row WITHOUT a mirror
+    // picker fell through to 'localImport' and its INSTALL button did open the
+    // panel -- meaning manual install worked, but only for games that have no
+    // download links, which is the inverse of when it is wanted.
+    //
+    // NOT conditioned on installOpensMirrors, deliberately. Hiding the caret when
+    // the primary already opens the panel would be non-redundant but would make
+    // the affordance come and go depending on whether a game has mirrors -- which
+    // is the same "works, but only sometimes, for a reason invisible from the UI"
+    // shape as the bug above. A consistent caret is worth one duplicated route.
+    //
+    // Both flags are still needed rather than one: they are BOTH false for a
+    // metadata-only title, which has no panel to open and must get no caret.
+    showInstallMenu: hasLocalImport && (canManageLocalTitle || canManageWishlist),
   }
 }
