@@ -36,6 +36,13 @@ const buzzheavier = require("./buzzheavier");
 // plugin claims a distinct domain. Add Gofile and Mega here as they land.
 const plugins = [pixeldrain, buzzheavier];
 
+// A plugin can be present but not offered. `disabled: true` keeps it resolvable
+// for a download already in the queue while removing it from everything that
+// advertises a host to the user -- the mirror list and the accounts screen.
+// Deleting the plugin instead would fail those in-flight items with "no plugin
+// for this host" on a link they cannot get again.
+const isOffered = (plugin) => plugin.disabled !== true;
+
 /** The plugin that handles this URL, or null when nothing does. */
 function pluginFor(url) {
   const text = String(url || "");
@@ -65,7 +72,7 @@ function getPlugin(pluginId) {
  */
 function supportedHostIds() {
   const out = new Set();
-  for (const plugin of plugins) {
+  for (const plugin of plugins.filter(isOffered)) {
     out.add(plugin.id);
     for (const alias of plugin.hostAliases || []) out.add(alias);
   }
@@ -73,7 +80,7 @@ function supportedHostIds() {
 }
 
 function listPlugins() {
-  return plugins.map((plugin) => ({
+  return plugins.filter(isOffered).map((plugin) => ({
     id: plugin.id,
     label: plugin.label,
     supportsAnonymous: plugin.supportsAnonymous !== false,

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+- Buzzheavier is hidden. `supportedHostIds()` and `listPlugins()` skip a plugin marked `disabled: true`, so no Buzzheavier mirror is offered in the update modal and the host disappears from Settings > Accounts. `pluginFor()` and `getPlugin()` still resolve it deliberately, so a download already in the queue finishes rather than failing with "no plugin for this host" on a link the user cannot obtain again. Disabled rather than deleted: the file and its assertions stay.
+- buzz.to and the other buzz domains were never offered in the first place. The gate matches the FIRST LABEL of the host, so a buzz.to mirror would need "buzz" in the supported set, and no plugin has ever claimed it. Now asserted, so a future alias cannot reintroduce it by accident.
+- `scripts/check-host-plugins.js`: the two halves of "disabled" are asserted apart -- still routable by url and by id, absent from `supportedHostIds()` and from `listPlugins()`. 122 assertions.
+
 ### Fixed
 - **Version replace has never once succeeded, and this is why.** `replaceInstalledVersionAfterImport()` is defined at MODULE scope in `electron/ipc/importer.js`. It calls `isAllowedDeletionPath()`, whose fourth line read `recentlyDeletedGamePaths.get(recordId)` -- a binding that only existed INSIDE `registerImporterHandlers(ctx)`, destructured off ctx. Module-scope code cannot see it, so every attempt threw `ReferenceError: recentlyDeletedGamePaths is not defined` between the `selected-version-resolved` and `path-check` audit stages.
 - The reason it looked healthy everywhere else: the ctx destructuring SHADOWS the module-level function of the same name, so `isAllowedDeletionPath` meant two different functions depending on where in the file you stood. The two call sites inside the handlers got main.js's working copy through ctx and behaved correctly; only the one module-scope caller got the broken copy. That is exactly the profile of "replace is the single thing that never works".

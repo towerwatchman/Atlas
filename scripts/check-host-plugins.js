@@ -435,14 +435,23 @@ const ok = (condition, message) => { assert.ok(condition, message); checks += 1;
     }
 
     // ── Registry ────────────────────────────────────────────────────────────
-    eq(registry.pluginFor("https://buzzheavier.com/abc123")?.id, "buzzheavier", "routed");
-    ok(registry.supportedHostIds().includes("buzzheavier"), "listed as supported");
-    // supportedHostIds returns host LABELS, not plugin ids, so aliases count
-    // too. bzzhr must be present or every Buzzheavier mirror is gated out:
-    // the classifier matches on the first label of the host, and "bzzhr.to"
-    // does not begin with the plugin id.
-    ok(registry.supportedHostIds().includes("bzzhr"), "short domain alias is supported");
-    eq(registry.supportedHostIds().length, 3, "two plugins, three host labels");
+    // Buzzheavier is DISABLED, and the two halves of that are asserted apart.
+    //
+    // Still routable: a download already in the queue has to be able to finish.
+    // Removing the plugin instead would fail it with "no plugin for this host" on
+    // a link the user cannot obtain again.
+    eq(registry.pluginFor("https://buzzheavier.com/abc123")?.id, "buzzheavier", "still routed");
+    eq(registry.getPlugin("buzzheavier")?.id, "buzzheavier", "still resolvable by id");
+    // …and offered to nobody. supportedHostIds gates the mirror list, so its
+    // absence here is what actually hides every Buzzheavier link.
+    ok(!registry.supportedHostIds().includes("buzzheavier"), "not offered as a mirror");
+    ok(!registry.supportedHostIds().includes("bzzhr"), "nor under its short alias");
+    ok(!registry.listPlugins().some((p) => p.id === "buzzheavier"), "hidden from Settings");
+    // buzz.to was never offered: the gate matches the FIRST LABEL of the host, so
+    // it would need "buzz" in the supported set, and no plugin has ever claimed
+    // it. Asserted so a future alias cannot reintroduce it by accident.
+    ok(!registry.supportedHostIds().includes("buzz"), "buzz.to is not offered either");
+    eq(registry.supportedHostIds().length, 1, "one offered plugin, one host label");
   } finally {
     global.fetch = realFetch;
   }
