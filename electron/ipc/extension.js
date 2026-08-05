@@ -26,10 +26,26 @@ function ensureExtensionFiles(ctx) {
   const sourceDir = candidates.find((p) => fs.existsSync(p))
   if (sourceDir && path.resolve(sourceDir) !== path.resolve(targetDir)) {
     try {
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true })
+      const targetManifest = path.join(targetDir, 'manifest.json')
+      const sourceManifest = path.join(sourceDir, 'manifest.json')
+      let shouldCopy = false
+
+      if (!fs.existsSync(targetDir) || !fs.existsSync(targetManifest)) {
+        shouldCopy = true
+      } else if (fs.existsSync(sourceManifest)) {
+        const sourceStat = fs.statSync(sourceManifest)
+        const targetStat = fs.statSync(targetManifest)
+        if (sourceStat.mtimeMs > targetStat.mtimeMs) {
+          shouldCopy = true
+        }
       }
-      fs.cpSync(sourceDir, targetDir, { recursive: true, force: true })
+
+      if (shouldCopy) {
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true })
+        }
+        fs.cpSync(sourceDir, targetDir, { recursive: true, force: true })
+      }
     } catch (err) {
       console.error('Failed to sync extension files:', err)
     }

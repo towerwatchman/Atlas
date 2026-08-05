@@ -316,8 +316,59 @@ const findInstalledRecord = (entry = {}) => {
   })
 }
 
+const resolveMissingIds = async (normalized) => {
+  const db = getDb()
+  if (!db) return normalized
+  let atlasId = normalized.atlasId
+  let f95Id = normalized.f95Id
+  let lcId = normalized.lcId
+  let steamId = normalized.steamId
+
+  if (f95Id && !atlasId) {
+    const row = await new Promise((res) => {
+      db.get(`SELECT atlas_id FROM f95_zone_data WHERE f95_id = ?`, [f95Id], (err, r) => res(r))
+    })
+    if (row?.atlas_id) atlasId = normalizeId(row.atlas_id)
+  }
+  if (lcId && !atlasId) {
+    const row = await new Promise((res) => {
+      db.get(`SELECT atlas_id FROM lewdcorner_data WHERE lc_id = ?`, [lcId], (err, r) => res(r))
+    })
+    if (row?.atlas_id) atlasId = normalizeId(row.atlas_id)
+  }
+  if (steamId && !atlasId) {
+    const row = await new Promise((res) => {
+      db.get(`SELECT atlas_id FROM steam_data WHERE steam_id = ?`, [steamId], (err, r) => res(r))
+    })
+    if (row?.atlas_id) atlasId = normalizeId(row.atlas_id)
+  }
+  if (atlasId) {
+    if (!f95Id) {
+      const row = await new Promise((res) => {
+        db.get(`SELECT f95_id FROM f95_zone_data WHERE atlas_id = ? LIMIT 1`, [atlasId], (err, r) => res(r))
+      })
+      if (row?.f95_id) f95Id = normalizeId(row.f95_id)
+    }
+    if (!lcId) {
+      const row = await new Promise((res) => {
+        db.get(`SELECT lc_id FROM lewdcorner_data WHERE atlas_id = ? LIMIT 1`, [atlasId], (err, r) => res(r))
+      })
+      if (row?.lc_id) lcId = normalizeId(row.lc_id)
+    }
+  }
+
+  return {
+    ...normalized,
+    atlasId,
+    f95Id,
+    lcId,
+    steamId,
+  }
+}
+
 const addWishlistEntry = async (entry = {}) => {
-  const normalized = normalizeWishlistEntry(entry)
+  let normalized = normalizeWishlistEntry(entry)
+  normalized = await resolveMissingIds(normalized)
   const installedRecordId = await findInstalledRecord(normalized)
   if (installedRecordId) {
     return {
@@ -412,10 +463,10 @@ const getWishlistEntry = (identity = {}) => {
     getDb().get(
       `${wishlistHydratedSelect}
        WHERE wishlist_entries.identity_key = ?
-          OR (wishlist_entries.f95_id IS NOT NULL AND wishlist_entries.f95_id = ?)
-          OR (wishlist_entries.atlas_id IS NOT NULL AND wishlist_entries.atlas_id = ?)
-          OR (wishlist_entries.lc_id IS NOT NULL AND wishlist_entries.lc_id = ?)
-          OR (wishlist_entries.steam_id IS NOT NULL AND wishlist_entries.steam_id = ?)
+          OR (COALESCE(wishlist_entries.f95_id, f95_zone_data.f95_id) IS NOT NULL AND COALESCE(wishlist_entries.f95_id, f95_zone_data.f95_id) = ?)
+          OR (COALESCE(wishlist_entries.atlas_id, f95_zone_data.atlas_id, lewdcorner_data.atlas_id, steam_data.atlas_id) IS NOT NULL AND COALESCE(wishlist_entries.atlas_id, f95_zone_data.atlas_id, lewdcorner_data.atlas_id, steam_data.atlas_id) = ?)
+          OR (COALESCE(wishlist_entries.lc_id, lewdcorner_data.lc_id) IS NOT NULL AND COALESCE(wishlist_entries.lc_id, lewdcorner_data.lc_id) = ?)
+          OR (COALESCE(wishlist_entries.steam_id, steam_data.steam_id) IS NOT NULL AND COALESCE(wishlist_entries.steam_id, steam_data.steam_id) = ?)
        LIMIT 1`,
       [
         normalized.identityKey,
@@ -479,11 +530,22 @@ const getWishlistEntries = () => {
 const getWishlistEntryIdentities = () => {
   return new Promise((resolve, reject) => {
     getDb().all(
-      `SELECT identity_key FROM wishlist_entries ORDER BY identity_key ASC`,
+      `${wishlistHydratedSelect}`,
       [],
       (err, rows) => {
         if (err) reject(err)
-        else resolve((rows || []).map((row) => row.identity_key).filter(Boolean))
+        else {
+          const keys = new Set()
+          for (const rawRow of rows || []) {
+            const mapped = mapWishlistRow(rawRow)
+            if (mapped.identity_key) keys.add(mapped.identity_key)
+            if (mapped.f95_id) keys.add(`f95:${mapped.f95_id}`)
+            if (mapped.atlas_id) keys.add(`atlas:${mapped.atlas_id}`)
+            if (mapped.lc_id) keys.add(`lewdcorner:${mapped.lc_id}`)
+            if (mapped.steam_id) keys.add(`steam:${mapped.steam_id}`)
+          }
+          resolve(Array.from(keys))
+        }
       },
     )
   })

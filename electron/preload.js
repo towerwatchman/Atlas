@@ -424,6 +424,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return () => ipcRenderer.removeListener("game-updated", callback);
   },
   onImportComplete: (callback) => ipcRenderer.on("import-complete", callback),
+  onWishlistUpdated: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on("wishlist-updated", handler);
+    return () => ipcRenderer.removeListener("wishlist-updated", handler);
+  },
   // Per-game import failures. The wizard closes as soon as an import starts, so
   // these are surfaced by the main window instead of an alert in the wizard.
   onImportFailed: (callback) => {

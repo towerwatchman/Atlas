@@ -860,7 +860,7 @@ const App = () => {
                 lc_id: normalizedGame.lc_id ?? selected.lc_id,
                 steam_id: normalizedGame.steam_id ?? selected.steam_id,
               }
-            : normalizedGame)
+            : (withWishlistStates([normalizedGame], wishlistIdentityKeys)[0] || normalizedGame))
         }
       })
       .catch((error) =>
@@ -1645,6 +1645,34 @@ const App = () => {
       fetchWishlistGames()
     }
 
+    const handleWishlistUpdated = async () => {
+      console.log('Wishlist updated via extension; refreshing state')
+      await Promise.all([
+        fetchWishlistGames(),
+        loadWishlistIdentities(),
+        fetchGames(),
+      ])
+      if (browseAvailableRef.current) {
+        fetchCatalogGames({ search: catalogSearchRef.current, filters: catalogQueryFiltersRef.current })
+      }
+      setSelectedGame((current) => {
+        if (!current) return current
+        window.electronAPI.isWishlistEntry?.(current).then((isWish) => {
+          if (typeof isWish === 'boolean') {
+            setSelectedGame((prev) => {
+              if (!prev || getWishlistIdentityKey(prev) !== getWishlistIdentityKey(current)) return prev
+              return {
+                ...prev,
+                isWishlisted: isWish,
+                isWishlistEntry: isWish || prev.isWishlistEntry,
+              }
+            })
+          }
+        })
+        return current
+      })
+    }
+
     window.electronAPI.onWindowStateChanged(handleWindowStateChanged)
     window.electronAPI.onDbUpdateProgress(handleDbUpdateProgress)
     window.electronAPI.onImportProgress(handleImportProgress)
@@ -1655,6 +1683,8 @@ const App = () => {
     const removeExecRepairListener =
       window.electronAPI.onLibraryExecPathsRepaired?.(handleLibraryExecPathsRepaired)
     window.electronAPI.onImportComplete(handleImportComplete)
+    const removeWishlistUpdatedListener =
+      window.electronAPI.onWishlistUpdated?.(handleWishlistUpdated)
     // The import wizard closes as soon as an import starts, so failures are
     // reported here rather than in a window that's already gone.
     const removeImportFailedListener = window.electronAPI.onImportFailed?.((payload) => {
@@ -1734,6 +1764,7 @@ const App = () => {
       if (typeof removeMetadataListener === 'function') removeMetadataListener()
       if (typeof removeNsfwListener === 'function') removeNsfwListener()
       if (typeof removeExecRepairListener === 'function') removeExecRepairListener()
+      if (typeof removeWishlistUpdatedListener === 'function') removeWishlistUpdatedListener()
       if (typeof removeImportFailedListener === 'function') removeImportFailedListener()
       if (typeof removeCollectionCreateListener === 'function') removeCollectionCreateListener()
       if (typeof removeCollectionRenameListener === 'function') removeCollectionRenameListener()

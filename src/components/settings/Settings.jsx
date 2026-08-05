@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import Interface from './Interface.jsx'
 import Library from './Library.jsx'
 import ImportSources from './ImportSources.jsx'
@@ -146,9 +146,8 @@ const Settings = () => {
           </div>
           <ul className="flex-1 overflow-y-auto">
             {visibleSettingsTabs.map((item) => (
-              <>
+              <React.Fragment key={item.name}>
                 <li
-                  key={item.name}
                   data-tour={`settings-${item.name}`}
                   className={`pt-2 pb-2 pl-4 pr-4 cursor-pointer hover:bg-highlight flex items-center text-text ${activeSelected === item.name ? "bg-selected" : ""} ${item.disabled ? "opacity-50 cursor-not-allowed" : ""}`}
                   onClick={() => !item.disabled && setSelected(item.name)}
@@ -165,7 +164,7 @@ const Settings = () => {
                 {item.name === "Emulators" && (
                   <hr className="mx-2 my-2 border-border border-1" />
                 )}
-              </>
+              </React.Fragment>
             ))}
           </ul>
           {/* Tour button pinned to the bottom of the sidebar. */}

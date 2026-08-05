@@ -385,9 +385,12 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
     setLightboxIndex(null)
     const initialWish = game?.isWishlisted === true || game?.isWishlistEntry === true
     setIsWishlisted(initialWish)
+    let cancelledWishCheck = false
     if (window.electronAPI?.isWishlistEntry && game) {
       window.electronAPI.isWishlistEntry(game).then((isWish) => {
-        if (typeof isWish === 'boolean') setIsWishlisted(isWish)
+        if (!cancelledWishCheck && typeof isWish === 'boolean') {
+          setIsWishlisted(isWish || initialWish)
+        }
       })
     }
     setIsFavorite(game?.isFavorite === true || game?.is_favorite === 1)
@@ -411,6 +414,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
     setPersonalRatingsSaved(nextRatings)
     setPersonalRatingsError('')
     setPersonalRatingsBusy(false)
+    return () => { cancelledWishCheck = true }
   }, [
     game?.record_id,
     game?.isWishlisted,

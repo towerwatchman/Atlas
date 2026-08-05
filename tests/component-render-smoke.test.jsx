@@ -21,6 +21,8 @@ import CollectionTile from '../src/components/collections/CollectionTile.jsx'
 import CollectionsView from '../src/components/collections/CollectionsView.jsx'
 import CollectionModal from '../src/components/collections/CollectionModal.jsx'
 import GameTree from '../src/components/library/GameTree.jsx'
+import Settings from '../src/components/settings/Settings.jsx'
+import ExtensionSettings from '../src/components/settings/ExtensionSettings.jsx'
 
 // Components that call useKnownTags() fetch on mount and set state when the
 // promise resolves. Rendering them outside act() produces a "not wrapped in
@@ -44,6 +46,16 @@ beforeEach(() => {
       resetTagOverride: async () => ({ success: true, tags: [], catalogTags: [] }),
       bulkEditTags: async () => ({ success: true, changed: 0, skipped: 0, failed: [] }),
       showContextMenu: () => {},
+      onWindowStateChanged: () => () => {},
+      onStartSettingsTour: () => () => {},
+      onUpdateStatus: () => () => {},
+      getConfig: async () => ({ Interface: {}, Extension: {} }),
+      getAppUpdateState: async () => ({ status: 'idle' }),
+      getExtensionStatus: async () => ({ running: false, port: 57096, extensionPath: '/test/ext' }),
+      getExtensionPath: async () => ({ extensionPath: '/test/ext', exists: true }),
+      minimizeWindow: () => {},
+      maximizeWindow: () => {},
+      closeWindow: () => {},
     },
   }))
 })
@@ -178,4 +190,17 @@ test('GameTree mounts grouped and ungrouped', () => {
 test('GameTree shows the empty message with no games', () => {
   render(<GameTree games={[]} emptyMessage="Nothing here" />)
   expect(screen.getByText('Nothing here')).toBeTruthy()
+})
+
+test('Settings mounts and renders sidebar tabs', async () => {
+  await renderSettled(<Settings />)
+  expect(screen.getByText('ATLAS SETTINGS')).toBeTruthy()
+  expect(screen.getAllByText('Interface').length).toBeGreaterThan(0)
+  expect(screen.getByText('Extension')).toBeTruthy()
+})
+
+test('ExtensionSettings mounts and shows extension info', async () => {
+  await renderSettled(<ExtensionSettings />)
+  expect(screen.getByText('Browser Extension')).toBeTruthy()
+  expect(screen.getByText('Atlas RPC Local Server')).toBeTruthy()
 })
