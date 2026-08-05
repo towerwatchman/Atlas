@@ -10,6 +10,8 @@ const ExtensionSettings = () => {
     highlightTags: false,
     tagHighlights: {},
   })
+  const [extensionPath, setExtensionPath] = useState('')
+  const [copied, setCopied] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState(null)
 
@@ -17,9 +19,25 @@ const ExtensionSettings = () => {
     if (window.electronAPI?.getExtensionStatus) {
       try {
         const status = await window.electronAPI.getExtensionStatus()
-        if (status) setExtStatus((prev) => ({ ...prev, ...status }))
+        if (status) {
+          setExtStatus((prev) => ({ ...prev, ...status }))
+          if (status.extensionPath) {
+            setExtensionPath(status.extensionPath)
+          }
+        }
       } catch (err) {
         console.error('Failed to get extension status:', err)
+      }
+    }
+
+    if (window.electronAPI?.getExtensionPath) {
+      try {
+        const res = await window.electronAPI.getExtensionPath()
+        if (res?.extensionPath) {
+          setExtensionPath(res.extensionPath)
+        }
+      } catch (err) {
+        console.error('Failed to get extension path:', err)
       }
     }
   }
@@ -27,6 +45,27 @@ const ExtensionSettings = () => {
   useEffect(() => {
     loadStatus()
   }, [])
+
+  const handleCopyPath = async () => {
+    if (!extensionPath) return
+    try {
+      await navigator.clipboard.writeText(extensionPath)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy extension path to clipboard:', err)
+    }
+  }
+
+  const handleOpenFolder = async () => {
+    if (window.electronAPI?.openExtensionFolder) {
+      try {
+        await window.electronAPI.openExtensionFolder()
+      } catch (err) {
+        console.error('Failed to open extension folder:', err)
+      }
+    }
+  }
 
   const updateSetting = async (key, value) => {
     const newStatus = { ...extStatus, [key]: value }
@@ -81,6 +120,58 @@ const ExtensionSettings = () => {
       </p>
 
       <div className="border-t border-text opacity-25 my-4" />
+
+      {/* Extension Folder Location & Actions */}
+      <div className="bg-secondary border border-border p-4 rounded mb-4 space-y-3">
+        <div>
+          <h4 className="text-sm font-medium text-text">Extension Location</h4>
+          <p className="text-xs text-text/70 mt-0.5">
+            Path to the unpacked browser extension files. This persistent location automatically stays up to date across Atlas updates.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+          <input
+            type="text"
+            readOnly
+            value={extensionPath || 'Resolving path...'}
+            className="flex-1 bg-tertiary border border-border text-text rounded px-3 py-1.5 text-xs font-mono select-all focus:outline-none"
+          />
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleCopyPath}
+              disabled={!extensionPath}
+              className="flex-1 sm:flex-none px-3 py-1.5 bg-tertiary hover:bg-tertiary/80 text-text rounded text-xs transition cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+            >
+              {copied ? (
+                <>
+                  <svg className="w-3.5 h-3.5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-green-400 font-medium">Copied!</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-3.5 h-3.5 text-text/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  <span>Copy Path</span>
+                </>
+              )}
+            </button>
+            <button
+              onClick={handleOpenFolder}
+              disabled={!extensionPath}
+              className="flex-1 sm:flex-none px-3 py-1.5 bg-accent hover:bg-accent/80 text-white rounded text-xs transition cursor-pointer flex items-center justify-center gap-1.5 font-medium disabled:opacity-50"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+              </svg>
+              <span>Open Folder</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* Server Status & RPC Toggle */}
       <div className="bg-secondary border border-border p-4 rounded mb-4 space-y-4">
@@ -206,7 +297,7 @@ const ExtensionSettings = () => {
         <ol className="list-decimal list-inside text-xs text-text/80 space-y-1.5">
           <li>Open your browser extensions page (e.g. <code className="bg-tertiary px-1.5 py-0.5 rounded text-text font-mono">opera://extensions</code> or <code className="bg-tertiary px-1.5 py-0.5 rounded text-text font-mono">chrome://extensions</code>).</li>
           <li>Enable <strong>Developer mode</strong> in the top-right corner.</li>
-          <li>Click <strong>Load unpacked</strong> and select the <code className="bg-tertiary px-1.5 py-0.5 rounded text-text font-mono">extension</code> directory inside your Atlas folder.</li>
+          <li>Click <strong>Load unpacked</strong> and select the <code className="bg-tertiary px-1.5 py-0.5 rounded text-text font-mono">extension</code> folder (click <strong>Copy Path</strong> or <strong>Open Folder</strong> above to locate it).</li>
         </ol>
       </div>
     </div>

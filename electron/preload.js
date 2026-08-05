@@ -670,6 +670,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   getUniqueFilterOptions: () => ipcRenderer.invoke("get-unique-filter-options"),
   getExtensionStatus: () => ipcRenderer.invoke("get-extension-status"),
+  getExtensionPath: () => ipcRenderer.invoke("get-extension-path"),
+  openExtensionFolder: () => ipcRenderer.invoke("open-extension-folder"),
   saveExtensionSettings: (settings) => ipcRenderer.invoke("save-extension-settings", settings),
 });
 

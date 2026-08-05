@@ -1743,7 +1743,7 @@ function buildCtx() {
     createThemeBuilderWindow, createBannerEditorWindow, createImporterHelpWindow,
     quitFromMainWindow,
     // state
-    appConfig, configPath, dataDir, launcherDir, templatesDir, themeTemplatesDir,
+    appDataRoot, appConfig, configPath, dataDir, launcherDir, templatesDir, themeTemplatesDir,
     imagesDir, updatesDir,
     // Read by the Client Check panel so the config prune that already ran at
     // startup can be reported rather than repeated.

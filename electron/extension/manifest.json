@@ -1,0 +1,60 @@
+{
+  "manifest_version": 3,
+  "name": "Atlas Browser Extension",
+  "short_name": "Atlas",
+  "author": "Atlas Developer",
+  "version": "1.0.6",
+  "description": "Integration between visual novel forums (F95Zone, LewdCorner) and Atlas Desktop Game Manager",
+  "action": {
+    "default_icon": {
+      "16": "icons/logo.png",
+      "32": "icons/logo.png",
+      "64": "icons/logo.png"
+    },
+    "default_title": "Atlas Game Manager",
+    "default_popup": "popup/popup.html"
+  },
+  "icons": {
+    "16": "icons/logo.png",
+    "32": "icons/logo.png",
+    "64": "icons/logo.png",
+    "128": "icons/logo.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.f95zone.to/*",
+        "*://*.lewdcorner.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles/overlay.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "scripting",
+    "activeTab",
+    "contextMenus",
+    "webNavigation",
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.f95zone.to/*",
+    "*://*.lewdcorner.com/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/logo.png",
+        "styles/overlay.css"
+      ],
+      "matches": [
+        "*://*.f95zone.to/*",
+        "*://*.lewdcorner.com/*"
+      ]
+    }
+  ]
+}

@@ -113,6 +113,7 @@
       "dist/renderer/**/*",
       "workers/**/*",
       "src/assets/ui/**/*",
+      "extension/**/*",
       "package.json"
     ],
     "asar": true,
