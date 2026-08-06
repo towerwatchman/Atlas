@@ -316,8 +316,6 @@ const GameDetailWindow = () => {
         .catch((err) => console.error('Failed to load previews:', err))
     }
 
-    window.electronAPI.onGameData(handleGameData)
-
     const pullGameData = () => {
       if (typeof window.electronAPI.requestGameData !== 'function') return
       setLoadError(false)

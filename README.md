@@ -64,3 +64,12 @@ Please report any bugs by filing an issue. Please attach the log in the root of 
 
 ## Roadmap
 All planned versions with their features are listed in the [milstones overview](https://github.com/towerwatchman/Atlas/milestones)
+
+## Contributing
+
+Read **[CONTRIBUTING.md](./CONTRIBUTING.md)** before writing code. In short:
+branch from `nightly` (never `main`), ship a passing test with new behaviour and
+a regression test with fixes, comment new functions and IPC handlers, and run
+`npm run check` before you push.
+
+AI coding agents: see [CLAUDE.md](./CLAUDE.md) / [AGENTS.md](./AGENTS.md).

@@ -5,7 +5,9 @@ name: CI
 # before code merges — separate from the heavier release build in main.yml.
 on:
   push:
-    branches: [main]
+    # nightly is the integration branch -- everything lands here first, so it
+    # needs the same gate as main or the regression suite only runs on release.
+    branches: [main, nightly]
   pull_request:
 
 permissions:

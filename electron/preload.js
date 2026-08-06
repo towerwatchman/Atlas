@@ -572,13 +572,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   showContextMenu: (template) =>
     ipcRenderer.invoke("show-context-menu", template),
-  onGameData: (callback) => {
-    console.log("Registering onGameData listener");
-    ipcRenderer.on("send-game-data", (event, game) => {
-      console.log("Received send-game-data event in renderer:", game);
-      callback(event, game);
-    });
-  },
   requestGameData: () => ipcRenderer.invoke("request-game-data"),
   openDirectory: (path) => {
     console.log("Invoking openDirectory for path:", path);
@@ -652,13 +645,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setDefaultGameFolder: (newPath) =>
     ipcRenderer.invoke("set-default-game-folder", newPath),
 
-  // Optional: better feedback during long imports/moves
-  onImportWarning: (callback) =>
-    ipcRenderer.on("import-warning", (event, data) => callback(data)),
-
-  // ────────────────────────────────────────────────────────────────
-  //     METHODS TO REMOVE
-  // ────────────────────────────────────────────────────────────────
   getLibraryStats: () => ipcRenderer.invoke("get-library-stats"),
   countVersions: (recordId) => ipcRenderer.invoke("count-versions", recordId),
   deleteVersion: (params) => ipcRenderer.invoke("delete-version", params),

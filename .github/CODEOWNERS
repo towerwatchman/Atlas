@@ -1,0 +1,29 @@
+# Review is the backstop for the rules CI cannot check -- whether a test is
+# meaningful, whether a comment says anything. These paths get it automatically.
+#
+# Note: CODEOWNERS only takes effect once the listed owner has write access to
+# the repo. GitHub silently ignores entries it cannot resolve, so this file
+# failing quietly looks identical to it working. Confirm by opening a PR and
+# checking that a reviewer is auto-requested.
+
+# Default: everything gets a maintainer look.
+*                           @towerwatchman
+
+# The process boundary. A mistake in preload.js is a security mistake, not a
+# style one -- it decides what the renderer is allowed to ask the main process
+# to do.
+/electron/preload.js        @towerwatchman
+/electron/ipc/              @towerwatchman
+/electron/main.js           @towerwatchman
+/electron/rpc/              @towerwatchman
+
+# Credential and account handling.
+/electron/accounts/         @towerwatchman
+/electron/downloads/credentialStore.js @towerwatchman
+
+# The rules themselves. Changing a gate should be as visible as breaking one.
+/.github/                   @towerwatchman
+/scripts/check-*.js         @towerwatchman
+/CONTRIBUTING.md            @towerwatchman
+/CLAUDE.md                  @towerwatchman
+/AGENTS.md                  @towerwatchman

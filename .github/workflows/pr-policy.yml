@@ -1,0 +1,112 @@
+name: PR Policy
+
+# The rules in CONTRIBUTING.md that a human reviewer would otherwise have to
+# remember on every PR. Deliberately fast and dependency-free -- it runs before
+# the heavier CI job so contributors find out about a wrong base branch in
+# seconds rather than after a fifteen-minute build.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  policy:
+    name: PR policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need the base branch present to diff against it.
+          fetch-depth: 0
+
+      # ── Rule 1: base branch ─────────────────────────────────────────────
+      - name: Base branch must be nightly
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          if [ "$BASE" != "nightly" ]; then
+            echo "::error::This PR targets '$BASE'. Atlas PRs must target 'nightly'."
+            echo ""
+            echo "main is the release branch; nightly is where work integrates."
+            echo "Retarget this PR with the 'Edit' button next to its title, then:"
+            echo ""
+            echo "  git fetch origin nightly"
+            echo "  git rebase origin/nightly"
+            echo ""
+            echo "See CONTRIBUTING.md - 'Branch from nightly'."
+            exit 1
+          fi
+          echo "Base branch is nightly."
+
+      # ── Rules 2 and 3: tests ────────────────────────────────────────────
+      - name: Code changes must come with tests
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+
+          code=$(echo "$changed" | grep -E '^(src|electron)/' | grep -vE '\.(css|md|json|png|svg|ico|webp)$' || true)
+          tests=$(echo "$changed" | grep -E '^tests/' || true)
+
+          if [ -z "$code" ]; then
+            echo "No source changes; test requirement does not apply."
+            exit 0
+          fi
+          if [ -n "$tests" ]; then
+            echo "Source changes are accompanied by test changes."
+            exit 0
+          fi
+          if echo "$LABELS" | tr ',' '\n' | grep -qx 'no-test-needed'; then
+            echo "::warning::Test requirement waived by the 'no-test-needed' label."
+            exit 0
+          fi
+
+          echo "::error::Source files changed with no accompanying test."
+          echo ""
+          echo "Changed under src/ or electron/:"
+          echo "$code" | sed 's/^/  /'
+          echo ""
+          echo "New behaviour needs a test that passes. A fix needs a regression"
+          echo "test that FAILS against the unfixed code -- write it first and"
+          echo "watch it go red, or it is not testing your change."
+          echo ""
+          echo "If this genuinely cannot be tested (build config, CI, assets),"
+          echo "apply the 'no-test-needed' label and say why in the description."
+          exit 1
+
+      # ── Changelog ───────────────────────────────────────────────────────
+      - name: Changelog entry
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+
+          code=$(echo "$changed" | grep -E '^(src|electron)/' || true)
+          if [ -z "$code" ]; then
+            echo "No source changes; changelog not required."
+            exit 0
+          fi
+          if echo "$changed" | grep -qx 'CHANGELOG.md'; then
+            echo "CHANGELOG.md updated."
+            exit 0
+          fi
+          if echo "$LABELS" | tr ',' '\n' | grep -qx 'no-changelog'; then
+            echo "::warning::Changelog waived by the 'no-changelog' label."
+            exit 0
+          fi
+
+          echo "::error::CHANGELOG.md was not updated."
+          echo ""
+          echo "Add an entry describing the user-visible effect. If there isn't"
+          echo "one, apply the 'no-changelog' label."
+          exit 1
