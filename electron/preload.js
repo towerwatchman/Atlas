@@ -161,7 +161,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   cancelImport: () => ipcRenderer.invoke("cancel-import"),
   log: (message) => ipcRenderer.invoke("log", message),
   sendUpdateProgress: (progress) =>
-    ipcRenderer.invoke("update-progress", progress),
+    ipcRenderer.invoke("report-update-progress", progress),
   getAvailableBannerTemplates: () =>
     ipcRenderer.invoke("get-available-banner-templates"),
   getAvailableThemes: () => ipcRenderer.invoke("get-available-themes"),
@@ -387,6 +387,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("metadata-changed", (event, metadata) => callback(metadata));
     return () => ipcRenderer.removeAllListeners("metadata-changed");
   },
+  // Fired by the browser-extension RPC server after it writes a wishlist
+  // entry, so an already-open library reflects the change without a restart.
+  onWishlistUpdated: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on("wishlist-updated", handler);
+    return () => ipcRenderer.removeListener("wishlist-updated", handler);
+  },
   onDbUpdateProgress: (callback) => {
     ipcRenderer.on("db-update-progress", (event, progress) =>
       callback(progress),
@@ -414,8 +421,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("scan-complete", (event, game) => callback(game)),
   onScanCompleteFinal: (callback) =>
     ipcRenderer.on("scan-complete-final", (event, games) => callback(games)),
-  onUpdateProgress: (callback) =>
-    ipcRenderer.on("update-progress", (event, progress) => callback(progress)),
   onImportProgress: (callback) =>
     ipcRenderer.on("import-progress", (event, progress) => callback(progress)),
   onGameImported: (callback) => ipcRenderer.on("game-imported", callback),
@@ -540,7 +545,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "scan-complete",
       "scan-complete-final",
       "import-source",
-      "update-progress",
       "import-progress",
       "game-imported",
       "game-updated",
@@ -556,10 +560,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "update-status",
       "appearance-changed",
       "metadata-changed",
-      "context-menu-command",
       "game-deleted",
       "library-validation-progress",
       "library-exec-paths-repaired",
+      "wishlist-updated",
     ]);
 
     if (allowedChannels.has(channel)) {
@@ -568,8 +572,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   showContextMenu: (template) =>
     ipcRenderer.invoke("show-context-menu", template),
-  onContextMenuCommand: (callback) =>
-    ipcRenderer.on("context-menu-command", callback),
   onGameData: (callback) => {
     console.log("Registering onGameData listener");
     ipcRenderer.on("send-game-data", (event, game) => {

@@ -1645,6 +1645,14 @@ const App = () => {
       fetchWishlistGames()
     }
 
+    // The browser extension can add wishlist entries while the library is
+    // open; refresh both the list and the identity keys that annotate
+    // catalog rows with wishlist state.
+    const removeWishlistUpdatedListener = window.electronAPI.onWishlistUpdated?.(() => {
+      fetchWishlistGames()
+      loadWishlistIdentities()
+    })
+
     window.electronAPI.onWindowStateChanged(handleWindowStateChanged)
     window.electronAPI.onDbUpdateProgress(handleDbUpdateProgress)
     window.electronAPI.onImportProgress(handleImportProgress)
@@ -1718,14 +1726,6 @@ const App = () => {
       })
     })
 
-    window.electronAPI.onContextMenuCommand((event, data) => {
-      if (data.action === 'properties') {
-        window.electronAPI.getGame(data.recordId)
-          .then((updatedGame) => { setShowSearchSidebar(false); setSelectedGame(updatedGame) })
-          .catch((error) => console.error('Failed to get game for properties:', error))
-      }
-    })
-
     window.addEventListener('resize', debounceResize)
     debounceResize()
 
@@ -1740,11 +1740,12 @@ const App = () => {
       if (typeof removeCollectionDeleteListener === 'function') removeCollectionDeleteListener()
       if (typeof removeCollectionBulkTagListener === 'function') removeCollectionBulkTagListener()
       if (typeof removeRateTitleListener === 'function') removeRateTitleListener()
+      if (typeof removeWishlistUpdatedListener === 'function') removeWishlistUpdatedListener()
       window.removeEventListener('resize', debounceResize)
       ;[
         'window-state-changed', 'db-update-progress', 'import-progress',
         'game-imported', 'game-updated', 'library-validation-progress',
-        'import-complete', 'context-menu-command', 'game-deleted',
+        'import-complete', 'game-deleted',
       ].forEach((channel) => window.electronAPI.removeAllListeners(channel))
     }
   }, [])

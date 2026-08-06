@@ -1330,7 +1330,7 @@ module.exports = function registerImporterHandlers(ctx) {
     deleteVersion, deleteGameCompletely, deleteTitleRecord,
     getTrustedVersion, isAllowedDeletionPath, isPathInside,
     normalizeForPathCompare, removeEmptyParentDirectories,
-    showExecutableChooser, executableChooserWindow,
+    showExecutableChooser,
     startSteamScan, startScan, getAssetBasePath, getMediaStorageMode,
     getMetadataSourceOrder,
     db,
@@ -3475,16 +3475,28 @@ ipcMain.handle("import-games", async (event, params) => {
           });
         } else {
           selectedExec = await new Promise((resolve) => {
-            showExecutableChooser(game.title, game.version || "", execs);
-            const onChosen = (event, data) => {
+            let settled = false;
+            const finish = (value) => {
+              if (settled) return;
+              settled = true;
               ipcMain.removeAllListeners("executable-chosen");
-              resolve(data.selectedExecutable || null);
+              resolve(value);
             };
-            ipcMain.once("executable-chosen", onChosen);
-            executableChooserWindow.on("closed", () => {
-              ipcMain.removeAllListeners("executable-chosen");
-              resolve(null);
-            });
+            ipcMain.once("executable-chosen", (event, data) =>
+              finish(data?.selectedExecutable || null),
+            );
+            showExecutableChooser(game.title, game.version || "", execs);
+            // Read through ctx: the window is created inside the call above, so
+            // any reference captured before it would still be null.
+            const chooserWindow = ctx.executableChooserWindow;
+            if (!chooserWindow || chooserWindow.isDestroyed()) {
+              console.error(
+                "Executable chooser window failed to open; skipping selection.",
+              );
+              finish(null);
+              return;
+            }
+            chooserWindow.on("closed", () => finish(null));
           });
 
           if (!selectedExec) {

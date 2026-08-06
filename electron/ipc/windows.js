@@ -380,7 +380,7 @@ module.exports = function registerWindowsHandlers(ctx) {
     console.log('[Renderer]', message)
   })
 
-  ipcMain.handle('update-progress', async (event, progress) => {
+  ipcMain.handle('report-update-progress', async (event, progress) => {
     if (ctx.mainWindow && !ctx.mainWindow.isDestroyed()) {
       ctx.mainWindow.webContents.send('import-progress', progress)
     }

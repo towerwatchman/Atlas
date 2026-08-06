@@ -1725,7 +1725,7 @@ function showExecutableChooser(title, version, executables) {
   executableChooserWindow = new BrowserWindow(windowState.options)
   registerWindowBoundsPersistence('executableChooser', executableChooserWindow, windowState)
   executableChooserWindow.loadFile(
-    path.join(__dirname, '../../src/assets/ui/executable-chooser.html')
+    path.join(__dirname, '../src/assets/ui/executable-chooser.html')
   )
   executableChooserWindow.webContents.on('did-finish-load', () => {
     executableChooserWindow.webContents.send('init-executable-chooser', { title, version, executables })
@@ -1738,7 +1738,11 @@ function showExecutableChooser(title, version, executables) {
 function buildCtx() {
   return {
     // windows
-    mainWindow, settingsWindow, importerWindow, executableChooserWindow, themeBuilderWindow, bannerEditorWindow,
+    mainWindow, settingsWindow, importerWindow, themeBuilderWindow, bannerEditorWindow,
+    // Created on demand by showExecutableChooser(), so a value snapshotted
+    // when buildCtx() runs is always null. Exposed as a getter and read via
+    // ctx at call time -- destructuring this would re-freeze it at null.
+    get executableChooserWindow() { return executableChooserWindow },
     createSettingsWindow, createImporterWindow, createGameDetailsWindow, showExecutableChooser,
     createThemeBuilderWindow, createBannerEditorWindow, createImporterHelpWindow,
     quitFromMainWindow,

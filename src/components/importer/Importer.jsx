@@ -119,7 +119,6 @@ const Importer = () => {
   const [hideMatches, setHideMatches] = useState(false)
   const [sortConfig, setSortConfig] = useState({ key: '', direction: 'asc' })
   const [isResolvingMatches, setIsResolvingMatches] = useState(false)
-  const [updateProgress, setUpdateProgress] = useState({ value: 0, total: 0 })
   const [selectedScanRowKeys, setSelectedScanRowKeys] = useState(() => new Set())
   const [lastSelectedScanRowKey, setLastSelectedScanRowKey] = useState('')
   const deletedScanGameKeysRef = useRef(new Set())
@@ -902,15 +901,10 @@ const Importer = () => {
       }
     })
 
-    window.electronAPI.onUpdateProgress((prog) => {
-      console.log(`Update progress: ${JSON.stringify(prog)}`)
-      setUpdateProgress(prog)
-    })
-
     loadConfig()
 
     return () => {
-      ;['window-state-changed', 'scan-progress', 'scan-complete', 'scan-complete-final', 'update-progress', 'prompt-steam-directory', 'prompt-gog-directory']
+      ;['window-state-changed', 'scan-progress', 'scan-complete', 'scan-complete-final', 'prompt-steam-directory', 'prompt-gog-directory']
         .forEach((ch) => window.electronAPI.removeAllListeners(ch))
     }
   }, [])
