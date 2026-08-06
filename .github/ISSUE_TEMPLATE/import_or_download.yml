@@ -1,0 +1,114 @@
+name: Import or download problem
+description: A game failed to import, download, extract, or match metadata.
+labels: ["bug", "importer"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The import pipeline has the most moving parts in Atlas, so these
+        questions are worth answering precisely — they usually narrow the cause
+        to a single stage before anyone has to reproduce it.
+
+        **Paste logs as text.** Anything attached that isn't a `.png`, `.jpg`, or
+        `.gif` is stripped automatically by this repository.
+
+  - type: input
+    id: version
+    attributes:
+      label: Atlas version
+      placeholder: "0.9.9-nightly.430"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: source
+    attributes:
+      label: Which source?
+      options:
+        - F95Zone
+        - LewdCorner
+        - Steam
+        - GOG
+        - Local folder scan
+        - Browser extension
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Where did it fail?
+      description: Pick the last stage that visibly worked, then the one after it failed.
+      options:
+        - Scanning folders
+        - Matching metadata
+        - Downloading
+        - Extracting the archive
+        - Choosing which executable to use
+        - Adding to the library
+        - Updating an existing entry
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: multiple-executables
+    attributes:
+      label: Did the archive contain more than one executable?
+      description: >
+        Atlas prompts you to pick one when it finds several. If you saw that
+        prompt — or expected it and never got it — say so here.
+      options:
+        - "Yes, and I was prompted to choose"
+        - "Yes, but I was never prompted"
+        - "No, just one executable"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: input
+    id: archive-format
+    attributes:
+      label: Archive format
+      placeholder: ".zip, .7z, .rar, or already-extracted folder"
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: >
+        Did it hang, show an error, or finish and produce something wrong? If it
+        hung, roughly how long did you wait before giving up?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and error output
+      description: >
+        Any error dialog text, plus relevant log output. Redact folder paths if
+        they contain anything you'd rather not publish — but keep the structure,
+        since path shape is often the bug.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this isn't a duplicate
+          required: true

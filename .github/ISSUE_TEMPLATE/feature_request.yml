@@ -1,0 +1,59 @@
+name: Feature request
+description: Suggest a change or addition to Atlas.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The most useful requests describe a problem rather than a solution —
+        that leaves room for an approach nobody had thought of yet.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: >
+        What are you trying to do today, and what makes it awkward or impossible?
+        Concrete beats abstract: "I have 400 games and can't tell which ones have
+        updates" is more actionable than "better update handling".
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like Atlas to do?
+      description: Your suggested solution, if you have one in mind.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried instead?
+      description: >
+        Existing features, workarounds, or other tools. If something almost works,
+        knowing where it falls short is genuinely useful.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Atlas?
+      options:
+        - Library and browsing
+        - Importing
+        - Downloading
+        - Metadata and matching
+        - Themes and appearance
+        - Browser extension
+        - Settings
+        - Something else
+        - Not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this hasn't been requested
+          required: true

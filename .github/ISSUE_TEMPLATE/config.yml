@@ -1,0 +1,12 @@
+# Blank issues are disabled so every report arrives with a version and an OS.
+# Without those two fields most bug reports need a round trip before anyone can
+# even start, which is slower for the reporter than filling in a form.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Question or general discussion
+    url: https://github.com/towerwatchman/Atlas/discussions
+    about: For "how do I…" and anything that isn't a bug or a feature request.
+  - name: Contributing to Atlas
+    url: https://github.com/towerwatchman/Atlas/blob/main/CONTRIBUTING.md
+    about: Branch policy, test requirements, and how to get a PR accepted.

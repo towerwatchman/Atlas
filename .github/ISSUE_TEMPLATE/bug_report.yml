@@ -1,0 +1,100 @@
+name: Bug report
+description: Something in Atlas behaves incorrectly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this.
+
+        **Paste logs as text, not as attachments.** This repository automatically
+        strips every attachment that isn't a `.png`, `.jpg`, or `.gif`, so an
+        attached `.log`, `.txt`, or `.zip` will silently vanish from your issue.
+        Screenshots are fine.
+
+  - type: input
+    id: version
+    attributes:
+      label: Atlas version
+      description: Help → About, or the installer filename (e.g. `0.9.9-nightly.430`).
+      placeholder: "0.9.9-nightly.430"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-type
+    attributes:
+      label: How did you install it?
+      options:
+        - Nightly prerelease
+        - Stable release
+        - Built from source
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you see, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: >
+        Numbered steps someone else can follow on a fresh install. If it only
+        happens with a specific game, archive, or folder layout, say so — that
+        detail is usually the whole bug.
+      placeholder: |
+        1. Open Atlas
+        2. …
+        3. …
+    validations:
+      required: true
+
+  - type: dropdown
+    id: consistency
+    attributes:
+      label: Does it happen every time?
+      options:
+        - Every time
+        - Most of the time
+        - Occasionally
+        - Happened once
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        Paste relevant output here. The updater log is `atlas-updater.log` in your
+        Atlas data folder — `%APPDATA%\Atlas` on Windows, `~/.config/Atlas` on
+        Linux. This box is formatted as a code block automatically.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this isn't a duplicate
+          required: true
+        - label: I'm on the latest nightly or stable build, or have said above why not
+          required: true

@@ -163,7 +163,11 @@ thing that will get a PR rejected on principle.
 
 ## Reporting bugs
 
-Include the Atlas version, your OS, and what you expected instead. Logs from
-the app's data directory are usually the difference between a fix and a
-guess. If it involves an import, say which source and whether the archive had
-more than one executable in it.
+Open an issue and pick the template that fits — bug report, import/download
+problem, or feature request. Blank issues are disabled, because a report
+without a version and an OS needs a round trip before anyone can start.
+
+One thing worth knowing: this repository automatically strips any attachment
+that isn't a `.png`, `.jpg`, or `.gif`. Paste logs as text into the log field
+rather than attaching a `.log` or `.zip`, or they will silently disappear from
+your issue. Screenshots are fine.
