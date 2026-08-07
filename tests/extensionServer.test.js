@@ -89,4 +89,20 @@ describe('Extension Server & Thread Parser', () => {
       expect(res.headers.get('access-control-allow-private-network')).toBe('true')
     })
   })
+
+  describe('ensureExtensionFiles', () => {
+    it('syncs extension files to target appDataRoot', () => {
+      const fs = require('fs')
+      const os = require('os')
+      const path = require('path')
+      const { ensureExtensionFiles } = require('../electron/ipc/extension')
+
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-ext-test-'))
+      const targetDir = ensureExtensionFiles({ appDataRoot: tempDir })
+
+      expect(targetDir).toBe(path.join(tempDir, 'extension'))
+      expect(fs.existsSync(targetDir)).toBe(true)
+      expect(fs.existsSync(path.join(targetDir, 'manifest.json'))).toBe(true)
+    })
+  })
 })

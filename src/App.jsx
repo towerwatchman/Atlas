@@ -860,7 +860,7 @@ const App = () => {
                 lc_id: normalizedGame.lc_id ?? selected.lc_id,
                 steam_id: normalizedGame.steam_id ?? selected.steam_id,
               }
-            : normalizedGame)
+            : (withWishlistStates([normalizedGame], wishlistIdentityKeys)[0] || normalizedGame))
         }
       })
       .catch((error) =>
@@ -1645,15 +1645,40 @@ const App = () => {
       fetchWishlistGames()
     }
 
-    // The browser extension can add wishlist entries while the library is
-    // open; refresh both the list and the identity keys that annotate
-    // catalog rows with wishlist state.
-    const removeWishlistUpdatedListener = window.electronAPI.onWishlistUpdated?.(() => {
-      fetchWishlistGames()
-      loadWishlistIdentities()
-    })
+    // The browser extension can write wishlist entries while the library is
+    // open. Refresh the wishlist, the identity keys that annotate catalog rows,
+    // and the main library, then re-sync the open detail panel if it is showing
+    // the entry that just changed.
+    const handleWishlistUpdated = async () => {
+      await Promise.all([
+        fetchWishlistGames(),
+        loadWishlistIdentities(),
+        fetchGames(),
+      ])
+      if (browseAvailableRef.current) {
+        fetchCatalogGames({ search: catalogSearchRef.current, filters: catalogQueryFiltersRef.current })
+      }
+      setSelectedGame((current) => {
+        if (!current) return current
+        window.electronAPI.isWishlistEntry?.(current).then((isWish) => {
+          if (typeof isWish === 'boolean') {
+            setSelectedGame((prev) => {
+              if (!prev || getWishlistIdentityKey(prev) !== getWishlistIdentityKey(current)) return prev
+              return {
+                ...prev,
+                isWishlisted: isWish,
+                isWishlistEntry: isWish || prev.isWishlistEntry,
+              }
+            })
+          }
+        })
+        return current
+      })
+    }
 
     window.electronAPI.onWindowStateChanged(handleWindowStateChanged)
+    const removeWishlistUpdatedListener =
+      window.electronAPI.onWishlistUpdated?.(handleWishlistUpdated)
     window.electronAPI.onDbUpdateProgress(handleDbUpdateProgress)
     window.electronAPI.onImportProgress(handleImportProgress)
     window.electronAPI.onGameImported(handleGameImported)

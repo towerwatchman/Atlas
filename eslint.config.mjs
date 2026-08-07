@@ -66,11 +66,28 @@ export default [
   // ── Main process ──────────────────────────────────────────────────────────
   {
     files: ['electron/**/*.js', 'workers/**/*.js'],
+    ignores: ['extension/**/*.js'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'commonjs',
       globals: {
         ...globals.node,
+      },
+    },
+    rules: {
+      'no-undef': 'error',
+      'no-use-before-define': ['warn', { functions: false, variables: true, classes: false }],
+    },
+  },
+  // ── Browser Extension ─────────────────────────────────────────────────────
+  {
+    files: ['extension/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: 'module',
+      globals: {
+        ...globals.browser,
+        chrome: 'readonly',
       },
     },
     rules: {

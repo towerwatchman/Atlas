@@ -23,7 +23,9 @@ const read = (...parts) => fs.readFileSync(path.join(ROOT, ...parts), 'utf8')
 // The CommonJS copy is generated, so a stale one means main and the renderer
 // search different columns — Browse quietly disagreeing with Library.
 test('the CommonJS mirror matches what the generator would produce', () => {
-  expect(fs.readFileSync(TARGET, 'utf8')).toBe(generate())
+  expect(fs.readFileSync(TARGET, 'utf8').replace(/\r\n/g, '\n')).toBe(
+    generate().replace(/\r\n/g, '\n'),
+  )
 })
 
 test('the mirror exposes the same field definitions', () => {
