@@ -2629,7 +2629,7 @@ const App = () => {
           onClick={openWishlist}
           className="justify-self-start flex items-center bg-transparent text-text hover:text-highlight"
         >
-          <i className="fas fa-heart mr-2 text-text"></i>Wishlist
+          <i className="fas fa-bookmark mr-2 text-text"></i>Wishlist
         </button>
         <div className="justify-self-center flex items-center text-center">
           <i className="fas fa-gamepad mr-2 text-text"></i>

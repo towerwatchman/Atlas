@@ -48,7 +48,12 @@ function generate() {
   body = body.slice(start)
 
   const exports = `module.exports = {\n${names.map((n) => `  ${n},\n`).join('')}}\n`
-  return `${HEADER}${body.replace(/\n+$/, '')}\n\n${exports}`.replace(/\n/g, '\r\n')
+  // Normalise to LF *before* converting, or any CRLF that sneaks in from the
+  // header or the source produces \r\r\n -- which survives a naive
+  // .replace(/\r\n/g,'\n') in the test and reads as a baffling mismatch.
+  return `${HEADER}${body.replace(/\n+$/, '')}\n\n${exports}`
+    .replace(/\r\n/g, '\n')
+    .replace(/\n/g, '\r\n')
 }
 
 if (require.main === module) {

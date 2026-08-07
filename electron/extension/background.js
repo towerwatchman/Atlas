@@ -78,14 +78,14 @@ const addGame = async (url, tabId) => {
 chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.create({
         id: 'add-page-to-atlas',
-        title: 'Add this page to Atlas',
+        title: 'Add this game to wishlist',
         contexts: ['page'],
         documentUrlPatterns: ['*://*.f95zone.to/threads/*', '*://*.lewdcorner.com/threads/*'],
     });
 
     chrome.contextMenus.create({
         id: 'add-link-to-atlas',
-        title: 'Add this link to Atlas',
+        title: 'Add this game to wishlist',
         contexts: ['link'],
         targetUrlPatterns: ['*://*.f95zone.to/threads/*', '*://*.lewdcorner.com/threads/*'],
     });

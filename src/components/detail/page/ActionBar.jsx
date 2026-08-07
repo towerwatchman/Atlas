@@ -220,7 +220,7 @@ export default function ActionBar({
               onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
             >
               <span style={{ display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap' }}>
-                <i className={wishlistBusy ? 'fas fa-circle-notch fa-spin' : 'fas fa-heart'} style={{ fontSize: 11 }}></i>
+                <i className={wishlistBusy ? 'fas fa-circle-notch fa-spin' : 'fas fa-bookmark'} style={{ fontSize: 11 }}></i>
                 {isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
               </span>
             </button>

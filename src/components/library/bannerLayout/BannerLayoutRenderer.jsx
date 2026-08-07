@@ -175,7 +175,10 @@ const renderMarkerIcon = (fieldId, scale = 1, baseFontSize = 10) => {
   if (fieldId !== 'favorite' && fieldId !== 'wishlist') return null
   return (
     <i
-      className="fas fa-heart"
+      // Favourite keeps the heart; wishlist gets a bookmark. They were both
+      // hearts separated only by colour, which is unreadable at banner scale
+      // and invisible to anyone who can't distinguish amber from pink.
+      className={fieldId === 'favorite' ? 'fas fa-heart' : 'fas fa-bookmark'}
       style={{
         fontSize: Math.round((Number(baseFontSize) || 10) * (Number(scale) || 1)),
         color: `var(--banner-icon-color, ${fieldId === 'favorite' ? '#f59e0b' : '#f9a8d4'})`,
