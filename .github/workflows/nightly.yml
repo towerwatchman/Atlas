@@ -9,10 +9,84 @@ on:
 permissions:
   contents: write
 
+# Two nightly runs overlapping would fight over the same release exactly as the
+# matrix legs used to. Queue them instead of cancelling -- a half-uploaded
+# release is worse than a slightly late one.
+concurrency:
+  group: nightly-release
+  cancel-in-progress: false
+
 jobs:
+  # The 422 this job exists to prevent:
+  #
+  # Both matrix legs ran `electron-builder -p always` with releaseType=prerelease
+  # at the same time, and within each leg the .exe and .exe.blockmap were
+  # published by separate publisher instances. Four concurrent callers each saw
+  # "release doesn't exist" and each POSTed to create it. GitHub answered
+  # 422 "Published releases must have a valid tag", because a PUBLISHED release
+  # needs its tag to exist, and the tag was still being created by whichever
+  # caller got there first.
+  #
+  # So the release is created exactly once, here, as a draft. Drafts do not
+  # require a resolvable tag -- it is cut when the draft is published at the
+  # end. The build legs then find an existing release and only upload to it.
+  #
+  # Second benefit: if one platform fails, the release stays a draft instead of
+  # going live with half its assets.
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Computed once and passed to both legs. Previously each leg derived it
+      # independently -- in cmd batch on Windows and bash on Linux -- so any
+      # drift between the two produced two differently-named releases.
+      - name: Resolve nightly version
+        id: version
+        shell: bash
+        run: |
+          base=$(node -p "require('./package.json').version")
+          version="${base}-nightly.${{ github.run_number }}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Nightly version: $version"
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          # A re-run of the same run_number reuses the existing draft rather
+          # than failing, so retrying a flaky build leg is safe.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; reusing it."
+            exit 0
+          fi
+          gh release create "$tag" \
+            --draft \
+            --prerelease \
+            --target "${{ github.sha }}" \
+            --title "Atlas ${{ steps.version.outputs.version }}" \
+            --notes "Automated nightly build from ${{ github.sha }}."
+
   build-and-prerelease:
+    needs: prepare
     runs-on: ${{ matrix.os }}
     strategy:
+      # One platform failing must not cancel the other mid-upload, which would
+      # leave the draft holding a partial asset set.
+      fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
     timeout-minutes: 60
@@ -36,23 +110,15 @@ jobs:
         run: npm install
         shell: bash
 
-      - name: Set nightly version (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: cmd
-        run: |
-          for /f "delims=" %%v in ('node -p "require('./package.json').version"') do set BASE=%%v
-          set NIGHTLY=%BASE%-nightly.${{ github.run_number }}
-          call npm version %NIGHTLY% --no-git-tag-version
-          echo Nightly version: %NIGHTLY%
-
-      - name: Set nightly version (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      # bash is available on the Windows runners too, so both legs share one
+      # step and take the version prepare already resolved. Nothing recomputes
+      # it, so the two platforms cannot disagree about which release they are
+      # uploading to.
+      - name: Set nightly version
         shell: bash
         run: |
-          base=$(node -p "require('./package.json').version")
-          nightly="${base}-nightly.${{ github.run_number }}"
-          npm version "$nightly" --no-git-tag-version
-          echo "Nightly version: $nightly"
+          npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version
+          echo "Nightly version: ${{ needs.prepare.outputs.version }}"
 
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
@@ -92,7 +158,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win --x64 -p always --config.publish.releaseType=prerelease --config.publish.channel=nightly
+        run: npx electron-builder --win --x64 -p always --config.publish.releaseType=draft --config.publish.channel=nightly
         shell: cmd
 
       - name: Build and publish nightly (Linux)
@@ -100,7 +166,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --linux --x64 -p always --config.publish.releaseType=prerelease --config.publish.channel=nightly
+        run: npx electron-builder --linux --x64 -p always --config.publish.releaseType=draft --config.publish.channel=nightly
         shell: bash
 
       - name: Verify Linux prerelease assets
@@ -218,3 +284,37 @@ jobs:
         run: |
           echo "ClamAV reported ${{ steps.scan.outputs.detections }} infected artifact(s) and FAIL_ON_DETECTION is true."
           exit 1
+
+  # Nothing is visible to users until this runs. If either platform failed, the
+  # draft stays a draft and no half-populated prerelease ever appears.
+  publish-release:
+    name: Publish nightly prerelease
+    needs: [prepare, build-and-prerelease]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify both platforms uploaded, then publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ needs.prepare.outputs.tag }}"
+
+          assets=$(gh release view "$tag" --json assets --jq '[.assets[].name] | join(" ")')
+          echo "Assets on $tag: $assets"
+
+          # Publishing a release with only half the platforms is the failure the
+          # old workflow could produce silently. Check before going live.
+          win=$(echo "$assets" | tr ' ' '\n' | grep -c '\.exe$' || true)
+          lin=$(echo "$assets" | tr ' ' '\n' | grep -cE '\.(deb|AppImage|pacman)$' || true)
+          if [ "$win" -eq 0 ] || [ "$lin" -eq 0 ]; then
+            echo "::error::Refusing to publish $tag -- Windows assets: $win, Linux assets: $lin."
+            echo "The draft has been left in place so the missing build can be re-run."
+            exit 1
+          fi
+
+          gh release edit "$tag" --draft=false --prerelease
+          echo "Published $tag"
+
