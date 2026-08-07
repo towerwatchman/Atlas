@@ -172,13 +172,23 @@ function classifyGroup(group, link = null, options = {}) {
     return result;
   }
 
+  // The parser's own reading of the fragment heading, when it has one. It saw
+  // the nesting; a regex over a flattened label did not, which is why this is
+  // preferred over the PART match below rather than merely agreeing with it.
+  const declaredPart = link?.part || null;
+
   // ── Kind first. A patch that mentions Windows is still a patch. ──────────
   for (const [pattern, kind] of KIND_MARKERS) {
-    if (pattern.test(raw)) {
-      result.kind = kind;
-      result.reason = `heading marks this as '${kind}', not a full game`;
-      return result;
-    }
+    if (!pattern.test(raw)) continue;
+    // The `split` marker is a fallback for a bold that says "Split" and then
+    // lists bare mirrors, leaving nothing for PART to match. When the parser has
+    // already told us exactly which fragment this is, that guess is not needed
+    // and applying it would reject the very links it exists to protect - every
+    // part of "SPLIT-S3-Int+Ep12", and the unsplit .zip listed beside them.
+    if (kind === "split" && declaredPart) continue;
+    result.kind = kind;
+    result.reason = `heading marks this as '${kind}', not a full game`;
+    return result;
   }
   for (const pattern of MEDIA_MARKERS) {
     if (pattern.test(raw)) {
@@ -188,15 +198,26 @@ function classifyGroup(group, link = null, options = {}) {
     }
   }
 
-  // ── Multi-part. Detected, flagged, not decided. ──────────────────────────
-  const partMatch = raw.match(PART);
-  const totalMatch = raw.match(PART_TOTAL);
-  if (partMatch) {
-    result.part = {
-      index: Number.parseInt(partMatch[1], 10),
-      total: totalMatch ? Number.parseInt(totalMatch[2], 10) : null,
-    };
-    result.requiresAllParts = true;
+  // ── Multi-part. Detected and flagged; the SET is assembled by the caller. ─
+  //
+  // `whole: true` is the unsplit .zip sibling. It carries a fragment heading but
+  // is a complete archive, so it stays a single - grouping it into the set would
+  // make a five-part set look like six and fail the contiguity check.
+  if (declaredPart) {
+    if (!declaredPart.whole) {
+      result.part = { index: declaredPart.index, total: declaredPart.total };
+      result.requiresAllParts = true;
+    }
+  } else {
+    const partMatch = raw.match(PART);
+    const totalMatch = raw.match(PART_TOTAL);
+    if (partMatch) {
+      result.part = {
+        index: Number.parseInt(partMatch[1], 10),
+        total: totalMatch ? Number.parseInt(totalMatch[2], 10) : null,
+      };
+      result.requiresAllParts = true;
+    }
   }
 
   result.compressed = COMPRESSED.test(raw);
@@ -273,8 +294,14 @@ function selectDownloadableLinks(links, options = {}) {
     accepted.push(entry);
   }
 
-  // Group multi-part entries by host + normalised heading so all parts of one
-  // set travel together.
+  // Group multi-part entries so all parts of one set travel together.
+  //
+  // Keyed on host + build + PLATFORM. The old key stripped "Part n" back out of
+  // a flattened heading, which was the only thing available when the parser
+  // emitted `group: "Part 1"` and nothing else - and it collapsed Being a DIK's
+  // Win/Linux and Mac fragment lists into a single ten-part set that could never
+  // satisfy the contiguity check. Now that a part carries the build and platform
+  // it hangs under, the key can say what it means.
   const sets = new Map();
   const singles = [];
   for (const entry of accepted) {
@@ -284,34 +311,41 @@ function selectDownloadableLinks(links, options = {}) {
     }
     const key = [
       String(entry.link?.host || "").toLowerCase(),
-      entry.verdict.raw.replace(PART, "").replace(/\s+/g, " ").trim().toLowerCase(),
+      String(entry.link?.group || "").trim().toLowerCase(),
+      String(entry.link?.platform || "").trim().toLowerCase(),
     ].join("|");
     if (!sets.has(key)) sets.set(key, []);
     sets.get(key).push(entry);
   }
 
-  const multiPart = Array.from(sets.values()).map((parts) => ({
-    parts: parts.sort((a, b) => a.verdict.part.index - b.verdict.part.index),
-    host: parts[0].link?.host || "",
-    declaredTotal: parts[0].verdict.part.total,
-    // A gap means the thread is missing a part; extraction would fail.
-    complete: isContiguous(parts.map((entry) => entry.verdict.part.index),
-                           parts[0].verdict.part.total),
-  }));
+  const multiPart = Array.from(sets.values()).map((parts) => {
+    const sorted = parts.sort((a, b) => a.verdict.part.index - b.verdict.part.index);
+    return {
+      parts: sorted,
+      host: sorted[0].link?.host || "",
+      group: sorted[0].link?.group || "",
+      platform: sorted[0].link?.platform || "",
+      declaredTotal: sorted[0].verdict.part.total,
+      // A gap means the thread is missing a part; extraction would fail.
+      complete: isContiguous(sorted.map((entry) => entry.verdict.part.index),
+                             sorted[0].verdict.part.total),
+    };
+  });
 
-  // Split archives are NOT offered. Downloading them correctly means treating
-  // N transfers as one all-or-nothing unit and extracting only once every part
-  // has landed, which the queue cannot express yet. Offering them individually
-  // would hand the user a fragment that fetches fine and then fails to open.
-  //
-  // `multiPart` is returned for diagnostics only - callers must offer
-  // `singles`. `hiddenMultiPart` exists so the modal can explain the omission,
-  // and only when there is actually something to explain: a game with no split
-  // archives should never see the disclaimer.
+  // A COMPLETE set is offerable as one option covering N files. An incomplete
+  // one never is: a missing part fetches fine and then fails to extract, after
+  // the bytes have already been spent. That distinction is the whole reason
+  // isContiguous exists, and it is why this is a split rather than a flag.
+  const offerableSets = multiPart.filter((set) => set.complete);
+  const incompleteSets = multiPart.filter((set) => !set.complete);
+
+  // Still reported so the modal can explain an omission, and only when there is
+  // something to explain: a game whose sets are all complete should never see
+  // the disclaimer.
   const hiddenMultiPart = {
-    sets: multiPart.length,
-    links: multiPart.reduce((total, set) => total + set.parts.length, 0),
-    hosts: Array.from(new Set(multiPart.map((set) => set.host))).filter(Boolean),
+    sets: incompleteSets.length,
+    links: incompleteSets.reduce((total, set) => total + set.parts.length, 0),
+    hosts: Array.from(new Set(incompleteSets.map((set) => set.host))).filter(Boolean),
   };
 
   // Builds refused for PLATFORM, summarised the same way and for the same
@@ -341,7 +375,17 @@ function selectDownloadableLinks(links, options = {}) {
     ),
   };
 
-  return { singles, multiPart, hiddenMultiPart, hiddenPlatform, rejected };
+  return {
+    singles,
+    // Complete sets, each meant to be offered as ONE option that fetches every
+    // part. Callers that only understand one url per option must ignore this and
+    // use `singles`, which is why it is a separate field rather than merged in.
+    offerableSets,
+    multiPart,
+    hiddenMultiPart,
+    hiddenPlatform,
+    rejected,
+  };
 }
 
 // Parts must run 1..n with no gaps, and match the declared total if given.

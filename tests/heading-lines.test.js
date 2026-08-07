@@ -137,22 +137,67 @@ describe('applyHeadingLines', () => {
     expect(state.platform).toBe('')
   })
 
+  it('lets a fragment line INHERIT the build and platform above it', () => {
+    // Being a DIK nests three deep: SPLIT-S3-Int+Ep12 / Win/Linux / Part 1.
+    // "Part 1" used to be an unrecognised line and therefore a BUILD, so it
+    // replaced the label and cleared the platform - and the Win/Linux Part 1
+    // came out identical to the Mac one.
+    const state = fold('SPLIT-S3-Int+Ep12', 'Win/Linux', 'Part 1')
+    expect(headingLabel(state)).toBe('SPLIT-S3-Int+Ep12')
+    expect(state.platform).toBe('Win/Linux')
+    expect(state.part).toEqual({ index: 1, total: null, whole: false })
+  })
+
+  it('reads a declared total when the poster supplies one', () => {
+    expect(fold('Build', 'Win', 'Part 2 of 5').part)
+      .toEqual({ index: 2, total: 5, whole: false })
+  })
+
+  it('marks the unsplit .zip sibling as whole rather than as a part', () => {
+    // Listed beside Part 1..5 under the same platform. Grouping it into the set
+    // would make five parts look like six and fail the contiguity check.
+    expect(fold('SPLIT-S3-Int+Ep12', 'Win/Linux', '.zip').part)
+      .toEqual({ index: null, total: null, whole: true })
+  })
+
+  it('clears the part when the platform changes', () => {
+    // "Mac" after "Part 5" opens a NEW set of parts. Carrying the old one across
+    // would key both platforms' fragments into one impossible ten-part set.
+    expect(fold('Build', 'Win/Linux', 'Part 5', 'Mac').part).toBe(null)
+  })
+
+  it('clears the part when a new build arrives', () => {
+    expect(fold('Build A', 'Part 3', 'Build B').part).toBe(null)
+  })
+
+  it('does not read a build that merely mentions parts as a fragment', () => {
+    // Anchored to the whole line: requiring the line to BE the marker is what
+    // keeps a real build label out of the part axis.
+    expect(classifyHeadingLine('Part of the Family')).toBe('build')
+    expect(classifyHeadingLine('Apartment 5')).toBe('build')
+    expect(fold('Part of the Family').part).toBe(null)
+  })
+
   it('does not mutate the state it was given', () => {
     const start = emptyHeading()
     applyHeadingLines(start, ['Season 1', 'Win'])
-    expect(start).toEqual({ base: '', quality: '', platform: '' })
+    expect(start).toEqual({ base: '', quality: '', platform: '', part: null })
   })
 
   it('tolerates a missing or malformed state and line list', () => {
-    expect(applyHeadingLines(null, null)).toEqual({ base: '', quality: '', platform: '' })
+    expect(applyHeadingLines(null, null)).toEqual({
+      base: '', quality: '', platform: '', part: null,
+    })
     expect(applyHeadingLines(undefined, ['Win'])).toEqual({
-      base: '', quality: '', platform: 'Win',
+      base: '', quality: '', platform: 'Win', part: null,
     })
   })
 
   it('handles all three lines arriving in one bold, in order', () => {
     const state = applyHeadingLines(emptyHeading(), ['Season 1', '1080p', 'Win/Linux'])
-    expect(state).toEqual({ base: 'Season 1', quality: '1080p', platform: 'Win/Linux' })
+    expect(state).toEqual({
+      base: 'Season 1', quality: '1080p', platform: 'Win/Linux', part: null,
+    })
     expect(headingLabel(state)).toBe('Season 1 1080p')
   })
 })
@@ -162,7 +207,7 @@ describe('headingLabel', () => {
     // NOT synthesised here. The display layer names the unlabeled case so that
     // the string exists in exactly one place.
     expect(headingLabel(emptyHeading())).toBe('')
-    expect(headingLabel({ base: '', quality: '', platform: 'Win' })).toBe('')
+    expect(headingLabel({ base: '', quality: '', platform: 'Win', part: null })).toBe('')
     expect(headingLabel(null)).toBe('')
   })
 })

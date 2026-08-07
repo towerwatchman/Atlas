@@ -126,18 +126,46 @@ async function getUpdateLinks(threadId, { force = false } = {}) {
   const payload = {
     ok: true,
     threadId: String(threadId),
-    links: selection.singles.map(({ link, verdict }) => ({
-      url: link.url,
-      host: link.host,
-      label: link.label,
-      // The build label alone. Platform travels beside it rather than inside it,
-      // so two DLCs that were both posted for Win/Linux/Mac stay two options.
-      group: link.group,
-      platform: link.platform || '',
-      masked: link.masked,
-      compressed: verdict.compressed,
-      platforms: verdict.platforms,
-    })),
+    links: [
+      ...selection.singles.map(({ link, verdict }) => ({
+        url: link.url,
+        host: link.host,
+        label: link.label,
+        // The build label alone. Platform travels beside it rather than inside it,
+        // so two DLCs that were both posted for Win/Linux/Mac stay two options.
+        group: link.group,
+        platform: link.platform || '',
+        masked: link.masked,
+        compressed: verdict.compressed,
+        platforms: verdict.platforms,
+        // One file. `files` is present on every option so a consumer never has
+        // to branch on which kind it is holding.
+        files: [{ url: link.url, host: link.host, label: link.label, masked: link.masked }],
+        partCount: 1,
+      })),
+      // A complete split archive: ONE option that fetches every part. `url` is
+      // the first part so that a consumer which only reads `url` still gets a
+      // valid link rather than undefined - but such a consumer would fetch a
+      // fragment, which is why partCount is there to be checked.
+      ...selection.offerableSets.map((set) => {
+        const files = set.parts.map(({ link }) => ({
+          url: link.url, host: link.host, label: link.label, masked: link.masked,
+        }));
+        const first = set.parts[0];
+        return {
+          url: files[0].url,
+          host: set.host,
+          label: `${first.link.label} (${files.length} parts)`,
+          group: set.group,
+          platform: set.platform || '',
+          masked: files.some((file) => file.masked),
+          compressed: first.verdict.compressed,
+          platforms: first.verdict.platforms,
+          files,
+          partCount: files.length,
+        };
+      }),
+    ],
     // Only non-zero when split archives were actually found, so the modal can
     // stay silent for the games that have none.
     hiddenMultiPart: selection.hiddenMultiPart,

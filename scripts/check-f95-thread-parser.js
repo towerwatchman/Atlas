@@ -333,6 +333,97 @@ const mirror = (n) => `<a href="https://f95zone.to/masked/mega.nz/1/2/s/i/p${n}"
     "a patch is not reported as hidden on platform");
 }
 
+{
+  // A <b> nested inside a <b>. Being a Wife's download heading is literally
+  // `<b><span>DOWNLOAD</span><br><span>Win/<b>Linux</b></span></b>`: the outer
+  // bold resolved the platform to "Win/Linux" and the inner bold then re-ran on
+  // its own and reduced it to "Linux". Every Windows build on that thread was
+  // labelled Linux-only, and the modal filtered them all out on a Windows box.
+  const parsed = parseThreadDownloads(wrapBody(
+    `<b><span>DOWNLOAD</span><br><span>Win/<b>Linux</b></span></b>${mirror(1)}`));
+  assert.deepStrictEqual(parsed.downloads.map((l) => l.platform), ["Win/Linux"],
+    "a nested bold does not clobber the platform its parent set");
+  checks += 1;
+}
+
+{
+  // Three-level nesting, from Being a DIK. Before the part axis, "Part 1" was an
+  // unrecognised line and therefore a BUILD: it replaced "SPLIT-S3" and cleared
+  // "Win/Linux", so the Win/Linux Part 1 and the Mac Part 1 were identical
+  // records. Twenty split links arrived as ten indistinguishable pairs.
+  const parsed = parseThreadDownloads(wrapBody(`
+    <b>DOWNLOAD</b>
+    <b>SPLIT-S3</b>
+    <b>Win/Linux</b>
+      <b><b>.zip</b></b> ${mirror(1)}
+      <b>Part 1</b>      ${mirror(2)}
+      <b>Part 2</b>      ${mirror(3)}
+    <b>Mac</b>
+      <b>Part 1</b>      ${mirror(4)}
+      <b>Part 2</b>      ${mirror(5)}
+  `));
+  assert.deepStrictEqual(
+    parsed.downloads.map((l) => `${l.group}|${l.platform}|${l.part ? (l.part.whole ? "zip" : l.part.index) : "-"}`),
+    ["SPLIT-S3|Win/Linux|zip", "SPLIT-S3|Win/Linux|1", "SPLIT-S3|Win/Linux|2",
+     "SPLIT-S3|Mac|1", "SPLIT-S3|Mac|2"],
+    "fragments inherit the build and platform they hang under",
+  );
+  checks += 1;
+
+  const selection = selectDownloadableLinks(parsed.downloads, { platform: "win32" });
+  // The .zip is a complete archive listed beside the parts - a single, not a
+  // sixth member of the set.
+  check(selection.singles.length === 1, "the unsplit .zip stays a single option");
+  check(selection.offerableSets.length === 1, "the Win/Linux parts form ONE offerable set");
+  check(selection.offerableSets[0].parts.length === 2, "with both of its parts");
+  check(selection.offerableSets[0].platform === "Win/Linux",
+    "and the Mac set is not merged into it");
+  // A "SPLIT" heading no longer refuses links the parser has already identified.
+  check(selection.rejected.every((entry) => entry.verdict.kind !== "split"),
+    "an explicit fragment is not re-refused by the split heading marker");
+}
+
+{
+  // An incomplete set is still withheld: a missing part fetches fine and then
+  // fails to extract, after the bytes have already been spent.
+  const parsed = parseThreadDownloads(wrapBody(`
+    <b>DOWNLOAD</b><b>Build</b><b>Win</b>
+    <b>Part 1</b> ${mirror(1)}
+    <b>Part 3</b> ${mirror(2)}
+  `));
+  const selection = selectDownloadableLinks(parsed.downloads, { platform: "win32" });
+  check(selection.offerableSets.length === 0, "a set with a gap is not offered");
+  check(selection.hiddenMultiPart.sets === 1, "and is reported as hidden");
+}
+
+{
+  // Hosts are decided by a deny-list now. These two captures alone contributed
+  // four working mirrors that the old allow-list dropped in silence.
+  const parsed = parseThreadDownloads(wrapBody(
+    `<b>DOWNLOAD</b><b>Win</b>` +
+    `<a href="https://krakenfiles.com/view/abc/file.html">KRAKENFILES</a>` +
+    `<a href="https://dropmefiles.com/xyz">DROPMEFILES</a>` +
+    `<a href="https://www.patreon.com/someone">Patreon</a>` +
+    `<a href="https://store.steampowered.com/app/1/">Steam</a>` +
+    `<a href="https://f95zone.to/threads/other.123/post-9">COMPRESSED</a>`));
+  assert.deepStrictEqual(parsed.downloads.map((l) => l.label),
+    ["KRAKENFILES", "DROPMEFILES"],
+    "unknown file hosts are kept; funding, store and in-thread links are not");
+  checks += 1;
+}
+
+{
+  // The overview above the downloads is full of ordinary links. None of them are
+  // files, and the deny-list must not start accepting them just because they are
+  // not on it.
+  const parsed = parseThreadDownloads(wrapBody(
+    `<a href="https://f95zone.to/threads/acting-lessons.1/">Acting Lessons</a>` +
+    `<a href="https://example.com/dev-blog">Dev blog</a>` +
+    `<b>DOWNLOAD</b><b>Win</b>${mirror(1)}`));
+  check(parsed.downloads.length === 1,
+    "links above the download heading are not treated as mirrors");
+}
+
 if (fs.existsSync(fixtureDir)) {
   const files = fs.readdirSync(fixtureDir)
     .filter((name) => name.endsWith(".html") && !name.startsWith("lc_"));

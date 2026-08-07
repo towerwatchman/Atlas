@@ -111,6 +111,71 @@ const DOWNLOAD_HOSTS = [
   "racaty",
 ];
 
+// Hosts that are never a download, however far down the post they appear.
+//
+// DOWNLOAD_HOSTS used to be the gate: a link whose host was not on it was
+// dropped. That is the wrong shape for a list that can only ever be behind the
+// threads it is read from - these two captures alone contributed dropmefiles,
+// download.gg, uploadnow and krakenfiles, four working mirrors discarded in
+// silence. The list stays, because knowing a host is a file host is still
+// useful for deciding where the download area STARTS, but it no longer decides
+// what gets kept.
+//
+// Inverting it means the question becomes "is this obviously not a download",
+// which is a small, stable set: the poster's funding links, the store pages, and
+// the socials. A new mirror host now works on the day it appears; a new social
+// network shows up as one junk row that can be added here.
+const NON_DOWNLOAD_HOSTS = [
+  "patreon.com",
+  "subscribestar.com",
+  "subscribestar.adult",
+  "boosty.to",
+  "ko-fi.com",
+  "buymeacoffee.com",
+  "itch.io",
+  "steampowered.com",
+  "steamcommunity.com",
+  "gog.com",
+  "discord.com",
+  "discord.gg",
+  "discordapp.com",
+  "twitter.com",
+  "x.com",
+  "bsky.app",
+  "facebook.com",
+  "instagram.com",
+  "reddit.com",
+  "youtube.com",
+  "youtu.be",
+  "twitch.tv",
+  "tumblr.com",
+  "pixiv.net",
+  "deviantart.com",
+  "imgur.com",
+  "postimg.cc",
+  "ibb.co",
+  "wikipedia.org",
+];
+
+/**
+ * Is this link something other than a file to fetch?
+ *
+ * f95zone.to itself is denied EXCEPT for attachments.f95zone.to. An in-thread
+ * link is a pointer to another post - "COMPRESSED", "Crack", "Here" - and while
+ * those often lead to more downloads, following them is a fetch this parser does
+ * not do. Offering the post url as if it were an archive would queue a
+ * transfer that lands an html page.
+ */
+function isNonDownloadHost(url) {
+  const host = hostOf(url).toLowerCase();
+  if (!host) return true;
+  if (host === "attachments.f95zone.to") return false;
+  if (host === "f95zone.to" || host.endsWith(".f95zone.to")) return true;
+  return NON_DOWNLOAD_HOSTS.some(
+    (denied) => host === denied || host.endsWith(`.${denied}`),
+  );
+}
+
 // Normalised payload type. Checked top-down; word boundaries keep "Part 1"
 // from matching "art". Mirrors TYPE_RULES in f95_detail.py.
 const TYPE_RULES = [
@@ -209,14 +274,30 @@ function classifyType(section, group, label, name) {
  * For each element the opening tag's attributes are parsed and the inner HTML
  * up to the matching close tag is captured, so callers can read both the href
  * and the visible label.
+ *
+ * A <b> INSIDE a <b> already emitted is skipped. Its text is part of the outer
+ * bold's inner HTML and has therefore been read once already, and re-emitting it
+ * meant the child's lines ran a second time on top of the parent's - overwriting
+ * the state the parent had just set. Being a Wife's heading is literally
+ *
+ *   <b><span>DOWNLOAD</span><br><span>Win/<b>Linux</b></span></b>
+ *
+ * so the outer bold resolved the platform to "Win/Linux" and the inner bold then
+ * reduced it to "Linux". Every Windows build on that thread was labelled
+ * Linux-only. Being a DIK's <b><b>.zip</b></b> tripped the same wire twice over.
  */
 function* walkElements(fragment) {
   const scanner = new RegExp(TAG.source, "g");
   let match;
+  // End offset of the outermost <b> currently open. Anchors are unaffected: a
+  // nested <a> is invalid html and does not occur, and an <a> inside a <b> is a
+  // link that genuinely needs emitting.
+  let boldEnd = -1;
   while ((match = scanner.exec(fragment)) !== null) {
     const closing = match[1] === "/";
     const name = match[2].toLowerCase();
     if (closing || (name !== "b" && name !== "a")) continue;
+    if (name === "b" && match.index < boldEnd) continue;
 
     const attrs = parseAttributes(match[3]);
     const contentStart = match.index + match[0].length;
@@ -234,6 +315,8 @@ function* walkElements(fragment) {
         break;
       }
     }
+
+    if (name === "b") boldEnd = contentEnd;
 
     yield { tag: name, attrs, html: fragment.slice(contentStart, contentEnd) };
   }
@@ -324,6 +407,12 @@ function parseThreadDownloads(html) {
         }
         if (norm === "download" || norm === "downloads") {
           divider = null; patchActive = false; heading = emptyHeading();
+          // The divider itself opens the download area. `started` used to wait
+          // for the first link on a KNOWN host, which meant a thread whose
+          // mirrors were all on hosts missing from DOWNLOAD_HOSTS never opened
+          // the area at all and parsed to nothing - the exact failure the
+          // deny-list exists to end, reintroduced one layer up.
+          started = true;
           continue;
         }
         // A merged "DOWNLOAD Win/Linux" on one line still carries the heading
@@ -355,10 +444,19 @@ function parseThreadDownloads(html) {
     const url = unwrap(href);
     const known = downloadHost(url);
     const host = known || hostOf(url);
-    const isFile = Boolean(known) || url.includes("attachments.f95zone.to");
     const label = stripTags(node.html) || filenameFromUrl(url);
 
-    if (isFile) started = true;
+    // A known host still opens the download area on threads that never write a
+    // "DOWNLOAD" bold at all.
+    if (known) started = true;
+
+    // Inside the download area, anything that is not obviously a store page, a
+    // funding link or a social is a mirror. Outside it, only a known file host
+    // counts - the overview above the downloads is full of ordinary links
+    // (Patreon, Steam, GOG, "Here", other games) and none of them are files.
+    const isFile = started
+      ? !isNonDownloadHost(url)
+      : Boolean(known) || url.includes("attachments.f95zone.to");
 
     let bucketName;
     if (divider === "extras" || divider === "translations") {
@@ -400,6 +498,10 @@ function parseThreadDownloads(html) {
       // Platform as its own axis, raw as written ("Win/Linux/Mac"). A filter,
       // not part of the option's name.
       platform: heading.platform,
+      // {index, total, whole} when the link sat under a fragment heading, null
+      // otherwise. `whole: true` is the unsplit ".zip" sibling listed beside the
+      // parts - a complete archive, and NOT a member of the set.
+      part: heading.part,
       label,
       type: kind,
       host,
@@ -420,5 +522,7 @@ module.exports = {
   downloadHost,
   filenameFromUrl,
   classifyType,
+  isNonDownloadHost,
   DOWNLOAD_HOSTS,
+  NON_DOWNLOAD_HOSTS,
 };

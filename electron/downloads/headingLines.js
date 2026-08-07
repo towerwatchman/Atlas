@@ -28,9 +28,32 @@
 //             rather than appending to the label, because the NEXT quality line
 //             must replace it: "Season 1 / 1080p" followed by a bare "720p"
 //             means "Season 1 720p", not "Season 1 1080p 720p".
+//   PART      "Part 1", "Part 3 of 5", ".zip". A FRAGMENT of the build above it,
+//             not a build of its own. Sets the part slot and LEAVES BASE AND
+//             PLATFORM ALONE - see below.
 //   BUILD     anything else. Replaces the base label and clears the quality
 //             slot, because "Season 2" after "Season 1 / 1080p" is Season 2, not
 //             Season 2 at 1080p.
+//
+// The PART axis is what makes a nested post readable. Being a DIK stacks three
+// levels:
+//
+//   SPLIT-S3-Int+Ep12          build
+//     Win/Linux                platform
+//       .zip / Part 1 .. 5     part
+//     Mac
+//       .zip / Part 1 .. 5
+//
+// With only three axes, "Part 1" was an unrecognised line and therefore a BUILD,
+// so it replaced "SPLIT-S3-Int+Ep12" and cleared "Win/Linux". The thread's 20
+// split links came out as ten pairs named "Part 1".."Part 5" with no platform
+// and no build - the Win/Linux Part 1 and the Mac Part 1 were byte-identical
+// records, and only the url dedupe kept both alive. Nothing downstream could
+// tell them apart, and nothing could tell which build they belonged to.
+//
+// A part line therefore inherits rather than replaces. A PLATFORM line clears
+// the part slot, because "Mac" after "Part 5" opens a new set of parts rather
+// than continuing the old one, and a BUILD line clears it for the same reason.
 //
 // Deliberately only those three exact quality tokens inherit a parent label.
 // Every other unrecognised line is treated as a build label of its own rather
@@ -65,6 +88,16 @@ const LINE_BREAK = /<\s*br\s*\/?\s*>|<\s*\/?\s*p\b[^>]*>/gi;
 // it to whatever came before and lose the platform.
 const QUALITY_LINES = new Set(["4k", "1080p", "720p", "2k", "480p", "360p"]);
 
+// "Part 1", "Part.3", "Part 2 of 5", "Pt 4". Anchored to the whole line: a
+// build genuinely called "Part of the Family" must not read as a fragment, and
+// requiring the line to BE the part marker is what separates the two.
+const PART_LINE = /^(?:part|pt)\s*[.:#-]?\s*(\d{1,2})(?:\s*(?:of|\/)\s*(\d{1,2}))?$/i;
+
+// The unsplit sibling posters list alongside the parts - a bare extension used
+// as a heading. ".zip" is not a build label, and treating it as one is what
+// produced entries called ".zip" with the build above them erased.
+const WHOLE_ARCHIVE_LINE = /^\.?(?:zip|rar|7z|tar|gz)$/i;
+
 // Same split characters as groupClassifier.tokenize, so a line is classified on
 // exactly the tokens the platform filter will later see.
 const tokenize = (value) =>
@@ -94,12 +127,16 @@ function splitHeadingLines(html) {
  * What one heading line is telling us.
  *
  * @param {string} line a single stripped line
- * @returns {'platform'|'quality'|'build'}
+ * @returns {'platform'|'quality'|'part'|'build'}
  */
 function classifyHeadingLine(line) {
   const text = String(line || "").trim();
   if (!text) return "build";
   if (QUALITY_LINES.has(text.toLowerCase())) return "quality";
+  // Before the platform check: neither pattern tokenizes to a platform, but
+  // keeping the fragment tests together is what stops a later platform token
+  // from being added and quietly swallowing "Part 1".
+  if (PART_LINE.test(text) || WHOLE_ARCHIVE_LINE.test(text)) return "part";
   const tokens = tokenize(text);
   // Every token a platform token, and at least one of them. A bare "-" or "()"
   // tokenizes to nothing and must not read as "platform: none".
@@ -110,7 +147,26 @@ function classifyHeadingLine(line) {
 }
 
 /** The heading state a fresh download area starts in. */
-const emptyHeading = () => ({ base: "", quality: "", platform: "" });
+const emptyHeading = () => ({ base: "", quality: "", platform: "", part: null });
+
+/**
+ * Read a part line into `{index, total, whole}`.
+ *
+ * `whole: true` is the unsplit ".zip" sibling - a complete archive, so it has no
+ * index and must NOT be grouped into the part set beside it. That distinction is
+ * the difference between offering one download and offering six.
+ */
+function parsePartLine(line) {
+  const text = String(line || "").trim();
+  if (WHOLE_ARCHIVE_LINE.test(text)) return { index: null, total: null, whole: true };
+  const match = text.match(PART_LINE);
+  if (!match) return null;
+  return {
+    index: Number.parseInt(match[1], 10),
+    total: match[2] ? Number.parseInt(match[2], 10) : null,
+    whole: false,
+  };
+}
 
 /**
  * Fold one <b>'s lines into the running heading state.
@@ -127,14 +183,25 @@ function applyHeadingLines(state, lines) {
     switch (classifyHeadingLine(line)) {
       case "platform":
         next.platform = line;
+        // A new platform opens a new set of fragments. Carrying "Part 5" across
+        // from the Win/Linux list into the Mac list would key the two sets
+        // together and produce a six-part set from two three-part ones.
+        next.part = null;
         break;
       case "quality":
         next.quality = line;
+        break;
+      case "part":
+        // INHERITS. The whole point of the axis: a fragment says nothing about
+        // which build or platform it belongs to, so it must not clear either.
+        next.part = parsePartLine(line);
         break;
       default:
         next.base = line;
         // A new build clears the quality it was not given...
         next.quality = "";
+        // ...and any fragment marker left over from the build before it.
+        next.part = null;
         // ...and the platform, which is the safe direction: an empty platform
         // reads as "unlabeled" to groupClassifier and is ACCEPTED, whereas an
         // inherited one can filter an option out of the list entirely. A build
@@ -166,6 +233,9 @@ module.exports = {
   applyHeadingLines,
   emptyHeading,
   headingLabel,
+  parsePartLine,
   QUALITY_LINES,
+  PART_LINE,
+  WHOLE_ARCHIVE_LINE,
   LINE_BREAK,
 };
