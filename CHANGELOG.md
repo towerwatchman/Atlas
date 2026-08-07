@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Fixed rating displays on library and catalog card overviews to format consistently on the 0–10 scale (`/10`), resolving an issue where ratings at or below 5 were mislabeled with a `/5` denominator (#321).
 - The browser extension still did not reach disk after the previous fix. That fix was correct as far as it went -- `asarUnpack` put the files at `resources\\app.asar.unpacked\\extension` and the candidate ordering found them -- and the copy then failed at the DESTINATION, which nothing had looked at.
 - `ensureExtensionFiles` targeted `path.join(appDataRoot, 'extension')`, and on Windows `appDataRoot` IS the install directory: `dataLocation.js` `resolveDataRoot` returns `installDir` on win32. So the target was `C:\\Program Files\\Atlas\\extension`, and every copy failed with EPERM.
 - That is not a permissions oversight to be worked around -- it is a deliberate decision, and the right one. `build/installer.nsh` grants the Users group modify rights on `$INSTDIR\\data` and `$INSTDIR\\launchers` and explicitly NOT on `$INSTDIR` itself, because that folder holds Atlas.exe; a user-writable directory of executables that something elevated later runs is a privilege-escalation route. Atlas runs unelevated after install for the same reason: it launches game executables, and a child process inherits its parent's elevation.

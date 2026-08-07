@@ -66,7 +66,7 @@ export default [
   // ── Main process ──────────────────────────────────────────────────────────
   {
     files: ['electron/**/*.js', 'workers/**/*.js'],
-    ignores: ['extension/**/*.js'],
+    ignores: ['extension/**/*.js', 'electron/extension/**/*.js'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'commonjs',
@@ -81,7 +81,7 @@ export default [
   },
   // ── Browser Extension ─────────────────────────────────────────────────────
   {
-    files: ['extension/**/*.js'],
+    files: ['extension/**/*.js', 'electron/extension/**/*.js'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',

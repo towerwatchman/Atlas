@@ -115,11 +115,11 @@ describe('Extension Server & Thread Parser', () => {
       const { ensureExtensionFiles } = require('../electron/ipc/extension')
 
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-ext-test-'))
-      const targetDir = ensureExtensionFiles({ appDataRoot: tempDir })
+      const result = ensureExtensionFiles({ appDataRoot: tempDir })
 
-      expect(targetDir).toBe(path.join(tempDir, 'extension'))
-      expect(fs.existsSync(targetDir)).toBe(true)
-      expect(fs.existsSync(path.join(targetDir, 'manifest.json'))).toBe(true)
+      expect(result.ok).toBe(true)
+      expect(fs.existsSync(result.extensionPath)).toBe(true)
+      expect(fs.existsSync(path.join(result.extensionPath, 'manifest.json'))).toBe(true)
     })
   })
 })

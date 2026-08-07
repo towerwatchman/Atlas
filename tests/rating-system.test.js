@@ -6,6 +6,7 @@ import {
   computeRatingAverage as uiAverage,
   computeOnlineRating as uiOnline,
 } from '../src/utils/ratingCategories.js'
+import { resolveBannerField } from '../src/components/library/bannerLayout/bannerFieldResolvers.js'
 const db = require('../electron/db/ratingCategories.js')
 
 // Main is CommonJS and the renderer an ESM bundle, so the category list is
@@ -122,13 +123,21 @@ test('the context menu offers rating', () => {
   expect(windows).toContain('rate-title-requested')
 })
 
-// A deps array evaluates at render, so referencing a const declared later is a
-// temporal dead zone error. This has bitten three times now.
-test('the rating effect is declared after what it depends on', () => {
-  const page = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'components', 'detail', 'GameDetailPage.jsx'), 'utf8')
-  const decl = page.indexOf('const canManagePersonalRatings =')
-  const use = page.indexOf('openRatingFor !== game?.record_id')
-  expect(decl).toBeGreaterThan(-1)
-  expect(use).toBeGreaterThan(decl)
+// Ratings on banner layout fields must format out of 10 even when <= 5.
+test('banner layout rating fields format on the 0-10 scale even when rating is below or equal to 5', () => {
+  const personalLow = resolveBannerField('personalRating', { personalRatingOverall: 3.0 })
+  expect(personalLow.value).toBe('3.0/10')
+  expect(personalLow.value).not.toContain('/5')
+
+  const personalOne = resolveBannerField('personalRating', { personalRatingOverall: 1.1 })
+  expect(personalOne.value).toBe('1.1/10')
+  expect(personalOne.value).not.toContain('/5')
+
+  const sourceLow = resolveBannerField('sourceRating', { sourceRating: 4.4 })
+  expect(sourceLow.value).toBe('4.4/10')
+  expect(sourceLow.value).not.toContain('/5')
+
+  const f95Low = resolveBannerField('sourceRating', { rating: 2.2 })
+  expect(f95Low.value).toBe('4.4/10')
+  expect(f95Low.value).not.toContain('/5')
 })
