@@ -13,6 +13,10 @@ const ExtensionSettings = () => {
   const [extensionPath, setExtensionPath] = useState('')
   const [copied, setCopied] = useState(false)
   const [showSteps, setShowSteps] = useState(false)
+  const [token, setToken] = useState('')
+  const [tokenVisible, setTokenVisible] = useState(false)
+  const [tokenCopied, setTokenCopied] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState(null)
 
@@ -45,6 +49,7 @@ const ExtensionSettings = () => {
 
   useEffect(() => {
     loadStatus()
+    loadToken()
   }, [])
 
   const handleCopyPath = async () => {
@@ -98,18 +103,59 @@ const ExtensionSettings = () => {
     }
   }
 
+  // Runs in the main process rather than fetching from here. The RPC server
+  // only answers the extension's origin now, so a direct fetch from the renderer
+  // would be blocked by CORS -- and this way the token never reaches the page.
   const testConnection = async () => {
     setTestResult('testing')
     try {
-      const res = await fetch(`http://127.0.0.1:${extStatus.port}/api/status`)
-      if (res.ok) {
-        const data = await res.json()
-        setTestResult(`Success! Server connected (${data.app} ${data.version || ''})`)
+      const res = await window.electronAPI.testExtensionConnection()
+      if (res?.success) {
+        const d = res.data || {}
+        setTestResult(`Success! Server connected (${d.app || 'Atlas'} ${d.version || ''})`.trim())
       } else {
-        setTestResult(`Server returned HTTP ${res.status}`)
+        setTestResult(res?.error || 'Connection failed')
       }
     } catch {
       setTestResult(`Failed to connect on 127.0.0.1:${extStatus.port}`)
+    }
+  }
+
+  const loadToken = async () => {
+    if (!window.electronAPI?.getExtensionToken) return
+    try {
+      const res = await window.electronAPI.getExtensionToken()
+      if (res?.token) setToken(res.token)
+    } catch (err) {
+      console.error('Failed to load extension token:', err)
+    }
+  }
+
+  const handleCopyToken = async () => {
+    if (!token) return
+    try {
+      await navigator.clipboard.writeText(token)
+      setTokenCopied(true)
+      setTimeout(() => setTokenCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy token:', err)
+    }
+  }
+
+  const handleRegenerateToken = async () => {
+    if (!window.electronAPI?.regenerateExtensionToken) return
+    setRegenerating(true)
+    try {
+      const res = await window.electronAPI.regenerateExtensionToken()
+      if (res?.token) {
+        setToken(res.token)
+        setTokenVisible(true)
+        setTestResult(null)
+      }
+    } catch (err) {
+      console.error('Failed to regenerate token:', err)
+    } finally {
+      setRegenerating(false)
     }
   }
 
@@ -171,6 +217,57 @@ const ExtensionSettings = () => {
               <span>Open Folder</span>
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Pairing token. The RPC server refuses every request without it, which
+          is what stops any site the user visits from reading their library off
+          127.0.0.1. Masked by default so it survives a screenshot or a stream. */}
+      <div className="bg-secondary border border-border p-4 rounded mb-4 space-y-3">
+        <div>
+          <h4 className="text-sm font-medium text-text">Pairing Token</h4>
+          <p className="text-xs text-text/70 mt-0.5">
+            Paste this into the extension popup to connect it to Atlas. Treat it like a
+            password &mdash; anything that has it can read and modify your library.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+          <input
+            type={tokenVisible ? 'text' : 'password'}
+            readOnly
+            value={token || 'Generating...'}
+            className="flex-1 bg-tertiary border border-border text-text rounded px-3 py-1.5 text-xs font-mono select-all focus:outline-none"
+          />
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setTokenVisible((v) => !v)}
+              disabled={!token}
+              className="flex-1 sm:flex-none px-3 py-1.5 bg-tertiary hover:bg-tertiary/80 text-text rounded text-xs transition cursor-pointer disabled:opacity-50"
+            >
+              {tokenVisible ? 'Hide' : 'Show'}
+            </button>
+            <button
+              onClick={handleCopyToken}
+              disabled={!token}
+              className="flex-1 sm:flex-none px-3 py-1.5 bg-accent hover:bg-accent/80 text-white rounded text-xs transition cursor-pointer font-medium disabled:opacity-50"
+            >
+              {tokenCopied ? 'Copied!' : 'Copy Token'}
+            </button>
+          </div>
+        </div>
+
+        <div className="pt-2 border-t border-border/50 flex flex-col sm:flex-row sm:items-center gap-2">
+          <p className="text-xs text-text/60 flex-1">
+            Regenerating disconnects the extension until you paste the new token into it.
+          </p>
+          <button
+            onClick={handleRegenerateToken}
+            disabled={regenerating}
+            className="shrink-0 px-3 py-1.5 bg-tertiary hover:bg-tertiary/80 text-text rounded text-xs transition cursor-pointer disabled:opacity-50"
+          >
+            {regenerating ? 'Regenerating...' : 'Regenerate Token'}
+          </button>
         </div>
       </div>
 

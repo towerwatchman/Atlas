@@ -660,6 +660,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getExtensionStatus: () => ipcRenderer.invoke("get-extension-status"),
   getExtensionPath: () => ipcRenderer.invoke("get-extension-path"),
   openExtensionFolder: () => ipcRenderer.invoke("open-extension-folder"),
+  getExtensionToken: () => ipcRenderer.invoke("get-extension-token"),
+  regenerateExtensionToken: () => ipcRenderer.invoke("regenerate-extension-token"),
+  testExtensionConnection: () => ipcRenderer.invoke("test-extension-connection"),
   saveExtensionSettings: (settings) => ipcRenderer.invoke("save-extension-settings", settings),
 });
 

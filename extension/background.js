@@ -4,6 +4,21 @@ const DEFAULT_RPC_PORT = 57096;
 let rpcPort = DEFAULT_RPC_PORT;
 let rpcURL = `http://127.0.0.1:${rpcPort}`;
 
+// Pairing token, copied by the user from Atlas Settings. Atlas rejects every
+// request without it, so a page the user happens to be visiting cannot reach
+// the local server and read their library.
+let rpcToken = '';
+
+chrome.storage.local.get(['rpcToken'], (result) => {
+  if (result.rpcToken) rpcToken = result.rpcToken;
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.rpcToken) {
+    rpcToken = changes.rpcToken.newValue || '';
+  }
+});
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const rpcCall = async (method, path, body, tabId) => {
@@ -11,9 +26,16 @@ const rpcCall = async (method, path, body, tabId) => {
         return null;
     }
     try {
+        const headers = {};
+        if (body) headers['Content-Type'] = 'application/json';
+        // Atlas answers 401 to anything without this. An empty token is still
+        // sent so the server's reply is a clean 401 rather than a network error,
+        // which is what lets the popup say "not paired" instead of "offline".
+        headers['X-Atlas-Token'] = rpcToken;
+
         const res = await fetch(`${rpcURL}${path}`, {
             method: method,
-            headers: body ? { 'Content-Type': 'application/json' } : {},
+            headers: headers,
             body: body,
         });
         if (!res.ok) {

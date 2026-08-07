@@ -1,6 +1,18 @@
 'use strict'
 
 const http = require('http')
+const crypto = require('crypto')
+
+// The extension's ID is pinned by the "key" field in extension/manifest.json,
+// so it is identical on every install and can be named here. Without that key
+// Chrome assigns a random ID per unpacked install and no allowlist is possible.
+const EXTENSION_ID = 'eeejnjabpobbeoklajpekhfofnokoboe'
+const ALLOWED_ORIGINS = new Set([`chrome-extension://${EXTENSION_ID}`])
+
+// Reachable without a token so the extension can tell "Atlas isn't running"
+// apart from "my token is wrong". Returns nothing but {ok:true} -- anything
+// with real data belongs behind the token.
+const PUBLIC_PATHS = new Set(['/ping', '/api/ping'])
 let dbModule = null
 try {
   dbModule = require('../db/index')
@@ -43,12 +55,30 @@ function extractThreadInfo(rawUrl) {
   return null
 }
 
+// Access-Control-Allow-Origin was '*', which let any page the user happened to
+// visit read the responses -- including the full library from /api/games. The
+// origin is now echoed back only when it is the pinned extension, so a hostile
+// page cannot read a reply even if it somehow guessed the token.
+//
+// Requests with no Origin at all (curl, the main process) get no CORS headers
+// and do not need them; the token check below is what actually guards those.
+function corsHeaders(req) {
+  const origin = req.headers.origin
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) return {}
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Requested-With, X-Atlas-Token',
+    // Chrome blocks public sites from reaching private addresses unless the
+    // target opts in. Only sent for the extension origin, never broadly.
+    'Access-Control-Allow-Private-Network': 'true',
+    Vary: 'Origin',
+  }
+}
+
 function sendResponse(res, code, contentType, body, extraHeaders = {}) {
   res.writeHead(code, {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Requested-With',
-    'Access-Control-Allow-Private-Network': 'true',
+    ...corsHeaders(res.__atlasReq || {}),
     'Content-Type': contentType,
     ...extraHeaders,
   })
@@ -60,14 +90,32 @@ function sendJson(res, code, data) {
 }
 
 function handleOptions(req, res) {
-  res.writeHead(200, {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Requested-With',
-    'Access-Control-Allow-Private-Network': 'true',
-    'Access-Control-Max-Age': '86400',
-  })
+  res.writeHead(200, { ...corsHeaders(req), 'Access-Control-Max-Age': '86400' })
   res.end()
+}
+
+// The shared secret lives in config so it survives restarts and can be rotated
+// from Settings without touching code. No token configured means fail closed:
+// every authenticated route refuses rather than falling back to open access.
+function currentToken() {
+  const config = getConfigFn ? getConfigFn() : {}
+  const token = config?.Extension?.rpcToken
+  return typeof token === 'string' && token.length > 0 ? token : null
+}
+
+// timingSafeEqual rather than === so a caller cannot narrow the token down one
+// byte at a time by measuring how long the comparison takes. It throws on
+// length mismatch, hence the explicit length check first.
+function isAuthorized(req) {
+  const expected = currentToken()
+  if (!expected) return false
+  const provided = req.headers['x-atlas-token']
+  if (typeof provided !== 'string' || provided.length !== expected.length) return false
+  try {
+    return crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected))
+  } catch {
+    return false
+  }
 }
 
 function queryDbAll(sql, params = []) {
@@ -276,6 +324,11 @@ async function addGameUrl(rawUrl) {
 }
 
 function handleRequest(req, res) {
+  // sendResponse needs the request to decide CORS, and it is called from a
+  // dozen places that only have res. Stashing it here beats threading req
+  // through every one of them.
+  res.__atlasReq = req
+
   if (req.method === 'OPTIONS') {
     handleOptions(req, res)
     return
@@ -283,6 +336,21 @@ function handleRequest(req, res) {
 
   const reqUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`)
   const pathname = reqUrl.pathname
+
+  if (PUBLIC_PATHS.has(pathname)) {
+    sendJson(res, 200, { ok: true })
+    return
+  }
+
+  if (!isAuthorized(req)) {
+    sendJson(res, 401, {
+      error: 'unauthorized',
+      message:
+        'Missing or invalid X-Atlas-Token. Copy the pairing token from Atlas ' +
+        '(Settings -> Browser Extension) into the extension popup.',
+    })
+    return
+  }
 
   if (req.method === 'GET') {
     if (pathname === '/games' || pathname === '/api/games') {

@@ -1,9 +1,0 @@
-Delete these two files as part of this change. They were superseded by
-SplitButtonMenu last session; the incremental zips added the new files but
-nothing removed the old ones, so both versions were in the tree and the suite
-was running the renamed test twice over.
-
-  src/components/detail/page/InstallMenuButton.jsx
-  tests/install-menu-button.test.jsx
-
-  git rm src/components/detail/page/InstallMenuButton.jsx tests/install-menu-button.test.jsx

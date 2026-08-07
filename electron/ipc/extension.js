@@ -1,13 +1,34 @@
 'use strict'
 
 const { app, ipcMain, shell } = require('electron')
+const crypto = require('crypto')
 const fs = require('fs')
+const http = require('http')
 const path = require('path')
 const {
   startExtensionServer,
   stopExtensionServer,
   isExtensionServerRunning,
 } = require('../rpc/extensionServer')
+
+// The pairing secret between the browser extension and this process. Created
+// on first use and persisted in config, because a token regenerated on every
+// launch would silently unpair the extension each time Atlas restarted.
+//
+// 32 bytes of CSPRNG output as hex. Long enough that guessing it over a
+// localhost HTTP endpoint is not a threat worth modelling.
+async function ensureExtensionToken(ctx) {
+  const config = ctx.getConfig() || {}
+  const existing = config.Extension?.rpcToken
+  if (typeof existing === 'string' && existing.length >= 32) return existing
+
+  const token = crypto.randomBytes(32).toString('hex')
+  await ctx.saveSettings({
+    ...config,
+    Extension: { ...(config.Extension || {}), rpcToken: token },
+  })
+  return token
+}
 
 function ensureExtensionFiles(ctx) {
   const rootPath =
@@ -106,6 +127,61 @@ function registerExtensionHandlers(ctx) {
       return { success: true, extensionPath }
     }
     return { success: false, error: 'Extension directory does not exist' }
+  })
+
+  // Settings displays this so the user can paste it into the extension popup.
+  // Generated on first read rather than at startup, so a user who never installs
+  // the extension never has a secret sitting in their config file.
+  ipcMain.handle('get-extension-token', async () => {
+    const token = await ensureExtensionToken(ctx)
+    return { token }
+  })
+
+  // Rotation for when a token has been pasted somewhere it shouldn't have been.
+  // Deliberately unpairs the extension -- the user has to re-paste -- because a
+  // rotation that left the old token working would not be a rotation.
+  ipcMain.handle('regenerate-extension-token', async () => {
+    const config = ctx.getConfig() || {}
+    const token = crypto.randomBytes(32).toString('hex')
+    await ctx.saveSettings({
+      ...config,
+      Extension: { ...(config.Extension || {}), rpcToken: token },
+    })
+    return { token }
+  })
+
+  // Runs from the main process rather than the renderer on purpose: main is not
+  // subject to CORS, so Settings can verify the server without the renderer
+  // origin needing to appear in the allowlist or the token reaching the page.
+  ipcMain.handle('test-extension-connection', async () => {
+    const config = ctx.getConfig() || {}
+    const port = config.Extension?.rpcPort || 57096
+    const token = await ensureExtensionToken(ctx)
+
+    return new Promise((resolve) => {
+      const req = http.get(
+        { host: '127.0.0.1', port, path: '/api/status', headers: { 'X-Atlas-Token': token } },
+        (res) => {
+          let body = ''
+          res.on('data', (chunk) => { body += chunk })
+          res.on('end', () => {
+            if (res.statusCode === 200) {
+              try {
+                resolve({ success: true, data: JSON.parse(body) })
+              } catch {
+                resolve({ success: false, error: 'Server returned a malformed response' })
+              }
+            } else if (res.statusCode === 401) {
+              resolve({ success: false, error: 'Server rejected the token. Try regenerating it.' })
+            } else {
+              resolve({ success: false, error: `Server responded with ${res.statusCode}` })
+            }
+          })
+        },
+      )
+      req.on('error', () => resolve({ success: false, error: 'Atlas RPC server is not reachable' }))
+      req.setTimeout(3000, () => { req.destroy(); resolve({ success: false, error: 'Connection timed out' }) })
+    })
   })
 
   ipcMain.handle('save-extension-settings', async (_event, newExtConfig) => {

@@ -38,6 +38,9 @@ describe('Extension Server & Thread Parser', () => {
 
   describe('HTTP RPC Server Endpoints', () => {
     const TEST_PORT = 57099
+    const TEST_TOKEN = 'c'.repeat(64)
+    const AUTH = { 'X-Atlas-Token': TEST_TOKEN }
+    const EXT_ORIGIN = 'chrome-extension://eeejnjabpobbeoklajpekhfofnokoboe'
 
     beforeAll(() => {
       startExtensionServer({
@@ -46,6 +49,8 @@ describe('Extension Server & Thread Parser', () => {
           Extension: {
             rpcEnabled: true,
             rpcPort: TEST_PORT,
+            // The server refuses every authenticated route without this.
+            rpcToken: TEST_TOKEN,
             iconGlow: true,
             highlightTags: false,
           },
@@ -65,7 +70,7 @@ describe('Extension Server & Thread Parser', () => {
     })
 
     it('responds to GET /api/status with ok status', async () => {
-      const res = await fetch(`http://127.0.0.1:${TEST_PORT}/api/status`)
+      const res = await fetch(`http://127.0.0.1:${TEST_PORT}/api/status`, { headers: AUTH })
       expect(res.status).toBe(200)
       const data = await res.json()
       expect(data.status).toBe('ok')
@@ -73,20 +78,32 @@ describe('Extension Server & Thread Parser', () => {
     })
 
     it('responds to GET /api/settings with configured options', async () => {
-      const res = await fetch(`http://127.0.0.1:${TEST_PORT}/api/settings`)
+      const res = await fetch(`http://127.0.0.1:${TEST_PORT}/api/settings`, { headers: AUTH })
       expect(res.status).toBe(200)
       const data = await res.json()
       expect(data.rpc_port).toBe(TEST_PORT)
       expect(data.icon_glow).toBe(true)
     })
 
-    it('handles OPTIONS preflight request with CORS headers', async () => {
+    // Was asserting Allow-Origin '*', which is the behaviour that let any site
+    // the user visited read /api/games. The preflight now answers only the
+    // pinned extension origin.
+    it('answers a preflight from the extension origin', async () => {
       const res = await fetch(`http://127.0.0.1:${TEST_PORT}/api/games`, {
         method: 'OPTIONS',
+        headers: { Origin: EXT_ORIGIN },
       })
       expect(res.status).toBe(200)
-      expect(res.headers.get('access-control-allow-origin')).toBe('*')
+      expect(res.headers.get('access-control-allow-origin')).toBe(EXT_ORIGIN)
       expect(res.headers.get('access-control-allow-private-network')).toBe('true')
+    })
+
+    it('does not answer a preflight from an unrelated website', async () => {
+      const res = await fetch(`http://127.0.0.1:${TEST_PORT}/api/games`, {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://evil.example' },
+      })
+      expect(res.headers.get('access-control-allow-origin')).toBeNull()
     })
   })
 
