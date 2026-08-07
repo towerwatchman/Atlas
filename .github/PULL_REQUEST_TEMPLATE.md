@@ -21,6 +21,33 @@
 - [ ] `CHANGELOG.md` updated
 - [ ] This PR targets `nightly`, not `main`
 
+## AI assistance
+
+<!-- Required. Tick exactly ONE box. CI checks that you answered.
+
+     Not a rule against using AI - plenty of Atlas was written with it. The
+     reviewer needs to know WHICH one, because different assistants fail in
+     different, predictable ways and knowing the tool says what to check first.
+     See CONTRIBUTING.md rule 5. -->
+
+- [ ] No AI was used on this change
+- [ ] AI was used on this change
+
+<!-- If you ticked "AI was used", fill in all three lines below.
+     Delete them if you ticked "No AI". -->
+
+**Tool and model:** <!-- e.g. "Claude Opus 5 via Claude Code", "GitHub Copilot",
+                         "Cursor with GPT-5", "ChatGPT, pasted by hand" -->
+
+**What it wrote:** <!-- Be specific. "All of electron/downloads/hosts/foo.js and
+                       its tests" or "the retry loop in startTransfer only".
+                       "Some of it" tells the reviewer nothing. -->
+
+**What you verified yourself:** <!-- What you actually ran, read or checked by
+                                    hand. Which claims you confirmed rather than
+                                    took on trust. If an assistant told you a
+                                    test passes, say whether you watched it. -->
+
 ## IPC changes
 
 <!-- Delete this section if you touched no IPC.

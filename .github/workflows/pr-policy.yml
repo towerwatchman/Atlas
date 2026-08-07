@@ -82,6 +82,79 @@ jobs:
           echo "apply the 'no-test-needed' label and say why in the description."
           exit 1
 
+      # ── Rule 5: AI disclosure ───────────────────────────────────────────
+      #
+      # Reads the PR description rather than the diff, because there is nothing
+      # in a diff that says who wrote it. Self-reported by nature: this checks
+      # that the question was ANSWERED, not that the answer is true.
+      #
+      # No escape-hatch label, unlike the test and changelog rules. Those have
+      # genuine exceptions - a CI-only change really cannot be tested. "Did a
+      # machine write this" always has an answer.
+      - name: AI assistance must be disclosed
+        if: github.event.pull_request.user.type != 'Bot'
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Strip HTML comments first. The template's guidance text contains the
+          # literal strings this greps for, so an untouched template would
+          # otherwise look like a filled-in one.
+          body=$(printf '%s' "$BODY" | perl -0777 -pe 's/<!--.*?-->//gs')
+
+          no_ai=$(printf '%s' "$body"  | grep -ciE '^[[:space:]]*-[[:space:]]*\[[xX]\][[:space:]]*No AI was used' || true)
+          yes_ai=$(printf '%s' "$body" | grep -ciE '^[[:space:]]*-[[:space:]]*\[[xX]\][[:space:]]*AI was used' || true)
+
+          if [ "$no_ai" -eq 0 ] && [ "$yes_ai" -eq 0 ]; then
+            echo "::error::The AI assistance section was not filled in."
+            echo ""
+            echo "Tick exactly one box in the 'AI assistance' section:"
+            echo ""
+            echo "  - [x] No AI was used on this change"
+            echo "  - [ ] AI was used on this change"
+            echo ""
+            echo "This is not a rule against using AI. The reviewer needs to know"
+            echo "which tool, because different assistants fail differently and"
+            echo "knowing the tool says what to check first."
+            echo ""
+            echo "See CONTRIBUTING.md - rule 5."
+            exit 1
+          fi
+
+          if [ "$no_ai" -gt 0 ] && [ "$yes_ai" -gt 0 ]; then
+            echo "::error::Both AI assistance boxes are ticked. Tick exactly one."
+            echo ""
+            echo "If AI wrote part of it but not all, that is 'AI was used'."
+            exit 1
+          fi
+
+          if [ "$yes_ai" -gt 0 ]; then
+            # A named tool is the entire point of the disclosure - "AI was used"
+            # on its own tells the reviewer nothing they can act on.
+            tool=$(printf '%s' "$body" | grep -iE '^[[:space:]]*\*\*Tool and model:\*\*' | head -1 \
+                   | sed -E 's/^[[:space:]]*\*\*[Tt]ool and model:\*\*[[:space:]]*//' \
+                   | sed -E 's/[[:space:]]+$//')
+            # Whitespace removed only to TEST for emptiness - the name is echoed
+            # as written, so the check log reads "Claude Opus 5" and not
+            # "ClaudeOpus5".
+            if [ -z "$(printf '%s' "$tool" | tr -d '[:space:]')" ]; then
+              echo "::error::AI was declared, but no tool or model was named."
+              echo ""
+              echo "Fill in the line, for example:"
+              echo ""
+              echo "  **Tool and model:** Claude Opus 5 via Claude Code"
+              echo "  **Tool and model:** GitHub Copilot"
+              echo ""
+              echo "Which one it was is the part the reviewer acts on: it says"
+              echo "which failure modes to look for first. See CONTRIBUTING.md"
+              echo "- rule 5."
+              exit 1
+            fi
+            echo "AI assistance declared: $tool"
+            exit 0
+          fi
+
+          echo "Declared as written without AI."
+
       # ── Changelog ───────────────────────────────────────────────────────
       - name: Changelog entry
         env:

@@ -60,3 +60,19 @@ removal.
 If you could not run the tests, could not reproduce the bug, or are unsure a
 change is correct, say so plainly in your summary. A confident wrong report
 costs more than an uncertain accurate one.
+
+## Attribution
+
+Every PR must declare whether AI wrote any of it, and name the tool and model —
+`.github/workflows/pr-policy.yml` rejects one that leaves the section blank. See
+CONTRIBUTING.md rule 5 for why.
+
+So when you finish a change, state your name and model in your summary, along
+with which files you wrote and which parts the human still needs to verify. The
+person you are working with has to fill that section in and cannot do it
+accurately from memory of a long session.
+
+Be precise about the split. "I wrote the extractor and its tests; the host
+regexes are untested against a live thread" is the useful form. Claiming less
+than you wrote is the failure mode to avoid here — the disclosure exists so a
+reviewer knows which parts to read hardest, and it only works if it is complete.

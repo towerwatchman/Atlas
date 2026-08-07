@@ -9,7 +9,7 @@ point you back to the relevant section.
 
 ---
 
-## The four rules
+## The five rules
 
 ### 1. Branch from `nightly`. Never from `main`.
 
@@ -78,6 +78,54 @@ ipcMain.handle('get-games', ...)
 
 That is worse than no comment, because it looks like the work was done.
 
+### 5. Say whether AI wrote any of it, and which one.
+
+Enforced by `.github/workflows/pr-policy.yml`, which reads the **AI assistance**
+section of the PR description.
+
+This is not a rule against using AI. Plenty of Atlas was written with it. It is
+a rule about telling the reviewer *which* one, because the answer changes what
+the review needs to look for.
+
+Different assistants fail differently, and the failures are consistent enough to
+look for on purpose:
+
+- Some invent APIs that read perfectly and do not exist — a plugin method never
+  defined, an `electronAPI` name never exposed in `preload.js`.
+- Some quietly rewrite surrounding code to their own house style, so a
+  three-line fix arrives as a two-hundred-line diff and the actual change is
+  buried in reformatting.
+- Some write tests that assert what the code does rather than what it should do.
+  Those pass, prove nothing, and fail rule 3 while looking like they satisfy it.
+- Some normalise line endings, and this repository is CRLF on disk. A whole-file
+  ending flip makes every line look changed and hides the real diff.
+- Some carry conventions in from other projects — a state library Atlas does not
+  use, `localStorage` in a renderer that has no such thing.
+
+A reviewer who knows the tool can check its specific habits first. A reviewer
+who doesn't has to read everything with equal suspicion, which in practice means
+reading nothing carefully.
+
+So: name the tool and model, say which files it touched, and say what you
+verified yourself. "Claude Opus 5 via Claude Code — wrote the whole extractor
+and its tests; I checked the regexes against three real threads by hand" is a
+useful disclosure. "Some AI" is not.
+
+Two things worth being clear about:
+
+**Autocomplete counts once it writes logic.** Accepting a Copilot suggestion for
+a whole function is AI-written code. Tab-completing a variable name you had
+already decided on is not. If you are unsure, disclose — nobody has ever been
+criticised here for over-disclosing.
+
+**You own the code either way.** Disclosure is not a disclaimer, and "the AI
+wrote it" is not a defence for a change you cannot explain. If you cannot say
+why a line is there, do not open the PR — that is the same standard rule 4 asks
+of every other line in the codebase.
+
+This is self-reported, and CI can only check that you answered, not that you
+answered truthfully. It works on the same basis as the rest of this document.
+
 ---
 
 ## Before you push
@@ -143,6 +191,8 @@ freezes the result.
 - Update `CHANGELOG.md`. Enforced by CI.
 - Fill in the PR template honestly. The checkboxes are for the reviewer's
   benefit, not yours.
+- Complete the **AI assistance** section. Enforced by CI. There is deliberately
+  no escape-hatch label for it: "did a machine write this" always has an answer.
 - PRs are squash-merged, so the PR title becomes the commit message.
 
 ### Escape hatches
