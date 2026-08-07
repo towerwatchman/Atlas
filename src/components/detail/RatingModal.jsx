@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   PERSONAL_RATING_CATEGORIES,
   RATING_MAX,
@@ -23,15 +23,26 @@ export default function RatingModal({
   onCancel,
 }) {
   const [draft, setDraft] = useState({})
+  const prevOpenRef = useRef(false)
+  const prevTitleRef = useRef(title)
 
+  // Initialise the draft ONLY when the modal transitions from closed to open or
+  // switches to a different title. Listening to prop changes directly while open
+  // caused background metadata/library refreshes (which pass a new `ratings` prop
+  // object reference) to overwrite the user's uncommitted slider adjustments.
   useEffect(() => {
-    if (!open) return
-    setDraft(
-      Object.fromEntries(
-        PERSONAL_RATING_CATEGORIES.map(({ key }) => [key, Number(ratings?.[key]) || 0]),
-      ),
-    )
-  }, [open, ratings])
+    const justOpened = open && !prevOpenRef.current
+    const titleChanged = open && prevTitleRef.current !== title
+    if (justOpened || titleChanged) {
+      setDraft(
+        Object.fromEntries(
+          PERSONAL_RATING_CATEGORIES.map(({ key }) => [key, Number(ratings?.[key]) || 0]),
+        ),
+      )
+    }
+    prevOpenRef.current = Boolean(open)
+    prevTitleRef.current = title
+  }, [open, title, ratings])
 
   if (!open) return null
 
