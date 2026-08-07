@@ -11,6 +11,11 @@ const ExtensionSettings = () => {
     tagHighlights: {},
   })
   const [extensionPath, setExtensionPath] = useState('')
+  // Why the folder is not there, when it is not. The path alone was the only
+  // thing shown, so an unwritable install directory and a build with no
+  // extension in it looked identical -- a path that reads fine, pointing at
+  // nothing, with no hint which of the two it was.
+  const [extensionError, setExtensionError] = useState('')
   const [copied, setCopied] = useState(false)
   const [showSteps, setShowSteps] = useState(false)
   const [token, setToken] = useState('')
@@ -41,6 +46,7 @@ const ExtensionSettings = () => {
         if (res?.extensionPath) {
           setExtensionPath(res.extensionPath)
         }
+        setExtensionError(res?.ready === false ? (res.error || '') : '')
       } catch (err) {
         console.error('Failed to get extension path:', err)
       }
@@ -66,9 +72,14 @@ const ExtensionSettings = () => {
   const handleOpenFolder = async () => {
     if (window.electronAPI?.openExtensionFolder) {
       try {
-        await window.electronAPI.openExtensionFolder()
+        const res = await window.electronAPI.openExtensionFolder()
+        // A refusal is shown rather than logged. The button did nothing
+        // visible when the folder was missing, which reads as a broken
+        // button rather than as a missing folder.
+        if (res && res.success === false) setExtensionError(res.error || '')
       } catch (err) {
         console.error('Failed to open extension folder:', err)
+        setExtensionError(err?.message || String(err))
       }
     }
   }
@@ -176,6 +187,18 @@ const ExtensionSettings = () => {
             Path to the unpacked browser extension files. This persistent location automatically stays up to date across Atlas updates.
           </p>
         </div>
+
+        {extensionError && (
+          <div className="rounded border border-danger/40 bg-danger/5 p-3 text-xs text-text mt-1">
+            <p className="font-medium text-danger">The extension files are not on disk</p>
+            <p className="mt-1 text-muted font-mono break-all">{extensionError}</p>
+            <p className="mt-1 text-muted">
+              Chrome cannot load the extension until this is fixed. Reinstalling
+              Atlas usually resolves it; if it does not, the message above names
+              both folders it tried.
+            </p>
+          </div>
+        )}
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
           <input

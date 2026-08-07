@@ -75,10 +75,41 @@ function copyDirectoryRecursive(sourceDir, targetDir) {
 }
 
 function ensureExtensionFiles(ctx) {
-  const rootPath =
-    ctx?.appDataRoot ||
-    (ctx?.dataDir ? path.dirname(ctx.dataDir) : app.getPath('userData'))
-  const targetDir = path.join(rootPath, 'extension')
+  // ── Why the target is dataDir and not the install root ────────────────────
+  //
+  // This used to be `path.join(appDataRoot, 'extension')`, and on Windows
+  // appDataRoot IS the install directory — dataLocation.js resolveDataRoot
+  // returns installDir on win32. So the target was
+  // `C:\Program Files\Atlas\extension`, and the copy failed with EPERM every
+  // time, because:
+  //
+  //   * build/installer.nsh grants the Users group modify rights on
+  //     `$INSTDIR\data` and `$INSTDIR\launchers` and DELIBERATELY not on
+  //     $INSTDIR itself — that folder holds Atlas.exe, and a user-writable
+  //     directory of executables that something elevated later runs is a
+  //     privilege-escalation route. The comment there says so explicitly.
+  //   * Atlas runs unelevated after install, on purpose: it launches game
+  //     executables and a child process inherits its parent's elevation.
+  //
+  // So the old target was a folder the app is never permitted to write to, by a
+  // security decision that is correct and is not going to change. `data\` is
+  // where every other piece of runtime state already lives (config.ini, images,
+  // logs, the database) for exactly this reason.
+  //
+  // It also survives updates. installer.nsh's DeleteLoop wipes every subfolder
+  // of $INSTDIR except data and launchers, so even a writable
+  // `$INSTDIR\extension` would have been deleted on every upgrade — and Chrome
+  // would have lost the unpacked extension it was pointed at.
+  //
+  // Older per-user installs (the perMachine:false builds) landed in
+  // %LOCALAPPDATA%, which IS writable, so this worked there. That is why it
+  // looked like a regression introduced by the per-machine switch rather than a
+  // wrong path all along. Any stale copy left at the old location is removed by
+  // the next installer run.
+  const dataDir =
+    ctx?.dataDir ||
+    path.join(ctx?.appDataRoot || app.getPath('userData'), 'data')
+  const targetDir = path.join(dataDir, 'extension')
 
   const appPath = app?.getAppPath ? app.getAppPath() : process.cwd()
   const resources = process.resourcesPath || ''
@@ -93,42 +124,73 @@ function ensureExtensionFiles(ctx) {
   ]
 
   const sourceDir = candidates.find((p) => p && fs.existsSync(p))
-  if (sourceDir && path.resolve(sourceDir) !== path.resolve(targetDir)) {
-    try {
-      const targetManifest = path.join(targetDir, 'manifest.json')
-      const sourceManifest = path.join(sourceDir, 'manifest.json')
-      let shouldCopy = false
-
-      if (!fs.existsSync(targetDir) || !fs.existsSync(targetManifest)) {
-        shouldCopy = true
-      } else if (fs.existsSync(sourceManifest)) {
-        const sourceStat = fs.statSync(sourceManifest)
-        const targetStat = fs.statSync(targetManifest)
-        if (sourceStat.mtimeMs > targetStat.mtimeMs) {
-          shouldCopy = true
-        }
-      }
-
-      if (shouldCopy) {
-        copyDirectoryRecursive(sourceDir, targetDir)
-      }
-    } catch (err) {
-      // Still not fatal — the settings page reports `exists: false` and the user
-      // can be told rather than left with a path that is not there. The source
-      // is named because "which of the four candidates did it pick" is the first
-      // question worth asking when this fails.
-      console.error(`Failed to sync extension files from ${sourceDir}:`, err)
-    }
-  } else if (!sourceDir) {
-    console.error('No extension source directory found. Looked in:', candidates.join(', '))
+  if (!sourceDir) {
+    const error = `No extension source directory found. Looked in: ${candidates.join(', ')}`
+    console.error(error)
+    return { extensionPath: targetDir, ok: false, error, sourceDir: '' }
+  }
+  if (path.resolve(sourceDir) === path.resolve(targetDir)) {
+    return { extensionPath: targetDir, ok: true, error: '', sourceDir }
   }
 
-  return targetDir
+  try {
+    const targetManifest = path.join(targetDir, 'manifest.json')
+    const sourceManifest = path.join(sourceDir, 'manifest.json')
+    let shouldCopy = false
+
+    if (!fs.existsSync(targetDir) || !fs.existsSync(targetManifest)) {
+      shouldCopy = true
+    } else if (fs.existsSync(sourceManifest)) {
+      const sourceStat = fs.statSync(sourceManifest)
+      const targetStat = fs.statSync(targetManifest)
+      if (sourceStat.mtimeMs > targetStat.mtimeMs) {
+        shouldCopy = true
+      }
+    }
+
+    if (shouldCopy) {
+      copyDirectoryRecursive(sourceDir, targetDir)
+    }
+  } catch (err) {
+    // ── Reported, not swallowed ─────────────────────────────────────────────
+    //
+    // This used to log and return the target path regardless, so every caller
+    // got a path that looked fine and a folder that was not there. The settings
+    // page then said "Extension directory does not exist", which is true and
+    // useless: it describes the symptom and names neither the source it tried
+    // nor the reason it failed. An EPERM on Program Files and a missing build
+    // artefact produced identical output.
+    const error =
+      `Could not copy the extension from ${sourceDir} to ${targetDir}: `
+      + `${err.message || String(err)}`
+    console.error(error)
+    return { extensionPath: targetDir, ok: false, error, sourceDir }
+  }
+
+  return {
+    extensionPath: targetDir,
+    ok: fs.existsSync(path.join(targetDir, 'manifest.json')),
+    error: '',
+    sourceDir,
+  }
 }
 
 function registerExtensionHandlers(ctx) {
   const getConfig = () => ctx.getConfig()
   const saveSettings = (newConfig) => ctx.saveSettings(newConfig)
+
+  // Done once at startup, not only when the settings page asks. Every call site
+  // below is behind a screen the user has to go looking for, so until one of
+  // them ran, the folder Chrome needs simply did not exist — and someone who
+  // installed Atlas and went straight to `Load unpacked` found nothing there,
+  // with nothing having gone wrong from Atlas's point of view.
+  //
+  // Cheap enough to be unconditional: seven small files, and the mtime check
+  // means the copy itself is skipped on every launch after the first.
+  const initial = ensureExtensionFiles(ctx)
+  if (!initial.ok) {
+    console.error('Extension files are not ready:', initial.error)
+  }
 
   ipcMain.handle('get-extension-status', async () => {
     const config = getConfig()
@@ -136,7 +198,7 @@ function registerExtensionHandlers(ctx) {
     const port = extConfig.rpcPort || 57096
     const rpcEnabled = extConfig.rpcEnabled ?? true
 
-    const extensionPath = ensureExtensionFiles(ctx)
+    const extension = ensureExtensionFiles(ctx)
 
     const isRunning = await isExtensionServerRunning()
     if (rpcEnabled && !isRunning) {
@@ -156,7 +218,13 @@ function registerExtensionHandlers(ctx) {
       iconGlow: extConfig.iconGlow ?? true,
       highlightTags: extConfig.highlightTags ?? false,
       tagHighlights: extConfig.tagHighlights || {},
-      extensionPath,
+      extensionPath: extension.extensionPath,
+      // The settings page can now say WHY the folder is missing instead of
+      // only that it is. An unwritable install directory and a build with no
+      // extension in it are different problems with different remedies, and
+      // they used to produce the same sentence.
+      extensionReady: extension.ok,
+      extensionError: extension.error,
     }
   })
 
@@ -164,20 +232,32 @@ function registerExtensionHandlers(ctx) {
   // why ensureExtensionFiles copies it out to the user data directory first.
   // Settings shows this path so the user can paste it into 'Load unpacked'.
   ipcMain.handle('get-extension-path', async () => {
-    const extensionPath = ensureExtensionFiles(ctx)
-    return { extensionPath, exists: fs.existsSync(extensionPath) }
+    const extension = ensureExtensionFiles(ctx)
+    return {
+      extensionPath: extension.extensionPath,
+      exists: fs.existsSync(extension.extensionPath),
+      ready: extension.ok,
+      error: extension.error,
+      sourceDir: extension.sourceDir,
+    }
   })
 
   // Same copy-out as get-extension-path, then reveals the folder in the OS file
   // manager -- the path is long and buried in appdata, so asking the user to
   // navigate there by hand is a reliable way to lose them.
   ipcMain.handle('open-extension-folder', async () => {
-    const extensionPath = ensureExtensionFiles(ctx)
-    if (fs.existsSync(extensionPath)) {
-      await shell.openPath(extensionPath)
-      return { success: true, extensionPath }
+    const extension = ensureExtensionFiles(ctx)
+    if (fs.existsSync(extension.extensionPath)) {
+      await shell.openPath(extension.extensionPath)
+      return { success: true, extensionPath: extension.extensionPath }
     }
-    return { success: false, error: 'Extension directory does not exist' }
+    // Carries the real reason. 'Extension directory does not exist' was true
+    // and unactionable -- it named neither the source tried nor the failure.
+    return {
+      success: false,
+      extensionPath: extension.extensionPath,
+      error: extension.error || `Extension directory does not exist: ${extension.extensionPath}`,
+    }
   })
 
   // Settings displays this so the user can paste it into the extension popup.

@@ -193,9 +193,51 @@ config, cross-checks `manifest.json` against the files on disk, and MEASURES the
 through the public `fs`, the check fails and someone gets to delete a workaround
 instead of inheriting it forever.
 
-**Still not covered:** nothing inspects the built artifact. The check asserts the
-config that produces it. Catching the real thing means unpacking a built
-`app.asar`, which needs a full `electron-builder` run — see section 8.
+3. **The copy TARGET was not writable.** `ensureExtensionFiles` used
+   `path.join(appDataRoot, 'extension')`, and on Windows `appDataRoot` IS the
+   install directory — `dataLocation.js` `resolveDataRoot` returns `installDir`
+   on win32. So the target was `C:\Program Files\Atlas\extension` and every copy
+   failed with EPERM.
+
+   This one is not a permissions oversight. `build/installer.nsh` grants Users
+   modify on `$INSTDIR\data` and `$INSTDIR\launchers` and deliberately NOT on
+   `$INSTDIR`, because that folder holds Atlas.exe and a user-writable directory
+   of executables that something elevated later runs is a privilege-escalation
+   route. Atlas runs unelevated for the same reason — it launches games, and a
+   child inherits its parent's elevation. **Do not "fix" this by widening the
+   grant.**
+
+   Target is `dataDir` now. That is also the only choice that survives an
+   upgrade: `DeleteLoop` in `installer.nsh` wipes every `$INSTDIR` subfolder
+   except `data` and `launchers`.
+
+   Older `perMachine: false` builds installed into `%LOCALAPPDATA%`, which is
+   writable, so the wrong path happened to work there. That is why this read as a
+   regression from the per-machine switch rather than as a path that was always
+   wrong.
+
+The folder was also created LAZILY, only by the three IPC handlers — all behind a
+settings screen. Someone who installed and went straight to Chrome's "Load
+unpacked" found nothing. `registerExtensionHandlers` syncs once at startup now;
+the mtime check keeps that free after the first launch.
+
+`ensureExtensionFiles` returns `{ extensionPath, ok, error, sourceDir }` rather
+than a bare path, and `ExtensionSettings` shows the reason. It used to log and
+return the target regardless, so "Extension directory does not exist" was the
+only thing the user ever saw — identical output for an unwritable install
+directory and for a build with no extension in it.
+
+**The pattern worth carrying forward:** three rounds on this bug, each fix
+exposing the next, and all three worked in dev. In dev `app.getAppPath()` is the
+project root, `appDataRoot` is `electron/`, and both are writable. "It works
+here" has now been wrong about this file three times.
+
+**Still not covered:** nothing inspects the built artifact.
+`check-extension-packaging.js` (10) asserts the config that produces it,
+cross-checks the manifest against disk, and measures the `cpSync` constraint;
+`tests/extension-files.test.js` (5) exercises the copy itself. Catching the
+packaged output means unpacking a built `app.asar`, which needs a full
+`electron-builder` run — see section 8.
 
 ---
 
@@ -330,11 +372,14 @@ Carried forward, plus the section 1 work.
   in Settings in the other window, then Install. It should fail and raise the
   prompt with the "the install stopped" wording, not the "before we start"
   wording.
-- **Does the extension folder actually exist after installing?** This is the one
-  that needs a real packaged build, not a dev run — the bug was invisible in dev
-  by construction. Install from the NSIS installer, open Settings, and confirm
-  the extension path exists and "Open extension folder" opens it. If it fails,
-  the console names which of the four candidates was picked.
+- **Does the extension folder actually exist after installing?** Needs a real
+  packaged build, not a dev run — all three faults here were invisible in dev by
+  construction. Install from the NSIS installer and check
+  `C:\Program Files\Atlas\data\extension` on disk BEFORE opening Settings; the
+  sync runs at startup now, so it should already be there. Then open Settings,
+  confirm the path shown matches, and confirm "Open extension folder" opens it.
+  On failure the page names both folders it tried and the reason, rather than
+  only saying the directory does not exist.
 - **INSTALL on a game with both Steam and F95.** Confirm it opens the picker
   rather than jumping to Steam, and that the button carries no Steam glyph. Then
   remove Steam in Settings > Metadata and confirm the same game's INSTALL goes

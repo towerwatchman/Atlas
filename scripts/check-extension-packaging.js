@@ -178,4 +178,70 @@ check("real directories are searched before the in-asar path", () => {
   );
 });
 
+check("the copy target is inside the data folder, not the install root", () => {
+  // The whole reason this bug survived the last fix. asarUnpack put the files
+  // where they belonged and the candidate order found them, and the copy then
+  // failed at the DESTINATION: on win32, dataLocation.js resolveDataRoot
+  // returns installDir, so `path.join(appDataRoot, 'extension')` resolved to
+  // C:\Program Files\Atlas\extension.
+  //
+  // build/installer.nsh grants Users modify on $INSTDIR\data and
+  // $INSTDIR\launchers and deliberately NOT on $INSTDIR — that folder holds
+  // Atlas.exe, and Atlas runs unelevated because it launches game executables
+  // that would otherwise inherit administrator. So the old target was a folder
+  // the app is never permitted to write to, by a decision that is correct.
+  //
+  // Asserted against the nsh rather than hardcoded, so if the grant ever moves,
+  // this fails rather than silently guarding the wrong directory.
+  const nsh = fs.readFileSync(path.join(ROOT, "build", "installer.nsh"), "utf8");
+  assert.ok(
+    /icacls[^\n]*INSTDIR\\+data/.test(nsh),
+    "installer.nsh no longer grants write access to $INSTDIR\\data — the "
+    + "extension target below assumes it does",
+  );
+  assert.ok(
+    !/icacls[^\n]*"\$INSTDIR"\s/.test(nsh),
+    "installer.nsh now grants write access to $INSTDIR itself. That is a "
+    + "privilege-escalation route (user-writable folder of executables), not a "
+    + "licence to copy the extension there.",
+  );
+
+  const target = codeOnly.match(/const targetDir = path\.join\(([^)]*)\)/);
+  assert.ok(target, "could not find the extension targetDir");
+  assert.ok(
+    /dataDir/.test(target[1]),
+    `extension targetDir is built from ${target[1].trim()}. It must hang off `
+    + "dataDir: on Windows appDataRoot IS the install directory, which is not "
+    + "user-writable, and installer.nsh's DeleteLoop also wipes every $INSTDIR "
+    + "subfolder except data and launchers on upgrade.",
+  );
+});
+
+check("the extension folder survives an upgrade", () => {
+  // DeleteLoop removes every subfolder of $INSTDIR except the ones named here.
+  // A target outside them is deleted by the next installer run, taking with it
+  // the unpacked extension Chrome is pointed at.
+  const nsh = fs.readFileSync(path.join(ROOT, "build", "installer.nsh"), "utf8");
+  const preserved = [...nsh.matchAll(/StrCmp \$1 "([^"]+)" \$\{PREFIX\}next/g)].map((m) => m[1]);
+  assert.ok(
+    preserved.includes("data"),
+    `installer.nsh preserves ${preserved.join(", ")} on upgrade but not "data"`,
+  );
+});
+
+check("the copy-out reports failure instead of swallowing it", () => {
+  // It used to log and return the target path regardless, so the settings page
+  // got a path that looked fine and a folder that was not there — and said
+  // "Extension directory does not exist", which describes the symptom and names
+  // neither the source tried nor the reason.
+  assert.ok(
+    /return\s*\{\s*extensionPath/.test(codeOnly),
+    "ensureExtensionFiles should return an object carrying ok/error, not a bare path",
+  );
+  assert.ok(
+    /ok:\s*false/.test(codeOnly) && /error,/.test(codeOnly),
+    "ensureExtensionFiles should report both the failure and its reason",
+  );
+});
+
 if (!process.exitCode) console.log(`check-extension-packaging: ${passed} checks passed`);
