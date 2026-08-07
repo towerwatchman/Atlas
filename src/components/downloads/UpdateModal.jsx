@@ -148,7 +148,32 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
       <div className="w-full max-w-xl max-h-[85vh] sm:max-h-[80vh] flex flex-col rounded-lg border border-border bg-primary shadow-2xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-base text-text truncate">Update {title}</h2>
+            {/* The icon sits on the title's own line rather than in the corner
+                beside Close: two 28px targets 8px apart is a misfire waiting to
+                happen on a phone, and the one that closes the modal loses the
+                fetched links. min-w-0 + truncate on the h2 keeps a long title
+                from pushing the icon off the row. */}
+            <div className="flex items-center gap-2 min-w-0">
+              <h2 className="text-base text-text truncate">Update {title}</h2>
+              {/* Only when there is somewhere to go. A button that silently does
+                  nothing is worse than no button - the same reasoning as the
+                  "Open thread" fallback in the empty state below. */}
+              {threadUrl && (
+                <button
+                  type="button"
+                  onClick={() => window.electronAPI.openExternalUrl?.(threadUrl)}
+                  title="Open this game's thread"
+                  aria-label="Open this game's thread"
+                  // h-8 w-8 on touch, h-6 w-6 from sm up: a 24px target is fine
+                  // for a mouse and below the 44px guideline for a finger, so the
+                  // padding is spent only where it is needed. -my-1 keeps the
+                  // taller touch target from growing the header row.
+                  className="shrink-0 -my-1 h-8 w-8 sm:h-6 sm:w-6 inline-flex items-center justify-center rounded text-muted hover:text-text hover:bg-tertiary focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                >
+                  <i className="fas fa-link text-xs" aria-hidden="true"></i>
+                </button>
+              )}
+            </div>
             {game?.latestVersion && (
               <p className="text-xs text-muted mt-0.5">
                 Latest version {game.latestVersion}
