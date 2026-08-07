@@ -194,6 +194,40 @@ checks += 8;
   });
   assert.strictEqual(gated.singles.length, 2, "workupload filtered out");
   assert.ok(gated.rejected.some((entry) => /no plugin for workupload/.test(entry.verdict.reason)));
+  // ...but it is also handed back separately, so the caller can SHOW the build
+  // and say why it cannot fetch it. Buried in `rejected` it never reached the
+  // modal, and a build whose every mirror lacked a plugin vanished entirely.
+  assert.strictEqual(gated.unsupportedHost.length, 1, "the dead mirror is reported");
+  assert.strictEqual(gated.unsupportedHost[0].link.host, "workupload.com");
+  checks += 4;
+}
+
+{
+  // Only host rejections land there. A patch or a Mac build was never a
+  // candidate, and listing it as "no plugin" would be a lie about what is
+  // missing - the same reasoning that keeps kind rejections out of
+  // hiddenPlatform.
+  const result = selectDownloadableLinks([
+    { host: "vikingfile.com", group: "Episode 12", platform: "Win", type: "game" },
+    { host: "mega.nz", group: "Episode 12", platform: "Mac", type: "game" },
+    { host: "mega.nz", group: "Update Only", platform: "Win", type: "game" },
+  ], { supportedHosts: new Set(["mega", "pixeldrain"]), platform: "win32" });
+  assert.strictEqual(result.unsupportedHost.length, 1, "only the host rejection");
+  assert.strictEqual(result.unsupportedHost[0].link.host, "vikingfile.com");
+  assert.strictEqual(result.singles.length, 0, "nothing usable on this machine");
+  checks += 3;
+}
+
+{
+  // Document position survives the split into buckets. The poster lists the
+  // current build first; concatenating singles then unsupported would render it
+  // under the older builds that happen to have a working mirror.
+  const result = selectDownloadableLinks([
+    { host: "vikingfile.com", group: "Episode 12", platform: "Win", type: "game" },
+    { host: "mega.nz", group: "Season 1", platform: "Win", type: "game" },
+  ], { supportedHosts: new Set(["mega", "pixeldrain"]), platform: "win32" });
+  assert.strictEqual(result.unsupportedHost[0].index, 0, "the dead build was first");
+  assert.strictEqual(result.singles[0].index, 1, "and the working one second");
   checks += 2;
 }
 
@@ -205,16 +239,19 @@ checks += 8;
     { host: "mega.nz", group: "Win Part 3", type: "game" },
   ];
   const result = selectDownloadableLinks(links, { platform: 'win32' });
-  // Split archives are never offered, complete or not.
-  assert.strictEqual(result.singles.length, 0, "parts must not be offered");
+  // Never as three separate downloads: a lone part fetches fine and then fails
+  // to extract.
+  assert.strictEqual(result.singles.length, 0, "parts must not be offered singly");
   assert.strictEqual(result.multiPart.length, 1);
   assert.strictEqual(result.multiPart[0].parts.length, 3);
   assert.strictEqual(result.multiPart[0].complete, true);
-  // The modal needs to know so it can explain the omission.
-  assert.strictEqual(result.hiddenMultiPart.sets, 1);
-  assert.strictEqual(result.hiddenMultiPart.links, 3);
-  assert.deepStrictEqual(result.hiddenMultiPart.hosts, ["mega.nz"]);
-  checks += 7;
+  // A COMPLETE set is now offered as one option covering all three files.
+  assert.strictEqual(result.offerableSets.length, 1, "complete set is offerable");
+  assert.strictEqual(result.offerableSets[0].parts.length, 3);
+  // ...so there is nothing left to apologise for.
+  assert.strictEqual(result.hiddenMultiPart.sets, 0);
+  assert.strictEqual(result.hiddenMultiPart.links, 0);
+  checks += 8;
 }
 
 {
@@ -227,7 +264,10 @@ checks += 8;
   const result = selectDownloadableLinks(links, { platform: 'win32' });
   assert.strictEqual(result.multiPart.length, 1);
   assert.strictEqual(result.multiPart[0].complete, false, "gap must be detected");
-  checks += 2;
+  // An incomplete set is still withheld, and still explained.
+  assert.strictEqual(result.offerableSets.length, 0, "a gapped set is not offered");
+  assert.strictEqual(result.hiddenMultiPart.sets, 1);
+  checks += 4;
 }
 
 {

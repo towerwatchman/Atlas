@@ -34,8 +34,16 @@ export const FULL_ARCHIVE = 'Full Archive'
 /**
  * Group links into the builds the poster offered.
  *
+ * A link marked `unsupported` has no host plugin behind it. Those are kept only
+ * when a build has NOTHING else: with two plugins live, a build posted to nine
+ * mirrors that happened to include neither mega nor pixeldrain used to vanish
+ * from the modal completely, so someone opening it to update saw only the older
+ * builds that did have one. A build the thread offers has to appear even when
+ * Atlas cannot fetch it - it just has to say so.
+ *
  * @param {Array} links from update-links-get, already filtered to supported hosts
- * @returns {Array<{title:string, isUnlabeled:boolean, platforms:string[], links:Array}>}
+ * @returns {Array<{title:string, isUnlabeled:boolean, unsupported:boolean,
+ *                  platforms:string[], hosts:string[], links:Array}>}
  */
 export function buildDownloadOptions(links = []) {
   const list = Array.isArray(links) ? links : []
@@ -54,11 +62,13 @@ export function buildDownloadOptions(links = []) {
         isUnlabeled: !heading,
         platforms: [],
         links: [],
+        unsupportedLinks: [],
       })
       order.push(title)
     }
     const option = byTitle.get(title)
-    option.links.push(link)
+    if (link.unsupported) option.unsupportedLinks.push(link)
+    else option.links.push(link)
     // Distinct platform strings, raw as the poster wrote them. Shown as a badge
     // rather than folded into the title, because the same build is routinely
     // posted for several platforms and each is a separate mirror, not a
@@ -69,11 +79,29 @@ export function buildDownloadOptions(links = []) {
     }
   }
 
-  // Built from links, so an option can never be empty - an option whose every
-  // mirror was on an unsupported host simply never appears, which is the
-  // "skipped entirely" rule. Asserted in the tests so it stays true if this ever
-  // starts from headings instead.
-  const options = order.map((title) => byTitle.get(title))
+  // Built from links, so an option can never be empty. An option with even one
+  // working mirror drops its unsupported ones entirely - offering a dead chip
+  // beside a live one is noise, and the user has no use for the distinction.
+  // Only when there is no working mirror at all does the build fall back to
+  // being SHOWN AND EXPLAINED rather than silently omitted.
+  const options = order
+    .map((title) => byTitle.get(title))
+    .map((option) => {
+      const unsupported = option.links.length === 0
+      return {
+        title: option.title,
+        isUnlabeled: option.isUnlabeled,
+        unsupported,
+        platforms: option.platforms,
+        // The hosts the poster actually used, for the "no plugin for these"
+        // message. Empty unless the build is unsupported, since nothing else
+        // needs it.
+        hosts: unsupported
+          ? Array.from(new Set(option.unsupportedLinks.map((link) => link.host).filter(Boolean)))
+          : [],
+        links: unsupported ? option.unsupportedLinks : option.links,
+      }
+    })
   // The unlabeled block leads regardless of where it appeared in the post: it is
   // what someone opening this is looking for, and a thread that lists "Season 1"
   // above its plain DOWNLOAD should not bury it.

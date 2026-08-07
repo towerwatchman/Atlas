@@ -252,11 +252,14 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
           {!loading && !error && links.length > 0 && (
             <>
               <p className="text-xs text-muted">
-                {options.length > 1
-                  ? 'This thread offers more than one build. Pick the build first, then a mirror.'
-                  : 'Choose a mirror.'}{' '}
-                F95zone will ask you to confirm in a browser window before the
-                download starts.
+                {/* Every build unsupported is a real outcome, not an error, and
+                    telling the user to "choose a mirror" when none is choosable
+                    reads as a broken screen rather than a plain fact. */}
+                {options.every((option) => option.unsupported)
+                  ? 'This thread\u2019s builds are all on hosts Atlas cannot download from yet, so there is nothing to queue here.'
+                  : options.length > 1
+                    ? 'This thread offers more than one build. Pick the build first, then a mirror. F95zone will ask you to confirm in a browser window before the download starts.'
+                    : 'Choose a mirror. F95zone will ask you to confirm in a browser window before the download starts.'}
               </p>
               {options.map((option) => (
                 <div key={option.title} className="space-y-1.5">
@@ -268,8 +271,13 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
                       more. It was written for the flat list, where nothing else
                       distinguished the sections; now the option is NAMED with the
                       poster's own heading, which says it better and says it for
-                      the newest build too - where the old badge was simply wrong. */}
-                  {options.length > 1 && (
+                      the newest build too - where the old badge was simply wrong.
+
+                      An unsupported build ALWAYS shows its name, even when it is
+                      the only option: the explanation underneath is about a
+                      specific build, and an unnamed one reads as a statement
+                      about the whole thread. */}
+                  {(options.length > 1 || option.unsupported) && (
                     <div className="flex items-baseline gap-2 pt-1">
                       <span className={`text-xs font-medium ${option.isUnlabeled ? 'text-accent' : 'text-text'}`}>
                         {option.title}
@@ -283,17 +291,46 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
                       )}
                       <span className="flex-1 h-px bg-border" />
                       <span className="text-[10px] text-muted shrink-0">
-                        {option.links.length}{' '}
-                        {option.links.length === 1 ? 'mirror' : 'mirrors'}
+                        {option.unsupported
+                          ? 'unavailable'
+                          : `${option.links.length} ${option.links.length === 1 ? 'mirror' : 'mirrors'}`}
                       </span>
                     </div>
                   )}
-                  {/* Mirror chips, not full-width rows. A row per link made a
+                  {/* A build the thread offers but Atlas has no plugin for. Shown
+                      rather than omitted - a missing build is one the user cannot
+                      even report, and hiding the NEWEST build while older ones
+                      remain is how someone updates to an older build by mistake.
+                      Not rendered as chips: they are not choices, and anything
+                      that looks like a button invites the click. */}
+                  {option.unsupported ? (
+                    <div className="rounded border border-border border-dashed bg-tertiary/30 px-2.5 py-2">
+                      <p className="text-[11px] text-muted">
+                        Posted only to{' '}
+                        <span className="text-text">
+                          {option.hosts.map(prettyHost).join(', ')}
+                        </span>
+                        {option.hosts.length === 1
+                          ? ', which Atlas has no download plugin for yet.'
+                          : ', none of which Atlas has a download plugin for yet.'}
+                      </p>
+                      {threadUrl && (
+                        <button
+                          type="button"
+                          onClick={() => window.electronAPI.openExternalUrl?.(threadUrl)}
+                          className="mt-1.5 text-[11px] text-accent hover:underline"
+                        >
+                          Open the thread to grab it yourself
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                  /* Mirror chips, not full-width rows. A row per link made a
                       four-mirror build four screens tall while carrying one word
                       of information each; these are sized to fit the longest host
                       name in the data ("Buzzheavier.com") and wrap. On a narrow
                       window they fall back to one per row on their own, because
-                      the basis is a min-width rather than a fraction. */}
+                      the basis is a min-width rather than a fraction. */
                   <div className="flex flex-wrap gap-1.5">
                     {option.links.map((link) => {
                       const busy = resolvingUrl === link.url
@@ -333,6 +370,7 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
                       )
                     })}
                   </div>
+                  )}
                 </div>
               ))}
             </>

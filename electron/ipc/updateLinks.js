@@ -126,8 +126,14 @@ async function getUpdateLinks(threadId, { force = false } = {}) {
   const payload = {
     ok: true,
     threadId: String(threadId),
+    // Re-interleaved into POST ORDER. The selection splits one ordered list into
+    // singles, sets and unsupported; concatenating those buckets would render
+    // every unsupported build after every working one, which puts Being a DIK's
+    // CURRENT build underneath three older ones. The poster listed it first for a
+    // reason.
     links: [
-      ...selection.singles.map(({ link, verdict }) => ({
+      ...selection.singles.map(({ link, verdict, index }) => ({
+        order: index,
         url: link.url,
         host: link.host,
         label: link.label,
@@ -163,9 +169,29 @@ async function getUpdateLinks(threadId, { force = false } = {}) {
           platforms: first.verdict.platforms,
           files,
           partCount: files.length,
+          order: set.index,
         };
       }),
-    ],
+      // Mirrors with no plugin behind them. Carried so the modal can SHOW the
+      // build and say why it cannot fetch it, rather than omitting a build the
+      // thread visibly offers. `unsupported` is what stops them being treated as
+      // choosable; buildDownloadOptions drops them from any build that also has
+      // a working mirror, so they only ever surface when they are all there is.
+      ...selection.unsupportedHost.map(({ link, verdict, index }) => ({
+        order: index,
+        url: link.url,
+        host: link.host,
+        label: link.label,
+        group: link.group,
+        platform: link.platform || '',
+        masked: link.masked,
+        compressed: verdict.compressed,
+        platforms: verdict.platforms,
+        files: [{ url: link.url, host: link.host, label: link.label, masked: link.masked }],
+        partCount: 1,
+        unsupported: true,
+      })),
+    ].sort((a, b) => a.order - b.order),
     // Only non-zero when split archives were actually found, so the modal can
     // stay silent for the games that have none.
     hiddenMultiPart: selection.hiddenMultiPart,

@@ -127,6 +127,59 @@ describe('buildDownloadOptions', () => {
     const options = buildDownloadOptions([link('h', 'Season 1'), link('h', 'season 1')])
     expect(options.map((o) => o.title)).toEqual(['Season 1', 'season 1'])
   })
+
+  // ── Builds with no host plugin ────────────────────────────────────────────
+  //
+  // These used to be dropped by selectDownloadableLinks and never arrive here,
+  // so the option was never created. With two plugins live that meant Being a
+  // DIK's CURRENT build - posted to nine mirrors, none of them mega or
+  // pixeldrain - was absent while three older builds remained, and someone
+  // opening the modal to update saw only older builds.
+
+  const dead = (host, group = '', platform = '') => ({
+    ...link(host, group, platform), unsupported: true,
+  })
+
+  it('shows a build whose every mirror lacks a plugin, rather than omitting it', () => {
+    const options = buildDownloadOptions([
+      dead('vikingfile.com', 'Episode 12'),
+      dead('akirabox.com', 'Episode 12'),
+    ])
+    expect(options).toHaveLength(1)
+    expect(options[0].unsupported).toBe(true)
+    expect(options[0].hosts).toEqual(['vikingfile.com', 'akirabox.com'])
+  })
+
+  it('hides the dead mirrors when the same build has a working one', () => {
+    // A dead chip beside a live one is noise: the user has no use for it.
+    const options = buildDownloadOptions([
+      link('pixeldrain.com', 'Episode 12'),
+      dead('vikingfile.com', 'Episode 12'),
+    ])
+    expect(options).toHaveLength(1)
+    expect(options[0].unsupported).toBe(false)
+    expect(options[0].links).toHaveLength(1)
+    expect(options[0].hosts).toEqual([])
+  })
+
+  it('keeps an unsupported build in post order rather than sorting it last', () => {
+    // The poster lists the current build FIRST. Rendering it below the older
+    // builds that happen to have a working mirror is the same hazard as hiding
+    // it: the user picks the one at the top.
+    const options = buildDownloadOptions([
+      dead('vikingfile.com', 'Episode 12'),
+      link('mega.nz', 'Season 1 - 2'),
+    ])
+    expect(options.map((o) => o.title)).toEqual(['Episode 12', 'Season 1 - 2'])
+  })
+
+  it('still floats the unlabeled block above an unsupported build', () => {
+    const options = buildDownloadOptions([
+      dead('vikingfile.com', 'Episode 12'),
+      link('mega.nz'),
+    ])
+    expect(options.map((o) => o.title)).toEqual([FULL_ARCHIVE, 'Episode 12'])
+  })
 })
 
 describe('hasMultipleOptions', () => {

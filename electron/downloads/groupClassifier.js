@@ -269,12 +269,18 @@ function selectDownloadableLinks(links, options = {}) {
   const accepted = [];
   const rejected = [];
 
+  // Position in the post. The poster lists the current build FIRST, so document
+  // order carries meaning that alphabetical or bucket order destroys - and the
+  // buckets below split one ordered list into three, which is exactly how the
+  // newest build ends up rendered underneath the older ones.
+  let position = 0;
   for (const link of Array.isArray(links) ? links : []) {
     const verdict = classifyGroup(link?.group, link, {
       platform,
       platformText: link?.platform,
     });
-    const entry = { link, verdict };
+    const entry = { link, verdict, index: position };
+    position += 1;
 
     if (!verdict.accepted) {
       rejected.push(entry);
@@ -309,9 +315,19 @@ function selectDownloadableLinks(links, options = {}) {
       singles.push(entry);
       continue;
     }
+    // The part marker is stripped from the heading before keying. When the
+    // parser supplied `link.part` the group is already clean and this is a
+    // no-op; when the part was found by the PART regex on a flat heading
+    // ("Win Part 1"), the marker is still IN the group and leaving it there
+    // gives every part its own key - three sets of one instead of one set of
+    // three. Both paths have to land on the same key.
     const key = [
       String(entry.link?.host || "").toLowerCase(),
-      String(entry.link?.group || "").trim().toLowerCase(),
+      String(entry.link?.group || "")
+        .replace(PART, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase(),
       String(entry.link?.platform || "").trim().toLowerCase(),
     ].join("|");
     if (!sets.has(key)) sets.set(key, []);
@@ -326,6 +342,9 @@ function selectDownloadableLinks(links, options = {}) {
       group: sorted[0].link?.group || "",
       platform: sorted[0].link?.platform || "",
       declaredTotal: sorted[0].verdict.part.total,
+      // Where the set sits in the post, so it can be re-interleaved with the
+      // singles it was separated from.
+      index: Math.min(...sorted.map((entry) => entry.index)),
       // A gap means the thread is missing a part; extraction would fail.
       complete: isContiguous(sorted.map((entry) => entry.verdict.part.index),
                              sorted[0].verdict.part.total),
@@ -375,12 +394,30 @@ function selectDownloadableLinks(links, options = {}) {
     ),
   };
 
+  // Links that were a genuine candidate - right kind, right platform - and lost
+  // ONLY because no plugin can fetch their host.
+  //
+  // These used to vanish into `rejected` and never reach the modal. With two
+  // plugins live, that meant a build posted to nine mirrors, none of them mega
+  // or pixeldrain, disappeared entirely: Being a DIK's current
+  // "Season 3 Interlude + Episode 12" was absent while three older builds
+  // remained, because those happened to have a mega mirror. Someone opening the
+  // modal to UPDATE was shown only older builds - the exact mistake the build
+  // grouping was introduced to prevent.
+  //
+  // Returned separately rather than mixed into `singles` so a caller cannot
+  // queue one by accident: there is nothing to queue them with.
+  const unsupportedHost = rejected.filter(
+    (entry) => /^no plugin for /.test(entry.verdict.reason),
+  );
+
   return {
     singles,
     // Complete sets, each meant to be offered as ONE option that fetches every
     // part. Callers that only understand one url per option must ignore this and
     // use `singles`, which is why it is a separate field rather than merged in.
     offerableSets,
+    unsupportedHost,
     multiPart,
     hiddenMultiPart,
     hiddenPlatform,
