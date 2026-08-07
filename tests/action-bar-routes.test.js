@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { resolveActionBarRoutes } from '../src/components/detail/page/gameDetailUtils.js'
+import { resolveInstallSources, resolveInstallAction } from '../src/components/detail/page/installSources.js'
+
+// Shorthand for the resolved source lists these routes consume.
+const SOURCES = {
+  steam: resolveInstallSources({ hasSteamInstall: true }),
+  mirrors: resolveInstallSources({ hasMirrors: true }),
+  both: resolveInstallSources({ hasMirrors: true, hasSteamInstall: true }),
+}
 
 // The regression: adding the mirror picker to the UPDATE button displaced the
 // update/import panel, which was the only way to add a version from an archive
@@ -45,16 +53,142 @@ describe('resolveActionBarRoutes', () => {
     expect(routes.showLocalImportAction).toBe(true)
   })
 
-  it('lets Steam take the install button when it owns the title', () => {
+  // ── The Steam takeover ─────────────────────────────────────────────────────
+  //
+  // This block used to assert the opposite: 'lets Steam take the install button
+  // when it owns the title'. That WAS the bug. A title with a Steam appid and
+  // F95 mirrors could only be installed from Steam, and the mirrors were not
+  // hidden or greyed -- they had no control left that reached them, because the
+  // one that did now did something else under the same INSTALL label.
+  //
+  // The rule is the source COUNT, not which sources they are.
+
+  it('sends the install button to the picker when a title has Steam AND mirrors', () => {
     const routes = resolveActionBarRoutes({
       canLaunch: false,
       canInstallFromDetail: true,
       canManageLocalTitle: true,
       hasOpenUpdate: true,
-      hasSteamInstall: true,
+      installSources: SOURCES.both,
+    })
+    expect(routes.installRoute).toBe('picker')
+    expect(routes.installSources.map((s) => s.id).sort()).toEqual(['f95', 'steam'])
+  })
+
+  it('still goes straight to Steam when Steam is the only source', () => {
+    // The part of the old behaviour that was right. One source is not a choice,
+    // so it gets no dialog.
+    const routes = resolveActionBarRoutes({
+      canLaunch: false,
+      canInstallFromDetail: true,
+      canManageLocalTitle: true,
+      hasOpenUpdate: true,
+      installSources: SOURCES.steam,
     })
     expect(routes.installRoute).toBe('steam')
   })
+
+  it('goes straight to the mirrors when they are the only source', () => {
+    const routes = resolveActionBarRoutes({
+      canLaunch: false,
+      canInstallFromDetail: true,
+      canManageLocalTitle: true,
+      hasOpenUpdate: true,
+      installSources: SOURCES.mirrors,
+    })
+    expect(routes.installRoute).toBe('mirrors')
+  })
+
+  it('never labels the button from a second copy of the rule', () => {
+    // installSources is returned so ActionBar reads the label off the SAME
+    // value that drives the click. The regression was two expressions of one
+    // rule -- installRoute for the handler, a local steamInstallCta for the
+    // glyph -- and only the second decided what the user saw.
+    const routes = resolveActionBarRoutes({
+      canLaunch: false,
+      canInstallFromDetail: true,
+      canManageLocalTitle: true,
+      hasOpenUpdate: true,
+      installSources: SOURCES.both,
+    })
+    expect(routes.installSources).toBe(SOURCES.both)
+  })
+
+  it('falls back to the local panel when every source is disabled', () => {
+    // A user who removed Steam and F95 from Settings > Metadata has no remote
+    // source left. That must not become a dead button: the manual import panel
+    // is still a real route, and it is the pre-existing no-mirrors behaviour.
+    const routes = resolveActionBarRoutes({
+      canLaunch: false,
+      canInstallFromDetail: true,
+      canManageLocalTitle: true,
+      hasOpenUpdate: true,
+      installSources: resolveInstallSources({
+        hasMirrors: true,
+        hasSteamInstall: true,
+        sourceOrder: '',
+      }),
+    })
+    expect(routes.installRoute).toBe('localImport')
+  })
+
+})
+
+describe('resolveInstallSources', () => {
+  it('honours the order the user set in Settings > Metadata', () => {
+    const sources = resolveInstallSources({
+      hasMirrors: true,
+      hasSteamInstall: true,
+      sourceOrder: 'steam,f95',
+    })
+    expect(sources.map((s) => s.id)).toEqual(['steam', 'f95'])
+  })
+
+  it('drops a source the user removed, even when the game has it', () => {
+    const sources = resolveInstallSources({
+      hasMirrors: true,
+      hasSteamInstall: true,
+      sourceOrder: 'f95,lewdcorner',
+    })
+    expect(sources.map((s) => s.id)).toEqual(['f95'])
+  })
+
+  it('treats an unset order as every source but an empty one as none', () => {
+    // Not the same thing. null is "never configured", '' is "removed them all",
+    // and collapsing the two would either ignore a deliberate choice or hide
+    // every source from someone who never made one.
+    expect(resolveInstallSources({ hasMirrors: true, hasSteamInstall: true, sourceOrder: null }))
+      .toHaveLength(2)
+    expect(resolveInstallSources({ hasMirrors: true, hasSteamInstall: true, sourceOrder: '' }))
+      .toHaveLength(0)
+  })
+
+  it('offers GOG only when there is a store page to open', () => {
+    // There is no gog:// install protocol, so without a URL the entry would be
+    // a button that does nothing.
+    expect(resolveInstallSources({ gogStoreUrl: 'https://www.gog.com/game/x' }).map((s) => s.id))
+      .toEqual(['gog'])
+    expect(resolveInstallSources({ gogStoreUrl: '   ' })).toHaveLength(0)
+  })
+
+  it('never offers LewdCorner, which has no download path', () => {
+    const sources = resolveInstallSources({
+      hasMirrors: true,
+      sourceOrder: 'lewdcorner,f95',
+    })
+    expect(sources.map((s) => s.id)).toEqual(['f95'])
+  })
+})
+
+describe('resolveInstallAction', () => {
+  it('asks only when there is something to ask about', () => {
+    expect(resolveInstallAction([])).toBe('localImport')
+    expect(resolveInstallAction([{ id: 'steam' }])).toBe('steam')
+    expect(resolveInstallAction([{ id: 'steam' }, { id: 'f95' }])).toBe('picker')
+  })
+})
+
+describe('resolveActionBarRoutes (continued)', () => {
 
   it('falls back to the website when no mirror picker is wired', () => {
     const routes = resolveActionBarRoutes({ canManageLocalTitle: true, hasOpenUpdate: false })

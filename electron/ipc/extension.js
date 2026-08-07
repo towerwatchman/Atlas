@@ -30,6 +30,50 @@ async function ensureExtensionToken(ctx) {
   return token
 }
 
+// ── Getting the extension onto disk ──────────────────────────────────────────
+//
+// Chrome cannot load an unpacked extension from inside app.asar, so the files
+// are copied out to the user data directory. Two things about that copy are
+// load-bearing and both were wrong:
+//
+// 1. THE CANDIDATE ORDER. `candidates.find(fs.existsSync)` takes the first hit,
+//    and the first entry used to be `path.join(app.getAppPath(), 'extension')`
+//    — which in a packaged build is `resources/app.asar/extension`. Electron
+//    patches fs.existsSync to see inside asar archives, so that returned true
+//    and the three real-directory fallbacks below were never reached. Real
+//    directories are tried first now; the asar path is the last resort, kept
+//    only so a build that somehow lacks the unpacked copy still has something
+//    to point at.
+//
+// 2. THE COPY ITSELF. This used fs.cpSync, which does NOT work across an asar
+//    boundary. Electron's asar support works by patching the PUBLIC fs module,
+//    and cpSync routes almost everything through internal bindings instead —
+//    measured on Node 22, the only public fs method it calls is lstatSync.
+//    readdirSync, copyFileSync and mkdirSync all bypass the patched layer, see
+//    app.asar as a plain file rather than a directory, and throw. The catch
+//    below swallowed it, ensureExtensionFiles returned the target path anyway,
+//    and get-extension-path reported a folder that was never written.
+//
+//    copyDirectoryRecursive is built from readdirSync/copyFileSync/mkdirSync
+//    directly, which ARE the patched entry points, so it reads out of an asar
+//    correctly if it ever has to.
+//
+// This only ever broke in packaged builds. In dev app.getAppPath() is the
+// project root, so candidate 1 was a real directory and cpSync had no asar to
+// cross — which is why it worked on every machine it was written on.
+function copyDirectoryRecursive(sourceDir, targetDir) {
+  fs.mkdirSync(targetDir, { recursive: true })
+  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    const from = path.join(sourceDir, entry.name)
+    const to = path.join(targetDir, entry.name)
+    if (entry.isDirectory()) copyDirectoryRecursive(from, to)
+    // Symlinks are copied as their target rather than recreated. Nothing in
+    // extension/ is a link today, and a dangling link in a folder the user is
+    // about to hand to Chrome is worse than an extra file.
+    else fs.copyFileSync(from, to)
+  }
+}
+
 function ensureExtensionFiles(ctx) {
   const rootPath =
     ctx?.appDataRoot ||
@@ -37,14 +81,18 @@ function ensureExtensionFiles(ctx) {
   const targetDir = path.join(rootPath, 'extension')
 
   const appPath = app?.getAppPath ? app.getAppPath() : process.cwd()
+  const resources = process.resourcesPath || ''
+  // Ordered real-directories-first. `extension/**/*` is in build.asarUnpack, so
+  // app.asar.unpacked/extension is where a packaged build actually keeps these
+  // files; the two dev paths cover running from source; the asar path is last.
   const candidates = [
-    path.join(appPath, 'extension'),
+    path.join(resources, 'app.asar.unpacked', 'extension'),
+    path.join(resources, 'extension'),
     path.join(__dirname, '../../extension'),
-    path.join(process.resourcesPath || '', 'extension'),
-    path.join(process.resourcesPath || '', 'app.asar.unpacked', 'extension'),
+    path.join(appPath, 'extension'),
   ]
 
-  const sourceDir = candidates.find((p) => fs.existsSync(p))
+  const sourceDir = candidates.find((p) => p && fs.existsSync(p))
   if (sourceDir && path.resolve(sourceDir) !== path.resolve(targetDir)) {
     try {
       const targetManifest = path.join(targetDir, 'manifest.json')
@@ -62,14 +110,17 @@ function ensureExtensionFiles(ctx) {
       }
 
       if (shouldCopy) {
-        if (!fs.existsSync(targetDir)) {
-          fs.mkdirSync(targetDir, { recursive: true })
-        }
-        fs.cpSync(sourceDir, targetDir, { recursive: true, force: true })
+        copyDirectoryRecursive(sourceDir, targetDir)
       }
     } catch (err) {
-      console.error('Failed to sync extension files:', err)
+      // Still not fatal — the settings page reports `exists: false` and the user
+      // can be told rather than left with a path that is not there. The source
+      // is named because "which of the four candidates did it pick" is the first
+      // question worth asking when this fails.
+      console.error(`Failed to sync extension files from ${sourceDir}:`, err)
     }
+  } else if (!sourceDir) {
+    console.error('No extension source directory found. Looked in:', candidates.join(', '))
   }
 
   return targetDir

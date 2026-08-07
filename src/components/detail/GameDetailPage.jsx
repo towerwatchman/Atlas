@@ -21,6 +21,8 @@ import {
   isSteamGame, getMappedSteamAppId, isGogGame, getMappedGogId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
 } from './page/gameDetailUtils.js'
 import { buildGameLinks, gogStoreUrl } from './gameLinks.js'
+import InstallSourceModal from './page/InstallSourceModal.jsx'
+import { resolveInstallSources } from './page/installSources.js'
 import GogIcon from '../ui/GogIcon.jsx'
 import PlaystatePicker from '../ui/PlaystatePicker.jsx'
 import { effectiveTitlePlaystate } from '../../utils/playstates.js'
@@ -147,6 +149,12 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   const [selectedVersion, setSelectedVersion] = useState(null)
   const [isRefreshingMedia, setIsRefreshingMedia] = useState(false)
   const [refreshModalOpen, setRefreshModalOpen] = useState(false)
+  // Which sources the user has enabled in Settings > Metadata. Null until the
+  // config has been read, which is NOT the same as 'none': null means "do not
+  // know yet" and resolveInstallSources reads it as "all", so the picker never
+  // starts out hiding a source it is merely uninformed about.
+  const [metadataSourceOrder, setMetadataSourceOrder] = useState(null)
+  const [installSourceModalOpen, setInstallSourceModalOpen] = useState(false)
   const [launchState, setLaunchState] = useState(LAUNCH_STATE.IDLE)
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const [bannerMask, setBannerMask] = useState({ image: 'none', composite: null })
@@ -437,6 +445,12 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
           .map((ext) => ext.trim().toLowerCase().replace(/^\./, ''))
           .filter(Boolean)
         if (!canceled && extensions.length > 0) setLocalArchiveExtensions(extensions)
+        // Which install sources the user still has enabled. Read from the same
+        // config fetch rather than its own, and stored raw so
+        // resolveInstallSources applies the null-vs-empty-string rule in one
+        // place: an unset key means every source, an empty string means the
+        // user removed them all.
+        if (!canceled) setMetadataSourceOrder(config?.Metadata?.sourceOrder ?? null)
         // Load the shared detail-panel layout.
         try {
           const raw = config?.Appearance?.detailLayout
@@ -811,6 +825,36 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         scheduleInstalledStateRefresh()
       }
     : null
+  // GOG has no install protocol -- there is no gog:// equivalent of
+  // steam://install -- so 'install from GOG' can only mean 'open the store page
+  // and let the user take it from there'. That is worth offering as a source
+  // when a store page exists and worth omitting when one does not, which is
+  // exactly what resolveInstallSources tests. Deliberately separate from
+  // openGog, the toolbar icon: same destination today, but one is a link and
+  // the other is an install route, and folding them together would mean the
+  // day GOG grows a real handoff, changing one changes the other.
+  const gogInstallUrl = gogId ? gogStoreUrl(game, gogId) : ''
+  const gogInstall = gogInstallUrl
+    ? async () => {
+        await window.electronAPI.openExternalUrl(gogInstallUrl)
+        scheduleInstalledStateRefresh()
+      }
+    : null
+
+  // Every route into the library for this title, filtered by what the user has
+  // left enabled in Settings > Metadata and ordered by the same preference.
+  //
+  // hasMirrors is `Boolean(onOpenUpdate)` and not `Boolean(game.f95_id)`: the
+  // modal is what makes mirrors reachable, and a page rendered without that
+  // prop has an f95 id it cannot do anything with. Counting it would produce a
+  // two-source picker with one dead entry.
+  const installSources = resolveInstallSources({
+    hasMirrors: Boolean(onOpenUpdate),
+    hasSteamInstall: typeof steamInstall === 'function',
+    gogStoreUrl: gogInstallUrl,
+    sourceOrder: metadataSourceOrder,
+  })
+
   const uninstallSteam = activeSteamAppId && canManageLocalTitle && canLaunch
     ? async () => {
         const confirmed = window.confirm(
@@ -1201,6 +1245,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         canOpenFolder={canOpenFolder}
         canInstallFromDetail={canInstallFromDetail}
         onSteamInstall={steamInstall}
+        onGogInstall={gogInstall}
+        installSources={installSources}
+        onOpenInstallSources={() => setInstallSourceModalOpen(true)}
         canManageWishlist={canManageWishlist}
         isWishlisted={isWishlisted}
         wishlistBusy={wishlistBusy}
@@ -1771,6 +1818,23 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         busy={isRefreshingMedia}
         onConfirm={doRefreshMedia}
         onClose={() => { if (!isRefreshingMedia) setRefreshModalOpen(false) }}
+      />
+
+      {/* Only ever opened by ActionBar's 'picker' route, which needs two or
+          more sources. The handlers are the SAME ones the single-source
+          shortcut calls, so "Steam-only goes straight to Steam" and "Steam
+          chosen from the picker" cannot diverge. */}
+      <InstallSourceModal
+        open={installSourceModalOpen}
+        title={game.title || ''}
+        sources={installSources}
+        onClose={() => setInstallSourceModalOpen(false)}
+        onSelect={(sourceId) => {
+          setInstallSourceModalOpen(false)
+          if (sourceId === 'steam') steamInstall?.()
+          else if (sourceId === 'gog') gogInstall?.()
+          else if (sourceId === 'f95') onOpenUpdate?.(game)
+        }}
       />
 
     </div>

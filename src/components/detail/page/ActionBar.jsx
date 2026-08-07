@@ -6,6 +6,16 @@ export default function ActionBar({
   game, actionVersion, latestVersion, canLaunch, canOpenFolder,
   canInstallFromDetail = false,
   onSteamInstall = null,
+  // Opens the source picker. Only ever called when there is more than one
+  // source; with exactly one, the button goes straight there instead.
+  onOpenInstallSources = null,
+  onGogInstall = null,
+  // Resolved by the caller via installSources.js, because it needs
+  // Metadata.sourceOrder and the game's ids. Passed in rather than derived here
+  // so ActionBar holds no copy of the rule -- the previous version derived
+  // `steamInstallCta` in this body, and that second copy is what actually drove
+  // the button and hid the mirrors.
+  installSources = [],
   canManageWishlist = false, isWishlisted = false, wishlistBusy = false,
   canManageFavorite = false, isFavorite = false, favoriteBusy = false,
   launchState, isRefreshingMedia, canManageLocalTitle = true,
@@ -27,10 +37,21 @@ export default function ActionBar({
     canManageWishlist,
     hasOpenUpdate: Boolean(onOpenUpdate),
     hasLocalImport: typeof onToggleLocalImport === 'function',
-    hasSteamInstall: typeof onSteamInstall === 'function',
+    installSources,
   })
   const showInstallCta = routes.showInstallCta
-  const onInstallCta = routes.installRoute === 'mirrors' ? onOpenUpdate : onToggleLocalImport
+  // One lookup, so the handler and the label cannot disagree. They used to:
+  // the click went through `installRoute` and the label through a separate
+  // `steamInstallCta` expression, and only the latter decided whether the
+  // button wore a Steam glyph.
+  const INSTALL_HANDLERS = {
+    mirrors: onOpenUpdate,
+    steam: onSteamInstall,
+    gog: onGogInstall,
+    picker: onOpenInstallSources,
+    localImport: onToggleLocalImport,
+  }
+  const onInstallCta = INSTALL_HANDLERS[routes.installRoute] || onToggleLocalImport
   // Manual install lives behind a caret rather than in a button of its own: it is
   // a real route into the library but not the common one, and a full-size button
   // of its own competed with the primary action for attention and width.
@@ -56,10 +77,12 @@ export default function ActionBar({
       onSelect: onToggleLocalImport,
     },
   ]
-  // When the title is Steam-owned but not installed, the primary CTA hands off
-  // to the Steam client (steam://install) rather than opening Atlas's local
-  // import panel — mirroring how Steam's own Install button behaves.
-  const steamInstallCta = showInstallCta && typeof onSteamInstall === 'function'
+  // The INSTALL button is an INSTALL button. It used to become a Steam handoff
+  // whenever a Steam mapping existed -- glyph and all -- which both hid the
+  // other sources and told the user the decision had already been made. The
+  // glyph is now shown only when Steam is genuinely the ONLY way in, because
+  // then it is a description rather than an override.
+  const soleSource = routes.installSources.length === 1 ? routes.installSources[0] : null
 
   const playBg =
     showInstallCta ? 'var(--color-detail-accent)'
@@ -75,7 +98,7 @@ export default function ActionBar({
     : 'var(--color-detail-play-text)'
 
   const playLabel =
-    steamInstallCta
+    showInstallCta && soleSource?.id === 'steam'
       ? <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><i className="fab fa-steam" style={{ fontSize: 12 }}></i>INSTALL</span>
     : showInstallCta
       ? <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><i className="fas fa-download" style={{ fontSize: 11 }}></i>INSTALL</span>
@@ -123,7 +146,7 @@ export default function ActionBar({
         {(() => {
           const primaryButton = (
             <button
-              onClick={steamInstallCta ? onSteamInstall : showInstallCta ? onInstallCta : onLaunch}
+              onClick={showInstallCta ? onInstallCta : onLaunch}
               disabled={!showInstallCta && !canLaunch && launchState === LAUNCH_STATE.IDLE}
               style={{
                 ...ACTION_BTN, minWidth: 130, background: playBg, color: playColor,

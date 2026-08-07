@@ -1,3 +1,5 @@
+import { resolveInstallAction } from './installSources.js'
+
 export const normalizeVersionForCompare = (value) =>
   String(value || '').trim().toLowerCase().replace(/\s+/g, '').replace(/^v/, '').replace(/[^0-9.]/g, '')
 
@@ -325,24 +327,56 @@ export function resolveActionBarRoutes({
   canManageWishlist = false,
   hasOpenUpdate = false,
   hasLocalImport = true,
-  hasSteamInstall = false,
+  // Every source this title can be installed from, from
+  // page/installSources.js resolveInstallSources(). Replaces the old
+  // `hasSteamInstall` boolean, which could only ever express "Steam, or not
+  // Steam" and therefore could only ever answer by overriding.
+  installSources = [],
 } = {}) {
   const showInstallCta = !canLaunch && canInstallFromDetail
   // A browse row has no local record, so there is nothing on disk to point at:
   // its INSTALL button wants the mirror picker, which is how the game gets here
   // in the first place.
   const installOpensMirrors = hasOpenUpdate && !canManageLocalTitle
+
+  // ── Why Steam no longer takes the button ─────────────────────────────────
+  //
+  // This used to read `hasSteamInstall ? 'steam' : installOpensMirrors ? …`,
+  // so a Steam mapping won outright and a title with both a Steam appid and
+  // F95 mirrors could only be installed from Steam. The mirrors were not
+  // hidden or disabled, they were unreachable: the one control that opened
+  // them now did something else, and the button's label said INSTALL either
+  // way.
+  //
+  // The count decides now. One source is not a choice and gets no dialog --
+  // Steam-only still goes straight to Steam, which is the behaviour that was
+  // right about the old rule. More than one is a choice, and it belongs to the
+  // user.
+  //
+  // Ordered AFTER the local-import check for a local uninstalled title,
+  // deliberately unchanged: that title has a record on disk to add a version
+  // to, and its INSTALL has always opened the panel.
+  const installAction = resolveInstallAction(installSources)
+  const installRoute = !showInstallCta
+    ? 'launch'
+    : installSources.length > 0
+      ? (installAction === 'f95' ? 'mirrors' : installAction)
+      : installOpensMirrors
+        ? 'mirrors'
+        : 'localImport'
+
   return {
     showInstallCta,
     installOpensMirrors,
-    // What the primary button does.
-    installRoute: !showInstallCta
-      ? 'launch'
-      : hasSteamInstall
-        ? 'steam'
-        : installOpensMirrors
-          ? 'mirrors'
-          : 'localImport',
+    // What the primary button does. 'picker' is new: more than one source, so
+    // ask. 'steam' and 'gog' are single-source shortcuts, not overrides.
+    installRoute,
+    // Kept separate from installRoute so the button's LABEL is driven by the
+    // same value as its click handler. ActionBar used to derive the label from
+    // its own `steamInstallCta` expression -- a second copy of this rule, in a
+    // place nothing could assert -- and that copy is what actually put a Steam
+    // glyph on the button.
+    installSources,
     // The UPDATE button never routes to the local import panel any more.
     updateRoute: hasOpenUpdate ? 'mirrors' : 'website',
     // Retained for callers that render the local import panel's own control.

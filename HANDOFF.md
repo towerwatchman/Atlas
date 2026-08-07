@@ -109,7 +109,97 @@ editing `config.ini` by hand.
 
 ---
 
-## 2. Security — the last soft spot
+## 2. Install source picker — CLOSED
+
+A Steam mapping used to take the INSTALL button away from every other source.
+`resolveActionBarRoutes` had `hasSteamInstall ? 'steam'` at the top of its
+priority chain, so a title with both a Steam appid and F95 mirrors could only be
+installed from Steam — and the mirrors were not hidden or greyed, they were
+unreachable, because the one control that opened them now did something else
+under the same INSTALL label.
+
+**The rule existed twice, and only the second copy drove the button.**
+`resolveActionBarRoutes` returned `installRoute`, and `ActionBar` then derived
+its own `steamInstallCta` in the component body and used THAT for both the click
+handler and the label. The resolver could have been entirely correct and the
+button would still have handed off to Steam. Worth remembering when reading that
+file: its header comment says routing was centralised so it would not be "a chain
+of `||` inside JSX", and `steamInstallCta` was written as exactly that, six lines
+below the call to the function that exists to prevent it.
+
+New `src/components/detail/page/installSources.js` resolves the list; the COUNT
+decides the route.
+
+- 2+ sources → `picker` (`InstallSourceModal`)
+- exactly 1 → straight to it; Steam-only still hands off to Steam with no dialog
+- 0 → the manual import panel, unchanged
+
+Rules baked in, each with a test:
+
+- Sources removed from `Metadata.sourceOrder` are excluded. An UNSET key means
+  every source; an EMPTY STRING means none. Those are different states and
+  collapsing them would either ignore a deliberate choice or hide everything from
+  someone who never made one.
+- GOG appears only when a store page exists. There is no `gog://` equivalent of
+  `steam://install`, so without a URL the entry is a button that does nothing.
+  Its handler is separate from the toolbar's `openGog` on purpose — same
+  destination today, but one is a link and one is an install route.
+- LewdCorner is never offered. `UpdateModal` fetches by `f95_id` and there is no
+  LewdCorner download path, so it would be an option that cannot be taken.
+- Manual Install stays on the caret, not in the picker.
+
+`tests/install-source-routing.test.jsx` (7) MOUNTS ActionBar, which the
+resolver's unit tests cannot — and that is the point, since the second copy of
+the rule lived in the component. Three of the seven fail against the pre-fix
+component and four pass either way; verified by restoring `steamInstallCta` in a
+scratch tree and confirming exactly those three flip. `tests/action-bar-routes.test.js`
+had an assertion pinning the bug ("lets Steam take the install button when it
+owns the title"); it was replaced in place rather than deleted.
+
+---
+
+## 3. Extension packaging — CLOSED
+
+The extension shipped in the installer and never reached disk. Two independent
+faults, both invisible in dev.
+
+1. **`extension/**/*` was in `build.files` but not `build.asarUnpack`**, so it
+   went inside `app.asar`. Chrome cannot load an unpacked extension from there,
+   which is the entire reason `ensureExtensionFiles` copies it out.
+
+2. **The copy used `fs.cpSync`, which cannot read across an asar boundary.**
+   Electron's asar support patches the PUBLIC `fs` module. Measured on the Node
+   22 in `.nvmrc`, the only public method `cpSync` calls is `lstatSync` —
+   `readdirSync`, `copyFileSync` and `mkdirSync` all go to internal bindings that
+   bypass the patch, see `app.asar` as a file rather than a directory, and throw.
+   The `catch` swallowed it, `ensureExtensionFiles` returned the target path
+   anyway, and `get-extension-path` reported a folder that had never been
+   written.
+
+The candidate list compounded it. `candidates.find(fs.existsSync)` takes the
+first hit, the first entry was the in-asar path, and `fs.existsSync` IS patched
+— so it returned true and the three real-directory fallbacks below it were never
+tried. Real directories are searched first now, `app.asar.unpacked` at the head,
+with the asar path kept last as a genuine fallback.
+
+**Both only ever broke in packaged builds.** In dev `app.getAppPath()` is the
+project root, so the first candidate was a real folder and there was no asar to
+cross. That is why this survived every run on a developer machine, and it is the
+reason to distrust "it works here" for anything in this file.
+
+`scripts/check-extension-packaging.js` (7) is in `npm run check`. It asserts the
+config, cross-checks `manifest.json` against the files on disk, and MEASURES the
+`cpSync` constraint rather than citing it — so if a future Node routes `cpSync`
+through the public `fs`, the check fails and someone gets to delete a workaround
+instead of inheriting it forever.
+
+**Still not covered:** nothing inspects the built artifact. The check asserts the
+config that produces it. Catching the real thing means unpacking a built
+`app.asar`, which needs a full `electron-builder` run — see section 8.
+
+---
+
+## 4. Security — the last soft spot
 
 ### `electronIPC` accepts arbitrary channels
 
@@ -134,7 +224,7 @@ allowlist).
 
 ---
 
-## 3. Dead code from the original audit
+## 5. Dead code from the original audit
 
 See `docs/DEAD-CODE-AUDIT.md` for the full trace. Everything is resolved except:
 
@@ -150,7 +240,7 @@ Decide per channel whether the send is dead or the listener is missing.
 
 ---
 
-## 4. A check script worth writing — now with a fourth case
+## 6. A check script worth writing — now with a fourth case
 
 Unchanged in substance, and reinforced: `getWishlistEntry` missing from
 `db/wishlist.js`'s exports (found during 1.1) is the same class of bug as the
@@ -192,7 +282,7 @@ Fits alongside the existing `scripts/check-*.js` and would run in `npm run check
 
 ---
 
-## 5. GitHub settings — cannot be done from a PR
+## 7. GitHub settings — cannot be done from a PR
 
 Unchanged. None of this is reachable from the working tree.
 
@@ -219,7 +309,7 @@ Unchanged. None of this is reachable from the working tree.
 
 ---
 
-## 6. Verify after the next build
+## 8. Verify after the next build
 
 Carried forward, plus the section 1 work.
 
@@ -240,6 +330,15 @@ Carried forward, plus the section 1 work.
   in Settings in the other window, then Install. It should fail and raise the
   prompt with the "the install stopped" wording, not the "before we start"
   wording.
+- **Does the extension folder actually exist after installing?** This is the one
+  that needs a real packaged build, not a dev run — the bug was invisible in dev
+  by construction. Install from the NSIS installer, open Settings, and confirm
+  the extension path exists and "Open extension folder" opens it. If it fails,
+  the console names which of the four candidates was picked.
+- **INSTALL on a game with both Steam and F95.** Confirm it opens the picker
+  rather than jumping to Steam, and that the button carries no Steam glyph. Then
+  remove Steam in Settings > Metadata and confirm the same game's INSTALL goes
+  straight to the mirrors with no dialog.
 - **Do extension setting toggles persist?** `ctx.saveSettings` never existed, so
   `save-extension-settings` had been throwing for as long as it has been there.
   Flip a toggle, restart, confirm it stuck.
@@ -256,7 +355,7 @@ Carried forward, plus the section 1 work.
 
 ---
 
-## 7. Decisions still parked
+## 9. Decisions still parked
 
 **Extension distribution.** Currently load-unpacked, which needs developer mode
 and shows a startup nag. The Web Store gives one-click install, auto updates, and
