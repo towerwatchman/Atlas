@@ -1,4 +1,6 @@
-import { test, expect } from 'vitest'
+// @vitest-environment jsdom
+import { test, expect, afterEach } from 'vitest'
+import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import fs from 'fs'
 import path from 'path'
 import {
@@ -7,7 +9,11 @@ import {
   computeOnlineRating as uiOnline,
 } from '../src/utils/ratingCategories.js'
 import { resolveBannerField } from '../src/components/library/bannerLayout/bannerFieldResolvers.js'
+import React from 'react'
+import RatingModal from '../src/components/detail/RatingModal.jsx'
 const db = require('../electron/db/ratingCategories.js')
+
+afterEach(() => cleanup())
 
 // Main is CommonJS and the renderer an ESM bundle, so the category list is
 // duplicated. If the two drift, the modal writes keys the database has no columns
@@ -140,4 +146,37 @@ test('banner layout rating fields format on the 0-10 scale even when rating is b
   const f95Low = resolveBannerField('sourceRating', { rating: 2.2 })
   expect(f95Low.value).toBe('4.4/10')
   expect(f95Low.value).not.toContain('/5')
+})
+
+test('RatingModal preserves unsaved draft ratings when background metadata update passes fresh ratings prop', () => {
+  const initialRatings = { story: 2, graphics: 3 }
+  const { rerender } = render(
+    React.createElement(RatingModal, {
+      open: true,
+      title: 'Test Game',
+      ratings: initialRatings,
+      onSave: () => {},
+      onCancel: () => {},
+    }),
+  )
+
+  // User moves the Story slider to 8 while modal is open.
+  const storyInput = screen.getByRole('slider', { name: 'Story' })
+  fireEvent.change(storyInput, { target: { value: '8' } })
+  expect(storyInput.value).toBe('8')
+
+  // Background metadata update finishes and passes a new ratings object reference to RatingModal.
+  const refreshedRatings = { story: 2, graphics: 3 }
+  rerender(
+    React.createElement(RatingModal, {
+      open: true,
+      title: 'Test Game',
+      ratings: refreshedRatings,
+      onSave: () => {},
+      onCancel: () => {},
+    }),
+  )
+
+  // The draft rating set by the user (8) should NOT be reset back to the initial saved rating (2).
+  expect(screen.getByRole('slider', { name: 'Story' }).value).toBe('8')
 })
