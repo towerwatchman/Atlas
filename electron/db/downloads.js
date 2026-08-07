@@ -34,8 +34,41 @@
 // watch folder, then moves to verifying like any other.
 
 const dbModule = require("./index");
+const {
+  DOWNLOAD_ART_CTE,
+  DOWNLOAD_ART_JOIN,
+  buildDownloadArtFields,
+  downloadArtCandidates,
+} = require("./downloadArt");
 
 const getDb = () => dbModule.db;
+
+// ── Banner art ───────────────────────────────────────────────────────────────
+//
+// Resolved on the row (see db/downloadArt.js) rather than looked up by the
+// renderer, so a download card is independent of whatever the library page has
+// currently loaded and filtered.
+//
+// Configured once at startup instead of threaded through as an argument. Every
+// getDownload() result is emitted to the renderer as `download-updated` from a
+// dozen places in downloads/downloadManager.js, and a progress tick that came
+// back WITHOUT the art columns would blank the cover the list already had — so
+// the art cannot be optional per call site.
+let resolveAssetBasePath = () => "";
+
+const configureArt = ({ getAssetBasePath } = {}) => {
+  if (typeof getAssetBasePath === "function") resolveAssetBasePath = getAssetBasePath;
+};
+
+const artBasePath = () => {
+  try {
+    return String(resolveAssetBasePath() || "");
+  } catch {
+    // A download list that renders without cover art is a far better outcome
+    // than one that throws, so this never propagates.
+    return "";
+  }
+};
 
 const DOWNLOADS_DDL = `
   CREATE TABLE IF NOT EXISTS downloads (
@@ -149,6 +182,11 @@ const mapRow = (row) => {
     completedAt: row.completed_at,
     installedAt: row.installed_at,
     catalogRef: row.catalog_ref || "",
+    // Ordered banner sources, same shape as a game's `banner_candidates`, so the
+    // renderer can walk it with the fallback hook the library grid already uses.
+    // Empty when the row identifies no game, or when the query that produced it
+    // did not ask for art.
+    bannerCandidates: downloadArtCandidates(row),
     // A finished download whose archive is still on disk and was never
     // installed. Drives the Install action, including for items that
     // predate the install step.
@@ -177,21 +215,31 @@ const initializeDownloads = async () => {
   );
 };
 
+// `SELECT downloads.*` and not `SELECT *`: the art join brings its own columns
+// and an unqualified star would pull them into the row under names mapRow does
+// not read, plus re-expose art_record_id alongside record_id.
+const withArt = (body) => `
+  WITH ${DOWNLOAD_ART_CTE}
+  SELECT downloads.*,
+${buildDownloadArtFields(artBasePath())}
+    FROM downloads
+    ${DOWNLOAD_ART_JOIN}
+  ${body}`;
+
 const listDownloads = async ({ includeFinished = true } = {}) => {
   const rows = await all(
     includeFinished
-      ? `SELECT * FROM downloads ORDER BY
-           CASE state WHEN 'done' THEN 1 WHEN 'canceled' THEN 1 ELSE 0 END,
-           queue_order ASC, id ASC`
-      : `SELECT * FROM downloads
-          WHERE state NOT IN (${TERMINAL_STATES.map(() => "?").join(", ")})
-          ORDER BY queue_order ASC, id ASC`,
+      ? withArt(`ORDER BY
+           CASE downloads.state WHEN 'done' THEN 1 WHEN 'canceled' THEN 1 ELSE 0 END,
+           downloads.queue_order ASC, downloads.id ASC`)
+      : withArt(`WHERE downloads.state NOT IN (${TERMINAL_STATES.map(() => "?").join(", ")})
+          ORDER BY downloads.queue_order ASC, downloads.id ASC`),
     includeFinished ? [] : TERMINAL_STATES,
   );
   return rows.map(mapRow);
 };
 
-const getDownload = async (id) => mapRow(await get(`SELECT * FROM downloads WHERE id = ?`, [id]));
+const getDownload = async (id) => mapRow(await get(withArt(`WHERE downloads.id = ?`), [id]));
 
 const enqueueDownload = async ({
   recordId = null,
@@ -281,6 +329,12 @@ const clearFinishedDownloads = () =>
   );
 
 // The next item the runner should start, honouring queue order.
+//
+// No art join here or in listAwaitingFile below. Both feed the queue runner and
+// the watch-folder matcher, neither of which is ever emitted to the renderer as
+// a card — the runner re-reads the row through getDownload() before it emits
+// anything. Paying for eight subqueries on every scheduling pass would buy
+// nothing.
 const claimNextQueued = async () => {
   const row = await get(
     `SELECT * FROM downloads
@@ -327,6 +381,7 @@ module.exports = {
   DOWNLOADS_INDEXES,
   TERMINAL_STATES,
   INTERRUPTED_STATES,
+  configureArt,
   initializeDownloads,
   listDownloads,
   listAwaitingFile,

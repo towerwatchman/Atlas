@@ -1,5 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { saveLibrarySetting, saveLibrarySettings, pickGameFolder } from '../../utils/librarySettings.js'
+
 // Library.jsx  (updated)
+//
+// The read-modify-write for config.Library and the game-folder picker both moved
+// to utils/librarySettings.js. This page is no longer the only thing that writes
+// these keys — the install flow raises its own prompts for gameFolder and
+// libraryFolderStructure (see src/components/downloads/LibraryFolderModal.jsx and
+// LibraryStructureModal.jsx) — and a second picker written alongside this one
+// would drift from it the first time either grew a rule.
 const Library = () => {
   const [rootPath, setRootPath] = useState("");
   const [gameFolder, setGameFolder] = useState("");
@@ -59,25 +68,12 @@ const Library = () => {
     return () => window.electronAPI.removeAllListeners?.("library-validation-progress");
   }, []);
 
-  const saveLibrarySetting = (key, value) => {
-    window.electronAPI.getConfig().then((config) => {
-      const newConfig = {
-        ...config,
-        Library: {
-          ...config.Library,
-          [key]: value,
-        },
-      };
-      window.electronAPI.saveSettings(newConfig);
-    });
-  };
-
   const handleSetGameFolder = async () => {
-    const path = await window.electronAPI.selectDirectory();
-    if (path) {
-      setGameFolder(path);
-      saveLibrarySetting("gameFolder", path);
-    }
+    // pickGameFolder persists the choice itself, so there is no saveLibrarySetting
+    // call here — that is the point of sharing it. An empty return is a cancelled
+    // dialog and must not clear a folder that is already set.
+    const path = await pickGameFolder();
+    if (path) setGameFolder(path);
   };
 
   const handleSetDownloadsFolder = async () => {
@@ -148,7 +144,14 @@ const Library = () => {
   const handleLibraryFolderStructureChange = (e) => {
     const val = e.target.value;
     setLibraryFolderStructure(val);
-    saveLibrarySetting("libraryFolderStructure", val);
+    // structurePrompted goes along with it. Someone editing this field has plainly
+    // found the setting on their own, and raising the first-install prompt at them
+    // afterwards would be asking a question they have already answered — with
+    // presets that are narrower than whatever they just typed.
+    saveLibrarySettings({
+      libraryFolderStructure: val,
+      structurePrompted: true,
+    });
   };
 
   const handleExtractionChange = (e) => {

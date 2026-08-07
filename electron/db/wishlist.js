@@ -567,6 +567,12 @@ const getWishlistEntryIdentities = () => {
 
 module.exports = {
   addWishlistEntry,
+  // Exported for the install path (electron/ipc/importer.js downloads-install),
+  // which must find the row a promoted game corresponds to BEFORE deleting it.
+  // Its WHERE clause matches on identity_key OR any of the four provider ids,
+  // which is the whole reason it is used there: the key a promotion can rebuild
+  // is not reliably the key the entry was stored under.
+  getWishlistEntry,
   removeWishlistEntry,
   toggleWishlistEntry,
   isWishlistEntry,

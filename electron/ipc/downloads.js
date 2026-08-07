@@ -72,6 +72,12 @@ const broadcastSummary = async () => {
 function registerDownloadsHandlers(ctx = {}) {
   handlerCtx = ctx;
 
+  // Download rows carry their own banner art (db/downloadArt.js), and resolving
+  // the local half of it needs the asset root. Passed as the getter rather than
+  // the value: getAssetBasePath() reads appDataRoot, and reading it once at
+  // registration would pin whatever it was before the data dir settled.
+  downloadsDb.configureArt({ getAssetBasePath: ctx.getAssetBasePath });
+
   manager.configure({
     resolveDownloadsDir,
     // Per-host credentials keyed by plugin id, read fresh each time so a key
@@ -151,6 +157,23 @@ function registerDownloadsHandlers(ctx = {}) {
       // the wrong thing to tell someone whose game is about to appear in their
       // library for the first time.
       const willCreateRecord = !item.recordId && Boolean(item.catalogRef);
+      // The opposite case, and the one the user could previously only discover by
+      // pressing Install and reading the failure: no library record AND no
+      // catalog ref, so there is nothing for downloads-install to build a record
+      // from and it will refuse.
+      //
+      // In practice this is an F95-only title with no Atlas entry behind it.
+      // db/wishlist.js mapWishlistRow builds catalog_ref from the entry's
+      // atlas / lewdcorner / steam ids — an f95_id alone is not a ref kind
+      // (library/catalogRef.js REF_KINDS) and cannot become one, because the
+      // promotion queries in db/catalogEntry.js all hydrate from atlas_data.
+      // A thread that IS linked to an atlas row is fine; the join in
+      // wishlistHydratedSelect finds that atlas_id and the ref forms normally.
+      //
+      // Surfaced here rather than only in the install failure so the dialog can
+      // say so up front. It is still a dead end — it is just no longer one the
+      // user walks into.
+      const cannotCreateRecord = !item.recordId && !item.catalogRef;
       if (item.recordId) {
         try {
           const record = await require("../db/versions").getGame(item.recordId);
@@ -175,6 +198,7 @@ function registerDownloadsHandlers(ctx = {}) {
         versions,
         selectedVersionId,
         willCreateRecord,
+        cannotCreateRecord,
       };
     } catch (err) {
       return { ok: false, error: err.message || String(err) };

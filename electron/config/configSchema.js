@@ -111,6 +111,22 @@ const buildDefaultConfig = (dataDir = '') => ({
     gameExtensions: 'exe,swf,flv,f4v,rag,cmd,bat,jar,html',
     extractionExtensions: 'zip,7z,rar',
     libraryFolderStructure: '{creator}/{title}/{version}',
+    // Whether the user has ever been SHOWN libraryFolderStructure, as opposed to
+    // having it applied to them. The default above is a real decision — it nests
+    // every install three levels deep — and it was being made silently, so
+    // someone who wanted a flat layout only found the setting after their
+    // library was already built the other way.
+    //
+    // A separate flag rather than inferring from the value: "still the default"
+    // and "was asked and chose the default" look identical in
+    // libraryFolderStructure, and re-prompting someone who already chose is the
+    // failure mode worth avoiding.
+    //
+    // Set on first install (see src/components/downloads/LibraryStructureModal.jsx)
+    // rather than at first launch. Deferring means fewer people see it, but
+    // everyone who does is about to have a folder created and is in a position
+    // to care. Existing installs are treated as un-prompted and will see it once.
+    structurePrompted: false,
     autoSelectLatestReplaceVersion: false,
     validatePathsOnStartup: false,
     sevenZipPath: '',

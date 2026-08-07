@@ -4524,14 +4524,33 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
     if (recordId === null) {
       const ref = toCatalogRef(item.catalogRef);
       if (!ref) {
-        // No ref: either a row queued before this column existed, or a payload
-        // that never carried an id at all. Distinguished from the promotion
-        // failures below because the remedy is different — this one really does
-        // need the download starting again.
+        // No ref, and two quite different reasons for it.
+        //
+        // The one worth naming is an F95-only title: db/wishlist.js builds
+        // catalog_ref from an entry's atlas / lewdcorner / steam ids, and an
+        // f95_id alone is not one of the kinds library/catalogRef.js knows.
+        // That is not an oversight to be papered over here — every promotion
+        // query in db/catalogEntry.js hydrates from atlas_data, so an F95 thread
+        // with no Atlas entry behind it has nothing to build a record FROM. The
+        // honest remedy is to add the game manually first, and saying "remove it
+        // and start the download again" would send the user round a loop that
+        // ends in exactly this message a second time.
+        //
+        // The other is a row queued before catalog_ref existed, which really
+        // does just need re-queuing. `source` separates them: an F95 download
+        // that reached here without a ref is the first case, because a Browse
+        // row's ref rides in on record_id and a legacy row predates all of it.
+        const f95Only = String(item.source || "").toLowerCase() === "f95";
         return fail(
-          "This download did not record which game it came from, so Atlas cannot add it "
-          + "to your library. It was queued before Atlas could do this — remove it and "
-          + "start the download again from Browse.",
+          f95Only
+            ? `Atlas has no catalog entry for "${item.title}", so it cannot create the `
+              + "library record for you. This happens with F95 threads that are not linked "
+              + "to an Atlas database entry. Add the game to your library first, then "
+              + "install this download from its page — the archive is already here and "
+              + "will not need downloading again."
+            : "This download did not record which game it came from, so Atlas cannot add it "
+              + "to your library. It was queued before Atlas could do this — remove it and "
+              + "start the download again from Browse.",
           "no-catalog-ref",
         );
       }
@@ -4838,21 +4857,49 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
     // wishlist entry for an install that then failed would quietly lose
     // something the user put there deliberately.
     //
-    // The identity is rebuilt by db/wishlist.js from the same ids the Browse row
-    // carried, so it lands on the same key the entry was created under.
+    // ── Why the row is LOOKED UP rather than the key recomputed ─────────────
+    //
+    // The obvious version of this passes the promotion's ids straight to
+    // removeWishlistEntry(), which runs them back through
+    // normalizeWishlistEntry() to rebuild an identity_key and DELETEs on it.
+    // That is wrong, and silently so.
+    //
+    // promotion.identity comes from getCatalogEntryByRef(), whose SIBLING_IDS
+    // subqueries fill in every provider id sharing the entry's atlas_id. So a
+    // game wishlisted from a LewdCorner or Atlas row — stored under
+    // `atlas:30956`, per the key ladder in normalizeWishlistEntry — comes back
+    // here carrying an f95Id it did not have when it was added. The ladder
+    // prefers f95Id, so the rebuilt key is `f95:44821`, the DELETE matches no
+    // row, and the entry stays on the wishlist forever with nothing logged.
+    //
+    // getWishlistEntry() is the right tool because it matches on identity_key OR
+    // any of the four ids, hydrating through the same joins the wishlist page
+    // uses. Whatever it returns IS the row the user is looking at, and its
+    // identity_key is the one that will actually delete. That also settles the
+    // question the other way round: if it finds nothing, nothing is deleted,
+    // rather than a near-miss key removing some other entry.
     let wishlistRemoved = false;
     if (promotion) {
       try {
-        const { removeWishlistEntry } = require("../db/wishlist");
-        const removal = await removeWishlistEntry({
+        const { getWishlistEntry, removeWishlistEntry } = require("../db/wishlist");
+        const identity = {
           atlas_id: promotion.identity?.atlasId ?? null,
           f95_id: promotion.identity?.f95Id ?? null,
           lc_id: promotion.identity?.lcId ?? null,
           steam_id: promotion.identity?.steamId ?? null,
           title: promotion.identity?.title || item.title,
           creator: promotion.identity?.creator || item.creator,
-        });
-        wishlistRemoved = removal?.removed === true;
+        };
+        const existing = await getWishlistEntry(identity);
+        if (existing?.identity_key) {
+          const removal = await removeWishlistEntry({ identity_key: existing.identity_key });
+          wishlistRemoved = removal?.removed === true;
+          console.log("[downloads-install] wishlist cleared", JSON.stringify({
+            downloadId: id,
+            identityKey: existing.identity_key,
+            removed: wishlistRemoved,
+          }));
+        }
       } catch (err) {
         console.warn("Could not clear the wishlist entry after install:", err.message);
       }

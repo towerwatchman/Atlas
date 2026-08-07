@@ -61,6 +61,17 @@ export default function InstallModal({ item, suggestion, open, onClose, onInstal
   // game is already in the library and only the version is in question, and this
   // path used to refuse outright with "add it to your library first".
   const willCreateRecord = suggestion?.willCreateRecord === true
+  // The other side of that coin: no library record and no catalog ref either, so
+  // downloads-install has nothing to build a record from and WILL refuse. Almost
+  // always an F95 thread with no Atlas entry behind it.
+  //
+  // Shown up front rather than left to the failure message. The failure is
+  // correct and already says the right thing, but discovering a dead end by
+  // walking into it is a bad way to find out — especially here, where the thing
+  // that fails is the last step of a download that may have taken hours. Install
+  // is disabled rather than merely warned about, because there is no version
+  // string or option on this dialog that makes it work.
+  const cannotCreateRecord = suggestion?.cannotCreateRecord === true
 
   // Dismiss straight away rather than holding the dialog open behind a
   // spinner. Extraction takes minutes on a large archive, and the download
@@ -105,6 +116,23 @@ export default function InstallModal({ item, suggestion, open, onClose, onInstal
         </div>
 
         <div className="p-4 space-y-4">
+          {cannotCreateRecord && (
+            <div className="rounded border border-danger/40 bg-danger/5 p-3 text-xs text-text">
+              <p className="font-medium text-danger">Not in Atlas&rsquo;s catalog</p>
+              <p className="mt-1">
+                Atlas has no catalog entry for{' '}
+                <span className="font-medium">{item.title}</span>, so it cannot add
+                the game to your library on its own. This happens with F95 threads
+                that are not linked to an Atlas database entry.
+              </p>
+              <p className="mt-1 text-muted">
+                Add the game to your library first, then install this download from
+                its page. The archive stays where it is &mdash; nothing needs
+                downloading again.
+              </p>
+            </div>
+          )}
+
           {willCreateRecord && (
             <div className="rounded border border-accent/40 bg-accent/5 p-3 text-xs text-text">
               <p className="font-medium text-accent">New game</p>
@@ -258,9 +286,9 @@ export default function InstallModal({ item, suggestion, open, onClose, onInstal
           <button
             type="button"
             onClick={confirm}
-            disabled={!version.trim()}
+            disabled={!version.trim() || cannotCreateRecord}
             className={`h-8 px-4 text-xs rounded-buttonTheme text-white ${
-              !version.trim()
+              !version.trim() || cannotCreateRecord
                 ? 'bg-tertiary text-muted cursor-not-allowed'
                 : 'bg-accent hover:bg-accentHover'
             }`}

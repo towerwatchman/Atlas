@@ -4,6 +4,9 @@ import { useImageFallback } from '../../hooks/useImageFallback.js'
 import HostIcon from './HostIcon.jsx'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
 import InstallModal from './InstallModal.jsx'
+import LibraryFolderModal from './LibraryFolderModal.jsx'
+import LibraryStructureModal from './LibraryStructureModal.jsx'
+import { getLibraryConfig } from '../../utils/librarySettings.js'
 
 // ── Downloads page ───────────────────────────────────────────────────────────
 //
@@ -92,10 +95,29 @@ const isVideoUrl = (url) =>
 const bannerChainFor = (game) =>
   game?.banner_candidates || (game?.banner_url ? [game.banner_url] : [])
 
-const Cover = memo(function Cover({ game, title }) {
+// The game object first, the download row second.
+//
+// `game` comes out of gamesByRecordId, which is built from the library list the
+// renderer currently has LOADED AND FILTERED. When it has the game, its chain is
+// the better one: it has been through db/mediaSources.js applyMediaSources(),
+// which reorders candidates per the user's Metadata.sourceOrder. The row's chain
+// (db/downloadArt.js) resolves the same sources but in the SQL default order,
+// because source order is config the queue layer has no business reading.
+//
+// So preferring `game` means nothing that worked before changes, and falling
+// back to the row means everything that showed a grey gamepad icon now shows
+// art: a download for a game outside the current filter, and any Browse or
+// wishlist download, which has no record_id to look up at all.
+const coverChainFor = (game, item) => {
+  const fromGame = bannerChainFor(game)
+  if (fromGame.length > 0) return fromGame
+  return item?.bannerCandidates || []
+}
+
+const Cover = memo(function Cover({ game, item, title }) {
   // Walks the chain and settles on the first url that actually loads, which is
   // exactly what the library grid does.
-  const { src: raw } = useImageFallback(bannerChainFor(game))
+  const { src: raw } = useImageFallback(coverChainFor(game, item))
   const [failed, setFailed] = useState(false)
   const video = isVideoUrl(raw)
 
@@ -128,7 +150,7 @@ const Cover = memo(function Cover({ game, title }) {
               // Reached only when every candidate in the chain has failed.
               console.warn('[downloads] no usable banner', {
                 title,
-                tried: bannerChainFor(game),
+                tried: coverChainFor(game, item),
               })
             }}
           />
@@ -298,6 +320,17 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
   // A one-off notice after installing: currently only "the old version was not
   // removed, and here is why".
   const [installNotice, setInstallNotice] = useState(null)
+  // ── Setup prompts standing between Install and the install ────────────────
+  //
+  // Both are settings the install NEEDS and that have never been answered, so
+  // both are raised here rather than in InstallModal: they gate whether the
+  // install dialog should open at all, and a dialog that opens only to be
+  // covered by another dialog is worse than one that waits its turn.
+  //
+  // Each holds the pending item so the flow can be picked up where it stopped
+  // once the setting is answered. Null when closed.
+  const [folderPrompt, setFolderPrompt] = useState(null)
+  const [structurePrompt, setStructurePrompt] = useState(null)
   const samplesRef = useRef(new Map())
   const peakRef = useRef(0)
   // 60 one-second samples of aggregate throughput. Kept in state rather than a
@@ -408,7 +441,7 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
 
   // The version suggestion is derived in the main process, where the parser
   // and the catalog version both live; the modal only presents it.
-  const openInstall = async (item) => {
+  const showInstallModal = useCallback(async (item) => {
     let suggestion = null
     try {
       suggestion = await window.electronAPI.downloadsSuggestVersion?.({ id: item.id })
@@ -416,7 +449,32 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
       // A failed suggestion is not fatal - the field is editable anyway.
     }
     setInstallTarget({ item, suggestion: suggestion?.ok ? suggestion : null })
-  }
+  }, [])
+
+  // Ordered, one question at a time. The folder comes first because it is the
+  // only one that actually blocks — without it there is nowhere to unpack — and
+  // because the structure preview is meaningless until there is a root path to
+  // show it under.
+  //
+  // A config read that fails resolves to {}, which reads as "neither answered"
+  // and would raise both prompts against a working install. gameFolder is
+  // therefore only treated as missing when the read produced SOMETHING, so a
+  // broken config falls through to the install and its existing failure path
+  // rather than being interrupted by a dialog it cannot honour.
+  const openInstall = useCallback(async (item) => {
+    const library = await getLibraryConfig()
+    const known = Object.keys(library).length > 0
+
+    if (known && !String(library.gameFolder || '').trim()) {
+      setFolderPrompt({ item, reason: 'preflight' })
+      return
+    }
+    if (known && library.structurePrompted !== true) {
+      setStructurePrompt({ item, gameFolder: String(library.gameFolder || '') })
+      return
+    }
+    await showInstallModal(item)
+  }, [showInstallModal])
 
   const move = async (id, direction) => {
     const ordered = [...current, ...upNext].map((item) => item.id)
@@ -454,7 +512,7 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
           disabled={!game}
           className={game ? 'cursor-pointer' : 'cursor-default'}
         >
-          <Cover game={game} title={item.title} />
+          <Cover game={game} item={item} title={item.title} />
         </button>
 
         <div className="flex-1 min-w-0">
@@ -705,6 +763,14 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
             })
             return
           }
+          // Not a notice — a question with an answer. The item stays installable
+          // (fail() parks it in install_failed with the archive intact), so
+          // setting the folder and retrying costs nothing but the click.
+          if (result?.step === 'no-library-folder') {
+            const pending = installTarget?.item
+            if (pending) setFolderPrompt({ item: pending, reason: 'failed' })
+            return
+          }
           // A download promoted onto a record that matched by TITLE rather than
           // by any id is the one outcome here worth interrupting for: no atlas,
           // f95, LewdCorner or Steam id linked these two, only the name did, so
@@ -725,6 +791,40 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
           if (result?.success && result.replaceMessage) {
             setInstallNotice({ title: result.version || '', message: result.replaceMessage })
           }
+        }}
+      />
+
+      {/* The reactive half of the folder prompt. openInstall checks the setting
+          up front, but the folder can be cleared between that check and the
+          install actually running, and the main process is the only thing that
+          knows the difference between "not set" and "set but unusable". `step`
+          is what fail() puts on the refusal, so branching on it here is reading
+          the main process's own classification rather than matching its prose. */}
+      <LibraryFolderModal
+        open={Boolean(folderPrompt)}
+        reason={folderPrompt?.reason || 'preflight'}
+        title={folderPrompt?.item?.title || ''}
+        onCancel={() => setFolderPrompt(null)}
+        onChosen={async () => {
+          const pending = folderPrompt?.item
+          setFolderPrompt(null)
+          // Straight back into openInstall rather than into the install modal:
+          // the structure question may still be outstanding, and this is the
+          // only place that decides the order between them.
+          if (pending) await openInstall(pending)
+        }}
+      />
+
+      <LibraryStructureModal
+        open={Boolean(structurePrompt)}
+        gameFolder={structurePrompt?.gameFolder || ''}
+        onDone={async () => {
+          const pending = structurePrompt?.item
+          setStructurePrompt(null)
+          // showInstallModal, not openInstall: the flag has just been written and
+          // re-reading it would be a race with no upside, and both questions are
+          // now answered by construction.
+          if (pending) await showInstallModal(pending)
         }}
       />
     </div>
