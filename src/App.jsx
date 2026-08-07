@@ -7,7 +7,6 @@ import TopNav from './components/ui/TopNav.jsx'
 import AboutModal from './components/ui/AboutModal.jsx'
 import WelcomeTour from './components/ui/WelcomeTour.jsx'
 import WelcomePage, { WELCOME_SEEN_KEY } from './components/ui/WelcomePage.jsx'
-import ImporterSourceMenu from './components/importer/ImporterSourceMenu.jsx'
 import { atlasLogo } from './assets/icons/data.js'
 import coloredAtlasLogoUrl from './assets/images/atlas_logo.svg'
 import { getBannerTotalSize } from './components/library/bannerLayout/bannerLayoutSchema.js'
@@ -1358,7 +1357,6 @@ const App = () => {
   }, [refreshLibraryBusy, fetchGames])
 
   // ── Actions ────────────────────────────────────────────────────────────────
-  const addGame = (source = 'atlas') => window.electronAPI.openImporter(source)
 
   // Opens the About modal (app description, community/help links,
   // issue-reporting info, and a way to replay the welcome tour).
@@ -1886,7 +1884,7 @@ const App = () => {
           the header's own min/max/close buttons have been removed in
           favor of the native ones. The header still acts as the drag
           region. */}
-      {/* Header — position:fixed so the "Add Game" dropdown (absolutely
+      {/* Header — position:fixed so the TopNav importer dropdown (absolutely
           positioned, extends below this 70px bar) isn't clipped. */}
       <div className="flex h-[70px] items-center z-50 fixed w-full top-0 select-none -webkit-app-region-drag">
         <div
@@ -2623,21 +2621,16 @@ const App = () => {
       {/* Footer — position:fixed, same reasoning as the header above: it
           escapes the root div's own rounded clip, so it needs its own
           matching bottom-corner rounding directly (just border-radius,
-          no overflow-hidden — the Add Game dropdown above opens upward
-          past this bar's top edge and would get clipped off by it). */}
+          no overflow-hidden — dropdowns above open upward past this bar's
+          top edge and would get clipped off by it). */}
       <div className="bg-primary h-[40px] grid grid-cols-[1fr_auto_1fr] items-center px-4 fixed bottom-0 w-full border-t border-accent z-50 rounded-b-windowTheme transform-gpu">
-        <ImporterSourceMenu placement="footer" onSelect={addGame}>
-          {({ toggle, buttonProps }) => (
-            <button
-              type="button"
-              onClick={toggle}
-              className="justify-self-start flex items-center bg-transparent text-text hover:text-highlight"
-              {...buttonProps}
-            >
-              <i className="fas fa-plus mr-2 text-text"></i>Add Game
-            </button>
-          )}
-        </ImporterSourceMenu>
+        <button
+          type="button"
+          onClick={openWishlist}
+          className="justify-self-start flex items-center bg-transparent text-text hover:text-highlight"
+        >
+          <i className="fas fa-heart mr-2 text-text"></i>Wishlist
+        </button>
         <div className="justify-self-center flex items-center text-center">
           <i className="fas fa-gamepad mr-2 text-text"></i>
           <span>

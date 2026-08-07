@@ -6,8 +6,9 @@ import ImporterSourceMenu from '../importer/ImporterSourceMenu.jsx'
 // Visible text labels (used in 'iconsAndText' and 'text' display modes) /
 // tooltip text (always, via title/aria-label regardless of display mode).
 // "Import" rather than "Add Game" here specifically, matching the task's
-// requested left-to-right order: Library, Browse, Import, Settings,
-// Filters — "Add Game" is still used on the footer's separate button.
+// requested left-to-right order: Library, Browse, Import, Settings, Filters.
+// This is now the only importer entry point in the chrome — the footer button
+// that used to open the same dropdown is a Wishlist shortcut instead.
 const LABELS = {
   Library: 'Library',
   Collections: 'Collections',
