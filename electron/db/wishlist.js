@@ -1,6 +1,7 @@
 'use strict'
 
 const dbModule = require('./index')
+const { formatCatalogRef } = require('../library/catalogRef')
 const getDb = () => dbModule.db
 
 const normalizeId = (value) => {
@@ -143,6 +144,19 @@ const mapWishlistRow = (row = {}) => {
   return {
     wishlist_id: row.wishlist_id,
     record_id: `wishlist:${row.wishlist_id}`,
+    // record_id above is a wishlist handle, not a library record and not a
+    // `catalog:` ref, so downloads-install could resolve neither and refused
+    // with "did not record which game it came from". This is the ref the
+    // install path actually needs to find the catalog entry and create the
+    // library record. Ordered by how reliably each id maps to a catalog row.
+    // Only the kinds REF_KINDS actually understands -- there is no 'f95' ref
+    // kind, so an f95-only wishlist entry still has no ref and the install will
+    // say so rather than failing obscurely.
+    catalog_ref:
+      formatCatalogRef({ kind: 'atlas', id: atlasId })
+      || formatCatalogRef({ kind: 'lewdcorner', id: lcId })
+      || formatCatalogRef({ kind: 'steam', id: steamId })
+      || null,
     identity_key: row.identity_key,
     source,
     atlas_id: atlasId,

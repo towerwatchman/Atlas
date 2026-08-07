@@ -33,11 +33,15 @@ const STATE_LABELS = {
   importing: 'Adding to library',
   done: 'Complete',
   failed: 'Failed',
+  // Distinct from `failed`: the archive downloaded fine and is still on disk,
+  // only the install stumbled. Retry must NOT be offered here -- it deletes
+  // the archive -- but Install must stay available.
+  install_failed: 'Install failed — archive kept',
   canceled: 'Canceled',
 }
 
 const ACTIVE_STATES = ['downloading', 'verifying', 'extracting', 'importing']
-const WAITING_STATES = ['queued', 'paused', 'awaiting_file', 'failed', 'ready']
+const WAITING_STATES = ['queued', 'paused', 'awaiting_file', 'failed', 'install_failed', 'ready']
 const FINISHED_STATES = ['done', 'canceled']
 const WORKING_STATES = ['verifying', 'extracting', 'importing']
 
@@ -436,7 +440,8 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
       : null
     const transferring = item.state === 'downloading'
     const working = WORKING_STATES.includes(item.state)
-    const tone = item.state === 'failed' ? 'danger' : item.state === 'done' ? 'success' : 'accent'
+    const errored = item.state === 'failed' || item.state === 'install_failed'
+    const tone = errored ? 'danger' : item.state === 'done' ? 'success' : 'accent'
 
     return (
       <div
@@ -459,7 +464,7 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
           </div>
 
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
-            <span className={item.state === 'failed' ? 'text-danger' : ''}>
+            <span className={errored ? 'text-danger' : ''}>
               {STATE_LABELS[item.state] || item.state}
             </span>
             {item.totalBytes > 0 && (

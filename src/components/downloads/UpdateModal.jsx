@@ -104,7 +104,11 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
         // the main process rejects it as a ref; for a browse row it is the
         // `catalog:…` string that survives the record_id being nulled. Neither
         // side has to know which case it is in.
-        catalogRef: game?.record_id ?? null,
+        // catalog_ref first: a wishlist row's record_id is `wishlist:<id>`,
+        // which resolves to neither a record nor a ref, so the install had
+        // nothing to work from. Browse rows carry the ref on record_id itself
+        // and have no catalog_ref, so the fallback keeps them working.
+        catalogRef: game?.catalog_ref ?? game?.record_id ?? null,
         title,
         creator: game?.creator || '',
         version: game?.latestVersion || game?.latest_version || '',

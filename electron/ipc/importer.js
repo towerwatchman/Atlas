@@ -4458,9 +4458,19 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
   // `step` names where the failure actually happened. Without it every message
   // is a bare sentence with no way to tell which stage produced it, and a stale
   // one from an earlier attempt is indistinguishable from a fresh one.
+  // NOT "failed". That is the DOWNLOAD failure state, and the Retry it offers
+  // calls downloadManager.retry(), which deletes the archive from disk and
+  // clears file_path -- correct for a corrupt partial transfer, catastrophic
+  // here, where the archive downloaded fine and only the install stumbled.
+  // Clearing file_path also flips `installable` false, which is why the Install
+  // button vanished and the only way forward was downloading the whole thing
+  // again.
+  //
+  // "install_failed" keeps file_path intact, so the archive stays on disk and
+  // Install stays available.
   const fail = async (message, step = "install") => {
     console.log("[downloads-install] failed", JSON.stringify({ downloadId: id, step, message }));
-    await downloadManager.setItemState(id, "failed", { error: message });
+    await downloadManager.setItemState(id, "install_failed", { error: message });
     return { success: false, error: message, step };
   };
 
