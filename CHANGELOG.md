@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Fixed missing {engine} and {f95Id} for downloads-install handler. Previously it only work during nomral importer, but shown Unknown or empty when set in Atlas Library Structure during downloads-install process. 
 - Fixed personal rating modal (`RatingModal`) resetting its draft state to the database ratings when background metadata updates or library refreshes occur while the modal is open.
 - Fixed rating displays on library and catalog card overviews to format consistently on the 0–10 scale (`/10`), resolving an issue where ratings at or below 5 were mislabeled with a `/5` denominator (#321).
 - The browser extension still did not reach disk after the previous fix. That fix was correct as far as it went -- `asarUnpack` put the files at `resources\\app.asar.unpacked\\extension` and the candidate ordering found them -- and the copy then failed at the DESTINATION, which nothing had looked at.

@@ -4684,11 +4684,14 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
 
     // Same layout as a normal import, so downloads and imports are
     // indistinguishable on disk.
+    // console.log('[downloads-install] record:', JSON.stringify(record, null, 2));
     const targetBase = getUniquePath(
       buildStructuredImportPath(
         targetLibrary,
         currentConfig?.Library?.libraryFolderStructure,
         {
+          f95Id: record.f95_id || record.f95Id || "",
+          engine: record.engine || "Unknown",
           creator: record.creator,
           title: record.title,
           version: finalVersion,

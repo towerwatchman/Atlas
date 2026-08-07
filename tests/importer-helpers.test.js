@@ -5,6 +5,8 @@
 
 import { describe, it, expect } from 'vitest'
 import path from 'path'
+import fs from 'fs'
+
 
 const { __testables: T } = require('../electron/ipc/importer')
 
@@ -76,6 +78,28 @@ describe('buildStructuredImportPath', () => {
     const out = T.buildStructuredImportPath('/lib', '{lcid}', { lcId: 'LC9' })
     expect(out).toBe(path.join('/lib', 'LC9'))
   })
+})
+
+
+// Strip comments and console.log calls to use with test that based on code availability scanning
+function stripCommentsAndLog(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/console\.log\([^)]*\);/g, '');
+}
+
+test('downloads-install allows supported fields in Atlas Library Structure path regex', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'electron', 'ipc', 'importer.js'), 'utf8')
+  const clean = stripCommentsAndLog(src)
+  const s = clean.slice(clean.indexOf('ipcMain.handle("downloads-install"'))
+  const t = s.slice(s.indexOf('const targetBase = getUniquePath('))
+  const b = t.slice(0, t.indexOf('buildStructuredImportPath(') + 600)
+  expect(b).toMatch(/f95Id\s*:/)
+  expect(b).toMatch(/engine\s*:/)
+  expect(b).toMatch(/creator\s*:/)
+  expect(b).toMatch(/title\s*:/)
+  expect(b).toMatch(/version\s*:/)
 })
 
 describe('source detection — Steam', () => {
