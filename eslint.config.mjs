@@ -31,6 +31,13 @@ export default [
       'node_modules/**',
       'release/**',
       'scripts/**',
+      // Runtime state dir, gitignored. electron/ipc/extension.js copies
+      // extension/ to <dataDir>/extension on launch, which lands here when
+      // running from source. ESLint flat config does not read .gitignore, so
+      // without this the generated copy gets linted as main-process code and
+      // every chrome/document/alert reference fails no-undef. Lint the source
+      // at extension/, not the copy.
+      'electron/data/**',
       '*.config.js',
       'eslint.config.mjs',
     ],
