@@ -117,7 +117,7 @@ const {
 } = require('./db/settings')
 
 const {
-  addWishlistEntry, removeWishlistEntry, toggleWishlistEntry,
+  addWishlistEntry, removeWishlistEntry, toggleWishlistEntry, isWishlistEntry,
   getWishlistEntries, getWishlistEntryIdentities,
 } = require('./db/wishlist')
 
@@ -1772,7 +1772,7 @@ function buildCtx() {
     recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePersonalRatings, setGamePlaystate, setVersionPlaystate,
     addAtlasMapping, getGame, getGames, getCatalogGames, getGameRecordIds,
     removeGame, checkDbUpdates, updateFolderSize,
-    addWishlistEntry, removeWishlistEntry, toggleWishlistEntry,
+    addWishlistEntry, removeWishlistEntry, toggleWishlistEntry, isWishlistEntry,
     getWishlistEntries, getWishlistEntryIdentities,
     getBannerUrl, getScreensUrlList, getRemoteBannerUrl, getRemotePreviewUrls, getSteamMovieThumbnails,
     getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,

@@ -1111,10 +1111,14 @@ const App = () => {
     setLibraryMode('local')
     setSelectedGame(null)
     setActiveSavedFilterId('builtin-favorites')
-    setAndPersistSidePanelMode(SIDE_PANEL_MODES.GAMES)
-    setShowSearchSidebar(false)
+    // Deliberately does NOT touch the side panel. Favourites is a filter over
+    // the local library, not a distinct view like Wishlist or Browse, so it has
+    // no business rearranging panels the user has set. It previously forced the
+    // games list open via setAndPersistSidePanelMode, which also WROTE that to
+    // settings -- so a user who kept the list hidden had it reopened, and the
+    // change stuck across restarts.
     handleFilterChange(favoriteFilters)
-  }, [handleFilterChange, setAndPersistSidePanelMode])
+  }, [handleFilterChange])
 
   const handleWishlistChanged = useCallback(async (result = {}, sourceGame = null) => {
     const identityKey = result.identityKey || getWishlistIdentityKey(sourceGame || result.entry || {})
