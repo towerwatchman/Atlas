@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildDownloadOptions,
   hasMultipleOptions,
+  describeBuild,
   FULL_ARCHIVE,
 } from '../src/components/downloads/linkSections.js'
 
@@ -179,6 +180,30 @@ describe('buildDownloadOptions', () => {
       link('mega.nz'),
     ])
     expect(options.map((o) => o.title)).toEqual([FULL_ARCHIVE, 'Episode 12'])
+  })
+})
+
+describe('describeBuild', () => {
+  it('shows the poster\u2019s heading verbatim', () => {
+    expect(describeBuild('Season 1')).toBe('Season 1')
+    expect(describeBuild('Compressed')).toBe('Compressed')
+    expect(describeBuild('SPLIT-S3-Int+Ep12')).toBe('SPLIT-S3-Int+Ep12')
+    expect(describeBuild('  Season 2  ')).toBe('Season 2')
+  })
+
+  it('names the unlabeled build, using the same string the modal does', () => {
+    // Applied here rather than written into the database, so the display name
+    // for that case still exists in exactly one place.
+    expect(describeBuild('')).toBe(FULL_ARCHIVE)
+    expect(describeBuild('   ')).toBe(FULL_ARCHIVE)
+  })
+
+  it('says NOTHING for a row that never recorded a build', () => {
+    // A row queued before the column existed, or by a caller that did not know
+    // which build it was fetching. Printing "Full Archive" over those would be a
+    // guess dressed as a fact - the confusion this column exists to remove.
+    expect(describeBuild(null)).toBe(null)
+    expect(describeBuild(undefined)).toBe(null)
   })
 })
 

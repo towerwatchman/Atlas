@@ -32,6 +32,25 @@
 export const FULL_ARCHIVE = 'Full Archive'
 
 /**
+ * How to show a queued download's build, or null when there is nothing to say.
+ *
+ * The queue stores the poster's heading verbatim, so the FULL_ARCHIVE name for
+ * the unlabeled block is applied HERE rather than written into the database -
+ * same rule as the parser emitting an empty group. One display name, one place.
+ *
+ * @param {string|null|undefined} buildLabel `buildLabel` from a download row
+ * @returns {string|null} a label to render, or null to render nothing
+ */
+export function describeBuild(buildLabel) {
+  // NULL means the row predates the column, or was queued by something that
+  // never knew which build it was fetching. Saying "Full Archive" there would
+  // be a guess dressed as a fact.
+  if (buildLabel == null) return null
+  const text = String(buildLabel).trim()
+  return text || FULL_ARCHIVE
+}
+
+/**
  * Group links into the builds the poster offered.
  *
  * A link marked `unsupported` has no host plugin behind it. Those are kept only

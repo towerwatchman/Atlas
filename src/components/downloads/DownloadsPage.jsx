@@ -6,6 +6,7 @@ import { toMediaSrc } from '../../utils/mediaSrc.js'
 import InstallModal from './InstallModal.jsx'
 import LibraryFolderModal from './LibraryFolderModal.jsx'
 import LibraryStructureModal from './LibraryStructureModal.jsx'
+import { describeBuild } from './linkSections.js'
 import { getLibraryConfig } from '../../utils/librarySettings.js'
 
 // ── Downloads page ───────────────────────────────────────────────────────────
@@ -520,6 +521,19 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
             {item.title}
             {item.version && <span className="text-muted text-sm"> · {item.version}</span>}
           </div>
+
+          {/* WHICH build this is. A chip rather than more dot-separated text:
+              version is the game's number and this is the poster's heading, and
+              running them together is what made an old season, a compressed
+              build and the current one three identical-looking rows. Rendered
+              only when the row actually recorded one - see describeBuild. */}
+          {describeBuild(item.buildLabel) && (
+            <div className="mt-1">
+              <span className="inline-block max-w-full truncate rounded border border-border bg-tertiary/50 px-1.5 py-0.5 text-[11px] text-muted">
+                {describeBuild(item.buildLabel)}
+              </span>
+            </div>
+          )}
 
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
             <span className={errored ? 'text-danger' : ''}>

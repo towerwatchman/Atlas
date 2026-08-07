@@ -115,6 +115,15 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
         url: resolved.url,
         host: resolved.host || link.host,
         source: 'f95',
+        // Which build this is, in the poster's own words. The queue otherwise
+        // shows the game title and the LATEST version on every row, so an old
+        // season, a compressed build and the current one are three identical
+        // lines and there is no way to tell which archive you are waiting for.
+        //
+        // The RAW heading, empty for the unlabeled block - the display name for
+        // that case lives in linkSections.FULL_ARCHIVE and is applied by whoever
+        // renders it, so the string still exists in exactly one place.
+        buildLabel: link.group || '',
         // Left as 'replace'. A Browse row's record_id is a synthetic `catalog:…`
         // string rather than null, so testing it here was wrong — the main
         // process normalises the id and downgrades this to 'add' when there is no

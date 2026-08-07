@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { describeBuild } from './linkSections.js'
 
 // ── Downloads dock ───────────────────────────────────────────────────────────
 //
@@ -203,6 +204,15 @@ export default function DownloadsDock() {
               <span className={item.state === 'failed' ? 'text-danger' : ''}>
                 {STATE_LABELS[item.state] || item.state}
               </span>
+              {/* Inline here rather than a chip on its own line: the dock is a
+                  compact strip and a second row per item would halve how many
+                  fit. text-text so it reads as an identifier among the greyed
+                  status facts beside it. */}
+              {describeBuild(item.buildLabel) && (
+                <span className="text-text truncate max-w-[10rem]">
+                  {describeBuild(item.buildLabel)}
+                </span>
+              )}
               {item.host && <span>{item.host}</span>}
               {item.totalBytes > 0 && (
                 <span>

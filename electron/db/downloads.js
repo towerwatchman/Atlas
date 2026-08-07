@@ -182,6 +182,15 @@ const mapRow = (row) => {
     completedAt: row.completed_at,
     installedAt: row.installed_at,
     catalogRef: row.catalog_ref || "",
+    // Which build this row is, in the poster's own words.
+    //
+    // Three states, and the difference matters: a STRING is the heading; an
+    // EMPTY STRING is a build the thread offered under a plain "DOWNLOAD" with
+    // no heading of its own; NULL is a row queued before this column existed, or
+    // by a caller that never knew which build it was fetching. Collapsing the
+    // last two would print "Full Archive" over every legacy row - inventing the
+    // exact certainty this column was added to provide.
+    buildLabel: row.build_label == null ? null : String(row.build_label),
     // Ordered banner sources, same shape as a game's `banner_candidates`, so the
     // renderer can walk it with the fallback hook the library grid already uses.
     // Empty when the row identifies no game, or when the query that produced it
@@ -201,6 +210,12 @@ const initializeDownloads = async () => {
   // Failure means it is already there.
   await run(`ALTER TABLE downloads ADD COLUMN installed_at INTEGER`).catch(() => {});
   await run(`ALTER TABLE downloads ADD COLUMN catalog_ref TEXT`).catch(() => {});
+  // The poster's build heading - "Season 1", "Compressed", "SPLIT-S3-Int+Ep12".
+  // Without it the queue shows the game's title and the LATEST version for every
+  // row, so an old build and a compressed build and the current one are three
+  // identical-looking lines. Nullable and added late, so rows queued before this
+  // simply have nothing to show, which the UI treats as "not stated".
+  await run(`ALTER TABLE downloads ADD COLUMN build_label TEXT`).catch(() => {});
   for (const sql of DOWNLOADS_INDEXES) await run(sql);
   // Anything the app was actively working on when it exited is not actually in
   // progress any more. Park it as paused, keeping received_bytes so a resume can
@@ -253,6 +268,10 @@ const enqueueDownload = async ({
   onComplete = "replace",
   state = null,
   catalogRef = null,
+  // Defaults to NULL, not "". A caller that does not know which build it is
+  // queueing must not record the empty string, because that means something
+  // specific: "the poster gave this build no heading".
+  buildLabel = null,
 }) => {
   const clean = String(title || "").trim();
   if (!clean) return { success: false, error: "A title is required" };
@@ -268,12 +287,14 @@ const enqueueDownload = async ({
   const result = await run(
     `INSERT INTO downloads
        (record_id, title, creator, version, url, host, source, file_name,
-        state, on_complete, queue_order, created_at, updated_at, catalog_ref)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        state, on_complete, queue_order, created_at, updated_at, catalog_ref,
+        build_label)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       recordId, clean, creator, version, url, host, source, fileName,
       initialState, onComplete === "add" ? "add" : "replace",
       tail?.next || 0, timestamp, timestamp, catalogRef || null,
+      buildLabel == null ? null : String(buildLabel).trim(),
     ],
   );
   return { success: true, id: result.lastID, item: await getDownload(result.lastID) };
