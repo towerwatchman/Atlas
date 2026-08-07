@@ -3,6 +3,24 @@
 // "type": "module" is not an option — everything under electron/ is CommonJS.
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { includeIgnoreFile } from '@eslint/compat'
+
+// ESLint flat config does not read .gitignore. Without this, any gitignored
+// directory holding .js files under a linted path gets linted as if it were
+// source, and `npm run check` fails locally on files CI never sees.
+//
+// That happened: electron/ipc/extension.js copies extension/ to
+// <dataDir>/extension at app startup, which lands in the gitignored
+// electron/data/ when running from source. No override matched that path, so
+// the generated copy was linted as main-process CommonJS and every
+// chrome/document/alert reference failed no-undef -- 50 errors on a branch
+// whose PR had gone green, because actions/checkout never creates the dir.
+//
+// Reading .gitignore keeps the two lists from drifting. Same exposure exists
+// for src/data/* and src/_data/, which sit under the renderer glob.
+const gitignorePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.gitignore')
 
 // Deliberately narrow. This is not a style linter — Prettier handles formatting
 // (npm run format) and a full style sweep over a codebase this size would bury
@@ -24,6 +42,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 // would mean either a huge refactor or blanket disable comments.
 
 export default [
+  includeIgnoreFile(gitignorePath),
   {
     ignores: [
       'dist/**',
@@ -31,13 +50,6 @@ export default [
       'node_modules/**',
       'release/**',
       'scripts/**',
-      // Runtime state dir, gitignored. electron/ipc/extension.js copies
-      // extension/ to <dataDir>/extension on launch, which lands here when
-      // running from source. ESLint flat config does not read .gitignore, so
-      // without this the generated copy gets linted as main-process code and
-      // every chrome/document/alert reference fails no-undef. Lint the source
-      // at extension/, not the copy.
-      'electron/data/**',
       '*.config.js',
       'eslint.config.mjs',
     ],
