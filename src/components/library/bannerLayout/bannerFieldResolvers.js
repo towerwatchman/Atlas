@@ -1,5 +1,6 @@
 import { getGameTitle } from '../../../utils/gameDisplay.js'
 import { playstateMeta } from '../../../utils/playstates.js'
+import { computeOnlineRating } from '../../../utils/ratingCategories.js'
 
 const visibleText = (value) => (value === undefined || value === null ? '' : String(value))
 
@@ -56,6 +57,9 @@ export const getNewestVersion = (game = {}) => {
   return maxVersion || catalogVersion || 'V 1.0'
 }
 
+// All ratings on library cards format out of 10 to match the detail view scale
+// and allow personal and online ratings to be compared directly. Branching on
+// rating <= 5 incorrectly forced ratings at or below 5 onto a 0-5 scale.
 const formatRating = (value) => {
   if (value === undefined || value === null || value === '') return ''
   // Ratings arrive in several shapes: a clean number ("4.5"), F95's
@@ -66,7 +70,7 @@ const formatRating = (value) => {
   if (!match) return ''
   const rating = Number(match[0])
   if (!Number.isFinite(rating) || rating <= 0) return ''
-  return rating <= 5 ? `${rating.toFixed(1)}/5` : `${rating.toFixed(1)}/10`
+  return `${rating.toFixed(1)}/10`
 }
 
 const formatPlaytime = (value) => {
@@ -248,7 +252,11 @@ export const resolveBannerField = (fieldId, game = {}) => {
     case 'lewdCornerId':
       return { value: ids.lewdcorner ? `LC ${ids.lewdcorner}` : '', visible: Boolean(ids.lewdcorner), variant: 'source' }
     case 'sourceRating': {
-      const value = formatRating(firstValue(game.sourceRating, game.rating, game.lewdcornerRating, game.score, game.f95Rating, game.steamRating))
+      const online = computeOnlineRating({
+        f95Rating: firstValue(game.f95Rating, game.rating),
+        lewdcornerRating: game.lewdcornerRating,
+      })
+      const value = formatRating(firstValue(game.sourceRating, online, game.rating, game.lewdcornerRating, game.score, game.f95Rating, game.steamRating))
       return { value, visible: Boolean(value), variant: 'neutral', icon: 'fas fa-star' }
     }
     case 'personalRating': {

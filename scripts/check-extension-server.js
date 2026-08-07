@@ -31,6 +31,7 @@ check(extractThreadInfo('https://example.com') === null, 'Non-thread URL returns
 
 // 2. HTTP RPC Server checks
 const TEST_PORT = 57098;
+const TEST_TOKEN = 'test-token-12345678901234567890123456789012';
 
 startExtensionServer({
   port: TEST_PORT,
@@ -38,6 +39,7 @@ startExtensionServer({
     Extension: {
       rpcEnabled: true,
       rpcPort: TEST_PORT,
+      rpcToken: TEST_TOKEN,
       iconGlow: true,
       highlightTags: false,
     },
@@ -48,7 +50,11 @@ check(isExtensionServerRunning(), 'Extension server running');
 
 const fetchUrl = (url, options = {}) =>
   new Promise((resolve, reject) => {
-    const req = http.request(url, options, (res) => {
+    const headers = {
+      'x-atlas-token': TEST_TOKEN,
+      ...(options.headers || {}),
+    };
+    const req = http.request(url, { ...options, headers }, (res) => {
       let body = '';
       res.on('data', (chunk) => {
         body += chunk;
@@ -78,9 +84,10 @@ async function runServerTests() {
 
     const optionsRes = await fetchUrl(`http://127.0.0.1:${TEST_PORT}/api/games`, {
       method: 'OPTIONS',
+      headers: { Origin: 'chrome-extension://eeejnjabpobbeoklajpekhfofnokoboe' },
     });
     check(optionsRes.statusCode === 200, 'OPTIONS preflight HTTP 200');
-    check(optionsRes.headers['access-control-allow-origin'] === '*', 'CORS Allow-Origin *');
+    check(optionsRes.headers['access-control-allow-origin'] === 'chrome-extension://eeejnjabpobbeoklajpekhfofnokoboe', 'CORS Allow-Origin matches extension');
 
     console.log(`[check-extension-server] All ${checks} checks passed clean.`);
   } finally {
