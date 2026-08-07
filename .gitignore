@@ -17,3 +17,8 @@ src/data/config.ini
 scripts/test-*.js
 .temp_*
 scratch/
+
+# Chrome extension signing key. The PUBLIC key lives in extension/manifest.json
+# as "key" and is safe to commit; this private key is not and must never be.
+*.pem
+keys/

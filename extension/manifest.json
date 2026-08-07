@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2f5TdUI/CPRhA/sP9lzleibMorDDwvMaDdOdddfjvlkTf2wD+hTvH7pZ+XkZcEIyr6g8ccW/vIdL7Mii3Hs1lwh3Ury2KA1H1jxhA3FhOlsUjObHrvPNyOZiCVYH6BH5liGGKS35S/+cUYqArowIzE8kzfQkMOxOSLmRTO0RiofOR0brrbMzxz7RwWZhGT63MGUWIUuow9JMKCyqsbJocZjsj2+5ailv/qFrbscxL6hnzCjzNlzbEncxpsw0qSiKplLsJxdKiSb6PBd09tlQGW92515W8beFqEN+Pqr4kngcUi8gxKPfgZgI/1UlC99nsbb9l5zTrZLlzeO5zhgvCwIDAQAB",
   "name": "Atlas Browser Extension",
   "short_name": "Atlas",
   "author": "Atlas Developer",

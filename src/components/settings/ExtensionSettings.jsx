@@ -12,6 +12,7 @@ const ExtensionSettings = () => {
   })
   const [extensionPath, setExtensionPath] = useState('')
   const [copied, setCopied] = useState(false)
+  const [showSteps, setShowSteps] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState(null)
 
@@ -171,6 +172,75 @@ const ExtensionSettings = () => {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Install steps. Chrome refuses to let any application -- including this
+          one -- navigate to a chrome:// URL, so there is no button that can open
+          the extensions page for the user. Spelling the steps out is the most
+          help we are actually allowed to give. */}
+      <div className="bg-secondary border border-border p-4 rounded mb-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-medium text-text">How to Install</h4>
+            <p className="text-xs text-text/70 mt-0.5">
+              Browsers only allow extensions from their own store to install automatically,
+              so Atlas&apos;s extension is added manually. You only do this once.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowSteps((v) => !v)}
+            className="shrink-0 px-3 py-1.5 bg-tertiary hover:bg-tertiary/80 text-text rounded text-xs transition cursor-pointer"
+          >
+            {showSteps ? 'Hide steps' : 'Show steps'}
+          </button>
+        </div>
+
+        {showSteps && (
+          <ol className="mt-3 space-y-2.5 text-xs text-text/85 list-decimal list-inside marker:text-text/50">
+            <li>
+              Click <span className="font-medium text-text">Open Folder</span> above, or copy
+              the path. Leave the window open — you&apos;ll need it in step 4.
+            </li>
+            <li>
+              In Chrome, open a new tab and go to{' '}
+              <code className="bg-tertiary px-1.5 py-0.5 rounded font-mono select-all">chrome://extensions</code>.
+              <span className="block text-text/60 mt-0.5">
+                Edge uses <code className="font-mono">edge://extensions</code>, Brave uses{' '}
+                <code className="font-mono">brave://extensions</code>. This address has to be
+                typed or pasted — browsers block links to it, including from Atlas.
+              </span>
+            </li>
+            <li>
+              Turn on <span className="font-medium text-text">Developer mode</span> using the
+              toggle in the top-right corner of that page.
+            </li>
+            <li>
+              Click <span className="font-medium text-text">Load unpacked</span> (top-left),
+              then select the extension folder from step 1.
+            </li>
+            <li>
+              Atlas should appear in your extension list. Make sure Atlas is running, then
+              use <span className="font-medium text-text">Test Connection</span> below to
+              confirm the browser and Atlas can talk to each other.
+            </li>
+          </ol>
+        )}
+
+        {showSteps && (
+          <div className="mt-3 pt-3 border-t border-border/50 space-y-1.5">
+            <p className="text-xs text-text/60">
+              <span className="font-medium text-text/80">If Chrome warns about developer mode</span>{' '}
+              on startup, that notice is expected for any manually added extension and is safe
+              to dismiss. Don&apos;t click &quot;Disable&quot; — that will turn Atlas&apos;s
+              extension off.
+            </p>
+            <p className="text-xs text-text/60">
+              <span className="font-medium text-text/80">Keep the folder where it is.</span>{' '}
+              Chrome loads these files from disk every time it starts, so moving or deleting
+              the folder disables the extension. Atlas keeps it updated automatically.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Server Status & RPC Toggle */}
