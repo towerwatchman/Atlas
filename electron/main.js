@@ -2327,6 +2327,18 @@ app.whenReady().then(async () => {
     get: () => appConfig,
     set: (v) => { appConfig = v },
   })
+  // ipc/extension.js has always called ctx.getConfig() and ctx.saveSettings(),
+  // but neither was ever on ctx -- so save-extension-settings threw and the
+  // extension's own settings never persisted. Defined here rather than in
+  // buildCtx() so they read appConfig live instead of snapshotting it.
+  Object.defineProperty(ctx, 'getConfig', { value: () => appConfig })
+  Object.defineProperty(ctx, 'saveSettings', {
+    value: (newConfig) => {
+      appConfig = newConfig
+      writeConfigSafely()
+      return appConfig
+    },
+  })
   Object.defineProperty(ctx, 'nsfwConfigured', {
     get: () => nsfwConfigured,
     set: (v) => { nsfwConfigured = v },

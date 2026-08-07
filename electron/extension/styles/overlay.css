@@ -1,0 +1,25 @@
+.atlas-library-icons {
+    display: inline-flex !important;
+    align-items: center !important;
+    vertical-align: middle !important;
+    margin-right: 4px !important;
+    margin-left: 2px !important;
+}
+
+.atlas-badge-wrapper {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    cursor: pointer;
+    transition: transform 0.15s ease-in-out;
+}
+
+.atlas-badge-wrapper:hover {
+    transform: scale(1.15);
+}
+
+.atlas-badge-icon {
+    display: inline-block;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}

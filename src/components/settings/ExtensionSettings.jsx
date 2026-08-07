@@ -303,7 +303,8 @@ const ExtensionSettings = () => {
               <code className="bg-tertiary px-1.5 py-0.5 rounded font-mono select-all">chrome://extensions</code>.
               <span className="block text-text/60 mt-0.5">
                 Edge uses <code className="font-mono">edge://extensions</code>, Brave uses{' '}
-                <code className="font-mono">brave://extensions</code>. This address has to be
+                <code className="font-mono">brave://extensions</code>, Opera GX uses{' '}
+                <code className="font-mono">opera://extensions</code>. This address has to be
                 typed or pasted — browsers block links to it, including from Atlas.
               </span>
             </li>
@@ -371,7 +372,7 @@ const ExtensionSettings = () => {
                 onChange={(e) => updateSetting('rpcEnabled', e.target.checked)}
                 className="sr-only peer"
               />
-              <div className="w-11 h-6 bg-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent" />
+              <div className="w-9 h-5 bg-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent" />
             </label>
           </div>
         </div>
@@ -421,7 +422,7 @@ const ExtensionSettings = () => {
               onChange={(e) => updateSetting('backgroundAdd', e.target.checked)}
               className="sr-only peer"
             />
-            <div className="w-11 h-6 bg-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent" />
+            <div className="w-9 h-5 bg-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent" />
           </label>
         </div>
 
@@ -437,7 +438,7 @@ const ExtensionSettings = () => {
               onChange={(e) => updateSetting('iconGlow', e.target.checked)}
               className="sr-only peer"
             />
-            <div className="w-11 h-6 bg-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent" />
+            <div className="w-9 h-5 bg-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent" />
           </label>
         </div>
 
@@ -453,20 +454,11 @@ const ExtensionSettings = () => {
               onChange={(e) => updateSetting('highlightTags', e.target.checked)}
               className="sr-only peer"
             />
-            <div className="w-11 h-6 bg-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent" />
+            <div className="w-9 h-5 bg-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent" />
           </label>
         </div>
       </div>
 
-      {/* Extension Installation Guide */}
-      <div className="bg-secondary border border-border p-4 rounded space-y-2">
-        <h4 className="text-sm font-medium text-text">How to Install in Opera GX / Chrome / Edge</h4>
-        <ol className="list-decimal list-inside text-xs text-text/80 space-y-1.5">
-          <li>Open your browser extensions page (e.g. <code className="bg-tertiary px-1.5 py-0.5 rounded text-text font-mono">opera://extensions</code> or <code className="bg-tertiary px-1.5 py-0.5 rounded text-text font-mono">chrome://extensions</code>).</li>
-          <li>Enable <strong>Developer mode</strong> in the top-right corner.</li>
-          <li>Click <strong>Load unpacked</strong> and select the <code className="bg-tertiary px-1.5 py-0.5 rounded text-text font-mono">extension</code> folder (click <strong>Copy Path</strong> or <strong>Open Folder</strong> above to locate it).</li>
-        </ol>
-      </div>
     </div>
   )
 }
