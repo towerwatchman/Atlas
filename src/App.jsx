@@ -264,7 +264,7 @@ const App = () => {
     games, catalogGames, wishlistGames, totalVersions, fetchGames, fetchCatalogGames,
     requestCatalogRange, catalogLoading, catalogLoadingMore,
     catalogTotal, catalogLoadError, catalogIndexState,
-    gamesLoading, wishlistLoading, libraryStats,
+    gamesLoading, wishlistLoading, libraryStats, libraryStatsStale,
     fetchWishlistGames, replaceGameInState,
     removeGameFromState, refreshGame, includeUninstalledRef,
   } = useGames()
@@ -405,8 +405,13 @@ const App = () => {
   // Deliberately NOT folded into the spinner condition above: that would spin
   // forever on a failed fetch. This is a genuine anomaly, so it gets its own
   // message and a retry rather than an animation that never ends.
+  // Deliberately silent while the count is being re-read. The list and the
+  // count come from two separate queries, so a membership change makes them
+  // disagree for real until the re-count lands — and "reports 1 game, none
+  // returned" is exactly what deleting your last game looks like mid-flight.
   const libraryLoadMismatch =
-    libraryMode === 'local' && !gamesLoading && games.length === 0 && expectedLibraryCount > 0
+    libraryMode === 'local' && !gamesLoading && !libraryStatsStale
+    && games.length === 0 && expectedLibraryCount > 0
   // Distinguishes "your filters match nothing" from "you have no games", which
   // the single 'No games available' string used to conflate.
   const hasActiveLibraryFilters = Boolean(

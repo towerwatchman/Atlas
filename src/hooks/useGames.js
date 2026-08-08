@@ -60,6 +60,12 @@ export function useGames() {
   // that is still loading from one that is genuinely empty, and show the real
   // total while waiting rather than a bare spinner.
   const [libraryStats, setLibraryStats] = useState(null)
+  // True from the moment the library membership changes until the re-count
+  // lands. The count and the loaded list are read separately, so between a
+  // delete and its re-count they legitimately disagree — and App treats that
+  // disagreement as a failed load. Without this the warning panel flashed on
+  // the way to the correct empty state.
+  const [libraryStatsStale, setLibraryStatsStale] = useState(false)
   const [totalVersions, setTotalVersions] = useState(0)
   const includeUninstalledRef = useRef(true)
   // Bumped on every reset; any page fetch already in flight from a
@@ -94,15 +100,39 @@ export function useGames() {
     }
   }, [])
 
+  // Re-read the totals. This used to live inline in a mount effect and run
+  // exactly once per session, which meant every later add or delete left the
+  // count wrong — visibly in the header text, and destructively in App's
+  // libraryLoadMismatch guard, which compares it against the loaded list.
+  const refreshLibraryStats = useCallback(async () => {
+    try {
+      const stats = await window.electronAPI.getLibraryStats?.()
+      setLibraryStats(stats || null)
+      setLibraryStatsStale(false)
+      return stats || null
+    } catch (err) {
+      console.warn('Could not read library stats:', err?.message || err)
+      // Leave the flag set. A count we could not read is still not to be
+      // trusted, and suppressing the guard is the safe direction: the cost is
+      // a missed warning, not a false one.
+      return null
+    }
+  }, [])
+
+  // Coalesced because an import fires one membership change per title, and
+  // three COUNT(*)s per scanned game would be a real cost on a large scan. The
+  // stale flag is set immediately by the caller, so the delay never lets a
+  // wrong count reach the guard — it only delays the correction.
+  const reconcileLibraryStats = useCallback(
+    debounce(() => { refreshLibraryStats() }, 150),
+    [refreshLibraryStats],
+  )
+
   // Runs on mount so the count is known as early as possible — it is three
   // indexed COUNT(*)s and resolves long before get-games does.
   useEffect(() => {
-    let cancelled = false
-    window.electronAPI.getLibraryStats?.()
-      .then((stats) => { if (!cancelled) setLibraryStats(stats || null) })
-      .catch((err) => console.warn('Could not read library stats:', err?.message || err))
-    return () => { cancelled = true }
-  }, [])
+    refreshLibraryStats()
+  }, [refreshLibraryStats])
 
   useEffect(() => {
     refreshCatalogIndexState()
@@ -128,6 +158,10 @@ export function useGames() {
   const fetchGames = useCallback(
     (includeUninstalled = includeUninstalledRef.current, options = {}) => {
       setGamesLoading(true)
+      // Re-counted alongside the list rather than trusted from mount, so the
+      // two always describe the same database state. This is also what makes
+      // the warning panel's own "Reload library" button able to clear it.
+      refreshLibraryStats()
       return window.electronAPI
         .getGames({ includeUninstalled, options })
         .then((allGames) => {
@@ -144,7 +178,7 @@ export function useGames() {
         })
         .finally(() => setGamesLoading(false))
     },
-    [updateGamesState]
+    [updateGamesState, refreshLibraryStats]
   )
 
   // Fetches a single page-aligned offset and writes it into catalogGames
@@ -361,9 +395,16 @@ export function useGames() {
       setTotalVersions(
         newGames.reduce((sum, g) => sum + (g.versionCount || 0), 0)
       )
+      // Only a change in MEMBERSHIP moves the totals. A metadata refresh on a
+      // game already on screen does not, and re-counting for those would mean
+      // three COUNT(*)s per title during an import scan.
+      if (!exists || shouldHideMissing) {
+        setLibraryStatsStale(true)
+        reconcileLibraryStats()
+      }
       return newGames
     })
-  }, [])
+  }, [reconcileLibraryStats])
 
   const removeGameFromState = useCallback((id) => {
     setGames((prev) => {
@@ -373,7 +414,13 @@ export function useGames() {
       )
       return newGames
     })
-  }, [])
+    // A delete never re-fetches the library, so this is the only thing that
+    // tells the cached count it is out of date. Deleting the only game left
+    // the count at 1 against an empty grid, which App reported as a failed
+    // load — and no amount of reloading fixed it, because nothing re-counted.
+    setLibraryStatsStale(true)
+    reconcileLibraryStats()
+  }, [reconcileLibraryStats])
 
   const refreshGame = useCallback(
     debounce((recordId) => {
@@ -420,6 +467,8 @@ export function useGames() {
     gamesLoading,
     wishlistLoading,
     libraryStats,
+    libraryStatsStale,
+    refreshLibraryStats,
     wishlistGames,
     totalVersions,
     fetchGames,
