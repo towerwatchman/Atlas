@@ -9,6 +9,7 @@ import fs from 'fs'
 
 
 const { __testables: T } = require('../electron/ipc/importer')
+const acorn = require('acorn')
 
 describe('sanitizePathSegment', () => {
   it('replaces filesystem-illegal characters', () => {
@@ -81,25 +82,50 @@ describe('buildStructuredImportPath', () => {
 })
 
 
-// Strip comments and console.log calls to use with test that based on code availability scanning
-function stripCommentsAndLog(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/[^\n]*/g, '')
-    .replace(/console\.log\([^)]*\);/g, '');
+// walks the ast looking for a call expression that matches. returns first hit
+function findCall(node, matcher) {
+  if (!node || typeof node.type !== 'string') return null
+  if (node.type === 'CallExpression' && matcher(node)) return node
+
+  for (const key in node) {
+    const val = node[key]
+    if (Array.isArray(val)) {
+      for (const child of val) {
+        const hit = findCall(child, matcher)
+        if (hit) return hit
+      }
+    } else if (val && typeof val === 'object') {
+      const hit = findCall(val, matcher)
+      if (hit) return hit
+    }
+  }
+  return null
 }
 
-test('downloads-install allows supported fields in Atlas Library Structure path regex', () => {
+test('downloads-install passes required fields in buildStructuredImportPath', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'electron', 'ipc', 'importer.js'), 'utf8')
-  const clean = stripCommentsAndLog(src)
-  const s = clean.slice(clean.indexOf('ipcMain.handle("downloads-install"'))
-  const t = s.slice(s.indexOf('const targetBase = getUniquePath('))
-  const b = t.slice(0, t.indexOf('buildStructuredImportPath(') + 600)
-  expect(b).toMatch(/f95Id\s*:/)
-  expect(b).toMatch(/engine\s*:/)
-  expect(b).toMatch(/creator\s*:/)
-  expect(b).toMatch(/title\s*:/)
-  expect(b).toMatch(/version\s*:/)
+  const ast = acorn.parse(src, { ecmaVersion: 'latest' })
+
+  const isDownloadsInstallHandle = (node) =>
+    node.callee?.object?.name === 'ipcMain' &&
+    node.callee?.property?.name === 'handle' &&
+    node.arguments[0]?.value === 'downloads-install'
+
+  const handlerCall = findCall(ast, isDownloadsInstallHandle)
+  if (!handlerCall) throw new Error('ipcMain.handle("downloads-install", ...) not found')
+
+  const buildCall = findCall(handlerCall, (n) => n.callee?.name === 'buildStructuredImportPath')
+  if (!buildCall) throw new Error('buildStructuredImportPath not called inside downloads-install handler')
+
+  const obj = buildCall.arguments.find((a) => a.type === 'ObjectExpression')
+  if (!obj) throw new Error('buildStructuredImportPath was not given an object literal')
+
+  const keys = obj.properties.map((p) => p.key.name)
+  const required = ['f95Id', 'engine', 'creator', 'title', 'version']
+
+  for (const key of required) {
+    expect(keys).toContain(key)
+  }
 })
 
 describe('source detection — Steam', () => {
