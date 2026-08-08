@@ -12,7 +12,7 @@ const { recordGameLaunchStarted, recordGamePlaytime, getLibraryStats } = require
 // AFTER already writing the override.
 const { getTagState, clearTagOverride, getKnownTags, bulkEditTags } = require('../db/tagOverrides')
 const { sanitizeChildEnv, resolveLinuxLaunch, resolveEmulatorLaunch } = require('../launchEnv')
-const { getEmulatorByExtension } = require('../db/settings')
+const { getEmulatorForFile } = require('../db/settings')
 const { getSteamIDbyRecord } = require('../db/steam')
 const { getGogIDbyRecord, addGogMapping } = require('../db/gog')
 const { fetchAndStoreGogData } = require('../scanners/gogscanner')
@@ -189,7 +189,13 @@ async function launchGame({ execPath, gamePath, extension, recordId, version, so
   if (!hasExecutable) {
     throw new Error(`Executable not found: ${execPath}`)
   }
-  const emulator = await getEmulatorByExtension(extension)
+  // File name first, extension second. A launcher configured for "game.sh"
+  // is a deliberate exception to whatever ".sh" does, so the general rule
+  // winning would leave no way to express it.
+  const emulator = await getEmulatorForFile({
+    fileName: path.basename(execPath),
+    extension,
+  })
   if (emulator) {
     // The general wrapper mechanism: Wine, Proton, an interpreter, anything. It
     // is checked first so a configured launcher always beats built-in handling.

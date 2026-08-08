@@ -381,8 +381,15 @@ module.exports = function registerSettingsHandlers(ctx) {
     return await ctx.getEmulatorConfig()
   })
 
-  ipcMain.handle('remove-emulator-config', async (event, extension) => {
-    return await ctx.removeEmulatorConfig(extension)
+  // Takes { key, matchType } rather than a bare extension: an extension
+  // mapping and a file-name mapping can share a key string, so without the
+  // type this deletes whichever row it happens to reach first. A plain
+  // string is still accepted — that payload only ever meant an extension.
+  ipcMain.handle('remove-emulator-config', async (event, payload) => {
+    const isLegacy = typeof payload === 'string'
+    const key = isLegacy ? payload : payload?.key
+    const matchType = isLegacy ? 'extension' : payload?.matchType
+    return await ctx.removeEmulatorConfig(key, matchType)
   })
 
   // Manual re-run of the startup lookup, for the Detect button next to the

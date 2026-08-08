@@ -207,8 +207,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveEmulatorConfig: (config) =>
     ipcRenderer.invoke("save-emulator-config", config),
   getEmulatorConfig: () => ipcRenderer.invoke("get-emulator-config"),
-  removeEmulatorConfig: (extension) =>
-    ipcRenderer.invoke("remove-emulator-config", extension),
+  removeEmulatorConfig: (key, matchType = "extension") =>
+    ipcRenderer.invoke("remove-emulator-config", { key, matchType }),
   getPreviews: (recordId, sourceAppId = null) => {
     console.log("Invoking getPreviews for recordId:", recordId, "appid:", sourceAppId);
     return ipcRenderer.invoke("get-previews", { recordId, sourceAppId });

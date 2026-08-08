@@ -171,6 +171,75 @@ function rebuildF95WithoutAtlasIdUnique() {
   });
 }
 
+let emulatorsCompositeKeyMigrationRunning = false;
+
+// Widen the emulators key from (extension) to (match_type, extension).
+//
+// SQLite cannot alter a primary key in place, so this is a rebuild. It only
+// matters for databases that predate file-name matching: without it, adding a
+// launcher for a file called "sh" would REPLACE the launcher for ".sh"
+// instead of sitting beside it.
+//
+// Guarded against overlapping runs rather than against ever running twice.
+// initializeDatabase is re-invoked by several IPC handlers, and two rebuilds
+// in flight would fight over the same table — but a run that never happened
+// (the ALTER above had not landed yet) must still be able to happen later, so
+// the flag clears rather than latching the way the atlas_data guard does.
+function migrateEmulatorsCompositeKey() {
+  if (emulatorsCompositeKeyMigrationRunning) return;
+  emulatorsCompositeKeyMigrationRunning = true;
+  const done = () => { emulatorsCompositeKeyMigrationRunning = false; };
+
+  db.all(`PRAGMA table_info(emulators)`, (err, cols) => {
+    if (err || !Array.isArray(cols) || cols.length === 0) return done();
+    const matchType = cols.find((c) => c.name === 'match_type');
+    // pk > 0 means the column is already part of the primary key, so this has
+    // run before. A missing column means the ALTER has not been applied to
+    // this file yet; leave it for the next launch rather than guessing.
+    if (!matchType || matchType.pk > 0) return done();
+
+    withWriteLock('migrate.rebuildEmulators', () => new Promise((settle) => {
+      const finish = () => { done(); settle(); };
+      db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+        db.run(`
+          CREATE TABLE emulators_rebuild
+          (
+            extension TEXT NOT NULL,
+            program_path TEXT NOT NULL,
+            parameters TEXT,
+            match_type TEXT NOT NULL DEFAULT 'extension',
+            PRIMARY KEY (match_type, extension)
+          );
+        `);
+        db.run(`
+          INSERT OR REPLACE INTO emulators_rebuild
+            (extension, program_path, parameters, match_type)
+          SELECT extension, program_path, parameters, COALESCE(match_type, 'extension')
+          FROM emulators;
+        `);
+        db.run(`DROP TABLE emulators;`);
+        db.run(`ALTER TABLE emulators_rebuild RENAME TO emulators;`, (e) => {
+          if (e) {
+            console.error("emulators rebuild failed, rolled back:", e);
+            db.run("ROLLBACK", () => finish());
+            return;
+          }
+          db.run("COMMIT", (commitErr) => {
+            if (commitErr) {
+              console.error("emulators rebuild commit failed:", commitErr);
+              finish();
+              return;
+            }
+            console.log("emulators rebuilt with a (match_type, extension) key");
+            finish();
+          });
+        });
+      });
+    }));
+  });
+}
+
 const initializeDatabase = (dataDir) => {
   const dbPath = path.join(dataDir, "data.db");
   db = new sqlite3.Database(dbPath, (err) => {
@@ -532,14 +601,26 @@ const initializeDatabase = (dataDir) => {
         UNIQUE(record_id, lc_id)
       );
     `);
+    // `extension` holds the match KEY, and match_type says how to read it:
+    // 'extension' means a bare suffix ("sh"), 'filename' means a whole file
+    // name ("game.sh"). Two mappings can legitimately share the same string —
+    // a Linux build with no suffix can be named "sh" — so the key covers both
+    // columns. Keyed on extension alone, adding one silently replaced the
+    // other via INSERT OR REPLACE.
     db.run(`
       CREATE TABLE IF NOT EXISTS emulators
       (
-        extension TEXT PRIMARY KEY,
+        extension TEXT NOT NULL,
         program_path TEXT NOT NULL,
-        parameters TEXT
+        parameters TEXT,
+        match_type TEXT NOT NULL DEFAULT 'extension',
+        PRIMARY KEY (match_type, extension)
       );
     `);
+    // Databases created before file-name matching existed. The ALTER errors
+    // harmlessly once the column is there; widening the key needs a rebuild,
+    // which migrateEmulatorsCompositeKey() does below.
+    db.run(`ALTER TABLE emulators ADD COLUMN match_type TEXT NOT NULL DEFAULT 'extension';`, () => {});
     db.run(`
   CREATE TABLE IF NOT EXISTS steam_data
   (
@@ -786,6 +867,7 @@ const initializeDatabase = (dataDir) => {
     // old unique index is actually present.
     migrateDropAtlasIdNameUnique();
     migrateDropF95AtlasIdUnique();
+    migrateEmulatorsCompositeKey();
     sweepOrphanedRecords();
 
     // Browse-mode index tables. Required at boot rather than lazily: the steam

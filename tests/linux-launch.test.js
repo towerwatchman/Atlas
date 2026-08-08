@@ -286,7 +286,9 @@ test('the emulator branch passes a working directory', () => {
     path.join(__dirname, '..', 'electron', 'ipc', 'games.js'),
     'utf8',
   )
-  const start = src.indexOf('const emulator = await getEmulatorByExtension')
+  // Anchored on getEmulatorForFile since the lookup gained a file-name pass;
+  // the cwd contract this guards is the same either way.
+  const start = src.indexOf('const emulator = await getEmulatorForFile')
   expect(start).toBeGreaterThan(-1)
   const branch = src.slice(start, start + 900)
   expect(branch).toContain('resolveEmulatorLaunch')

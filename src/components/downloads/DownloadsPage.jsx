@@ -519,7 +519,7 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
         <div className="flex-1 min-w-0">
           <div className={`truncate text-text ${featured ? 'text-base' : 'text-sm'}`}>
             {item.title}
-            {item.version && <span className="text-muted text-sm"> · {item.version}</span>}
+            {item.version && <span className="text-text text-sm"> · {item.version}</span>}
           </div>
 
           {/* WHICH build this is. A chip rather than more dot-separated text:
@@ -529,13 +529,13 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
               only when the row actually recorded one - see describeBuild. */}
           {describeBuild(item.buildLabel) && (
             <div className="mt-1">
-              <span className="inline-block max-w-full truncate rounded border border-border bg-tertiary/50 px-1.5 py-0.5 text-[11px] text-muted">
+              <span className="inline-block max-w-full truncate rounded border border-border bg-tertiary/50 px-1.5 py-0.5 text-[11px] text-text">
                 {describeBuild(item.buildLabel)}
               </span>
             </div>
           )}
 
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-text">
             <span className={errored ? 'text-danger' : ''}>
               {STATE_LABELS[item.state] || item.state}
             </span>
@@ -568,7 +568,7 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
           {item.state === 'awaiting_file' && (
             // The masked-link case. Says plainly what Atlas is waiting on, so
             // this does not read as a stalled transfer.
-            <div className="mt-1 text-xs text-muted">
+            <div className="mt-1 text-xs text-text">
               Finish the download in your browser — Atlas will pick the file up
               from the downloads folder.
               <button
