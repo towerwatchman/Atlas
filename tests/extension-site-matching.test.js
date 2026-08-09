@@ -80,18 +80,31 @@ describe('Browser Extension Thread & Site Matching', () => {
       expect(matched).toBeNull()
     })
 
-    it('correctly matches a dual-site game on its corresponding thread ID for each site', () => {
-      const f95Thread = { site: 'f95', id: 184252 }
-      const lcThread = { site: 'lewdcorner', id: 19523 }
+    it('does NOT match F95Zone thread 3207 for a game whose F95 ID is 5691 and LewdCorner ID is 3207', () => {
+      const dualSiteGame = [
+        {
+          id: 5691,
+          title: 'Example Game X',
+          f95Id: '5691',
+          lcId: '3207',
+          installed: true,
+          installedVersion: 'v0.26EX',
+        },
+      ]
 
-      const f95Match = findGameForThread(f95Thread, gamesList)
-      const lcMatch = findGameForThread(lcThread, gamesList)
+      // Visiting https://f95zone.to/threads/3207/ must NOT match Example Game X (whose F95 ID is 5691)
+      const f95Thread3207 = { site: 'f95', id: 3207 }
+      expect(findGameForThread(f95Thread3207, dualSiteGame)).toBeNull()
 
-      expect(f95Match).not.toBeNull()
-      expect(f95Match.title).toBe('Law School - Season 1')
+      // Visiting https://lewdcorner.com/threads/3207/ MUST match Example Game X
+      const lcThread3207 = { site: 'lewdcorner', id: 3207 }
+      expect(findGameForThread(lcThread3207, dualSiteGame)).not.toBeNull()
+      expect(findGameForThread(lcThread3207, dualSiteGame).title).toBe('Example Game X')
 
-      expect(lcMatch).not.toBeNull()
-      expect(lcMatch.title).toBe('Law School - Season 1')
+      // Visiting https://f95zone.to/threads/5691/ MUST match Example Game X
+      const f95Thread5691 = { site: 'f95', id: 5691 }
+      expect(findGameForThread(f95Thread5691, dualSiteGame)).not.toBeNull()
+      expect(findGameForThread(f95Thread5691, dualSiteGame).title).toBe('Example Game X')
     })
   })
 })

@@ -140,10 +140,23 @@ function ensureExtensionFiles(ctx) {
 
     if (!fs.existsSync(targetDir) || !fs.existsSync(targetManifest)) {
       shouldCopy = true
-    } else if (fs.existsSync(sourceManifest)) {
-      const sourceStat = fs.statSync(sourceManifest)
+    } else {
+      // Recursively checks all extension source files to ensure edits to content.js/background.js trigger sync to dataDir
+      const getLatestMtime = (dir) => {
+        let maxMtime = 0
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const fullPath = path.join(dir, entry.name)
+          if (entry.isDirectory()) {
+            maxMtime = Math.max(maxMtime, getLatestMtime(fullPath))
+          } else {
+            maxMtime = Math.max(maxMtime, fs.statSync(fullPath).mtimeMs)
+          }
+        }
+        return maxMtime
+      }
+      const sourceMaxMtime = getLatestMtime(sourceDir)
       const targetStat = fs.statSync(targetManifest)
-      if (sourceStat.mtimeMs > targetStat.mtimeMs) {
+      if (sourceMaxMtime > targetStat.mtimeMs) {
         shouldCopy = true
       }
     }
