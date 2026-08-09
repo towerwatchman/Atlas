@@ -152,6 +152,7 @@ const {
   resolveDataRoot, grantUsersModify, isElevated,
   getLegacyDataDirs, directorySize, migrateLegacyData,
 } = require('./dataLocation')
+const appLog = require('./appLog')
 const accountStore = require('./accounts/accountStore')
 
 // ── Shared mutable state ────────────────────────────────────────────────────
@@ -226,6 +227,13 @@ try {
   dataWriteState = { writable: false, error: err.message }
   console.error('Failed to create data directories:', err.message)
 }
+
+// Point the shared file logger at the data folder. Done here rather than letting
+// appLog fall back to app.getPath('logs') because that path is only redirected
+// into the data folder for packaged builds (see the setPath block below, guarded
+// by process.defaultApp), so in dev the log would land somewhere else entirely --
+// and dev is where it gets read while a fix is being written.
+appLog.configure(path.join(dataDir, 'logs'))
 
 // Point Electron/Chromium's own storage (userData, session data, HTTP cache,
 // GPUCache, cookies, logs) at our data folder instead of the OS default

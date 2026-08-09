@@ -30,6 +30,15 @@ function formatBytes(value) {
   return `${scaled.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
 }
 
+// A machine with SHA-NI hashes tens of gigabytes per second across all threads,
+// so MB/s stops being readable well before the top of the range.
+function formatThroughput(mbPerSecond) {
+  const value = Number(mbPerSecond) || 0
+  if (value <= 0) return null
+  if (value >= 1000) return `${(value / 1000).toFixed(1)} GB/s`
+  return `${Math.round(value)} MB/s`
+}
+
 // Seconds are the wrong unit for a four-minute wait and minutes are the wrong
 // unit for a six-second one.
 function formatDuration(seconds) {
@@ -215,8 +224,8 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
                   <p className="text-muted">
                     About {formatDuration(selfTest.estimateSeconds)} for a real MEGA
                     sign-in on this computer
-                    {Number(selfTest.throughputMBps) > 0
-                      && ` (${Math.round(selfTest.throughputMBps)} MB/s)`}
+                    {formatThroughput(selfTest.throughputMBps)
+                      && ` (${formatThroughput(selfTest.throughputMBps)})`}
                     . This is an average, so individual attempts vary a lot.
                   </p>
                   {selfTest.estimateSeconds > 240 && (

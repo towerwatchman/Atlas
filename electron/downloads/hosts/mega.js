@@ -72,10 +72,16 @@ function sessionFrom(credentials) {
 // running it twice.
 let requestSequence = Math.floor(Date.now() / 1000);
 
-async function sendRequest(body, session, extraHeaders = {}) {
+async function sendRequest(body, session, extraHeaders = {}, reuseSequence = null) {
   const suffix = session ? `&sid=${encodeURIComponent(session)}` : "";
-  requestSequence += 1;
-  const response = await fetch(`${API}?id=${requestSequence}${suffix}`, {
+  // A hashcash retry is the SAME request, resent with its proof attached -- which
+  // is exactly the case the `id` comment above describes. Incrementing it made
+  // every retry a brand new request to MEGA, so instead of accepting the proof it
+  // minted a fresh challenge, and the loop solved challenge after challenge that
+  // could never be accepted. Passing the original id keeps the retry attached to
+  // the request the challenge was issued for.
+  const sequence = reuseSequence === null ? (requestSequence += 1) : reuseSequence;
+  const response = await fetch(`${API}?id=${sequence}${suffix}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -96,10 +102,11 @@ async function sendRequest(body, session, extraHeaders = {}) {
       httpStatus: response.status,
       httpBody: text.slice(0, 500),
       hashcash: response.headers.get("x-hashcash") || "",
+      sequence,
     };
   }
   const payload = await response.json();
-  return { entry: Array.isArray(payload) ? payload[0] : payload };
+  return { entry: Array.isArray(payload) ? payload[0] : payload, sequence };
 }
 
 // Distinct bodies for the three ways a proof of work can fail. They exist so
@@ -110,6 +117,7 @@ async function sendRequest(body, session, extraHeaders = {}) {
 const HASHCASH_BUDGET = "the proof of work did not finish in time";
 const HASHCASH_LOAD_FAILED = "the proof-of-work worker could not start";
 const HASHCASH_INVALID = "the proof of work failed local verification";
+const HASHCASH_REJECTED = "MEGA refused a valid proof of work";
 
 // Three challenges, not one retry. Each lap costs real CPU, so this is bounded;
 // but a single attempt was too few, because the budget ending is the EXPECTED
@@ -160,10 +168,12 @@ function budgetForChallenge(ageMs) {
  * one. Re-solving an expired challenge burns minutes to earn a proof the server
  * will refuse regardless.
  */
-async function apiCall(body, session, { onProgress = null } = {}) {
+async function apiCall(body, session, { onProgress = null, telemetry = null } = {}) {
   let response = await sendRequest(body, session);
   if (response.httpStatus !== 402) return response;
+  if (telemetry) telemetry.challenged = true;
 
+  let solvedButRejected = false;
   for (let attempt = 1; attempt <= MAX_HASHCASH_ATTEMPTS; attempt += 1) {
     const challenge = parseHashcashChallenge(response.hashcash);
     if (!challenge) {
@@ -210,14 +220,27 @@ async function apiCall(body, session, { onProgress = null } = {}) {
       }
       const retried = await sendRequest(body, session, {
         "x-hashcash": formatHashcashHeader(challenge.token, solve.prefix),
-      });
+      }, response.sequence);
       if (retried.httpStatus !== 402) {
         appLog.write("mega-hashcash", { event: "accepted", attempt, elapsedMs: solve.elapsedMs });
         return retried;
       }
       // A fresh 402 after a locally valid proof: the challenge rotated, or the
       // answer arrived too late. Both are worth another lap with a new one.
-      appLog.write("mega-hashcash", { event: "rejected-after-solve", attempt, ageMs });
+      // MEGA's own body is the only account of WHY a locally valid proof was
+      // refused, and it was being discarded here -- the same mistake sendRequest
+      // already has a comment about not making. Without it the next person sees
+      // "rejected" with no evidence, which is where this investigation started.
+      solvedButRejected = true;
+      appLog.write("mega-hashcash", {
+        event: "rejected-after-solve",
+        attempt,
+        ageMs,
+        sequence: response.sequence,
+        body: retried.httpBody || "",
+        freshChallenge: retried.hashcash || "",
+        sameChallenge: retried.hashcash === response.hashcash,
+      });
       response = retried;
       continue;
     }
@@ -231,6 +254,15 @@ async function apiCall(body, session, { onProgress = null } = {}) {
     }
   }
 
+  // Solved every time and refused every time is NOT a timeout, and saying so sent
+  // the last investigation looking at CPU speed for a problem that had none.
+  if (solvedButRejected) {
+    return {
+      httpStatus: 402,
+      httpBody: HASHCASH_REJECTED,
+      hashcash: response.hashcash,
+    };
+  }
   return {
     httpStatus: 402,
     httpBody: HASHCASH_BUDGET,
@@ -259,6 +291,14 @@ function describeHttpStatus(status, body) {
     return "Atlas computed a proof of work for MEGA that failed its own check, so "
       + "it was not sent. Please report this \u2014 Settings \u2192 Accounts has a "
       + "\u201cTest proof-of-work\u201d button that records what is needed.";
+  }
+  // Solved correctly, verified locally, and refused anyway. Nothing the user can
+  // do affects this, so it must not offer them CPU advice.
+  if (status === 402 && detail === HASHCASH_REJECTED) {
+    return "MEGA rejected Atlas's proof of work even though it computed correctly, "
+      + `after ${MAX_HASHCASH_ATTEMPTS} attempts. This is a fault in Atlas rather `
+      + "than a problem with the account, the password or this computer. Please "
+      + "report it \u2014 the log records what MEGA sent back.";
   }
   if (status === 402 && /proof of work/i.test(String(body || ""))) {
     // Says how many attempts were already made, because the honest advice used to

@@ -260,9 +260,14 @@ async function selfTest({
     error: solve.error || null,
     workers: count,
     msPerHash,
-    // MB/s of SHA-256 across all workers, the number that varies most between
-    // machines: a CPU with SHA-NI is several times faster than one without.
-    throughputMBps: (12 * 1024 * count) / msPerHash / 1024,
+    // MB/s of SHA-256, the number that varies most between machines: a CPU with
+    // the SHA-NI extension is several times faster than one without, which is the
+    // difference between a sign-in taking half a minute and one that cannot
+    // finish inside any sane budget. Taken from the core rather than recomputed
+    // here -- the first version of this line divided by 1024 once too often and
+    // reported 20 MB/s for a machine doing 20 GB/s.
+    throughputMBps: bench.benchmark.mbPerSecond * count,
+    throughputPerThreadMBps: bench.benchmark.mbPerSecond,
     estimateSeconds,
     elapsedMs: Date.now() - started,
     workerPath,

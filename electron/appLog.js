@@ -39,8 +39,25 @@ const FILE_NAME = "atlas.log";
 const MAX_BYTES = 2 * 1024 * 1024;
 
 let cachedDir;
+let configuredDir = null;
+
+/**
+ * Point the log at an explicit directory.
+ *
+ * main.js calls this with <dataDir>/logs as soon as the data root is resolved.
+ * Without it this falls back to app.getPath('logs'), which main.js only
+ * redirects into the data folder for PACKAGED builds -- so in dev the log landed
+ * in Electron's default location instead of beside the rest of Atlas's data.
+ * Configuring it explicitly makes both builds agree, which matters because dev
+ * is where the log gets read while a fix is being written.
+ */
+function configure(directory) {
+  configuredDir = directory || null;
+  cachedDir = undefined;
+}
 
 function logDirectory() {
+  if (configuredDir) return configuredDir;
   if (cachedDir !== undefined) return cachedDir;
   cachedDir = null;
   try {
@@ -104,4 +121,4 @@ function logFilePath() {
   return dir ? path.join(dir, FILE_NAME) : null;
 }
 
-module.exports = { write, logFilePath, FILE_NAME, MAX_BYTES };
+module.exports = { write, configure, logFilePath, FILE_NAME, MAX_BYTES };

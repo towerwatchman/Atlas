@@ -185,17 +185,37 @@ function expectedAttempts(easiness) {
  * that cannot finish inside any sane budget. Without a number here, "slow" and
  * "broken" are indistinguishable from a support ticket.
  */
-function benchmarkHash({ token, iterations = 8 }) {
+function benchmarkHash({ token, iterations = 24 }) {
   const buffer = buildMessageBuffer(token);
   if (!buffer) return null;
   const rounds = Math.max(1, iterations);
-  const started = Date.now();
+
+  // One untimed pass first. The first hash pays for page faults on a freshly
+  // allocated 12MB buffer and for OpenSSL picking its implementation, neither of
+  // which recurs -- including it makes a fast machine look slow.
+  buffer.writeUInt32BE(0, 0);
+  crypto.createHash("sha256").update(buffer).digest();
+
+  // hrtime, not Date.now. On Windows the system clock granularity can be 15.6ms,
+  // and a machine with the SHA-NI extension hashes 12MB in under 5ms -- so a
+  // short run measured with Date.now can be wrong by tens of percent, in a number
+  // whose entire purpose is telling a slow machine apart from a broken one.
+  const started = process.hrtime.bigint();
   for (let i = 0; i < rounds; i += 1) {
     buffer.writeUInt32BE(i, 0);
     crypto.createHash("sha256").update(buffer).digest();
   }
-  const elapsedMs = Date.now() - started;
-  return { iterations: rounds, elapsedMs, msPerHash: elapsedMs / rounds };
+  const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+  const msPerHash = elapsedMs / rounds;
+  return {
+    iterations: rounds,
+    elapsedMs,
+    msPerHash,
+    // Per thread. The message is 12MB, so this is simply its size over the time
+    // one hash takes. Aggregate throughput is this times the worker count, and
+    // the pool is what knows that count.
+    mbPerSecond: (BUFFER_SIZE / (1024 * 1024)) / (msPerHash / 1000),
+  };
 }
 
 module.exports = {

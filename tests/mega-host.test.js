@@ -497,6 +497,18 @@ describe('describeHttpStatus', () => {
     expect(message).toMatch(/report this/i)
   })
 
+  // The second failure this shipped with: the solver worked, MEGA refused the
+  // proof three times, and the user was told the calculation "did not finish in
+  // time". It had finished in 130ms. A message that names the wrong cause sends
+  // the next investigation to the wrong place, which is what happened.
+  it('does not call a refused proof a timeout', () => {
+    const message = mega.describeHttpStatus(402, 'MEGA refused a valid proof of work')
+    expect(message).toMatch(/rejected/i)
+    expect(message).toMatch(/fault in Atlas/i)
+    expect(message).not.toMatch(/did not finish in time/i)
+    expect(message).not.toMatch(/closing other heavy work/i)
+  })
+
   it('includes whatever MEGA said, when it said anything', () => {
     // The body used to be discarded, which is why a 402 arrived with no evidence.
     expect(mega.describeHttpStatus(402, '-15')).toMatch(/MEGA said: -15/)
