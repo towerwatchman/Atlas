@@ -41,8 +41,9 @@ test('with multiple versions Play both launches and lists them', () => {
   ]
   const items = buildGameContextMenu({ game: localGame({ versions, selected_version_id: 2 }) })
   const play = find(items, 'Play')
-  // Clickable...
-  expect(play.data).toEqual({ action: 'launch', recordId: 7, version: 'v2.0' })
+  // Clickable... The payload also carries versionId and the version's source now
+  // (see tests/open-folder-version-aware.test.js); this asserts the routing part.
+  expect(play.data).toMatchObject({ action: 'launch', recordId: 7, version: 'v2.0' })
   // ...and expandable, newest first.
   expect(play.submenu.map((s) => s.label)).toEqual(['v2.0', 'v1.0'])
   expect(play.hint).toBe('v2.0')
@@ -336,9 +337,9 @@ test('version segments compare numerically, not lexically', () => {
 
 test('the Open Game Folder submenu uses the same order', () => {
   const items = versionMenu([
-    { version: 'v1.0', version_id: 1, exec_path: '/a' },
-    { version: 'v3.0', version_id: 2, exec_path: '/b' },
-    { version: 'v2.0', version_id: 3, exec_path: '/c' },
+    { version: 'v1.0', version_id: 1, exec_path: '/a/g.exe', game_path: '/a' },
+    { version: 'v3.0', version_id: 2, exec_path: '/b/g.exe', game_path: '/b' },
+    { version: 'v2.0', version_id: 3, exec_path: '/c/g.exe', game_path: '/c' },
   ])
   const folder = find(find(items, 'Manage').submenu, 'Open Game Folder')
   expect(folder.submenu.map((v) => v.label)).toEqual(['v3.0', 'v2.0', 'v1.0'])

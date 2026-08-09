@@ -260,7 +260,7 @@ function registerGamesHandlers(ctx) {
     getGameOverrides, clearGameOverrides, validateGameMetadataOverrides,
     takeStartupRepairSummary,
     // helpers
-    deleteTitleRecord, isAllowedDeletionPath, getTrustedVersion,
+    deleteTitleRecord, isAllowedDeletionPath, getTrustedVersion, openGameFolderForVersion,
     removeEmptyParentDirectories, normalizeForPathCompare,
     // windows
     createGameDetailsWindow,
@@ -662,18 +662,17 @@ function registerGamesHandlers(ctx) {
     }
   })
 
-  // Opens the installation directory of the selected game version directly in the OS file manager.
-  // game_path is the directory containing the game files (not an executable file path), so
-  // shell.openPath opens that directory; taking path.dirname would open the parent directory.
+  // Opens the installation directory of one version in the OS file manager.
+  //
+  // Delegates rather than resolving here: the context menu path in ipc/windows.js
+  // opens the same folders, and two implementations meant two answers to "which
+  // version is this" and two ways to fail silently. The reasoning for not going
+  // through getTrustedVersion is in electron/library/gameFolder.js.
+  //
+  // Takes { recordId, versionId } -- versionId is exact where the version string
+  // is not. The string is still accepted for callers that predate it.
   ipcMain.handle('open-game-folder', async (event, data) => {
-    const { recordId, version } = data
-    try {
-      const selectedVersion = await getTrustedVersion(recordId, version)
-      await shell.openPath(selectedVersion.game_path)
-      return { success: true }
-    } catch (err) {
-      return { success: false, error: err.message }
-    }
+    return await openGameFolderForVersion(data || {})
   })
 
   ipcMain.handle('open-game-image-folder', async (event, recordId) => {

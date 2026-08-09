@@ -14,6 +14,8 @@ import PreviewLightbox from './page/PreviewLightbox.jsx'
 import HoverVideo from './page/HoverVideo.jsx'
 import DetailPanelGrid, { DEFAULT_DETAIL_LAYOUT } from './page/DetailPanelGrid.jsx'
 import SafeImage from '../ui/SafeImage.jsx'
+import ConfirmModal from '../ui/ConfirmModal.jsx'
+import VersionCard from './page/VersionCard.jsx'
 import RefreshMediaModal from '../ui/RefreshMediaModal.jsx'
 import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
@@ -155,6 +157,10 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   // starts out hiding a source it is merely uninformed about.
   const [metadataSourceOrder, setMetadataSourceOrder] = useState(null)
   const [installSourceModalOpen, setInstallSourceModalOpen] = useState(false)
+  // Why a folder could not be opened. shell.openPath RESOLVES with an error
+  // string rather than throwing, and this result used to be discarded outright,
+  // so a click on a folder that had been moved did nothing at all.
+  const [folderError, setFolderError] = useState('')
   const [launchState, setLaunchState] = useState(LAUNCH_STATE.IDLE)
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const [bannerMask, setBannerMask] = useState({ image: 'none', composite: null })
@@ -638,7 +644,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   )
   const canInstallFromDetail = !canLaunch && (canManageWishlist || canManageLocalTitle || game.hasInstalledVersion === false)
   const importPanelMode = canManageWishlist ? 'catalog' : 'local'
-  const canOpenFolder = Boolean(actionVersion?.game_path && actionVersion.isInstalled !== false)
   const latestVersion = game.latestVersion || game.latest_version || ''
   const versionOptions = sortVersionsDesc(game.versions || [])
 
@@ -789,9 +794,17 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
     }
   }
 
-  const openSelectedFolder = async () => {
-    if (!canOpenFolder) return
-    await window.electronAPI.openGameFolder({ recordId: game.record_id, version: actionVersion.version })
+  // Takes the version it was clicked on, not the selected one. versionId is
+  // exact where the version string is not -- see the note in gameContextMenu.js
+  // about duplicate and blank version labels.
+  const openVersionFolder = async (version) => {
+    if (!version?.game_path || version.isInstalled === false) return
+    const result = await window.electronAPI.openGameFolder({
+      recordId: game.record_id,
+      versionId: version.version_id,
+      version: version.version,
+    })
+    if (result?.success === false) setFolderError(result.error || 'The folder could not be opened.')
   }
 
   const openProperties = async () => {
@@ -1242,7 +1255,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         actionVersion={actionVersion}
         latestVersion={latestVersion}
         canLaunch={canLaunch}
-        canOpenFolder={canOpenFolder}
         canInstallFromDetail={canInstallFromDetail}
         onSteamInstall={steamInstall}
         onGogInstall={gogInstall}
@@ -1258,7 +1270,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         isRefreshingMedia={isRefreshingMedia}
         canManageLocalTitle={canManageLocalTitle}
         onLaunch={launchSelectedGame}
-        onOpenFolder={openSelectedFolder}
         onOpenProperties={openProperties}
         onToggleWishlist={toggleWishlist}
         onToggleFavorite={toggleFavorite}
@@ -1584,48 +1595,17 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
                 </div>
                 {versionOptions.length > 0 ? (
                   <div className="space-y-2">
-                    {versionOptions.map((version) => {
-                      const isSelected = selectedVersion?.version === version.version && selectedVersion?.game_path === version.game_path
-                      const installed = version.isInstalled !== false
-                      return (
-                        <div
-                          key={`${version.version}-${version.game_path}`}
-                          className={`border transition-colors ${isSelected ? 'border-accent bg-selected' : 'border-border bg-primary'}`}
-                        >
-                          <button
-                            onClick={() => selectVersion(version)}
-                            className={`w-full text-left p-3 transition-colors ${isSelected ? 'bg-selected' : 'bg-primary hover:bg-selected'}`}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                              <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
-                                {isSelected && <i className="fas fa-play" style={{ fontSize: 9, color: 'var(--color-accent,#86a8e7)' }}></i>}
-                                {version.version || 'Unknown version'}
-                                {version.source === 'steam' && (
-                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px' }}>
-                                    <i className="fab fa-steam" style={{ fontSize: 10 }}></i> Steam
-                                  </span>
-                                )}
-                                {version.source === 'gog' && (
-                                  <span style={{ fontSize: 10, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px' }}>GOG</span>
-                                )}
-                              </span>
-                              <span style={{ fontSize: 11, color: installed ? 'var(--color-success)' : 'var(--color-danger)' }}>{installed ? 'Installed' : 'Missing'}</span>
-                            </div>
-                            <div style={{ fontSize: 11, color: 'var(--color-text)', marginTop: 3 }}>{formatPlaytime(version.version_playtime)}</div>
-                            <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{version.game_path || 'No path set'}</div>
-                          </button>
-                          {canManageLocalTitle && version.version_id ? (
-                            <div style={{ padding: '6px 12px 10px', borderTop: '1px solid var(--color-border)' }}>
-                              <PlaystatePicker
-                                value={version.playstate}
-                                onChange={(next) => handleSetVersionPlaystate(version.version_id, next)}
-                                size="sm"
-                              />
-                            </div>
-                          ) : null}
-                        </div>
-                      )
-                    })}
+                    {versionOptions.map((version) => (
+                      <VersionCard
+                        key={`${version.version}-${version.game_path}`}
+                        version={version}
+                        isSelected={selectedVersion?.version === version.version && selectedVersion?.game_path === version.game_path}
+                        canManageLocalTitle={canManageLocalTitle}
+                        onSelect={() => selectVersion(version)}
+                        onSetPlaystate={(next) => handleSetVersionPlaystate(version.version_id, next)}
+                        onOpenFolder={() => openVersionFolder(version)}
+                      />
+                    ))}
                   </div>
                 ) : (
                   <div style={{ color: 'var(--color-muted)' }}>No versions recorded</div>
@@ -1810,6 +1790,15 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         error={personalRatingsError}
         onSave={savePersonalRatings}
         onCancel={() => { if (!personalRatingsBusy) setRatingModalOpen(false) }}
+      />
+
+      <ConfirmModal
+        open={Boolean(folderError)}
+        alert
+        title="Could not open folder"
+        body={folderError}
+        confirmLabel="OK"
+        onCancel={() => setFolderError('')}
       />
 
       <RefreshMediaModal
