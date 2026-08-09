@@ -21,8 +21,11 @@ const {
   fileNameFromAttributes,
 } = require("./megaLink");
 const account = require("./megaAccount");
-const { parseHashcashChallenge, formatHashcashHeader } = require("./megaHashcash");
-const { solveWithWorkers } = require("./megaHashcashPool");
+const {
+  parseHashcashChallenge, formatHashcashHeader, verifyHashcash,
+} = require("./megaHashcash");
+const { solveWithWorkers, DEFAULT_BUDGET_MS } = require("./megaHashcashPool");
+const appLog = require("../../appLog");
 
 const API = "https://g.api.mega.co.nz/cs";
 
@@ -99,6 +102,47 @@ async function sendRequest(body, session, extraHeaders = {}) {
   return { entry: Array.isArray(payload) ? payload[0] : payload };
 }
 
+// Distinct bodies for the three ways a proof of work can fail. They exist so
+// describeHttpStatus can say something TRUE about each: the previous code
+// returned one message ("did not finish in time") for all of them, including the
+// case where the worker never started, which sent every packaged user chasing a
+// performance problem they did not have.
+const HASHCASH_BUDGET = "the proof of work did not finish in time";
+const HASHCASH_LOAD_FAILED = "the proof-of-work worker could not start";
+const HASHCASH_INVALID = "the proof of work failed local verification";
+
+// Three challenges, not one retry. Each lap costs real CPU, so this is bounded;
+// but a single attempt was too few, because the budget ending is the EXPECTED
+// outcome roughly a third of the time even on a healthy machine -- the nonce
+// search is memoryless, so the mean solve time is not a deadline.
+const MAX_HASHCASH_ATTEMPTS = 3;
+
+// A challenge carries a unix timestamp and MEGA's SDK budgets 300s against it,
+// so a proof submitted after that has likely expired regardless of correctness.
+// Kept as a named assumption rather than a fact: it is transcribed from the SDK,
+// not observed, and challengeAgeMs is logged so the real value can be learned
+// from a machine that actually gets challenged.
+const ASSUMED_CHALLENGE_TTL_MS = DEFAULT_BUDGET_MS;
+// Time for the retry to reach MEGA before the challenge lapses.
+const SUBMIT_MARGIN_MS = 15000;
+
+/** How long ago MEGA minted this challenge, or null if the timestamp is unusable. */
+function challengeAgeMs(timestamp) {
+  const seconds = Number(timestamp);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  const age = Date.now() - seconds * 1000;
+  // Reject nonsense rather than deriving a budget from it: a clock skewed by
+  // days would otherwise produce a negative or absurd budget.
+  if (age < -86400000 || age > 86400000) return null;
+  return age;
+}
+
+/** Budget for this challenge: whatever is left of its TTL, floored at 30s. */
+function budgetForChallenge(ageMs) {
+  if (ageMs === null) return ASSUMED_CHALLENGE_TTL_MS;
+  return Math.max(30000, ASSUMED_CHALLENGE_TTL_MS - ageMs - SUBMIT_MARGIN_MS);
+}
+
 /**
  * A MEGA API call, paying the proof of work if MEGA asks for it.
  *
@@ -107,52 +151,125 @@ async function sendRequest(body, session, extraHeaders = {}) {
  * real CPU to find. Public-link downloads are not gated, which is why anonymous
  * downloading worked long before any of this existed.
  *
- * Retried exactly ONCE. A fresh challenge on the second attempt means something
- * other than difficulty is wrong -- an expired timestamp, a changed policy -- and
- * looping would spend minutes of CPU per lap discovering that.
+ * Gating is a server-side anti-abuse decision, not a property of the request, so
+ * plenty of clients are never challenged at all. That asymmetry is why this went
+ * unnoticed: a developer whose sign-ins are never gated cannot reach this branch
+ * by signing in, and the branch was broken in packaged builds the whole time.
+ *
+ * Each lap requests a FRESH challenge rather than resubmitting against the old
+ * one. Re-solving an expired challenge burns minutes to earn a proof the server
+ * will refuse regardless.
  */
 async function apiCall(body, session, { onProgress = null } = {}) {
-  const first = await sendRequest(body, session);
-  if (first.httpStatus !== 402) return first;
+  let response = await sendRequest(body, session);
+  if (response.httpStatus !== 402) return response;
 
-  const challenge = parseHashcashChallenge(first.hashcash);
-  if (!challenge) {
-    console.log("[mega-hashcash] 402 with no usable challenge", JSON.stringify({
-      header: first.hashcash || "(none)", body: first.httpBody || "",
-    }));
-    return first;
+  for (let attempt = 1; attempt <= MAX_HASHCASH_ATTEMPTS; attempt += 1) {
+    const challenge = parseHashcashChallenge(response.hashcash);
+    if (!challenge) {
+      appLog.write("mega-hashcash", {
+        event: "unusable-challenge",
+        header: response.hashcash || "(none)",
+        body: response.httpBody || "",
+      });
+      return response;
+    }
+
+    const ageMs = challengeAgeMs(challenge.timestamp);
+    const budgetMs = budgetForChallenge(ageMs);
+    appLog.write("mega-hashcash", {
+      event: "challenge", attempt, easiness: challenge.easiness, ageMs, budgetMs,
+    });
+
+    const solve = await solveWithWorkers({
+      token: challenge.token,
+      easiness: challenge.easiness,
+      budgetMs,
+      onProgress,
+    }).catch((err) => ({ outcome: "worker-error", prefix: null, error: err.message }));
+
+    // A worker that cannot load will not load on the next lap either. Retrying
+    // would spend three budgets rediscovering a packaging fault.
+    if (solve.outcome === "load-error" || solve.outcome === "worker-error") {
+      appLog.write("mega-hashcash", { event: "abandoned", reason: solve.outcome, error: solve.error });
+      return {
+        httpStatus: 402,
+        httpBody: HASHCASH_LOAD_FAILED,
+        hashcash: response.hashcash,
+        hashcashError: solve.error || null,
+      };
+    }
+
+    if (solve.prefix) {
+      // Verified locally before it is sent. One hash, against the same verifier
+      // the tests use, and it separates "our proof is wrong" from "MEGA rejected
+      // a correct proof" -- which are otherwise the same 402 with an empty body.
+      if (!verifyHashcash(challenge.token, challenge.easiness, solve.prefix)) {
+        appLog.write("mega-hashcash", { event: "self-verify-failed", easiness: challenge.easiness });
+        return { httpStatus: 402, httpBody: HASHCASH_INVALID, hashcash: response.hashcash };
+      }
+      const retried = await sendRequest(body, session, {
+        "x-hashcash": formatHashcashHeader(challenge.token, solve.prefix),
+      });
+      if (retried.httpStatus !== 402) {
+        appLog.write("mega-hashcash", { event: "accepted", attempt, elapsedMs: solve.elapsedMs });
+        return retried;
+      }
+      // A fresh 402 after a locally valid proof: the challenge rotated, or the
+      // answer arrived too late. Both are worth another lap with a new one.
+      appLog.write("mega-hashcash", { event: "rejected-after-solve", attempt, ageMs });
+      response = retried;
+      continue;
+    }
+
+    // Budget exhausted. Ask for a new challenge rather than re-solving this one,
+    // whose remaining TTL is now smaller than the budget that just failed.
+    appLog.write("mega-hashcash", { event: "budget-exhausted", attempt, elapsedMs: solve.elapsedMs });
+    if (attempt < MAX_HASHCASH_ATTEMPTS) {
+      response = await sendRequest(body, session);
+      if (response.httpStatus !== 402) return response;
+    }
   }
 
-  const prefix = await solveWithWorkers({
-    token: challenge.token,
-    easiness: challenge.easiness,
-    onProgress,
-  }).catch((err) => {
-    console.log("[mega-hashcash] solver failed", JSON.stringify({ message: err.message }));
-    return null;
-  });
-  if (!prefix) {
-    return {
-      httpStatus: 402,
-      httpBody: "the proof of work did not finish in time",
-      hashcash: first.hashcash,
-      hashcashTimedOut: true,
-    };
-  }
-
-  return sendRequest(body, session, {
-    "x-hashcash": formatHashcashHeader(challenge.token, prefix),
-  });
+  return {
+    httpStatus: 402,
+    httpBody: HASHCASH_BUDGET,
+    hashcash: response.hashcash,
+    hashcashTimedOut: true,
+  };
 }
 
 /** HTTP-level rejections MEGA uses instead of its own negative codes. */
 function describeHttpStatus(status, body) {
   const detail = String(body || "").trim();
   const suffix = detail ? ` MEGA said: ${detail}` : "";
+  // A defect, not slowness. Retrying cannot help and telling the user to close
+  // other programs would be actively misleading -- this build cannot start the
+  // worker at all. Points at the log, because that is where the resolved path is.
+  if (status === 402 && detail === HASHCASH_LOAD_FAILED) {
+    return "Atlas could not start the background task that signs in to MEGA. This "
+      + "is a fault in the app rather than a problem with the account or the "
+      + "connection, and trying again will not help. Settings \u2192 Accounts has a "
+      + "\u201cTest proof-of-work\u201d button that records the details in the log.";
+  }
+  // Solved, then failed our own verifier. Either the challenge was malformed or
+  // the solver is wrong; either way sending it would earn a bare 402 with no
+  // explanation, so it is named here instead.
+  if (status === 402 && detail === HASHCASH_INVALID) {
+    return "Atlas computed a proof of work for MEGA that failed its own check, so "
+      + "it was not sent. Please report this \u2014 Settings \u2192 Accounts has a "
+      + "\u201cTest proof-of-work\u201d button that records what is needed.";
+  }
   if (status === 402 && /proof of work/i.test(String(body || ""))) {
-    return "Signing in to MEGA needs a proof-of-work calculation, and it did not "
-      + "finish in time. Trying again usually works; it is CPU-bound, so closing "
-      + "other heavy work helps.";
+    // Says how many attempts were already made, because the honest advice used to
+    // be "try again" and this now tries three times before giving up. Trying
+    // again is still worth it -- MEGA sets the difficulty per challenge, so a
+    // later attempt can draw an easier one -- but not for the reason it implied.
+    return `Signing in to MEGA needs a proof-of-work calculation, and it did not `
+      + `finish in time after ${MAX_HASHCASH_ATTEMPTS} attempts. It is CPU-bound, `
+      + "so closing other heavy work helps, and trying again later may draw an "
+      + "easier challenge. Settings \u2192 Accounts has a \u201cTest "
+      + "proof-of-work\u201d button that measures how long this machine needs.";
   }
   if (status === 402) {
     // Recorded rather than diagnosed. What is known: an anonymous `a:"g"` call
@@ -295,9 +412,9 @@ async function validate(credentials = {}) {
     const saltResult = await apiCall([{ a: "us0", user: email }], null);
     if (saltResult.httpStatus) {
       // Logged with the step, so the next 402 says which of the two calls it was.
-      console.log("[mega-login]", JSON.stringify({
+      appLog.write("mega-login", {
         step: "us0", status: saltResult.httpStatus, body: saltResult.httpBody || "",
-      }));
+      });
       return { ok: false, error: describeHttpStatus(saltResult.httpStatus, saltResult.httpBody) };
     }
     const saltEntry = saltResult.entry;
@@ -320,18 +437,31 @@ async function validate(credentials = {}) {
 
     const request = { a: "us", user: email, uh: account.toBase64Url(passwordHash) };
     if (mfa) request.mfa = mfa;
+    // Whether MEGA demanded a proof of work AT ALL is the single most useful fact
+    // about a sign-in, and nothing recorded it. Hashcash is applied by server-side
+    // policy, so some clients are challenged and some never are -- and until this
+    // line existed, "no proof of work happened" and "the proof of work code did
+    // not log anything" looked identical, on a machine nobody could inspect.
+    const telemetry = { challenged: false };
     const loginResult = await apiCall([request], null, {
+      telemetry,
       onProgress: (info) => {
-        // MEGA charges CPU for a sign-in. Logged so a minute of silence has an
+        // MEGA charges CPU for a sign-in. Logged so minutes of silence have an
         // explanation somewhere rather than looking like a hang.
-        console.log("[mega-login] solving proof of work", JSON.stringify(info));
+        appLog.write("mega-login", { event: "solving-proof-of-work", ...info });
       },
     });
+    appLog.write("mega-login", {
+      event: "login-attempted",
+      challenged: telemetry.challenged,
+      accountVersion: version,
+      sentMfa: Boolean(mfa),
+    });
     if (loginResult.httpStatus) {
-      console.log("[mega-login]", JSON.stringify({
+      appLog.write("mega-login", {
         step: "us", status: loginResult.httpStatus, body: loginResult.httpBody || "",
         accountVersion: version, sentMfa: Boolean(mfa),
-      }));
+      });
       return { ok: false, error: describeHttpStatus(loginResult.httpStatus, loginResult.httpBody) };
     }
     const login = loginResult.entry;

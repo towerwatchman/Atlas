@@ -13,6 +13,8 @@
 
 const path = require("path");
 const { ipcMain, shell, BrowserWindow, app, dialog } = require("electron");
+const megaHashcashPool = require("../downloads/hosts/megaHashcashPool");
+const appLog = require("../appLog");
 
 const downloadsDb = require("../db/downloads");
 const manager = require("../downloads/downloadManager");
@@ -248,6 +250,25 @@ function registerDownloadsHandlers(ctx = {}) {
         label: check.plan || meta.label || "",
       });
       return saved.ok ? { ...saved, validated: check } : saved;
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
+  });
+
+  // Runs MEGA's proof-of-work solver against a synthetic challenge, on demand.
+  //
+  // It exists because MEGA does not challenge every client: hashcash is applied
+  // by server-side anti-abuse policy, so a developer whose own sign-ins sail
+  // through cannot reach that code by signing in. A worker that could never load
+  // in a packaged build therefore shipped, and stayed shipped, because the only
+  // machine able to diagnose it was the one machine the bug never touched.
+  //
+  // Deliberately reachable by users rather than hidden. The failure happens on
+  // their hardware, so they are the ones who have to produce the evidence.
+  ipcMain.handle("hosts-mega-selftest", async () => {
+    try {
+      const result = await megaHashcashPool.selfTest();
+      return { ok: true, ...result, logPath: appLog.logFilePath() };
     } catch (err) {
       return { ok: false, error: err.message || String(err) };
     }

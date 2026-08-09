@@ -335,6 +335,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   hostsSaveAccount: (params) => ipcRenderer.invoke("hosts-save-account", params),
   hostsRemoveAccount: (params) => ipcRenderer.invoke("hosts-remove-account", params),
   hostsQuota: (params) => ipcRenderer.invoke("hosts-quota", params),
+  hostsMegaSelfTest: () => ipcRenderer.invoke("hosts-mega-selftest"),
   updateLinksGet: (params) => ipcRenderer.invoke("update-links-get", params),
   updateLinksClearCache: (params) => ipcRenderer.invoke("update-links-clear-cache", params),
   // Each returns its own unsubscribe function so a remounting panel does not
