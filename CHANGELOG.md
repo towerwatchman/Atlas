@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Fixed `open-game-folder` IPC handler opening the parent directory of the game folder instead of the game directory itself (`selectedVersion.game_path`).
 - Fixed missing {engine} and {f95Id} for downloads-install handler. Previously it only work during nomral importer, but shown Unknown or empty when set in Atlas Library Structure during downloads-install process. 
 - Fixed personal rating modal (`RatingModal`) resetting its draft state to the database ratings when background metadata updates or library refreshes occur while the modal is open.
 - Fixed rating displays on library and catalog card overviews to format consistently on the 0–10 scale (`/10`), resolving an issue where ratings at or below 5 were mislabeled with a `/5` denominator (#321).

@@ -662,11 +662,14 @@ function registerGamesHandlers(ctx) {
     }
   })
 
+  // Opens the installation directory of the selected game version directly in the OS file manager.
+  // game_path is the directory containing the game files (not an executable file path), so
+  // shell.openPath opens that directory; taking path.dirname would open the parent directory.
   ipcMain.handle('open-game-folder', async (event, data) => {
     const { recordId, version } = data
     try {
       const selectedVersion = await getTrustedVersion(recordId, version)
-      await shell.openPath(path.dirname(selectedVersion.game_path))
+      await shell.openPath(selectedVersion.game_path)
       return { success: true }
     } catch (err) {
       return { success: false, error: err.message }
