@@ -781,6 +781,33 @@ const getVersionForRecord = (recordId, version) => {
   });
 };
 
+// Look a version up by its id, making NO judgement about whether it is
+// installed. That judgement is what getVersionForRecord's mapVersionRow call
+// exists to make, and it is the wrong question for "open this folder" -- see
+// electron/library/gameFolder.js. Returns the raw row so nothing downstream can
+// mistake it for an install check.
+//
+// record_id is in the WHERE clause deliberately: version_id is a bare rowid
+// (this table has no INTEGER PRIMARY KEY), so it is only unique, not stable
+// across a VACUUM.
+const getVersionById = (recordId, versionId) => {
+  return new Promise((resolve, reject) => {
+    getDb().get(
+      `SELECT rowid AS version_id, record_id, version, game_path, exec_path, in_place, source, source_app_id
+       FROM versions
+       WHERE rowid = ? AND record_id = ?`,
+      [versionId, recordId],
+      (err, row) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(row || null);
+      },
+    );
+  });
+};
+
 const getInstalledVersionsForRecord = (recordId) => {
   return new Promise((resolve, reject) => {
     getDb().all(
@@ -2388,6 +2415,7 @@ module.exports = {
   checkRecordExist,
   checkPathExist,
   getVersionForRecord,
+  getVersionById,
   getInstalledVersionsForRecord,
   getVersionPathsForRecord,
   getGame,

@@ -3,7 +3,7 @@ import GogIcon from '../../ui/GogIcon.jsx'
 import SplitButtonMenu from './SplitButtonMenu.jsx'
 
 export default function ActionBar({
-  game, actionVersion, latestVersion, canLaunch, canOpenFolder,
+  game, actionVersion, latestVersion, canLaunch,
   canInstallFromDetail = false,
   onSteamInstall = null,
   // Opens the source picker. Only ever called when there is more than one
@@ -19,7 +19,7 @@ export default function ActionBar({
   canManageWishlist = false, isWishlisted = false, wishlistBusy = false,
   canManageFavorite = false, isFavorite = false, favoriteBusy = false,
   launchState, isRefreshingMedia, canManageLocalTitle = true,
-  onLaunch, onOpenFolder, onOpenProperties, onToggleWishlist, onRefreshMedia,
+  onLaunch, onOpenProperties, onToggleWishlist, onRefreshMedia,
   onOpenWebsite, onOpenSteam, onOpenGog, onUninstallSteam, onToggleFavorite, onToggleLocalImport,
   onRemoveTitle, onDeleteTitle, onBack, onToggleEditLayout, editingLayout = false,
   onToggleInfo, showInfo = false, showBack = false,
@@ -266,9 +266,9 @@ export default function ActionBar({
               ></i>
             </button>
           )}
-          <button onClick={onOpenFolder} disabled={!canOpenFolder} title="Open Folder" style={iconBtn(!canOpenFolder)} className="hover:bg-secondary hover:border-border">
-            <i className="fas fa-folder-open" style={{ fontSize: 13 }}></i>
-          </button>
+          {/* No folder button here. It could only ever open actionVersion, from a
+              bar that says nothing about which version that is; it is on each
+              version card now, next to that version's playstate control. */}
           {canManageLocalTitle && (
             <>
               <button onClick={onOpenProperties} title="Properties" style={iconBtn(false)} className="hover:bg-secondary hover:border-border">

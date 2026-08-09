@@ -1,4 +1,4 @@
-// Shared confirmation/alert modal for the game properties window, replacing
+// Shared confirmation/alert modal, replacing
 // the native window.confirm/alert dialogs so Add / Remove / Delete actions
 // all use consistent in-app modals. Two shapes:
 //   - confirm: shows Cancel + a confirm button (label/tone configurable)
