@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Fixed browser extension thread matching comparing numeric IDs across sites without validating the host domain source (F95Zone vs LewdCorner). F95Zone threads with ID `X` were erroneously matched against games that only carried LewdCorner ID `X`. Thread lookup is now strictly site-isolated (`f95Id` for F95Zone threads, `lcId` for LewdCorner threads).
 - Fixed missing {engine} and {f95Id} for downloads-install handler. Previously it only work during nomral importer, but shown Unknown or empty when set in Atlas Library Structure during downloads-install process. 
 - Fixed personal rating modal (`RatingModal`) resetting its draft state to the database ratings when background metadata updates or library refreshes occur while the modal is open.
 - Fixed rating displays on library and catalog card overviews to format consistently on the 0–10 scale (`/10`), resolving an issue where ratings at or below 5 were mislabeled with a `/5` denominator (#321).
@@ -18,6 +19,8 @@
 - `ExtensionSettings` shows that reason, and "Open extension folder" reports a refusal rather than logging it to a console the user does not have open. A button that does nothing visible reads as a broken button, not as a missing folder.
 
 ### Added
+- `tests/extension-site-matching.test.js` (6). Tests extension thread URL site parsing, cross-site ID collision prevention (F95Zone vs LewdCorner), and dual-site game matching.
+- `.gitattributes` configuration to enforce CRLF line ending normalization on text/code files across development environments.
 - `tests/extension-files.test.js` (5). Exercises the function rather than scanning it, because this failure was invisible to a source scan of the copy: the copy was fine, its destination was not. All five fail against the pre-fix target and pass after -- verified by restoring `path.join(appDataRoot, 'extension')` in a scratch tree. Stubs `require('electron')` through `Module._load`, the same way `tests/main-startup-smoke.test.js` does, because `vi.mock` cannot reach a CommonJS `require` at load time.
 - Three more checks in `scripts/check-extension-packaging.js` (now 10). The target-directory one reads the ACL grant out of `installer.nsh` rather than hardcoding `data`, so if the grant ever moves the check fails instead of silently guarding the wrong folder; it also fails if `$INSTDIR` itself is ever granted, which would be a security regression rather than a licence to copy there. A second asserts the target survives `DeleteLoop`. A third asserts the copy reports failures rather than swallowing them.
 
