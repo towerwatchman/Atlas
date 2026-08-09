@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import HostIcon from './HostIcon.jsx'
-import { buildThreadUrl } from './threadUrl.js'
+import { buildThreadUrl, threadUrlForGame } from './threadUrl.js'
 import { buildDownloadOptions } from './linkSections.js'
 
 // ── Update modal ─────────────────────────────────────────────────────────────
@@ -37,12 +37,12 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
   // linkSections.js: the choice is which build first, which mirror second, and a
   // flat list made "Season 1" and the current build look interchangeable.
   const options = buildDownloadOptions(data?.links)
-  const threadUrl = buildThreadUrl({
-    siteUrl: game?.siteUrl || game?.site_url,
-    lewdCornerSiteUrl: game?.lewdCornerSiteUrl || game?.lewdcornerSiteUrl,
-    f95Id: data?.threadId || threadId,
-    lcId: game?.lc_id || game?.lcId || game?.lewdCornerId,
-  })
+  // threadUrlForGame owns the field-name variance; the only thing added here is
+  // the freshly fetched thread id, which the modal has and the record may not.
+  const threadUrl = data?.threadId
+    ? buildThreadUrl({ siteUrl: game?.siteUrl || game?.site_url, f95Id: data.threadId })
+      || threadUrlForGame(game)
+    : threadUrlForGame(game)
 
   const load = useCallback(async (force = false) => {
     if (!threadId) {

@@ -7,6 +7,7 @@ import InstallModal from './InstallModal.jsx'
 import LibraryFolderModal from './LibraryFolderModal.jsx'
 import LibraryStructureModal from './LibraryStructureModal.jsx'
 import { describeBuild } from './linkSections.js'
+import { threadUrlForGame, isInstalledGame } from './threadUrl.js'
 import { getLibraryConfig } from '../../utils/librarySettings.js'
 
 // ── Downloads page ───────────────────────────────────────────────────────────
@@ -498,6 +499,17 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
       ? (item.totalBytes - item.receivedBytes) / rate
       : null
     const transferring = item.state === 'downloading'
+    // Where the banner goes. Installed titles open inside Atlas; everything else
+    // opens the thread it came from, which is the page a user wants while they
+    // are still deciding. A download with no library record -- Browse, wishlist --
+    // has neither, and the banner stays inert rather than becoming a dead link.
+    const installed = isInstalledGame(game)
+    const gameThreadUrl = threadUrlForGame(game)
+    const bannerTarget = installed && game ? 'game' : (gameThreadUrl ? 'thread' : null)
+    // The download's own page on the host, behind the host name. Guarded on the
+    // scheme: a row can carry a non-http url and opening one externally is not
+    // something to do on the strength of a substring.
+    const hostUrl = /^https?:\/\//i.test(String(item.url || '')) ? item.url : ''
     const working = WORKING_STATES.includes(item.state)
     const errored = item.state === 'failed' || item.state === 'install_failed'
     const tone = errored ? 'danger' : item.state === 'done' ? 'success' : 'accent'
@@ -509,9 +521,21 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
       >
         <button
           type="button"
-          onClick={() => game && onOpenGame?.(game)}
-          disabled={!game}
-          className={game ? 'cursor-pointer' : 'cursor-default'}
+          onClick={() => {
+            if (bannerTarget === 'game') onOpenGame?.(game)
+            else if (bannerTarget === 'thread') window.electronAPI.openExternalUrl?.(gameThreadUrl)
+          }}
+          disabled={!bannerTarget}
+          // Said out loud, because one control doing two different things with
+          // no visible difference is otherwise a coin flip for the user.
+          title={
+            bannerTarget === 'game'
+              ? `Open ${item.title} in Atlas`
+              : bannerTarget === 'thread'
+                ? `Open the ${item.title} thread in your browser`
+                : undefined
+          }
+          className={bannerTarget ? 'cursor-pointer' : 'cursor-default'}
         >
           <Cover game={game} item={item} title={item.title} />
         </button>
@@ -549,10 +573,27 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
             {transferring && <span className="text-text">{formatRate(rate)}</span>}
             {transferring && remaining && <span>{formatEta(remaining)}</span>}
             {item.host && (
-              <span className="inline-flex items-center gap-1">
-                <HostIcon host={item.host} />
-                {item.host}
-              </span>
+              hostUrl ? (
+                // -mx-1 px-1 py-0.5 keeps the text aligned with the other chips
+                // in this row while giving the control a real hit area: the row
+                // is text-xs, which is well under a comfortable touch target,
+                // and bare text that is secretly clickable is worse than no
+                // link at all.
+                <button
+                  type="button"
+                  onClick={() => window.electronAPI.openExternalUrl?.(hostUrl)}
+                  title={`Open this download's page on ${item.host}`}
+                  className="-mx-1 inline-flex items-center gap-1 rounded px-1 py-0.5 text-inherit hover:bg-highlight hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                >
+                  <HostIcon host={item.host} />
+                  {item.host}
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-1">
+                  <HostIcon host={item.host} />
+                  {item.host}
+                </span>
+              )
             )}
             {item.onComplete === 'add' && <span>keeps both versions</span>}
             {item.state === 'done' && item.completedAt && (

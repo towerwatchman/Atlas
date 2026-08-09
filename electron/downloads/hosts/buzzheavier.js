@@ -75,8 +75,25 @@ function authHeaders(credentials) {
  * Cloudflare fronts this host - Turnstile loads on their pages - so a challenge
  * is treated as quota rather than fatal: it means "not right now", not "never".
  */
+// A thrown fetch error describes the CONNECTION, never the file. Tested before
+// any body vocabulary because the two overlap: "getaddrinfo ENOTFOUND host"
+// contains "notfound", so a DNS failure matched the deleted-file rule and was
+// classified fatal -- terminal, no retry, and the partial file discarded. A
+// dropped wifi connection permanently failed the download.
+const TRANSPORT_CODES = /\b(enotfound|econnrefused|econnreset|econnaborted|etimedout|epipe|ehostunreach|enetunreach|eai_again|eproto|und_err)\b/i;
+const TRANSPORT_TEXT = /fetch failed|socket hang up|network error|aborted due to timeout|request timed?out|terminated/i;
+
+/** True when this is a transport failure rather than anything the host said. */
+function isTransportError(err) {
+  if (!err) return false;
+  const code = String(err.code || err.cause?.code || "");
+  const message = String(err.message || "");
+  return TRANSPORT_CODES.test(code) || TRANSPORT_CODES.test(message) || TRANSPORT_TEXT.test(message);
+}
+
 function classifyError(err, { status = 0, body = null } = {}) {
   const text = `${String(body?.message || "")} ${String(err?.message || "")}`.toLowerCase();
+  if (isTransportError(err)) return "transient";
 
   // cf-mitigated: challenge is set explicitly by Cloudflare, so it is a
   // reliable signal - and it is NOT a quota. Reporting it as one told users to
