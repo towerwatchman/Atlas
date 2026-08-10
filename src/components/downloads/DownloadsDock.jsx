@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { describeBuild } from './linkSections.js'
+import { keepsBothVersions } from './cardFacts.js'
 
 // ── Downloads dock ───────────────────────────────────────────────────────────
 //
@@ -221,7 +222,7 @@ export default function DownloadsDock() {
               )}
               {isTransferring && rate > 0 && <span>{formatRate(rate)}</span>}
               {isTransferring && remaining && <span>{formatEta(remaining)}</span>}
-              {item.onComplete === 'add' && <span>keeps both versions</span>}
+              {keepsBothVersions(item, null) && <span>keeps both versions</span>}
             </div>
             {item.error && (
               <div className="mt-0.5 text-[11px] text-danger break-words">{item.error}</div>

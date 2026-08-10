@@ -7,7 +7,8 @@ import InstallModal from './InstallModal.jsx'
 import LibraryFolderModal from './LibraryFolderModal.jsx'
 import LibraryStructureModal from './LibraryStructureModal.jsx'
 import { describeBuild } from './linkSections.js'
-import { threadUrlForGame, isInstalledGame } from './threadUrl.js'
+import { threadUrlForGame } from './threadUrl.js'
+import { keepsBothVersions, bannerTargetFor } from './cardFacts.js'
 import { getLibraryConfig } from '../../utils/librarySettings.js'
 
 // ── Downloads page ───────────────────────────────────────────────────────────
@@ -503,13 +504,12 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
     // opens the thread it came from, which is the page a user wants while they
     // are still deciding. A download with no library record -- Browse, wishlist --
     // has neither, and the banner stays inert rather than becoming a dead link.
-    const installed = isInstalledGame(game)
     const gameThreadUrl = threadUrlForGame(game)
-    const bannerTarget = installed && game ? 'game' : (gameThreadUrl ? 'thread' : null)
     // The download's own page on the host, behind the host name. Guarded on the
     // scheme: a row can carry a non-http url and opening one externally is not
     // something to do on the strength of a substring.
     const hostUrl = /^https?:\/\//i.test(String(item.url || '')) ? item.url : ''
+    const bannerTarget = bannerTargetFor({ game, threadUrl: gameThreadUrl, hostUrl })
     const working = WORKING_STATES.includes(item.state)
     const errored = item.state === 'failed' || item.state === 'install_failed'
     const tone = errored ? 'danger' : item.state === 'done' ? 'success' : 'accent'
@@ -524,6 +524,7 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
           onClick={() => {
             if (bannerTarget === 'game') onOpenGame?.(game)
             else if (bannerTarget === 'thread') window.electronAPI.openExternalUrl?.(gameThreadUrl)
+            else if (bannerTarget === 'host') window.electronAPI.openExternalUrl?.(hostUrl)
           }}
           disabled={!bannerTarget}
           // Said out loud, because one control doing two different things with
@@ -533,7 +534,9 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
               ? `Open ${item.title} in Atlas`
               : bannerTarget === 'thread'
                 ? `Open the ${item.title} thread in your browser`
-                : undefined
+                : bannerTarget === 'host'
+                  ? `Open this download's page on ${item.host || 'the host'}`
+                  : undefined
           }
           className={bannerTarget ? 'cursor-pointer' : 'cursor-default'}
         >
@@ -595,7 +598,7 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
                 </span>
               )
             )}
-            {item.onComplete === 'add' && <span>keeps both versions</span>}
+            {keepsBothVersions(item, game) && <span>keeps both versions</span>}
             {item.state === 'done' && item.completedAt && (
               <span>{formatWhen(item.completedAt)}</span>
             )}
