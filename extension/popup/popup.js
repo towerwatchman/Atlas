@@ -4,8 +4,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Installed by compat.js, which popup.html loads immediately before this file.
   const api = globalThis.atlasBrowser;
 
-  const statusDot = document.getElementById('statusDot');
+  const readout = document.getElementById('readout');
   const statusText = document.getElementById('statusText');
+  const readoutEndpoint = document.getElementById('readoutEndpoint');
+  const extVersion = document.getElementById('extVersion');
   const btnAddPage = document.getElementById('btnAddPage');
   const btnOpenAtlas = document.getElementById('btnOpenAtlas');
   const btnRefresh = document.getElementById('btnRefresh');
@@ -29,6 +31,21 @@ document.addEventListener('DOMContentLoaded', async () => {
       return '';
     }
   };
+
+  // The readout's colour, label and pip are all driven off one data-state
+  // attribute in CSS, so setting state in a single place is what keeps them
+  // from disagreeing. Endpoint is passed separately because it is the one part
+  // that stays useful when the state is bad -- knowing WHICH address failed is
+  // most of diagnosing a failed connection, and the old UI never showed it.
+  const setState = (state, label, endpoint) => {
+    readout.dataset.state = state;
+    statusText.textContent = label;
+    readoutEndpoint.textContent = endpoint;
+  };
+
+  // The address the background worker dials, so it is accurate to display even
+  // before Atlas answers.
+  const ENDPOINT_LABEL = RPC_URL.replace(/^https?:\/\//, '');
 
   // Every authenticated route needs this. Two calls below used to omit it and
   // got a silent 401 that surfaced as "Added to Atlas!" on a game that was
@@ -83,8 +100,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (!reachable) {
-      statusDot.className = 'status-dot offline';
-      statusText.textContent = 'Atlas Desktop Offline';
+      setState('offline', 'Offline', 'Start Atlas to connect');
       pairingBox.style.display = 'none';
       btnUnpair.style.display = 'none';
       return false;
@@ -96,17 +112,21 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       if (res.ok) {
         const data = await res.json();
-        statusDot.className = 'status-dot connected';
-        statusText.textContent = `Connected to Atlas (${data.version || ''})`.trim();
+        // Atlas's version sits on the endpoint line, beside the address it came
+        // from. The extension's own version lives in the footer; showing both in
+        // one sentence was how they got mistaken for each other.
+        const appVersion = data.version ? `  \u00b7  Atlas ${data.version}` : '';
+        setState('connected', 'Connected', `${ENDPOINT_LABEL}${appVersion}`);
         pairingBox.style.display = 'none';
         btnUnpair.style.display = 'block';
         return true;
       }
       if (res.status === 401) {
-        statusDot.className = 'status-dot offline';
-        statusText.textContent = token
-          ? 'Token rejected by Atlas'
-          : 'Not paired with Atlas yet';
+        setState(
+          'unpaired',
+          token ? 'Token rejected' : 'Not paired',
+          token ? 'Paste the current token from Atlas' : ENDPOINT_LABEL,
+        );
         pairingBox.style.display = 'flex';
         btnUnpair.style.display = 'none';
         return false;
@@ -115,8 +135,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // fall through
     }
 
-    statusDot.className = 'status-dot offline';
-    statusText.textContent = 'Atlas Desktop Offline';
+    setState('offline', 'Offline', 'Start Atlas to connect');
     pairingBox.style.display = 'none';
     btnUnpair.style.display = 'none';
     return false;
@@ -125,7 +144,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   btnSaveToken.addEventListener('click', async () => {
     const value = (tokenInput.value || '').trim();
     if (!value) {
-      tokenMsg.textContent = 'Paste the token from Atlas Settings first.';
+      tokenMsg.textContent = 'Paste the token from Atlas first.';
       tokenMsg.className = 'pairing-msg err';
       return;
     }
@@ -145,6 +164,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     await checkStatus();
   });
 
+  // Read from the manifest rather than written into the markup. popup.html
+  // carried the literal string "v1.0.0" while the manifest said 1.0.7, and no
+  // version of that arrangement stays true on its own.
+  try {
+    extVersion.textContent = `v${api.runtime.getManifest().version}`;
+  } catch {
+    extVersion.textContent = '';
+  }
+
+  setState('checking', 'Checking', ENDPOINT_LABEL);
   await refreshPermissionState();
   await checkStatus();
 
@@ -167,12 +196,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           // identical to a successful one.
           if (!res.ok) {
             btnAddPage.textContent =
-              res.status === 401 ? 'Not paired with Atlas' : 'Atlas refused that';
+              res.status === 401 ? 'Not paired' : 'Atlas refused that';
           } else {
-            btnAddPage.textContent = 'Added to Atlas!';
+            btnAddPage.textContent = 'Added';
           }
           setTimeout(() => {
-            btnAddPage.textContent = 'Add Current Page to Atlas';
+            btnAddPage.textContent = 'Add this page';
           }, 2000);
         } catch {
           alert('Failed to connect to Atlas Desktop!');
@@ -201,11 +230,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   btnRefresh.addEventListener('click', async () => {
-    btnRefresh.textContent = 'Syncing...';
+    btnRefresh.textContent = 'Syncing';
     await refreshPermissionState();
     await checkStatus();
     setTimeout(() => {
-      btnRefresh.textContent = 'Sync Atlas Data';
+      btnRefresh.textContent = 'Sync now';
     }, 1000);
   });
 });

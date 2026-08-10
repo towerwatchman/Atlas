@@ -120,6 +120,45 @@ check("every file the extension needs is present to be packaged", () => {
   }
 });
 
+check("every element popup.js reaches for exists in popup.html", () => {
+  // The popup is plain DOM with no framework and no build step, so a renamed
+  // id fails at runtime as a null dereference inside a DOMContentLoaded
+  // handler -- which surfaces as a popup that opens completely blank, with the
+  // error buried in a devtools window most users will never open. Cheap to
+  // check statically, and it caught the statusDot -> readout rename that came
+  // with the redesign.
+  const dir = path.join(ROOT, "extension", "popup");
+  const html = fs.readFileSync(path.join(dir, "popup.html"), "utf8");
+  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8");
+
+  const ids = [...js.matchAll(/getElementById\(['"]([^'"]+)['"]\)/g)].map((m) => m[1]);
+  assert.ok(ids.length > 0, "No getElementById calls found; did popup.js move?");
+
+  for (const id of ids) {
+    assert.ok(
+      new RegExp(`id=["']${id}["']`).test(html),
+      `popup.js looks up #${id}, which popup.html does not define`,
+    );
+  }
+});
+
+check("the popup does not hardcode a version string", () => {
+  // popup.html shipped the literal "v1.0.0" in its footer while the manifest
+  // said 1.0.7. Nobody noticed because nothing reads a footer. The version now
+  // comes from runtime.getManifest(); this keeps it that way.
+  const html = fs.readFileSync(
+    path.join(ROOT, "extension", "popup", "popup.html"),
+    "utf8",
+  );
+  const hardcoded = html.match(/v\d+\.\d+\.\d+/);
+  assert.ok(
+    !hardcoded,
+    `popup.html hardcodes the version "${hardcoded && hardcoded[0]}". Read it `
+    + "from runtime.getManifest().version instead; a literal drifts the moment "
+    + "the manifest is bumped.",
+  );
+});
+
 check("the generated icons can actually be generated", () => {
   // The icons are not committed, so the thing worth asserting is that whatever
   // produces them, and the single source image it reads, are both still here. A

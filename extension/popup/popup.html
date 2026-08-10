@@ -1,152 +1,313 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <title>Atlas Extension</title>
   <style>
-    body {
-      width: 280px;
-      margin: 0;
-      padding: 16px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background-color: #18181b;
-      color: #f4f4f5;
-      font-size: 13px;
+    /* ── Palette lifted from Atlas's own Default theme ────────────────────────
+       src/theme/themes.js, the theme named 'Default'. The popup previously ran
+       on zinc greys with a #4f46e5 indigo accent, which belongs to no part of
+       this product -- it read as a generic dark-mode panel that happened to say
+       Atlas at the top. Atlas's accent is a desaturated teal, and its surfaces
+       are warmer and darker than zinc. Matching them is the difference between
+       a browser popup and a piece of the app.
+
+       Kept as literal values rather than pulled from the app at runtime: the
+       popup is a separate document in a separate process with no access to the
+       renderer's CSS variables, and a fetch just to colour a 320px panel would
+       make the UI depend on the desktop app being reachable. */
+    :root {
+      --surface:   #19191c;  /* theme: primary   */
+      --raised:    #242629;  /* theme: secondary */
+      --line:      #313338;  /* theme: tertiary  */
+      --edge:      #51535A;  /* theme: border    */
+      --accent:    #2C8EA9;  /* theme: accent    */
+      --accent-lift: #37a6c4;
+      --text:      #d2d2d2;  /* theme: text      */
+      --muted:     #9CA3AF;  /* theme: muted     */
+      --danger:    #DC2626;  /* theme: danger    */
+      --warn:      #D9A441;
+
+      --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+      /* Recoloured per connection state by popup.js, which sets data-state on
+         the readout. One variable drives the rule, the label and the pip, so a
+         state can never be half-applied. */
+      --state: var(--muted);
     }
+
+    * { box-sizing: border-box; }
+
+    body {
+      width: 320px;
+      margin: 0;
+      padding: 14px;
+      font-family: var(--sans);
+      font-size: 13px;
+      line-height: 1.45;
+      background: var(--surface);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Lockup ─────────────────────────────────────────────────────────── */
     .header {
       display: flex;
       align-items: center;
       gap: 10px;
-      margin-bottom: 14px;
-      padding-bottom: 10px;
-      border-bottom: 1px solid #27272a;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
     }
-    .header img {
-      width: 28px;
-      height: 28px;
+    .header img { width: 26px; height: 26px; flex: none; }
+    .wordmark { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .wordmark strong {
+      font-size: 13px;
+      font-weight: 650;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #f2f2f2;
     }
-    .header h2 {
-      margin: 0;
-      font-size: 16px;
-      font-weight: 600;
-      color: #fafafa;
+    .wordmark span {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.01em;
     }
-    .status-card {
-      background: #27272a;
-      border-radius: 6px;
-      padding: 10px 12px;
-      margin-bottom: 14px;
+
+    /* ── Signature element: the link readout ─────────────────────────────────
+       The whole extension is one thing: a socket to the desktop app on
+       loopback. So the status block shows the socket rather than a coloured
+       dot and an adjective. The left rule carries the state colour, the label
+       names the state, and the mono line shows the endpoint actually being
+       talked to -- which is the first thing worth knowing when it is not
+       working, and the piece the old UI never surfaced. */
+    .readout {
+      display: grid;
+      grid-template-columns: 3px 1fr;
+      gap: 0 11px;
+      align-items: center;
+      background: var(--raised);
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 10px 12px 10px 0;
+      margin: 12px 0;
+      overflow: hidden;
+    }
+    .readout::before {
+      content: "";
+      grid-row: 1 / span 2;
+      align-self: stretch;
+      background: var(--state);
+      margin: -10px 0;
+    }
+    .readout[data-state="connected"] { --state: var(--accent); }
+    .readout[data-state="offline"]   { --state: var(--danger); }
+    .readout[data-state="unpaired"]  { --state: var(--warn); }
+
+    .readout-label {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: var(--state);
     }
-    .status-dot {
-      width: 10px;
-      height: 10px;
+    .pip {
+      width: 6px; height: 6px;
       border-radius: 50%;
-      background-color: #71717a;
+      background: var(--state);
+      flex: none;
     }
-    .status-dot.connected {
-      background-color: #22c55e;
-      box-shadow: 0 0 6px #22c55eaa;
+    /* Motion only where it means something: a live link. A static state does
+       not pulse, so the animation is information rather than ornament. */
+    .readout[data-state="connected"] .pip { animation: breathe 2.4s ease-in-out infinite; }
+    @keyframes breathe {
+      0%, 100% { opacity: 1;   box-shadow: 0 0 0 0 rgba(44, 142, 169, 0.55); }
+      50%      { opacity: 0.7; box-shadow: 0 0 0 4px rgba(44, 142, 169, 0); }
     }
-    .status-dot.offline {
-      background-color: #ef4444;
+
+    .readout-endpoint {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
     }
+
+    /* ── Controls ───────────────────────────────────────────────────────── */
     .btn {
       width: 100%;
-      background: #3f3f46;
-      color: #ffffff;
-      border: none;
-      padding: 8px 12px;
+      font: inherit;
+      font-weight: 550;
+      color: var(--text);
+      background: var(--raised);
+      border: 1px solid var(--edge);
       border-radius: 6px;
-      font-weight: 500;
+      padding: 8px 12px;
       cursor: pointer;
-      margin-bottom: 8px;
-      transition: background 0.15s ease;
+      transition: background 0.14s ease, border-color 0.14s ease;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 6px;
     }
-    .btn:hover {
-      background: #52525b;
+    .btn:hover { background: #2b2e32; border-color: #63666e; }
+    .btn:active { transform: translateY(0.5px); }
+    .btn:focus-visible {
+      outline: 2px solid var(--accent-lift);
+      outline-offset: 2px;
     }
     .btn-primary {
-      background: #4f46e5;
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #06232c;
+      font-weight: 650;
     }
-    .btn-primary:hover {
-      background: #4338ca;
+    .btn-primary:hover { background: var(--accent-lift); border-color: var(--accent-lift); }
+
+    /* Open Atlas and Sync are peers and neither is the point of the popup, so
+       they share a row instead of stacking into a wall of full-width pills. */
+    .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stack { display: flex; flex-direction: column; gap: 8px; }
+
+    .btn-subtle {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+      padding: 4px;
+      text-decoration: underline;
+      text-underline-offset: 3px;
     }
-    .footer {
-      margin-top: 12px;
+    .btn-subtle:hover { background: none; color: var(--text); }
+
+    /* ── Panels: pairing and (Firefox only) site access ──────────────────── */
+    .panel {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      padding: 11px;
+      margin-bottom: 12px;
+      background: var(--raised);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--warn);
+      border-radius: 7px;
+    }
+    .panel label {
       font-size: 11px;
-      color: #71717a;
-      text-align: center;
+      font-weight: 650;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+    .panel-hint { font-size: 11.5px; color: var(--muted); margin: 0; }
+    .panel-hint code {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      color: var(--text);
+      background: rgba(0, 0, 0, 0.3);
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+    .panel input {
+      width: 100%;
+      padding: 7px 9px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+      background: rgba(0, 0, 0, 0.32);
+      border: 1px solid var(--edge);
+      border-radius: 5px;
+    }
+    .panel input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(44, 142, 169, 0.22);
+    }
+    .panel input::placeholder { color: #6b7078; }
+
+    .msg { font-size: 11.5px; min-height: 15px; color: var(--muted); }
+    .msg.ok  { color: var(--accent-lift); }
+    .msg.err { color: #f28b8b; }
+
+    .footer {
+      margin-top: 13px;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+      font-family: var(--mono);
+      font-size: 10.5px;
+      color: #6b7078;
+      display: flex;
+      justify-content: space-between;
+      letter-spacing: -0.01em;
     }
 
-    /* Pairing UI. Only shown when Atlas is reachable but rejects our token, so
-       an already-paired user never sees any of this. */
-    .pairing { display: flex; flex-direction: column; gap: 6px; padding: 10px;
-      margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.15);
-      border-radius: 6px; }
-    .pairing label { font-size: 12px; font-weight: 600; }
-    .pairing-hint { font-size: 11px; opacity: 0.7; margin: 0; }
-    .pairing input { width: 100%; box-sizing: border-box; padding: 6px 8px;
-      font-size: 12px; font-family: monospace; border-radius: 4px;
-      border: 1px solid rgba(255,255,255,0.2);
-      background: rgba(0,0,0,0.25); color: inherit; }
-    .pairing-msg { font-size: 11px; min-height: 14px; }
-    .pairing-msg.ok { color: #4ade80; }
-    .pairing-msg.err { color: #f87171; }
-    .btn-subtle { opacity: 0.7; font-size: 12px; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="header">
-    <img src="../icons/logo.png" alt="Atlas Logo">
-    <h2>Atlas Extension</h2>
+    <img src="../icons/48.png" alt="">
+    <div class="wordmark">
+      <strong>Atlas</strong>
+      <span>Browser link</span>
+    </div>
   </div>
 
-  <div class="status-card">
-    <div id="statusDot" class="status-dot"></div>
-    <span id="statusText">Checking connection...</span>
+  <div id="readout" class="readout" data-state="checking">
+    <div class="readout-label">
+      <span class="pip"></span>
+      <span id="statusText">Checking</span>
+    </div>
+    <div id="readoutEndpoint" class="readout-endpoint">&mdash;</div>
   </div>
 
   <!-- Firefox only. MV3 host permissions are optional-by-default under Gecko,
        so a fresh Firefox install has the extension enabled but with no access
        to the forums at all -- badges never render and nothing explains why.
        Chromium grants host permissions at install time and never shows this. -->
-  <div id="permissionBox" class="pairing" style="display: none;">
-    <label>Site access required</label>
-    <p class="pairing-hint">Firefox needs your permission before Atlas can read forum pages.</p>
-    <button id="btnGrantAccess" class="btn btn-primary">Grant access to forums</button>
+  <div id="permissionBox" class="panel" style="display: none;">
+    <label>Site access</label>
+    <p class="panel-hint">Firefox needs your permission before Atlas can read forum pages.</p>
+    <button id="btnGrantAccess" class="btn btn-primary">Grant access</button>
   </div>
 
-  <div id="pairingBox" class="pairing" style="display: none;">
-    <label for="tokenInput">Pairing token</label>
-    <p class="pairing-hint">Atlas &rarr; Settings &rarr; Browser Extension &rarr; Copy Token</p>
-    <input id="tokenInput" type="password" placeholder="Paste token from Atlas" autocomplete="off" spellcheck="false" />
+  <div id="pairingBox" class="panel" style="display: none;">
+    <label>Pairing token</label>
+    <p class="panel-hint">Copy it from Atlas: <code>Settings &rsaquo; Extension</code></p>
+    <input id="tokenInput" type="password" placeholder="Paste token" autocomplete="off" spellcheck="false">
     <button id="btnSaveToken" class="btn btn-primary">Pair with Atlas</button>
-    <span id="tokenMsg" class="pairing-msg"></span>
+    <span id="tokenMsg" class="msg"></span>
   </div>
 
-  <button id="btnAddPage" class="btn btn-primary" style="display: none;">
-    Add Current Page to Atlas
-  </button>
-  <button id="btnOpenAtlas" class="btn">
-    Open Atlas App
-  </button>
-  <button id="btnRefresh" class="btn">
-    Sync Atlas Data
-  </button>
-
-  <button id="btnUnpair" class="btn btn-subtle" style="display: none;">
-    Change pairing token
-  </button>
+  <div class="stack">
+    <button id="btnAddPage" class="btn btn-primary" style="display: none;">Add this page</button>
+    <div class="btn-row">
+      <button id="btnOpenAtlas" class="btn">Open Atlas</button>
+      <button id="btnRefresh" class="btn">Sync now</button>
+    </div>
+    <button id="btnUnpair" class="btn btn-subtle" style="display: none;">Change token</button>
+  </div>
 
   <div class="footer">
-    Atlas Game Manager &bull; v1.0.0
+    <span>Atlas</span>
+    <!-- Filled from runtime.getManifest().version. This was previously a
+         literal baked into the markup, and it had drifted several releases
+         behind the manifest -- the failure mode every hardcoded version
+         reaches eventually. check-extension-packaging.js now fails the build
+         if a version-shaped literal reappears anywhere in this file. -->
+    <span id="extVersion"></span>
   </div>
 
   <!-- compat.js must load first; popup.js reads globalThis.atlasBrowser at the
