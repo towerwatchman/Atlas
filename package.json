@@ -84,14 +84,19 @@
   "scripts": {
     "sync:search-fields": "node scripts/sync-search-fields.js",
     "dev": "concurrently --kill-others \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+<<<<<<< Updated upstream
     "check": "npm run lint && node scripts/check-js.js && node scripts/check-version-utils.js && node scripts/check-blank-version-repair.js && node scripts/check-gl-infos-parser.js && node scripts/check-f95checker-parser.js && node scripts/check-xlibrary-parser.js && node scripts/check-importer-sources.js && node scripts/check-replace-target.js && node scripts/check-record-id.js && node scripts/check-catalog-ref.js && node scripts/check-catalog-identity.js && node --no-warnings scripts/check-download-art.js && node scripts/check-extension-packaging.js && node scripts/check-worker-packaging.js && node scripts/check-ipc-dead-code.js && node scripts/check-ipc-channels.js && node scripts/check-ipc-comments.js && node scripts/check-preload-api.js && node scripts/check-group-classifier.js && node scripts/check-f95-thread-parser.js && node scripts/check-masked-resolver.js && node scripts/check-host-plugins.js && node scripts/check-version-from-file.js && node scripts/check-import-rules.js && node scripts/check-credential-store.js && node scripts/check-format-percent.js && node scripts/check-media-assets.js && node scripts/check-steam-store-assets.js && node scripts/check-steam-local-media-sources.js && node scripts/check-banner-layouts.js && node scripts/check-extension-server.js && npm run test:run && vite build && git diff --check",
+=======
+    "check": "npm run lint && node scripts/check-js.js && node scripts/check-version-utils.js && node scripts/check-blank-version-repair.js && node scripts/check-gl-infos-parser.js && node scripts/check-f95checker-parser.js && node scripts/check-xlibrary-parser.js && node scripts/check-importer-sources.js && node scripts/check-replace-target.js && node scripts/check-record-id.js && node scripts/check-catalog-ref.js && node scripts/check-catalog-identity.js && node --no-warnings scripts/check-download-art.js && node scripts/check-extension-packaging.js && node scripts/check-extension-manifests.js && node scripts/check-ipc-dead-code.js && node scripts/check-ipc-channels.js && node scripts/check-ipc-comments.js && node scripts/check-preload-api.js && node scripts/check-group-classifier.js && node scripts/check-f95-thread-parser.js && node scripts/check-masked-resolver.js && node scripts/check-host-plugins.js && node scripts/check-version-from-file.js && node scripts/check-import-rules.js && node scripts/check-credential-store.js && node scripts/check-format-percent.js && node scripts/check-media-assets.js && node scripts/check-steam-store-assets.js && node scripts/check-steam-local-media-sources.js && node scripts/check-banner-layouts.js && node scripts/check-extension-server.js && npm run test:run && vite build && git diff --check",
+>>>>>>> Stashed changes
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "build": "vite build && electron-builder --win --x64",
+    "build": "npm run build:extension:icons && vite build && electron-builder --win --x64",
     "preview": "vite preview",
-    "publish": "vite build && electron-builder --win --x64 -p always",
+    "publish": "npm run build:extension:icons && vite build && electron-builder --win --x64 -p always",
     "build:extension": "node scripts/package-extension.js",
+    "build:extension:icons": "node scripts/generate-extension-icons.js",
     "format": "prettier --write \"src/**/*.{js,jsx,css}\" \"electron/**/*.{js,jsx}\"",
     "lint": "eslint ."
   },

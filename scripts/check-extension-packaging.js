@@ -73,24 +73,67 @@ check("every file the extension needs is present to be packaged", () => {
   // A manifest naming a script that was never committed produces an extension
   // Chrome refuses to load, with an error the user sees and the developer does
   // not.
+  //
+  // Every manifest is checked, not just the Chrome one. Firefox declares its
+  // background as background.scripts (an array) rather than
+  // background.service_worker, so a check that only read service_worker would
+  // pass a firefox.json naming a file that does not exist.
+  //
+  // extension/icons/ is EXCLUDED from the existence check and handled
+  // separately below. Those PNGs are generated from /logo.png by
+  // scripts/generate-extension-icons.js and are gitignored, so on a clean clone
+  // they legitimately do not exist yet. Asserting on them would fail CI for the
+  // one state the repo is supposed to be in.
   const dir = path.join(ROOT, "extension");
-  const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
-  const referenced = new Set();
-  for (const script of manifest.background?.service_worker ? [manifest.background.service_worker] : []) {
-    referenced.add(script);
-  }
-  for (const entry of manifest.content_scripts || []) {
-    for (const file of [...(entry.js || []), ...(entry.css || [])]) referenced.add(file);
-  }
-  if (manifest.action?.default_popup) referenced.add(manifest.action.default_popup);
-  for (const file of Object.values(manifest.icons || {})) referenced.add(file);
+  const manifestPaths = [
+    path.join(dir, "manifest.json"),
+    path.join(dir, "manifests", "edge.json"),
+    path.join(dir, "manifests", "firefox.json"),
+  ];
 
-  for (const file of referenced) {
+  for (const manifestPath of manifestPaths) {
     assert.ok(
-      fs.existsSync(path.join(dir, file)),
-      `manifest.json references ${file}, which is not in extension/`,
+      fs.existsSync(manifestPath),
+      `${path.relative(ROOT, manifestPath)} is missing; one browser has no package`,
     );
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const referenced = new Set();
+
+    const background = manifest.background || {};
+    if (background.service_worker) referenced.add(background.service_worker);
+    for (const script of background.scripts || []) referenced.add(script);
+
+    for (const entry of manifest.content_scripts || []) {
+      for (const file of [...(entry.js || []), ...(entry.css || [])]) referenced.add(file);
+    }
+    if (manifest.action?.default_popup) referenced.add(manifest.action.default_popup);
+    for (const file of Object.values(manifest.icons || {})) referenced.add(file);
+    for (const file of Object.values(manifest.action?.default_icon || {})) referenced.add(file);
+
+    for (const file of referenced) {
+      if (file.startsWith("icons/")) continue; // generated, see below
+      assert.ok(
+        fs.existsSync(path.join(dir, file)),
+        `${path.basename(manifestPath)} references ${file}, which is not in extension/`,
+      );
+    }
   }
+});
+
+check("the generated icons can actually be generated", () => {
+  // The icons are not committed, so the thing worth asserting is that whatever
+  // produces them, and the single source image it reads, are both still here. A
+  // deleted logo.png would otherwise only surface at package time.
+  assert.ok(
+    fs.existsSync(path.join(ROOT, "logo.png")),
+    "logo.png is the only committed copy of the Atlas mark and every extension "
+    + "icon is derived from it. Without it the extension ships with no icons.",
+  );
+  assert.ok(
+    fs.existsSync(path.join(ROOT, "scripts", "generate-extension-icons.js")),
+    "scripts/generate-extension-icons.js is missing, so nothing produces "
+    + "extension/icons/ and the manifests all point at files that never appear.",
+  );
 });
 
 // ── The copy-out ────────────────────────────────────────────────────────────

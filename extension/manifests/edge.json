@@ -1,0 +1,79 @@
+{
+  "_comment": [
+    "Microsoft Edge manifest. Edge is Chromium, so functionally this is the",
+    "Chrome manifest and the interesting decision is what was NOT changed.",
+    "",
+    "THE \"key\" FIELD IS KEPT ON PURPOSE. The instinct is to strip it, because",
+    "the Edge Add-ons store assigns its own ID and ignores it. But Atlas does",
+    "not deliver this extension through a store -- electron/ipc/extension.js",
+    "copies the folder to disk and the user side-loads it unpacked. For an",
+    "unpacked Chromium extension the ID is derived from \"key\" when present and",
+    "from the install PATH when absent. Keeping the key means an Edge side-load",
+    "gets the SAME extension ID as Chrome, and therefore the same",
+    "chrome-extension:// origin, and therefore already passes the CORS allowlist",
+    "in electron/rpc/extensionServer.js with no server change at all.",
+    "",
+    "Strip the key and every user gets a different path-derived ID, no allowlist",
+    "entry can exist, and Edge silently fails CORS on every RPC call while",
+    "looking perfectly installed.",
+    "",
+    "IF THIS IS EVER PUBLISHED TO THE EDGE ADD-ONS STORE, that changes: Partner",
+    "Center assigns a fixed ID, the key is ignored, and the resulting",
+    "chrome-extension://<edge-id> origin must be added to EDGE_STORE_EXTENSION_ID",
+    "in electron/rpc/extensionServer.js. That constant exists and is empty for",
+    "exactly this reason.",
+    "",
+    "This file is kept as a real file rather than derived from manifest.json by",
+    "the packaging script so that the reasoning above lives next to the artifact",
+    "it explains. scripts/check-extension-manifests.js asserts it stays in sync",
+    "with the Chrome manifest on every field that is not deliberately different."
+  ],
+  "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2f5TdUI/CPRhA/sP9lzleibMorDDwvMaDdOdddfjvlkTf2wD+hTvH7pZ+XkZcEIyr6g8ccW/vIdL7Mii3Hs1lwh3Ury2KA1H1jxhA3FhOlsUjObHrvPNyOZiCVYH6BH5liGGKS35S/+cUYqArowIzE8kzfQkMOxOSLmRTO0RiofOR0brrbMzxz7RwWZhGT63MGUWIUuow9JMKCyqsbJocZjsj2+5ailv/qFrbscxL6hnzCjzNlzbEncxpsw0qSiKplLsJxdKiSb6PBd09tlQGW92515W8beFqEN+Pqr4kngcUi8gxKPfgZgI/1UlC99nsbb9l5zTrZLlzeO5zhgvCwIDAQAB",
+  "name": "Atlas Browser Extension",
+  "short_name": "Atlas",
+  "author": "Atlas Developer",
+  "version": "1.1.0",
+  "description": "Integration between visual novel forums and Atlas Desktop Game Manager",
+  "action": {
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png"
+    },
+    "default_title": "Atlas Game Manager",
+    "default_popup": "popup/popup.html"
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.f95zone.to/*", "*://*.lewdcorner.com/*"],
+      "js": ["compat.js", "content.js"],
+      "css": ["styles/overlay.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "scripting",
+    "activeTab",
+    "contextMenus",
+    "webNavigation",
+    "storage"
+  ],
+  "host_permissions": ["*://*.f95zone.to/*", "*://*.lewdcorner.com/*"],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/logo.png", "styles/overlay.css"],
+      "matches": ["*://*.f95zone.to/*", "*://*.lewdcorner.com/*"]
+    }
+  ]
+}

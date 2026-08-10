@@ -242,7 +242,7 @@ export const normalizeNavDisplayMode = (mode) =>
  * - 'themed'  = the single-color Atlas glyph (data.js path) tinted with the
  *               theme's own `atlasLogo` color. This is the classic look and
  *               the default; it recolors itself to match any theme.
- * - 'colored' = the full-color Atlas logo art (assets/images/atlas_logo.svg,
+ * - 'colored' = the full-color Atlas logo art (assets/images/atlas_logo_full.svg,
  *               the same colored logo shown in the About modal / Welcome
  *               page), rendered as-is regardless of theme colors.
  * Lives in the theme's nav block so the choice travels with the theme and

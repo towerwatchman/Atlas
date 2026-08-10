@@ -89,6 +89,30 @@ async function runServerTests() {
     check(optionsRes.statusCode === 200, 'OPTIONS preflight HTTP 200');
     check(optionsRes.headers['access-control-allow-origin'] === 'chrome-extension://eeejnjabpobbeoklajpekhfofnokoboe', 'CORS Allow-Origin matches extension');
 
+    // Firefox installs get a per-machine moz-extension uuid that cannot be
+    // pinned, so the server matches the shape instead. These three cases are
+    // the whole contract: a real uuid passes, a hostile string wearing the
+    // scheme does not, and an ordinary web page still gets nothing.
+    const firefoxOrigin = 'moz-extension://3f2b1c8e-9a4d-4e6f-8b1a-2c7d9e0f4a5b';
+    const ffRes = await fetchUrl(`http://127.0.0.1:${TEST_PORT}/api/games`, {
+      method: 'OPTIONS',
+      headers: { Origin: firefoxOrigin },
+    });
+    check(ffRes.statusCode === 200, 'Firefox OPTIONS preflight HTTP 200');
+    check(ffRes.headers['access-control-allow-origin'] === firefoxOrigin, 'CORS Allow-Origin echoes the Firefox extension origin');
+
+    const spoofRes = await fetchUrl(`http://127.0.0.1:${TEST_PORT}/api/games`, {
+      method: 'OPTIONS',
+      headers: { Origin: 'moz-extension://evil.example.com' },
+    });
+    check(!spoofRes.headers['access-control-allow-origin'], 'moz-extension scheme alone is not enough; the uuid shape is required');
+
+    const pageRes = await fetchUrl(`http://127.0.0.1:${TEST_PORT}/api/games`, {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://f95zone.to' },
+    });
+    check(!pageRes.headers['access-control-allow-origin'], 'An ordinary web origin still gets no CORS headers');
+
     console.log(`[check-extension-server] All ${checks} checks passed clean.`);
   } finally {
     stopExtensionServer();

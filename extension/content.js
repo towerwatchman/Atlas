@@ -8,7 +8,12 @@
     tags_highlights: {},
   }
 
-  const logoUrl = typeof chrome !== 'undefined' && chrome.runtime?.getURL ? chrome.runtime.getURL('icons/logo.png') : ''
+  // globalThis.atlasBrowser is installed by compat.js, which every manifest
+  // lists ahead of this file in content_scripts.js. Content scripts from one
+  // extension share an isolated-world global, so it is already present here.
+  const api = globalThis.atlasBrowser
+
+  const logoUrl = api?.runtime?.getURL ? api.runtime.getURL('icons/logo.png') : ''
 
   const THREAD_ID_PATTERNS = {
     f95: /(?:^|\/\/|\.)f95zone\.to\/threads\/(?:(?:[^\/?#]*)[.-])?(\d+)/i,
@@ -69,20 +74,25 @@
     return found || null
   }
 
-  const fetchAtlasData = () => {
-    return new Promise((resolve) => {
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage({ action: 'get_data' }, (response) => {
-          if (response) {
-            if (Array.isArray(response.games)) gamesList = response.games
-            if (response.settings) userSettings = response.settings
-          }
-          resolve()
-        })
-      } else {
-        resolve()
+  // sendMessage is the one API where the two namespaces genuinely differ in
+  // shape rather than just in spelling: Firefox's browser.runtime.sendMessage
+  // takes no callback and returns a promise, while Chromium MV3 accepts either.
+  // Promise.resolve() over the return value covers both without branching on
+  // which browser this is.
+  const fetchAtlasData = async () => {
+    if (!api?.runtime?.sendMessage) return
+    try {
+      const response = await Promise.resolve(
+        api.runtime.sendMessage({ action: 'get_data' }),
+      )
+      if (response) {
+        if (Array.isArray(response.games)) gamesList = response.games
+        if (response.settings) userSettings = response.settings
       }
-    })
+    } catch {
+      // Background asleep, extension reloading, or no host access granted yet.
+      // Badges simply do not render this pass; the next refresh retries.
+    }
   }
 
   const createContainer = () => {
@@ -290,8 +300,8 @@
 
   if (typeof document !== 'undefined') {
     // Listen for refresh triggers from background.js
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-      chrome.runtime.onMessage.addListener((msg) => {
+    if (api?.runtime?.onMessage) {
+      api.runtime.onMessage.addListener((msg) => {
         if (msg && msg.action === 'refresh') {
           fetchAtlasData().then(renderBadges)
         }

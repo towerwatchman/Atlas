@@ -113,6 +113,16 @@
     <span id="statusText">Checking connection...</span>
   </div>
 
+  <!-- Firefox only. MV3 host permissions are optional-by-default under Gecko,
+       so a fresh Firefox install has the extension enabled but with no access
+       to the forums at all -- badges never render and nothing explains why.
+       Chromium grants host permissions at install time and never shows this. -->
+  <div id="permissionBox" class="pairing" style="display: none;">
+    <label>Site access required</label>
+    <p class="pairing-hint">Firefox needs your permission before Atlas can read forum pages.</p>
+    <button id="btnGrantAccess" class="btn btn-primary">Grant access to forums</button>
+  </div>
+
   <div id="pairingBox" class="pairing" style="display: none;">
     <label for="tokenInput">Pairing token</label>
     <p class="pairing-hint">Atlas &rarr; Settings &rarr; Browser Extension &rarr; Copy Token</p>
@@ -139,6 +149,9 @@
     Atlas Game Manager &bull; v1.0.0
   </div>
 
+  <!-- compat.js must load first; popup.js reads globalThis.atlasBrowser at the
+       top of its DOMContentLoaded handler. -->
+  <script src="../compat.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
