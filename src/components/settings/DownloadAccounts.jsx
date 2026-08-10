@@ -30,6 +30,23 @@ function formatBytes(value) {
   return `${scaled.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
 }
 
+// A machine with SHA-NI hashes tens of gigabytes per second across all threads,
+// so MB/s stops being readable well before the top of the range.
+function formatThroughput(mbPerSecond) {
+  const value = Number(mbPerSecond) || 0
+  if (value <= 0) return null
+  if (value >= 1000) return `${(value / 1000).toFixed(1)} GB/s`
+  return `${Math.round(value)} MB/s`
+}
+
+// Seconds are the wrong unit for a four-minute wait and minutes are the wrong
+// unit for a six-second one.
+function formatDuration(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0))
+  if (total < 90) return `${total} second${total === 1 ? '' : 's'}`
+  return `${Math.round(total / 60)} minutes`
+}
+
 function HostCard({ plugin, account, available, onSaved, onRemoved }) {
   const [values, setValues] = useState({})
   const [busy, setBusy] = useState(false)
@@ -42,6 +59,11 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
   // fields with help text under each -- inline it pushed every card below it
   // down the page and read as part of the list rather than as a task.
   const [modalOpen, setModalOpen] = useState(false)
+  // MEGA is the only host that charges CPU to sign in, so the diagnostic is
+  // scoped to it rather than added to every card.
+  const [selfTest, setSelfTest] = useState(null)
+  const [testing, setTesting] = useState(false)
+  const supportsSelfTest = plugin.id === 'mega'
 
   const fields = plugin.credentialFields || []
   const hasAccount = Boolean(account)
@@ -85,6 +107,19 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
       setError(err.message || 'Could not save that account')
     } finally {
       setBusy(false)
+    }
+  }
+
+  const runSelfTest = async () => {
+    setTesting(true)
+    setSelfTest(null)
+    try {
+      const result = await window.electronAPI.hostsMegaSelfTest?.()
+      setSelfTest(result || { ok: false, error: 'No response from the app.' })
+    } catch (err) {
+      setSelfTest({ ok: false, error: err.message || 'The test could not be started.' })
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -157,6 +192,66 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
           )}
         </div>
       </div>
+
+      {supportsSelfTest && (
+        <div className="mt-2 pt-2 border-t border-border">
+          {/* Signing in to MEGA is CPU-bound and MEGA does not demand it of every
+              client, so a failure here can mean a slow machine, a broken build,
+              or nothing at all. This measures which, on the hardware where it
+              actually matters. Wraps rather than sitting in one row so it holds
+              up on a narrow window. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={runSelfTest}
+              disabled={testing}
+              className="h-7 px-2.5 text-[11px] rounded-buttonTheme bg-button hover:bg-buttonHover text-text disabled:opacity-40"
+            >
+              {testing ? 'Testing\u2026' : 'Test proof-of-work'}
+            </button>
+            <span className="text-[11px] text-muted">
+              Checks that this computer can complete a MEGA sign-in.
+            </span>
+          </div>
+          {selfTest && (
+            <div className="mt-2 text-[11px] leading-relaxed">
+              {selfTest.ok ? (
+                <>
+                  <p className="text-success">
+                    Working \u2014 solved and verified using {selfTest.workers}{' '}
+                    {selfTest.workers === 1 ? 'thread' : 'threads'}.
+                  </p>
+                  <p className="text-muted">
+                    About {formatDuration(selfTest.estimateSeconds)} for a real MEGA
+                    sign-in on this computer
+                    {formatThroughput(selfTest.throughputMBps)
+                      && ` (${formatThroughput(selfTest.throughputMBps)})`}
+                    . This is an average, so individual attempts vary a lot.
+                  </p>
+                  {selfTest.estimateSeconds > 240 && (
+                    <p className="text-warning">
+                      That is slow enough that a sign-in may not finish. It is a
+                      one-off: once signed in, the session is saved and this is not
+                      repeated.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="text-danger">
+                    {selfTest.outcome === 'load-error'
+                      ? 'Failed \u2014 the background task could not start. This is a fault in the app, not this computer.'
+                      : `Failed \u2014 ${selfTest.error || 'the test did not complete.'}`}
+                  </p>
+                  {selfTest.logPath && (
+                    <p className="text-muted break-all">Details written to {selfTest.logPath}</p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* The modal owns the error while it is open, and a failed save keeps it
           open, so the card only reports the outcome that closed it. */}

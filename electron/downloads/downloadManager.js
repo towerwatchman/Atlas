@@ -35,6 +35,7 @@ const { resolveDirectUrl, pluginFor } = require("./hosts");
 // below -- a plugin may return a `decrypt` descriptor and the response is piped
 // through the transform it names.
 const { createMegaDecryptStream } = require("./hosts/megaDecrypt");
+const appLog = require("../appLog");
 
 const DECRYPT_FACTORIES = {
   mega: (spec, startOffset) => createMegaDecryptStream({ ...spec, startOffset }),
@@ -62,6 +63,14 @@ const MAX_AUTO_RETRIES = 1;
 const TERMINAL_KINDS = new Set(["quota", "auth", "fatal", "blocked", "challenge"]);
 
 // Reasons a user can act on, rather than a raw error they cannot.
+//
+// These are a FALLBACK, used when a plugin had nothing more specific to say. They
+// used to take precedence, which meant a plugin's real explanation was thrown
+// away in favour of a generic sentence -- and the generic sentence was sometimes
+// flatly untrue. A Pixeldrain /d/ link that Atlas could not parse, and a
+// Pixeldrain album that has to be downloaded from a browser, were both reported
+// as "This link is no longer available" for files that existed. The plugin knows
+// which of the several fatal causes it hit; this map cannot.
 const KIND_MESSAGES = {
   quota: "Transfer limit reached on this host. Try again later, or add an account in Settings.",
   auth: "The host rejected your account details. Check them in Settings.",
@@ -302,15 +311,24 @@ const startTransfer = async (item) => {
       // Logging it is the difference between "transfer limit reached" and
       // knowing which URL was requested and what came back - the classified
       // kind alone is a conclusion, not evidence.
-      if (probe.diagnostic) {
-        console.log("[download-probe]", JSON.stringify({
-          host: item.host,
-          url: item.url,
-          kind: probe.kind,
-          error: probe.error,
-          ...probe.diagnostic,
-        }));
-      }
+      //
+      // Logged for EVERY failed probe, not only when a plugin attached a
+      // diagnostic. The link Atlas actually requested is the single most useful
+      // fact about a failure and it is not always the link the user pasted -- a
+      // masked link is resolved first, so the two can differ. A Pixeldrain report
+      // stalled precisely here: the error named the wrong cause and there was no
+      // record of which URL produced it.
+      //
+      // Through appLog rather than console.log: main-process console output goes
+      // to a stream that does not exist in a packaged build, which is where every
+      // one of these failures happens.
+      appLog.write("download-probe", {
+        host: item.host,
+        url: item.url,
+        kind: probe.kind,
+        error: probe.error,
+        ...(probe.diagnostic || {}),
+      });
       await handleFailure(item.id, probe.kind || "transient",
         probe.error || "Could not prepare this download");
       return;
@@ -455,10 +473,10 @@ const startTransfer = async (item) => {
       // sequential over the whole file and this stream only saw part of it.
       // Distinguished from a failure rather than collapsed into one boolean.
       if (verified === null) {
-        console.log("[download-verify]", JSON.stringify({
+        appLog.write("download-verify", {
           id: item.id, host: item.host, reason: "mac-not-computed",
           resumed: existingBytes > 0,
-        }));
+        });
       }
     }
 
@@ -541,7 +559,9 @@ const handleFailure = async (id, kind, message) => {
   if (TERMINAL_KINDS.has(kind)) {
     attempts.delete(id);
     await setState(id, "failed", {
-      error: KIND_MESSAGES[kind] || message,
+      // Plugin first. Every message a plugin returns on a terminal path is
+      // written for the user; the generic is what is left when it had nothing.
+      error: message || KIND_MESSAGES[kind],
       // Quota and auth leave the partial file alone: those bytes are still
       // good and a later resume should not start from zero.
       ...(kind === "fatal" ? { receivedBytes: 0 } : {}),

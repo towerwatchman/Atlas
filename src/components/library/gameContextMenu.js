@@ -26,28 +26,77 @@ export function buildGameContextMenu({ game, collections = [], collectionIdsByRe
   // Newest first. Uses the same comparator as the detail page's version list, so
   // the two orders cannot disagree — a menu ordered differently from the page it
   // opens would be worse than either order on its own.
-  const installedVersions = sortVersionsDesc(
-    (game.versions || []).filter(
-      (version) => version?.exec_path && version?.hasExecutable !== false,
-    ),
+  const allVersions = sortVersionsDesc(game.versions || [])
+
+  // ── Two lists, not one ──────────────────────────────────────────────────────
+  //
+  // Play and Open Game Folder used to share a single list built as
+  // `filter(v => v.exec_path && v.hasExecutable !== false)`, and that filter was
+  // wrong for both of them.
+  //
+  // Steam and GOG versions are stored with an EMPTY exec_path -- they launch via
+  // steam://run and goggalaxy://openGameView, see the upsertVersion calls in
+  // electron/ipc/importer.js -- so every Steam or GOG title was filtered out
+  // before either row was built, losing Play as well as the folder. (The
+  // `hasExecutable` half never did anything at all: that name is a local inside
+  // launchGame and has never been on a version object here.)
+  //
+  // They are separate now because they answer to different rules, and one list
+  // could only ever satisfy one of them:
+  //
+  //   Play    an executable, or an external launcher that resolves the install
+  //           itself. Missing versions are excluded -- launching one cannot work.
+  //   Folder  a path recorded, whether or not it is currently there. Missing ones
+  //           are listed and disabled, because a row that silently vanishes tells
+  //           the user nothing.
+  const launchableVersions = allVersions.filter(
+    (version) =>
+      version?.isInstalled !== false &&
+      (version?.exec_path || version?.source === 'steam' || version?.source === 'gog'),
   )
+  const folderVersions = allVersions.filter((version) => Boolean(version?.game_path))
+
   // An explicit selection still wins; otherwise the default is now the newest
   // version rather than whichever happened to come first out of the database.
   const selectedVersion =
-    installedVersions.find((version) => version.version_id === game.selected_version_id)
-    || installedVersions[0]
+    launchableVersions.find((version) => version.version_id === game.selected_version_id)
+    || launchableVersions[0]
+
+  // version_id rather than the version string. versions has
+  // UNIQUE(record_id, version) so the string is usually unambiguous, but
+  // clientAudit reports duplicate version rows on legacy databases as
+  // "not auto-repaired", and SQLite treats NULLs as distinct under UNIQUE so
+  // blank labels slip past it entirely. The id is exact in both cases.
+  //
+  // source/sourceAppId ride along on launch so handleContextAction can pass them
+  // to launchGame, which picks steam:// over goggalaxy:// from `source` and
+  // prefers the VERSION's appid over the title-level mapping.
+  const launchData = (version) => ({
+    action: 'launch',
+    recordId,
+    versionId: version.version_id,
+    version: version.version,
+    source: version.source || null,
+    sourceAppId: version.source_app_id ?? version.sourceAppId ?? null,
+  })
+  const folderData = (version) => ({
+    action: 'openFolder',
+    recordId,
+    versionId: version.version_id,
+    version: version.version,
+  })
 
   const items = []
 
   // ── Play ────────────────────────────────────────────────────────────────
-  if (installedVersions.length === 1) {
+  if (launchableVersions.length === 1) {
     items.push({
       label: 'Play',
       icon: 'fa-play',
       variant: 'play',
-      data: { action: 'launch', recordId, version: installedVersions[0].version },
+      data: launchData(launchableVersions[0]),
     })
-  } else if (installedVersions.length > 1) {
+  } else if (launchableVersions.length > 1) {
     // One row that both launches the default version AND lists the others. A
     // native menu cannot do this — it ignores clicks on items with a submenu —
     // which is why this used to be two separate entries.
@@ -56,13 +105,11 @@ export function buildGameContextMenu({ game, collections = [], collectionIdsByRe
       icon: 'fa-play',
       variant: 'play',
       hint: selectedVersion?.version,
-      data: selectedVersion
-        ? { action: 'launch', recordId, version: selectedVersion.version }
-        : undefined,
-      submenu: installedVersions.map((version) => ({
+      data: selectedVersion ? launchData(selectedVersion) : undefined,
+      submenu: launchableVersions.map((version) => ({
         label: version.version || 'Unknown version',
         icon: version.version_id === selectedVersion?.version_id ? 'fa-check' : undefined,
-        data: { action: 'launch', recordId, version: version.version },
+        data: launchData(version),
       })),
     })
   }
@@ -134,22 +181,35 @@ export function buildGameContextMenu({ game, collections = [], collectionIdsByRe
     manage.push({ label: 'Remove from Collection', icon: 'fa-layer-group', submenu: removeFrom.submenu })
   }
 
-  if (installedVersions.length === 1) {
+  // One version needs no submenu: a list of one is a step, not a choice.
+  if (folderVersions.length === 1) {
+    const only = folderVersions[0]
     manage.push({
       label: 'Open Game Folder',
       icon: 'fa-folder-open',
-      data: { action: 'openFolder', recordId, version: installedVersions[0].version },
+      disabled: only.isInstalled === false,
+      hint: only.isInstalled === false ? 'missing' : undefined,
+      data: folderData(only),
     })
-  } else if (installedVersions.length > 1) {
+  } else if (folderVersions.length > 1) {
+    // The parent stays clickable and opens the default version, the way Play
+    // does. The custom menu allows that; a native one would ignore the click.
+    const folderDefault = folderVersions.find(
+      (version) => version.version_id === selectedVersion?.version_id,
+    ) || folderVersions.find((version) => version.isInstalled !== false)
     manage.push({
       label: 'Open Game Folder',
       icon: 'fa-folder-open',
-      data: selectedVersion
-        ? { action: 'openFolder', recordId, version: selectedVersion.version }
-        : undefined,
-      submenu: installedVersions.map((version) => ({
+      hint: folderDefault?.version,
+      data: folderDefault ? folderData(folderDefault) : undefined,
+      submenu: folderVersions.map((version) => ({
         label: version.version || 'Unknown version',
-        data: { action: 'openFolder', recordId, version: version.version },
+        // Listed but not clickable. Hiding it would make the row disappear with
+        // no explanation; the hint says which state it is in.
+        disabled: version.isInstalled === false,
+        hint: version.isInstalled === false ? 'missing' : undefined,
+        icon: version.version_id === folderDefault?.version_id ? 'fa-check' : undefined,
+        data: folderData(version),
       })),
     })
   }

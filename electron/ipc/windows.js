@@ -6,7 +6,10 @@ const fs = require('fs')
 const { launchGame } = require('./games')
 
 
-function handleContextAction(data, sender, ctx) {
+// Async because openFolder REPORTS. Every other action is still fire-and-forget
+// and returns nothing, which run-context-action reads as success -- so only the
+// case that has something to say has to say it.
+async function handleContextAction(data, sender, ctx) {
   if (!data || typeof data.action === "undefined") {
     console.error("handleContextAction: Invalid or missing data object", data);
     return;
@@ -26,15 +29,26 @@ function handleContextAction(data, sender, ctx) {
             extension,
             recordId: data.recordId,
             version: selectedVersion.version,
+            // Forwarded so this matches the launch-game IPC handler in
+            // ipc/games.js. Without them launchGame falls back to
+            // getSteamIDbyRecord, which resolves the TITLE mapping -- so a
+            // title holding two Steam versions launched whichever one that
+            // pointed at, regardless of the version clicked.
+            source: selectedVersion.source || null,
+            sourceAppId: selectedVersion.source_app_id || null,
           });
         })
         .catch((err) => console.error("Context launch failed:", err));
       break;
     case "openFolder":
-      ctx.getTrustedVersion(data.recordId, data.version)
-        .then((selectedVersion) => shell.openPath(selectedVersion.game_path))
-        .catch((err) => console.error("Context open folder failed:", err));
-      break;
+      // Returned rather than logged. This used to end in a .catch that wrote to
+      // a console the user does not have open, so a folder that could not be
+      // opened was indistinguishable from a menu item that did nothing.
+      return await ctx.openGameFolderForVersion({
+        recordId: data.recordId,
+        versionId: data.versionId,
+        version: data.version,
+      });
     case "openUrl":
       shell.openExternal(data.url);
       break;
@@ -187,7 +201,11 @@ function processTemplate(items, sender, ctx) {
       ctx.contextMenuData.set(id, newItem.data);
       newItem.click = () => {
         const data = ctx.contextMenuData.get(id);
-        handleContextAction(data, sender, ctx);
+        // A native menu click has nowhere to return a result to, so the outcome
+        // is logged here rather than surfaced. Only the collection menus still
+        // come through this path; game menus use the React one.
+        Promise.resolve(handleContextAction(data, sender, ctx))
+          .catch((err) => console.error("Context action failed:", err));
         ctx.contextMenuData.delete(id);
       };
       delete newItem.data;
@@ -244,8 +262,10 @@ module.exports = function registerWindowsHandlers(ctx) {
   // prompts and delete safeguards all still live in one place.
   ipcMain.handle('run-context-action', async (event, data) => {
     try {
-      handleContextAction(data, event.sender, ctx)
-      return { success: true }
+      // Actions that report an outcome return one; the rest return undefined and
+      // keep the old always-true shape, so no existing caller changes.
+      const result = await handleContextAction(data, event.sender, ctx)
+      return result || { success: true }
     } catch (err) {
       console.error('run-context-action failed:', err)
       return { success: false, error: err.message }

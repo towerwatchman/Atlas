@@ -479,6 +479,36 @@ describe('describeHttpStatus', () => {
     expect(message).toMatch(/trying again/i)
   })
 
+  // The bug that made this necessary: a worker that could not load and a solver
+  // that ran out of time produced the SAME message. Users on packaged builds were
+  // told to close other programs to speed up a calculation that never started,
+  // and the advice was impossible to follow because there was nothing to speed up.
+  it('does not blame the machine when the worker could not start', () => {
+    const message = mega.describeHttpStatus(402, 'the proof-of-work worker could not start')
+    expect(message).toMatch(/fault in the app/i)
+    // Must NOT repeat the timeout advice: retrying cannot fix a packaging fault.
+    expect(message).not.toMatch(/closing other heavy work/i)
+    expect(message).toMatch(/will not help/i)
+  })
+
+  it('names a proof that failed its own verification', () => {
+    const message = mega.describeHttpStatus(402, 'the proof of work failed local verification')
+    expect(message).toMatch(/failed its own check/i)
+    expect(message).toMatch(/report this/i)
+  })
+
+  // The second failure this shipped with: the solver worked, MEGA refused the
+  // proof three times, and the user was told the calculation "did not finish in
+  // time". It had finished in 130ms. A message that names the wrong cause sends
+  // the next investigation to the wrong place, which is what happened.
+  it('does not call a refused proof a timeout', () => {
+    const message = mega.describeHttpStatus(402, 'MEGA refused a valid proof of work')
+    expect(message).toMatch(/rejected/i)
+    expect(message).toMatch(/fault in Atlas/i)
+    expect(message).not.toMatch(/did not finish in time/i)
+    expect(message).not.toMatch(/closing other heavy work/i)
+  })
+
   it('includes whatever MEGA said, when it said anything', () => {
     // The body used to be discarded, which is why a 402 arrived with no evidence.
     expect(mega.describeHttpStatus(402, '-15')).toMatch(/MEGA said: -15/)

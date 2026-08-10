@@ -63,9 +63,10 @@ const { ensureSevenZipConfigured } = require('./utils/sevenZipDetect')
 const {
   addVersion, upsertVersion, updateVersion,
   findExistingRecordForImport, checkRecordExist, checkPathExist,
-  getVersionForRecord, getInstalledVersionsForRecord, getVersionPathsForRecord,
+  getVersionForRecord, getVersionById, getInstalledVersionsForRecord, getVersionPathsForRecord,
   getGame, getGames, getCatalogGames,
 } = require('./db/versions')
+const { createGameFolderOpener } = require('./library/gameFolder')
 
 const {
   repairDoubledApostropheRows, repairStaleVersionExecutables,
@@ -152,6 +153,7 @@ const {
   resolveDataRoot, grantUsersModify, isElevated,
   getLegacyDataDirs, directorySize, migrateLegacyData,
 } = require('./dataLocation')
+const appLog = require('./appLog')
 const accountStore = require('./accounts/accountStore')
 
 // ── Shared mutable state ────────────────────────────────────────────────────
@@ -226,6 +228,13 @@ try {
   dataWriteState = { writable: false, error: err.message }
   console.error('Failed to create data directories:', err.message)
 }
+
+// Point the shared file logger at the data folder. Done here rather than letting
+// appLog fall back to app.getPath('logs') because that path is only redirected
+// into the data folder for packaged builds (see the setPath block below, guarded
+// by process.defaultApp), so in dev the log would land somewhere else entirely --
+// and dev is where it gets read while a fix is being written.
+appLog.configure(path.join(dataDir, 'logs'))
 
 // Point Electron/Chromium's own storage (userData, session data, HTTP cache,
 // GPUCache, cookies, logs) at our data folder instead of the OS default
@@ -853,6 +862,14 @@ async function getTrustedVersion(recordId, version) {
   if (!selectedVersion.isInstalled) throw new Error('Version is not installed or its paths are missing')
   return selectedVersion
 }
+
+// Deliberately NOT getTrustedVersion. Opening a folder asks a different question
+// from launching one, and answering it with the install gate is what kept Steam
+// and GOG versions -- which have no exec_path -- from opening at all. The
+// reasoning is written out in electron/library/gameFolder.js.
+const openGameFolderForVersion = createGameFolderOpener({
+  getVersionById, getVersionForRecord, shell, fs,
+})
 
 function dedupeDeletionPaths(paths = []) {
   const seen = new Set()
@@ -1766,7 +1783,7 @@ function buildCtx() {
     getMetadataSourceOrder,
     normalizeForPathCompare, isPathInside, removeEmptyParentDirectories,
     deletePathWithElevationFallback,
-    isAllowedDeletionPath, getTrustedVersion, deleteTitleRecord,
+    isAllowedDeletionPath, getTrustedVersion, openGameFolderForVersion, deleteTitleRecord,
     // db functions
     addGame, updateGame, addVersion, upsertVersion, updateVersion,
     recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePersonalRatings, setGamePlaystate, setVersionPlaystate,
@@ -1784,7 +1801,7 @@ function buildCtx() {
     findExistingRecordForImport, getImportRecordStatus,
     updateBanners, updatePreviews, getAtlasData, getSteamIDbyRecord, addSteamMapping,
     countVersions, deleteVersion, deleteGameCompletely,
-    getUniqueFilterOptions, getVersionForRecord, getInstalledVersionsForRecord,
+    getUniqueFilterOptions, getVersionForRecord, getVersionById, getInstalledVersionsForRecord,
     getVersionPathsForRecord, db: dbIndex.db,
     getManualMappings, setManualMappings, setSelectedGameVersion,
     getGameOverrides, clearGameOverrides, validateGameMetadataOverrides,
