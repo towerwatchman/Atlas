@@ -178,7 +178,7 @@ check("fs.cpSync still cannot be trusted across an asar boundary", () => {
   assert.strictEqual(
     seen.size, 0,
     `fs.cpSync now routes through public fs methods (${[...seen].join(", ")}). `
-    + "If Electron's asar patch covers them, copyDirectoryRecursive in "
+    + "If Electron's asar patch covers them, syncDirectoryContents in "
     + "electron/ipc/extension.js can go back to being fs.cpSync.",
   );
 });
@@ -187,17 +187,40 @@ check("the copy-out does not use fs.cpSync", () => {
   assert.ok(
     !/fs\.cpSync/.test(codeOnly),
     "electron/ipc/extension.js uses fs.cpSync, which silently fails when the "
-    + "source is inside app.asar. Use copyDirectoryRecursive.",
+    + "source is inside app.asar. Use syncDirectoryContents.",
   );
 });
 
 check("the copy-out is built from fs methods Electron patches for asar", () => {
-  for (const method of ["readdirSync", "copyFileSync", "mkdirSync"]) {
+  // copyFileSync dropped from this list deliberately: the copy-out is now a
+  // content-addressed sync built on readFileSync/writeFileSync, because it has
+  // to compare bytes before deciding to write at all. Both are patched, so the
+  // asar property this check exists to protect is unchanged.
+  for (const method of ["readdirSync", "readFileSync", "writeFileSync", "mkdirSync"]) {
     assert.ok(
       new RegExp(`fs\\.${method}\\(`).test(codeOnly),
-      `copyDirectoryRecursive should call fs.${method}, which is asar-aware`,
+      `syncDirectoryContents should call fs.${method}, which is asar-aware`,
     );
   }
+});
+
+check("the copy-out writes nothing when the target is already current", () => {
+  // This is the whole reason the sync is content-addressed. In dev the target
+  // lives under <repo>/electron/data, which Vite watches; a sync that rewrites
+  // unchanged files reloads the settings window and throws the user off the tab
+  // they just clicked. A guard here because the regression is invisible in a
+  // packaged build and only shows up as UI flicker in dev.
+  assert.ok(
+    /sameFileContents\(/.test(codeOnly),
+    "syncDirectoryContents must compare file contents before writing. An "
+    + "mtime comparison is not enough: copyFileSync does not preserve mtimes, "
+    + "so the target always looks stale on the pass after a fresh checkout.",
+  );
+  assert.ok(
+    !/getLatestMtime/.test(codeOnly),
+    "The mtime-based staleness check is back. It re-copied the whole tree on "
+    + "every call in dev and caused a settings-window reload loop.",
+  );
 });
 
 check("real directories are searched before the in-asar path", () => {

@@ -54,24 +54,109 @@ async function ensureExtensionToken(ctx) {
 //    below swallowed it, ensureExtensionFiles returned the target path anyway,
 //    and get-extension-path reported a folder that was never written.
 //
-//    copyDirectoryRecursive is built from readdirSync/copyFileSync/mkdirSync
+//    syncDirectoryContents is built from readdirSync/readFileSync/mkdirSync
 //    directly, which ARE the patched entry points, so it reads out of an asar
-//    correctly if it ever has to.
+//    correctly if it ever has to. (It replaced copyDirectoryRecursive, which
+//    had the same property; see the block above that function for why the
+//    copy became a content-addressed sync.)
 //
 // This only ever broke in packaged builds. In dev app.getAppPath() is the
 // project root, so candidate 1 was a real directory and cpSync had no asar to
 // cross — which is why it worked on every machine it was written on.
-function copyDirectoryRecursive(sourceDir, targetDir) {
+// ── Why the sync is content-addressed and not mtime-based ────────────────────
+//
+// The previous version compared the newest mtime anywhere under the source to
+// the mtime of the TARGET's manifest.json, and re-copied the whole tree when
+// the source looked newer. In a packaged build that is harmless. In dev it
+// produced a visible bug:
+//
+//   resolveDataRoot() returns the install directory when isDev, so the copy
+//   target is <repo>/electron/data/extension -- inside the folder Vite's dev
+//   server watches. Opening Settings calls get-extension-path, which calls this
+//   function, which rewrote the files, which Vite saw as source edits, which
+//   triggered a full page reload of the settings window. Settings.jsx holds its
+//   active section in `useState(defaultSettingsTab)`, so the reload dropped the
+//   user back on "Interface" a moment after they clicked "Extension".
+//
+//   Worse, the reload re-mounted the panel, which called get-extension-path
+//   again. Each round left the target newer than the source, so it settled
+//   after a pass or two rather than looping forever -- which is exactly why it
+//   looked like a flicker rather than a hang.
+//
+// Comparing bytes instead means an unchanged extension performs ZERO writes, so
+// no watcher anywhere fires. That is the real fix; the watch-ignore added to
+// vite.config.js is the belt to this pair of braces, and either alone would
+// leave the other failure mode reachable.
+//
+// Pruning is new and is not incidental. The old copy only ever added or
+// overwrote, so a target directory kept every file it had ever been given. That
+// mattered the moment extension/icons/ went from one committed 501 KB logo.png
+// to generated 16/32/48/128 PNGs: every existing dev checkout and every
+// installed copy still had the old file sitting in the target, and a stale
+// manifest or script left behind is loaded by the browser exactly as if it
+// belonged there.
+//
+// Built from readFileSync/writeFileSync/readdirSync/mkdirSync for the same
+// reason the copy-out always has been: those are the public fs entry points
+// Electron patches for asar support. fs.cpSync is not, and cannot read across
+// the boundary at all.
+function sameFileContents(sourceFile, targetFile) {
+  try {
+    const a = fs.readFileSync(sourceFile)
+    const b = fs.readFileSync(targetFile)
+    return a.length === b.length && a.equals(b)
+  } catch {
+    // Unreadable target, or no target at all. Treat as different and write.
+    return false
+  }
+}
+
+function syncDirectoryContents(sourceDir, targetDir) {
+  let changed = 0
   fs.mkdirSync(targetDir, { recursive: true })
-  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+
+  // Symlinks are followed and written as their target rather than recreated.
+  // Nothing in extension/ is a link today, and a dangling link in a folder the
+  // user is about to hand to a browser is worse than an extra file.
+  const sourceEntries = fs.readdirSync(sourceDir, { withFileTypes: true })
+  const expected = new Set(sourceEntries.map((entry) => entry.name))
+
+  for (const entry of sourceEntries) {
     const from = path.join(sourceDir, entry.name)
     const to = path.join(targetDir, entry.name)
-    if (entry.isDirectory()) copyDirectoryRecursive(from, to)
-    // Symlinks are copied as their target rather than recreated. Nothing in
-    // extension/ is a link today, and a dangling link in a folder the user is
-    // about to hand to Chrome is worse than an extra file.
-    else fs.copyFileSync(from, to)
+    if (entry.isDirectory()) {
+      changed += syncDirectoryContents(from, to)
+    } else if (!sameFileContents(from, to)) {
+      fs.mkdirSync(path.dirname(to), { recursive: true })
+      fs.writeFileSync(to, fs.readFileSync(from))
+      changed += 1
+    }
   }
+
+  // Remove anything the source no longer has. Only ever applied to the target,
+  // which is a plain directory in the data folder -- never an asar, never the
+  // repo's extension/.
+  let targetEntries = []
+  try {
+    targetEntries = fs.readdirSync(targetDir, { withFileTypes: true })
+  } catch {
+    targetEntries = []
+  }
+  for (const entry of targetEntries) {
+    if (expected.has(entry.name)) continue
+    try {
+      fs.rmSync(path.join(targetDir, entry.name), {
+        recursive: true,
+        force: true,
+      })
+      changed += 1
+    } catch {
+      // A file held open by the browser is not worth failing the whole sync
+      // over; it will be retried on the next call.
+    }
+  }
+
+  return changed
 }
 
 function ensureExtensionFiles(ctx) {
@@ -134,35 +219,15 @@ function ensureExtensionFiles(ctx) {
   }
 
   try {
-    const targetManifest = path.join(targetDir, 'manifest.json')
-    const sourceManifest = path.join(sourceDir, 'manifest.json')
-    let shouldCopy = false
-
-    if (!fs.existsSync(targetDir) || !fs.existsSync(targetManifest)) {
-      shouldCopy = true
-    } else {
-      // Recursively checks all extension source files to ensure edits to content.js/background.js trigger sync to dataDir
-      const getLatestMtime = (dir) => {
-        let maxMtime = 0
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-          const fullPath = path.join(dir, entry.name)
-          if (entry.isDirectory()) {
-            maxMtime = Math.max(maxMtime, getLatestMtime(fullPath))
-          } else {
-            maxMtime = Math.max(maxMtime, fs.statSync(fullPath).mtimeMs)
-          }
-        }
-        return maxMtime
-      }
-      const sourceMaxMtime = getLatestMtime(sourceDir)
-      const targetStat = fs.statSync(targetManifest)
-      if (sourceMaxMtime > targetStat.mtimeMs) {
-        shouldCopy = true
-      }
-    }
-
-    if (shouldCopy) {
-      copyDirectoryRecursive(sourceDir, targetDir)
+    // Writes only the files whose bytes actually differ, and removes anything
+    // the source no longer ships. An already-current target costs a read pass
+    // and produces no filesystem events at all -- see the block above
+    // syncDirectoryContents for why that distinction is load-bearing in dev.
+    const changed = syncDirectoryContents(sourceDir, targetDir)
+    if (changed > 0) {
+      console.log(
+        `[extension] Synced ${changed} file(s) from ${sourceDir} to ${targetDir}`,
+      )
     }
   } catch (err) {
     // ── Reported, not swallowed ─────────────────────────────────────────────
