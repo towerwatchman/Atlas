@@ -159,12 +159,44 @@ test('an unchanged extension is not recopied on every launch', async () => {
   register(ctx)
 
   const manifest = path.join(ctx.dataDir, 'extension', 'manifest.json')
-  const marker = path.join(ctx.dataDir, 'extension', 'user-scratch.txt')
-  fs.writeFileSync(marker, 'kept')
   const before = fs.statSync(manifest).mtimeMs
 
   await ipcHandlers.get('get-extension-path')()
 
+  // The mtime is the assertion. This test used to also drop a scratch file in
+  // the target and require it to survive, which was a proxy for "nothing was
+  // rewritten" back when the copy overwrote unconditionally. The sync now
+  // prunes -- see the test below -- so that proxy asserts the opposite of the
+  // intended behaviour. mtime measures the thing the test is named after
+  // directly, and does not care what else is in the folder.
   expect(fs.statSync(manifest).mtimeMs).toBe(before)
-  expect(fs.existsSync(marker)).toBe(true)
+})
+
+test('files the source no longer ships are removed from the target', async () => {
+  const register = load()
+  const ctx = makeCtx()
+  fs.mkdirSync(ctx.dataDir, { recursive: true })
+  register(ctx)
+
+  // The copy-out only ever added or overwrote, so the target accumulated every
+  // file it had ever been given. That went from untidy to wrong when
+  // extension/icons/ changed shape: a single committed 501 KB logo.png became
+  // generated 16/32/48/128 PNGs, and every existing install kept the old file
+  // sitting in the folder it hands to the browser. A stale manifest or script
+  // left behind is loaded exactly as if it belonged there.
+  const target = path.join(ctx.dataDir, 'extension')
+  const stale = path.join(target, 'icons', 'logo-old.png')
+  const staleDir = path.join(target, 'removed-subsystem')
+  fs.mkdirSync(path.dirname(stale), { recursive: true })
+  fs.writeFileSync(stale, 'left over from a previous layout')
+  fs.mkdirSync(staleDir, { recursive: true })
+  fs.writeFileSync(path.join(staleDir, 'old.js'), '// gone from source')
+
+  await ipcHandlers.get('get-extension-path')()
+
+  expect(fs.existsSync(stale)).toBe(false)
+  expect(fs.existsSync(staleDir)).toBe(false)
+  // Pruning must not take the real files with it.
+  expect(fs.existsSync(path.join(target, 'manifest.json'))).toBe(true)
+  expect(fs.existsSync(path.join(target, 'background.js'))).toBe(true)
 })

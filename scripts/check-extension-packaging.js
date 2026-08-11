@@ -173,7 +173,11 @@ check("the icon generator runs before anything that needs icons", () => {
 
   assert.ok(scripts[ICON_STEP], `package.json needs a "${ICON_STEP}" script`);
 
-  for (const entry of ["predev", "precheck", "build", "publish"]) {
+  // pretest:run included because tests/extension-files.test.js drives the real
+  // copy-out against the real extension/ directory, and the copy-out now
+  // refuses to run without icons. CI happens to call `npm run build:extension`
+  // before the suite, which hides this; `npm test` on a fresh clone does not.
+  for (const entry of ["predev", "precheck", "pretest:run", "build", "publish"]) {
     assert.ok(
       (scripts[entry] || "").includes(ICON_STEP),
       `npm script "${entry}" must run ${ICON_STEP}. Without it the extension `

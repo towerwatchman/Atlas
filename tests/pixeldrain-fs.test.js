@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-const pd = require('/home/claude/proj/electron/downloads/hosts/pixeldrain.js')
+const pd = require('../electron/downloads/hosts/pixeldrain.js')
 
 describe('filesystem paths', () => {
   it('extracts a bare filesystem path', () => {
