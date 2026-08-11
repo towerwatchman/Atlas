@@ -298,7 +298,7 @@ async function unwrapNestedTarball(targetDir, sevenZipBin, session, depth = 0) {
     console.warn(`Failed to unwrap ${tarPath}:`, err.message || err);
     return;
   }
-  await removePathIfExists(tarPath);
+  await removePathIfExists(tarPath, targetDir);
   // A .tar.gz.tar is pathological but cheap to handle.
   await unwrapNestedTarball(targetDir, sevenZipBin, session, depth + 1);
 }
@@ -311,7 +311,11 @@ async function extractArchive(
   progressWindow,
   useBundledRarExtractor = false,
   label = "",
+  containmentRoot = null,
 ) {
+  // Staging and failure cleanup both delete inside this tree, so it has to be
+  // named explicitly rather than inferred from the path being removed.
+  const cleanupRoot = containmentRoot || path.dirname(path.resolve(finalPath));
   const workerPath = resolvePackagedModulePath(
     path.join(__dirname, "../../workers/extractWorker.js"),
   );
@@ -376,7 +380,7 @@ async function extractArchive(
       } else if (msg.type === "done") {
         settle(async () => {
           if (!msg.success) {
-            await removePathIfExists(tempPath);
+            await removePathIfExists(tempPath, cleanupRoot);
             if (msg.canceled) reject(createImportCancelledError());
             else reject(new Error(msg.error || "Extraction failed"));
             return;
@@ -388,14 +392,14 @@ async function extractArchive(
             if (fs.existsSync(finalPath)) {
               finalPath = getUniquePath(finalPath);
             }
-            await moveDirWithRetry(tempPath, finalPath);
+            await moveDirWithRetry(tempPath, finalPath, { containmentRoot: cleanupRoot });
             // One 7-Zip pass on a .tar.bz2 strips only the compression and
             // leaves the .tar sitting there, which then imports as a single
             // file with no executable inside. Unwrap it.
             await unwrapNestedTarball(finalPath, sevenZipBin, session);
             resolve({ success: true, finalPath });
           } catch (err) {
-            await removePathIfExists(tempPath);
+            await removePathIfExists(tempPath, cleanupRoot);
             reject(err);
           }
         });
@@ -403,14 +407,14 @@ async function extractArchive(
     });
     worker.on("error", (err) => {
       settle(async () => {
-        await removePathIfExists(tempPath);
+        await removePathIfExists(tempPath, cleanupRoot);
         reject(err);
       });
     });
     worker.on("exit", (code) => {
       if (code !== 0) {
         settle(async () => {
-          await removePathIfExists(tempPath);
+          await removePathIfExists(tempPath, cleanupRoot);
           reject(new Error(`Worker stopped with exit code ${code}`));
         });
       }
@@ -441,6 +445,7 @@ async function extractArchiveWithFallback({
   ownerWindow,
   notify,
   label = "",
+  containmentRoot = null,
 }) {
   try {
     return await extractArchive(
@@ -451,6 +456,7 @@ async function extractArchiveWithFallback({
       progressWindow,
       useBundledRarExtractor,
       label,
+      containmentRoot,
     );
   } catch (err) {
     // Never interfere with cancellation, and only offer the fallback for the
@@ -514,6 +520,7 @@ async function extractArchiveWithFallback({
       progressWindow,
       false,
       label,
+      containmentRoot,
     );
   }
 }
@@ -744,19 +751,37 @@ function isPathInside(parentPath, childPath) {
   );
 }
 
+// isPathInside() returns TRUE for a path compared against itself, because
+// path.relative() gives "" in that case. That is correct for "is this in my
+// library" questions and catastrophic for "may I delete this" ones -- it is
+// what let the library root pass as a deletable game folder. Deletion checks
+// use this strict variant instead; nothing else should.
+function isStrictlyInsidePath(parentPath, childPath) {
+  const relative = path.relative(
+    normalizeForPathCompare(parentPath),
+    normalizeForPathCompare(childPath),
+  );
+  return !!relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
 function validateSourceCleanupPath(targetPath, sourceRoot) {
   const resolvedTarget = path.resolve(targetPath);
-  const resolvedSourceRoot = sourceRoot ? path.resolve(sourceRoot) : "";
+  // A missing source root used to make this function permissive: it fell through
+  // to nothing but a drive-root check. Absence of a root is a caller bug, and
+  // the safe reading of "I don't know what tree this belongs to" is "don't
+  // delete it".
+  if (!sourceRoot) {
+    throw new Error("Refusing to delete without a known source root");
+  }
+  const resolvedSourceRoot = path.resolve(sourceRoot);
   if (resolvedTarget === path.parse(resolvedTarget).root) {
     throw new Error("Refusing to delete a drive root");
   }
-  if (resolvedSourceRoot) {
-    if (normalizeForPathCompare(resolvedTarget) === normalizeForPathCompare(resolvedSourceRoot)) {
-      throw new Error("Refusing to delete the scan source root");
-    }
-    if (!isPathInside(resolvedSourceRoot, resolvedTarget)) {
-      throw new Error("Refusing to delete outside the scan source root");
-    }
+  if (normalizeForPathCompare(resolvedTarget) === normalizeForPathCompare(resolvedSourceRoot)) {
+    throw new Error("Refusing to delete the scan source root");
+  }
+  if (!isStrictlyInsidePath(resolvedSourceRoot, resolvedTarget)) {
+    throw new Error("Refusing to delete outside the scan source root");
   }
 }
 
@@ -818,7 +843,24 @@ async function removeEmptyParentDirectories(startPath, stopAtPath) {
 async function isAllowedDeletionPath(recordId, folderPath, libraryRoot = null) {
   if (!recordId || !folderPath || typeof folderPath !== "string") return false;
 
+  // Checked BEFORE the recorded-path shortcut below, on purpose. A scan whose
+  // source folder was the library root could record the library root itself as
+  // a version's game_path; once that row existed, the shortcut trusted it
+  // forever and the next replace-version deleted the whole library. A recorded
+  // path is evidence of what Atlas wrote down, not a licence to delete it.
+  const configuredRoot = libraryRoot || getLiveConfig()?.Library?.gameFolder;
   const resolvedPath = path.resolve(folderPath);
+  if (
+    configuredRoot &&
+    normalizeForPathCompare(resolvedPath) ===
+      normalizeForPathCompare(path.resolve(configuredRoot))
+  ) {
+    console.warn(
+      `Refusing deletion of the configured library root: ${resolvedPath}`,
+    );
+    return false;
+  }
+
   const knownVersionPaths = await getVersionPathsForRecord(recordId);
   // THE BUG. This line referenced a ctx-only binding from module scope, so it
   // threw before reaching the early return below -- which is why the previous
@@ -840,22 +882,32 @@ async function isAllowedDeletionPath(recordId, folderPath, libraryRoot = null) {
   // (which used to shadow this one inside the handlers) would have quietly made
   // the two-argument call sites stricter and broken deletions that used to be
   // allowed. Same behaviour either way now.
-  const root = libraryRoot || getLiveConfig()?.Library?.gameFolder;
   return Boolean(
-    root &&
-      fs.existsSync(root) &&
-      isPathInside(root, resolvedPath),
+    configuredRoot &&
+      fs.existsSync(configuredRoot) &&
+      isStrictlyInsidePath(configuredRoot, resolvedPath),
   );
 }
 
-async function removePathIfExists(targetPath) {
+// containmentRoot is REQUIRED. This helper used to call the delete primitive
+// with no validatePath and no root at all, so any path that reached it was
+// removed recursively with nothing but a drive-root check in the way. Callers
+// now have to say what tree the path is allowed to live in.
+async function removePathIfExists(targetPath, containmentRoot) {
   if (!targetPath) return;
+  if (!containmentRoot || (Array.isArray(containmentRoot) && containmentRoot.length === 0)) {
+    console.error(
+      `Refusing to remove ${targetPath}: no containment root supplied by caller`,
+    );
+    return;
+  }
   try {
     await deletePathWithElevationFallback(targetPath, {
       recursive: true,
       force: true,
       description: "Remove incomplete import files",
       window: ownerMainWindow,
+      containmentRoot,
     });
   } catch (err) {
     console.error(`Failed to remove incomplete import path ${targetPath}:`, err);
@@ -868,7 +920,7 @@ async function removePathIfExists(targetPath) {
 // extracted files. Retry with backoff, then fall back to copy + delete (which
 // also covers cross-volume moves). ENOTEMPTY is handled by the existing
 // getUniquePath check before this is called, but is retried here too for safety.
-async function moveDirWithRetry(src, dest, { attempts = 6, baseDelayMs = 150 } = {}) {
+async function moveDirWithRetry(src, dest, { attempts = 6, baseDelayMs = 150, containmentRoot = null } = {}) {
   const retryableCodes = ["EPERM", "EACCES", "EBUSY", "ENOTEMPTY", "EEXIST"];
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
@@ -882,7 +934,7 @@ async function moveDirWithRetry(src, dest, { attempts = 6, baseDelayMs = 150 } =
         // Final fallback (or cross-device): copy then remove the source. cp with
         // force overwrites anything a partially-failed rename may have created.
         await fsp.cp(src, dest, { recursive: true, force: true });
-        await removePathIfExists(src);
+        await removePathIfExists(src, containmentRoot || path.dirname(path.resolve(src)));
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, baseDelayMs * attempt));
@@ -1055,9 +1107,17 @@ async function replaceInstalledVersionAfterImport({
         force: true,
         description: `Delete old version ${selectedReplaceVersion}`,
         window: sender,
+        containmentRoot: libraryRoot,
         validatePath: async (candidatePath) => {
           if (candidatePath === path.parse(candidatePath).root) {
             throw new Error("Refusing to delete a drive root");
+          }
+          if (
+            libraryRoot &&
+            normalizeForPathCompare(candidatePath) ===
+              normalizeForPathCompare(path.resolve(libraryRoot))
+          ) {
+            throw new Error("Refusing to delete the library root");
           }
           if (normalizeForPathCompare(candidatePath) !== normalizeForPathCompare(resolvedOldPath)) {
             throw new Error("Replacement delete target changed");
@@ -2037,6 +2097,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
       const sourceCleanupRoot = path.dirname(sourcePath);
       try {
         const deleteResult = await deletePathWithElevationFallback(sourcePath, {
+          containmentRoot: sourceCleanupRoot,
           recursive: false,
           force: true,
           description: `Delete source archive for ${importGame.title}`,
@@ -2329,6 +2390,7 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
             oldVersionDeleteError = "Old version files were not deleted because the old path is not a folder.";
           } else {
             const deleteResult = await deletePathWithElevationFallback(oldVersionPath, {
+              containmentRoot: currentConfig?.Library?.gameFolder || null,
               recursive: true,
               force: true,
               description: `Delete old version ${replaceRow.version || ""}`.trim(),
@@ -2366,6 +2428,7 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
       try {
         const sourceCleanupRoot = path.dirname(sourcePath);
         const deleteResult = await deletePathWithElevationFallback(sourcePath, {
+          containmentRoot: sourceCleanupRoot,
           recursive: false,
           force: true,
           description: `Delete source archive for ${gameRow.title || "imported game"}`,
@@ -2413,7 +2476,12 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
   } catch (err) {
     console.error("import-local-game-version error:", err);
     if (gamePath && !importCommitted) {
-      await removePathIfExists(gamePath);
+      // targetBase is declared inside the try, so it is not in scope here.
+      // The two roots below are the only places this handler ever writes.
+      await removePathIfExists(gamePath, [
+        currentConfig?.Library?.gameFolder,
+        path.join(dataDir, "games"),
+      ].filter(Boolean));
     }
     ownerWindow?.webContents?.send("import-progress", {
       text: `Import failed: ${err.message || String(err)}`,
@@ -3262,7 +3330,11 @@ ipcMain.handle("import-games", async (event, params) => {
       // it is already installed wherever that tool put it, so it is never moved.
       // The `game.folder` test covers metadata-only rows (tracked but not
       // installed), which have no source path to move from.
-      if (moveFoldersToLibrary && targetLibrary && !game.isArchive && !steamImport && !gogImport && !game.externalState && game.folder) {
+      // `game.isScanRoot` marks the row the scanner emits when the scan folder
+      // ITSELF held loose launchables: its `folder` is the scan root, which is
+      // frequently the library root. Moving or deleting that is never what the
+      // user meant, so such a row is imported strictly in place.
+      if (moveFoldersToLibrary && targetLibrary && !game.isArchive && !steamImport && !gogImport && !game.externalState && !game.isScanRoot && game.folder) {
         let destinationPath = buildStructuredImportPath(
           targetLibrary,
           destinationFormat,
@@ -3289,6 +3361,7 @@ ipcMain.handle("import-games", async (event, params) => {
           const deleteResult = await deletePathWithElevationFallback(gamePath, {
             recursive: true,
             force: true,
+            containmentRoot: sourceCleanupRoot,
             description: `Delete original source folder for ${game.title}`,
             window: mainWindow,
             validatePath: (candidatePath) =>
@@ -3356,6 +3429,7 @@ ipcMain.handle("import-games", async (event, params) => {
           const extraction = await extractArchiveWithFallback({
             archivePath: zipPath,
             finalPath: extractPath,
+            containmentRoot: targetLibrary,
             sevenZipBin: sevenZipPath,
             session,
             progressWindow: mainWindow,
@@ -3419,6 +3493,7 @@ ipcMain.handle("import-games", async (event, params) => {
               await deletePathWithElevationFallback(target, {
                 recursive: true,
                 force: true,
+                containmentRoot: extractPath,
                 description: `Delete extracted ${folderName} folder`,
                 window: mainWindow,
                 validatePath: (candidatePath) => {
@@ -3500,7 +3575,7 @@ ipcMain.handle("import-games", async (event, params) => {
           });
 
           if (!selectedExec) {
-            await removePathIfExists(extractPath);
+            await removePathIfExists(extractPath, targetLibrary);
             session.cleanupPaths = [];
             mainWindow.webContents.send("import-progress", {
               text: `Skipped ${game.title} – no executable selected`,
@@ -3790,6 +3865,7 @@ ipcMain.handle("import-games", async (event, params) => {
           const deleteResult = await deletePathWithElevationFallback(archiveToDeleteAfterImport, {
             recursive: false,
             force: true,
+            containmentRoot: sourceCleanupRoot,
             description: `Delete original archive for ${game.title}`,
             window: mainWindow,
             validatePath: (candidatePath) =>
@@ -3863,7 +3939,7 @@ ipcMain.handle("import-games", async (event, params) => {
       if (isImportCancelledError(err)) {
         await Promise.all(
           [...session.cleanupPaths].reverse().map((targetPath) =>
-            removePathIfExists(targetPath),
+            removePathIfExists(targetPath, targetLibrary),
           ),
         );
         session.cleanupPaths = [];
@@ -4713,6 +4789,7 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
     const extraction = await extractArchiveWithFallback({
       archivePath: item.filePath,
       finalPath: targetBase,
+      containmentRoot: targetLibrary || path.dirname(path.resolve(targetBase)),
       sevenZipBin: resolvedSevenZip.path,
       session: { canceled: false, cancelRequested: false },
       progressWindow: ownerWindow,

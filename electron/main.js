@@ -824,6 +824,14 @@ function isPathInside(parentPath, childPath) {
   return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative))
 }
 
+// Strict variant for deletion checks only. isPathInside() accepts the parent
+// itself (path.relative returns '' there), which is what allowed the library
+// root to pass as a deletable game folder. See electron/deleteUtils.js.
+function isStrictlyInsidePath(parentPath, childPath) {
+  const relative = path.relative(normalizeForPathCompare(parentPath), normalizeForPathCompare(childPath))
+  return !!relative && !relative.startsWith('..') && !path.isAbsolute(relative)
+}
+
 async function removeEmptyParentDirectories(startPath, stopAtPath) {
   if (!startPath || !stopAtPath) return
   let current = path.dirname(path.resolve(startPath))
@@ -844,6 +852,19 @@ async function removeEmptyParentDirectories(startPath, stopAtPath) {
 async function isAllowedDeletionPath(recordId, folderPath) {
   if (!recordId || !folderPath || typeof folderPath !== 'string') return false
   const resolvedPath = path.resolve(folderPath)
+
+  // Rejected BEFORE the recorded-path shortcut. A poisoned versions row (a scan
+  // whose source folder was the library root can record the library root as a
+  // game_path) must not become a standing deletion licence.
+  const configuredRoot = appConfig?.Library?.gameFolder
+  if (
+    configuredRoot &&
+    normalizeForPathCompare(resolvedPath) === normalizeForPathCompare(path.resolve(configuredRoot))
+  ) {
+    console.warn(`Refusing deletion of the configured library root: ${resolvedPath}`)
+    return false
+  }
+
   const knownVersionPaths = await getVersionPathsForRecord(recordId)
   const recentlyDeletedPaths = recentlyDeleted.pathsFor(recordId)
   if (
@@ -852,7 +873,7 @@ async function isAllowedDeletionPath(recordId, folderPath) {
     )
   ) return true
   const libraryRoot = appConfig?.Library?.gameFolder
-  return Boolean(libraryRoot && fs.existsSync(libraryRoot) && isPathInside(libraryRoot, resolvedPath))
+  return Boolean(libraryRoot && fs.existsSync(libraryRoot) && isStrictlyInsidePath(libraryRoot, resolvedPath))
 }
 
 async function getTrustedVersion(recordId, version) {
@@ -899,6 +920,7 @@ async function deleteLinkedGameFolders(recordId, versionPaths) {
       force: true,
       description: 'Delete game folder',
       window: mainWindow,
+      containmentRoot: appConfig?.Library?.gameFolder || null,
       validatePath: async (candidatePath) => {
         if (candidatePath === path.parse(candidatePath).root) throw new Error('Refusing to delete a drive root')
         if (!(await isAllowedDeletionPath(recordId, candidatePath))) {

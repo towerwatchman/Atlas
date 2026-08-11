@@ -372,6 +372,7 @@ module.exports = function registerWindowsHandlers(ctx) {
         force: true,
         description: 'Delete game folder',
         window: BrowserWindow.fromWebContents(event.sender),
+        containmentRoot: appConfig?.Library?.gameFolder || null,
         validatePath: async (candidatePath) => {
           if (candidatePath === path.parse(candidatePath).root) throw new Error('Refusing to delete a drive root')
           if (!(await isAllowedDeletionPath(recordId, candidatePath))) {

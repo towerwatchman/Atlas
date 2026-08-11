@@ -938,6 +938,16 @@ async function findGame(
       singleVisible,
       multipleVisible,
       folder: isArchive || isFile ? path.dirname(t) : t,
+      // True when the SCAN ROOT itself was treated as a game folder, which
+      // happens whenever loose launchables sit at the top of the scanned
+      // directory (see the scanTargets construction in startScan). That row's
+      // `folder` is the whole scanned tree -- routinely the user's library
+      // root -- so the importer must never move it or delete from it.
+      isScanRoot:
+        !isFile &&
+        !isArchive &&
+        !!rootPath &&
+        path.resolve(t).toLowerCase() === path.resolve(rootPath).toLowerCase(),
       sourceFile: isArchive ? t : undefined,
       sourceRoot: rootPath,
       results,

@@ -79,6 +79,15 @@ function buildStructuredImportPath(targetLibrary, format, game) {
       ),
     );
 
+  // A format that produces no segments -- "", "   ", "///" -- used to return
+  // targetLibrary UNCHANGED, making the library root itself an import
+  // destination and, downstream, an extraction/cleanup target. The structure
+  // field is free text saved on every keystroke, so this is reachable by typos
+  // alone. Always descend at least one level.
+  if (pathSegments.length === 0) {
+    pathSegments.push(sanitizePathSegment(game.title, "Untitled"));
+  }
+
   return path.join(targetLibrary, ...pathSegments);
 }
 
