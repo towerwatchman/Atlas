@@ -214,6 +214,34 @@ function ensureExtensionFiles(ctx) {
     console.error(error)
     return { extensionPath: targetDir, ok: false, error, sourceDir: '' }
   }
+
+  // ── The icons are generated, and a missing one kills the whole manifest ────
+  //
+  // extension/icons/ is produced from /logo.png by
+  // scripts/generate-extension-icons.js and is gitignored, so a fresh clone has
+  // none until something generates them. npm predev/precheck hooks and the
+  // build script all do, but `electron .` run directly does not, and neither
+  // does a checkout where the generate step failed.
+  //
+  // Left alone, the sync happily copies an extension with no icons directory,
+  // and the browser rejects the entire package with:
+  //
+  //   Could not load icon 'icons/16.png' specified in 'icons'.
+  //   Could not load manifest.
+  //
+  // which names a file the developer never wrote and does not say where it was
+  // supposed to come from. Failing here instead puts the fix in the message.
+  const missingIcons = ['16.png', '32.png', '48.png', '128.png', 'logo.png']
+    .filter((name) => !fs.existsSync(path.join(sourceDir, 'icons', name)))
+
+  if (missingIcons.length > 0) {
+    const error =
+      `The extension icons have not been generated: ${missingIcons.join(', ')} `
+      + `missing from ${path.join(sourceDir, 'icons')}. They are built from `
+      + 'logo.png and are not committed. Run: npm run build:extension:icons'
+    console.error(`[extension] ${error}`)
+    return { extensionPath: targetDir, ok: false, error, sourceDir }
+  }
   if (path.resolve(sourceDir) === path.resolve(targetDir)) {
     return { extensionPath: targetDir, ok: true, error: '', sourceDir }
   }

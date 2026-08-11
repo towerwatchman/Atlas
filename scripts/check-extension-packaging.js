@@ -159,6 +159,30 @@ check("the popup does not hardcode a version string", () => {
   );
 });
 
+check("the icon generator runs before anything that needs icons", () => {
+  // The icons are gitignored, so every entry point that reads or ships the
+  // extension has to generate them first. `npm run dev` did not, and the result
+  // was a browser refusing the whole package with "Could not load icon
+  // 'icons/16.png'" -- an error naming a file that has never existed in git.
+  //
+  // predev/precheck are npm lifecycle hooks rather than inline prefixes
+  // because npm runs them automatically: a new entry point cannot forget a
+  // hook the way it can forget to repeat a command.
+  const scripts = pkg.scripts || {};
+  const ICON_STEP = "build:extension:icons";
+
+  assert.ok(scripts[ICON_STEP], `package.json needs a "${ICON_STEP}" script`);
+
+  for (const entry of ["predev", "precheck", "build", "publish"]) {
+    assert.ok(
+      (scripts[entry] || "").includes(ICON_STEP),
+      `npm script "${entry}" must run ${ICON_STEP}. Without it the extension `
+      + "is loaded or packaged with a manifest pointing at icons that were "
+      + "never generated, and the browser rejects the entire manifest.",
+    );
+  }
+});
+
 check("the generated icons can actually be generated", () => {
   // The icons are not committed, so the thing worth asserting is that whatever
   // produces them, and the single source image it reads, are both still here. A
@@ -219,6 +243,21 @@ check("fs.cpSync still cannot be trusted across an asar boundary", () => {
     `fs.cpSync now routes through public fs methods (${[...seen].join(", ")}). `
     + "If Electron's asar patch covers them, syncDirectoryContents in "
     + "electron/ipc/extension.js can go back to being fs.cpSync.",
+  );
+});
+
+check("the copy-out refuses to ship an extension with no icons", () => {
+  // Belt to the npm hooks' braces: `electron .` run directly bypasses npm
+  // entirely, so the runtime path needs its own check with the fix in the text.
+  assert.ok(
+    /missingIcons\.length/.test(codeOnly),
+    "ensureExtensionFiles must verify extension/icons/ exists before syncing.",
+  );
+  assert.ok(
+    /build:extension:icons/.test(extensionSource),
+    "The missing-icons error must name `npm run build:extension:icons`. The "
+    + "browser's own message names a generated file and gives no hint where "
+    + "it is supposed to come from.",
   );
 });
 
