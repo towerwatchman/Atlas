@@ -59,7 +59,11 @@ test('the default extraction set covers tarballs', () => {
 test('extraction unwraps a nested tar after the outer pass', () => {
   expect(src).toContain('async function unwrapNestedTarball')
   // Must run after the extracted tree is in place.
-  const move = src.indexOf('await moveDirWithRetry(tempPath, finalPath)')
+  // Matched on the call PREFIX, not the full argument list. The exact-string
+  // form broke the moment moveDirWithRetry gained a containment root, which is
+  // an argument change this test has no opinion about -- it only asserts the
+  // ORDER of the two calls.
+  const move = src.indexOf('await moveDirWithRetry(tempPath, finalPath')
   const unwrap = src.indexOf('await unwrapNestedTarball(finalPath')
   expect(move).toBeGreaterThan(-1)
   expect(unwrap).toBeGreaterThan(move)

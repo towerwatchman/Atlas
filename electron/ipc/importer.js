@@ -2476,10 +2476,12 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
   } catch (err) {
     console.error("import-local-game-version error:", err);
     if (gamePath && !importCommitted) {
-      // targetBase is declared inside the try, so it is not in scope here.
+      // Both targetBase and currentConfig are declared inside the try, so
+      // neither is in scope here; re-read the config rather than widening them.
       // The two roots below are the only places this handler ever writes.
+      const failureConfig = ctx.appConfig || appConfig || {};
       await removePathIfExists(gamePath, [
-        currentConfig?.Library?.gameFolder,
+        failureConfig?.Library?.gameFolder,
         path.join(dataDir, "games"),
       ].filter(Boolean));
     }
