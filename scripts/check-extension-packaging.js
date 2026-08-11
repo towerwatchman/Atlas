@@ -73,24 +73,130 @@ check("every file the extension needs is present to be packaged", () => {
   // A manifest naming a script that was never committed produces an extension
   // Chrome refuses to load, with an error the user sees and the developer does
   // not.
+  //
+  // Every manifest is checked, not just the Chrome one. Firefox declares its
+  // background as background.scripts (an array) rather than
+  // background.service_worker, so a check that only read service_worker would
+  // pass a firefox.json naming a file that does not exist.
+  //
+  // extension/icons/ is EXCLUDED from the existence check and handled
+  // separately below. Those PNGs are generated from /logo.png by
+  // scripts/generate-extension-icons.js and are gitignored, so on a clean clone
+  // they legitimately do not exist yet. Asserting on them would fail CI for the
+  // one state the repo is supposed to be in.
   const dir = path.join(ROOT, "extension");
-  const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
-  const referenced = new Set();
-  for (const script of manifest.background?.service_worker ? [manifest.background.service_worker] : []) {
-    referenced.add(script);
-  }
-  for (const entry of manifest.content_scripts || []) {
-    for (const file of [...(entry.js || []), ...(entry.css || [])]) referenced.add(file);
-  }
-  if (manifest.action?.default_popup) referenced.add(manifest.action.default_popup);
-  for (const file of Object.values(manifest.icons || {})) referenced.add(file);
+  const manifestPaths = [
+    path.join(dir, "manifest.json"),
+    path.join(dir, "manifests", "edge.json"),
+    path.join(dir, "manifests", "firefox.json"),
+  ];
 
-  for (const file of referenced) {
+  for (const manifestPath of manifestPaths) {
     assert.ok(
-      fs.existsSync(path.join(dir, file)),
-      `manifest.json references ${file}, which is not in extension/`,
+      fs.existsSync(manifestPath),
+      `${path.relative(ROOT, manifestPath)} is missing; one browser has no package`,
+    );
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const referenced = new Set();
+
+    const background = manifest.background || {};
+    if (background.service_worker) referenced.add(background.service_worker);
+    for (const script of background.scripts || []) referenced.add(script);
+
+    for (const entry of manifest.content_scripts || []) {
+      for (const file of [...(entry.js || []), ...(entry.css || [])]) referenced.add(file);
+    }
+    if (manifest.action?.default_popup) referenced.add(manifest.action.default_popup);
+    for (const file of Object.values(manifest.icons || {})) referenced.add(file);
+    for (const file of Object.values(manifest.action?.default_icon || {})) referenced.add(file);
+
+    for (const file of referenced) {
+      if (file.startsWith("icons/")) continue; // generated, see below
+      assert.ok(
+        fs.existsSync(path.join(dir, file)),
+        `${path.basename(manifestPath)} references ${file}, which is not in extension/`,
+      );
+    }
+  }
+});
+
+check("every element popup.js reaches for exists in popup.html", () => {
+  // The popup is plain DOM with no framework and no build step, so a renamed
+  // id fails at runtime as a null dereference inside a DOMContentLoaded
+  // handler -- which surfaces as a popup that opens completely blank, with the
+  // error buried in a devtools window most users will never open. Cheap to
+  // check statically, and it caught the statusDot -> readout rename that came
+  // with the redesign.
+  const dir = path.join(ROOT, "extension", "popup");
+  const html = fs.readFileSync(path.join(dir, "popup.html"), "utf8");
+  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8");
+
+  const ids = [...js.matchAll(/getElementById\(['"]([^'"]+)['"]\)/g)].map((m) => m[1]);
+  assert.ok(ids.length > 0, "No getElementById calls found; did popup.js move?");
+
+  for (const id of ids) {
+    assert.ok(
+      new RegExp(`id=["']${id}["']`).test(html),
+      `popup.js looks up #${id}, which popup.html does not define`,
     );
   }
+});
+
+check("the popup does not hardcode a version string", () => {
+  // popup.html shipped the literal "v1.0.0" in its footer while the manifest
+  // said 1.0.7. Nobody noticed because nothing reads a footer. The version now
+  // comes from runtime.getManifest(); this keeps it that way.
+  const html = fs.readFileSync(
+    path.join(ROOT, "extension", "popup", "popup.html"),
+    "utf8",
+  );
+  const hardcoded = html.match(/v\d+\.\d+\.\d+/);
+  assert.ok(
+    !hardcoded,
+    `popup.html hardcodes the version "${hardcoded && hardcoded[0]}". Read it `
+    + "from runtime.getManifest().version instead; a literal drifts the moment "
+    + "the manifest is bumped.",
+  );
+});
+
+check("the icon generator runs before anything that needs icons", () => {
+  // The icons are gitignored, so every entry point that reads or ships the
+  // extension has to generate them first. `npm run dev` did not, and the result
+  // was a browser refusing the whole package with "Could not load icon
+  // 'icons/16.png'" -- an error naming a file that has never existed in git.
+  //
+  // predev/precheck are npm lifecycle hooks rather than inline prefixes
+  // because npm runs them automatically: a new entry point cannot forget a
+  // hook the way it can forget to repeat a command.
+  const scripts = pkg.scripts || {};
+  const ICON_STEP = "build:extension:icons";
+
+  assert.ok(scripts[ICON_STEP], `package.json needs a "${ICON_STEP}" script`);
+
+  for (const entry of ["predev", "precheck", "build", "publish"]) {
+    assert.ok(
+      (scripts[entry] || "").includes(ICON_STEP),
+      `npm script "${entry}" must run ${ICON_STEP}. Without it the extension `
+      + "is loaded or packaged with a manifest pointing at icons that were "
+      + "never generated, and the browser rejects the entire manifest.",
+    );
+  }
+});
+
+check("the generated icons can actually be generated", () => {
+  // The icons are not committed, so the thing worth asserting is that whatever
+  // produces them, and the single source image it reads, are both still here. A
+  // deleted logo.png would otherwise only surface at package time.
+  assert.ok(
+    fs.existsSync(path.join(ROOT, "logo.png")),
+    "logo.png is the only committed copy of the Atlas mark and every extension "
+    + "icon is derived from it. Without it the extension ships with no icons.",
+  );
+  assert.ok(
+    fs.existsSync(path.join(ROOT, "scripts", "generate-extension-icons.js")),
+    "scripts/generate-extension-icons.js is missing, so nothing produces "
+    + "extension/icons/ and the manifests all point at files that never appear.",
+  );
 });
 
 // ── The copy-out ────────────────────────────────────────────────────────────
@@ -135,8 +241,23 @@ check("fs.cpSync still cannot be trusted across an asar boundary", () => {
   assert.strictEqual(
     seen.size, 0,
     `fs.cpSync now routes through public fs methods (${[...seen].join(", ")}). `
-    + "If Electron's asar patch covers them, copyDirectoryRecursive in "
+    + "If Electron's asar patch covers them, syncDirectoryContents in "
     + "electron/ipc/extension.js can go back to being fs.cpSync.",
+  );
+});
+
+check("the copy-out refuses to ship an extension with no icons", () => {
+  // Belt to the npm hooks' braces: `electron .` run directly bypasses npm
+  // entirely, so the runtime path needs its own check with the fix in the text.
+  assert.ok(
+    /missingIcons\.length/.test(codeOnly),
+    "ensureExtensionFiles must verify extension/icons/ exists before syncing.",
+  );
+  assert.ok(
+    /build:extension:icons/.test(extensionSource),
+    "The missing-icons error must name `npm run build:extension:icons`. The "
+    + "browser's own message names a generated file and gives no hint where "
+    + "it is supposed to come from.",
   );
 });
 
@@ -144,17 +265,40 @@ check("the copy-out does not use fs.cpSync", () => {
   assert.ok(
     !/fs\.cpSync/.test(codeOnly),
     "electron/ipc/extension.js uses fs.cpSync, which silently fails when the "
-    + "source is inside app.asar. Use copyDirectoryRecursive.",
+    + "source is inside app.asar. Use syncDirectoryContents.",
   );
 });
 
 check("the copy-out is built from fs methods Electron patches for asar", () => {
-  for (const method of ["readdirSync", "copyFileSync", "mkdirSync"]) {
+  // copyFileSync dropped from this list deliberately: the copy-out is now a
+  // content-addressed sync built on readFileSync/writeFileSync, because it has
+  // to compare bytes before deciding to write at all. Both are patched, so the
+  // asar property this check exists to protect is unchanged.
+  for (const method of ["readdirSync", "readFileSync", "writeFileSync", "mkdirSync"]) {
     assert.ok(
       new RegExp(`fs\\.${method}\\(`).test(codeOnly),
-      `copyDirectoryRecursive should call fs.${method}, which is asar-aware`,
+      `syncDirectoryContents should call fs.${method}, which is asar-aware`,
     );
   }
+});
+
+check("the copy-out writes nothing when the target is already current", () => {
+  // This is the whole reason the sync is content-addressed. In dev the target
+  // lives under <repo>/electron/data, which Vite watches; a sync that rewrites
+  // unchanged files reloads the settings window and throws the user off the tab
+  // they just clicked. A guard here because the regression is invisible in a
+  // packaged build and only shows up as UI flicker in dev.
+  assert.ok(
+    /sameFileContents\(/.test(codeOnly),
+    "syncDirectoryContents must compare file contents before writing. An "
+    + "mtime comparison is not enough: copyFileSync does not preserve mtimes, "
+    + "so the target always looks stale on the pass after a fresh checkout.",
+  );
+  assert.ok(
+    !/getLatestMtime/.test(codeOnly),
+    "The mtime-based staleness check is back. It re-copied the whole tree on "
+    + "every call in dev and caused a settings-window reload loop.",
+  );
 });
 
 check("real directories are searched before the in-asar path", () => {

@@ -1,5 +1,5 @@
 import f95Logo from '../../../assets/images/f95_full.png'
-import atlasLogo from '../../../assets/images/atlas_logo.svg'
+import atlasLogo from '../../../assets/images/atlas_logo_full.svg'
 import GogIcon from '../../ui/GogIcon.jsx'
 import { parseExternalIds, buildExternalLinks } from '../externalLinks.js'
 import { getMappedSteamAppId, getMappedGogId } from '../page/gameDetailUtils.js'

@@ -1,4 +1,4 @@
-import atlasLogoUrl from '../../assets/images/atlas_logo.svg'
+import atlasLogoUrl from '../../assets/images/atlas_logo_full.svg'
 
 // First-run welcome page for the main window. Shown once, the very first
 // time a user opens Atlas (tracked separately from the adult-content / age

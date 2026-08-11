@@ -11,7 +11,7 @@
 // (same pattern used by the game-details external links).
 
 import { useState } from 'react'
-import atlasLogoUrl from '../../assets/images/atlas_logo.svg'
+import atlasLogoUrl from '../../assets/images/atlas_logo_full.svg'
 
 // Third-party components bundled with Atlas and their licenses. Kept here so
 // the About screen can surface attribution/notices for the open-source

@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Fixed browser extension thread matching comparing numeric IDs across sites without validating the host domain source (F95Zone vs LewdCorner). F95Zone threads with ID `X` were erroneously matched against games that only carried LewdCorner ID `X`. Thread lookup is now strictly site-isolated (`f95Id` for F95Zone threads, `lcId` for LewdCorner threads).
 - Fixed `open-game-folder` IPC handler opening the parent directory of the game folder instead of the game directory itself (`selectedVersion.game_path`).
 - "Open Game Folder" was missing entirely from the context menu of every Steam and GOG title, and so was Play. Both rows were built from one list filtered as `versions.filter(v => v.exec_path && v.hasExecutable !== false)`, and Steam and GOG versions are stored with an EMPTY `exec_path` by design -- they launch through `steam://run` and `goggalaxy://openGameView`, see the `upsertVersion` calls in `electron/ipc/importer.js`. So the filter removed those titles before either row existed. The submenu was correct; nothing ever reached it.
 - The `hasExecutable` half of that filter never did anything at all. It is a local inside `launchGame` and has never been a field on a version object in the renderer, so the clause read `undefined !== false` on every version ever passed through it.
@@ -44,6 +45,8 @@
 - `ExtensionSettings` shows that reason, and "Open extension folder" reports a refusal rather than logging it to a console the user does not have open. A button that does nothing visible reads as a broken button, not as a missing folder.
 
 ### Added
+- `tests/extension-site-matching.test.js` (6). Tests extension thread URL site parsing, cross-site ID collision prevention (F95Zone vs LewdCorner), and dual-site game matching.
+- `.gitattributes` configuration to enforce CRLF line ending normalization on text/code files across development environments.
 - `tests/extension-files.test.js` (5). Exercises the function rather than scanning it, because this failure was invisible to a source scan of the copy: the copy was fine, its destination was not. All five fail against the pre-fix target and pass after -- verified by restoring `path.join(appDataRoot, 'extension')` in a scratch tree. Stubs `require('electron')` through `Module._load`, the same way `tests/main-startup-smoke.test.js` does, because `vi.mock` cannot reach a CommonJS `require` at load time.
 - Three more checks in `scripts/check-extension-packaging.js` (now 10). The target-directory one reads the ACL grant out of `installer.nsh` rather than hardcoding `data`, so if the grant ever moves the check fails instead of silently guarding the wrong folder; it also fails if `$INSTDIR` itself is ever granted, which would be a security regression rather than a licence to copy there. A second asserts the target survives `DeleteLoop`. A third asserts the copy reports failures rather than swallowing them.
 

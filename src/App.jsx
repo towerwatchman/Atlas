@@ -8,7 +8,7 @@ import AboutModal from './components/ui/AboutModal.jsx'
 import WelcomeTour from './components/ui/WelcomeTour.jsx'
 import WelcomePage, { WELCOME_SEEN_KEY } from './components/ui/WelcomePage.jsx'
 import { atlasLogo } from './assets/icons/data.js'
-import coloredAtlasLogoUrl from './assets/images/atlas_logo.svg'
+import coloredAtlasLogoUrl from './assets/images/atlas_logo_full.svg'
 import { getBannerTotalSize } from './components/library/bannerLayout/bannerLayoutSchema.js'
 import GameBanner from './components/library/GameBanner.jsx'
 import GameTree from './components/library/GameTree.jsx'
@@ -22,7 +22,6 @@ import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
 import RefreshMediaModal from './components/ui/RefreshMediaModal.jsx'
-import ConfirmModal from './components/ui/ConfirmModal.jsx'
 import DownloadsPage from './components/downloads/DownloadsPage.jsx'
 import UpdateModal from './components/downloads/UpdateModal.jsx'
 import DownloadsStatus from './components/downloads/DownloadsStatus.jsx'
@@ -292,9 +291,6 @@ const App = () => {
   // Custom context menu state. Replaces the native menu for game rows so Play can
   // be styled and can both launch and list versions from one row.
   const [gameMenu, setGameMenu] = useState(null)
-  // Why a context action failed, when it has something to say. Only
-  // "Open Game Folder" does today; the rest are still fire-and-forget.
-  const [contextActionError, setContextActionError] = useState('')
   // Tile art comes back from the DB as record ids; resolve them against the
   // already-loaded library rather than refetching art per collection.
   const gamesByRecordId = useMemo(() => {
@@ -836,19 +832,8 @@ const App = () => {
   // Routed through the main process so the custom menu and the remaining native
   // menus share handleContextAction — confirmations and delete safeguards
   // included.
-  //
-  // Awaited now, because run-context-action reports outcomes rather than always
-  // claiming success. Actions with nothing to report still resolve to
-  // { success: true }, so only a real failure raises anything.
-  const runGameContextAction = useCallback(async (data) => {
-    try {
-      const result = await window.electronAPI.runContextAction?.(data)
-      if (result?.success === false) {
-        setContextActionError(result.error || 'That action could not be completed.')
-      }
-    } catch (err) {
-      setContextActionError(err?.message || String(err))
-    }
+  const runGameContextAction = useCallback((data) => {
+    window.electronAPI.runContextAction?.(data)
   }, [])
 
   const selectGame = useCallback((game) => {
@@ -2548,15 +2533,6 @@ const App = () => {
         items={gameMenu?.items || []}
         onClose={() => setGameMenu(null)}
         onAction={runGameContextAction}
-      />
-
-      <ConfirmModal
-        open={Boolean(contextActionError)}
-        alert
-        title="Could not open folder"
-        body={contextActionError}
-        confirmLabel="OK"
-        onCancel={() => setContextActionError('')}
       />
 
       <BulkTagModal

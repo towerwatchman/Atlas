@@ -6,8 +6,47 @@ const crypto = require('crypto')
 // The extension's ID is pinned by the "key" field in extension/manifest.json,
 // so it is identical on every install and can be named here. Without that key
 // Chrome assigns a random ID per unpacked install and no allowlist is possible.
+//
+// Edge is covered by this same entry rather than a second one: extension/
+// manifests/edge.json keeps the same "key", and a side-loaded unpacked
+// Chromium extension derives its ID from the key when one is present. Edge and
+// Chrome therefore share an origin. See the comment block in edge.json.
 const EXTENSION_ID = 'eeejnjabpobbeoklajpekhfofnokoboe'
+
+// Only relevant if the extension is ever published through Edge Add-ons, where
+// Partner Center assigns its own ID and ignores the key. Fill this in from the
+// listing and the origin is allowed; leave it empty and nothing changes.
+const EDGE_STORE_EXTENSION_ID = ''
+
 const ALLOWED_ORIGINS = new Set([`chrome-extension://${EXTENSION_ID}`])
+if (EDGE_STORE_EXTENSION_ID) {
+  ALLOWED_ORIGINS.add(`chrome-extension://${EDGE_STORE_EXTENSION_ID}`)
+}
+
+// ── Firefox cannot be pinned, and this is not an oversight ───────────────────
+//
+// A Gecko extension's origin is moz-extension://<uuid>, where the uuid is
+// generated per INSTALLATION -- a different value on every machine, and a new
+// one if the add-on is removed and re-added. There is no stable string to put
+// in the set above; browser_specific_settings.gecko.id is the add-on id, not
+// the origin, and never appears in the Origin header.
+//
+// So the shape is matched instead. What that costs is worth stating plainly:
+// any Firefox extension on the user's machine can now clear this CORS check.
+// What it does NOT get past is currentToken() -- every route with real data
+// behind it still requires the X-Atlas-Token pairing secret, which is 32 bytes
+// of CSPRNG output the user copies out of Atlas Settings by hand. CORS was
+// always the second lock here, not the first; the first one is unchanged.
+//
+// The uuid form is checked rather than accepting the bare scheme, so a string
+// like "moz-extension://evil.example.com" does not pass.
+const FIREFOX_ORIGIN_PATTERN =
+  /^moz-extension:\/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+function isAllowedOrigin(origin) {
+  if (!origin) return false
+  return ALLOWED_ORIGINS.has(origin) || FIREFOX_ORIGIN_PATTERN.test(origin)
+}
 
 // Reachable without a token so the extension can tell "Atlas isn't running"
 // apart from "my token is wrong". Returns nothing but {ok:true} -- anything
@@ -64,7 +103,7 @@ function extractThreadInfo(rawUrl) {
 // and do not need them; the token check below is what actually guards those.
 function corsHeaders(req) {
   const origin = req.headers.origin
-  if (!origin || !ALLOWED_ORIGINS.has(origin)) return {}
+  if (!isAllowedOrigin(origin)) return {}
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',

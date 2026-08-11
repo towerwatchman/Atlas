@@ -1,5 +1,6 @@
 // content.js - Atlas Browser Extension Content Script
-(function () {
+/* global chrome, module */
+;(function () {
   let gamesList = []
   let userSettings = {
     icon_glow: true,
@@ -7,28 +8,91 @@
     tags_highlights: {},
   }
 
-  const logoUrl = chrome.runtime.getURL('icons/logo.png')
+  // globalThis.atlasBrowser is installed by compat.js, which every manifest
+  // lists ahead of this file in content_scripts.js. Content scripts from one
+  // extension share an isolated-world global, so it is already present here.
+  const api = globalThis.atlasBrowser
 
-  const extractThreadId = (urlStr) => {
-    if (!urlStr) return null
-    const match = /threads\/(?:(?:[^\/?#]*)[.-])?(\d+)/.exec(urlStr)
-    return match ? Number.parseInt(match[1], 10) : null
+  const logoUrl = api?.runtime?.getURL ? api.runtime.getURL('icons/logo.png') : ''
+
+  const THREAD_ID_PATTERNS = {
+    f95: /(?:^|\/\/|\.)f95zone\.to\/threads\/(?:(?:[^\/?#]*)[.-])?(\d+)/i,
+    lewdcorner: /(?:^|\/\/|\.)lewdcorner\.com\/threads\/(?:(?:[^\/?#]*)[.-])?(\d+)/i,
   }
 
-  const fetchAtlasData = () => {
-    return new Promise((resolve) => {
-      if (chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage({ action: 'get_data' }, (response) => {
-          if (response) {
-            if (Array.isArray(response.games)) gamesList = response.games
-            if (response.settings) userSettings = response.settings
-          }
-          resolve()
-        })
-      } else {
-        resolve()
+  // Parses thread URLs to extract host forum site and thread ID, ensuring site-isolated game matching
+  const extractThreadInfo = (urlStr) => {
+    if (!urlStr) return null
+    const text = String(urlStr).trim()
+
+    for (const [site, pattern] of Object.entries(THREAD_ID_PATTERNS)) {
+      const match = pattern.exec(text)
+      if (match) {
+        const id = Number.parseInt(match[1], 10)
+        if (Number.isInteger(id) && id > 0) {
+          return { site, id }
+        }
       }
+    }
+
+    // Handles relative thread paths by checking current document domain
+    const relativeMatch = /^\/?threads\/(?:(?:[^\/?#]*)[.-])?(\d+)/i.exec(text)
+    if (relativeMatch) {
+      const id = Number.parseInt(relativeMatch[1], 10)
+      if (Number.isInteger(id) && id > 0) {
+        let site = null
+        const hostname = typeof window !== 'undefined' ? window.location?.hostname || '' : ''
+        if (hostname.includes('lewdcorner.com')) site = 'lewdcorner'
+        else if (hostname.includes('f95zone.to')) site = 'f95'
+        if (site) return { site, id }
+      }
+    }
+
+    return null
+  }
+
+  // Matches a thread against Atlas games by verifying matching site source (f95Id vs lcId) to prevent cross-site ID collisions
+  const findGameForThread = (threadInfo, customGamesList = null) => {
+    if (!threadInfo || !threadInfo.site || !threadInfo.id) return null
+    const list = customGamesList || gamesList
+    if (!list || list.length === 0) return null
+
+    const targetId = threadInfo.id
+
+    const found = list.find((g) => {
+      if (threadInfo.site === 'f95') {
+        const f95 = g.f95Id ? Number.parseInt(g.f95Id, 10) : null
+        return f95 === targetId
+      }
+      if (threadInfo.site === 'lewdcorner') {
+        const lc = g.lcId ? Number.parseInt(g.lcId, 10) : null
+        return lc === targetId
+      }
+      return false
     })
+
+    return found || null
+  }
+
+  // sendMessage is the one API where the two namespaces genuinely differ in
+  // shape rather than just in spelling: Firefox's browser.runtime.sendMessage
+  // takes no callback and returns a promise, while Chromium MV3 accepts either.
+  // Promise.resolve() over the return value covers both without branching on
+  // which browser this is.
+  const fetchAtlasData = async () => {
+    if (!api?.runtime?.sendMessage) return
+    try {
+      const response = await Promise.resolve(
+        api.runtime.sendMessage({ action: 'get_data' }),
+      )
+      if (response) {
+        if (Array.isArray(response.games)) gamesList = response.games
+        if (response.settings) userSettings = response.settings
+      }
+    } catch {
+      // Background asleep, extension reloading, or no host access granted yet.
+      // Badges simply do not render this pass; the next refresh retries.
+    }
   }
 
   const createContainer = () => {
@@ -41,7 +105,7 @@
     return c
   }
 
-  const createIcon = (gameId) => {
+  const createIcon = (threadInfo, targetGame = null) => {
     const badge = document.createElement('span')
     badge.classList.add('atlas-badge-pill')
 
@@ -54,12 +118,7 @@
     img.style.verticalAlign = 'middle'
     img.style.marginRight = '3px'
 
-    const game = (gamesList || []).find((g) => {
-      const f95 = g.f95Id ? Number.parseInt(g.f95Id, 10) : null
-      const lc = g.lcId ? Number.parseInt(g.lcId, 10) : null
-      const id = typeof g.id === 'number' ? g.id : Number.parseInt(g.id, 10)
-      return f95 === gameId || lc === gameId || id === gameId
-    })
+    const game = targetGame || findGameForThread(threadInfo)
 
     let bgColor = '#3b82f6'
     let borderColor = '#60a5fa'
@@ -130,7 +189,7 @@
     return span
   }
 
-  const isValidHrefElem = (elem, elemId, pageId) => {
+  const isValidHrefElem = (elem, elemInfo, pageInfo) => {
     if (!elem || !elem.href) return false
 
     // Filter out reply links and pagination URLs (e.g. /page-2)
@@ -145,7 +204,7 @@
     if (elem.classList.contains('button') || elem.classList.contains('tabs-tab') || elem.classList.contains('u-concealed')) return false
 
     // If we are on a thread page, do NOT spawn inline badges on links to the exact same thread
-    if (pageId && elemId === pageId) return false
+    if (pageInfo && elemInfo && pageInfo.site === elemInfo.site && pageInfo.id === elemInfo.id) return false
 
     return true
   }
@@ -153,42 +212,36 @@
   const renderBadges = () => {
     if (!gamesList || gamesList.length === 0) return
 
-    const knownIds = new Set(
-      gamesList
-        .map((g) => [
-          g.f95Id ? Number.parseInt(g.f95Id, 10) : null,
-          g.lcId ? Number.parseInt(g.lcId, 10) : null,
-          typeof g.id === 'number' ? g.id : Number.parseInt(g.id, 10),
-        ])
-        .flat()
-        .filter(Boolean),
-    )
-
     // 1. Thread Header Badge (for active thread page)
-    const pageId = extractThreadId(document.location.href)
-    if (pageId && knownIds.has(pageId)) {
-      const titleElem =
-        document.getElementsByClassName('p-title-value')[0] ||
-        document.querySelector('.p-title > h1')
-      if (titleElem && !titleElem.querySelector('.atlas-library-icons')) {
-        const container = createContainer()
-        container.appendChild(createIcon(pageId))
-        const childNodes = Array.from(titleElem.childNodes)
-        const targetChild = childNodes[childNodes.length - 1]
-        if (targetChild) {
-          titleElem.insertBefore(container, targetChild)
-          titleElem.insertBefore(createNbsp(), targetChild)
-        } else {
-          titleElem.appendChild(container)
+    const pageInfo = extractThreadInfo(document.location.href)
+    if (pageInfo) {
+      const pageGame = findGameForThread(pageInfo)
+      if (pageGame) {
+        const titleElem =
+          document.getElementsByClassName('p-title-value')[0] ||
+          document.querySelector('.p-title > h1')
+        if (titleElem && !titleElem.querySelector('.atlas-library-icons')) {
+          const container = createContainer()
+          container.appendChild(createIcon(pageInfo, pageGame))
+          const childNodes = Array.from(titleElem.childNodes)
+          const targetChild = childNodes[childNodes.length - 1]
+          if (targetChild) {
+            titleElem.insertBefore(container, targetChild)
+            titleElem.insertBefore(createNbsp(), targetChild)
+          } else {
+            titleElem.appendChild(container)
+          }
         }
       }
     }
 
     // 2. Thread Links Badges (Search results, latest updates, index)
     for (const elem of document.querySelectorAll('a[href*="/threads/"]')) {
-      const elemId = extractThreadId(elem.href)
-      if (!elemId || !knownIds.has(elemId)) continue
-      if (!isValidHrefElem(elem, elemId, pageId)) continue
+      const elemInfo = extractThreadInfo(elem.href)
+      if (!elemInfo) continue
+      const elemGame = findGameForThread(elemInfo)
+      if (!elemGame) continue
+      if (!isValidHrefElem(elem, elemInfo, pageInfo)) continue
       if (elem.querySelector('.atlas-library-icons') || elem.parentNode?.querySelector('.atlas-library-icons')) continue
 
       const isImage =
@@ -196,7 +249,7 @@
         (elem.parentNode && elem.parentNode.parentNode && elem.parentNode.parentNode.classList.contains('es-slides'))
 
       const container = createContainer()
-      container.appendChild(createIcon(elemId))
+      container.appendChild(createIcon(elemInfo, elemGame))
 
       if (isImage) {
         container.style.position = 'absolute'
@@ -236,18 +289,29 @@
     observer.observe(document.body, { childList: true, subtree: true })
   }
 
-  // Listen for refresh triggers from background.js
-  if (chrome.runtime && chrome.runtime.onMessage) {
-    chrome.runtime.onMessage.addListener((msg) => {
-      if (msg && msg.action === 'refresh') {
-        fetchAtlasData().then(renderBadges)
-      }
-    })
+  // Exports for Node/Vitest test suite
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      extractThreadInfo,
+      findGameForThread,
+      isValidHrefElem,
+    }
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init)
-  } else {
-    init()
+  if (typeof document !== 'undefined') {
+    // Listen for refresh triggers from background.js
+    if (api?.runtime?.onMessage) {
+      api.runtime.onMessage.addListener((msg) => {
+        if (msg && msg.action === 'refresh') {
+          fetchAtlasData().then(renderBadges)
+        }
+      })
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init)
+    } else {
+      init()
+    }
   }
 })()

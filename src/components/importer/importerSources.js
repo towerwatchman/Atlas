@@ -1,4 +1,4 @@
-import atlasLogo from '../../assets/icons/atlas_logo.svg'
+import atlasLogo from '../../assets/icons/atlas_logo_mark.svg'
 
 export const IMPORTER_SOURCE_IDS = {
   ATLAS: 'atlas',
