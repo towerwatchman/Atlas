@@ -2532,7 +2532,15 @@ const App = () => {
                 <div className="h-full bg-progressForeground" style={{ width: `${(dbUpdateStatus.progress / (dbUpdateStatus.total || 1)) * 100}%` }}></div>
               </div>
               <span className="absolute inset-0 flex items-center justify-center text-[10px] text-text">
-                Update {formatProgressNumber(dbUpdateStatus.progress)}/{formatProgressNumber(dbUpdateStatus.total)}
+                {/* Floor-plus-one, not the raw value. Progress is fractional
+                    within a package now so the bar can move during a download
+                    (see electron/db/updateProgress.js), and formatProgressNumber
+                    would render that as "Update 3.4/25". This names the package
+                    being worked on, which also fixes the old label opening on
+                    "Update 0/25" before anything had finished. */}
+                Update {formatProgressNumber(
+                  Math.min(Math.floor(Math.max(dbUpdateStatus.progress, 0)) + 1, dbUpdateStatus.total),
+                )}/{formatProgressNumber(dbUpdateStatus.total)}
               </span>
             </div>
           </div>
