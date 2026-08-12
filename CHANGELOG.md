@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Update global lightbox control for media in lightbox instead of only under GameDetails.
 - Fixed browser extension thread matching comparing numeric IDs across sites without validating the host domain source (F95Zone vs LewdCorner). F95Zone threads with ID `X` were erroneously matched against games that only carried LewdCorner ID `X`. Thread lookup is now strictly site-isolated (`f95Id` for F95Zone threads, `lcId` for LewdCorner threads).
 - Fixed `open-game-folder` IPC handler opening the parent directory of the game folder instead of the game directory itself (`selectedVersion.game_path`).
 - "Open Game Folder" was missing entirely from the context menu of every Steam and GOG title, and so was Play. Both rows were built from one list filtered as `versions.filter(v => v.exec_path && v.hasExecutable !== false)`, and Steam and GOG versions are stored with an EMPTY `exec_path` by design -- they launch through `steam://run` and `goggalaxy://openGameView`, see the `upsertVersion` calls in `electron/ipc/importer.js`. So the filter removed those titles before either row existed. The submenu was correct; nothing ever reached it.
