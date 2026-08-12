@@ -24,6 +24,7 @@ const Library = () => {
   const [sevenZipPath, setSevenZipPath] = useState(""); // ← added
   const [sevenZipStatus, setSevenZipStatus] = useState("");
   const [detectingSevenZip, setDetectingSevenZip] = useState(false);
+  const [autoInstallPrompt, setAutoInstallPrompt] = useState(false);
   const [autoSelectLatestReplaceVersion, setAutoSelectLatestReplaceVersion] =
     useState(false);
   const [validatePathsOnStartup, setValidatePathsOnStartup] = useState(false);
@@ -43,6 +44,9 @@ const Library = () => {
       );
       setExtractionExtensions(lib.extractionExtensions || "zip,7z,rar");
       setSevenZipPath(lib.sevenZipPath || ""); // ← added
+      setAutoInstallPrompt(
+        lib.autoInstallPrompt === true || lib.autoInstallPrompt === "true",
+      );
       setAutoSelectLatestReplaceVersion(
         lib.autoSelectLatestReplaceVersion === true ||
           lib.autoSelectLatestReplaceVersion === "true",
@@ -160,6 +164,12 @@ const Library = () => {
     saveLibrarySetting("extractionExtensions", val);
   };
 
+  const handleAutoInstallPromptChange = (e) => {
+    const checked = e.target.checked;
+    setAutoInstallPrompt(checked);
+    saveLibrarySetting("autoInstallPrompt", checked);
+  };
+
   const handleAutoSelectLatestReplaceVersionChange = (e) => {
     const checked = e.target.checked;
     setAutoSelectLatestReplaceVersion(checked);
@@ -257,6 +267,26 @@ const Library = () => {
           this separate from the game folder &mdash; that one is scanned for
           installed games, and in-progress downloads sitting there get picked up
           as titles.
+        </p>
+      </div>
+
+      {/* Sits with the downloads folder rather than with the other install
+          options below, because it is about what happens when a DOWNLOAD ends —
+          someone looking for it will be looking here. */}
+      <div className="border border-border bg-primary/40 p-3 rounded">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={autoInstallPrompt}
+            onChange={handleAutoInstallPromptChange}
+          />
+          <span>Ask to install when a download finishes</span>
+        </label>
+        <p className="text-xs opacity-60 mt-1">
+          Opens the install dialog on its own instead of waiting for you to press
+          Install on the Downloads page. It still asks &mdash; the version and
+          which build to replace are yours to confirm, nothing installs
+          unattended. If another dialog is already open, this waits its turn.
         </p>
       </div>
 

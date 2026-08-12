@@ -127,6 +127,15 @@ const buildDefaultConfig = (dataDir = '') => ({
     // everyone who does is about to have a folder created and is in a position
     // to care. Existing installs are treated as un-prompted and will see it once.
     structurePrompted: false,
+    // Raise the install confirmation by itself when a download finishes, rather
+    // than waiting for the user to find the Install button on the downloads
+    // page. It does NOT install anything unattended: the dialog it opens is the
+    // same one, with the same editable version string, because that string
+    // becomes a folder name and decides whether an existing build is replaced.
+    //
+    // Off by default. Something that puts a dialog over whatever you are doing
+    // has to be asked for.
+    autoInstallPrompt: false,
     autoSelectLatestReplaceVersion: false,
     validatePathsOnStartup: false,
     sevenZipPath: '',

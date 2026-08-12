@@ -24,6 +24,9 @@ import GameDetailPage from './components/detail/GameDetailPage.jsx'
 import RefreshMediaModal from './components/ui/RefreshMediaModal.jsx'
 import DownloadsPage from './components/downloads/DownloadsPage.jsx'
 import UpdateModal from './components/downloads/UpdateModal.jsx'
+import UpdateAllSession from './components/downloads/UpdateAllSession.jsx'
+import InstallFlowHost from './components/downloads/InstallFlowHost.jsx'
+import LibraryUpdateModal from './components/ui/LibraryUpdateModal.jsx'
 import DownloadsStatus from './components/downloads/DownloadsStatus.jsx'
 import { useToast } from './components/ui/toast/ToastContext.jsx'
 import { useGames } from './hooks/useGames.js'
@@ -166,6 +169,14 @@ const App = () => {
   const [refreshLibraryModalOpen, setRefreshLibraryModalOpen] = useState(false)
   const [refreshLibraryBusy, setRefreshLibraryBusy] = useState(false)
   const [refreshLibraryProgress, setRefreshLibraryProgress] = useState(null)
+  // The nav UPDATES button opens this chooser now rather than the metadata
+  // refresh directly — see LibraryUpdateModal.jsx for why the new entries could
+  // not just become two more radios on that dialog.
+  const [libraryUpdateModalOpen, setLibraryUpdateModalOpen] = useState(false)
+  // The "update all games" walkthrough. Separate from the chooser because the
+  // chooser closes the moment a choice is made and the run outlives it.
+  const [updateAllOpen, setUpdateAllOpen] = useState(false)
+  const installFlowRef = useRef(null)
   // NSFW / adult-content ("Browse mode") opt-in — see electron/ipc/settings.js
   // get-nsfw-status / set-nsfw-enabled. nsfwPromptOpen drives the first-run
   // confirmation modal below; it only opens once getNsfwStatus() reports the
@@ -1310,14 +1321,42 @@ const App = () => {
     }
   }, [clearDbUpdateStatusSoon])
 
-  // The nav "Updates" button now opens a modal so the user can choose to refresh
-  // missing-only vs all data. Confirming runs the online DB catalog sync AND a
-  // library-wide media (metadata + artwork) refresh. Images are downloaded vs
-  // streamed per the saved Settings > Metadata media-storage mode.
+  // The nav "Updates" button opens a CHOOSER now. Refreshing library metadata is
+  // still what one of its entries does — and still runs the online DB catalog
+  // sync plus a library-wide media refresh, with images downloaded vs streamed
+  // per Settings > Metadata — but it is no longer the only thing the button can
+  // lead to. See LibraryUpdateModal.jsx.
   const openLibraryRefreshModal = useCallback(() => {
-    setRefreshLibraryProgress(null)
-    setRefreshLibraryModalOpen(true)
+    setLibraryUpdateModalOpen(true)
   }, [])
+
+  // Games the library says have a newer version. Read straight off the loaded
+  // local library rather than re-queried: isUpdateAvailable is computed in
+  // db/versions.js and projected onto every row, so a second query would only
+  // be a chance for the count in the chooser and the length of the run to
+  // disagree.
+  const updatableGames = useMemo(
+    () => games.filter((game) => game?.isUpdateAvailable === true),
+    [games],
+  )
+
+  const handleLibraryUpdateChoice = useCallback((choice) => {
+    setLibraryUpdateModalOpen(false)
+    if (choice === 'metadata') {
+      setRefreshLibraryProgress(null)
+      setRefreshLibraryModalOpen(true)
+      return
+    }
+    if (choice === 'client') {
+      // Straight into the existing footer-toast flow rather than a new dialog.
+      // handleAppUpdateAction already owns every branch of this — checking,
+      // downloading, "package not ready", the install-and-restart step — and a
+      // second entry point would be a second copy of that state machine.
+      handleAppUpdateAction()
+      return
+    }
+    if (choice === 'games') setUpdateAllOpen(true)
+  }, [handleAppUpdateAction])
 
   const confirmLibraryRefresh = useCallback(async (mode) => {
     if (refreshLibraryBusy) return
@@ -2250,6 +2289,7 @@ const App = () => {
             <DownloadsPage
               gamesByRecordId={gamesByRecordId}
               onOpenGame={selectGame}
+              onRequestInstall={(item) => installFlowRef.current?.requestInstall(item)}
             />
           ) : libraryView === 'collections' ? (
             <CollectionsView
@@ -2724,6 +2764,39 @@ const App = () => {
         progress={refreshLibraryProgress}
         onConfirm={confirmLibraryRefresh}
         onClose={() => { if (!refreshLibraryBusy) setRefreshLibraryModalOpen(false) }}
+      />
+
+      <LibraryUpdateModal
+        open={libraryUpdateModalOpen}
+        updateCount={updatableGames.length}
+        onChoose={handleLibraryUpdateChoice}
+        onClose={() => setLibraryUpdateModalOpen(false)}
+      />
+
+      <UpdateAllSession
+        open={updateAllOpen}
+        games={updatableGames}
+        onClose={() => setUpdateAllOpen(false)}
+      />
+
+      {/* The install dialog and its setup prompts, hoisted out of DownloadsPage
+          so a download finishing while the user is anywhere else still has
+          somewhere to put its confirmation. See InstallFlowHost.jsx.
+
+          `blocked` is App's own modal state, not a registry every modal signs
+          up to. That was the cheaper option and it changes no existing
+          component, but it does mean a modal App does not know about — the
+          rating dialog inside GameDetailPage, for one — will not hold a prompt
+          back. Worth revisiting if that becomes a real collision rather than a
+          theoretical one. */}
+      <InstallFlowHost
+        ref={installFlowRef}
+        blocked={
+          Boolean(updateModalGame) || refreshLibraryModalOpen || libraryUpdateModalOpen ||
+          updateAllOpen || aboutOpen || showWelcomeTour || showWelcome || nsfwPromptOpen ||
+          Boolean(collectionModal) || Boolean(pendingCollectionDelete) || Boolean(bulkTagTarget)
+        }
+        onInstalled={(result) => { if (result?.success) fetchGames() }}
       />
 
     </div>

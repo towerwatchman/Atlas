@@ -3,13 +3,9 @@ import SafeImage from '../ui/SafeImage.jsx'
 import { useImageFallback } from '../../hooks/useImageFallback.js'
 import HostIcon from './HostIcon.jsx'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
-import InstallModal from './InstallModal.jsx'
-import LibraryFolderModal from './LibraryFolderModal.jsx'
-import LibraryStructureModal from './LibraryStructureModal.jsx'
 import { describeBuild } from './linkSections.js'
 import { threadUrlForGame } from './threadUrl.js'
 import { keepsBothVersions, bannerTargetFor } from './cardFacts.js'
-import { getLibraryConfig } from '../../utils/librarySettings.js'
 
 // ── Downloads page ───────────────────────────────────────────────────────────
 //
@@ -309,7 +305,12 @@ function Action({ icon, title, onClick, tone = 'default', disabled }) {
   )
 }
 
-export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame }) {
+// onRequestInstall hands an item to InstallFlowHost, which owns the install
+// dialog and its setup prompts at App level now. They used to live here, which
+// meant they could only be shown on this screen - and the whole point of the
+// "prompt me when a download finishes" setting is that a download can finish
+// while the user is somewhere else entirely. See InstallFlowHost.jsx.
+export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame, onRequestInstall }) {
   const [items, setItems] = useState([])
   const [rates, setRates] = useState({})
   // Mirror of `rates` for the sampling interval, so the timer is created once
@@ -317,23 +318,6 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
   const ratesRef = useRef({})
   const [busyId, setBusyId] = useState(null)
   const [folder, setFolder] = useState('')
-  // The item awaiting install confirmation, plus the version Atlas suggests
-  // for it. Null when the modal is closed.
-  const [installTarget, setInstallTarget] = useState(null)
-  // A one-off notice after installing: currently only "the old version was not
-  // removed, and here is why".
-  const [installNotice, setInstallNotice] = useState(null)
-  // ── Setup prompts standing between Install and the install ────────────────
-  //
-  // Both are settings the install NEEDS and that have never been answered, so
-  // both are raised here rather than in InstallModal: they gate whether the
-  // install dialog should open at all, and a dialog that opens only to be
-  // covered by another dialog is worse than one that waits its turn.
-  //
-  // Each holds the pending item so the flow can be picked up where it stopped
-  // once the setting is answered. Null when closed.
-  const [folderPrompt, setFolderPrompt] = useState(null)
-  const [structurePrompt, setStructurePrompt] = useState(null)
   const samplesRef = useRef(new Map())
   const peakRef = useRef(0)
   // 60 one-second samples of aggregate throughput. Kept in state rather than a
@@ -354,6 +338,14 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
     window.electronAPI.downloadsFolder?.().then((result) => {
       if (result?.success) setFolder(result.path)
     }).catch(() => {})
+  }, [refresh])
+
+  // The install dialog lives in InstallFlowHost at App level now, so it cannot
+  // call this page's refresh() directly the way it did when it was mounted here.
+  useEffect(() => {
+    const onRefresh = () => refresh()
+    window.addEventListener('atlas:downloads-refresh', onRefresh)
+    return () => window.removeEventListener('atlas:downloads-refresh', onRefresh)
   }, [refresh])
 
   useEffect(() => {
@@ -441,43 +433,6 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
   // kept in a ref so it survives re-renders without becoming state churn.
   const totalRate = current.reduce((sum, item) => sum + (rates[item.id] || 0), 0)
   if (totalRate > peakRef.current) peakRef.current = totalRate
-
-  // The version suggestion is derived in the main process, where the parser
-  // and the catalog version both live; the modal only presents it.
-  const showInstallModal = useCallback(async (item) => {
-    let suggestion = null
-    try {
-      suggestion = await window.electronAPI.downloadsSuggestVersion?.({ id: item.id })
-    } catch {
-      // A failed suggestion is not fatal - the field is editable anyway.
-    }
-    setInstallTarget({ item, suggestion: suggestion?.ok ? suggestion : null })
-  }, [])
-
-  // Ordered, one question at a time. The folder comes first because it is the
-  // only one that actually blocks — without it there is nowhere to unpack — and
-  // because the structure preview is meaningless until there is a root path to
-  // show it under.
-  //
-  // A config read that fails resolves to {}, which reads as "neither answered"
-  // and would raise both prompts against a working install. gameFolder is
-  // therefore only treated as missing when the read produced SOMETHING, so a
-  // broken config falls through to the install and its existing failure path
-  // rather than being interrupted by a dialog it cannot honour.
-  const openInstall = useCallback(async (item) => {
-    const library = await getLibraryConfig()
-    const known = Object.keys(library).length > 0
-
-    if (known && !String(library.gameFolder || '').trim()) {
-      setFolderPrompt({ item, reason: 'preflight' })
-      return
-    }
-    if (known && library.structurePrompted !== true) {
-      setStructurePrompt({ item, gameFolder: String(library.gameFolder || '') })
-      return
-    }
-    await showInstallModal(item)
-  }, [showInstallModal])
 
   const move = async (id, direction) => {
     const ordered = [...current, ...upNext].map((item) => item.id)
@@ -656,7 +611,7 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
           {item.installable && (
             <button
               type="button"
-              onClick={() => openInstall(item)}
+              onClick={() => onRequestInstall?.(item)}
               disabled={Boolean(installingItem)}
               title={installingItem
                 ? `Installing ${installingItem.title || 'another game'} — one at a time`
@@ -782,109 +737,6 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
         )}
       </div>
 
-      {installNotice && (
-        <div className="fixed inset-0 z-[1500] bg-black/60 flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-lg border border-border bg-primary shadow-2xl">
-            <div className="px-4 py-3 border-b border-border">
-              <h2 className="text-base text-text">Installed{installNotice.title ? ` ${installNotice.title}` : ''}</h2>
-            </div>
-            <p className="px-4 py-3 text-xs text-text">{installNotice.message}</p>
-            <div className="px-4 py-3 border-t border-border flex justify-end">
-              <button
-                type="button"
-                onClick={() => setInstallNotice(null)}
-                className="h-8 px-4 text-xs rounded-buttonTheme bg-accent hover:bg-accentHover text-white"
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <InstallModal
-        item={installTarget?.item}
-        suggestion={installTarget?.suggestion}
-        open={Boolean(installTarget)}
-        onClose={() => setInstallTarget(null)}
-        onInstalled={(result) => {
-          setInstallTarget(null)
-          refresh()
-          // The new version installs either way, so a declined replace is a
-          // notice rather than an error — but the user asked for the old build
-          // to go, and saying nothing about it staying is what made this read as
-          // broken rather than as a refusal.
-          if (result?.busy) {
-            setInstallNotice({
-              title: '',
-              message: result.error || 'Another install is already running.',
-            })
-            return
-          }
-          // Not a notice — a question with an answer. The item stays installable
-          // (fail() parks it in install_failed with the archive intact), so
-          // setting the folder and retrying costs nothing but the click.
-          if (result?.step === 'no-library-folder') {
-            const pending = installTarget?.item
-            if (pending) setFolderPrompt({ item: pending, reason: 'failed' })
-            return
-          }
-          // A download promoted onto a record that matched by TITLE rather than
-          // by any id is the one outcome here worth interrupting for: no atlas,
-          // f95, LewdCorner or Steam id linked these two, only the name did, so
-          // it may not be the game that was meant. Everything else about a
-          // promotion is the expected result and needs no dialog.
-          if (result?.success && result.attachedByTitle) {
-            setInstallNotice({
-              title: result.version || '',
-              message:
-                `Atlas added this version to the existing library entry for `
-                + `"${result.promotedTitle || installTarget?.item?.title || 'this game'}", which matched by `
-                + `name only — no store or thread id linked them. If that is a different `
-                + `game, move the version from its page.`
-                + (result.replaceMessage ? ` ${result.replaceMessage}` : ''),
-            })
-            return
-          }
-          if (result?.success && result.replaceMessage) {
-            setInstallNotice({ title: result.version || '', message: result.replaceMessage })
-          }
-        }}
-      />
-
-      {/* The reactive half of the folder prompt. openInstall checks the setting
-          up front, but the folder can be cleared between that check and the
-          install actually running, and the main process is the only thing that
-          knows the difference between "not set" and "set but unusable". `step`
-          is what fail() puts on the refusal, so branching on it here is reading
-          the main process's own classification rather than matching its prose. */}
-      <LibraryFolderModal
-        open={Boolean(folderPrompt)}
-        reason={folderPrompt?.reason || 'preflight'}
-        title={folderPrompt?.item?.title || ''}
-        onCancel={() => setFolderPrompt(null)}
-        onChosen={async () => {
-          const pending = folderPrompt?.item
-          setFolderPrompt(null)
-          // Straight back into openInstall rather than into the install modal:
-          // the structure question may still be outstanding, and this is the
-          // only place that decides the order between them.
-          if (pending) await openInstall(pending)
-        }}
-      />
-
-      <LibraryStructureModal
-        open={Boolean(structurePrompt)}
-        gameFolder={structurePrompt?.gameFolder || ''}
-        onDone={async () => {
-          const pending = structurePrompt?.item
-          setStructurePrompt(null)
-          // showInstallModal, not openInstall: the flag has just been written and
-          // re-reading it would be a race with no upside, and both questions are
-          // now answered by construction.
-          if (pending) await showInstallModal(pending)
-        }}
-      />
     </div>
   )
 }

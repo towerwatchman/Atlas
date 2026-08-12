@@ -18,10 +18,23 @@ import { buildDownloadOptions } from './linkSections.js'
 // there is nothing Atlas can take delivery of, and a game whose thread offers
 // only unsupported hosts genuinely has no options here - saying so plainly
 // beats an empty list that looks broken.
+//
+// ── Session mode ─────────────────────────────────────────────────────────────
+//
+// "Update all games" runs this same dialog once per game rather than growing a
+// parallel batch UI. The build-and-mirror choice is the whole reason this modal
+// exists - an old season, a compressed build and the current one are different
+// downloads - and a batch screen that picked for the user would be picking
+// wrong on exactly the threads this modal was written to disambiguate.
+//
+// `session` only adds the frame around that: which game of how many, a way past
+// this one, and a way out of the run. When it is set the modal does NOT close
+// itself after queueing; the session decides what comes next, and a modal that
+// closed itself would flash the library between every game.
 
 const prettyHost = (host) => String(host || '').replace(/^www\./, '')
 
-export default function UpdateModal({ game, open, onClose, onQueued }) {
+export default function UpdateModal({ game, open, onClose, onQueued, session = null }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [errorCode, setErrorCode] = useState('')
@@ -132,7 +145,10 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
       })
       if (queued?.success) {
         onQueued?.(queued.item)
-        onClose?.()
+        // In a session the parent advances to the next game, which unmounts
+        // this content anyway. Closing here as well would race that and leave
+        // the run showing nothing.
+        if (!session) onClose?.()
       } else {
         setError(queued?.error || 'Could not add this to the download queue')
       }
@@ -152,7 +168,14 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
   return (
     <div
       className="fixed inset-0 z-[1500] bg-black/60 flex items-center justify-center p-4"
-      onClick={(event) => { if (event.target === event.currentTarget) onClose?.() }}
+      // A backdrop click closes a single-game update, but during a run it would
+      // throw away the walkthrough - the same click that costs one dialog
+      // normally costs twenty games' worth of progress here. The run is ended
+      // from its own labelled button instead.
+      onClick={(event) => {
+        if (session) return
+        if (event.target === event.currentTarget) onClose?.()
+      }}
     >
       <div className="w-full max-w-xl max-h-[85vh] sm:max-h-[80vh] flex flex-col rounded-lg border border-border bg-primary shadow-2xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-start justify-between gap-3">
@@ -186,6 +209,15 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
             {game?.latestVersion && (
               <p className="text-xs text-muted mt-0.5">
                 Latest version {game.latestVersion}
+              </p>
+            )}
+            {/* Where the user is in the run. Both numbers, not a percentage: the
+                decision this line supports is "do I keep going or stop", and
+                "19 left" answers that where "21%" does not. */}
+            {session && (
+              <p className="text-xs text-accent mt-0.5">
+                Game {session.position} of {session.total}
+                <span className="text-muted"> &middot; {session.remaining} left</span>
               </p>
             )}
           </div>
@@ -423,13 +455,39 @@ export default function UpdateModal({ game, open, onClose, onQueued }) {
           >
             Refresh links
           </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="h-8 px-3 text-xs rounded-buttonTheme bg-button hover:bg-buttonHover text-text"
-          >
-            Close
-          </button>
+          {session ? (
+            // Two different exits, and they are not the same thing. Skip leaves
+            // this game alone and moves on; Stop ends the run. Downloads already
+            // queued keep going in both cases - stopping the walkthrough is not
+            // cancelling the transfers, which is why the label is "Stop
+            // checking" rather than "Cancel".
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={session.onStop}
+                disabled={Boolean(resolvingUrl)}
+                className="h-8 px-3 text-xs rounded-buttonTheme bg-button hover:bg-buttonHover text-text disabled:opacity-40"
+              >
+                Stop checking
+              </button>
+              <button
+                type="button"
+                onClick={session.onSkip}
+                disabled={Boolean(resolvingUrl)}
+                className="h-8 px-3 text-xs rounded-buttonTheme bg-accent hover:bg-accentHover text-white disabled:opacity-40"
+              >
+                Skip
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-8 px-3 text-xs rounded-buttonTheme bg-button hover:bg-buttonHover text-text"
+            >
+              Close
+            </button>
+          )}
         </div>
       </div>
     </div>
