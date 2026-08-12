@@ -490,17 +490,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
     else rootRef.current?.scrollIntoView?.({ block: 'start' })
   }, [game?.record_id])
 
-  useEffect(() => {
-    if (lightboxIndex === null) return
-    const onKey = (e) => {
-      if (e.key === 'Escape') setLightboxIndex(null)
-      else if (e.key === 'ArrowLeft') setLightboxIndex((i) => (i === null ? i : (i - 1 + previews.length) % previews.length))
-      else if (e.key === 'ArrowRight') setLightboxIndex((i) => (i === null ? i : (i + 1) % previews.length))
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [lightboxIndex, previews.length])
-
   // ── Banner feathering ─────────────────────────────────────────────────────
   const recomputeFeather = () => {
     const c = bannerRef.current
