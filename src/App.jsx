@@ -2804,7 +2804,26 @@ const App = () => {
           updateAllOpen || aboutOpen || showWelcomeTour || showWelcome || nsfwPromptOpen ||
           Boolean(collectionModal) || Boolean(pendingCollectionDelete) || Boolean(bulkTagTarget)
         }
-        onInstalled={(result) => { if (result?.success) fetchGames() }}
+        onInstalled={(result) => {
+          // skipPathValidation is NOT optional here. Without it, getGames maps
+          // every version of every game through mapVersionRow, which runs a
+          // synchronous fs.existsSync on both game_path and exec_path — two
+          // blocking stats per version, across the whole library, on the main
+          // process. On an SSD that is invisible. On a 6k-game library on a
+          // mechanical drive it is thousands of seeks and the app stops
+          // responding, which is what a user reported as "all version folders
+          // are being scanned after an install".
+          //
+          // Validation is meant to be the deliberate, throttled pass in
+          // validate-library-paths (one record at a time, yielding every 25,
+          // gated behind Library.validatePathsOnStartup). An install is not a
+          // request to re-verify the entire library.
+          //
+          // The versions of the game just installed are still verified: the
+          // install handler broadcasts game-updated with a full getGame()
+          // record, and that one DOES stat its own versions.
+          if (result?.success) fetchGames(includeUninstalledRef.current, { skipPathValidation: true })
+        }}
       />
 
     </div>
