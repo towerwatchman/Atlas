@@ -63,11 +63,14 @@ const getPersonalRatingsPayload = (draft = {}) =>
 
 const getPersonalRatingsOverall = (draft = {}) => {
   const values = Object.values(getPersonalRatingsPayload(draft))
-    .filter((value) => Number.isFinite(value))
+    .filter((value) => Number.isFinite(value) && value > 0)
   if (values.length === 0) return null
   const average = values.reduce((sum, value) => sum + value, 0) / values.length
   return Math.round(average * 10) / 10
 }
+
+// export for tests/rating-system.test.js
+export { getPersonalRatingsOverall }
 
 const splitPreviewUrls = (value) => {
   if (Array.isArray(value)) return value.map((url) => String(url || '').trim()).filter(Boolean)
@@ -1820,3 +1823,4 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
 }
 
 export default GameDetailPage
+

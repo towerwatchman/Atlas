@@ -8,6 +8,7 @@ import {
   computeRatingAverage as uiAverage,
   computeOnlineRating as uiOnline,
 } from '../src/utils/ratingCategories.js'
+import { getPersonalRatingsOverall } from '../src/components/detail/GameDetailPage.jsx'
 import { resolveBannerField } from '../src/components/library/bannerLayout/bannerFieldResolvers.js'
 import React from 'react'
 import RatingModal from '../src/components/detail/RatingModal.jsx'
@@ -59,6 +60,17 @@ test('the renderer average agrees with the database average', () => {
   ]) {
     expect(uiAverage(sample)).toBe(db.computeRatingAverage(sample))
   }
+})
+
+// getPersonalRatingsOverall ignores zero ratings when calculating average
+test('getPersonalRatingsOverall ignores zero ratings', () => {
+  expect(getPersonalRatingsOverall({})).toBeNull()
+  expect(getPersonalRatingsOverall({ story: 0, graphics: 0, gameplay: 0 })).toBeNull()
+  expect(getPersonalRatingsOverall({
+    story: 9, graphics: 9, gameplay: 9,
+    characters: 0, sound: 0, writing: 0, polish: 0, replayability: 0,
+  })).toBe(9)
+  expect(getPersonalRatingsOverall({ story: 8, graphics: 6 })).toBe(7)
 })
 
 test('values are clamped to 0-10 and rounded', () => {
@@ -180,3 +192,4 @@ test('RatingModal preserves unsaved draft ratings when background metadata updat
   // The draft rating set by the user (8) should NOT be reset back to the initial saved rating (2).
   expect(screen.getByRole('slider', { name: 'Story' }).value).toBe('8')
 })
+
