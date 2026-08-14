@@ -939,15 +939,6 @@ const SearchSidebar = ({
                   <span>Show games with multiple installed versions</span>
                 </label>
               )}
-              <label className="flex items-center space-x-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={selectedFilters.steamMapped || false}
-                  onChange={() => updateFilters({ steamMapped: !selectedFilters.steamMapped })}
-                  className="accent-accent -webkit-app-region-no-drag"
-                />
-                <span>Has Steam mapping</span>
-              </label>
             </div>
           </Collapsible>
 
