@@ -2,34 +2,10 @@ import { useState, useEffect, useMemo } from 'react'
 import { builtInSavedFilters, getDefaultSortDirectionForSort, normalizeFilterState } from '../../hooks/useFilters.js'
 import SavedFiltersPanel from './SavedFiltersPanel.jsx'
 import SearchScopePicker from './SearchScopePicker.jsx'
+import Collapsible from './ui/Collapsible.jsx'
+import SidebarSection from './sections/SidebarSection.jsx'
+import { quickFiltersList } from './sections/QuickFiltersSection.js'
 import { PLAYSTATE_OPTIONS } from '../../utils/playstates.js'
-
-// Collapsible accordion section — keeps the long filter list scannable so
-// the panel isn't one endless scroll (matches the grouped/accordion layout
-// of the reference filter sidebars). Each section owns its own open state
-// and starts closed unless defaultOpen is set; the most-used sections open
-// by default. An optional badge shows a count/summary next to the title.
-function Collapsible({ title, badge, defaultOpen = false, children }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="border-b border-border">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between py-3 text-left -webkit-app-region-no-drag"
-      >
-        <span className="font-bold text-sm flex items-center gap-2">
-          {title}
-          {badge != null && badge !== "" && (
-            <span className="text-[11px] font-normal text-muted">{badge}</span>
-          )}
-        </span>
-        <i className={`fas fa-chevron-down text-xs text-muted transition-transform ${open ? "rotate-180" : ""}`}></i>
-      </button>
-      {open && <div className="pb-4">{children}</div>}
-    </div>
-  );
-}
 
 // Sort options shown as the always-visible icon row. Kept intentionally
 // small (Title / Creator / Last Updated / Likes / Rating). "Last Updated"
@@ -346,6 +322,10 @@ const SearchSidebar = ({
 
   const isOverlay = mode !== "inline";
   const isLeft = side === "left";
+
+  // Mode to send in the section params so they can hide filters that don't apply to the current mode
+  // Modify this to have more refined on different modes if needed
+  const currentMode = isCatalogMode ? 'catalog' : 'others';
 
   // The only thing that differs between overlay and inline is the
   // positioning mechanism: overlay is `fixed` and pinned to an edge so it
@@ -884,73 +864,15 @@ const SearchSidebar = ({
               </div>
             </Collapsible>
           )}
-          <Collapsible title="Quick Filters">
-            <div className="space-y-3">
-              {!isCatalogMode && (
-                <div>
-                  <label className="block text-sm mb-1">Library scope</label>
-                  <select
-                    className="w-full p-2 bg-tertiary border border-border rounded text-sm"
-                    value={selectedFilters.installState}
-                    onChange={(e) => {
-                      const installState = e.target.value;
-                      updateFilters({
-                        installState,
-                        includeUninstalled: ['all', 'uninstalled'].includes(installState),
-                      });
-                    }}
-                  >
-                    <option value="installed">Installed titles</option>
-                    <option value="all">Installed and uninstalled</option>
-                    <option value="uninstalled">Uninstalled only</option>
-                  </select>
-                </div>
-              )}
-              {!isCatalogMode && (
-                <label className="flex items-center space-x-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={selectedFilters.updateAvailable || false}
-                    onChange={() => updateFilters({ updateAvailable: !selectedFilters.updateAvailable })}
-                    className="accent-accent -webkit-app-region-no-drag"
-                  />
-                  <span>Show only games with updates available</span>
-                </label>
-              )}
-              {!isCatalogMode && (
-                <label className="flex items-center space-x-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={selectedFilters.favoritesOnly || false}
-                    onChange={() => updateFilters({ favoritesOnly: !selectedFilters.favoritesOnly })}
-                    className="accent-accent -webkit-app-region-no-drag"
-                  />
-                  <span>Favorites only</span>
-                </label>
-              )}
-              {!isCatalogMode && (
-                <label className="flex items-center space-x-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={selectedFilters.multipleInstalledVersions || false}
-                    onChange={() => updateFilters({ multipleInstalledVersions: !selectedFilters.multipleInstalledVersions })}
-                    className="accent-accent -webkit-app-region-no-drag"
-                  />
-                  <span>Show games with multiple installed versions</span>
-                </label>
-              )}
-              <label className="flex items-center space-x-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={selectedFilters.steamMapped || false}
-                  onChange={() => updateFilters({ steamMapped: !selectedFilters.steamMapped })}
-                  className="accent-accent -webkit-app-region-no-drag"
-                />
-                <span>Has Steam mapping</span>
-              </label>
-            </div>
-          </Collapsible>
-
+          
+          {/* Quick Filters Section */}
+          <SidebarSection
+            title="Quick Filters"
+            currentMode={currentMode}
+            filters={quickFiltersList}
+            selectedFilters={selectedFilters}
+            updateFilters={updateFilters}
+          />
         </div>
           </>
         )}

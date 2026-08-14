@@ -23,6 +23,8 @@ import CollectionModal from '../src/components/collections/CollectionModal.jsx'
 import GameTree from '../src/components/library/GameTree.jsx'
 import Settings from '../src/components/settings/Settings.jsx'
 import ExtensionSettings from '../src/components/settings/ExtensionSettings.jsx'
+import SidebarSection from '../src/components/search/sections/SidebarSection.jsx'
+import { quickFiltersList } from '../src/components/search/sections/QuickFiltersSection.js'
 
 // Components that call useKnownTags() fetch on mount and set state when the
 // promise resolves. Rendering them outside act() produces a "not wrapped in
@@ -203,4 +205,43 @@ test('ExtensionSettings mounts and shows extension info', async () => {
   await renderSettled(<ExtensionSettings />)
   expect(screen.getByText('Browser Extension')).toBeTruthy()
   expect(screen.getByText('Atlas RPC Local Server')).toBeTruthy()
+})
+
+test('SidebarSection has quick filters in library mode', async () => {
+  await renderSettled(
+    <SidebarSection
+      title="Quick Filters"
+      currentMode="library"
+      filters={quickFiltersList}
+      selectedFilters={{ installState: 'installed' }}
+      updateFilters={() => {}}
+    />,
+  )
+  expect(screen.getByText('Quick Filters')).toBeTruthy()
+})
+
+test('SidebarSection has quick filters in catalog mode', async () => {
+  await renderSettled(
+    <SidebarSection
+      title="Quick Filters"
+      currentMode="catalog"
+      filters={quickFiltersList}
+      selectedFilters={{ installState: 'installed' }}
+      updateFilters={() => {}}
+    />,
+  )
+  expect(screen.getByText('Quick Filters')).toBeTruthy()
+})
+
+test('SidebarSection returns null when no filters are visible', async () => {
+  const { container } = render(
+    <SidebarSection
+      title="Empty"
+      currentMode="catalog"
+      filters={[]}
+      selectedFilters={{}}
+      updateFilters={() => {}}
+    />,
+  )
+  expect(container.innerHTML).toBe('')
 })
