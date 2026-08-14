@@ -61,17 +61,6 @@ const getPersonalRatingsPayload = (draft = {}) =>
     ]),
   )
 
-const getPersonalRatingsOverall = (draft = {}) => {
-  const values = Object.values(getPersonalRatingsPayload(draft))
-    .filter((value) => Number.isFinite(value) && value > 0)
-  if (values.length === 0) return null
-  const average = values.reduce((sum, value) => sum + value, 0) / values.length
-  return Math.round(average * 10) / 10
-}
-
-// export for tests/rating-system.test.js
-export { getPersonalRatingsOverall }
-
 const splitPreviewUrls = (value) => {
   if (Array.isArray(value)) return value.map((url) => String(url || '').trim()).filter(Boolean)
   return String(value || '').split(',').map((url) => url.trim()).filter(Boolean)
@@ -734,7 +723,11 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
 
   const externalLinks = buildGameLinks(game)
   const personalRatingsDirty = JSON.stringify(personalRatingsDraft) !== JSON.stringify(personalRatingsSaved)
-  const personalRatingsOverall = getPersonalRatingsOverall(personalRatingsDraft)
+  // Shared with RatingModal and electron/db/ratingCategories.js rather than
+  // averaged here, because a private copy is exactly how this diverged: the
+  // local one counted an unrated 0 as a score of zero and dragged the average
+  // down, so the page and the modal open on top of it disagreed.
+  const personalRatingsOverall = computeRatingAverage(personalRatingsDraft)
 
   // While viewing an uninstalled Steam game, poll every 15s to see if Steam has
   // finished installing it (e.g. after the Install button handed off to Steam).
@@ -1823,4 +1816,3 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
 }
 
 export default GameDetailPage
-
