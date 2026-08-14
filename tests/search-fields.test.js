@@ -138,6 +138,33 @@ test('url: still selects a source instead of overriding fields', () => {
   expect(parsed.fields).toEqual(['title'])
 })
 
+// A full thread URL should route directly to the matching ID field.
+test('a known thread URL overrides fields to the site id', () => {
+  expect(parseSearchQuery('https://f95zone.to/threads/slug.310615/', ['title']))
+    .toEqual({ fields: ['f95Id'], query: '310615', urlSource: null })
+  expect(parseSearchQuery('https://lewdcorner.com/threads/slug.5913/', ['title']))
+    .toEqual({ fields: ['lcId'], query: '5913', urlSource: null })
+  expect(parseSearchQuery('https://store.steampowered.com/app/4585540/Slug/', ['title']))
+    .toEqual({ fields: ['steamId'], query: '4585540', urlSource: null })
+})
+
+// Non-slug and protocol-less forms must also route.
+test('URL extraction works without slug, https, or www', () => {
+  expect(parseSearchQuery('f95zone.to/threads/310615/', ['title']))
+    .toEqual({ fields: ['f95Id'], query: '310615', urlSource: null })
+  expect(parseSearchQuery('lewdcorner.com/threads/5913/', ['title']))
+    .toEqual({ fields: ['lcId'], query: '5913', urlSource: null })
+  expect(parseSearchQuery('store.steampowered.com/app/4585540/', ['title']))
+    .toEqual({ fields: ['steamId'], query: '4585540', urlSource: null })
+})
+
+// URL extraction wins over prefix parsing: a URL that happens to start with a
+// prefix-like token must not be misinterpreted.
+test('a URL is not parsed as a prefix', () => {
+  expect(parseSearchQuery('https://f95zone.to/threads/f95-is-awesome.123/', ['title']))
+    .toEqual({ fields: ['f95Id'], query: '123', urlSource: null })
+})
+
 // A title with a colon must not be swallowed as an unknown prefix.
 test('an unrecognised prefix is treated as literal text', () => {
   expect(parseSearchQuery('Ep 2: Reunion', ['title'])).toEqual({
@@ -286,4 +313,132 @@ test('prefix and legacy tables only reference real field ids', () => {
     if (ids === null) continue
     for (const id of ids) expect(SEARCH_FIELD_IDS).toContain(id)
   }
+})
+
+test('the index path joins atlas_external_steam and includes aes.steam_appid when steamId is selected', () => {
+  const source = read('electron', 'db', 'catalogIndex.js')
+  expect(source).toContain('LEFT JOIN atlas_external_steam AS aes ON aes.atlas_id = ci.atlas_id')
+  expect(source).toContain("fields.includes('steamId')")
+  expect(source).toContain('aes.steam_appid')
+})
+
+test('the union path joins atlas_external_steam and includes catalog.steam_appids when steamId is selected', () => {
+  const source = read('electron', 'db', 'versions.js')
+  expect(source).toContain('LEFT JOIN atlas_external_steam aes ON aes.atlas_id = atlas_data.atlas_id')
+  expect(source).toContain("searchFields.includes('steamId')")
+  expect(source).toContain('catalog.steam_appids')
+})
+
+// UNION ALL requires every branch to return the same number of columns in the
+// same order. A column added to one _branch_base but forgotten in another
+// produces SQLITE_ERROR at runtime, which no existing test caught.
+test('all four union branches select the same number of columns', () => {
+  const source = read('electron', 'db', 'versions.js')
+
+  const countBranchBaseColumns = (branch) => {
+    const marker = `${branch}_branch_base AS (`
+    const start = source.indexOf(marker)
+    if (start === -1) return 0
+    const selectStart = source.indexOf('SELECT', start) + 6
+    let depth = 0
+    for (let i = selectStart; i < source.length; i++) {
+      const ch = source[i]
+      if (ch === '(') depth++
+      else if (ch === ')') depth--
+      else if (depth === 0 && source.slice(i, i + 4) === 'FROM') {
+        const selectClause = source.slice(selectStart, i)
+        let colDepth = 0
+        let count = 1
+        for (let j = 0; j < selectClause.length; j++) {
+          const c = selectClause[j]
+          if (c === '(') colDepth++
+          else if (c === ')') colDepth--
+          else if (c === ',' && colDepth === 0) count++
+        }
+        return count
+      }
+    }
+    return 0
+  }
+
+  const counts = ['atlas', 'steam', 'gog', 'lewdcorner'].map(countBranchBaseColumns)
+  expect(counts).toEqual([counts[0], counts[0], counts[0], counts[0]])
+})
+
+test('a game with multiple DLC appids returns one tile from the index path', async () => {
+  const sqlite3 = require('sqlite3').verbose()
+  const db = new sqlite3.Database(':memory:')
+  await new Promise((resolve, reject) => {
+    db.exec(`
+      CREATE TABLE catalog_index (
+        catalog_key TEXT PRIMARY KEY, source TEXT NOT NULL, atlas_id INTEGER,
+        steam_id INTEGER, lc_id INTEGER, title TEXT, creator TEXT
+      );
+      CREATE TABLE atlas_external_steam (
+        steam_appid INTEGER NOT NULL, atlas_id INTEGER NOT NULL,
+        PRIMARY KEY (steam_appid, atlas_id)
+      );
+      CREATE TABLE lewdcorner_data (lc_id INTEGER PRIMARY KEY, tier TEXT);
+      INSERT INTO lewdcorner_data VALUES (1, 'Free');
+      -- One base game + 3 DLCs all linked to atlas_id 10.
+      INSERT INTO catalog_index VALUES
+        ('atlas:10', 'atlas', 10, NULL, NULL, 'Base Game', 'Dev'),
+        ('steam:100', 'steam', 10, 100, NULL, 'DLC 1', 'Dev'),
+        ('steam:200', 'steam', 10, 200, NULL, 'DLC 2', 'Dev'),
+        ('steam:300', 'steam', 10, 300, NULL, 'DLC 3', 'Dev');
+      INSERT INTO atlas_external_steam VALUES
+        (100, 10), (200, 10), (300, 10);
+    `, (err) => err ? reject(err) : resolve())
+  })
+  const rows = await new Promise((resolve, reject) => {
+    db.all(
+      `SELECT DISTINCT ci.catalog_key
+       FROM catalog_index ci
+       LEFT JOIN atlas_external_steam AS aes ON aes.atlas_id = ci.atlas_id
+       LEFT JOIN lewdcorner_data AS lct ON lct.lc_id = ci.lc_id
+       WHERE (ci.lc_id IS NULL OR lct.tier = 'Free')
+         AND (ci.steam_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM atlas_external_steam aes WHERE aes.steam_appid = ci.steam_id
+         ))`,
+      (err, rows) => err ? reject(err) : resolve(rows)
+    )
+  })
+  db.close()
+  expect(rows.map((r) => r.catalog_key)).toEqual(['atlas:10'])
+})
+
+test('searching by a DLC appid or url finds the base game, not the DLC tile', async () => {
+  const sqlite3 = require('sqlite3').verbose()
+  const db = new sqlite3.Database(':memory:')
+  await new Promise((resolve, reject) => {
+    db.exec(`
+      CREATE TABLE catalog_index (
+        catalog_key TEXT PRIMARY KEY, source TEXT NOT NULL, atlas_id INTEGER,
+        steam_id INTEGER, lc_id INTEGER, title TEXT, creator TEXT
+      );
+      CREATE TABLE atlas_external_steam (
+        steam_appid INTEGER NOT NULL, atlas_id INTEGER NOT NULL,
+        PRIMARY KEY (steam_appid, atlas_id)
+      );
+      INSERT INTO catalog_index VALUES
+        ('atlas:10', 'atlas', 10, NULL, NULL, 'Base Game', 'Dev'),
+        ('steam:100', 'steam', 10, 100, NULL, 'DLC 1', 'Dev');
+      INSERT INTO atlas_external_steam VALUES (100, 10);
+    `, (err) => err ? reject(err) : resolve())
+  })
+  const rows = await new Promise((resolve, reject) => {
+    db.all(
+      `SELECT DISTINCT ci.catalog_key
+       FROM catalog_index ci
+       LEFT JOIN atlas_external_steam AS aes ON aes.atlas_id = ci.atlas_id
+       WHERE (ci.steam_id IS NULL OR NOT EXISTS (
+         SELECT 1 FROM atlas_external_steam aes WHERE aes.steam_appid = ci.steam_id
+       ))
+       AND LOWER(COALESCE(CAST(aes.steam_appid AS TEXT), '')) LIKE ? ESCAPE '\\'`,
+      ['%100%'],
+      (err, rows) => err ? reject(err) : resolve(rows)
+    )
+  })
+  db.close()
+  expect(rows.map((r) => r.catalog_key)).toEqual(['atlas:10'])
 })

@@ -45,6 +45,7 @@ const {
   SEARCH_PREFIX_FIELDS, LEGACY_SEARCH_TYPE_FIELDS,
   indexColumnsForSearchFieldIds, normalizeSearchFieldIds,
 } = require('./searchFields')
+const { extractUrlId, isLikelyUrl } = require('./urlIdExtractor')
 
 // A search payload may carry `fields` (current) or `type` (legacy). Neither
 // present means the caller wants the default set.
@@ -819,6 +820,10 @@ const buildIndexWhere = (search = {}, filters = {}) => {
   // agree — filtering only the page would size the grid's scrollbar for rows it
   // never shows.
   parts.push(`(ci.lc_id IS NULL OR lct.tier = 'Free')`)
+  
+  // Exclude Steam DLCs that are already linked to an atlas game
+  parts.push(`(ci.steam_id IS NULL OR ci.atlas_id IS NULL)`)
+  
   const params = []
 
   const escapeLike = (value) => String(value).replace(/[\\%_]/g, (c) => `\\${c}`)
@@ -837,19 +842,26 @@ const buildIndexWhere = (search = {}, filters = {}) => {
   // per-file table, so Browse cannot search different fields from Library.
   // `search.fields` is the current shape; `search.type` is the legacy single-mode
   // value still written into saved_filters.json by older builds.
-  let fields = resolveSearchFields(search)
-  const prefixed = text.match(/^([a-z][a-z0-9]*):\s*(.+)$/i)
-  if (prefixed) {
-    const prefix = prefixed[1].toLowerCase()
-    const prefixFields = SEARCH_PREFIX_FIELDS[prefix]
-    // `url:` filters to a source and is handled by the browseSource clause
-    // below, so it is not a field override.
-    if (prefixFields) {
-      text = prefixed[2].trim()
-      fields = prefixFields
-    } else if (prefix === 'url') {
-      text = prefixed[2].trim()
-      fields = ['url']
+  const urlId = isLikelyUrl(text) ? extractUrlId(text) : null
+  let fields
+  if (urlId) {
+    fields = [urlId.field]
+    text = urlId.query
+  } else {
+    fields = resolveSearchFields(search)
+    const prefixed = text.match(/^([a-z][a-z0-9]*):\s*(.+)$/i)
+    if (prefixed) {
+      const prefix = prefixed[1].toLowerCase()
+      const prefixFields = SEARCH_PREFIX_FIELDS[prefix]
+      // `url:` filters to a source and is handled by the browseSource clause
+      // below, so it is not a field override.
+      if (prefixFields) {
+        text = prefixed[2].trim()
+        fields = prefixFields
+      } else if (prefix === 'url') {
+        text = prefixed[2].trim()
+        fields = ['url']
+      }
     }
   }
   const terms = text.split(/\s+/).map((t) => t.trim()).filter((t) => t && !t.startsWith('-'))
@@ -858,9 +870,13 @@ const buildIndexWhere = (search = {}, filters = {}) => {
     // engine, status and category. It stays a fast path, but ONLY when the
     // selected fields are exactly what it bakes in — otherwise it would quietly
     // widen the search to fields the user deselected.
-    const columns = indexColumnsForSearchFieldIds(fields)
+    let columns = indexColumnsForSearchFieldIds(fields)
+    // include atlas_external_steam since steam_id also stored there and currently not linked
+    if (fields.includes('steamId')) {
+      columns = [...columns, 'aes.steam_appid']
+    }
     for (const term of terms) {
-      parts.push(`(${columns.map((f) => `LOWER(COALESCE(CAST(ci.${f} AS TEXT), '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`)
+      parts.push(`(${columns.map((f) => `LOWER(COALESCE(CAST(${f.startsWith('ci.') || f.startsWith('aes.') ? f : 'ci.' + f} AS TEXT), '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`)
       params.push(...columns.map(() => like(term)))
     }
   }
@@ -1049,6 +1065,7 @@ const CATALOG_INDEX_JOINS = `
   LEFT JOIN games AS lg ON lg.record_id = ci.local_record_id
   LEFT JOIN game_personal_ratings AS lr ON lr.record_id = ci.local_record_id
   LEFT JOIN lewdcorner_data AS lct ON lct.lc_id = ci.lc_id
+  LEFT JOIN atlas_external_steam AS aes ON aes.atlas_id = ci.atlas_id
 `
 
 const queryCatalogIndex = async ({
@@ -1059,12 +1076,12 @@ const queryCatalogIndex = async ({
   let total = null
   if (includeTotal || countOnly) {
     const row = await dbGet(
-      `SELECT COUNT(*) AS total FROM catalog_index ci ${CATALOG_INDEX_JOINS} ${where}`, params)
+      `SELECT COUNT(DISTINCT ci.catalog_key) AS total FROM catalog_index ci ${CATALOG_INDEX_JOINS} ${where}`, params)
     total = Number(row?.total || 0)
   }
   if (countOnly) return { keys: [], total }
   const rows = await dbAll(
-    `SELECT ci.catalog_key FROM catalog_index ci ${CATALOG_INDEX_JOINS} ${where}
+    `SELECT DISTINCT ci.catalog_key FROM catalog_index ci ${CATALOG_INDEX_JOINS} ${where}
      ${buildIndexOrderBy(filters)} LIMIT ? OFFSET ?`,
     [...params, limit, offset])
   return { keys: rows.map((r) => r.catalog_key), total }

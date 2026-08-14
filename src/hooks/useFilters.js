@@ -5,6 +5,7 @@ import {
   DEFAULT_SEARCH_FIELD_IDS, LEGACY_SEARCH_TYPE_FIELDS, SEARCH_PREFIX_FIELDS,
   normalizeSearchFieldIds,
 } from '../utils/searchFields.js'
+import { extractUrlId, isLikelyUrl } from '../utils/urlIdExtractor.js'
 
 // The user's configured default field set, from [Search] defaultFields in
 // config.ini. Held at module scope because normalizeFilterState is a pure
@@ -822,6 +823,8 @@ export const parseSearchQuery = (text, fields) => {
   // A prefix may contain digits — `f95:` is the obvious one, and it never worked
   // because this pattern was /^([a-z]+):/ , which cannot match the "95". That bug
   // was present in all three search paths.
+  const urlId = isLikelyUrl(raw) ? extractUrlId(raw) : null
+  if (urlId) return { fields: [urlId.field], query: urlId.query, urlSource: null }
   const match = raw.match(/^([a-z][a-z0-9]*):\s*(.+)$/i)
   if (!match) return { fields, query: raw, urlSource: null }
   const prefix = match[1].toLowerCase()

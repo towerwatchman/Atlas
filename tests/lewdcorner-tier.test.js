@@ -127,7 +127,7 @@ test('the gate is in the shared WHERE builder, so the count query gets it too', 
     source.indexOf('const buildIndexOrderBy'),
   )
   expect(builder).toContain(INDEX_PREDICATE)
-  const countQuery = source.slice(source.indexOf('SELECT COUNT(*) AS total FROM catalog_index'))
+  const countQuery = source.slice(source.indexOf('SELECT COUNT(DISTINCT ci.catalog_key) AS total FROM catalog_index'))
   expect(countQuery.slice(0, 200)).toContain('CATALOG_INDEX_JOINS')
 })
 
