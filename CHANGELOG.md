@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Remove the 'has Steam mapping' quick filter
 - Update global lightbox control for media in lightbox instead of only under GameDetails.
 - Fixed browser extension thread matching comparing numeric IDs across sites without validating the host domain source (F95Zone vs LewdCorner). F95Zone threads with ID `X` were erroneously matched against games that only carried LewdCorner ID `X`. Thread lookup is now strictly site-isolated (`f95Id` for F95Zone threads, `lcId` for LewdCorner threads).
 - Fixed `open-game-folder` IPC handler opening the parent directory of the game folder instead of the game directory itself (`selectedVersion.game_path`).
