@@ -13,7 +13,7 @@ const { LEGACY_SEARCH_TYPE_FIELDS, normalizeSearchFieldIds } = require('../db/se
 // config.ini on every single settings save.
 const { buildDefaultConfig, mergeWithDefaults } = require('../config/configSchema')
 const { detectSevenZipPath } = require('../utils/sevenZipDetect')
-const { DEFAULT_SAVED_BROWSE_SORT, normalizeSavedBrowseSort } = require('./savedFilterSort')
+const { DEFAULT_SAVED_BROWSE_SORT, normalizeSavedBrowseSort } = require('../utils/savedFilterSort')
 
 
 const sanitizeFeatureSettings = (settings = {}) => {
