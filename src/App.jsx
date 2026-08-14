@@ -2208,7 +2208,7 @@ const App = () => {
           // what showed on the downloads page. An always-visible track also
           // stops the grid shifting horizontally when a filter narrows the
           // results enough to remove the scrollbar.
-          style={{ overflowX: 'hidden', overflowY: 'scroll' }}
+         style={{ overflowX: 'hidden', overflowY: 'scroll',padding: '0 15px' }}
         >
           {!selectedGame && libraryView !== 'collections' && activeCollection && (
             <div className="mx-3 mb-1 mt-3 flex items-center gap-3 rounded border border-border bg-secondary px-4 py-2 text-sm text-text">
