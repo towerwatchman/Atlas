@@ -192,14 +192,17 @@
   const isValidHrefElem = (elem, elemInfo, pageInfo) => {
     if (!elem || !elem.href) return false
 
+    // Filter out reply links and pagination URLs (e.g. /page-2)
     if (/reply\?.*$/.test(elem.href)) return false
     if (/page-\d+/.test(elem.href)) return false
 
+    // Filter out thread tabs (DISCUSSION, REVIEWS) and header navigation
     if (elem.closest('.pageNav') || elem.closest('.pageNavWrapper') || elem.closest('.pageNav-page')) return false
 
     if (elem.closest('.tabs') || elem.closest('.tabs-tab') || elem.closest('.p-body-header') || elem.closest('.memberHeader')) return false
     if (elem.classList.contains('button') || elem.classList.contains('tabs-tab') || elem.classList.contains('u-concealed')) return false
 
+    // If we are on a thread page, do NOT spawn inline badges on links to the exact same thread
     if (pageInfo && elemInfo && pageInfo.site === elemInfo.site && pageInfo.id === elemInfo.id) return false
 
     return true
@@ -208,6 +211,7 @@
   const renderBadges = () => {
     if (!gamesList || gamesList.length === 0) return
 
+    // 1. Thread Header Badge (for active thread page)
     const pageInfo = extractThreadInfo(document.location.href)
     if (pageInfo) {
       const pageGame = findGameForThread(pageInfo)
@@ -230,6 +234,7 @@
       }
     }
 
+    // 2. Thread Links Badges (Search results, latest updates, index)
     for (const elem of document.querySelectorAll('a[href*="/threads/"]')) {
       const elemInfo = extractThreadInfo(elem.href)
       if (!elemInfo) continue
@@ -395,6 +400,7 @@
     renderBadges()
     await addQueueRefreshButton()
 
+    // MutationObserver to render badges dynamically when user navigates or loads AJAX content
     const observer = new MutationObserver(() => {
       renderBadges()
       addQueueRefreshButton()
@@ -411,6 +417,7 @@
     }
   }
 
+  // Exports for Node/Vitest test suite
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       extractThreadInfo,
@@ -420,6 +427,7 @@
   }
 
   if (typeof document !== 'undefined') {
+	// Listen for refresh triggers from background.js
     if (api?.runtime?.onMessage) {
       api.runtime.onMessage.addListener((msg) => {
         if (msg && msg.action === 'refresh') {
