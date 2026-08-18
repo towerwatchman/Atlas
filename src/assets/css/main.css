@@ -155,6 +155,10 @@
   /* Scrollbar (kept in sync with --color-border / --color-primary / --color-accent
      by default; themes may override these three independently if a theme
      wants a different scrollbar look than its main surfaces). */
+  /* One source of truth for the scrollbar's thickness. App.jsx reads this at
+     runtime to subtract it when computing the library grid's column count,
+     so the two cannot drift apart. */
+  --scrollbar-size:        12px;
   --scrollbar-thumb:       var(--color-border);
   --scrollbar-track:       var(--color-primary);
   --scrollbar-thumb-hover: var(--color-accent);
@@ -248,8 +252,8 @@
      If you add `scrollbar-width` or `scrollbar-color` anywhere, you turn all
      of this off again. tests/scrollbar-styling.test.js fails if you do. */
   *::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
   }
 
   *::-webkit-scrollbar-track {
@@ -285,7 +289,10 @@
     margin-bottom: var(--radius-window-active);
   }
 
-  /* Reserves the scrollbar's gutter on the library/banner grid (App.jsx)
+  /* Reserves the scrollbar's gutter on the library detail pane (App.jsx).
+     #gameGrid itself no longer scrolls -- it is a flex column whose only
+     scroller is this pane -- so the gutter belongs here.
+     Original note, still the reason it exists:
      permanently, whether or not there's currently enough content to
      actually need a scrollbar. Without this, the grid's available width
      (and the column count/width react-virtualized computes from it via
@@ -294,7 +301,7 @@
      banners visibly shift right when the scrollbar toggled on. With the
      gutter always reserved, that measurement is now constant regardless
      of content amount. */
-  #gameGrid {
+  .library-scroll-pane {
     scrollbar-gutter: stable;
   }
 }
@@ -303,8 +310,8 @@
   /* Same rule as the base block above: no standard scrollbar properties here,
      or the ::-webkit-scrollbar styling below is ignored wholesale. */
   .atlas-scrollbar::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
   }
 
   .atlas-scrollbar::-webkit-scrollbar-track {

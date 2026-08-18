@@ -56,15 +56,56 @@ describe('scrollbar styling', () => {
   // scrollbar is whatever the platform says, which is the 4K/scaling problem.
   it('gives the scrollbar an explicit non-zero width', () => {
     const block = withoutComments.slice(withoutComments.indexOf('*::-webkit-scrollbar {'))
-    const width = block.match(/width:\s*(\d+)px/)
-    expect(width).not.toBeNull()
-    expect(Number(width[1])).toBeGreaterThan(0)
+    const declared = block.slice(0, block.indexOf('}')).match(/width:\s*([^;]+)/)
+    expect(declared, 'no width on ::-webkit-scrollbar').not.toBeNull()
+    // Resolve through the variable if that is how it is expressed, so this
+    // measures the value that actually renders rather than the literal text.
+    const value = declared[1].includes('var(--scrollbar-size)')
+      ? declaredValues('--scrollbar-size')[0]
+      : declared[1]
+    const pixels = Number.parseFloat(value)
+    expect(Number.isFinite(pixels), `unresolvable width: ${value}`).toBe(true)
+    expect(pixels).toBeGreaterThan(0)
   })
 
   // Removing this brings back the horizontal shift when a filter narrows the
   // results enough for the scrollbar to disappear.
-  it('keeps the grid gutter reserved so the layout cannot shift', () => {
+  it('keeps the gutter reserved so the layout cannot shift', () => {
     expect(declaredValues('scrollbar-gutter')).toContain('stable')
+  })
+
+  // The CSS that draws the scrollbar and the JS that budgets for it in the grid
+  // column count must read the same number, or the last column is sized into
+  // space the scrollbar occupies (too wide) or short of it (a visible gap).
+  it('shares one scrollbar width between the CSS and the grid arithmetic', () => {
+    expect(declaredValues('--scrollbar-size')).toEqual(['12px'])
+    const block = withoutComments.slice(withoutComments.indexOf('*::-webkit-scrollbar {'))
+    expect(block.slice(0, 120)).toContain('var(--scrollbar-size)')
+
+    const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'App.jsx'), 'utf8')
+    expect(app).toContain("getPropertyValue('--scrollbar-size')")
+    expect(app).toContain('width - scrollbarSize')
+  })
+
+  // Two widths, and swapping them is what leaves a gap beside the scrollbar:
+  //
+  //   the Grid ELEMENT spans the whole pane, because it draws its own
+  //   scrollbar inside that box -- narrowing it strands empty pane to the
+  //   right of the scrollbar;
+  //   the COLUMN maths uses what is left after the scrollbar, or the last
+  //   column is sized into the scrollbar's space and gets clipped.
+  it('sizes the Grid element by the full width and its columns by the rest', () => {
+    const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'App.jsx'), 'utf8')
+    const grid = app.slice(app.indexOf('<Grid'))
+    const props = grid.slice(0, grid.indexOf('/>'))
+
+    // The element takes the raw measured width, not the reduced one.
+    expect(props).toMatch(/width=\{width\}/)
+    expect(props).not.toMatch(/width=\{contentWidth\}/)
+
+    // The columns take the reduced one.
+    expect(app).toContain('getColumnCountForWidth(contentWidth)')
+    expect(app).toContain('contentWidth / currentColumnCount')
   })
 
   // The utility class exists for surfaces that opt in outside the base layer.
@@ -138,5 +179,39 @@ describe('settings tabs do not nest a second scroller', () => {
     const root = source.slice(returnIndex, source.indexOf('>', returnIndex))
     expect(root, `${file}: the Settings shell already scrolls this panel`)
       .not.toMatch(/overflow-y-auto|overflow-y-scroll|overflow-auto/)
+  })
+})
+
+// #gameGrid used to scroll while the virtualized Grid inside it scrolled too.
+// The Grid's scrollbar did the work and #gameGrid's empty track sat beside it,
+// so the working scrollbar looked pushed in from the right edge. #gameGrid is
+// now a flex column whose only scroller is the pane holding the grid or the
+// detail page.
+describe('the library grid has exactly one scroll container', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'App.jsx'), 'utf8')
+
+  it('#gameGrid itself does not scroll', () => {
+    const container = app.slice(app.indexOf('id="gameGrid"'))
+    const decl = container.slice(0, container.indexOf('>'))
+    expect(decl).toContain('flex flex-col')
+    expect(decl).toContain("overflowY: 'hidden'")
+    expect(decl).not.toContain('overflow-y-auto')
+    expect(decl).not.toContain("overflowY: 'scroll'")
+  })
+
+  it('the scrolling pane only scrolls for the detail page', () => {
+    expect(app).toContain("selectedGame ? 'overflow-y-auto library-scroll-pane' : 'overflow-hidden'")
+  })
+
+  it('the gutter is reserved on that pane, not on #gameGrid', () => {
+    expect(withoutComments).toMatch(/\.library-scroll-pane\s*\{[^}]*scrollbar-gutter:\s*stable/)
+    expect(withoutComments).not.toMatch(/#gameGrid\s*\{[^}]*scrollbar-gutter/)
+  })
+
+  // With the parent no longer reserving anything, the Grid must draw its own
+  // track unconditionally or the grid jumps sideways when a filter empties it.
+  it('the virtualized Grid always draws its track', () => {
+    const grid = app.slice(app.indexOf('<Grid\r\n') >= 0 ? app.indexOf('<Grid\r\n') : app.indexOf('<Grid'))
+    expect(grid.slice(0, 2000)).toContain("overflowY: 'scroll'")
   })
 })
