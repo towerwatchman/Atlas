@@ -5,6 +5,7 @@ import {
   DEFAULT_SEARCH_FIELD_IDS, LEGACY_SEARCH_TYPE_FIELDS, SEARCH_PREFIX_FIELDS,
   normalizeSearchFieldIds,
 } from '../utils/searchFields.js'
+import { extractUrlId } from '../utils/urlIdExtractor.js'
 
 // The user's configured default field set, from [Search] defaultFields in
 // config.ini. Held at module scope because normalizeFilterState is a pure
@@ -19,6 +20,43 @@ export const setDefaultSearchFieldIds = (ids) => {
 }
 
 export const getDefaultSearchFieldIds = () => [...configuredDefaultSearchFieldIds]
+
+// Browse sort vocabulary. Hoisted to module scope and exported so the main
+// process copy in electron/utils/savedFilterSort.js can be asserted against
+// these VALUES rather than against this file's source text. The two cannot
+// share a module -- main is CommonJS and this is an ESM bundle -- which is the
+// same constraint ratingCategories.js lives with, and it is resolved the same
+// way: duplicate the data, then let a test fail if the copies drift. A saved
+// filter is normalized on both sides of the IPC boundary, so a value only one
+// side knows about is silently rewritten on save and the user's sort is lost.
+export const BROWSE_SORT_ALIASES = {
+  name: 'titleAsc',
+  nameAsc: 'titleAsc',
+  nameDesc: 'titleDesc',
+  newest: 'threadUpdatedDesc',
+  oldest: 'threadUpdatedAsc',
+}
+
+export const BROWSE_SORT_VALUES = [
+  'titleAsc',
+  'titleDesc',
+  'creatorAsc',
+  'creatorDesc',
+  'likesDesc',
+  'likesAsc',
+  'ratingDesc',
+  'ratingAsc',
+  'threadUpdatedDesc',
+  'threadUpdatedAsc',
+  'threadPublishedDesc',
+  'threadPublishedAsc',
+  'releaseDateDesc',
+  'releaseDateAsc',
+  'f95LatestOrderDesc',
+  'f95LatestOrderAsc',
+]
+
+export const DEFAULT_BROWSE_SORT = 'threadUpdatedDesc'
 
 export const defaultFilters = {
   text: '',
@@ -51,7 +89,7 @@ export const defaultFilters = {
   browseSource: 'all',
   browseDateBasis: 'thread_updated',
   browseDateRange: 'any',
-  browseSort: 'threadUpdatedDesc',
+  browseSort: DEFAULT_BROWSE_SORT,
   tagLogic: 'AND',
   updateAvailable: false,
   favoritesOnly: false,
@@ -208,34 +246,10 @@ export const normalizeFilterState = (filters = {}) => {
   merged.browseDateRange = ['any', '7d', '30d', '90d', 'year'].includes(merged.browseDateRange)
     ? merged.browseDateRange
     : 'any'
-  const browseSortAliases = {
-    name: 'titleAsc',
-    nameAsc: 'titleAsc',
-    nameDesc: 'titleDesc',
-    newest: 'threadUpdatedDesc',
-    oldest: 'threadUpdatedAsc',
-  }
-  merged.browseSort = browseSortAliases[merged.browseSort] || merged.browseSort
-  merged.browseSort = [
-    'titleAsc',
-    'titleDesc',
-    'creatorAsc',
-    'creatorDesc',
-    'likesDesc',
-    'likesAsc',
-    'ratingDesc',
-    'ratingAsc',
-    'threadUpdatedDesc',
-    'threadUpdatedAsc',
-    'threadPublishedDesc',
-    'threadPublishedAsc',
-    'releaseDateDesc',
-    'releaseDateAsc',
-    'f95LatestOrderDesc',
-    'f95LatestOrderAsc',
-  ].includes(merged.browseSort)
+  merged.browseSort = BROWSE_SORT_ALIASES[merged.browseSort] || merged.browseSort
+  merged.browseSort = BROWSE_SORT_VALUES.includes(merged.browseSort)
     ? merged.browseSort
-    : 'threadUpdatedDesc'
+    : DEFAULT_BROWSE_SORT
   merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
   merged.updateAvailable = merged.updateAvailable === true
   merged.favoritesOnly = merged.favoritesOnly === true
@@ -823,6 +837,13 @@ export const parseSearchQuery = (text, fields) => {
   // because this pattern was /^([a-z]+):/ , which cannot match the "95". That bug
   // was present in all three search paths.
   const match = raw.match(/^([a-z][a-z0-9]*):\s*(.+)$/i)
+  // A pasted thread or store URL routes to the matching ID field. Safe to test
+  // before the prefix branch here ONLY because `raw` is still the untouched
+  // input and extractUrlId is anchored, so `title: <url>` does not look like
+  // a URL. The two main-process paths reassign their text inside the prefix
+  // branch and therefore do need an explicit ordering guard.
+  const urlId = extractUrlId(raw)
+  if (urlId) return { fields: [urlId.field], query: urlId.query, urlSource: null }
   if (!match) return { fields, query: raw, urlSource: null }
   const prefix = match[1].toLowerCase()
   const query = match[2].trim()

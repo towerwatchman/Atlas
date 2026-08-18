@@ -23,3 +23,59 @@
     display: inline-block;
     transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
+
+/* ── Queue Refresh button + toast (ported from the Tampermonkey userscript) ── */
+
+#atlas-queue-btn {
+  margin-left: 12px;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid #3b82f6;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  vertical-align: middle;
+  line-height: 1.2;
+}
+
+#atlas-queue-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+#atlas-queue-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+#atlas-queue-btn.atlas-floating {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 99999;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  margin: 0;
+}
+
+.atlas-toast {
+  position: fixed;
+  bottom: 80px;
+  right: 24px;
+  z-index: 100000;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #fff;
+  max-width: 380px;
+  display: none;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.atlas-toast.ok {
+  background: #059669;
+}
+
+.atlas-toast.error {
+  background: #dc2626;
+}
