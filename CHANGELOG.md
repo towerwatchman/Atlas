@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Fixed the catalog index failing to build on upgrade with `SQLITE_ERROR: table atlas_external_steam has no column named is_dlc`. `CREATE TABLE IF NOT EXISTS` is a no-op against a table that already exists, so the widened definition reached new installs only; an upgrading install kept its old table and the background rebuild aborted, leaving Browse on the slower union path. The missing columns are now added with `ALTER TABLE` before the rebuild runs.
 - Fixed the new server-side DLC keys rendering as junk external links on the details page: `steam_dlc_appids` produced a duplicate "Steam Dlc Appids" row per DLC and `steam_dlc_parents`, being an object, rendered as a single `[object Object]` link.
 - Fixed duplicate React keys in the details page's external links list. Every Steam entry carried the key `steam_appid`, which was unique only while a game had one appid.
 - Fixed a Steam DLC appid or store URL finding nothing in search. A tile carries a single `steam_id` (the lowest of its linked appids), so a game's other appids -- its DLC especially -- were unreachable. Searching a `steamId` now also probes `atlas_external_steam`, which holds every appid for the row, so a DLC id or URL finds the game it belongs to. Applied in both Library and Browse. Implemented as an `EXISTS` rather than a join, so a game with several appids still renders as one tile and neither the page nor the count query needs `DISTINCT`.

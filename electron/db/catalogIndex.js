@@ -373,8 +373,61 @@ const CATALOG_INDEX_INDEXES = [
      ON atlas_external_steam(atlas_id);`,
 ]
 
+// Columns added to a table that already exists on installs in the wild.
+//
+// CREATE TABLE IF NOT EXISTS is a no-op against an existing table, so widening
+// the DDL alone reaches new installs only -- an upgrade kept its old table and
+// the first rebuild died on
+//   SQLITE_ERROR: table atlas_external_steam has no column named is_dlc
+// which failed the whole background build, leaving Browse on the slow union
+// path indefinitely.
+//
+// Every column here must be nullable or defaulted, since ADD COLUMN applies it
+// to existing rows. Values are filled by the rebuild that the
+// CATALOG_INDEX_VERSION bump forces, so a migrated row is briefly untyped
+// (is_dlc 0) rather than wrong -- which is also what a package predating the
+// server's DLC keys yields.
+const CATALOG_INDEX_ADDED_COLUMNS = [
+  ['atlas_external_steam', 'is_dlc', 'INTEGER NOT NULL DEFAULT 0'],
+  ['atlas_external_steam', 'parent_appid', 'INTEGER'],
+]
+
+// The ALTER statements a database with these columns still needs. Pure, so the
+// upgrade path is tested by calling THIS rather than by a test reimplementing
+// the same loop -- a copy passes whatever the real one does.
+//
+// `existingByTable` maps a table name to the column names it currently has.
+const catalogIndexAddColumnStatements = (existingByTable = {}) => {
+  const statements = []
+  const seen = new Map()
+  for (const [table, column, type] of CATALOG_INDEX_ADDED_COLUMNS) {
+    if (!seen.has(table)) {
+      seen.set(table, new Set((existingByTable[table] || []).map((c) => String(c))))
+    }
+    if (seen.get(table).has(column)) continue
+    statements.push(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
+    seen.get(table).add(column)
+  }
+  return statements
+}
+
+const ensureAddedColumns = async () => {
+  const existingByTable = {}
+  for (const [table] of CATALOG_INDEX_ADDED_COLUMNS) {
+    if (existingByTable[table]) continue
+    // PRAGMA rather than catching the duplicate-column error, so a genuine
+    // failure (locked db, missing table) is not swallowed along with it.
+    const info = await dbAll(`PRAGMA table_info(${table})`)
+    existingByTable[table] = info.map((c) => String(c.name))
+  }
+  for (const sql of catalogIndexAddColumnStatements(existingByTable)) await dbRun(sql)
+}
+
 const ensureCatalogIndexSchema = async () => {
   for (const ddl of CATALOG_INDEX_DDL) await dbRun(ddl)
+  // After CREATE (so the table exists on a fresh install) and before the
+  // indexes, which may reference a migrated column.
+  await ensureAddedColumns()
   for (const ddl of CATALOG_INDEX_INDEXES) await dbRun(ddl)
 }
 
@@ -855,6 +908,9 @@ module.exports = {
   CATALOG_INDEX_DDL,
   CATALOG_INDEX_INDEXES,
   ensureCatalogIndexSchema,
+  // exported so the upgrade path can be tested against a pre-migration table
+  CATALOG_INDEX_ADDED_COLUMNS,
+  catalogIndexAddColumnStatements,
   getCatalogIndexStatus,
   markCatalogIndexStale,
   rebuildCatalogIndex,

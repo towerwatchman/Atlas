@@ -10,8 +10,10 @@ import { createRequire } from 'node:module'
 // game was in the library, and any attempt to filter DLC out of Browse could
 // only work by guessing.
 const require_ = createRequire(import.meta.url)
-const { extractSteamAppIds, buildIndexWhere, CATALOG_INDEX_VERSION } =
-  require_('../electron/db/catalogIndex.js')
+const {
+  extractSteamAppIds, buildIndexWhere, CATALOG_INDEX_VERSION,
+  CATALOG_INDEX_ADDED_COLUMNS, catalogIndexAddColumnStatements,
+} = require_('../electron/db/catalogIndex.js')
 
 const read = (...parts) =>
   fs.readFileSync(path.join(__dirname, '..', ...parts), 'utf8')
@@ -208,4 +210,96 @@ describe('DLC never become separate tiles', () => {
     db.close()
     expect(rows.map((r) => r.steam_id)).toEqual([7777])
   })
+})
+
+// CREATE TABLE IF NOT EXISTS is a no-op against a table that already exists,
+// so widening the DDL reaches new installs only. An upgrade kept its schema-4
+// atlas_external_steam and the first background rebuild died with
+//   SQLITE_ERROR: table atlas_external_steam has no column named is_dlc
+// which aborted the whole build and left Browse on the slow union path.
+describe('upgrading an existing install', () => {
+  const open = () => {
+    const sqlite3 = require_('sqlite3')
+    const db = new sqlite3.Database(':memory:')
+    return {
+      db,
+      run: (sql) => new Promise((res, rej) =>
+        db.run(sql, (err) => (err ? rej(err) : res()))),
+      all: (sql) => new Promise((res, rej) =>
+        db.all(sql, (err, rows) => (err ? rej(err) : res(rows)))),
+    }
+  }
+  // The schema-4 table, as an install in the wild has it.
+  const V4 = `CREATE TABLE atlas_external_steam (
+     steam_appid INTEGER NOT NULL, atlas_id INTEGER NOT NULL,
+     PRIMARY KEY (steam_appid, atlas_id))`
+  // Runs the SHIPPING statement builder, not a copy of it.
+  const migrate = async ({ run, all }) => {
+    const existingByTable = {}
+    for (const [table] of CATALOG_INDEX_ADDED_COLUMNS) {
+      if (existingByTable[table]) continue
+      existingByTable[table] = (await all(`PRAGMA table_info(${table})`)).map((c) => c.name)
+    }
+    for (const sql of catalogIndexAddColumnStatements(existingByTable)) await run(sql)
+  }
+
+  it('adds the missing columns to a pre-existing table', async () => {
+    const h = open()
+    await h.run(V4)
+    await migrate(h)
+    const cols = (await h.all(`PRAGMA table_info(atlas_external_steam)`)).map((c) => c.name)
+    expect(cols).toContain('is_dlc')
+    expect(cols).toContain('parent_appid')
+    h.db.close()
+  })
+
+  it('lets the rebuild insert afterwards', async () => {
+    const h = open()
+    await h.run(V4)
+    await migrate(h)
+    await h.run(`INSERT INTO atlas_external_steam
+                   (steam_appid, atlas_id, is_dlc, parent_appid) VALUES (2001, 10, 1, 1000)`)
+    const rows = await h.all(`SELECT is_dlc, parent_appid FROM atlas_external_steam`)
+    expect(rows).toEqual([{ is_dlc: 1, parent_appid: 1000 }])
+    h.db.close()
+  })
+
+  it('is idempotent, so a second launch does not error', async () => {
+    const h = open()
+    await h.run(V4)
+    await migrate(h)
+    await migrate(h)
+    const cols = (await h.all(`PRAGMA table_info(atlas_external_steam)`)).map((c) => c.name)
+    expect(cols.filter((c) => c === 'is_dlc')).toHaveLength(1)
+    h.db.close()
+  })
+
+  it('leaves existing rows valid rather than null', async () => {
+    // ADD COLUMN applies the default to rows already there, so every migrated
+    // appid reads as a game until the forced rebuild types it.
+    const h = open()
+    await h.run(V4)
+    await h.run(`INSERT INTO atlas_external_steam VALUES (1000, 10)`)
+    await migrate(h)
+    expect(await h.all(`SELECT is_dlc, parent_appid FROM atlas_external_steam`))
+      .toEqual([{ is_dlc: 0, parent_appid: null }])
+    h.db.close()
+  })
+
+  it('ensureCatalogIndexSchema runs the migration, not just the DDL', () => {
+    const source = read('electron', 'db', 'catalogIndex.js')
+    const fn = source.slice(source.indexOf('const ensureCatalogIndexSchema'))
+    expect(fn.slice(0, 400)).toContain('ensureAddedColumns()')
+  })
+})
+
+it('emits no ALTER when every column is already present', () => {
+  const complete = {}
+  for (const [table, column] of CATALOG_INDEX_ADDED_COLUMNS) {
+    complete[table] = [...(complete[table] || []), column]
+  }
+  expect(catalogIndexAddColumnStatements(complete)).toEqual([])
+  // ...and every one when the table is at its pre-migration shape.
+  expect(catalogIndexAddColumnStatements({ atlas_external_steam: ['steam_appid', 'atlas_id'] }))
+    .toHaveLength(CATALOG_INDEX_ADDED_COLUMNS.length)
 })
