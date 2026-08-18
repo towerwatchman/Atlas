@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Fixed
-- Add logic for URL extraction to bypass bad database entries for url search by ID & support steam / lewdcorner search 
+- Fixed pasting a thread or store URL into the search box returning nothing. URL search matched against the indexed `site_url`, which is incomplete and inconsistent: Steam URLs were never indexed, LewdCorner stores a mix of slugged and bare forms, and F95Zone has the same split, so a game already in the library was unfindable by its own link. A pasted F95Zone, LewdCorner or Steam URL now has its numeric ID extracted and searched against the ID column, which is reliable. Applied identically in Library, Browse and the renderer's filter so the same paste returns the same rows in every view. An explicit `title:`, `url:` or other prefix still wins, and a URL embedded in longer text is left as a text search.
 - Update global lightbox control for media in lightbox instead of only under GameDetails.
 - Fixed browser extension thread matching comparing numeric IDs across sites without validating the host domain source (F95Zone vs LewdCorner). F95Zone threads with ID `X` were erroneously matched against games that only carried LewdCorner ID `X`. Thread lookup is now strictly site-isolated (`f95Id` for F95Zone threads, `lcId` for LewdCorner threads).
 - Fixed `open-game-folder` IPC handler opening the parent directory of the game folder instead of the game directory itself (`selectedVersion.game_path`).

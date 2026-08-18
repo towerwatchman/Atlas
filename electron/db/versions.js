@@ -14,7 +14,7 @@ const {
   SEARCH_PREFIX_FIELDS, LEGACY_SEARCH_TYPE_FIELDS,
   unionColumnsForSearchFieldIds, normalizeSearchFieldIds,
 } = require('./searchFields')
-const { extractUrlId, isLikelyUrl } = require('./urlIdExtractor')
+const { extractUrlId } = require('./urlIdExtractor')
 
 // A search payload may carry `fields` (current) or `type` (legacy, still in
 // saved_filters.json). Neither means "use the default set".
@@ -1325,25 +1325,29 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
     let searchText = String(search.text || '').trim();
     // Same shared registry as the catalog_index fast path and the renderer's JS
     // filter — see electron/db/searchFields.js.
-    const urlId = isLikelyUrl(searchText) ? extractUrlId(searchText) : null
-    let searchFields
-    if (urlId) {
-      searchFields = [urlId.field]
-      searchText = urlId.query
-    } else {
-      searchFields = resolveSearchFields(search)
-      const prefixedSearch = searchText.match(/^([a-z][a-z0-9]*):\s*(.+)$/i);
-      if (prefixedSearch) {
-        const prefix = prefixedSearch[1].toLowerCase();
-        const prefixFields = SEARCH_PREFIX_FIELDS[prefix];
-        if (prefixFields) {
-          searchText = prefixedSearch[2].trim();
-          searchFields = prefixFields;
-        } else if (prefix === 'url') {
-          searchText = prefixedSearch[2].trim();
-          searchFields = ['url'];
-        }
+    let searchFields = resolveSearchFields(search);
+    const prefixedSearch = searchText.match(/^([a-z][a-z0-9]*):\s*(.+)$/i);
+    if (prefixedSearch) {
+      const prefix = prefixedSearch[1].toLowerCase();
+      const prefixFields = SEARCH_PREFIX_FIELDS[prefix];
+      if (prefixFields) {
+        searchText = prefixedSearch[2].trim();
+        searchFields = prefixFields;
+      } else if (prefix === 'url') {
+        searchText = prefixedSearch[2].trim();
+        searchFields = ['url'];
       }
+    }
+    // Same URL routing as the catalog_index path and the renderer -- see
+    // electron/db/urlIdExtractor.js. Only when no explicit prefix claimed
+    // the text, so `title:` and `url:` are not overridden by a URL in their
+    // argument.
+    const urlId = prefixedSearch && SEARCH_PREFIX_FIELDS[prefixedSearch[1].toLowerCase()]
+      ? null
+      : extractUrlId(searchText);
+    if (urlId) {
+      searchFields = [urlId.field];
+      searchText = urlId.query;
     }
     const escapeLike = (value) => String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
     const buildLikeTerm = (value) => `%${escapeLike(value).toLowerCase()}%`;
@@ -1363,12 +1367,7 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
     };
     let searchWhere = '';
     if (searchTerms.length > 0) {
-      let steamColumns = unionColumnsForSearchFieldIds(searchFields)
-      // include atlas_external_steam since steam_id also stored there and currently not linked
-      if (searchFields.includes('steamId')) {
-        steamColumns = [...steamColumns, 'catalog.steam_appids']
-      }
-      searchWhere = addLikeConditions(steamColumns, searchTerms);
+      searchWhere = addLikeConditions(unionColumnsForSearchFieldIds(searchFields), searchTerms);
     }
     const filters = options.filters && typeof options.filters === 'object' ? options.filters : {};
     const filterParams = [];
@@ -1687,7 +1686,6 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
           END as source,
           atlas_data.atlas_id as atlas_id,
           MIN(steam_data.steam_id) as steam_id,
-          GROUP_CONCAT(aes.steam_appid, ',') as steam_appids,
           lewdcorner_data.lc_id as lc_id,
           lewdcorner_data.lc_id as lcId,
           lewdcorner_data.lc_id as lewdCornerId,
@@ -1765,7 +1763,6 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
         LEFT JOIN lewdcorner_data ON atlas_data.atlas_id = lewdcorner_data.atlas_id
         LEFT JOIN steam_data ON atlas_data.atlas_id = steam_data.atlas_id
         LEFT JOIN gog_data ON atlas_data.atlas_id = gog_data.atlas_id
-        LEFT JOIN atlas_external_steam aes ON aes.atlas_id = atlas_data.atlas_id
         ${atlasRestrict}
         GROUP BY atlas_data.atlas_id
       ),
@@ -1788,7 +1785,6 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
           'steam' as source,
           NULL as atlas_id,
           steam_data.steam_id as steam_id,
-          steam_data.steam_id as steam_appids,
           NULL as lc_id,
           NULL as lcId,
           NULL as lewdCornerId,
@@ -1906,7 +1902,6 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
           'gog' as source,
           NULL as atlas_id,
           NULL as steam_id,
-          NULL as steam_appids,
           NULL as lc_id,
           NULL as lcId,
           NULL as lewdCornerId,
@@ -1996,7 +1991,6 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
           'lewdcorner' as source,
           NULL as atlas_id,
           NULL as steam_id,
-          NULL as steam_appids,
           lewdcorner_data.lc_id as lc_id,
           lewdcorner_data.lc_id as lcId,
           lewdcorner_data.lc_id as lewdCornerId,
