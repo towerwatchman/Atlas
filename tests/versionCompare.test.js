@@ -152,6 +152,45 @@ upd("Compact Edition", "v0.9", false, "edition-only, no structure");
   }
 }
 
+// ── cross-scheme: a season label in front of a bare semver ───────────────────
+// Being a DIK (atlas 22679). A library holding "Season 1 & 2 - 0.8.3" and
+// "0.11.1" showed NO update against a v0.12.0 latest. "Season 1 & 2" parses to
+// season [2] - the "& 2" is read as the season number - and season outranks
+// semver with a missing axis counting as 0, so the 0.8.3 folder ranked above
+// both the 0.11.1 install AND the latest. getIsUpdateAvailable picks the newest
+// COMPARABLE install and compares only that, so the stale 0.8.3 won the scan
+// and masked the 0.11.1 that genuinely was behind.
+cmp("Season 1 & 2 - 0.8.3", "0.11.1", -1, "packaging label must not outrank semver");
+cmp("v0.12.0", "Season 1 & 2 - 0.8.3", 1, "latest is ahead of the labelled 0.8.3");
+upd("v0.12.0", "Season 1 & 2 - 0.8.3", true, "compares on semver when both carry one");
+
+// The masking case itself: the older install must not hide the newer one.
+{
+  const got = getIsUpdateAvailable("v0.12.0", [
+    { version: "Season 1 & 2 - 0.8.3" },
+    { version: "0.11.1" },
+  ]);
+  if (got === true) pass++;
+  else {
+    fail++;
+    failures.push(`Being a DIK masking case => ${got} (expected true)`);
+  }
+}
+
+// A label with NO semver has nothing numeric to line up against, so it stays
+// incomparable rather than being forced onto the semver axis. Incomparable
+// installs drop out of the newest-comparable scan, and a lone incomparable
+// install suppresses the badge instead of guessing.
+cmp("Season 2", "v0.12.0", null, "label-only vs semver is incomparable");
+upd("v0.12.0", "Season 2", false, "no honest ordering, so no badge");
+
+// WITHIN one scheme the hierarchy is untouched: both sides use labels, so a
+// deeper or higher label still decides before semver is consulted.
+cmp("Ch.2", "Ch.1 Ep.9", 1, "higher chapter wins over deeper episode");
+cmp("Ch.2 Ep.1", "Ch.2", 1, "deeper label still reads as newer");
+cmp("S2 Ep.4", "Ep.5", 1, "season still outranks episode when both are labelled");
+upd("Ch.2", "Ch.1 Ep.9", true, "within-scheme ordering unchanged");
+
 // ── direct compare spot-checks ───────────────────────────────────────────────
 cmp("Ch.10", "Ch.2", 1);
 cmp("v0.9", "v0.9", 0);
