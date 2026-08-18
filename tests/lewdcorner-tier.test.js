@@ -127,7 +127,7 @@ test('the gate is in the shared WHERE builder, so the count query gets it too', 
     source.indexOf('const buildIndexOrderBy'),
   )
   expect(builder).toContain(INDEX_PREDICATE)
-  const countQuery = source.slice(source.indexOf('SELECT COUNT(DISTINCT ci.catalog_key) AS total FROM catalog_index'))
+  const countQuery = source.slice(source.indexOf('SELECT COUNT(*) AS total FROM catalog_index'))
   expect(countQuery.slice(0, 200)).toContain('CATALOG_INDEX_JOINS')
 })
 
@@ -140,10 +140,21 @@ test('the union fallback applies the gate as well', () => {
 // live through the join means no reindex is needed to adopt it, and a rescrape
 // that changes a tier takes effect at once instead of waiting for the row to be
 // re-projected.
+//
+// This used to pin CATALOG_INDEX_VERSION to the literal 4. That asserted more
+// than it meant to: the point is that THE TIER GATE adds no column, not that the
+// index schema is frozen, and an unrelated bump (adding is_dlc to
+// atlas_external_steam) failed it. The tier-specific checks below are the real
+// guard and are unchanged.
 test('the gate needs no catalog_index schema change or version bump', () => {
   const source = read('electron', 'db', 'catalogIndex.js')
   expect(source).not.toContain('lc_tier')
-  expect(source).toMatch(/const CATALOG_INDEX_VERSION = 4\b/)
+  // The catalog_index DDL must carry no LewdCorner tier column. Matched
+  // specifically rather than on /tier/, which also hits the unrelated
+  // thread_updated_tier / release_date_tier date-sort columns.
+  const ddl = source.slice(source.indexOf('const CATALOG_INDEX_DDL'),
+    source.indexOf('const CATALOG_INDEX_COLUMNS'))
+  expect(ddl).not.toMatch(/\b(lc|lewdcorner)_?tier\b/i)
 })
 
 // It must be SQL-side. A post-fetch filter in the renderer would corrupt Browse's

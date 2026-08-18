@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Fixed
+- Fixed a Steam DLC appid or store URL finding nothing in search. A tile carries a single `steam_id` (the lowest of its linked appids), so a game's other appids -- its DLC especially -- were unreachable. Searching a `steamId` now also probes `atlas_external_steam`, which holds every appid for the row, so a DLC id or URL finds the game it belongs to. Applied in both Library and Browse. Implemented as an `EXISTS` rather than a join, so a game with several appids still renders as one tile and neither the page nor the count query needs `DISTINCT`.
+
+### Added
+- `atlas_external_steam` now records whether an appid is a DLC (`is_dlc`) and which game it belongs to (`parent_appid`), read from the server's `steam_dlc_appids` / `steam_dlc_parents` keys. The catalog index version is bumped to 5 so existing installs rebuild and pick the typing up; a package predating those keys yields all-game entries, exactly as before.
+
+### Fixed
 - Fixed pasting a thread or store URL into the search box returning nothing. URL search matched against the indexed `site_url`, which is incomplete and inconsistent: Steam URLs were never indexed, LewdCorner stores a mix of slugged and bare forms, and F95Zone has the same split, so a game already in the library was unfindable by its own link. A pasted F95Zone, LewdCorner or Steam URL now has its numeric ID extracted and searched against the ID column, which is reliable. Applied identically in Library, Browse and the renderer's filter so the same paste returns the same rows in every view. An explicit `title:`, `url:` or other prefix still wins, and a URL embedded in longer text is left as a text search.
 - Update global lightbox control for media in lightbox instead of only under GameDetails.
 - Fixed browser extension thread matching comparing numeric IDs across sites without validating the host domain source (F95Zone vs LewdCorner). F95Zone threads with ID `X` were erroneously matched against games that only carried LewdCorner ID `X`. Thread lookup is now strictly site-isolated (`f95Id` for F95Zone threads, `lcId` for LewdCorner threads).

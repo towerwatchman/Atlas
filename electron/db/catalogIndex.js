@@ -61,7 +61,11 @@ const { withTransaction, isWriteLockBusy } = require('./writeLock')
 
 // Bump when the projection (columns, tier semantics, source precedence)
 // changes. A mismatch marks the index stale and triggers one rebuild.
-const CATALOG_INDEX_VERSION = 4
+// 5: atlas_external_steam gained is_dlc/parent_appid. The table is rebuilt
+// from external_ids, so a bump is what makes an existing install pick the
+// new columns up instead of keeping a schema-4 table with every appid
+// typed as a game.
+const CATALOG_INDEX_VERSION = 5
 
 const CHUNK_SIZE = 2000
 
@@ -171,15 +175,55 @@ const joinText = (...parts) => {
 // Replaces the five correlated LIKE patterns. Parsing the JSON is immune to the
 // whitespace and key-order variation that made the LIKE list miss
 // `{"steam_id": "123"}`, and it covers the array form in one place.
-const extractSteamAppIds = (rawExternalIds) => {
-  if (!rawExternalIds) return []
+//
+// Returns typed entries rather than bare ids. The server exports a game's DLC
+// appids under their own keys (steam_dlc_appids / steam_dlc_parents) while
+// steam_appids keeps its old meaning -- EVERY appid for the game -- so an id
+// appearing in both is a DLC, and an id in steam_appids alone is the game. A
+// package predating those keys yields all-game entries, which is exactly how
+// this behaved before.
+const toAppId = (value) => {
+  const n = Number.parseInt(String(value ?? '').trim(), 10)
+  return Number.isInteger(n) && n > 0 ? n : null
+}
+
+const parseExternalIdsBlob = (rawExternalIds) => {
+  if (!rawExternalIds) return null
   let parsed
   try {
     parsed = typeof rawExternalIds === 'object' ? rawExternalIds : JSON.parse(rawExternalIds)
   } catch {
-    return []
+    return null
   }
-  if (!parsed || typeof parsed !== 'object') return []
+  return parsed && typeof parsed === 'object' ? parsed : null
+}
+
+// steam_dlc_parents is keyed by the PARENT's kind, then the parent's id:
+//   {"steam": {"1000": ["2001", "2002"]}}
+// Only a steam parent yields a parent_appid; a DLC parented to a GOG or itch
+// entry (which manualLinks.js permits) is still a DLC, just with no steam
+// parent to point at.
+const steamDlcParentsByAppId = (parsed) => {
+  const out = new Map()
+  const groups = parsed?.steam_dlc_parents
+  if (!groups || typeof groups !== 'object') return out
+  const steamGroup = groups.steam
+  if (!steamGroup || typeof steamGroup !== 'object') return out
+  for (const [parentRaw, children] of Object.entries(steamGroup)) {
+    const parent = toAppId(parentRaw)
+    if (!parent || !Array.isArray(children)) continue
+    for (const child of children) {
+      const appid = toAppId(child)
+      if (appid) out.set(appid, parent)
+    }
+  }
+  return out
+}
+
+// `{ appid, isDlc, parentAppId }`, one per distinct appid.
+const extractSteamAppIds = (rawExternalIds) => {
+  const parsed = parseExternalIdsBlob(rawExternalIds)
+  if (!parsed) return []
 
   const candidates = []
   for (const key of ['steam_appid', 'steam_id', 'steamAppId', 'steamId']) {
@@ -195,12 +239,35 @@ const extractSteamAppIds = (rawExternalIds) => {
     }
   }
 
-  const ids = new Set()
-  for (const candidate of candidates) {
-    const n = Number.parseInt(String(candidate).trim(), 10)
-    if (Number.isInteger(n) && n > 0) ids.add(n)
+  const dlcIds = new Set()
+  for (const key of ['steam_dlc_appids', 'steamDlcAppIds']) {
+    const list = parsed[key]
+    if (!Array.isArray(list)) continue
+    for (const value of list) {
+      const appid = toAppId(value)
+      // A DLC id may be absent from steam_appids on a hand-edited blob, so it
+      // is added as a candidate too rather than being silently skipped.
+      if (appid) { dlcIds.add(appid); candidates.push(appid) }
+    }
   }
-  return Array.from(ids)
+
+  const parents = steamDlcParentsByAppId(parsed)
+  const seen = new Set()
+  const out = []
+  for (const candidate of candidates) {
+    const appid = toAppId(candidate)
+    if (!appid || seen.has(appid)) continue
+    seen.add(appid)
+    const isDlc = dlcIds.has(appid)
+    out.push({
+      appid,
+      isDlc,
+      // A parent only means anything for a DLC, and only when the parent is
+      // itself a steam appid.
+      parentAppId: isDlc ? (parents.get(appid) ?? null) : null,
+    })
+  }
+  return out
 }
 
 // ── schema ───────────────────────────────────────────────────────────────────
@@ -242,9 +309,18 @@ const CATALOG_INDEX_DDL = [
 
   // (steam_appid -> atlas_id) resolved from atlas_data.external_ids. Replaces
   // the correlated-LIKE NOT EXISTS with a primary-key probe.
+  //
+  // is_dlc says whether this appid is an add-on rather than the game itself,
+  // and parent_appid which game it belongs to. Both come from the server's
+  // atlas_manual_links, where an admin types every store link -- but the export
+  // used to flatten a base game and its DLC into one steam_appids array, so
+  // this table could not represent the difference and every appid looked like a
+  // game. Defaults keep an older package (no *_dlc_* keys) behaving as before.
   `CREATE TABLE IF NOT EXISTS atlas_external_steam (
-     steam_appid INTEGER NOT NULL,
-     atlas_id    INTEGER NOT NULL,
+     steam_appid  INTEGER NOT NULL,
+     atlas_id     INTEGER NOT NULL,
+     is_dlc       INTEGER NOT NULL DEFAULT 0,
+     parent_appid INTEGER,
      PRIMARY KEY (steam_appid, atlas_id)
    );`,
 
@@ -373,8 +449,8 @@ const rebuildAtlasExternalSteam = async ({ onProgress } = {}) => {
 
   const pairs = []
   for (const row of rows) {
-    for (const appid of extractSteamAppIds(row.external_ids)) {
-      pairs.push([appid, row.atlas_id])
+    for (const entry of extractSteamAppIds(row.external_ids)) {
+      pairs.push([entry.appid, row.atlas_id, entry.isDlc ? 1 : 0, entry.parentAppId])
     }
   }
 
@@ -382,9 +458,10 @@ const rebuildAtlasExternalSteam = async ({ onProgress } = {}) => {
     await dbRun('DELETE FROM atlas_external_steam')
     for (let i = 0; i < pairs.length; i += CHUNK_SIZE) {
       const slice = pairs.slice(i, i + CHUNK_SIZE)
-      const values = slice.map(() => '(?, ?)').join(', ')
+      const values = slice.map(() => '(?, ?, ?, ?)').join(', ')
       await dbRun(
-        `INSERT OR IGNORE INTO atlas_external_steam (steam_appid, atlas_id) VALUES ${values}`,
+        `INSERT OR IGNORE INTO atlas_external_steam
+           (steam_appid, atlas_id, is_dlc, parent_appid) VALUES ${values}`,
         slice.flat())
       if (typeof onProgress === 'function') {
         try { onProgress({ phase: 'steam-links', processed: Math.min(i + CHUNK_SIZE, pairs.length), total: pairs.length }) }
@@ -872,9 +949,31 @@ const buildIndexWhere = (search = {}, filters = {}) => {
     // selected fields are exactly what it bakes in — otherwise it would quietly
     // widen the search to fields the user deselected.
     const columns = indexColumnsForSearchFieldIds(fields)
+    // ci.steam_id holds ONE appid per tile (MIN of the linked steam_data rows),
+    // so a game's other appids -- its DLC especially -- were unfindable: pasting
+    // a DLC store URL matched nothing even though the game was right there.
+    // atlas_external_steam has every appid for the row, so searching a steamId
+    // reaches through it to the game the appid belongs to.
+    //
+    // Deliberately EXISTS rather than a LEFT JOIN: a join against a table with
+    // several appids per atlas_id multiplies the rows and the grid shows the
+    // same game once per appid, which then has to be undone with DISTINCT --
+    // and DISTINCT on the count query too, or the scrollbar sizes for rows that
+    // are never rendered. EXISTS cannot fan out, so neither is needed.
+    const searchesSteamId = fields.includes('steamId')
     for (const term of terms) {
-      parts.push(`(${columns.map((f) => `LOWER(COALESCE(CAST(ci.${f} AS TEXT), '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`)
-      params.push(...columns.map(() => like(term)))
+      const clauses = columns.map(
+        (f) => `LOWER(COALESCE(CAST(ci.${f} AS TEXT), '')) LIKE ? ESCAPE '\\'`)
+      const values = columns.map(() => like(term))
+      if (searchesSteamId) {
+        clauses.push(`EXISTS (
+          SELECT 1 FROM atlas_external_steam aes
+           WHERE aes.atlas_id = ci.atlas_id
+             AND LOWER(CAST(aes.steam_appid AS TEXT)) LIKE ? ESCAPE '\\')`)
+        values.push(like(term))
+      }
+      parts.push(`(${clauses.join(' OR ')})`)
+      params.push(...values)
     }
   }
 

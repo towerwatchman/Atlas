@@ -207,8 +207,11 @@ test('the catalog_index path searches the bare id for a pasted URL', () => {
   const paramsFor = (text) => buildIndexWhere({ text, fields: ['title'] }, {}).params
 
   expect(paramsFor('https://f95zone.to/threads/slug.310615/')).toEqual(['%310615%'])
-  expect(paramsFor('store.steampowered.com/app/4585540/')).toEqual(['%4585540%'])
   expect(paramsFor('https://lewdcorner.com/threads/slug.5913/')).toEqual(['%5913%'])
+  // A steamId search also probes atlas_external_steam, so the id is bound twice
+  // -- once for ci.steam_id and once for the EXISTS. Both must be the extracted
+  // appid and nothing else.
+  expect(paramsFor('store.steampowered.com/app/4585540/')).toEqual(['%4585540%', '%4585540%'])
 })
 
 // The main-process paths reassign `text` inside the prefix branch, so without an
