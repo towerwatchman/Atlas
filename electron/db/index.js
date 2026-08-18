@@ -339,6 +339,7 @@ const initializeDatabase = (dataDir) => {
         edited INTEGER NOT NULL DEFAULT 0,
         edited_at INTEGER,
         edited_by STRING,
+        locked_fields STRING,
         removed_from_server INTEGER NOT NULL DEFAULT 0
       );
     `);
@@ -831,6 +832,13 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE atlas_data ADD COLUMN edited INTEGER NOT NULL DEFAULT 0;`, () => {});
     db.run(`ALTER TABLE atlas_data ADD COLUMN edited_at INTEGER;`, () => {});
     db.run(`ALTER TABLE atlas_data ADD COLUMN edited_by STRING;`, () => {});
+    // Which atlas fields an admin has pinned against the scraper. Server-side
+    // behaviour -- the client never writes it and nothing reads it yet -- but
+    // it arrives in every package, and an unknown column was being dropped
+    // with a warning on every single ingest. Stored so atlas_data stays a
+    // faithful mirror of the server table and the warning goes back to
+    // meaning "the server grew a field we have not handled".
+    db.run(`ALTER TABLE atlas_data ADD COLUMN locked_fields STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN downloads STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN patches STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN extras STRING;`, () => {});
