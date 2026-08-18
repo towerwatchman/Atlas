@@ -3,9 +3,12 @@
 ## Unreleased
 
 ### Fixed
+- Fixed the new server-side DLC keys rendering as junk external links on the details page: `steam_dlc_appids` produced a duplicate "Steam Dlc Appids" row per DLC and `steam_dlc_parents`, being an object, rendered as a single `[object Object]` link.
+- Fixed duplicate React keys in the details page's external links list. Every Steam entry carried the key `steam_appid`, which was unique only while a game had one appid.
 - Fixed a Steam DLC appid or store URL finding nothing in search. A tile carries a single `steam_id` (the lowest of its linked appids), so a game's other appids -- its DLC especially -- were unreachable. Searching a `steamId` now also probes `atlas_external_steam`, which holds every appid for the row, so a DLC id or URL finds the game it belongs to. Applied in both Library and Browse. Implemented as an `EXISTS` rather than a join, so a game with several appids still renders as one tile and neither the page nor the count query needs `DISTINCT`.
 
 ### Added
+- The game details page now groups a game's store links so DLC appear under the game they belong to, collapsed behind a "N DLC" toggle. A title with several season passes used to list them as an undifferentiated run of "Steam" rows that buried its own store page. A DLC whose parent is not itself listed -- tied to an F95/LewdCorner mapping, or to a link since removed -- stays a top-level row with a DLC badge rather than being hidden.
 - `atlas_external_steam` now records whether an appid is a DLC (`is_dlc`) and which game it belongs to (`parent_appid`), read from the server's `steam_dlc_appids` / `steam_dlc_parents` keys. The catalog index version is bumped to 5 so existing installs rebuild and pick the typing up; a package predating those keys yields all-game entries, exactly as before.
 
 ### Fixed

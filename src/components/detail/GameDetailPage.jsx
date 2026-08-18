@@ -22,10 +22,11 @@ import {
   sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl, formatReleaseDate,
   isSteamGame, getMappedSteamAppId, isGogGame, getMappedGogId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
 } from './page/gameDetailUtils.js'
-import { buildGameLinks, gogStoreUrl } from './gameLinks.js'
+import { buildGroupedGameLinks, gogStoreUrl } from './gameLinks.js'
 import InstallSourceModal from './page/InstallSourceModal.jsx'
 import { resolveInstallSources } from './page/installSources.js'
 import GogIcon from '../ui/GogIcon.jsx'
+import ExternalLinksSection from './ExternalLinksSection.jsx'
 import PlaystatePicker from '../ui/PlaystatePicker.jsx'
 import { effectiveTitlePlaystate } from '../../utils/playstates.js'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
@@ -729,7 +730,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   const localVersion = actionVersion?.version || selectedVersion?.version || game.versions?.[0]?.version || game.version || ''
   const localImportIsArchive = isArchiveSourcePath(localImportPath, localArchiveExtensions)
 
-  const externalLinks = buildGameLinks(game)
+  // Folded so DLC render under the game they belong to instead of as a flat
+  // run of identical Steam rows. The flat list stays for anything counting links.
+  const externalLinkGroups = buildGroupedGameLinks(game)
   const personalRatingsDirty = JSON.stringify(personalRatingsDraft) !== JSON.stringify(personalRatingsSaved)
   const personalRatingsOverall = getPersonalRatingsOverall(personalRatingsDraft)
 
@@ -1690,35 +1693,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
                 </div>
               </section>
             ),
-            links: externalLinks.length > 0 ? (
-              <section className="bg-secondary border border-border p-2">
-                <h2 className="text-lg font-semibold mb-3">External Links</h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {externalLinks.map((link) => (
-                    <div key={link.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                      {link.iconImage ? (
-                        <GogIcon size={16} style={{ width: 18, color: 'var(--color-muted)' }} />
-                      ) : (
-                        <i className={link.icon} style={{ width: 18, textAlign: 'center', color: 'var(--color-muted)' }} aria-hidden="true"></i>
-                      )}
-                      <span style={{ color: 'var(--color-muted)', minWidth: 92 }}>{link.label}</span>
-                      {link.url ? (
-                        <a
-                          href={link.url}
-                          onClick={(e) => { e.preventDefault(); window.electronAPI.openExternalUrl(link.url) }}
-                          className="text-accent hover:underline"
-                          style={{ cursor: 'pointer', wordBreak: 'break-all' }}
-                        >
-                          {link.value}
-                        </a>
-                      ) : (
-                        <span style={{ wordBreak: 'break-all' }}>{link.value}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ) : null,
+            links: <ExternalLinksSection groups={externalLinkGroups} />,
             // Editable here as well as in the properties window. When an
             // override exists the editor is the source of truth; otherwise it
             // seeds from the catalog list, which is also what detailTags shows

@@ -165,3 +165,47 @@ it('the union fallback reaches through atlas_external_steam too', () => {
   expect(source).toContain("searchFields.includes('steamId')")
   expect(source).not.toMatch(/JOIN\s+atlas_external_steam/i)
 })
+
+// A DLC must never get a tile of its own; only the game it belongs to is
+// browsable. This already held -- both orphan-branch builders skip any
+// steam_data row whose appid is linked to an atlas entry -- and these pin it,
+// because the exclusion lives in two places that have to agree.
+describe('DLC never become separate tiles', () => {
+  it('the index orphan branch skips any appid linked to an atlas row', () => {
+    const source = read('electron', 'db', 'catalogIndex.js')
+    const steamWhere = source.slice(source.indexOf('const STEAM_WHERE'),
+      source.indexOf('await runBranch(\'steam\''))
+    expect(steamWhere).toContain('NOT EXISTS')
+    expect(steamWhere).toContain('atlas_external_steam')
+    expect(steamWhere).toContain('aes.steam_appid = sd.steam_id')
+  })
+
+  it('the union fallback applies the same exclusion', () => {
+    const source = read('electron', 'db', 'versions.js')
+    const branch = source.slice(source.indexOf('steam_branch_base'))
+    expect(branch).toContain('atlas_external_steam')
+    expect(branch).toContain('NOT EXISTS')
+  })
+
+  // The behaviour itself, not just its source text.
+  it('excludes DLC rows and keeps unrelated games', async () => {
+    const sqlite3 = require_('sqlite3')
+    const db = new sqlite3.Database(':memory:')
+    const run = (sql, params = []) => new Promise((resolve, reject) =>
+      db.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows))))
+    await run(`CREATE TABLE steam_data (steam_id INT PRIMARY KEY, atlas_id INT, title TEXT)`)
+    await run(`CREATE TABLE atlas_data (atlas_id INT PRIMARY KEY)`)
+    await run(`CREATE TABLE atlas_external_steam (steam_appid INT, atlas_id INT, is_dlc INT, parent_appid INT)`)
+    await run(`INSERT INTO atlas_data VALUES (10)`)
+    await run(`INSERT INTO steam_data VALUES (1000,10,'Base'),(2001,NULL,'DLC 1'),(2002,NULL,'DLC 2'),(7777,NULL,'Unrelated')`)
+    await run(`INSERT INTO atlas_external_steam VALUES (1000,10,0,NULL),(2001,10,1,1000),(2002,10,1,1000)`)
+    const rows = await run(`
+      SELECT sd.steam_id FROM steam_data sd
+      LEFT JOIN atlas_data a ON sd.atlas_id = a.atlas_id
+      WHERE (sd.atlas_id IS NULL OR a.atlas_id IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM atlas_external_steam aes
+                         WHERE aes.steam_appid = sd.steam_id)`)
+    db.close()
+    expect(rows.map((r) => r.steam_id)).toEqual([7777])
+  })
+})
