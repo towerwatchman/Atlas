@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Fixed `insertJsonData: ignoring unexpected column(s) for atlas_data: locked_fields` on every package ingest. The server's atlas table gained `locked_fields` (which fields an admin has pinned against the scraper) and the client did not know the column, so it was dropped with a warning each time. It is now stored, keeping `atlas_data` a faithful mirror; nothing reads it yet. Existing installs get it via `ALTER TABLE`, since the table definition alone only reaches new ones.
 - Fixed the catalog index failing to build on upgrade with `SQLITE_ERROR: table atlas_external_steam has no column named is_dlc`. `CREATE TABLE IF NOT EXISTS` is a no-op against a table that already exists, so the widened definition reached new installs only; an upgrading install kept its old table and the background rebuild aborted, leaving Browse on the slower union path. The missing columns are now added with `ALTER TABLE` before the rebuild runs.
 - Fixed the new server-side DLC keys rendering as junk external links on the details page: `steam_dlc_appids` produced a duplicate "Steam Dlc Appids" row per DLC and `steam_dlc_parents`, being an object, rendered as a single `[object Object]` link.
 - Fixed duplicate React keys in the details page's external links list. Every Steam entry carried the key `steam_appid`, which was unique only while a game had one appid.
