@@ -199,6 +199,42 @@ export const resolveSearchFieldIds = (filters = {}) =>
       : configuredDefaultSearchFieldIds,
   )
 
+/**
+ * The search payload a catalog (Browse) fetch is dispatched with.
+ *
+ * Built in ONE place because App.jsx compares a stringified {search, filters}
+ * against the last one it dispatched, to decide whether entering Browse needs a
+ * refetch at all. Two hand-rolled objects that describe the same search but
+ * differ in SHAPE never compare equal, so the guard silently stops guarding.
+ *
+ * That is exactly what happened: browseCatalog built `{text, type}` while the
+ * debounced reset effect built `{text, type, fields}` from the same filters, so
+ * the keys never matched. Entering Browse fetched immediately, then 300ms later
+ * the effect fetched again - and a catalog reset clears catalogGames and raises
+ * catalogLoading, which is the full-screen spinner between two renders of the
+ * same banners.
+ */
+export const makeCatalogSearch = (filters = {}) => {
+  const fields = resolveSearchFieldIds(filters)
+  return {
+    text: filters.text,
+    type: filters.type,
+    // Rebuilt from the joined string for the same reason the memo in App.jsx is
+    // keyed on it: a new-but-equal array must not read as a change.
+    fields: fields.length > 0 ? fields.join(',').split(',') : [],
+  }
+}
+
+/**
+ * The identity of a dispatched catalog fetch.
+ *
+ * Key order is fixed by this function rather than by whichever object literal a
+ * caller happened to write, since JSON.stringify preserves insertion order and
+ * two equal-but-differently-ordered objects would compare unequal.
+ */
+export const catalogParamsKey = (search, filters) =>
+  JSON.stringify({ search, filters })
+
 export const normalizeFilterState = (filters = {}) => {
   const source = filters && typeof filters === 'object' ? filters : {}
   const hasSortDirection = Object.prototype.hasOwnProperty.call(source, 'sortDirection')

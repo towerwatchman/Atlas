@@ -33,6 +33,7 @@ import { useGames } from './hooks/useGames.js'
 import {
   defaultFilters, filterGamesWithState, normalizeFilterState, useFilters,
   setDefaultSearchFieldIds, resolveSearchFieldIds,
+  makeCatalogSearch, catalogParamsKey,
 } from './hooks/useFilters.js'
 import { DEFAULT_SEARCH_FIELD_IDS, normalizeSearchFieldIds } from './utils/searchFields.js'
 import { useAppUpdate } from './hooks/useAppUpdate.js'
@@ -357,13 +358,13 @@ const App = () => {
   const catalogSearchFields = resolveSearchFieldIds(activeFilters)
   const catalogSearchFieldsKey = catalogSearchFields.join(',')
   const catalogSearch = useMemo(
-    () => ({
-      text: activeFilters.text,
-      type: activeFilters.type,
-      fields: catalogSearchFieldsKey ? catalogSearchFieldsKey.split(',') : [],
-    }),
+    () => makeCatalogSearch(activeFilters),
     // Keyed on the joined string so a new-but-equal array doesn't refire the
-    // catalog fetch; see lastFetchedCatalogParamsKeyRef below.
+    // catalog fetch; see lastFetchedCatalogParamsKeyRef below. activeFilters is
+    // deliberately NOT a dependency: only the three values makeCatalogSearch
+    // reads matter, and depending on the whole object would rebuild the search
+    // on any unrelated filter change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeFilters.text, activeFilters.type, catalogSearchFieldsKey],
   )
   const catalogQueryFilters = useMemo(
@@ -1078,7 +1079,13 @@ const App = () => {
         includeUninstalled: true,
         installState: 'all',
       })
-      const browseSearch = { text: browseFilters.text, type: browseFilters.type }
+      // Built by the SAME helper the debounced reset effect uses. Hand-rolling
+      // `{text, type}` here left out `fields`, so the pre-marked key never
+      // matched the one the effect computed, the guard below never fired, and
+      // entering Browse always fetched twice - the second one a reset, which
+      // clears catalogGames and shows the full-screen spinner over results that
+      // had already rendered.
+      const browseSearch = makeCatalogSearch(browseFilters)
       // Update the real activeFilters state (so catalogQueryFilters/
       // catalogSearch recompute to match) while also fetching immediately
       // with the same values here, and pre-marking the params key as
@@ -1087,10 +1094,10 @@ const App = () => {
       // with the (momentarily stale) un-reset filters, undoing this and
       // re-triggering a flash/reload.
       handleFilterChange(browseFilters)
-      lastFetchedCatalogParamsKeyRef.current = JSON.stringify({ search: browseSearch, filters: browseFilters })
+      lastFetchedCatalogParamsKeyRef.current = catalogParamsKey(browseSearch, browseFilters)
       fetchCatalogGames({ reset: true, search: browseSearch, filters: browseFilters })
     } else if (catalogTotal === null) {
-      lastFetchedCatalogParamsKeyRef.current = JSON.stringify({ search: catalogSearch, filters: catalogQueryFilters })
+      lastFetchedCatalogParamsKeyRef.current = catalogParamsKey(catalogSearch, catalogQueryFilters)
       fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
     }
   }, [
@@ -1854,7 +1861,7 @@ const App = () => {
   const catalogResetDebounceRef = useRef(null)
   useEffect(() => {
     if (libraryMode !== 'catalog' || !browseAvailable) return
-    const paramsKey = JSON.stringify({ search: catalogSearch, filters: catalogQueryFilters })
+    const paramsKey = catalogParamsKey(catalogSearch, catalogQueryFilters)
     if (lastFetchedCatalogParamsKeyRef.current === paramsKey) {
       // Nothing about the search/filters actually changed since the last
       // fetch we dispatched — this effect only re-ran because some other
@@ -1889,9 +1896,7 @@ const App = () => {
     catalogIndexWasReadyRef.current = ready
     if (!becameReady) return
     if (libraryMode !== 'catalog' || !browseAvailable) return
-    lastFetchedCatalogParamsKeyRef.current = JSON.stringify({
-      search: catalogSearch, filters: catalogQueryFilters,
-    })
+    lastFetchedCatalogParamsKeyRef.current = catalogParamsKey(catalogSearch, catalogQueryFilters)
     fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
   }, [
     browseAvailable,
