@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Installed by compat.js, which popup.html loads immediately before this file.
   const api = globalThis.atlasBrowser;
 
+  const chkQueueRefresh = document.getElementById('chkQueueRefresh');
   const readout = document.getElementById('readout');
   const statusText = document.getElementById('statusText');
   const readoutEndpoint = document.getElementById('readoutEndpoint');
@@ -171,6 +172,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     extVersion.textContent = `v${api.runtime.getManifest().version}`;
   } catch {
     extVersion.textContent = '';
+  }
+
+  // ── Admin: show queue-refresh button on F95 / LC thread pages ────────────
+  // Default off. Stored in extension local storage; content.js reads it.
+  if (chkQueueRefresh) {
+    try {
+      const stored = await api.storage.local.get(['showQueueRefresh']);
+      chkQueueRefresh.checked = Boolean(stored && stored.showQueueRefresh);
+    } catch {
+      chkQueueRefresh.checked = false;
+    }
+
+    chkQueueRefresh.addEventListener('change', async () => {
+      try {
+        await api.storage.local.set({
+          showQueueRefresh: Boolean(chkQueueRefresh.checked),
+        });
+      } catch (err) {
+        console.warn('Atlas: could not save showQueueRefresh:', err);
+      }
+    });
   }
 
   setState('checking', 'Checking', ENDPOINT_LABEL);

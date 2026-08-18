@@ -196,10 +196,9 @@
     if (/reply\?.*$/.test(elem.href)) return false
     if (/page-\d+/.test(elem.href)) return false
 
-    // Filter out pagination containers
+    // Filter out thread tabs (DISCUSSION, REVIEWS) and header navigation
     if (elem.closest('.pageNav') || elem.closest('.pageNavWrapper') || elem.closest('.pageNav-page')) return false
 
-    // Filter out thread tabs (DISCUSSION, REVIEWS) and header navigation
     if (elem.closest('.tabs') || elem.closest('.tabs-tab') || elem.closest('.p-body-header') || elem.closest('.memberHeader')) return false
     if (elem.classList.contains('button') || elem.classList.contains('tabs-tab') || elem.classList.contains('u-concealed')) return false
 
@@ -278,15 +277,144 @@
     }
   }
 
+  // ── Queue Refresh button (opt-in via popup checkbox) ───────────────────────
+  //
+  // Shown only when the user enables "Show queue-refresh button" in the
+  // extension popup. Default is off. The AtlasDB API still requires an admin
+  // session; non-admins get an error toast if they enable the option and click.
+
+  const BUTTON_TEXT = 'Atlas ↻ Refresh'
+
+  const showToast = (msg, isError) => {
+    let t = document.getElementById('atlas-refresh-toast')
+    if (!t) {
+      t = document.createElement('div')
+      t.id = 'atlas-refresh-toast'
+      document.body.appendChild(t)
+    }
+    t.textContent = msg
+    t.className = isError ? 'atlas-toast error' : 'atlas-toast ok'
+    t.style.display = 'block'
+    clearTimeout(t._hide)
+    t._hide = setTimeout(() => {
+      t.style.display = 'none'
+    }, 6000)
+  }
+
+  const isQueueRefreshEnabled = async () => {
+    if (!api?.storage?.local) return false
+    try {
+      const result = await api.storage.local.get(['showQueueRefresh'])
+      return Boolean(result && result.showQueueRefresh)
+    } catch {
+      return false
+    }
+  }
+
+  const queueRefreshViaBackground = async (threadId, source) => {
+    if (!api?.runtime?.sendMessage) {
+      throw new Error('Extension messaging unavailable')
+    }
+    const response = await Promise.resolve(
+      api.runtime.sendMessage({
+        action: 'queue_f95_refresh',
+        f95Id: threadId,
+        source: source,
+      }),
+    )
+    if (!response) {
+      throw new Error('No response from background')
+    }
+    if (!response.ok) {
+      throw new Error(response.error || 'Unknown error')
+    }
+    return response.data || {}
+  }
+
+  const removeQueueRefreshButton = () => {
+    const existing = document.getElementById('atlas-queue-btn')
+    if (existing) existing.remove()
+  }
+
+  const addQueueRefreshButton = async () => {
+    const pageInfo = extractThreadInfo(document.location.href)
+    if (!pageInfo) {
+      removeQueueRefreshButton()
+      return
+    }
+
+    const enabled = await isQueueRefreshEnabled()
+    if (!enabled) {
+      removeQueueRefreshButton()
+      return
+    }
+
+    if (document.getElementById('atlas-queue-btn')) return
+
+    const btn = document.createElement('button')
+    btn.id = 'atlas-queue-btn'
+    btn.textContent = BUTTON_TEXT
+    btn.title = `Queue thread ${pageInfo.id} for re-scrape in AtlasDB (admin)`
+
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return
+      btn.disabled = true
+      btn.textContent = 'Queueing…'
+
+      const source = pageInfo.site === 'lewdcorner' ? 'lc' : 'f95'
+
+      try {
+        const result = await queueRefreshViaBackground(pageInfo.id, source)
+        if (result.reused) {
+          showToast(`Already queued (id ${pageInfo.id})`, false)
+        } else {
+          showToast(
+            `Queued id ${pageInfo.id} (${source}) – worker will pick it up`,
+            false,
+          )
+        }
+      } catch (err) {
+        showToast(err.message || String(err), true)
+        console.error('[Atlas Queue Refresh]', err)
+      } finally {
+        btn.disabled = false
+        btn.textContent = BUTTON_TEXT
+      }
+    })
+
+    const title =
+      document.querySelector('.p-title-value') ||
+      document.querySelector('.p-title') ||
+      document.querySelector('h1')
+
+    if (title && title.parentElement) {
+      title.parentElement.appendChild(btn)
+    } else {
+      btn.classList.add('atlas-floating')
+      document.body.appendChild(btn)
+    }
+  }
+
   const init = async () => {
     await fetchAtlasData()
     renderBadges()
+    await addQueueRefreshButton()
 
     // MutationObserver to render badges dynamically when user navigates or loads AJAX content
     const observer = new MutationObserver(() => {
       renderBadges()
+      addQueueRefreshButton()
     })
     observer.observe(document.body, { childList: true, subtree: true })
+
+    // React when the popup checkbox changes without requiring a full reload
+    if (api?.storage?.onChanged) {
+      api.storage.onChanged.addListener((changes, area) => {
+        if (area === 'local' && changes.showQueueRefresh) {
+          addQueueRefreshButton()
+        }
+      })
+    }
   }
 
   // Exports for Node/Vitest test suite
@@ -299,7 +427,7 @@
   }
 
   if (typeof document !== 'undefined') {
-    // Listen for refresh triggers from background.js
+	// Listen for refresh triggers from background.js
     if (api?.runtime?.onMessage) {
       api.runtime.onMessage.addListener((msg) => {
         if (msg && msg.action === 'refresh') {

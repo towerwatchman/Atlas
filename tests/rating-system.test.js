@@ -116,6 +116,23 @@ test('the detail page shows both ratings and defaults to Unrated', () => {
   expect(page).toMatch(/'Unrated'/)
 })
 
+// The detail page had its own copy of the averaging rule, and the copy was the
+// one missing the > 0 clause -- so an unrated category counted as a score of
+// zero and dragged the Personal Rating down, while RatingModal (which already
+// called the shared function) showed a different number for the same game.
+// electron/db/versions.js resolved the same divergence the same way. Asserted
+// as text because GameDetailPage cannot be mounted, matching the test above.
+test('the detail page averages through the shared function, not a private copy', () => {
+  const page = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'components', 'detail', 'GameDetailPage.jsx'),
+    'utf8',
+  )
+  expect(page).toContain('computeRatingAverage(personalRatingsDraft)')
+  expect(page).not.toMatch(/const getPersonalRatingsOverall/)
+  // The save path still needs its own normaliser; only the averaging moved.
+  expect(page).toContain('const getPersonalRatingsPayload')
+})
+
 // Menu construction moved out of GameBanner into the shared builder when the
 // custom React menu landed, so the grid and the tree present one menu.
 test('the context menu offers rating', () => {

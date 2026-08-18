@@ -13,6 +13,7 @@ const { LEGACY_SEARCH_TYPE_FIELDS, normalizeSearchFieldIds } = require('../db/se
 // config.ini on every single settings save.
 const { buildDefaultConfig, mergeWithDefaults } = require('../config/configSchema')
 const { detectSevenZipPath } = require('../utils/sevenZipDetect')
+const { DEFAULT_SAVED_BROWSE_SORT, normalizeSavedBrowseSort } = require('../utils/savedFilterSort')
 
 
 const sanitizeFeatureSettings = (settings = {}) => {
@@ -53,7 +54,7 @@ const defaultSavedFilterState = {
   browseSource: 'all',
   browseDateBasis: 'thread_updated',
   browseDateRange: 'any',
-  browseSort: 'nameAsc',
+  browseSort: DEFAULT_SAVED_BROWSE_SORT,
   tagLogic: 'AND',
   updateAvailable: false,
   favoritesOnly: false,
@@ -122,10 +123,7 @@ const normalizeSavedFilterState = (filters = {}) => {
   merged.browseDateRange = ['any', '7d', '30d', '90d', 'year'].includes(merged.browseDateRange)
     ? merged.browseDateRange
     : 'any'
-  if (merged.browseSort === 'name') merged.browseSort = 'nameAsc'
-  merged.browseSort = ['nameAsc', 'nameDesc', 'newest', 'oldest'].includes(merged.browseSort)
-    ? merged.browseSort
-    : 'nameAsc'
+  merged.browseSort = normalizeSavedBrowseSort(merged.browseSort)
   merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
   merged.updateAvailable = merged.updateAvailable === true
   merged.favoritesOnly = merged.favoritesOnly === true
