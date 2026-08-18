@@ -228,11 +228,25 @@
     outline-offset: 1px;
   }
 
-  * {
-    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-    scrollbar-width: thin;
-  }
+  /* Scrollbars are styled ONLY through the ::-webkit-scrollbar pseudo-elements
+     below. The standard `scrollbar-width` / `scrollbar-color` properties used
+     to be set here as well, and that is what made the scrollbars disappear:
+     since Chromium 121 (this app runs Electron 42, far past it) setting either
+     of them to a non-auto value makes Chromium IGNORE every
+     ::-webkit-scrollbar rule and draw its own built-in scrollbar instead.
+     Every rule in this block was silently dead, and `scrollbar-width: thin`
+     was what actually rendered -- a hairline that is hard to see at 100% and
+     effectively invisible on a 4K panel or under fractional Windows display
+     scaling, where a "thin" scrollbar rounds down to almost nothing.
 
+     The two mechanisms cannot be combined; it is one or the other. The
+     pseudo-elements are the one to keep, because they give an explicit 12px
+     CSS-pixel width -- which scales predictably with DPI, and which
+     `scrollbar-gutter: stable` on #gameGrid can reserve exactly -- plus the
+     rounded, themed thumb the standard properties cannot express.
+
+     If you add `scrollbar-width` or `scrollbar-color` anywhere, you turn all
+     of this off again. tests/scrollbar-styling.test.js fails if you do. */
   *::-webkit-scrollbar {
     width: 12px;
     height: 12px;
@@ -286,11 +300,8 @@
 }
 
 @layer utilities {
-  .atlas-scrollbar {
-    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-    scrollbar-width: thin;
-  }
-
+  /* Same rule as the base block above: no standard scrollbar properties here,
+     or the ::-webkit-scrollbar styling below is ignored wholesale. */
   .atlas-scrollbar::-webkit-scrollbar {
     width: 12px;
     height: 12px;

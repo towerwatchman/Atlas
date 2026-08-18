@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Fixed
+- Fixed the Settings > Database tab nesting a second scroll container inside the Settings shell, which put one scrollbar inside another so the working one sat a scrollbar's width in from the edge with an empty track beside it. Every other settings tab already left scrolling to the shell.
+- Fixed scrollbars being nearly invisible, worst on 4K displays and under fractional Windows display scaling. `main.css` set both the standard `scrollbar-width`/`scrollbar-color` properties and the `::-webkit-scrollbar` pseudo-elements; since Chromium 121 the former makes Chromium ignore the latter entirely, so the themed 12px scrollbar was dead code and what actually rendered was `scrollbar-width: thin` -- a hairline that rounds down to almost nothing at high DPI. The standard properties are gone and the pseudo-element styling is live again, giving an explicit 12px that scales predictably and that `scrollbar-gutter: stable` reserves exactly.
 - Update global lightbox control for media in lightbox instead of only under GameDetails.
 - Fixed browser extension thread matching comparing numeric IDs across sites without validating the host domain source (F95Zone vs LewdCorner). F95Zone threads with ID `X` were erroneously matched against games that only carried LewdCorner ID `X`. Thread lookup is now strictly site-isolated (`f95Id` for F95Zone threads, `lcId` for LewdCorner threads).
 - Fixed `open-game-folder` IPC handler opening the parent directory of the game folder instead of the game directory itself (`selectedVersion.game_path`).
