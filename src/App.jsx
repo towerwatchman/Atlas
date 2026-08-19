@@ -869,8 +869,7 @@ const App = () => {
           setSelectedGame(localRecordId
             ? {
                 ...normalizedGame,
-                isWishlisted: selected.isWishlisted === true || selected.isWishlistEntry === true,
-                isWishlistEntry: selected.isWishlisted === true || selected.isWishlistEntry === true,
+                isWishlisted: selected.isWishlisted === true,
                 atlas_id: normalizedGame.atlas_id ?? selected.atlas_id,
                 f95_id: normalizedGame.f95_id ?? selected.f95_id,
                 lc_id: normalizedGame.lc_id ?? selected.lc_id,
@@ -912,8 +911,7 @@ const App = () => {
           if (Number.parseInt(current?.record_id, 10) !== id) return current
           return {
             ...normalizedGame,
-            isWishlisted: current?.isWishlisted === true || current?.isWishlistEntry === true,
-            isWishlistEntry: current?.isWishlisted === true || current?.isWishlistEntry === true,
+            isWishlisted: current?.isWishlisted === true,
           }
         })
       })
@@ -1732,7 +1730,6 @@ const App = () => {
               return {
                 ...prev,
                 isWishlisted: isWish,
-                isWishlistEntry: isWish || prev.isWishlistEntry,
               }
             })
           }
