@@ -2,11 +2,12 @@
 
 ## Fork's Nightly Changes
 - Remove the 'has Steam mapping' quick filter. [PR#360](https://github.com/towerwatchman/Atlas/pull/360)
+- Fix and remove the redundant isWishlistEntry memory flag which was set but never unset and cause unexpected behavior on entry display regarding wishlist. The isWishlisted logic will check the data from wishlist_entries instead. Note: the IPC behavior is not related and not updated. [PR#366](https://github.com/towerwatchman/Atlas/pull/366)
+- Fixed slow "wishlist only" filtering in Browse and Library by 1. Adding indexes on columns used in query and 2. Splitting a single multi-OR subquery into separate EXISTS clauses. [PR#367](https://github.com/towerwatchman/Atlas/pull/367)
 
 ## Unreleased
 
 ### Fixed
-- Fix and remove the redundant isWishlistEntry memory flag which was set but never unset and cause unexpected behavior on entry display regarding wishlist. The isWishlisted logic will check the data from wishlist_entries instead. Note: the IPC behavior is not related and not updated.
 - Fixed the library grid (banner view, Browse and Wishlist) nesting two scroll containers. `#gameGrid` scrolled while the virtualized grid inside it scrolled as well, so the working scrollbar sat a scrollbar's width in from the right edge with an empty track beside it. `#gameGrid` is now a flex column -- status banners are fixed rows and the pane below them is the only scroller -- and the grid's column count budgets for its own scrollbar, whose width now comes from a single `--scrollbar-size` shared by the CSS and the layout arithmetic. Status banners stay pinned at the top instead of scrolling away with the grid.
 - Fixed the Settings > Database tab nesting a second scroll container inside the Settings shell, which put one scrollbar inside another so the working one sat a scrollbar's width in from the edge with an empty track beside it. Every other settings tab already left scrolling to the shell.
 - Fixed scrollbars being nearly invisible, worst on 4K displays and under fractional Windows display scaling. `main.css` set both the standard `scrollbar-width`/`scrollbar-color` properties and the `::-webkit-scrollbar` pseudo-elements; since Chromium 121 the former makes Chromium ignore the latter entirely, so the themed 12px scrollbar was dead code and what actually rendered was `scrollbar-width: thin` -- a hairline that rounds down to almost nothing at high DPI. The standard properties are gone and the pseudo-element styling is live again, giving an explicit 12px that scales predictably and that `scrollbar-gutter: stable` reserves exactly.
