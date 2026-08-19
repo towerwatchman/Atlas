@@ -1,5 +1,8 @@
 # Changelog
 
+## Fork's Nightly Changes
+- Remove the 'has Steam mapping' quick filter. [PR#360](https://github.com/towerwatchman/Atlas/pull/360)
+
 ## Unreleased
 
 ### Fixed
