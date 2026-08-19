@@ -845,6 +845,24 @@ const App = () => {
   // menus share handleContextAction — confirmations and delete safeguards
   // included.
   const runGameContextAction = useCallback((data) => {
+    if (data.action === 'toggleWishlist') {
+      // Optimistic UI: flip the identity key and detail-panel flag before the
+      // DB round-trip. The grid row updates in place through the existing
+      // catalogWithWishlist memo (derived from wishlistIdentityKeys), so the
+      // badge/label changes immediately without replacing the catalogGames
+      // array and flashing the virtualized grid.
+      const identityKey = getWishlistIdentityKey(data)
+      setWishlistIdentityKeys((prev) => {
+        const next = new Set(prev)
+        const wasWishlisted = next.has(identityKey)
+        !wasWishlisted ? next.add(identityKey) : next.delete(identityKey)
+        return next
+      })
+      setSelectedGame((prev) => {
+        if (!prev || getWishlistIdentityKey(prev) !== identityKey) return prev
+        return { ...prev, isWishlisted: !prev.isWishlisted }
+      })
+    }
     window.electronAPI.runContextAction?.(data)
   }, [])
 
@@ -1712,13 +1730,19 @@ const App = () => {
     // open. Refresh the wishlist, the identity keys that annotate catalog rows,
     // and the main library, then re-sync the open detail panel if it is showing
     // the entry that just changed.
-    const handleWishlistUpdated = async () => {
+    //
+    // Source-tagged: context-menu toggles already flipped wishlistIdentityKeys
+    // optimistically in runGameContextAction, so catalogWithWishlist recomputes
+    // without replacing the array -- no flash, no fetchCatalogGames needed.
+    // The extension has no optimistic path, so it explicitly requests a full
+    // Browse refresh via payload.source === 'extension'.
+    const handleWishlistUpdated = async (payload) => {
       await Promise.all([
         fetchWishlistGames(),
         loadWishlistIdentities(),
         fetchGames(),
       ])
-      if (browseAvailableRef.current) {
+      if (payload?.source === 'extension' && browseAvailableRef.current) {
         fetchCatalogGames({ search: catalogSearchRef.current, filters: catalogQueryFiltersRef.current })
       }
       setSelectedGame((current) => {
