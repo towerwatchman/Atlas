@@ -1,6 +1,7 @@
 # Changelog - PATCHED
 
 ## Fork's Nightly Changes
+- Fixed Playtime Formatting & Badge Unit Bug: Standardized playtime logic across the game detail page and library banner badge by fixing unit conversions (treating database values consistently as minutes) and implementing proper ceiling rounding for fractional times to prevent improper displays like "1h 60m" or 0.4m showing as "Not played." [PR#371](https://github.com/towerwatchman/Atlas/pull/371)
 - Remove the 'has Steam mapping' quick filter. [PR#360](https://github.com/towerwatchman/Atlas/pull/360)
 - Fix and remove the redundant isWishlistEntry memory flag which was set but never unset and cause unexpected behavior on entry display regarding wishlist. The isWishlisted logic will check the data from wishlist_entries instead. Note: the IPC behavior is not related and not updated. [PR#366](https://github.com/towerwatchman/Atlas/pull/366)
 - Fixed slow "wishlist only" filtering in Browse and Library by 1. Adding indexes on columns used in query and 2. Splitting a single multi-OR subquery into separate EXISTS clauses. [PR#367](https://github.com/towerwatchman/Atlas/pull/367)

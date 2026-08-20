@@ -47,11 +47,14 @@ export const filterOutBanner = (urls = [], bannerUrl) => {
   })
 }
 
-export const formatPlaytime = (minutes) => {
-  const totalMinutes = Number(minutes || 0)
+export const formatPlaytime = (rawMinutes) => {
+  // Ceil the total minutes first to prevent the 1h 60m bug (119.8 -> 120m -> 2h)
+  // and the hidden sub-minute edge case (0.4m -> 1m instead of 0m -> "Not played").
+  const totalMinutes = Math.ceil(Number(rawMinutes || 0))
   if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) return 'Not played'
+
   const hours = Math.floor(totalMinutes / 60)
-  const mins = Math.round(totalMinutes % 60)
+  const mins = totalMinutes % 60
   if (hours <= 0) return `${mins}m played`
   if (mins <= 0) return `${hours}h played`
   return `${hours}h ${mins}m played`
