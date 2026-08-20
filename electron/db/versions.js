@@ -1496,10 +1496,6 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
     }
     addTagFilter(filters.tags, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' });
     addTagFilter(filters.excludedTags, { exclude: true });
-    if (filters.steamMapped === true) {
-      filterWhereParts.push('(catalog.steam_id IS NOT NULL OR catalog.siteUrl LIKE ?)');
-      filterParams.push('%store.steampowered.com/app/%');
-    }
     if (filters.installState === 'installed') {
       filterWhereParts.push('catalog.is_installed = 1');
     } else if (filters.installState === 'uninstalled') {
@@ -1552,13 +1548,19 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
       }
     }
     if (filters.wishlistOnly === true) {
-      filterWhereParts.push(`EXISTS (
-        SELECT 1
-        FROM wishlist_entries wishlist
-        WHERE (wishlist.atlas_id IS NOT NULL AND wishlist.atlas_id = catalog.atlas_id)
-           OR (wishlist.f95_id IS NOT NULL AND wishlist.f95_id = catalog.f95_id)
-           OR (wishlist.lc_id IS NOT NULL AND wishlist.lc_id = catalog.lc_id)
-           OR (wishlist.steam_id IS NOT NULL AND wishlist.steam_id = catalog.steam_id)
+      // A catalog row is wishlisted if it matches any provider ID. 
+      // Using four separate EXISTS clauses (rather than one EXISTS with a 4-way OR)
+      // allows SQLite to use the per-column idx_wishlist_entries_* indexes.
+      // A single EXISTS with an internal OR prevents index usage and forces a full scan.
+      filterWhereParts.push(`(
+        EXISTS (SELECT 1 FROM wishlist_entries wishlist
+                WHERE wishlist.atlas_id IS NOT NULL AND wishlist.atlas_id = catalog.atlas_id)
+        OR EXISTS (SELECT 1 FROM wishlist_entries wishlist
+                WHERE wishlist.f95_id IS NOT NULL AND wishlist.f95_id = catalog.f95_id)
+        OR EXISTS (SELECT 1 FROM wishlist_entries wishlist
+                WHERE wishlist.lc_id IS NOT NULL AND wishlist.lc_id = catalog.lc_id)
+        OR EXISTS (SELECT 1 FROM wishlist_entries wishlist
+                WHERE wishlist.steam_id IS NOT NULL AND wishlist.steam_id = catalog.steam_id)
       )`);
     }
     // Generated from ratingCategories.js. The previous literal version listed
