@@ -70,7 +70,8 @@ describe('formatPlaytime', () => {
     expect(formatPlaytime(60)).toBe('1h played')
     expect(formatPlaytime(135)).toBe('2h 15m played')
   })
-    it('handles invalid input', () => {
+  
+  it('handles invalid input', () => {
     expect(formatPlaytime(null)).toBe('Not played')
     expect(formatPlaytime(-5)).toBe('Not played')
   })
