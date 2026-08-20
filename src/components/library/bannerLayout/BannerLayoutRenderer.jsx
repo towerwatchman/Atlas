@@ -155,7 +155,7 @@ const isCatalogGame = (game) =>
 const fieldPassesConditions = (field, game) => {
   const conditions = field.conditions || {}
   const isCatalog = isCatalogGame(game)
-  const isWishlist = game.isWishlisted === true || game.isWishlistEntry === true
+  const isWishlist = game.isWishlisted === true
   const isInstalled = game.hasInstalledVersion !== false || game.isInstalled === true
   if (conditions.localOnly && isCatalog) return false
   if (conditions.browseOnly && !isCatalog) return false
