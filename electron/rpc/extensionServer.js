@@ -346,7 +346,7 @@ async function addGameUrl(rawUrl) {
     const BW = getBrowserWindow()
     if (BW) {
       BW.getAllWindows().forEach((win) => {
-        if (!win.isDestroyed()) win.webContents.send('wishlist-updated')
+        if (!win.isDestroyed()) win.webContents.send('wishlist-updated', { source: 'extension' })
       })
     }
 
