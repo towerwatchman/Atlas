@@ -439,24 +439,22 @@ const ok = (condition, message) => { assert.ok(condition, message); checks += 1;
     }
 
     // ── Registry ────────────────────────────────────────────────────────────
-    // Buzzheavier is DISABLED, and the two halves of that are asserted apart.
-    //
     // Still routable: a download already in the queue has to be able to finish.
     // Removing the plugin instead would fail it with "no plugin for this host" on
     // a link the user cannot obtain again.
     eq(registry.pluginFor("https://buzzheavier.com/abc123")?.id, "buzzheavier", "still routed");
     eq(registry.getPlugin("buzzheavier")?.id, "buzzheavier", "still resolvable by id");
-    // …and offered to nobody. supportedHostIds gates the mirror list, so its
-    // absence here is what actually hides every Buzzheavier link.
-    ok(!registry.supportedHostIds().includes("buzzheavier"), "not offered as a mirror");
-    ok(!registry.supportedHostIds().includes("bzzhr"), "nor under its short alias");
-    ok(!registry.listPlugins().some((p) => p.id === "buzzheavier"), "hidden from Settings");
+    // Now offered: supportedHostIds gates the mirror list, so its presence here
+    // is what makes every Buzzheavier link reach the update modal.
+    ok(registry.supportedHostIds().includes("buzzheavier"), "offered as a mirror");
+    ok(registry.supportedHostIds().includes("bzzhr"), "offered under its short alias");
+    ok(registry.listPlugins().some((p) => p.id === "buzzheavier"), "visible in Settings");
     // buzz.to was never offered: the gate matches the FIRST LABEL of the host, so
     // it would need "buzz" in the supported set, and no plugin has ever claimed
     // it. Asserted so a future alias cannot reintroduce it by accident.
     ok(!registry.supportedHostIds().includes("buzz"), "buzz.to is not offered either");
-    // pixeldrain and mega. Buzzheavier is present but disabled, so it adds none.
-    eq(registry.supportedHostIds().length, 2, "two offered plugins, two host labels");
+    // pixeldrain, mega, and buzzheavier (with its bzzhr alias).
+    eq(registry.supportedHostIds().length, 4, "four offered host labels");
     ok(registry.supportedHostIds().includes("mega"), "mega is offered");
   } finally {
     global.fetch = realFetch;

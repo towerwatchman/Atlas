@@ -49,16 +49,27 @@ const {
   pickBestCandidate,
   hostOf,
 } = require("./maskedResolverUrls");
-
 // Long enough for a slow challenge, short enough that a forgotten window does
 // not pin a queue slot indefinitely.
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
-// How long the hidden attempt gets before the window is revealed. Generous
-// enough for a cold page load plus reCAPTCHA initialising on a slow
-// connection, short enough that a user staring at a stalled download does not
-// wait long for something to appear.
+// How long the hidden attempt gets before the window is revealed as a safety
+// net. Non-browser hosts (F95 -> Pixeldrain/Mega) usually resolve headlessly
+// within this, so the user rarely sees a window.
 const DEFAULT_HEADLESS_MS = 9000;
+
+function isCloudflareCookie(name) {
+  return /^_?_?cf_/.test(name) || name === "__cfruid";
+}
+
+// Cloudflare challenge markers. Used by the poll to reveal the window ONLY when
+// a challenge is actually present - so a clean (VPN-off) download stays hidden
+// while a VPN-flagged one pops the window for the user to tick. Mirrored inline
+// in the injected poll script, which cannot call this function directly.
+const CLOUDFLARE_MARKERS = /cloudflare|just a moment|checking your browser|verify you are human|attention required|cf-chl|turnstile/i;
+function isCloudflareChallenge(text) {
+  return CLOUDFLARE_MARKERS.test(text || "");
+}
 
 // Injected after load. Waits for the continue link to exist before clicking,
 // because it is added by /assets/js/masked.js after reCAPTCHA initialises -
@@ -127,7 +138,7 @@ async function applyCookies(ses, cookieHeader, baseUrl) {
  * @param {number} [options.timeoutMs]
  * @returns {Promise<{ok:boolean, url?:string, host?:string, hasFragment?:boolean,
  *                    canceled?:boolean, timedOut?:boolean, error?:string,
- *                    diagnostics:object}>}
+ *                    diagnostics:object, headers?:object}>}
  */
 function resolveMaskedLink(maskedUrl, options = {}) {
   const {
@@ -151,9 +162,13 @@ function resolveMaskedLink(maskedUrl, options = {}) {
       return;
     }
 
-    // Ephemeral partition, mirroring browserLogin.js: the resolve is a
-    // one-shot, and nothing it picks up should leak into later sessions.
-    const partition = `masked-resolve-${Date.now()}`;
+    // Persistent partition: the resolve is a one-shot, but we keep the
+    // session so Cloudflare cf_clearance cookies (and any other challenge
+    // cookies) survive window close and app restarts. F95 cookies are
+    // applied explicitly via applyCookies(), so they do not depend on the
+    // partition. The shared persistent store means a challenge solved once
+    // is remembered for subsequent resolves until the cookie expires.
+    const partition = "persist:masked-resolver";
     const win = new BrowserWindow({
       width: 900,
       height: 800,
@@ -167,6 +182,9 @@ function resolveMaskedLink(maskedUrl, options = {}) {
         nodeIntegration: false,
       },
     });
+
+    const contents = win.webContents;
+    const ses = contents.session;
 
     // Every URL we observe, with where it came from and whether it kept a
     // fragment. This is what tells us which source to trust.
@@ -183,7 +201,12 @@ function resolveMaskedLink(maskedUrl, options = {}) {
     let settled = false;
     let timer = null;
     let revealTimer = null;
+    let pollInterval = null;
     let revealed = false;
+    // Browser session cookies / headers captured on page load so we can hand
+    // them back to Atlas when the download is intercepted. Without these,
+    // Cloudflare-challenged CDNs reject the anonymous Node.js request.
+    let cachedBrowserHeaders = null;
     // Which path produced the answer. Reported in the result so the first real
     // runs show whether the hidden attempt is actually working, rather than
     // this being assumed.
@@ -202,7 +225,7 @@ function resolveMaskedLink(maskedUrl, options = {}) {
       } catch { /* window gone */ }
     };
 
-    const finish = (result) => {
+    const finish = async (result) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
@@ -224,9 +247,24 @@ function resolveMaskedLink(maskedUrl, options = {}) {
       } catch {
         /* already gone */
       }
-      // Clean up the throwaway partition.
+      // The partition is now persistent so Cloudflare cf_clearance cookies
+      // survive window/app restarts. To keep the original throwaway
+      // semantics for everything else, strip non-CF cookies after each
+      // resolve. F95 session cookies are applied fresh from the encrypted
+      // account store on every call via applyCookies(), so they never
+      // depend on what we leave behind here.
       try {
-        electronSession.fromPartition(partition).clearStorageData();
+        const all = await ses.cookies.get({});
+        await Promise.all(
+          all
+            .filter((c) => !isCloudflareCookie(c.name))
+            .map((c) => {
+              const proto = c.secure ? "https" : "http";
+              const domain = c.domain.startsWith(".") ? c.domain.substring(1) : c.domain;
+              const url = `${proto}://${domain}${c.path || "/"}`;
+              return ses.cookies.remove(url, c.name);
+            })
+        );
       } catch {
         /* best effort */
       }
@@ -246,7 +284,28 @@ function resolveMaskedLink(maskedUrl, options = {}) {
       return true;
     };
 
-    const contents = win.webContents;
+    const finishDirect = (url, source) => {
+      if (!isNavigableHttp(url)) return false;
+      note(source, url);
+      const result = {
+        ok: true,
+        url,
+        host: hostOf(url),
+        hasFragment: hasFragment(url),
+        source,
+      };
+      if (cachedBrowserHeaders) {
+        result.headers = cachedBrowserHeaders;
+      }
+      // Surface the things that have actually bitten this host before: the
+      // resolved host landing OUTSIDE gateHosts (ts.bzzhr.to instead of
+      // bzzhr.to), and a /d/ CDN path the file-id parser refuses to match.
+      const resolvedHost = hostOf(url);
+      const isGateHost = Array.isArray(gateHosts) ? gateHosts.includes(resolvedHost) : false;
+      const hasCdNPath = /\/d\/[a-zA-Z0-9]/.test(url);
+      finish(result);
+      return true;
+    };
 
     // ── Capture points ──────────────────────────────────────────────────────
     // will-navigate and will-redirect are renderer-level and DO carry the
@@ -284,18 +343,68 @@ function resolveMaskedLink(maskedUrl, options = {}) {
         return { action: "deny" };
       }
       return { action: "deny" };
-    });
+      });
 
-    const ses = contents.session;
+    async function cacheBrowserHeaders() {
+      try {
+        const current = contents.getURL();
+        const cookies = await ses.cookies.get({ url: current });
+        const cookieString = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+        cachedBrowserHeaders = {
+          cookie: cookieString,
+          referer: current,
+          "user-agent": contents.userAgent || "",
+        };
+      } catch {
+        cachedBrowserHeaders = null;
+      }
+    }
+
     ses.webRequest.onBeforeRequest({ urls: ["*://*/*"] }, (details, callback) => {
       // Top-level document requests only; subresources are page furniture.
       if (details.resourceType === "mainFrame") note("web-request", details.url);
       callback({ cancel: false });
     });
 
+    // Capture HX-Redirect headers from Buzzheavier and similar htmx-based hosts.
+    // The download route returns the file URL in this header rather than a 3xx.
+    //
+    // responseHeaders is a plain Object, not an Array, so we iterate keys
+    // rather than calling .find().
+    ses.webRequest.onHeadersReceived({ urls: ["*://*/*"] }, (details, callback) => {
+      const headers = details.responseHeaders || {};
+      let redirectValue = null;
+      for (const key of Object.keys(headers)) {
+        if (key.toLowerCase() === "hx-redirect") {
+          redirectValue = headers[key];
+          break;
+        }
+      }
+      if (redirectValue) {
+        const hxRedirect = Array.isArray(redirectValue) ? redirectValue[0] : redirectValue;
+        const absolute = hxRedirect.startsWith("http")
+          ? hxRedirect
+          : `${new URL(details.url).origin}${hxRedirect}`;
+        finishDirect(absolute, "hx-redirect");
+      }
+      callback({ cancel: false, responseHeaders: details.responseHeaders });
+    });
+
+    // Buzzheavier may answer the download request with a standard file
+    // attachment (Content-Disposition: attachment) instead of an HX-Redirect.
+    // In that case Electron triggers the OS Save As dialog via will-download.
+    // Intercept it here: grab the URL, cancel the browser download, and hand
+    // the direct link back through the normal resolve path.
+    ses.on("will-download", (event, item) => {
+      event.preventDefault();
+      const url = item.getURL();
+      if (!isNavigableHttp(url)) return;
+      finishDirect(url, "will-download");
+    });
+
     // Click the continue link once the page has loaded. Harmless when the
     // element never appears - the reveal timer covers that case.
-    contents.on("did-finish-load", () => {
+    contents.on("did-finish-load", async () => {
       if (settled) return;
       const current = contents.getURL();
       // Only on the gate page; never inject into the destination host.
@@ -303,11 +412,46 @@ function resolveMaskedLink(maskedUrl, options = {}) {
       contents.executeJavaScript(CLICK_HOST_LINK, true).catch(() => {
         // A failed injection is not fatal; the window will be revealed.
       });
+      // Buzzheavier gates present download buttons via htmx rather than the
+      // F95 continue link. Poll and click natively so the browser's own
+      // download manager fires will-download, which we intercept below. The
+      // same poll also watches for a Cloudflare challenge: if one appears we
+      // reveal the window so the user can tick it - a clean (VPN-off) download
+      // stays hidden and resolves on its own.
+      pollInterval = setInterval(async () => {
+        if (settled) {
+          clearInterval(pollInterval);
+          return;
+        }
+        try {
+          const result = await contents.executeJavaScript(`(() => {
+            const btn = document.querySelector('.download-btn[hx-get]');
+            const body = (document.body && document.body.innerText) || '';
+            const cfChallenge =
+              /cloudflare|just a moment|checking your browser|verify you are human|attention required|cf-chl|turnstile/i.test(body) ||
+              !!document.querySelector('#cf-chl, iframe[src*="challenges.cloudflare.com"], .cf-turnstile, #challenge-running');
+            if (btn) { btn.click(); return { clicked: true, cf: cfChallenge }; }
+            return { clicked: false, cf: cfChallenge };
+          })()`, true);
+          if (result.cf) {
+            reveal("cloudflare");
+          }
+          if (result.clicked) {
+            clearInterval(pollInterval);
+          }
+        } catch (err) {
+          // poll errors are non-fatal; the reveal timer still fires
+        }
+      }, 1000);
+      // Cache the browser session cookies / headers so they can be handed back
+      // to Atlas when the download is intercepted below.
+      await cacheBrowserHeaders();
     });
 
     // ── User closed the window ──────────────────────────────────────────────
     win.on("closed", () => {
       if (settled) return;
+      if (pollInterval) clearInterval(pollInterval);
       // They may have clicked through and the window closed itself after we
       // already saw the destination.
       if (!settleFromCandidates()) {
@@ -353,6 +497,12 @@ function resolveMaskedLink(maskedUrl, options = {}) {
 
 module.exports = {
   resolveMaskedLink,
+  // Pure Cloudflare-challenge detector, exported for the same reason.
+  isCloudflareChallenge,
+  // Keeps Cloudflare challenge cookies (cf_clearance, __cf_bm, __cfruid,
+  // cf_chl_opt) and removes everything else after each resolve. Exported so
+  // the filter can be unit-tested without a window.
+  isCloudflareCookie,
   // Re-exported from maskedResolverUrls so callers have one import. The pure
   // logic lives there precisely so it can be tested without Electron.
   isGateUrl,
