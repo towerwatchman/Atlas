@@ -29,6 +29,7 @@ const { pipeline } = require("stream/promises");
 
 const downloadsDb = require("./../db/downloads");
 const { resolveDirectUrl, pluginFor } = require("./hosts");
+const { isResolvedDirectLink } = require("./resolvedLink");
 // Contract extension for hosts that serve ciphertext. See hosts/megaDecrypt.js:
 // MEGA has no URL that yields plaintext, so rather than give it a private
 // downloader -- a second copy of the resume, progress and cancellation logic
@@ -263,7 +264,13 @@ const startTransfer = async (item) => {
     // Electron window already clears those honestly, so it is used here rather
     // than trying to imitate a browser from a fetch.
     const plugin = pluginFor(item.url);
-    if (plugin?.requiresBrowser && resolveInBrowser) {
+    // A requiresBrowser host may have ALREADY resolved its share link into a
+    // direct CDN URL (Buzzheavier's hx-redirect yields ts.bzzhr.to/d/<id>). When
+    // that URL is enqueued as a new download, re-resolving it would read a file
+    // id from a /d/ path and crash. If it is already past the gate, download
+    // it directly - see resolvedLink.js.
+    const alreadyDirect = Boolean(plugin?.requiresBrowser) && isResolvedDirectLink(item.url, plugin);
+    if (plugin?.requiresBrowser && resolveInBrowser && !alreadyDirect) {
       const fileId = plugin.fileIdFrom ? plugin.fileIdFrom(item.url) : null;
       if (!fileId) {
         await handleFailure(item.id, "fatal", "Could not read a file id from this link");
@@ -283,6 +290,7 @@ const startTransfer = async (item) => {
       await setState(item.id, "downloading", { error: "" });
       const resolved = await resolveInBrowser(target, {
         gateHosts: plugin.gateHosts,
+        requiresBrowser: plugin.requiresBrowser,
         title: item.title,
       }).catch((err) => ({ ok: false, error: err.message }));
 
@@ -296,14 +304,16 @@ const startTransfer = async (item) => {
       }
       transferUrl = resolved.url;
       resolvedInBrowser = true;
+      if (resolved.headers) {
+        Object.assign(headers, resolved.headers);
+      }
       await downloadsDb.updateDownload(item.id, { host: item.host || plugin.id });
     }
-
     // Skipped when the window already produced the file URL: re-probing would
     // walk straight back into the challenge it just cleared.
     // Set by a plugin whose bytes arrive encrypted. Null for every other host.
     let decryptSpec = null;
-    const probe = resolvedInBrowser
+    const probe = (resolvedInBrowser || alreadyDirect)
       ? { ok: true, passthrough: true }
       : await resolveDirectUrl(item.url, getHostCredentials());
     if (!probe.ok) {
