@@ -545,6 +545,10 @@ const initializeDatabase = (dataDir) => {
     `);
     db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_flagged_at ON wishlist_entries(flagged_at);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_source ON wishlist_entries(source);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_atlas_id ON wishlist_entries(atlas_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_f95_id ON wishlist_entries(f95_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_lc_id ON wishlist_entries(lc_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_steam_id ON wishlist_entries(steam_id);`);
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN category TEXT;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN genre TEXT;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN rating TEXT;`, () => {});
