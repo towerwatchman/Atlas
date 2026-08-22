@@ -19,7 +19,7 @@ const appLog = require("../appLog");
 const downloadsDb = require("../db/downloads");
 const manager = require("../downloads/downloadManager");
 const credentialStore = require("../downloads/credentialStore");
-const { getPlugin, listPlugins } = require("../downloads/hosts");
+const { getPlugin, listPlugins, pluginFor } = require("../downloads/hosts");
 const { resolveMaskedLink } = require("../downloads/maskedResolver");
 const { toLocalRecordId } = require("../downloads/recordId");
 const { toCatalogRef } = require("../library/catalogRef");
@@ -122,16 +122,15 @@ function registerDownloadsHandlers(ctx = {}) {
       }
       const cookieHeader = accountStore.getCookieHeaderForUrl(url) || "";
       const parentWindow = BrowserWindow.fromWebContents(event.sender);
-      const result = await resolveMaskedLink(url, { parentWindow, cookieHeader, title });
-      if (result?.diagnostics) {
-        console.log("[masked-resolve]", JSON.stringify({
-          ok: result.ok,
-          host: result.host,
-          hasFragment: result.hasFragment,
-          source: result.source,
-          ...result.diagnostics,
-        }));
-      }
+      const plugin = pluginFor ? pluginFor(url) : null;
+      const resolveStart = Date.now();
+      const result = await resolveMaskedLink(url, {
+        parentWindow,
+        cookieHeader,
+        title,
+        gateHosts: plugin?.gateHosts,
+        requiresBrowser: plugin?.requiresBrowser,
+      });
       return result;
     } catch (err) {
       return { ok: false, error: err.message || String(err) };

@@ -141,7 +141,19 @@ export function buildGameContextMenu({ game, collections = [], collectionIdsByRe
   }
 
   if (!isLocal) {
-    // Browse and wishlist rows have no local record, so nothing below applies.
+    // Browse and wishlist rows have no local record, so library-management
+    // actions (collections, open folder, remove/delete) do not apply. They
+    // do carry the identity fields needed for a wishlist toggle, so that
+    // action is offered here instead of gated behind isLocal.
+    const isWishlisted = game.isWishlisted === true
+    items.push({
+      label: isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist',
+      icon: 'fa-bookmark',
+      data: {
+        action: 'toggleWishlist',
+        ...game,
+      },
+    })
     return items
   }
 
