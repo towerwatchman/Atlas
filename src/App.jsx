@@ -18,6 +18,7 @@ import BulkTagModal from './components/collections/BulkTagModal.jsx'
 import { useCollections, UNCATEGORIZED_ID } from './hooks/useCollections.js'
 import { retainImage } from './utils/imageRetention.js'
 import { toMediaSrc } from './utils/mediaSrc.js'
+import { releaseUrlFor } from './utils/releaseUrl.js'
 import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
@@ -2080,7 +2081,14 @@ const App = () => {
                     collectionsActive={collectionsActive}
                     browseAvailable={browseAvailable}
                   />
-                  <span className="text-text text-xs whitespace-nowrap">Version: {version} <span style={{ color: 'Goldenrod' }}>β</span></span>
+                  <button
+                    type="button"
+                    onClick={() => window.electronAPI?.openExternalUrl?.(releaseUrlFor(version))}
+                    title="Go to Release Page"
+                    className="text-text text-xs whitespace-nowrap hover:text-accent hover:underline transition-colors cursor-pointer bg-transparent border-none p-0"
+                  >
+                    Version: {version} <span style={{ color: 'Goldenrod' }}>β</span>
+                  </button>
                 </div>
               </>
             ) : (
@@ -2133,7 +2141,14 @@ const App = () => {
                   <path d="M11 10.75C11 10.336 11.336 10 11.75 10L12.25 10C12.664 10 13 10.336 13 10.75L13 16.25C13 16.664 12.664 17 12.25 17L11.75 17C11.336 17 11 16.664 11 16.25L11 10.75Z" />
                 </svg>
               </button>
-              <span className="text-text text-xs mr-4">Version: {version} <span style={{ color: 'Goldenrod' }}>β</span></span>
+              <button
+                type="button"
+                onClick={() => window.electronAPI?.openExternalUrl?.(releaseUrlFor(version))}
+                title="Go to Release Page"
+                className="text-text text-xs mr-4 hover:text-accent hover:underline transition-colors cursor-pointer"
+              >
+                Version: {version} <span style={{ color: 'Goldenrod' }}>β</span>
+              </button>
             </div>
           )}
         </div>
