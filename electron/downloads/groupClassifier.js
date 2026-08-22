@@ -51,16 +51,18 @@ const PLATFORM_TOKENS = {
   any: "all",
 };
 
-// Which platforms this machine can actually run. Offering a Linux-only build
-// to a Windows user is a download they cannot use, and "Win/Linux" headings
-// mean the reverse filter matters just as much - a Linux user should not be
-// shown Windows-only builds either.
+// Which platforms this machine can actually run. A Windows machine cannot run
+// a Linux build, and a macOS machine cannot run a Win/Linux one - both are
+// filtered out. A Linux machine CAN run a Windows build (electron/ipc/games.js
+// routes .exe launchers through Wine via resolveLinuxLaunch), so it is offered
+// BOTH its own "linux" builds and "win" ones; a combined "Win/Linux" heading
+// suits it directly for the same reason.
 //
 // "all" and unlabeled always pass: they are the poster saying the download
 // suits everyone, and rejecting those would hide most of the library.
 const PLATFORM_SETS = {
   win32: new Set(["win", "all"]),
-  linux: new Set(["linux", "all"]),
+  linux: new Set(["linux", "win", "all"]),
   darwin: new Set(["mac", "all"]),
 };
 
