@@ -324,6 +324,8 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
   // ref because the graph has to re-render as it fills.
   const [speedHistory, setSpeedHistory] = useState(() => new Array(60).fill(0))
 
+  const [showScrollbar, setShowScrollbar] = useState(false)
+
   const refresh = useCallback(async () => {
     try {
       const result = await window.electronAPI.downloadsList?.({ includeFinished: true })
@@ -414,6 +416,63 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
     )
     ratesRef.current = pruned
   }, [items])
+
+  // Scrollbar visibility: hidden by default, shown via the `scrollbar-visible`
+  // class while scrolling or while the cursor is in the right-side scroll zone.
+  // HIDE_DELAY keeps it up briefly after scrolling stops / the cursor leaves the
+  // zone before it drops. No CSS `:hover` -- that would show it anywhere over
+  // the list instead of just the scroll zone.
+  const HIDE_DELAY = 500
+  const hideTimerRef = useRef(null)
+  const scrollingRef = useRef(false)
+  const inZoneRef = useRef(false)
+
+  const updateVisibility = useCallback(() => {
+    setShowScrollbar(scrollingRef.current || inZoneRef.current)
+  }, [])
+
+  const handleScroll = useCallback(() => {
+    scrollingRef.current = true
+    updateVisibility()
+    clearTimeout(hideTimerRef.current)
+    hideTimerRef.current = setTimeout(() => {
+      scrollingRef.current = false
+      updateVisibility()
+    }, HIDE_DELAY)
+  }, [updateVisibility])
+
+  const handleMouseMove = useCallback((e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const inZone = e.clientX >= rect.right - 60
+    if (inZone === inZoneRef.current) {
+      // No edge crossing; while in the zone keep the hide timer cancelled.
+      if (inZone) clearTimeout(hideTimerRef.current)
+      return
+    }
+    inZoneRef.current = inZone
+    clearTimeout(hideTimerRef.current)
+    if (inZone) {
+      updateVisibility()
+    } else {
+      // Brief grace period before hiding.
+      hideTimerRef.current = setTimeout(() => {
+        inZoneRef.current = false
+        updateVisibility()
+      }, HIDE_DELAY)
+    }
+  }, [updateVisibility])
+
+  const handleMouseLeave = useCallback(() => {
+    if (!inZoneRef.current) return
+    inZoneRef.current = false
+    clearTimeout(hideTimerRef.current)
+    hideTimerRef.current = setTimeout(() => {
+      inZoneRef.current = false
+      updateVisibility()
+    }, HIDE_DELAY)
+  }, [updateVisibility])
+
+  useEffect(() => () => clearTimeout(hideTimerRef.current), [])
 
   // An install already running. The main process refuses a second one, so the
   // button reflects that instead of letting the user find out by clicking. The
@@ -649,21 +708,16 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
   }
 
   return (
-    // No scroll container here. #gameGrid is already overflow-y-auto, and
-    // nesting a second scroller inside it meant two reserved scrollbar
-    // gutters - the inner one showing as dead space down the right of the
-    // page. CollectionsView, the sibling view, sets no overflow for the
-    // same reason and lets the grid do the scrolling.
-    //
-    // The sticky header still works: it now sticks against #gameGrid
-    // rather than against a nested box, which is what was wanted anyway.
-    <div>
+    // This view owns its scrolling: the shared pane is overflow-hidden for
+    // non-detail views and scrolls nothing. h-full (not min-h-full) so the list
+    // wrapper gets a bounded box below the pinned header.
+    <div className="h-full flex flex-col overflow-hidden">
       {/* Header: throughput, mirroring Steam's network/peak/disk row. */}
       {/* Header uses the same surface as a hovered card, so it reads as a
           distinct band above the list rather than blending into it. Opaque
           rather than the previous translucent bg-primary/95, which let the
           list show through while scrolling underneath. */}
-      <div className="sticky top-0 z-10 bg-selected border-b border-border">
+      <div className="shrink-0 bg-selected border-b border-border">
         <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
           <h1 className="text-xl text-text">Downloads</h1>
           <div className="flex items-center gap-4 sm:gap-5">
@@ -692,7 +746,12 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
         </div>
       </div>
 
-      <div className="px-4 sm:px-6 py-4 pb-10">
+      <div
+        onScroll={handleScroll}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        className={`flex-1 min-h-0 overflow-y-auto downloads-scroll px-4 sm:px-6 py-4 pb-10${showScrollbar ? ' scrollbar-visible' : ''}`}
+      >
 
         {items.length === 0 && (
           <div className="py-16 text-center">
