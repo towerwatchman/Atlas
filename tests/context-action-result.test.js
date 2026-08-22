@@ -1,5 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest'
 import Module from 'module'
+import fs from 'fs'
+import path from 'path'
 
 // run-context-action reported {success:true} for everything, unconditionally.
 // The renderer then discarded it anyway (App.jsx fired and forgot), so a failed
@@ -12,14 +14,26 @@ import Module from 'module'
 const ipcHandlers = new Map()
 let restoreLoad
 let launchCalls = []
+let broadcastCalls = []
 
 beforeEach(() => {
   ipcHandlers.clear()
   launchCalls = []
+  broadcastCalls = []
 
   const electronStub = {
     ipcMain: { handle: (channel, fn) => ipcHandlers.set(channel, fn) },
-    BrowserWindow: { getAllWindows: () => [], fromWebContents: () => null },
+    BrowserWindow: {
+      getAllWindows: () => [{
+        isDestroyed: () => false,
+        webContents: {
+          send: (channel, payload) => {
+            if (channel === 'wishlist-updated') broadcastCalls.push(payload)
+          },
+        },
+      }],
+      fromWebContents: () => null,
+    },
     dialog: { showMessageBox: async () => ({ response: 1 }) },
     shell: { openPath: async () => '', openExternal: () => {} },
     app: { getVersion: () => '0.0.0' },
@@ -38,6 +52,7 @@ beforeEach(() => {
   Module._load = function patched(request, parent, isMain) {
     if (request === 'electron') return electronStub
     if (request === './games') return gamesStub
+    if (request === '../db/wishlist') return { toggleWishlistEntry: async () => ({ success: true }) }
     return originalLoad.call(this, request, parent, isMain)
   }
   restoreLoad = () => { Module._load = originalLoad }
@@ -121,5 +136,28 @@ describe('run-context-action', () => {
     expect(launchCalls).toHaveLength(1)
     expect(launchCalls[0].source).toBe('steam')
     expect(launchCalls[0].sourceAppId).toBe('620')
+  })
+
+  // The context-menu toggleWishlist path broadcasts wishlist-updated with a
+  // source tag so the renderer can decide whether to refetch the catalog.
+  // Context-menu toggles skip the refetch (optimistic UI already flipped the row);
+  // the extension path keeps it (no optimistic UI exists there).
+  test('toggleWishlist broadcasts wishlist-updated with source context-menu', async () => {
+    const run = register()
+    await run({ sender: null }, { action: 'toggleWishlist', recordId: 7 })
+    expect(broadcastCalls).toHaveLength(1)
+    expect(broadcastCalls[0]).toEqual({ source: 'context-menu' })
+  })
+
+  // handleWishlistUpdated accepts a payload and only refetches the catalog
+  // when the source is 'extension'. Context-menu toggles skip it (optimistic
+  // UI already flipped wishlistIdentityKeys); the extension has no optimistic
+  // path and needs the full Browse refresh.
+  test('handleWishlistUpdated only refetches catalog for extension source', () => {
+    const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'App.jsx'), 'utf8')
+    const start = app.indexOf('const handleWishlistUpdated = async (payload)')
+    const body = app.slice(start, start + 800)
+    expect(body).toContain('payload?.source === \'extension\'')
+    expect(body).toContain('fetchCatalogGames')
   })
 })
