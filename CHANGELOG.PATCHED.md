@@ -1,6 +1,7 @@
 # Changelog - PATCHED
 
 ## Fork's Nightly Changes
+- Allow Win download links to show up for Linux platform since Linux can run both Linux version and also use Wine to run Win executable.[PR#377](httpsL://github.com/towerwatchman/Atlas/pull/377)
 - Add scrolling to Downloads page.The scrollbar is hidden but it will show up if hover on the right side.[PR#376](httpsL://github.com/towerwatchman/Atlas/pull/376)
 - Add Buzzheavier host support (`buzzheavier.com`, `bzzhr.to`, `bzzhr.co`). Note: Each time IP change there will be a quick Cloudflare auto-resolve window, and the challenge result will persist (certain cookies from the throwaway partition is persist instead of complete partition removal prior).[PR#375](httpsL://github.com/towerwatchman/Atlas/pull/375)
 - Add release verstion github page redirect when clicking on app version [PR#373](https://github.com/towerwatchman/Atlas/pull/373)
