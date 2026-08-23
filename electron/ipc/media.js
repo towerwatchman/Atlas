@@ -634,9 +634,13 @@ module.exports = function registerMediaHandlers(ctx) {
     return !!row
   }
   const hasLocalPreviews = async (recordId) => {
-    const row = await dbGetSafe(
+    // source (f95, lewdcorner, atlas, steam) banners, header, hero, logo, preview, etc.
+    const fromAssets = await dbGetSafe(
       `SELECT 1 FROM media_assets WHERE record_id = ? AND asset_type LIKE '%preview%' LIMIT 1`, [recordId])
-    return !!row
+    const fromPreviews = await dbGetSafe(
+      `SELECT 1 FROM previews WHERE record_id = ? LIMIT 1`, [recordId])
+    console.log(`[hasLocalPreviews] recordId=${recordId} fromAssets=${!!fromAssets} fromPreviews=${!!fromPreviews}`)
+    return !!(fromAssets || fromPreviews)
   }
 
   // Whether the user's saved setting wants images downloaded to disk.
