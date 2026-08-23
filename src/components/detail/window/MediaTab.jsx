@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import SafeImage from '../../ui/SafeImage.jsx'
 import PreviewLightbox from '../page/PreviewLightbox.jsx'
 
@@ -8,8 +8,47 @@ export default function MediaTab({
   importProgress,
   onDownloadBanner, onSelectCustomBanner, onDeleteBanner,
   onDownloadPreviews, onDeletePreviews, onRefreshMetadata,
+  onSaveSortOrder, onResetSortOrder,
 }) {
   const [lightboxIndex, setLightboxIndex] = useState(null)
+  const [previewOrder, setPreviewOrder] = useState(validPreviewUrls || [])
+  const [dragIndex, setDragIndex] = useState(null)
+
+  useEffect(() => {
+    console.log('[MediaTab] validPreviewUrls changed (%d):', validPreviewUrls?.length, validPreviewUrls)
+    setPreviewOrder(validPreviewUrls || [])
+  }, [validPreviewUrls])
+
+  const handleDragStart = (e, index) => {
+    setDragIndex(index)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault()
+    if (dragIndex === null || dragIndex === index) return
+    const next = [...previewOrder]
+    const [moved] = next.splice(dragIndex, 1)
+    next.splice(index, 0, moved)
+    setPreviewOrder(next)
+    setDragIndex(index)
+  }
+
+  const handleDrop = (e) => {
+    e.preventDefault()
+    if (dragIndex === null) return
+    const finalOrder = [...previewOrder]
+    console.log('[MediaTab.handleDrop] local reorder (%d items), persisting...', finalOrder.length, finalOrder)
+    setDragIndex(null)
+    setPreviewOrder(finalOrder)
+    if (typeof onSaveSortOrder === 'function') {
+      onSaveSortOrder(finalOrder)
+    }
+  }
+
+  const handleDragEnd = () => {
+    setDragIndex(null)
+  }
 
   const handleOpenImageFolder = async () => {
     try {
@@ -87,14 +126,20 @@ export default function MediaTab({
             className="grid gap-2 p-2"
             style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}
           >
-            {Array.isArray(validPreviewUrls) && validPreviewUrls.length > 0 ? (
-              validPreviewUrls.map((url, index) => (
+            {Array.isArray(previewOrder) && previewOrder.length > 0 ? (
+              previewOrder.map((url, index) => (
                 <SafeImage
-                  key={index}
+                  key={url}
                   src={url}
                   alt={`Preview ${index + 1}`}
-                  className="w-full aspect-video object-contain bg-primary rounded cursor-pointer"
+                  className="w-full aspect-video object-contain bg-primary rounded cursor-move"
+                  style={{ opacity: dragIndex === index ? 0.5 : 1 }}
                   fallbackLabel="Preview unavailable"
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, index)}
+                  onDragOver={(e) => handleDragOver(e, index)}
+                  onDrop={handleDrop}
+                  onDragEnd={handleDragEnd}
                   onClick={() => setLightboxIndex(index)}
                 />
               ))
@@ -109,6 +154,7 @@ export default function MediaTab({
           {Array.isArray(validPreviewUrls) && validPreviewUrls.length > 0 && (
             <button onClick={onDeletePreviews} className="px-4 py-1 bg-danger text-white rounded hover:bg-dangerHover">Delete Downloaded Previews</button>
           )}
+          <button onClick={onResetSortOrder} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Reset Sort Order</button>
         </div>
       </div>
       <PreviewLightbox

@@ -15,6 +15,8 @@ const { fetchAndStoreGogData } = require('../scanners/gogscanner')
 const { getLewdCornerIDbyRecord } = require('../db/lewdcorner')
 const {
   getF95IDbyRecord, getMediaSourceCache, upsertMediaSourceCache,
+  hasLocalAndCustomPreview,
+  hasCustomPreview,
 } = require('../db/media')
 const dbIndexForMedia = require('../db/index')
 const liveMediaDb = () => dbIndexForMedia.db
@@ -293,6 +295,15 @@ module.exports = function registerMediaHandlers(ctx) {
     const recordId = typeof arg === 'object' && arg !== null ? arg.recordId : arg
     const sourceAppId = typeof arg === 'object' && arg !== null ? (arg.sourceAppId ?? null) : null
     const previews = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, { mode: getMediaStorageMode(), sourceOrder: getMetadataSourceOrder(), sourceAppId })
+    // orderPreviewsBySource only re-sorts remote http(s) URLs by source priority.
+    // Skip it when the user has a custom sort — otherwise it undoes their
+    // drag-reorder of remote screenshots.
+    const hasSort = await hasCustomPreviewSort(recordId)
+    if (hasSort) {
+      console.log('[get-previews] recordId=%s custom sort active, skipping source reorder (%d previews): %j', recordId, previews.length, previews)
+      return previews
+    }
+    // console.log('[get-previews] recordId=%s no custom sort, applying source reorder (%d previews)', recordId, previews.length)
     return orderPreviewsBySource(previews, getMetadataSourceOrder())
   })
 
@@ -521,7 +532,7 @@ module.exports = function registerMediaHandlers(ctx) {
       let doDownload = true
       if (missingOnly) {
         const hasBanner = await hasLocalBanner(recordId)
-        const hasPreviews = await hasLocalPreviews(recordId)
+        const hasPreviews = await hasLocalAndCustomPreview(recordId)
         doDownload = !hasBanner || !hasPreviews
       }
       if (doDownload) {
@@ -563,10 +574,12 @@ module.exports = function registerMediaHandlers(ctx) {
       console.warn('local preview dedupe failed:', e.message)
     }
 
-    const previewUrls = orderPreviewsBySource(
-      await getPreviews(recordId, getAssetBasePath(), process.defaultApp, { mode: getMediaStorageMode(), sourceOrder }),
-      sourceOrder,
-    )
+    const fetchedPreviews = await getPreviews(recordId, getAssetBasePath(), process.defaultApp, { mode: getMediaStorageMode(), sourceOrder })
+    const hasSort = await hasCustomPreviewSort(recordId)
+    const previewUrls = hasSort
+      ? fetchedPreviews
+      : orderPreviewsBySource(fetchedPreviews, sourceOrder)
+    console.log('[refreshOneGame] recordId=%s customSort=%s previewCount=%d', recordId, hasSort, previewUrls.length)
     BrowserWindow.getAllWindows().forEach((win) => {
       if (!win.isDestroyed()) win.webContents.send('game-updated', recordId)
     })
@@ -578,6 +591,19 @@ module.exports = function registerMediaHandlers(ctx) {
     try {
       liveMediaDb().get(sql, params, (err, row) => resolve(err ? null : row || null))
     } catch { resolve(null) }
+  })
+
+  // Checks whether a custom sort order exists for this record in preview_sort.
+  // When it does, orderPreviewsBySource must be skipped — otherwise it would
+  // re-sort remote screenshots by source priority, undoing the user's drag-reorder.
+  const hasCustomPreviewSort = (recordId) => new Promise((resolve) => {
+    const db = liveMediaDb()
+    if (!db) { resolve(false); return }
+    db.get(
+      `SELECT 1 FROM preview_sort WHERE record_id = ? LIMIT 1`,
+      [recordId],
+      (err, row) => resolve(!err && !!row),
+    )
   })
 
   // Content-dedupe downloaded preview files for a record: hash each existing
@@ -645,16 +671,6 @@ module.exports = function registerMediaHandlers(ctx) {
       `SELECT 1 FROM banners WHERE record_id = ? LIMIT 1`, [recordId])
     return !!(fromAssets || fromBanners)
   }
-  const hasLocalPreviews = async (recordId) => {
-    // source (f95, lewdcorner, atlas, steam) banners, header, hero, logo, preview, etc.
-    const fromAssets = await dbGetSafe(
-      `SELECT 1 FROM media_assets WHERE record_id = ? AND asset_type LIKE '%preview%' LIMIT 1`, [recordId])
-    const fromPreviews = await dbGetSafe(
-      `SELECT 1 FROM previews WHERE record_id = ? LIMIT 1`, [recordId])
-    console.log(`[hasLocalPreviews] recordId=${recordId} fromAssets=${!!fromAssets} fromPreviews=${!!fromPreviews}`)
-    return !!(fromAssets || fromPreviews)
-  }
-
   // Whether the user's saved setting wants images downloaded to disk.
   const shouldDownloadImages = () => getMediaStorageMode() === 'download'
 
@@ -735,7 +751,172 @@ module.exports = function registerMediaHandlers(ctx) {
   })
 
   ipcMain.handle('delete-previews', async (event, recordId) => {
-    return await deletePreviews(recordId, getAssetBasePath(), process.defaultApp)
+    console.log('[delete-previews] handler invoked for recordId:', recordId)
+    const result = await deletePreviews(recordId, getAssetBasePath(), process.defaultApp)
+    console.log('[delete-previews] handler completed for recordId:', recordId)
+    return result
+  })
+
+  // Persists user drag-reorder of preview images into preview_sort, keyed by
+  // stable identifiers (remote_url for downloaded images, relative path for
+  // custom uploads) so order survives re-downloads and stream/download switches.
+  // Custom uploads (oldPos === -1) are promoted to the sorted zone as soon as
+  // any positive-position item appears ahead of them in the new order.
+  ipcMain.handle('reorder-previews', async (event, { recordId, orderedPaths }) => {
+    if (!Array.isArray(orderedPaths)) return { success: false, error: 'orderedPaths must be an array' }
+    const db = liveMediaDb()
+    if (!db) return { success: false, error: 'Database not available' }
+
+    // Backend maps display URLs → stable identifiers for the preview_sort table.
+    // Remote http(s) URLs use the URL itself as identifier. Local display paths
+    // are normalized to relative asset paths, then looked up in previews to get
+    // COALESCE(remote_url, path) — so downloaded images (keyed by source URL)
+    // keep their order across re-downloads, and custom uploads keep their
+    // relative path as identifier.
+    const basePath = getAssetBasePath()
+    const normalizeLocal = (displayUrl) => {
+      const atlasMediaMatch = String(displayUrl || '').match(/^atlas-media:\/\/local\/(.+)$/i)
+      if (atlasMediaMatch) {
+        let decoded = decodeURIComponent(atlasMediaMatch[1])
+        let rel = path.relative(basePath, decoded)
+        if (path.sep === '\\') rel = rel.replace(/\\/g, '/')
+        return rel
+      }
+      let cleaned = String(displayUrl || '').replace(/^file:\/\//, '')
+      let rel = path.relative(basePath, cleaned)
+      if (path.sep === '\\') rel = rel.replace(/\\/g, '/')
+      return rel
+    }
+
+    // Collect local display paths for a single batch lookup.
+    const localDisplayPaths = orderedPaths.filter((u) => !/^https?:\/\//i.test(u))
+    const localRelativePaths = localDisplayPaths.map(normalizeLocal)
+    const identifierByPath = new Map()
+
+    if (localRelativePaths.length > 0) {
+      // Query all previews for the record and match in JS. This avoids
+      // SQL-level path comparison failures on Windows where previews.path
+      // may contain backslashes from path.join() while normalizeLocal
+      // always produces forward slashes.
+      await new Promise((resolve, reject) => {
+        db.all(
+          `SELECT path, COALESCE(remote_url, path) AS identifier FROM previews WHERE record_id = ?`,
+          [recordId],
+          (err, rows) => {
+            if (err) reject(err)
+            else {
+              for (const row of rows || []) {
+                const normalized = String(row.path || '').replace(/\\/g, '/')
+                identifierByPath.set(normalized, row.identifier)
+              }
+              resolve()
+            }
+          },
+        )
+      })
+    }
+
+    // Build ordered identifier list preserving the frontend's ordering. Local
+    // paths that don't match a previews row (or are custom uploads with no
+    // remote_url) fall back to their relative path as the identifier.
+    const orderedIdentifiers = []
+    for (const displayUrl of orderedPaths) {
+      if (/^https?:\/\//i.test(displayUrl)) {
+        orderedIdentifiers.push(displayUrl)
+      } else {
+        const rel = normalizeLocal(displayUrl)
+        const id = identifierByPath.get(rel) || rel
+        orderedIdentifiers.push(id)
+        // console.log('[reorder-previews] local: displayUrl=%s rel=%s identifier=%s matched=%s', displayUrl, rel, id, identifierByPath.has(rel) ? 'yes' : 'no')
+      }
+    }
+    // console.log('[reorder-previews] recordId=%s identifiers=%j', recordId, orderedIdentifiers)
+
+    // Read existing positions so we can apply the -1 custom zone promotion rule.
+    const oldPositions = new Map()
+    await new Promise((resolve, reject) => {
+      db.all(
+        `SELECT identifier, position FROM preview_sort WHERE record_id = ?`,
+        [recordId],
+        (err, rows) => {
+          if (err) reject(err)
+          else {
+            for (const row of rows || []) {
+              oldPositions.set(row.identifier, row.position)
+            }
+            resolve()
+          }
+        },
+      )
+    })
+
+    // Walk the new order left to right assigning positions.
+    // -1 custom items stay at -1 until a positive item appears ahead of them,
+    // then they are promoted to the next available positive position.
+    const newPositions = new Map()
+    let nextPositive = 0
+    let sawPositive = false
+    for (const id of orderedIdentifiers) {
+      const oldPos = oldPositions.has(id) ? oldPositions.get(id) : 0
+      if (oldPos >= 0) {
+        newPositions.set(id, nextPositive++)
+        sawPositive = true
+      } else if (oldPos === -1) {
+        if (sawPositive) {
+          newPositions.set(id, nextPositive++)
+        } else {
+          newPositions.set(id, -1)
+        }
+      } else {
+        newPositions.set(id, nextPositive++)
+        sawPositive = true
+      }
+    }
+
+    // Replace all prior sort positions for this record in a single transaction.
+    await new Promise((resolve, reject) => {
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION')
+        db.run(`DELETE FROM preview_sort WHERE record_id = ?`, [recordId])
+        const stmt = db.prepare(
+          `INSERT INTO preview_sort (record_id, identifier, position, created_at) VALUES (?, ?, ?, ?)`
+        )
+        const now = Date.now()
+        orderedIdentifiers.forEach((identifier) => {
+          const pos = newPositions.get(identifier)
+          stmt.run(recordId, identifier, pos, now)
+        })
+        stmt.finalize((err) => {
+          if (err) {
+            db.run('ROLLBACK', () => reject(err))
+          } else {
+            db.run('COMMIT', (commitErr) => {
+              if (commitErr) {
+                db.run('ROLLBACK', () => reject(commitErr))
+              } else {
+                resolve()
+              }
+            })
+          }
+        })
+      })
+    })
+    return { success: true }
+  })
+
+  // Clears the persisted sort order for a record. After clearing, getPreviews
+  // falls back to 256 + index natural order (source priority, then local).
+  // Does NOT touch the previews table itself.
+  ipcMain.handle('clear-preview-sort', async (event, recordId) => {
+    const db = liveMediaDb()
+    if (!db) return { success: false, error: 'Database not available' }
+    await new Promise((resolve, reject) => {
+      db.run(`DELETE FROM preview_sort WHERE record_id = ?`, [recordId], (err) => {
+        if (err) reject(err)
+        else resolve()
+      })
+    })
+    return { success: true }
   })
 
   ipcMain.handle('convert-and-save-banner', async (event, { recordId, filePath }) => {

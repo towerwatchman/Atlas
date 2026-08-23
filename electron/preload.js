@@ -416,6 +416,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking deletePreviews for recordId:", recordId);
     return ipcRenderer.invoke("delete-previews", recordId);
   },
+  reorderPreviews: (recordId, orderedPaths) => {
+    console.log("Invoking reorderPreviews for recordId:", recordId);
+    return ipcRenderer.invoke("reorder-previews", { recordId, orderedPaths });
+  },
+  clearPreviewSort: (recordId) => {
+    console.log("Invoking clearPreviewSort for recordId:", recordId);
+    return ipcRenderer.invoke("clear-preview-sort", recordId);
+  },
   onScanProgress: (callback) =>
     ipcRenderer.on("scan-progress", (event, progress) => callback(progress)),
   onScanComplete: (callback) =>

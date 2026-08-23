@@ -367,7 +367,10 @@ const GameDetailWindow = () => {
           return url
         } catch { return null }
       })
-    ).then((results) => setValidPreviewUrls(results.filter(Boolean)))
+    ).then((results) => {
+      console.log('[validPreviewUrls] previewUrls=%j -> valid=%j', previewUrls, results.filter(Boolean))
+      setValidPreviewUrls(results.filter(Boolean))
+    })
   }, [previewUrls])
 
   // ── Handlers ─────────────────────────────────────────────────────────────
@@ -432,14 +435,7 @@ const GameDetailWindow = () => {
     try {
       setImportProgress({ text: 'Deleting downloaded previews...', progress: 0, total: 1 })
       await window.electronAPI.deletePreviews(game.record_id)
-      const [refreshedGame, urls] = await Promise.all([
-        window.electronAPI.getGame(game.record_id),
-        window.electronAPI.getPreviews(game.record_id),
-      ])
-      if (refreshedGame) {
-        refreshFromGame(refreshedGame, selectedVersion)
-        setBannerUrl(refreshedGame.banner_url || '')
-      }
+      const urls = await window.electronAPI.getPreviews(game.record_id)
       setPreviewUrls(Array.isArray(urls) ? urls : [])
       setImportProgress({ text: 'Previews deleted', progress: 1, total: 1 })
       setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 1500)
@@ -447,6 +443,30 @@ const GameDetailWindow = () => {
       console.error('Failed to delete previews:', err)
       alert(`Failed to delete previews: ${err.message || 'Unknown error'}`)
       setImportProgress({ text: '', progress: 0, total: 0 })
+    }
+  }
+
+  // Persists the current preview drag-reorder to preview_sort via the backend,
+  // then refreshes so the grid reflects the saved order. `orderedUrls` is the
+  // MediaTab's local previewOrder (the user's in-flight drag reorder).
+  const handleSaveSortOrder = async (orderedUrls) => {
+    try {
+      console.log('[handleSaveSortOrder] persisting %d previews for recordId:', orderedUrls?.length, game.record_id)
+      await window.electronAPI.reorderPreviews(game.record_id, orderedUrls)
+      const urls = await window.electronAPI.getPreviews(game.record_id)
+      setPreviewUrls(Array.isArray(urls) ? urls : [])
+    } catch (err) {
+      console.error('Failed to save sort order:', err)
+    }
+  }
+
+  const handleResetSortOrder = async () => {
+    try {
+      await window.electronAPI.clearPreviewSort(game.record_id)
+      const urls = await window.electronAPI.getPreviews(game.record_id)
+      setPreviewUrls(Array.isArray(urls) ? urls : [])
+    } catch (err) {
+      console.error('Failed to reset sort order:', err)
     }
   }
 
@@ -1008,6 +1028,8 @@ const GameDetailWindow = () => {
                 onDeleteBanner={handleDeleteBanner}
                 onDownloadPreviews={handleDownloadPreviews}
                 onDeletePreviews={handleDeletePreviews}
+                onSaveSortOrder={handleSaveSortOrder}
+                onResetSortOrder={handleResetSortOrder}
                 onRefreshMetadata={handleRefreshMetadata}
               />
             )}

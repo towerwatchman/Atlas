@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Fixed
+- Added persistent sorting for previews
+  - Introduced the `preview_sort` table to decouple sort order from the `previews` table. It is keyed by `record_id` and a stable `identifier` (using `remote_url` for downloaded/stream previews, or local paths for custom uploads).
+  - Dropped the unused `previews.position` column. Existing databases drop it automatically on startup via a `PRAGMA table_info` guard.
+  - `preview_sort` includes a `created_at` column for insertion-order tiebreaking when multiple items share the same position (e.g., custom uploads at `-1`).
+  - `updatePreviews` no longer takes a `position` argument. Position management is handled entirely by `preview_sort`.
+  - Added `insertPreviewSortRow` and `nextManualPreviewPosition` helpers in `electron/db/media.js` to manage custom upload sort positions.
+  - `getPreviews` now merges local and remote screenshots, applies positions from `preview_sort` (falling back to `256 + index`), and tiebreaks by `created_at ASC`. Trailers remain locked to the front.
+  - Rewrote the `reorder-previews` IPC handler to map display URLs to stable identifiers, persist orders in a single transaction, and implement the `-1` custom zone promotion rule (promoting `-1` items to positive positions when dragged after sorted items).
+  - Added `clear-preview-sort` IPC handler and a UI "Reset Sort Order" button to wipe custom sorts and revert to natural source order.
+  - `deletePreviews` now hard-deletes non-custom rows (`is_custom = 0`) without touching `preview_sort`, ensuring sort order survives deletion and re-downloads.
 - Fixed "Delete Downloaded Previews" & "Delete Downloaded Banners" failing to delete files from disk with "no containment root was supplied". `deletePreviews` & `deleteBanner` now passes `containmentRoot` to `deletePathWithElevationFallback`, deletes `media_assets` preview & banner metadata rows (matching checks), and clear the `previews` and `banners` table. 
 - Fixed `hasLocalBanner` ignoring downloaded banners in the `banners` table, causing `missingOnly` media refresh to re-download banners that were already on disk. The check now queries both `media_assets` and `banners`.
 - Fixed `hasLocalPreviews` ignoring downloaded previews in the `previews` table, causing `missingOnly` media refresh to re-download previews that were already on disk. The check now queries both `media_assets` and `previews`.

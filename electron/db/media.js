@@ -134,21 +134,82 @@ const updateBanners = (recordId, bannerPath, type) => {
   });
 };
 
-const updatePreviews = (recordId, previewPath) => {
+// Inserts/replaces a preview row with a stable identifier, optional remote URL,
+// and is_custom flag. Position is managed entirely by preview_sort; this table
+// only tracks the file path and metadata.
+const updatePreviews = (recordId, previewPath, remoteUrl = null, isCustom = false) => {
   return new Promise((resolve, reject) => {
-    getDb().run(
-      `INSERT OR REPLACE INTO previews (record_id, path) VALUES (?, ?)`,
-      [recordId, previewPath],
-      (err) => {
-        if (err) {
-          console.error("Error updating previews:", err);
-          reject(err);
-        } else {
-          resolve();
-        }
-      },
+    const sql = `INSERT OR REPLACE INTO previews (record_id, path, remote_url, is_custom) VALUES (?, ?, ?, ?)`;
+    const params = [recordId, previewPath, remoteUrl, isCustom ? 1 : 0];
+    getDb().run(sql, params, (err) => {
+      if (err) {
+        console.error("Error updating previews:", err);
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+};
+
+const nextManualPreviewPosition = async (recordId) => {
+  const rows = await new Promise((resolve) => {
+    getDb().all(
+      `SELECT position FROM preview_sort WHERE record_id = ? AND identifier NOT LIKE 'http%'`,
+      [recordId],
+      (err, rows) => resolve(err ? [] : (rows || [])),
     );
   });
+  const positions = new Set(rows.map((r) => Number(r.position)));
+  let pos = 0;
+  while (positions.has(pos)) pos++;
+  return pos;
+};
+
+// Inserts a preview_sort row with the current timestamp for created_at tiebreaking.
+// Used by future custom upload support and tests.
+const insertPreviewSortRow = (recordId, identifier, position) => {
+  return new Promise((resolve, reject) => {
+    const sql = `INSERT OR REPLACE INTO preview_sort (record_id, identifier, position, created_at) VALUES (?, ?, ?, ?)`;
+    const params = [recordId, identifier, position, Date.now()];
+    getDb().run(sql, params, (err) => {
+      if (err) {
+        console.error("Error inserting preview_sort row:", err);
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+};
+
+const hasLocalAndCustomPreview = async (recordId) => {
+  const fromPreviews = await new Promise((resolve) => {
+    getDb().get(
+      `SELECT 1 FROM previews WHERE record_id = ? LIMIT 1`,
+      [recordId],
+      (err, row) => resolve(err ? null : row || null),
+    );
+  });
+  const fromAssets = await new Promise((resolve) => {
+    getDb().get(
+      `SELECT 1 FROM media_assets WHERE record_id = ? AND asset_type LIKE '%preview%' LIMIT 1`,
+      [recordId],
+      (err, row) => resolve(err ? null : row || null),
+    );
+  });
+  return !!(fromPreviews || fromAssets);
+};
+
+const hasCustomPreview = async (recordId) => {
+  const row = await new Promise((resolve) => {
+    getDb().get(
+      `SELECT 1 FROM previews WHERE record_id = ? AND is_custom = 1 LIMIT 1`,
+      [recordId],
+      (err, row) => resolve(err ? null : row || null),
+    );
+  });
+  return !!row;
 };
 
 // Resolve an F95 id for a record, either from a direct f95_zone_mappings row or
@@ -787,44 +848,134 @@ const getPreviews = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
     ? (mediaStorageMode.sourceAppId ?? null)
     : null;
   return new Promise((resolve, reject) => {
+    // Load persisted user sort order into a Map keyed by stable identifier.
     getDb().all(
-      `SELECT path FROM previews WHERE record_id = ? ORDER BY position ASC, path ASC`,
+      `SELECT identifier, position, created_at FROM preview_sort WHERE record_id = ?`,
       [recordId],
-      async (err, rows) => {
-        if (err) {
-          console.error("Error fetching previews:", err);
-          reject(err);
-        } else {
-          try {
-            const localPreviews = rows.map((row) =>
-              toLocalAssetPath(appPath, isDev, row.path),
-            );
-            const remotePreviews = await getRemotePreviewUrls(recordId, { sourceOrder: mediaStorageMode?.sourceOrder, sourceAppId });
+      (sortErr, sortRows) => {
+        if (sortErr) {
+          console.error("Error fetching preview_sort:", sortErr);
+          reject(sortErr);
+          return;
+        }
 
-            let previews;
-            if (localPreviews.length > 0) {
-              // Local art wins, BUT trailers are never downloaded in stream mode
-              // (and junk preview rows left by the old broken refresh-game-media
-              // could otherwise suppress the remote fallback entirely). So always
-              // surface remote *video* URLs that aren't already present, prepended
-              // so the trailer leads the grid. Screenshots stay local.
-              const isVideo = (u) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(u || ""));
-              const have = new Set(localPreviews);
-              const remoteTrailers = remotePreviews.filter(
-                (u) => isVideo(u) && !have.has(u),
-              );
-              previews = [...remoteTrailers, ...localPreviews];
-            } else {
-              previews = remotePreviews;
+        // Maps for user-reordered screenshots.
+        const sortMap = new Map();
+        const createdAtMap = new Map();
+        for (const sr of sortRows || []) {
+          sortMap.set(sr.identifier, sr.position);
+          createdAtMap.set(sr.identifier, sr.created_at);
+        }
+        // console.log('[getPreviews] recordId=%s sortMap=%j', recordId, Object.fromEntries(sortMap))
+
+        // Fetch preview rows without deleted_at filter — hard-delete means all
+        // remaining rows are active. No ORDER BY here; preview_sort drives order.
+        getDb().all(
+          `SELECT path, remote_url FROM previews WHERE record_id = ?`,
+          [recordId],
+          async (err, rows) => {
+            if (err) {
+              console.error("Error fetching previews:", err);
+              reject(err);
+              return;
             }
 
-            console.log("Previews fetched for recordId:", recordId, previews);
-            resolve(previews);
-          } catch (remoteErr) {
-            console.error("Error resolving preview URLs:", remoteErr);
-            reject(remoteErr);
-          }
-        }
+            try {
+              const remoteAll = await getRemotePreviewUrls(recordId, {
+                sourceOrder: mediaStorageMode?.sourceOrder,
+                sourceAppId,
+              });
+
+              const isVideo = (u) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(u || ""));
+              const remoteTrailers = remoteAll.filter(isVideo);
+              const remoteScreenshots = remoteAll.filter((u) => !isVideo(u));
+
+              if (rows.length === 0) {
+                // No local preview rows — but still respect preview_sort for
+                // remote http(s) URLs, which use themselves as identifiers.
+                const fallbackStart = 256;
+                const sortedScreenshots = remoteScreenshots
+                  .map((url, i) => ({
+                    url,
+                    position: sortMap.has(url) ? sortMap.get(url) : fallbackStart + i,
+                    createdAt: sortMap.has(url) ? createdAtMap.get(url) : 0,
+                  }))
+                  .sort((a, b) => a.position - b.position || a.createdAt - b.createdAt)
+                  .map((d) => d.url);
+                // console.log('[getPreviews] recordId=%s no local rows, sorted remote screenshots: %j', recordId, sortedScreenshots)
+                resolve([
+                  ...remoteTrailers,
+                  ...sortedScreenshots,
+                ]);
+                return;
+              }
+
+              // Local rows are split by type: videos are locked to the trailer
+              // bucket (unsortable), images are user-sortable screenshots.
+              const localTrailers = [];
+              const localScreenshots = [];
+              const seen = new Set();
+
+              for (const row of rows) {
+                let url = null;
+                if (row.path) {
+                  const localPath = toLocalAssetPath(appPath, isDev, row.path);
+                  const filePath = localPath.replace("file://", "");
+                  if (fs.existsSync(filePath)) {
+                    url = localPath;
+                  }
+                }
+                if (!url && row.remote_url) {
+                  url = row.remote_url;
+                }
+                if (!url) continue;
+
+                // Identifier matches what reorder-previews writes: remote_url
+                // for downloaded images, path for custom uploads.
+                const identifier = row.remote_url || row.path;
+                seen.add(url);
+                if (row.remote_url) seen.add(row.remote_url);
+
+                if (isVideo(row.path)) {
+                  localTrailers.push({ url, identifier });
+                } else {
+                  localScreenshots.push({ url, identifier });
+                }
+              }
+
+              const uniqueRemoteScreenshots = remoteScreenshots.filter((u) => !seen.has(u));
+
+              // Combine local + remote screenshots, deduplicated.
+              const allScreenshots = [...localScreenshots, ...uniqueRemoteScreenshots];
+
+              // Sort by preview_sort position; unsorted items fall back to
+              // 256 + insertionIndex so they appear after sorted items.
+              const fallbackStart = 256;
+              const decorated = allScreenshots.map((item, i) => ({
+                url: item.url,
+                identifier: item.identifier,
+                position: sortMap.has(item.identifier)
+                  ? sortMap.get(item.identifier)
+                  : fallbackStart + i,
+                createdAt: sortMap.has(item.identifier)
+                  ? createdAtMap.get(item.identifier)
+                  : 0,
+              }));
+              decorated.sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
+              // console.log('[getPreviews] recordId=%s screenshotSort=%j', recordId, 
+              //   decorated.map((d) => ({ id: d.identifier, pos: d.position })))
+
+              resolve([
+                ...remoteTrailers,
+                ...localTrailers.map((v) => v.url),
+                ...decorated.map((d) => d.url),
+              ]);
+            } catch (remoteErr) {
+              console.error("Error resolving preview URLs:", remoteErr);
+              reject(remoteErr);
+            }
+          },
+        );
       },
     );
   });
@@ -1097,30 +1248,32 @@ const deleteBanner = (recordId, appPath, isDev) => {
   });
 };
 
-// Removes a record's cached preview files from disk, previews table rows, and
-// any media_assets rows whose asset_type contains "preview" (e.g. atlas_preview,
-// f95_preview). Files are deleted before DB rows are cleared.
+// Removes a record's cached preview files from disk and hard-deletes non-custom
+// rows from the previews table. Custom rows (is_custom = 1) are untouched so
+// user-ordered previews survive file deletion. media_assets rows with LIKE
+// '%preview%' are still cleared. preview_sort rows are left intact so that
+// re-downloaded images inherit the user's prior sort order.
 const deletePreviews = (recordId, appPath, isDev) => {
   return new Promise(async (resolve, reject) => {
     try {
       const mediaRoot = path.resolve(getAssetBasePath(appPath, isDev), "data", "images");
-      const previews = await new Promise((resolveLocal, rejectLocal) => {
+
+      const downloadedRows = await new Promise((resolveLocal, rejectLocal) => {
         getDb().all(
-          `SELECT path FROM previews WHERE record_id = ?`,
+          `SELECT path, is_custom FROM previews WHERE record_id = ? AND is_custom = 0`,
           [recordId],
           (err, rows) => {
             if (err) rejectLocal(err);
-            else {
-              resolveLocal(
-                rows.map((row) => toLocalAssetPath(appPath, isDev, row.path)),
-              );
-            }
+            else resolveLocal(rows || []);
           },
         );
       });
-      for (const previewUrl of previews) {
-        const filePath = previewUrl.replace("file://", ""); // Adjust to data/images
-        console.log("Attempting to delete preview file:", filePath);
+      console.log('[deletePreviews] rows selected for file deletion:', downloadedRows.length, downloadedRows.map(r => ({ path: r.path, is_custom: r.is_custom })))
+
+      for (const row of downloadedRows) {
+        const previewUrl = toLocalAssetPath(appPath, isDev, row.path);
+        const filePath = previewUrl.replace("file://", "");
+        console.log("[deletePreviews] Attempting to delete preview file:", filePath);
         try {
           if (
             await fsPromises
@@ -1147,11 +1300,9 @@ const deletePreviews = (recordId, appPath, isDev) => {
           }
         } catch (fileErr) {
           console.error("Error deleting preview file:", fileErr);
-          // Continue with next file
         }
       }
 
-      // Clear media_assets preview rows after file deletion (mirrors hasLocalPreviews).
       getDb().run(
         `DELETE FROM media_assets WHERE record_id = ? AND asset_type LIKE '%preview%'`,
         [recordId],
@@ -1159,18 +1310,32 @@ const deletePreviews = (recordId, appPath, isDev) => {
           if (maErr) {
             console.error("Error removing media_assets previews from database:", maErr);
           }
-        }
+        },
       );
 
-      getDb().run(`DELETE FROM previews WHERE record_id = ?`, [recordId], (err) => {
-        if (err) {
-          console.error("Error removing previews from database:", err);
-          reject(err);
-        } else {
-          console.log("Previews removed from database for recordId:", recordId);
-          resolve();
-        }
-      });
+      getDb().run(
+        `DELETE FROM previews WHERE record_id = ? AND is_custom = 0`,
+        [recordId],
+        (err) => {
+          if (err) {
+            console.error("Error deleting downloaded previews:", err);
+            reject(err);
+          } else {
+            console.log("Downloaded previews hard-deleted for recordId:", recordId, "rows affected:", this?.changes ?? 'unknown');
+            // Verify: log remaining rows by is_custom (only custom rows should survive)
+            getDb().all(
+              `SELECT is_custom, COUNT(*) AS cnt FROM previews WHERE record_id = ? GROUP BY is_custom`,
+              [recordId],
+              (countErr, countRows) => {
+                if (!countErr && Array.isArray(countRows)) {
+                  console.log('[deletePreviews] remaining rows:', JSON.stringify(countRows))
+                }
+              }
+            )
+            resolve();
+          }
+        },
+      );
     } catch (err) {
       console.error("Error deleting previews:", err);
       reject(err);
@@ -1291,6 +1456,10 @@ module.exports = {
   getScreensUrlList,
   updateBanners,
   updatePreviews,
+  insertPreviewSortRow,
+  nextManualPreviewPosition,
+  hasLocalAndCustomPreview,
+  hasCustomPreview,
   getAllDownloadableAssetUrlsForRecord,
   upsertMediaAsset,
   getBrowsePreviewUrls,

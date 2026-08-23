@@ -469,10 +469,36 @@ const initializeDatabase = (dataDir) => {
       (
         record_id INTEGER REFERENCES games (record_id),
         path TEXT UNIQUE,
-        position INTEGER DEFAULT 256,
         UNIQUE (record_id, path)
       );
     `);
+    db.run(`ALTER TABLE previews ADD COLUMN remote_url TEXT;`, () => {});
+    db.run(`ALTER TABLE previews ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0;`, () => {});
+    // preview_sort persists user-reorder positions independently of the previews
+    // table so order survives re-downloads, stream/download switches, and
+    // metadata refreshes. Keyed by a stable identifier: remote_url for
+    // downloaded/streamed images (matches across re-downloads as long as the
+    // source URL is unchanged), or the relative path for custom uploads.
+    db.run(`
+      CREATE TABLE IF NOT EXISTS preview_sort
+      (
+        record_id INTEGER REFERENCES games (record_id),
+        identifier TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (record_id, identifier)
+      );
+    `, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_preview_sort_record ON preview_sort (record_id);`, () => {});
+    // One-time cleanup for databases that still carry the now-removed
+    // previews.position column. New databases never get it; existing ones
+    // were migrated to preview_sort earlier, so dropping is safe.
+    db.all(`PRAGMA table_info(previews)`, (err, rows) => {
+      if (err || !Array.isArray(rows)) return
+      const hasPosition = rows.some((r) => r.name === 'position')
+      if (!hasPosition) return
+      db.run(`ALTER TABLE previews DROP COLUMN position`, () => {})
+    })
     db.run(`
       CREATE TABLE IF NOT EXISTS banners
       (
@@ -927,6 +953,7 @@ function sweepOrphanedRecords() {
     "gog_mappings",
     "game_personal_ratings",
     "collection_games",
+    "preview_sort",
   ];
   for (const tbl of childTables) {
     db.run(
