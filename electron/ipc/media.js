@@ -629,9 +629,21 @@ module.exports = function registerMediaHandlers(ctx) {
   })
 
   const hasLocalBanner = async (recordId) => {
-    const row = await dbGetSafe(
+    // Check both tables: media_assets stores banner metadata (f95_banner,
+    // lewdcorner_banner, atlas_banner, atlas_banner_wide), while banners stores
+    // downloaded banner files. The missingOnly refresh needs both to correctly
+    // skip already-downloaded records.
+    //
+    // TODO: media_assets stores banner-like asset types beyond what LIKE '%banner%'
+    // matches. Currently only f95_banner, lewdcorner_banner, atlas_banner, and
+    // atlas_banner_wide are matched. Others that getBanner or similar UI paths
+    // could treat as banners: steam_header, steam_hero, atlas_cover,
+    // atlas_wallpaper. Consider whether hasLocalBanner should cover them too.
+    const fromAssets = await dbGetSafe(
       `SELECT 1 FROM media_assets WHERE record_id = ? AND asset_type LIKE '%banner%' LIMIT 1`, [recordId])
-    return !!row
+    const fromBanners = await dbGetSafe(
+      `SELECT 1 FROM banners WHERE record_id = ? LIMIT 1`, [recordId])
+    return !!(fromAssets || fromBanners)
   }
   const hasLocalPreviews = async (recordId) => {
     // source (f95, lewdcorner, atlas, steam) banners, header, hero, logo, preview, etc.

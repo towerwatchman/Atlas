@@ -968,14 +968,19 @@ const getBanner = (recordId, appPath, isDev, type, mediaStorageMode = "stream") 
   });
 };
 
+// Removes a record's cached banner files from disk, banners table rows, and
+// any media_assets rows whose asset_type contains "banner" (e.g. steam_header,
+// f95_banner, lewdcorner_banner). Files are deleted before DB rows are cleared.
 const deleteBanner = (recordId, appPath, isDev) => {
   return new Promise(async (resolve, reject) => {
     try {
       const mediaRoot = path.resolve(getAssetBasePath(appPath, isDev), "data", "images");
       const banners = await getBanners(recordId, appPath, isDev);
+      console.log(`[deleteBanner] recordId=${recordId} bannersFromTable=${banners.length} mediaRoot=${mediaRoot}`);
+
       for (const banner_path of banners) {
-        const filePath = banner_path.replace("file://", ""); // Adjust to data/images
-        console.log("Attempting to delete preview file:", filePath);
+        const filePath = banner_path.replace("file://", "");
+        console.log(`[deleteBanner] Attempting to delete banner file: ${filePath}`);
         try {
           if (
             await fsPromises
@@ -987,6 +992,7 @@ const deleteBanner = (recordId, appPath, isDev) => {
               recursive: false,
               force: true,
               description: "Delete banner image",
+              containmentRoot: mediaRoot,
               validatePath: (candidatePath) => {
                 const resolved = path.resolve(candidatePath);
                 const relative = path.relative(mediaRoot, resolved);
@@ -995,15 +1001,86 @@ const deleteBanner = (recordId, appPath, isDev) => {
                 }
               },
             });
-            console.log("Deleted preview file:", filePath);
+            console.log(`[deleteBanner] Deleted banner file: ${filePath}`);
           } else {
-            console.log("Preview file does not exist:", filePath);
+            console.log(`[deleteBanner] Banner file does not exist: ${filePath}`);
           }
         } catch (fileErr) {
-          console.error("Error deleting preview file:", fileErr);
-          // Continue with next file
+          console.error(`[deleteBanner] Error deleting banner file ${filePath}:`, fileErr);
         }
       }
+
+      // Also check media_assets for banner files not tracked in the banners table.
+      const assetBanners = await new Promise((resolve) => {
+        getDb().all(
+          `SELECT path, asset_type FROM media_assets WHERE record_id = ? AND asset_type LIKE '%banner%'`,
+          [recordId],
+          (err, rows) => resolve(err ? [] : rows || [])
+        );
+      });
+      console.log(`[deleteBanner] media_assets banner rows: ${assetBanners.length}`);
+
+      for (const row of assetBanners) {
+        const rawPath = String(row?.path || "").replace("file://", "");
+        if (!rawPath) continue;
+
+        // Skip files still referenced by another record (same logic as deleteMediaAssets).
+        const sharedCount = await new Promise((res) => {
+          getDb().get(
+            `SELECT COUNT(*) AS c FROM media_assets WHERE path = ? AND record_id != ?`,
+            [row.path, recordId],
+            (cErr, cRow) => res(cErr ? 1 : Number(cRow?.c || 0)),
+          );
+        });
+        if (sharedCount > 0) {
+          console.log(`[deleteBanner] Skipping shared media_assets banner: ${rawPath} (${sharedCount} other records)`);
+          continue;
+        }
+
+        const filePath = path.isAbsolute(rawPath)
+          ? rawPath
+          : path.join(getAssetBasePath(appPath, isDev), rawPath);
+        console.log(`[deleteBanner] Attempting to delete media_assets banner file: ${filePath}`);
+        try {
+          if (
+            await fsPromises
+              .access(filePath)
+              .then(() => true)
+              .catch(() => false)
+          ) {
+            await deletePathWithElevationFallback(filePath, {
+              recursive: false,
+              force: true,
+              description: "Delete banner image",
+              containmentRoot: mediaRoot,
+              validatePath: (candidatePath) => {
+                const resolved = path.resolve(candidatePath);
+                const relative = path.relative(mediaRoot, resolved);
+                if (relative.startsWith("..") || path.isAbsolute(relative)) {
+                  throw new Error("Banner path is outside the media folder");
+                }
+              },
+            });
+            console.log(`[deleteBanner] Deleted media_assets banner file: ${filePath}`);
+          } else {
+            console.log(`[deleteBanner] media_assets banner file does not exist: ${filePath}`);
+          }
+        } catch (fileErr) {
+          console.error(`[deleteBanner] Error deleting media_assets banner file ${filePath}:`, fileErr);
+        }
+      }
+
+      // Clear media_assets banner rows after file deletion (mirrors hasLocalBanner).
+      getDb().run(
+        `DELETE FROM media_assets WHERE record_id = ? AND asset_type LIKE '%banner%'`,
+        [recordId],
+        (maErr) => {
+          if (maErr) {
+            console.error("Error removing media_assets banners from database:", maErr);
+          }
+        }
+      );
+
       getDb().run(`DELETE FROM banners WHERE record_id = ?`, [recordId], (err) => {
         if (err) {
           console.error("Error removing banners from database:", err);
@@ -1020,6 +1097,9 @@ const deleteBanner = (recordId, appPath, isDev) => {
   });
 };
 
+// Removes a record's cached preview files from disk, previews table rows, and
+// any media_assets rows whose asset_type contains "preview" (e.g. atlas_preview,
+// f95_preview). Files are deleted before DB rows are cleared.
 const deletePreviews = (recordId, appPath, isDev) => {
   return new Promise(async (resolve, reject) => {
     try {
@@ -1052,6 +1132,7 @@ const deletePreviews = (recordId, appPath, isDev) => {
               recursive: false,
               force: true,
               description: "Delete preview image",
+              containmentRoot: mediaRoot,
               validatePath: (candidatePath) => {
                 const resolved = path.resolve(candidatePath);
                 const relative = path.relative(mediaRoot, resolved);
@@ -1069,6 +1150,18 @@ const deletePreviews = (recordId, appPath, isDev) => {
           // Continue with next file
         }
       }
+
+      // Clear media_assets preview rows after file deletion (mirrors hasLocalPreviews).
+      getDb().run(
+        `DELETE FROM media_assets WHERE record_id = ? AND asset_type LIKE '%preview%'`,
+        [recordId],
+        (maErr) => {
+          if (maErr) {
+            console.error("Error removing media_assets previews from database:", maErr);
+          }
+        }
+      );
+
       getDb().run(`DELETE FROM previews WHERE record_id = ?`, [recordId], (err) => {
         if (err) {
           console.error("Error removing previews from database:", err);
