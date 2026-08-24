@@ -58,7 +58,7 @@ const inferMediaSource = (url) => {
 module.exports = function registerMediaHandlers(ctx) {
   const {
     getAssetBasePath, getMediaStorageMode, templatesDir, dataDir,
-    getPreviews, getBanner, deleteBanner, deletePreviews,
+    getPreviews, getPreviewsWithMeta, getBanner, deleteBanner, deletePreviews,
     updateBanners, updatePreviews, getBannerUrl, getScreensUrlList,
     getRemoteBannerUrl, getRemotePreviewUrls, getSteamMovieThumbnails,
     GetAtlasIDbyRecord, firstMediaPath, getBrowsePreviewUrls,
@@ -305,6 +305,20 @@ module.exports = function registerMediaHandlers(ctx) {
       return previews
     }
     // console.log('[get-previews] recordId=%s no custom sort, applying source reorder (%d previews)', recordId, previews.length)
+    return orderPreviewsBySource(previews, getMetadataSourceOrder())
+  })
+
+  // Enriched variant used ONLY by the GameDetailsWindow Media tab gallery:
+  // returns preview objects ({ url, identifier, type, source, location }) so the
+  // UI can render per-source and remote/local badges. Every other preview
+  // consumer (library banner layout, browse detail page) keeps using the plain
+  // get-previews handler that returns URL strings.
+  ipcMain.handle('get-previews-meta', async (event, arg) => {
+    const recordId = typeof arg === 'object' && arg !== null ? arg.recordId : arg
+    const sourceAppId = typeof arg === 'object' && arg !== null ? (arg.sourceAppId ?? null) : null
+    const previews = await getPreviewsWithMeta(recordId, getAssetBasePath(), process.defaultApp, { mode: getMediaStorageMode(), sourceOrder: getMetadataSourceOrder(), sourceAppId })
+    const hasSort = await hasCustomPreviewSort(recordId)
+    if (hasSort) return previews
     return orderPreviewsBySource(previews, getMetadataSourceOrder())
   })
 

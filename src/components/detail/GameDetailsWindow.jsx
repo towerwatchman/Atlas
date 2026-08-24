@@ -311,7 +311,7 @@ const GameDetailWindow = () => {
       }
       recalculateMissingVersionSizes(fetchedGame)
       setBannerUrl(fetchedGame.banner_url || '')
-      window.electronAPI.getPreviews(fetchedGame.record_id)
+      window.electronAPI.getPreviewsMeta(fetchedGame.record_id)
         .then((urls) => setPreviewUrls(urls || []))
         .catch((err) => console.error('Failed to load previews:', err))
     }
@@ -360,15 +360,15 @@ const GameDetailWindow = () => {
 
   useEffect(() => {
     Promise.all(
-      previewUrls.map(async (url) => {
+      (previewUrls || []).map(async (p) => {
+        const url = p?.url || p
         try {
           const img = new Image(); img.src = toMediaSrc(url)
           await new Promise((res, rej) => { img.onload = res; img.onerror = rej })
-          return url
+          return p
         } catch { return null }
       })
     ).then((results) => {
-      console.log('[validPreviewUrls] previewUrls=%j -> valid=%j', previewUrls, results.filter(Boolean))
       setValidPreviewUrls(results.filter(Boolean))
     })
   }, [previewUrls])
@@ -423,7 +423,8 @@ const GameDetailWindow = () => {
   const handleDownloadPreviews = async () => {
     setImportProgress({ text: 'Starting previews download...', progress: 0, total: 1 })
     try {
-      const newUrls = await window.electronAPI.updatePreviews(game.record_id)
+      await window.electronAPI.updatePreviews(game.record_id)
+      const newUrls = await window.electronAPI.getPreviewsMeta(game.record_id)
       setPreviewUrls(newUrls)
     } catch (err) {
       console.error('Failed to download previews:', err)
@@ -435,7 +436,7 @@ const GameDetailWindow = () => {
     try {
       setImportProgress({ text: 'Deleting downloaded previews...', progress: 0, total: 1 })
       await window.electronAPI.deletePreviews(game.record_id)
-      const urls = await window.electronAPI.getPreviews(game.record_id)
+      const urls = await window.electronAPI.getPreviewsMeta(game.record_id)
       setPreviewUrls(Array.isArray(urls) ? urls : [])
       setImportProgress({ text: 'Previews deleted', progress: 1, total: 1 })
       setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 1500)
@@ -450,7 +451,7 @@ const GameDetailWindow = () => {
     try {
       setImportProgress({ text: 'Deleting custom previews...', progress: 0, total: 1 })
       await window.electronAPI.deleteCustomPreviews(game.record_id)
-      const urls = await window.electronAPI.getPreviews(game.record_id)
+      const urls = await window.electronAPI.getPreviewsMeta(game.record_id)
       setPreviewUrls(Array.isArray(urls) ? urls : [])
       setImportProgress({ text: 'Custom previews deleted', progress: 1, total: 1 })
       setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 1500)
@@ -468,7 +469,7 @@ const GameDetailWindow = () => {
     try {
       console.log('[handleSaveSortOrder] persisting %d previews for recordId:', orderedUrls?.length, game.record_id)
       await window.electronAPI.reorderPreviews(game.record_id, orderedUrls)
-      const urls = await window.electronAPI.getPreviews(game.record_id)
+      const urls = await window.electronAPI.getPreviewsMeta(game.record_id)
       setPreviewUrls(Array.isArray(urls) ? urls : [])
     } catch (err) {
       console.error('Failed to save sort order:', err)
@@ -478,7 +479,7 @@ const GameDetailWindow = () => {
   const handleResetSortOrder = async () => {
     try {
       await window.electronAPI.clearPreviewSort(game.record_id)
-      const urls = await window.electronAPI.getPreviews(game.record_id)
+      const urls = await window.electronAPI.getPreviewsMeta(game.record_id)
       setPreviewUrls(Array.isArray(urls) ? urls : [])
     } catch (err) {
       console.error('Failed to reset sort order:', err)
@@ -493,7 +494,10 @@ const GameDetailWindow = () => {
       const refreshedGame = result?.game || await window.electronAPI.getGame(game.record_id)
       if (refreshedGame) refreshFromGame(refreshedGame, selectedVersion?.version)
       if (result?.bannerUrl) setBannerUrl(firstMediaUrl(result.bannerUrl))
-      if (Array.isArray(result?.previewUrls)) setPreviewUrls(result.previewUrls)
+      // refreshGameMedia returns plain URL strings; the Media tab needs the
+      // enriched meta objects, so re-fetch via the meta handler.
+      const refreshedPreviews = await window.electronAPI.getPreviewsMeta(game.record_id)
+      setPreviewUrls(Array.isArray(refreshedPreviews) ? refreshedPreviews : [])
     } catch (err) {
       alert(`Failed to refresh media links: ${err.message}`)
       setImportProgress({ text: '', progress: 0, total: 0 })
@@ -504,7 +508,7 @@ const GameDetailWindow = () => {
     try {
       const [banner, previews] = await Promise.all([
         window.electronAPI.getGame(game.record_id),
-        window.electronAPI.getPreviews(game.record_id),
+        window.electronAPI.getPreviewsMeta(game.record_id),
       ])
       if (banner) setBannerUrl(firstMediaUrl(banner.banner_url || ''))
       setPreviewUrls(Array.isArray(previews) ? previews : [])
@@ -908,7 +912,7 @@ const GameDetailWindow = () => {
       const updatedGame = await window.electronAPI.getGame(game.record_id)
       refreshFromGame(updatedGame, selectedVersion)
       setBannerUrl(updatedGame.banner_url || '')
-      window.electronAPI.getPreviews(updatedGame.record_id)
+      window.electronAPI.getPreviewsMeta(updatedGame.record_id)
         .then((urls) => setPreviewUrls(urls || []))
         .catch(console.error)
       setShowModal(false)
@@ -960,7 +964,7 @@ const GameDetailWindow = () => {
     ? isRemoteMediaUrl(bannerUrl) ? 'Streaming from the web' : 'Downloaded to local storage'
     : 'No banner available'
   const previewMediaStatus = validPreviewUrls.length > 0
-    ? validPreviewUrls.some(isRemoteMediaUrl) ? 'Streaming from the web' : 'Downloaded to local storage'
+    ? validPreviewUrls.some((p) => isRemoteMediaUrl(p?.url || p)) ? 'Streaming from the web' : 'Downloaded to local storage'
     : 'No previews available'
 
   // ── Loading state ─────────────────────────────────────────────────────────

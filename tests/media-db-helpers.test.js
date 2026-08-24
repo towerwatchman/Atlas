@@ -9,6 +9,7 @@ const {
   updatePreviews,
   insertPreviewSortRow,
   getPreviews,
+  getPreviewsWithMeta,
   deletePreviews,
   deleteBanner,
   updateBanners,
@@ -578,5 +579,57 @@ describe('preview_sort -1 custom zone and tiebreaking', () => {
     expect(urls[0]).toMatch(/a\.webp$/)
     expect(urls[1]).toMatch(/b\.webp$/)
     expect(urls[2]).toMatch(/custom\.webp$/)
+  })
+})
+
+describe('getPreviewsWithMeta (source + location enrichment)', () => {
+  it('derives source and location for local, custom, and remote previews', async () => {
+    const { dataDir } = await openFreshDatabase()
+    await insertGame(1)
+
+    const imageDir = path.join(dataDir, 'data', 'images', '1')
+    fs.mkdirSync(imageDir, { recursive: true })
+
+    // Downloaded Steam preview: local file present, remote_url points at steamstatic.
+    fs.writeFileSync(path.join(imageDir, 'steam.webp'), 'fake')
+    await updatePreviews(1, 'data/images/1/steam.webp', 'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1/ss.png', false)
+
+    // Custom upload: local file present, no remote_url.
+    fs.writeFileSync(path.join(imageDir, 'custom.webp'), 'fake')
+    await updatePreviews(1, 'data/images/1/custom.webp', null, true)
+
+    // Remote-only F95 preview (no local file → streamed from the web).
+    await new Promise((resolve) => {
+      dbIndex.db.serialize(() => {
+        dbIndex.db.run(`INSERT OR IGNORE INTO atlas_data (atlas_id) VALUES (1)`)
+        dbIndex.db.run(`INSERT OR IGNORE INTO atlas_mappings (record_id, atlas_id) VALUES (?, 1)`, [1])
+        dbIndex.db.run(`INSERT OR IGNORE INTO f95_zone_data (f95_id, atlas_id) VALUES (1, 1)`)
+        dbIndex.db.run(
+          `INSERT INTO f95_zone_screens (f95_id, screen_url) VALUES (?, ?)`,
+          [1, 'https://attachments.f95zone.to/2023/07/remote_x.png'],
+          () => resolve(),
+        )
+      })
+    })
+
+    const previews = await getPreviewsWithMeta(1, dataDir, false, { mode: 'stream' })
+
+    const steam = previews.find((p) => String(p.url).endsWith('steam.webp'))
+    expect(steam).toBeTruthy()
+    expect(steam.source).toBe('steam')
+    expect(steam.location).toBe('local')
+
+    const custom = previews.find((p) => String(p.url).endsWith('custom.webp'))
+    expect(custom.source).toBe('custom')
+    expect(custom.location).toBe('custom')
+
+    const f95 = previews.find((p) => String(p.url).includes('f95zone.to'))
+    expect(f95).toBeTruthy()
+    expect(f95.source).toBe('f95')
+    expect(f95.location).toBe('remote')
+
+    // The plain-URL contract is preserved for non-meta consumers.
+    const plain = await getPreviews(1, dataDir, false, { mode: 'stream' })
+    expect(plain.every((p) => typeof p === 'string')).toBe(true)
   })
 })

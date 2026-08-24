@@ -10,7 +10,7 @@ const getDb = () => dbModule.db
 const { toLocalAssetPath, getAssetBasePath, normalizeMediaStorageMode, remoteBannerExpression,
         buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
-const { normalizeSourceOrder, parseExternalIds, resolveSteamAppId } = require('./mediaSources')
+const { normalizeSourceOrder, parseExternalIds, resolveSteamAppId, sourceFromRemoteUrl } = require('./mediaSources')
 
 function normalizeVersionName(value, fallback = "Unknown") {
   const normalized = String(value ?? "").trim();
@@ -838,7 +838,7 @@ const dbAll = (sql, params = []) =>
     getDb().all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows || [])));
   });
 
-const isPreviewVideo = (u) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(u || ""));
+const isPreviewVideo = (u) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(u || ""))
 
 // Resolves a single previews row to a normalized item. A present local file wins,
 // but if it is missing we fall back to the stored remote_url. Returns null when
@@ -874,7 +874,7 @@ const resolveLocalPreview = async (row, appPath, isDev) => {
 const applyCustomSort = (items, sortMap, createdAtMap) => {
   return items
     .map((item) => ({
-      url: item.url,
+      item,
       sorted: sortMap.has(item.identifier),
       position: sortMap.has(item.identifier) ? sortMap.get(item.identifier) : null,
       createdAt: sortMap.has(item.identifier) ? createdAtMap.get(item.identifier) : 0,
@@ -885,10 +885,10 @@ const applyCustomSort = (items, sortMap, createdAtMap) => {
       if (b.sorted) return 1;
       return 0;
     })
-    .map((d) => d.url);
+    .map((d) => d.item);
 };
 
-const getPreviews = async (recordId, appPath, isDev, mediaStorageMode = "stream") => {
+const getPreviews = async (recordId, appPath, isDev, mediaStorageMode = "stream", withMeta = false) => {
   const sourceAppId = mediaStorageMode && typeof mediaStorageMode === "object"
     ? (mediaStorageMode.sourceAppId ?? null)
     : null;
@@ -900,7 +900,7 @@ const getPreviews = async (recordId, appPath, isDev, mediaStorageMode = "stream"
         [recordId],
       ),
       dbAll(
-        `SELECT path, remote_url FROM previews WHERE record_id = ?`,
+        `SELECT path, remote_url, is_custom FROM previews WHERE record_id = ?`,
         [recordId],
       ),
       getRemotePreviewUrls(recordId, {
@@ -918,15 +918,28 @@ const getPreviews = async (recordId, appPath, isDev, mediaStorageMode = "stream"
     }
 
     // Trailers (videos) lead and are never user-sorted.
-    const remoteTrailers = remoteAll.filter(isPreviewVideo);
+    const remoteTrailers = remoteAll
+      .filter(isPreviewVideo)
+      .map((url) => ({
+        url,
+        identifier: url,
+        type: "video",
+        source: sourceFromRemoteUrl(url) || "atlas",
+        location: "remote",
+      }));
 
     // Normalize local rows into the unified item shape; skip missing files.
+    // Enrich each with a derived source (from its logged remote_url) and a
+    // location: custom uploads vs downloaded-local vs remote-streamed.
     const localItems = [];
     const seen = new Set();
     for (const row of localRows) {
       const item = await resolveLocalPreview(row, appPath, isDev);
       if (!item) continue;
-      localItems.push(item);
+      const isCustom = row.is_custom === 1 || row.is_custom === true;
+      const source = isCustom ? "custom" : sourceFromRemoteUrl(row.remote_url) || "atlas";
+      const location = isCustom ? "custom" : "local";
+      localItems.push({ ...item, source, location });
       seen.add(item.url);
       if (item.remoteUrl) seen.add(item.remoteUrl);
     }
@@ -934,7 +947,13 @@ const getPreviews = async (recordId, appPath, isDev, mediaStorageMode = "stream"
     // Remote screenshots that aren't already represented by a local row.
     const uniqueRemoteScreenshots = remoteAll
       .filter((u) => !isPreviewVideo(u) && !seen.has(u))
-      .map((url) => ({ url, identifier: url, type: "image" }));
+      .map((url) => ({
+        url,
+        identifier: url,
+        type: "image",
+        source: sourceFromRemoteUrl(url) || "atlas",
+        location: "remote",
+      }));
 
     // Unified screenshot pipeline: local images first, then deduped remote ones.
     const allScreenshots = [
@@ -944,16 +963,27 @@ const getPreviews = async (recordId, appPath, isDev, mediaStorageMode = "stream"
 
     const sortedScreenshots = applyCustomSort(allScreenshots, sortMap, createdAtMap);
 
-    return [
+    const built = [
       ...remoteTrailers,
-      ...localItems.filter((i) => i.type === "video").map((i) => i.url),
+      ...localItems.filter((i) => i.type === "video"),
       ...sortedScreenshots,
     ];
+    // Default path returns plain URLs so existing consumers (reorder, delete,
+    // download) and their tests are unaffected. The renderer asks for the
+    // enriched object shape via getPreviewsWithMeta.
+    return withMeta ? built : built.map((i) => i.url);
   } catch (err) {
     console.error("Error resolving preview URLs:", err);
     throw err;
   }
 };
+
+// Renderer-facing variant: same pipeline as getPreviews but returns enriched
+// objects ({ url, identifier, type, source, location }) so the Media tab can
+// show per-source and remote/local badges without a second round-trip or a new
+// DB column. Internal callers keep using getPreviews (plain URLs).
+const getPreviewsWithMeta = (recordId, appPath, isDev, mediaStorageMode = "stream") =>
+  getPreviews(recordId, appPath, isDev, mediaStorageMode, true)
 
 const getBanners = (recordId, appPath, isDev) => {
   return new Promise((resolve, reject) => {
@@ -1514,6 +1544,7 @@ module.exports = {
   getSteamBrowseMediaForAppId,
   getRemotePreviewUrls,
   getPreviews,
+  getPreviewsWithMeta,
   getSteamMovieThumbnails,
   getBanners,
   getRemoteBannerUrl,

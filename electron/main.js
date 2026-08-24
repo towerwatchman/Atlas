@@ -86,7 +86,7 @@ const {
 const {
   updateFolderSize, getBannerUrl, getScreensUrlList,
   updateBanners, updatePreviews, insertPreviewSortRow, getRemotePreviewUrls, getSteamMovieThumbnails,
-  getPreviews, getBanners, getBanner, getRemoteBannerUrl, getBrowsePreviewUrls,
+  getPreviews, getPreviewsWithMeta, getBanners, getBanner, getRemoteBannerUrl, getBrowsePreviewUrls,
   getSteamBrowseMediaForAppId,
   getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
   deleteBanner, deletePreviews,
@@ -1816,7 +1816,7 @@ function buildCtx() {
     getBannerUrl, getScreensUrlList, getRemoteBannerUrl, getRemotePreviewUrls, getSteamMovieThumbnails,
     getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
     getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension,
-    GetAtlasIDbyRecord, getPreviews, getBanner, deleteBanner, deletePreviews,
+    GetAtlasIDbyRecord, getPreviews, getPreviewsWithMeta, getBanner, deleteBanner, deletePreviews,
     getBrowsePreviewUrls,
     getSteamBrowseMediaForAppId,
     searchAtlas, searchAtlasByF95Id, findF95Id, checkPathExist,

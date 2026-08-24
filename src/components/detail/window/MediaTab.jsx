@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import SafeImage from '../../ui/SafeImage.jsx'
+import SourceIcon from '../../ui/SourceIcon.jsx'
+import { SHOW_LOCATION_BADGES } from '../../../assets/icons/sourceIcons'
 import PreviewLightbox from '../page/PreviewLightbox.jsx'
 
 export default function MediaTab({
@@ -101,7 +103,8 @@ export default function MediaTab({
     setDragIndex(null)
     setPreviewOrder(finalOrder)
     if (typeof onSaveSortOrder === 'function') {
-      onSaveSortOrder(finalOrder)
+      // reorder-reviews expects display URLs, not the enriched objects.
+      onSaveSortOrder(finalOrder.map((p) => p?.url || p))
     }
   }
 
@@ -259,22 +262,60 @@ export default function MediaTab({
             style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}
           >
             {Array.isArray(previewOrder) && previewOrder.length > 0 ? (
-              previewOrder.map((url, index) => (
-                <SafeImage
-                  key={url}
-                  src={url}
-                  alt={`Preview ${index + 1}`}
-                  className="w-full aspect-video object-contain bg-primary rounded cursor-move"
-                  style={{ opacity: dragIndex === index ? 0.5 : 1 }}
-                  fallbackLabel="Preview unavailable"
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, index)}
-                  onDragOver={(e) => handleDragOver(e, index)}
-                  onDrop={handleDrop}
-                  onDragEnd={handleDragEnd}
-                  onClick={() => setLightboxIndex(index)}
-                />
-              ))
+              previewOrder.map((p, index) => {
+                const url = p?.url || p
+                const location = p?.location
+                const source = p?.source
+                return (
+                  <div key={url || p?.identifier || index} className="relative">
+                    <SafeImage
+                      src={url}
+                      alt={`Preview ${index + 1}`}
+                      className="w-full aspect-video object-contain bg-primary rounded cursor-move"
+                      style={{ opacity: dragIndex === index ? 0.5 : 1 }}
+                      fallbackLabel="Preview unavailable"
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDrop={handleDrop}
+                      onDragEnd={handleDragEnd}
+                      onClick={() => setLightboxIndex(index)}
+                    />
+                    {SHOW_LOCATION_BADGES.remote && location === 'remote' && (
+                      <span
+                        title="Streaming from web"
+                        className="absolute bottom-1 right-1 flex items-center justify-center w-5 h-5 rounded-full bg-black/35 text-white leading-none"
+                      >
+                        <i className="fas fa-cloud text-xs" aria-hidden="true"></i>
+                      </span>
+                    )}
+                    {SHOW_LOCATION_BADGES.local && location === 'local' && (
+                      <span
+                        title="Downloaded"
+                        className="absolute bottom-1 right-1 flex items-center justify-center w-5 h-5 rounded-full bg-green-400 text-white leading-none"
+                      >
+                        <i className="fas fa-check text-xs" aria-hidden="true"></i>
+                      </span>
+                    )}
+                    {SHOW_LOCATION_BADGES.custom && location === 'custom' && (
+                      <span
+                        title="Uploaded"
+                        className="absolute bottom-1 right-1 flex items-center justify-center w-5 h-5 rounded-full bg-blue-500 text-white leading-none"
+                      >
+                        <i className="fas fa-user text-xs" aria-hidden="true"></i>
+                      </span>
+                    )}
+                    {source && (
+                      <span
+                        title={source}
+                        className="absolute top-1 right-1 flex items-center justify-center h-5 max-w-[4rem] px-1 rounded bg-black/65"
+                      >
+                        <SourceIcon source={source} size={14} />
+                      </span>
+                    )}
+                  </div>
+                )
+              })
             ) : (
               <p>No previews available</p>
             )}
