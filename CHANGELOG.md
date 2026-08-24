@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Fixed
+- Added Media Upload UI: custom media card in `MediaTab` (file picker, drag-and-drop and URL fetch for Preview/Banner with live progress), auto-refresh via `GameDetailsWindow` `handleMediaChanged`, and FAB/card anchored above the FAB at `right-4` (aligned to Cancel/Save) with square-to-circle morph and auto-hide behind the preview lightbox.
+- Set up backend for custom upload UI: monotonic `nextCreatedAt` for collision-free `created_at`, `savePreviewSort`/`resetPreviewSort` now preserve `created_at` for custom uploads and handle `position=-1` transactionally, shared `saveCustomBannerFromBuffer` and `custom-media-progress` reporting, new handlers for local-file and URL-based banner/preview uploads (`select-files`, `add-custom-previews`, URL variants), and `progressId` support on `convert-and-save-banner`.
 - Added persistent sorting for previews
   - Introduced the `preview_sort` table to decouple sort order from the `previews` table. It is keyed by `record_id` and a stable `identifier` (using `remote_url` for downloaded/stream previews, or local paths for custom uploads).
   - Dropped the unused `previews.position` column. Existing databases drop it automatically on startup via a `PRAGMA table_info` guard.

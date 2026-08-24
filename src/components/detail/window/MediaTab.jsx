@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import SafeImage from '../../ui/SafeImage.jsx'
 import PreviewLightbox from '../page/PreviewLightbox.jsx'
 
@@ -9,15 +9,74 @@ export default function MediaTab({
   onDownloadBanner, onSelectCustomBanner, onDeleteBanner,
   onDownloadPreviews, onDeletePreviews, onRefreshMetadata,
   onSaveSortOrder, onResetSortOrder,
+  onMediaChanged,
 }) {
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const [previewOrder, setPreviewOrder] = useState(validPreviewUrls || [])
   const [dragIndex, setDragIndex] = useState(null)
+  const [cardOpen, setCardOpen] = useState(false)
+  const [target, setTarget] = useState('preview')
+  const [uploads, setUploads] = useState([])
+  const [urlInput, setUrlInput] = useState('')
+  const [showUrlInput, setShowUrlInput] = useState(false)
+
+  const uploadingEntries = uploads.filter((u) => u.status === 'uploading')
+  const isUploading = uploadingEntries.length > 0
+  const overallProgress = isUploading
+    ? uploadingEntries.reduce((sum, u) => sum + (u.total ? u.progress / u.total : 0), 0) / uploadingEntries.length
+    : 0
 
   useEffect(() => {
     console.log('[MediaTab] validPreviewUrls changed (%d):', validPreviewUrls?.length, validPreviewUrls)
     setPreviewOrder(validPreviewUrls || [])
   }, [validPreviewUrls])
+
+  useEffect(() => {
+    setCardOpen(false)
+  }, [game.record_id])
+
+  useEffect(() => {
+    if (lightboxIndex !== null) setCardOpen(false)
+  }, [lightboxIndex])
+
+  const handleMediaProgress = useCallback((data) => {
+    if (!data?.id) return
+    setUploads((prev) => {
+      const exists = prev.find((u) => u.id === data.id)
+      if (!exists && !data.done) {
+        return [...prev, { id: data.id, name: data.url || data.id, progress: data.progress || 0, total: data.total || 0, status: 'uploading' }]
+      }
+      return prev.map((u) => {
+        if (u.id !== data.id) return u
+        if (data.error) return { ...u, status: 'error', error: data.error }
+        if (data.done) return { ...u, progress: data.total || u.total, status: 'done', url: data.url }
+        return { ...u, progress: data.progress, total: data.total }
+      })
+    })
+  }, [])
+
+  useEffect(() => {
+    if (typeof window.electronAPI.onCustomMediaProgress !== 'function') return
+    window.electronAPI.onCustomMediaProgress(handleMediaProgress)
+    return () => {
+      if (typeof window.electronAPI.removeCustomMediaProgressListener === 'function') {
+        window.electronAPI.removeCustomMediaProgressListener(handleMediaProgress)
+      }
+    }
+  }, [handleMediaProgress])
+
+  useEffect(() => {
+    const timers = []
+    uploads.forEach((u) => {
+      if (u.status === 'done' || u.status === 'error') {
+        const timer = setTimeout(() => {
+          setUploads((prev) => prev.filter((x) => x.id !== u.id))
+        }, 2000)
+        timers.push(timer)
+      }
+    })
+    return () => timers.forEach(clearTimeout)
+  }, [uploads])
 
   const handleDragStart = (e, index) => {
     setDragIndex(index)
@@ -59,6 +118,78 @@ export default function MediaTab({
     } catch (err) {
       console.error('Error opening image folder:', err)
       alert(`Failed to open image folder: ${err.message || 'Unknown error'}`)
+    }
+  }
+
+  const processFiles = async (files) => {
+    if (!files || files.length === 0) return
+    const items = files.map((f) => ({ id: crypto.randomUUID(), srcPath: f, name: f.split(/[\\/]/).pop() }))
+    setUploads((prev) => [...prev, ...items.map((u) => ({ ...u, progress: 0, total: items.length, status: 'uploading' }))])
+    try {
+      if (target === 'banner') {
+        const first = items[0]
+        if (!first) return
+        await window.electronAPI.convertAndSaveBanner(game.record_id, first.srcPath, { progressId: first.id })
+        setUploads((prev) => prev.map((u) => u.id === first.id ? { ...u, status: 'done' } : u))
+      } else {
+        const result = await window.electronAPI.addCustomPreviews(game.record_id, items)
+        result?.forEach((r) => {
+          if (r?.url) {
+            setUploads((prev) => prev.map((u) => u.id === r.id ? { ...u, url: r.url, status: 'done' } : u))
+          }
+        })
+      }
+      onMediaChanged?.()
+    } catch (err) {
+      setUploads((prev) => prev.map((u) => {
+        if (items.some((i) => i.id === u.id)) return { ...u, status: 'error', error: err.message }
+        return u
+      }))
+    }
+  }
+
+  const handleFileSelect = async () => {
+    try {
+      const paths = await window.electronAPI.selectFiles()
+      if (!paths || paths.length === 0) return
+      await processFiles(paths)
+    } catch (err) {
+      console.error('File select failed:', err)
+    }
+  }
+
+  const handleDropZone = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const files = Array.from(e.dataTransfer.files || [])
+    const paths = []
+    for (const f of files) {
+      const resolved = (typeof window.electronAPI.getDroppedFilePath === 'function'
+        ? window.electronAPI.getDroppedFilePath(f)
+        : '') || f.path || ''
+      if (resolved) paths.push(resolved)
+    }
+    processFiles(paths)
+  }
+
+  const handleUrlFetch = async () => {
+    const url = urlInput.trim()
+    if (!url) return
+    const id = crypto.randomUUID()
+    const name = url.split('/').pop()?.split('?')[0] || url
+    setUploads((prev) => [...prev, { id, name, progress: 0, total: 0, status: 'uploading' }])
+    setUrlInput('')
+    try {
+      if (target === 'banner') {
+        const result = await window.electronAPI.convertAndSaveBannerFromUrl(game.record_id, id, url)
+        setUploads((prev) => prev.map((u) => u.id === id ? { ...u, status: 'done', url: result?.url } : u))
+      } else {
+        const result = await window.electronAPI.addCustomPreviewFromUrl(game.record_id, id, url)
+        setUploads((prev) => prev.map((u) => u.id === id ? { ...u, status: 'done', url: result?.url } : u))
+      }
+      onMediaChanged?.()
+    } catch (err) {
+      setUploads((prev) => prev.map((u) => u.id === id ? { ...u, status: 'error', error: err.message } : u))
     }
   }
 
@@ -157,6 +288,155 @@ export default function MediaTab({
           <button onClick={onResetSortOrder} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Reset Sort Order</button>
         </div>
       </div>
+
+      {/* FAB */}
+      {lightboxIndex === null && (
+        <button
+          onClick={() => setCardOpen((v) => !v)}
+          className={`fixed bottom-20 right-4 w-14 h-14 shadow-lg flex items-center justify-center z-[1600] bg-accent hover:bg-accentHover fab-morph ${
+            cardOpen ? 'is-circle rounded-[50%]' : 'rounded-xl'
+          } ${isUploading ? 'ring-2 ring-accent/40' : ''}`}
+          title={isUploading ? 'Uploading…' : 'Add media'}
+        >
+          <i className="fab-icon-default fas fa-arrow-up-from-bracket text-white text-lg"></i>
+          <i className="fab-icon-circle fas fa-xmark text-white text-lg"></i>
+
+          {isUploading && (
+            <svg viewBox="0 0 50 50" className="w-6 h-6 text-white">
+              <circle
+                cx="25" cy="25" r="22"
+                fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="3"
+              />
+              <circle
+                cx="25" cy="25" r="22"
+                fill="none" stroke="currentColor" strokeWidth="3"
+                strokeLinecap="round"
+                strokeDasharray={138.2}
+                strokeDashoffset={138.2 * (1 - overallProgress)}
+                transform="rotate(-90 25 25)"
+                className="transition-[stroke-dashoffset] duration-300 ease-out"
+              />
+              <text x="25" y="28" textAnchor="middle" fill="currentColor" fontSize="11" fontWeight="600">
+                {Math.round(overallProgress * 100)}
+              </text>
+            </svg>
+          )}
+        </button>
+      )}
+
+      {/* Upload card */}
+      {cardOpen && lightboxIndex === null && (
+        <div
+          className="fixed bottom-[148px] right-4 w-[360px] bg-secondary border border-border rounded-md shadow-xl z-[1600] flex flex-col max-h-[500px]"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleDropZone}
+        >
+          <div className="p-3 border-b border-border flex items-center justify-between">
+            <span className="text-sm font-semibold text-text">Add Media</span>
+            <div className="flex rounded overflow-hidden border border-border">
+              <button
+                onClick={() => setTarget('preview')}
+                className={`px-3 py-1 text-xs ${target === 'preview' ? 'bg-accent text-white' : 'bg-button text-text'}`}
+              >
+                Preview
+              </button>
+              <button
+                onClick={() => setTarget('banner')}
+                className={`px-3 py-1 text-xs ${target === 'banner' ? 'bg-accent text-white' : 'bg-button text-text'}`}
+              >
+                Banner
+              </button>
+            </div>
+          </div>
+
+          <div className="p-3 space-y-3">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={handleFileSelect}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  handleFileSelect()
+                }
+              }}
+              onDragOver={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                handleDropZone(e)
+              }}
+              className="flex flex-col items-center justify-center gap-1 p-4 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-muted transition-colors"
+            >
+              <i className="fas fa-cloud-upload-alt text-lg text-muted"></i>
+              <span className="text-xs text-text text-center">
+                Drag here to upload or{' '}
+                <span className="text-accent underline underline-offset-2">browse</span>{' '}
+              </span>
+              <span className="text-[10px] text-muted">
+                {target === 'preview' ? 'Images, GIFs, WebP, MP4' : 'Banner image'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowUrlInput((v) => !v)}
+                className="px-3 py-1 bg-button hover:bg-buttonHover rounded text-xs text-text"
+              >
+                Paste URL
+              </button>
+              {showUrlInput && (
+                <div className="flex-1 flex gap-2">
+                  <input
+                    type="text"
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                    placeholder="https://..."
+                    className="flex-1 bg-primary border border-border rounded px-2 py-1 text-xs text-text"
+                    onKeyDown={(e) => e.key === 'Enter' && handleUrlFetch()}
+                  />
+                  <button
+                    onClick={handleUrlFetch}
+                    className="px-3 py-1 bg-accent text-white rounded text-xs hover:bg-accentHover"
+                  >
+                    Fetch
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {uploads.length > 0 && (
+              <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                {uploads.map((u) => (
+                  <div key={u.id} className="bg-primary border border-border rounded p-2">
+                    <div className="flex items-center justify-between text-xs text-text mb-1">
+                      <span className="truncate flex-1">{u.name}</span>
+                      <span className="ml-2 shrink-0">
+                        {u.status === 'done' && 'Done'}
+                        {u.status === 'error' && 'Error'}
+                        {u.status === 'uploading' && `${u.progress}/${u.total || '?'}`}
+                      </span>
+                    </div>
+                    {(u.status === 'uploading' || u.status === 'done') && (
+                      <div className="h-2 bg-progressBackground rounded overflow-hidden">
+                        <div
+                          className={`h-full ${u.status === 'error' ? 'bg-danger' : 'bg-progressForeground'}`}
+                          style={{ width: `${u.total ? (u.progress / u.total) * 100 : 0}%` }}
+                        ></div>
+                      </div>
+                    )}
+                    {u.error && <p className="text-[10px] text-danger mt-1">{u.error}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <PreviewLightbox
         previews={validPreviewUrls || []}
         lightboxIndex={lightboxIndex}

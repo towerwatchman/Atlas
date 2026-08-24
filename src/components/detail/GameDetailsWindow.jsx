@@ -485,6 +485,19 @@ const GameDetailWindow = () => {
     }
   }
 
+  const handleMediaChanged = async () => {
+    try {
+      const [banner, previews] = await Promise.all([
+        window.electronAPI.getGame(game.record_id),
+        window.electronAPI.getPreviews(game.record_id),
+      ])
+      if (banner) setBannerUrl(firstMediaUrl(banner.banner_url || ''))
+      setPreviewUrls(Array.isArray(previews) ? previews : [])
+    } catch (err) {
+      console.error('Failed to refresh media after upload:', err)
+    }
+  }
+
   const updateSelectedVersionPath = async (changes) => {
     if (!selectedVersion) {
       alert('No version selected.')
@@ -1031,6 +1044,7 @@ const GameDetailWindow = () => {
                 onSaveSortOrder={handleSaveSortOrder}
                 onResetSortOrder={handleResetSortOrder}
                 onRefreshMetadata={handleRefreshMetadata}
+                onMediaChanged={handleMediaChanged}
               />
             )}
             {activeTab === 'Mappings' && (
