@@ -1361,6 +1361,81 @@ const deletePreviews = (recordId, appPath, isDev) => {
   });
 };
 
+// Removes a record's custom preview rows (is_custom=1) from disk and from
+// previews + preview_sort. Files are deleted before DB rows are cleared.
+const deleteCustomPreviews = (recordId, appPath, isDev) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const mediaRoot = path.resolve(getAssetBasePath(appPath, isDev), "data", "images");
+
+      const customRows = await new Promise((res, rej) => {
+        getDb().all(
+          `SELECT path, is_custom FROM previews WHERE record_id = ? AND is_custom = 1`,
+          [recordId],
+          (err, rows) => (err ? rej(err) : res(rows || [])),
+        );
+      });
+
+      for (const row of customRows) {
+        const previewUrl = toLocalAssetPath(appPath, isDev, row.path);
+        const filePath = previewUrl.replace("file://", "");
+        try {
+          if (
+            await fsPromises
+              .access(filePath)
+              .then(() => true)
+              .catch(() => false)
+          ) {
+            await deletePathWithElevationFallback(filePath, {
+              recursive: false,
+              force: true,
+              description: "Delete custom preview image",
+              containmentRoot: mediaRoot,
+              validatePath: (candidatePath) => {
+                const resolved = path.resolve(candidatePath);
+                const relative = path.relative(mediaRoot, resolved);
+                if (relative.startsWith("..") || path.isAbsolute(relative)) {
+                  throw new Error("Preview path is outside the media folder");
+                }
+              },
+            });
+          }
+        } catch (fileErr) {
+          console.error("Error deleting custom preview file:", fileErr);
+        }
+      }
+
+      const identifiers = customRows.map((r) => r.path).filter(Boolean);
+      if (identifiers.length > 0) {
+        await new Promise((res, rej) => {
+          const placeholders = identifiers.map(() => "?").join(",");
+          getDb().run(
+            `DELETE FROM preview_sort WHERE record_id = ? AND identifier IN (${placeholders})`,
+            [recordId, ...identifiers],
+            (err) => (err ? rej(err) : res()),
+          );
+        });
+      }
+
+      getDb().run(
+        `DELETE FROM previews WHERE record_id = ? AND is_custom = 1`,
+        [recordId],
+        (err) => {
+          if (err) {
+            console.error("Error deleting custom previews:", err);
+            reject(err);
+          } else {
+            resolve();
+          }
+        },
+      );
+    } catch (err) {
+      console.error("Error deleting custom previews:", err);
+      reject(err);
+    }
+  });
+};
+
 // Removes a record's cached media_assets rows and their backing files. Steam
 // art can be cached by appid and shared across records, so a file is only
 // unlinked when no OTHER record still references that same path.
@@ -1491,6 +1566,7 @@ module.exports = {
   getBanner,
   deleteBanner,
   deletePreviews,
+  deleteCustomPreviews,
   deleteMediaAssets,
   getF95IDbyRecord,
   getMediaSourceCache,

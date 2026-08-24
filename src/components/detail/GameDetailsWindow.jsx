@@ -446,6 +446,21 @@ const GameDetailWindow = () => {
     }
   }
 
+  const handleDeleteCustomPreviews = async () => {
+    try {
+      setImportProgress({ text: 'Deleting custom previews...', progress: 0, total: 1 })
+      await window.electronAPI.deleteCustomPreviews(game.record_id)
+      const urls = await window.electronAPI.getPreviews(game.record_id)
+      setPreviewUrls(Array.isArray(urls) ? urls : [])
+      setImportProgress({ text: 'Custom previews deleted', progress: 1, total: 1 })
+      setTimeout(() => setImportProgress({ text: '', progress: 0, total: 0 }), 1500)
+    } catch (err) {
+      console.error('Failed to delete custom previews:', err)
+      alert(`Failed to delete custom previews: ${err.message || 'Unknown error'}`)
+      setImportProgress({ text: '', progress: 0, total: 0 })
+    }
+  }
+
   // Persists the current preview drag-reorder to preview_sort via the backend,
   // then refreshes so the grid reflects the saved order. `orderedUrls` is the
   // MediaTab's local previewOrder (the user's in-flight drag reorder).
@@ -1041,6 +1056,7 @@ const GameDetailWindow = () => {
                 onDeleteBanner={handleDeleteBanner}
                 onDownloadPreviews={handleDownloadPreviews}
                 onDeletePreviews={handleDeletePreviews}
+                onDeleteCustomPreviews={handleDeleteCustomPreviews}
                 onSaveSortOrder={handleSaveSortOrder}
                 onResetSortOrder={handleResetSortOrder}
                 onRefreshMetadata={handleRefreshMetadata}

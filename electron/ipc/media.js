@@ -760,6 +760,15 @@ module.exports = function registerMediaHandlers(ctx) {
     return result
   })
 
+  // Deletes only user-added previews (is_custom=1) and their preview_sort rows, leaving downloaded previews intact.
+  ipcMain.handle('delete-custom-previews', async (event, recordId) => {
+    console.log('[delete-custom-previews] handler invoked for recordId:', recordId)
+    const { deleteCustomPreviews } = require('../db/media')
+    const result = await deleteCustomPreviews(recordId, getAssetBasePath(), process.defaultApp)
+    console.log('[delete-custom-previews] handler completed for recordId:', recordId)
+    return result
+  })
+
   // Persists user drag-reorder of preview images into preview_sort, keyed by
   // stable identifiers (remote_url for downloaded images, relative path for
   // custom uploads) so order survives re-downloads and stream/download switches.

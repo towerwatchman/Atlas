@@ -7,7 +7,7 @@ export default function MediaTab({
   validPreviewUrls, previewMediaStatus,
   importProgress,
   onDownloadBanner, onSelectCustomBanner, onDeleteBanner,
-  onDownloadPreviews, onDeletePreviews, onRefreshMetadata,
+  onDownloadPreviews, onDeletePreviews, onDeleteCustomPreviews, onRefreshMetadata,
   onSaveSortOrder, onResetSortOrder,
   onMediaChanged,
 }) {
@@ -211,7 +211,7 @@ export default function MediaTab({
         </div>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
         <button
           onClick={handleOpenImageFolder}
           disabled={!game?.record_id}
@@ -219,6 +219,7 @@ export default function MediaTab({
         >
           Open Image Folder
         </button>
+        <button onClick={onRefreshMetadata} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Refresh Media Links</button>
       </div>
 
       <div className="flex flex-col shrink-0 h-[320px]">
@@ -280,12 +281,12 @@ export default function MediaTab({
           </div>
         </div>
         <div className="flex space-x-2 mt-2">
-          <button onClick={onRefreshMetadata} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Refresh Media Links</button>
+          <button onClick={onResetSortOrder} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Reset Sort Order</button>
           <button onClick={onDownloadPreviews} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Download All Previews</button>
           {Array.isArray(validPreviewUrls) && validPreviewUrls.length > 0 && (
             <button onClick={onDeletePreviews} className="px-4 py-1 bg-danger text-white rounded hover:bg-dangerHover">Delete Downloaded Previews</button>
           )}
-          <button onClick={onResetSortOrder} className="px-4 py-1 bg-button hover:bg-buttonHover rounded">Reset Sort Order</button>
+          <button onClick={onDeleteCustomPreviews} className="px-4 py-1 bg-danger text-white rounded hover:bg-dangerHover">Delete Custom Previews</button>
         </div>
       </div>
 

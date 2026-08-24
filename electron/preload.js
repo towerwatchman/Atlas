@@ -443,6 +443,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking deletePreviews for recordId:", recordId);
     return ipcRenderer.invoke("delete-previews", recordId);
   },
+  deleteCustomPreviews: (recordId) => {
+    console.log("Invoking deleteCustomPreviews for recordId:", recordId);
+    return ipcRenderer.invoke("delete-custom-previews", recordId);
+  },
   reorderPreviews: (recordId, orderedPaths) => {
     console.log("Invoking reorderPreviews for recordId:", recordId);
     return ipcRenderer.invoke("reorder-previews", { recordId, orderedPaths });
