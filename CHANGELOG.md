@@ -8,11 +8,11 @@
 - Set up backend for custom upload UI: monotonic `nextCreatedAt` for collision-free `created_at`, `savePreviewSort`/`resetPreviewSort` now preserve `created_at` for custom uploads and handle `position=-1` transactionally, shared `saveCustomBannerFromBuffer` and `custom-media-progress` reporting, new handlers for local-file and URL-based banner/preview uploads (`select-files`, `add-custom-previews`, URL variants), and `progressId` support on `convert-and-save-banner`.
 - Added persistent sorting for previews
   - Introduced the `preview_sort` table to decouple sort order from the `previews` table. It is keyed by `record_id` and a stable `identifier` (using `remote_url` for downloaded/stream previews, or local paths for custom uploads).
-  - Dropped the unused `previews.position` column. Existing databases drop it automatically on startup via a `PRAGMA table_info` guard.
+  - Marked the legacy previews.position column OBSOLETE (never written; retained in the schema only for dev/stable branch-swap DB compatibility) 
   - `preview_sort` includes a `created_at` column for insertion-order tiebreaking when multiple items share the same position (e.g., custom uploads at `-1`).
   - `updatePreviews` no longer takes a `position` argument. Position management is handled entirely by `preview_sort`.
   - Added `insertPreviewSortRow` and `nextManualPreviewPosition` helpers in `electron/db/media.js` to manage custom upload sort positions.
-  - `getPreviews` now merges local and remote screenshots, applies positions from `preview_sort` (falling back to `256 + index`), and tiebreaks by `created_at ASC`. Trailers remain locked to the front.
+  - `getPreviews` now merges local and remote screenshots, applies positions from `preview_sort`, and lets items without a `preview_sort` row keep their natural order (trailing explicitly sorted ones)
   - Rewrote the `reorder-previews` IPC handler to map display URLs to stable identifiers, persist orders in a single transaction, and implement the `-1` custom zone promotion rule (promoting `-1` items to positive positions when dragged after sorted items).
   - Added `clear-preview-sort` IPC handler and a UI "Reset Sort Order" button to wipe custom sorts and revert to natural source order.
   - `deletePreviews` now hard-deletes non-custom rows (`is_custom = 0`) without touching `preview_sort`, ensuring sort order survives deletion and re-downloads.

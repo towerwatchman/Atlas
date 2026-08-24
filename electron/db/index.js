@@ -469,6 +469,10 @@ const initializeDatabase = (dataDir) => {
       (
         record_id INTEGER REFERENCES games (record_id),
         path TEXT UNIQUE,
+        -- OBSOLETE: superseded by preview_sort.position. Never written by any code
+        -- path; kept in the schema only for dev/stable branch-swap DB compatibility.
+        -- DO NOT DROP.
+        position INTEGER DEFAULT 256,
         UNIQUE (record_id, path)
       );
     `);
@@ -490,15 +494,7 @@ const initializeDatabase = (dataDir) => {
       );
     `, () => {});
     db.run(`CREATE INDEX IF NOT EXISTS idx_preview_sort_record ON preview_sort (record_id);`, () => {});
-    // One-time cleanup for databases that still carry the now-removed
-    // previews.position column. New databases never get it; existing ones
-    // were migrated to preview_sort earlier, so dropping is safe.
-    db.all(`PRAGMA table_info(previews)`, (err, rows) => {
-      if (err || !Array.isArray(rows)) return
-      const hasPosition = rows.some((r) => r.name === 'position')
-      if (!hasPosition) return
-      db.run(`ALTER TABLE previews DROP COLUMN position`, () => {})
-    })
+
     db.run(`
       CREATE TABLE IF NOT EXISTS banners
       (

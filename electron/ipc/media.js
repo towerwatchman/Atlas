@@ -16,8 +16,6 @@ const { fetchAndStoreGogData } = require('../scanners/gogscanner')
 const { getLewdCornerIDbyRecord } = require('../db/lewdcorner')
 const {
   getF95IDbyRecord, getMediaSourceCache, upsertMediaSourceCache,
-  hasLocalAndCustomPreview,
-  hasCustomPreview,
   nextCreatedAt,
 } = require('../db/media')
 const dbIndexForMedia = require('../db/index')
@@ -535,7 +533,7 @@ module.exports = function registerMediaHandlers(ctx) {
       let doDownload = true
       if (missingOnly) {
         const hasBanner = await hasLocalBanner(recordId)
-        const hasPreviews = await hasLocalAndCustomPreview(recordId)
+        const hasPreviews = await hasLocalPreviews(recordId)
         doDownload = !hasBanner || !hasPreviews
       }
       if (doDownload) {
@@ -674,6 +672,19 @@ module.exports = function registerMediaHandlers(ctx) {
       `SELECT 1 FROM banners WHERE record_id = ? LIMIT 1`, [recordId])
     return !!(fromAssets || fromBanners)
   }
+
+  const hasLocalPreviews = async (recordId) => {
+    // source (f95, lewdcorner, atlas, steam) banners, header, hero, logo, preview, etc.
+    // TODO: the getPreviews only looking at previews table so not sure if assets check is needed
+    const fromAssets = await dbGetSafe(
+      `SELECT 1 FROM media_assets WHERE record_id = ? AND asset_type LIKE '%preview%' LIMIT 1`, [recordId])
+    // ignore custom previews (is_custom=1) when checking for missingOnly refresh, since they are user-added and not part of the remote source.
+    const fromPreviews = await dbGetSafe(
+      `SELECT 1 FROM previews WHERE record_id = ? AND is_custom = 0 LIMIT 1`, [recordId])
+    // console.log(`[hasLocalPreviews] recordId=${recordId} fromAssets=${!!fromAssets} fromPreviews=${!!fromPreviews}`)
+    return !!(fromAssets || fromPreviews)
+  }
+
   // Whether the user's saved setting wants images downloaded to disk.
   const shouldDownloadImages = () => getMediaStorageMode() === 'download'
 
@@ -926,7 +937,8 @@ module.exports = function registerMediaHandlers(ctx) {
   })
 
   // Clears the persisted sort order for a record. After clearing, getPreviews
-  // falls back to 256 + index natural order (source priority, then local).
+  // keeps natural order (source priority, then local) for items without a
+  // preview_sort row; explicitly sorted items lead.
   // Custom uploads (is_custom=1) are moved back to the front (position = -1)
   // and keep their created_at so they still sort among themselves by original
   // upload time; non-custom rows are removed entirely. Does NOT touch the
@@ -936,7 +948,8 @@ module.exports = function registerMediaHandlers(ctx) {
     if (!db) return { success: false, error: 'Database not available' }
     // Reset to natural order: custom uploads (is_custom=1) move back to the
     // front (-1) and keep their created_at; non-custom rows are removed so
-    // getPreviews falls back to 256 + index. Both steps run in one transaction
+    // getPreviews keeps natural order for items without a preview_sort row.
+    // Both steps run in one transaction
     // (node-sqlite3 serializes statements on the connection) and any failure
     // rolls everything back. Does NOT touch the previews table itself.
     const run = (sql, params = []) =>

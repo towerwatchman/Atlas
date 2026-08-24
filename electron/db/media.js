@@ -201,35 +201,6 @@ const insertPreviewSortRow = (recordId, identifier, position) => {
   });
 };
 
-const hasLocalAndCustomPreview = async (recordId) => {
-  const fromPreviews = await new Promise((resolve) => {
-    getDb().get(
-      `SELECT 1 FROM previews WHERE record_id = ? LIMIT 1`,
-      [recordId],
-      (err, row) => resolve(err ? null : row || null),
-    );
-  });
-  const fromAssets = await new Promise((resolve) => {
-    getDb().get(
-      `SELECT 1 FROM media_assets WHERE record_id = ? AND asset_type LIKE '%preview%' LIMIT 1`,
-      [recordId],
-      (err, row) => resolve(err ? null : row || null),
-    );
-  });
-  return !!(fromPreviews || fromAssets);
-};
-
-const hasCustomPreview = async (recordId) => {
-  const row = await new Promise((resolve) => {
-    getDb().get(
-      `SELECT 1 FROM previews WHERE record_id = ? AND is_custom = 1 LIMIT 1`,
-      [recordId],
-      (err, row) => resolve(err ? null : row || null),
-    );
-  });
-  return !!row;
-};
-
 // Resolve an F95 id for a record, either from a direct f95_zone_mappings row or
 // via the record's atlas mapping. Mirrors getLewdCornerIDbyRecord so the media
 // refresh can gate F95 work on "does this source even have an id?".
@@ -861,142 +832,127 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
   });
 };
 
-const getPreviews = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
-  const sourceAppId = mediaStorageMode && typeof mediaStorageMode === 'object'
+// Promisified wrapper around getDb().all so getPreviews can await queries.
+const dbAll = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    getDb().all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows || [])));
+  });
+
+const isPreviewVideo = (u) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(u || ""));
+
+// Resolves a single previews row to a normalized item. A present local file wins,
+// but if it is missing we fall back to the stored remote_url. Returns null when
+// neither is usable. `identifier` mirrors what reorder-previews writes: remote_url
+// for downloaded images, path for custom uploads.
+const resolveLocalPreview = async (row, appPath, isDev) => {
+  let url = null;
+  if (row.path) {
+    const localPath = toLocalAssetPath(appPath, isDev, row.path);
+    const exists = await fsPromises
+      .access(localPath.replace("file://", ""))
+      .then(() => true)
+      .catch(() => false);
+    if (exists) url = localPath;
+  }
+  if (!url && row.remote_url) url = row.remote_url;
+  if (!url) return null;
+  return {
+    url,
+    identifier: row.remote_url || row.path,
+    type: isPreviewVideo(row.path) ? "video" : "image",
+    remoteUrl: row.remote_url || null,
+  };
+};
+
+// Sorts screenshot items by user-defined preview_sort position. Items that HAVE
+// a preview_sort row lead, ordered by their stored position (created_at breaks
+// ties). Items WITHOUT a preview_sort row keep their natural (array) order and
+// trail the explicitly sorted ones — there is no synthetic position constant;
+// the split between "has an explicit order" and "use natural order" is what keeps
+// pre-reorder previews (and any items left out of a sort) in their default
+// sequence. Relies on a stable sort so equal-keyed items preserve array order.
+const applyCustomSort = (items, sortMap, createdAtMap) => {
+  return items
+    .map((item) => ({
+      url: item.url,
+      sorted: sortMap.has(item.identifier),
+      position: sortMap.has(item.identifier) ? sortMap.get(item.identifier) : null,
+      createdAt: sortMap.has(item.identifier) ? createdAtMap.get(item.identifier) : 0,
+    }))
+    .sort((a, b) => {
+      if (a.sorted && b.sorted) return a.position - b.position || a.createdAt - b.createdAt;
+      if (a.sorted) return -1;
+      if (b.sorted) return 1;
+      return 0;
+    })
+    .map((d) => d.url);
+};
+
+const getPreviews = async (recordId, appPath, isDev, mediaStorageMode = "stream") => {
+  const sourceAppId = mediaStorageMode && typeof mediaStorageMode === "object"
     ? (mediaStorageMode.sourceAppId ?? null)
     : null;
-  return new Promise((resolve, reject) => {
-    // Load persisted user sort order into a Map keyed by stable identifier.
-    getDb().all(
-      `SELECT identifier, position, created_at FROM preview_sort WHERE record_id = ?`,
-      [recordId],
-      (sortErr, sortRows) => {
-        if (sortErr) {
-          console.error("Error fetching preview_sort:", sortErr);
-          reject(sortErr);
-          return;
-        }
+  try {
+    // Fetch sort order, local rows, and remote URLs in parallel.
+    const [sortRows, localRows, remoteAll] = await Promise.all([
+      dbAll(
+        `SELECT identifier, position, created_at FROM preview_sort WHERE record_id = ?`,
+        [recordId],
+      ),
+      dbAll(
+        `SELECT path, remote_url FROM previews WHERE record_id = ?`,
+        [recordId],
+      ),
+      getRemotePreviewUrls(recordId, {
+        sourceOrder: mediaStorageMode?.sourceOrder,
+        sourceAppId,
+      }),
+    ]);
 
-        // Maps for user-reordered screenshots.
-        const sortMap = new Map();
-        const createdAtMap = new Map();
-        for (const sr of sortRows || []) {
-          sortMap.set(sr.identifier, sr.position);
-          createdAtMap.set(sr.identifier, sr.created_at);
-        }
-        // console.log('[getPreviews] recordId=%s sortMap=%j', recordId, Object.fromEntries(sortMap))
+    // Load persisted user sort order into Maps keyed by stable identifier.
+    const sortMap = new Map();
+    const createdAtMap = new Map();
+    for (const sr of sortRows) {
+      sortMap.set(sr.identifier, sr.position);
+      createdAtMap.set(sr.identifier, sr.created_at);
+    }
 
-        // Fetch preview rows without deleted_at filter — hard-delete means all
-        // remaining rows are active. No ORDER BY here; preview_sort drives order.
-        getDb().all(
-          `SELECT path, remote_url FROM previews WHERE record_id = ?`,
-          [recordId],
-          async (err, rows) => {
-            if (err) {
-              console.error("Error fetching previews:", err);
-              reject(err);
-              return;
-            }
+    // Trailers (videos) lead and are never user-sorted.
+    const remoteTrailers = remoteAll.filter(isPreviewVideo);
 
-            try {
-              const remoteAll = await getRemotePreviewUrls(recordId, {
-                sourceOrder: mediaStorageMode?.sourceOrder,
-                sourceAppId,
-              });
+    // Normalize local rows into the unified item shape; skip missing files.
+    const localItems = [];
+    const seen = new Set();
+    for (const row of localRows) {
+      const item = await resolveLocalPreview(row, appPath, isDev);
+      if (!item) continue;
+      localItems.push(item);
+      seen.add(item.url);
+      if (item.remoteUrl) seen.add(item.remoteUrl);
+    }
 
-              const isVideo = (u) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(u || ""));
-              const remoteTrailers = remoteAll.filter(isVideo);
-              const remoteScreenshots = remoteAll.filter((u) => !isVideo(u));
+    // Remote screenshots that aren't already represented by a local row.
+    const uniqueRemoteScreenshots = remoteAll
+      .filter((u) => !isPreviewVideo(u) && !seen.has(u))
+      .map((url) => ({ url, identifier: url, type: "image" }));
 
-              if (rows.length === 0) {
-                // No local preview rows — but still respect preview_sort for
-                // remote http(s) URLs, which use themselves as identifiers.
-                const fallbackStart = 256;
-                const sortedScreenshots = remoteScreenshots
-                  .map((url, i) => ({
-                    url,
-                    position: sortMap.has(url) ? sortMap.get(url) : fallbackStart + i,
-                    createdAt: sortMap.has(url) ? createdAtMap.get(url) : 0,
-                  }))
-                  .sort((a, b) => a.position - b.position || a.createdAt - b.createdAt)
-                  .map((d) => d.url);
-                // console.log('[getPreviews] recordId=%s no local rows, sorted remote screenshots: %j', recordId, sortedScreenshots)
-                resolve([
-                  ...remoteTrailers,
-                  ...sortedScreenshots,
-                ]);
-                return;
-              }
+    // Unified screenshot pipeline: local images first, then deduped remote ones.
+    const allScreenshots = [
+      ...localItems.filter((i) => i.type === "image"),
+      ...uniqueRemoteScreenshots,
+    ];
 
-              // Local rows are split by type: videos are locked to the trailer
-              // bucket (unsortable), images are user-sortable screenshots.
-              const localTrailers = [];
-              const localScreenshots = [];
-              const seen = new Set();
+    const sortedScreenshots = applyCustomSort(allScreenshots, sortMap, createdAtMap);
 
-              for (const row of rows) {
-                let url = null;
-                if (row.path) {
-                  const localPath = toLocalAssetPath(appPath, isDev, row.path);
-                  const filePath = localPath.replace("file://", "");
-                  if (fs.existsSync(filePath)) {
-                    url = localPath;
-                  }
-                }
-                if (!url && row.remote_url) {
-                  url = row.remote_url;
-                }
-                if (!url) continue;
-
-                // Identifier matches what reorder-previews writes: remote_url
-                // for downloaded images, path for custom uploads.
-                const identifier = row.remote_url || row.path;
-                seen.add(url);
-                if (row.remote_url) seen.add(row.remote_url);
-
-                if (isVideo(row.path)) {
-                  localTrailers.push({ url, identifier });
-                } else {
-                  localScreenshots.push({ url, identifier });
-                }
-              }
-
-              const uniqueRemoteScreenshots = remoteScreenshots.filter((u) => !seen.has(u));
-
-              // Combine local + remote screenshots, deduplicated.
-              const allScreenshots = [...localScreenshots, ...uniqueRemoteScreenshots];
-
-              // Sort by preview_sort position; unsorted items fall back to
-              // 256 + insertionIndex so they appear after sorted items.
-              const fallbackStart = 256;
-              const decorated = allScreenshots.map((item, i) => ({
-                url: item.url,
-                identifier: item.identifier,
-                position: sortMap.has(item.identifier)
-                  ? sortMap.get(item.identifier)
-                  : fallbackStart + i,
-                createdAt: sortMap.has(item.identifier)
-                  ? createdAtMap.get(item.identifier)
-                  : 0,
-              }));
-              decorated.sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
-              // console.log('[getPreviews] recordId=%s screenshotSort=%j', recordId, 
-              //   decorated.map((d) => ({ id: d.identifier, pos: d.position })))
-
-              resolve([
-                ...remoteTrailers,
-                ...localTrailers.map((v) => v.url),
-                ...decorated.map((d) => d.url),
-              ]);
-            } catch (remoteErr) {
-              console.error("Error resolving preview URLs:", remoteErr);
-              reject(remoteErr);
-            }
-          },
-        );
-      },
-    );
-  });
+    return [
+      ...remoteTrailers,
+      ...localItems.filter((i) => i.type === "video").map((i) => i.url),
+      ...sortedScreenshots,
+    ];
+  } catch (err) {
+    console.error("Error resolving preview URLs:", err);
+    throw err;
+  }
 };
 
 const getBanners = (recordId, appPath, isDev) => {
@@ -1552,8 +1508,6 @@ module.exports = {
   insertPreviewSortRow,
   nextCreatedAt,
   nextManualPreviewPosition,
-  hasLocalAndCustomPreview,
-  hasCustomPreview,
   getAllDownloadableAssetUrlsForRecord,
   upsertMediaAsset,
   getBrowsePreviewUrls,

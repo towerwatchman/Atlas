@@ -12,8 +12,6 @@ const {
   deletePreviews,
   deleteBanner,
   updateBanners,
-  hasLocalAndCustomPreview,
-  hasCustomPreview,
   nextManualPreviewPosition,
 } = require('../electron/db/media.js')
 
@@ -109,56 +107,6 @@ describe('nextManualPreviewPosition', () => {
     expect(pos).toBe(2)
   })
 })
-describe('hasLocalAndCustomPreview', () => {
-  it('returns true when previews table has rows', async () => {
-    const { dataDir } = await openFreshDatabase()
-    await updatePreviews(1, 'data/images/1/preview.webp')
-    const result = await hasLocalAndCustomPreview(1)
-    expect(result).toBe(true)
-  })
-
-  it('returns true when media_assets has preview rows', async () => {
-    const { dataDir } = await openFreshDatabase()
-    dbIndex.db.run(
-      `INSERT INTO media_assets (record_id, source, asset_type, path, created_at) VALUES (?, ?, ?, ?, ?)`,
-      [1, 'atlas', 'atlas_preview', 'data/images/1/asset_preview.webp', Math.floor(Date.now() / 1000)],
-    )
-    const result = await hasLocalAndCustomPreview(1)
-    expect(result).toBe(true)
-  })
-
-  it('returns false when both tables are empty', async () => {
-    const { dataDir } = await openFreshDatabase()
-    const result = await hasLocalAndCustomPreview(1)
-    expect(result).toBe(false)
-  })
-
-  it('returns false after hard-deleting all preview rows', async () => {
-    const { dataDir } = await openFreshDatabase()
-    await updatePreviews(1, 'data/images/1/preview.webp')
-    await new Promise((resolve) => {
-      dbIndex.db.run(`DELETE FROM previews WHERE record_id = ?`, [1], (err) => resolve())
-    })
-    const result = await hasLocalAndCustomPreview(1)
-    expect(result).toBe(false)
-  })
-})
-
-describe('hasCustomPreview', () => {
-  it('returns true for custom rows', async () => {
-    const { dataDir } = await openFreshDatabase()
-    await updatePreviews(1, 'data/images/1/custom.webp', null, true)
-    const result = await hasCustomPreview(1)
-    expect(result).toBe(true)
-  })
-
-  it('returns false for only downloaded rows', async () => {
-    const { dataDir } = await openFreshDatabase()
-    await updatePreviews(1, 'data/images/1/downloaded.webp', null, false)
-    const result = await hasCustomPreview(1)
-    expect(result).toBe(false)
-  })
-})
 
 describe('deletePreviews hard-delete', () => {
   it('hard-deletes downloaded rows and keeps custom rows', async () => {
@@ -200,14 +148,35 @@ describe('hasLocalPreviews regression', () => {
       `SELECT 1 FROM media_assets WHERE record_id = ? AND asset_type LIKE '%preview%' LIMIT 1`,
       [1]
     )
+    // Mirrors hasLocalPreviews: downloaded (is_custom = 0) rows count, custom do not.
     const fromPreviews = await getDbGet(
-      `SELECT 1 FROM previews WHERE record_id = ? LIMIT 1`,
+      `SELECT 1 FROM previews WHERE record_id = ? AND is_custom = 0 LIMIT 1`,
       [1]
     )
 
     expect(fromAssets).toBeNull()
     expect(fromPreviews).not.toBeNull()
     expect(!!(fromAssets || fromPreviews)).toBe(true)
+  })
+
+  it('ignores custom-only previews (is_custom = 1) so missingOnly refresh still runs', async () => {
+    await openFreshDatabase()
+    // A purely custom preview must NOT satisfy hasLocalPreviews, which is what
+    // gates the missingOnly media refresh from re-downloading over a manual image.
+    await updatePreviews(1, 'data/images/1/custom_preview.webp', null, true)
+
+    const fromAssets = await getDbGet(
+      `SELECT 1 FROM media_assets WHERE record_id = ? AND asset_type LIKE '%preview%' LIMIT 1`,
+      [1]
+    )
+    const fromPreviews = await getDbGet(
+      `SELECT 1 FROM previews WHERE record_id = ? AND is_custom = 0 LIMIT 1`,
+      [1]
+    )
+
+    expect(fromAssets).toBeNull()
+    expect(fromPreviews).toBeNull()
+    expect(!!(fromAssets || fromPreviews)).toBe(false)
   })
 })
 
@@ -289,7 +258,7 @@ describe('preview_sort ordering in getPreviews', () => {
     ])
   })
 
-  it('falls back to 256+index natural order when no preview_sort exists', async () => {
+  it('keeps natural order when no preview_sort rows exist', async () => {
     const { dataDir } = await openFreshDatabase()
     await insertGame(1)
 
@@ -305,6 +274,30 @@ describe('preview_sort ordering in getPreviews', () => {
       'https://example.com/b.jpg',
       'https://example.com/c.jpg',
     ])
+  })
+
+  it('pins custom preview (-1) to front while downloaded previews keep natural order (no sort rows)', async () => {
+    const { dataDir } = await openFreshDatabase()
+    await insertGame(1)
+
+    const imageDir = path.join(dataDir, 'data', 'images', '1')
+    fs.mkdirSync(imageDir, { recursive: true })
+    fs.writeFileSync(path.join(imageDir, 'a.webp'), 'fake-webp-data')
+    fs.writeFileSync(path.join(imageDir, 'b.webp'), 'fake-webp-data')
+    fs.writeFileSync(path.join(imageDir, 'custom.webp'), 'fake-webp-data')
+
+    // Downloaded previews get NO preview_sort rows (plain download path).
+    await updatePreviews(1, 'data/images/1/a.webp', 'https://example.com/a.jpg', false)
+    await updatePreviews(1, 'data/images/1/b.webp', 'https://example.com/b.jpg', false)
+    // Custom upload: add-custom-previews writes a -1 preview_sort row; downloads do not.
+    await updatePreviews(1, 'data/images/1/custom.webp', null, true)
+    await insertPreviewSortRow(1, 'data/images/1/custom.webp', -1)
+
+    const urls = await getPreviews(1, dataDir, false, { mode: 'stream' })
+    // Custom (-1) leads; downloaded trail in natural (insertion) order.
+    expect(urls[0]).toMatch(/custom\.webp$/)
+    expect(urls[1]).toMatch(/a\.webp$/)
+    expect(urls[2]).toMatch(/b\.webp$/)
   })
 
   it('persists order across simulation of re-download (delete + re-insert)', async () => {
