@@ -481,8 +481,26 @@ describe('insertPreviewSortRow', () => {
     )
     expect(row).not.toBeNull()
     expect(row.position).toBe(-1)
-    expect(row.created_at).toBeGreaterThanOrEqual(before)
-    expect(row.created_at).toBeLessThanOrEqual(after)
+    // created_at is epoch microseconds (now*1000 + sub-ms counter), so compare
+    // against the microsecond bounds of the wall-clock window.
+    expect(row.created_at).toBeGreaterThanOrEqual(before * 1000)
+    expect(row.created_at).toBeLessThanOrEqual(after * 1000 + 999)
+  })
+
+  it('assigns distinct, ordered created_at to same-millisecond inserts', async () => {
+    await openFreshDatabase()
+    // Two inserts in the same event-loop tick land in the same millisecond.
+    await insertPreviewSortRow(1, 'custom_0', -1)
+    await insertPreviewSortRow(1, 'custom_1', -1)
+
+    const rows = await getDbAll(
+      'SELECT identifier, created_at FROM preview_sort WHERE record_id = 1 ORDER BY identifier'
+    )
+    expect(rows).toHaveLength(2)
+    expect(rows[0].identifier).toBe('custom_0')
+    expect(rows[1].identifier).toBe('custom_1')
+    // Distinct, strictly increasing: earlier insert gets the smaller timestamp.
+    expect(rows[0].created_at).toBeLessThan(rows[1].created_at)
   })
 })
 

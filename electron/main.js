@@ -85,7 +85,7 @@ const {
 
 const {
   updateFolderSize, getBannerUrl, getScreensUrlList,
-  updateBanners, updatePreviews, getRemotePreviewUrls, getSteamMovieThumbnails,
+  updateBanners, updatePreviews, insertPreviewSortRow, getRemotePreviewUrls, getSteamMovieThumbnails,
   getPreviews, getBanners, getBanner, getRemoteBannerUrl, getBrowsePreviewUrls,
   getSteamBrowseMediaForAppId,
   getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
@@ -1821,7 +1821,7 @@ function buildCtx() {
     getSteamBrowseMediaForAppId,
     searchAtlas, searchAtlasByF95Id, findF95Id, checkPathExist,
     findExistingRecordForImport, getImportRecordStatus,
-    updateBanners, updatePreviews, getAtlasData, getSteamIDbyRecord, addSteamMapping,
+    updateBanners, updatePreviews, insertPreviewSortRow, getAtlasData, getSteamIDbyRecord, addSteamMapping,
     countVersions, deleteVersion, deleteGameCompletely,
     getUniqueFilterOptions, getVersionForRecord, getVersionById, getInstalledVersionsForRecord,
     getVersionPathsForRecord, db: dbIndex.db,

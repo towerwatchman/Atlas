@@ -280,6 +280,16 @@ module.exports = function registerWindowsHandlers(ctx) {
     return result.canceled ? null : result.filePaths[0]
   })
 
+  // Opens a native multi-file picker so the renderer can let the user pick
+  // local images to add as custom media without knowing the dialog options.
+  ipcMain.handle('select-files', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile', 'multiSelections'],
+    })
+    return result.canceled ? [] : result.filePaths
+  })
+
   ipcMain.handle('open-banner-editor', () => {
     ctx.createBannerEditorWindow()
   })

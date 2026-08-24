@@ -63,6 +63,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking selectFile");
     return ipcRenderer.invoke("select-file");
   },
+  selectFiles: () => {
+    console.log("Invoking selectFiles");
+    return ipcRenderer.invoke("select-files");
+  },
   selectDirectory: (options) => {
     console.log("Invoking selectDirectory");
     return ipcRenderer.invoke("select-directory", options);
@@ -246,7 +250,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("media-rate-limited", handler);
     return () => ipcRenderer.removeListener("media-rate-limited", handler);
   },
-  convertAndSaveBanner: (recordId, filePath) => {
+  convertAndSaveBanner: (recordId, filePath, options = {}) => {
     console.log(
       "Invoking convertAndSaveBanner for recordId:",
       recordId,
@@ -256,7 +260,30 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return ipcRenderer.invoke("convert-and-save-banner", {
       recordId,
       filePath,
+      ...options,
     });
+  },
+  convertAndSaveBannerFromUrl: (recordId, id, url) => {
+    console.log("Invoking convertAndSaveBannerFromUrl for recordId:", recordId, "url:", url);
+    return ipcRenderer.invoke("convert-and-save-banner-from-url", {
+      recordId,
+      id,
+      url,
+    });
+  },
+  addCustomPreviews: (recordId, items) => {
+    console.log("Invoking addCustomPreviews for recordId:", recordId, "items:", items?.length);
+    return ipcRenderer.invoke("add-custom-previews", { recordId, items });
+  },
+  addCustomPreviewFromUrl: (recordId, id, url) => {
+    console.log("Invoking addCustomPreviewFromUrl for recordId:", recordId, "url:", url);
+    return ipcRenderer.invoke("add-custom-preview-from-url", { recordId, id, url });
+  },
+  onCustomMediaProgress: (callback) => {
+    ipcRenderer.on("custom-media-progress", (event, data) => callback(data));
+  },
+  removeCustomMediaProgressListener: (callback) => {
+    ipcRenderer.removeListener("custom-media-progress", callback);
   },
   updateGame: (game) => {
     console.log("Invoking updateGame with game data:", game);
@@ -573,6 +600,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "library-validation-progress",
       "library-exec-paths-repaired",
       "wishlist-updated",
+      "custom-media-progress",
     ]);
 
     if (allowedChannels.has(channel)) {

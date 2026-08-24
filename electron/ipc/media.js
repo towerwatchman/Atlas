@@ -4,6 +4,7 @@ const { ipcMain, BrowserWindow, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const crypto = require('crypto')
+const axios = require('axios')
 const {
   downloadImages, buildBannerBaseName,
 } = require('../imageUtils')
@@ -17,6 +18,7 @@ const {
   getF95IDbyRecord, getMediaSourceCache, upsertMediaSourceCache,
   hasLocalAndCustomPreview,
   hasCustomPreview,
+  nextCreatedAt,
 } = require('../db/media')
 const dbIndexForMedia = require('../db/index')
 const liveMediaDb = () => dbIndexForMedia.db
@@ -66,6 +68,7 @@ module.exports = function registerMediaHandlers(ctx) {
     getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
     configPath,
     getMetadataSourceOrder,
+    insertPreviewSortRow,
   } = ctx
 
   // ── User banner-layout presets are stored as individual JSON files ──────────
@@ -300,7 +303,7 @@ module.exports = function registerMediaHandlers(ctx) {
     // drag-reorder of remote screenshots.
     const hasSort = await hasCustomPreviewSort(recordId)
     if (hasSort) {
-      console.log('[get-previews] recordId=%s custom sort active, skipping source reorder (%d previews): %j', recordId, previews.length, previews)
+      // console.log('[get-previews] recordId=%s custom sort active, skipping source reorder (%d previews): %j', recordId, previews.length, previews)
       return previews
     }
     // console.log('[get-previews] recordId=%s no custom sort, applying source reorder (%d previews)', recordId, previews.length)
@@ -832,17 +835,21 @@ module.exports = function registerMediaHandlers(ctx) {
     }
     // console.log('[reorder-previews] recordId=%s identifiers=%j', recordId, orderedIdentifiers)
 
-    // Read existing positions so we can apply the -1 custom zone promotion rule.
+    // Read existing positions and created_at so we can apply the -1 custom
+    // zone promotion rule and preserve each row's original upload time. The
+    // created_at tiebreak sort must not be reset on every drag.
     const oldPositions = new Map()
+    const oldCreatedAtMap = new Map()
     await new Promise((resolve, reject) => {
       db.all(
-        `SELECT identifier, position FROM preview_sort WHERE record_id = ?`,
+        `SELECT identifier, position, created_at FROM preview_sort WHERE record_id = ?`,
         [recordId],
         (err, rows) => {
           if (err) reject(err)
           else {
             for (const row of rows || []) {
               oldPositions.set(row.identifier, row.position)
+              oldCreatedAtMap.set(row.identifier, row.created_at)
             }
             resolve()
           }
@@ -881,10 +888,15 @@ module.exports = function registerMediaHandlers(ctx) {
         const stmt = db.prepare(
           `INSERT INTO preview_sort (record_id, identifier, position, created_at) VALUES (?, ?, ?, ?)`
         )
-        const now = Date.now()
         orderedIdentifiers.forEach((identifier) => {
           const pos = newPositions.get(identifier)
-          stmt.run(recordId, identifier, pos, now)
+          // Preserve the row's original created_at so the secondary sort
+          // order is stable across drags; assign a fresh monotonic timestamp
+          // only when the identifier had no prior sort row.
+          const createdAt = oldCreatedAtMap.has(identifier)
+            ? oldCreatedAtMap.get(identifier)
+            : nextCreatedAt()
+          stmt.run(recordId, identifier, pos, createdAt)
         })
         stmt.finalize((err) => {
           if (err) {
@@ -906,20 +918,45 @@ module.exports = function registerMediaHandlers(ctx) {
 
   // Clears the persisted sort order for a record. After clearing, getPreviews
   // falls back to 256 + index natural order (source priority, then local).
-  // Does NOT touch the previews table itself.
+  // Custom uploads (is_custom=1) are moved back to the front (position = -1)
+  // and keep their created_at so they still sort among themselves by original
+  // upload time; non-custom rows are removed entirely. Does NOT touch the
+  // previews table itself.
   ipcMain.handle('clear-preview-sort', async (event, recordId) => {
     const db = liveMediaDb()
     if (!db) return { success: false, error: 'Database not available' }
-    await new Promise((resolve, reject) => {
-      db.run(`DELETE FROM preview_sort WHERE record_id = ?`, [recordId], (err) => {
-        if (err) reject(err)
-        else resolve()
-      })
-    })
-    return { success: true }
+    // Reset to natural order: custom uploads (is_custom=1) move back to the
+    // front (-1) and keep their created_at; non-custom rows are removed so
+    // getPreviews falls back to 256 + index. Both steps run in one transaction
+    // (node-sqlite3 serializes statements on the connection) and any failure
+    // rolls everything back. Does NOT touch the previews table itself.
+    const run = (sql, params = []) =>
+      new Promise((resolve, reject) => db.run(sql, params, (err) => (err ? reject(err) : resolve())))
+    try {
+      await run('BEGIN TRANSACTION')
+      await run(
+        `UPDATE preview_sort SET position = -1
+         WHERE record_id = ? AND identifier IN (
+           SELECT path FROM previews WHERE record_id = ? AND is_custom = 1
+         )`,
+        [recordId, recordId],
+      )
+      await run(
+        `DELETE FROM preview_sort
+         WHERE record_id = ? AND identifier NOT IN (
+           SELECT path FROM previews WHERE record_id = ? AND is_custom = 1
+         )`,
+        [recordId, recordId],
+      )
+      await run('COMMIT')
+      return { success: true }
+    } catch (err) {
+      await run('ROLLBACK').catch(() => {})
+      return { success: false, error: err.message }
+    }
   })
 
-  ipcMain.handle('convert-and-save-banner', async (event, { recordId, filePath }) => {
+  ipcMain.handle('convert-and-save-banner', async (event, { recordId, filePath, progressId }) => {
     console.log('Handling convert-and-save-banner for recordId:', recordId)
     try {
       if (!recordId) throw new Error('Missing recordId')
@@ -945,27 +982,195 @@ module.exports = function registerMediaHandlers(ctx) {
 
       const sharp = getSharp()
       const imageBytes = await fs.promises.readFile(sourcePath)
-      await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(mediumPath)
-      await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(smallPath)
+      const displayUrl = await saveCustomBannerFromBuffer(recordId, imageBytes, event, progressId)
 
-      await updateBanners(recordId, `${relativeBasePath}_mc.webp`, 'small')
-      await updateBanners(recordId, `${relativeBasePath}_sc.webp`, 'large')
-
-      const bannerPath = await getBanner(recordId, getAssetBasePath(), process.defaultApp, 'large', 'download')
-
-      BrowserWindow.getAllWindows().forEach(win => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })
-      if (!event.sender.isDestroyed()) {
+      if (!progressId && event?.sender && !event.sender.isDestroyed()) {
         event.sender.send('game-details-import-progress', { text: 'Custom banner saved', progress: 1, total: 1 })
       }
-      return firstMediaPath(bannerPath)
+      return displayUrl
     } catch (err) {
       console.error('Error converting and saving banner:', err)
-      if (!event.sender.isDestroyed()) {
+      if (progressId && event?.sender && !event.sender.isDestroyed()) {
+        event.sender.send('custom-media-progress', { id: progressId, error: err.message, done: true })
+      } else if (event?.sender && !event.sender.isDestroyed()) {
         event.sender.send('game-details-import-progress', {
           text: `Failed to save custom banner: ${err.message}`,
           progress: 0, total: 1,
         })
       }
+      throw err
+    }
+  })
+
+  // Shared banner conversion: reads imageBytes, writes _mc.webp + _sc.webp,
+  // updates banners table. Extracted so URL-based upload can reuse it.
+  const saveCustomBannerFromBuffer = async (recordId, imageBytes, event, progressId = null) => {
+    const imageDir = path.join(dataDir, 'images', String(recordId))
+    await fs.promises.mkdir(imageDir, { recursive: true })
+
+    const customBaseName = buildBannerBaseName('custom')
+    const relativeBasePath = path.join('data', 'images', String(recordId), customBaseName)
+    const mediumPath = path.join(imageDir, `${customBaseName}_mc.webp`)
+    const smallPath = path.join(imageDir, `${customBaseName}_sc.webp`)
+
+    const sharp = getSharp()
+    await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 1260, withoutEnlargement: true }).toFile(mediumPath)
+    await sharp(imageBytes).webp({ quality: 90 }).resize({ width: 600, withoutEnlargement: true }).toFile(smallPath)
+
+    await updateBanners(recordId, `${relativeBasePath}_mc.webp`, 'small')
+    await updateBanners(recordId, `${relativeBasePath}_sc.webp`, 'large')
+
+    const bannerPath = await getBanner(recordId, getAssetBasePath(), process.defaultApp, 'large', 'download')
+    BrowserWindow.getAllWindows().forEach((win) => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })
+
+    const displayUrl = firstMediaPath(bannerPath)
+    if (progressId && event?.sender && !event.sender.isDestroyed()) {
+      event.sender.send('custom-media-progress', { id: progressId, progress: 1, total: 1, done: true, url: displayUrl })
+    }
+    return displayUrl
+  }
+
+  const emitPreviewProgress = (event, itemId, progress, total, done = false, url = null, error = null) => {
+    if (!event?.sender || event.sender.isDestroyed()) return
+    event.sender.send('custom-media-progress', { id: itemId, progress, total, done, url, error })
+  }
+
+  const CUSTOM_ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  // 6-char base36 suffix (~2.1B values). Unique enough per record; the
+  // previewIdentifierExists retry below absorbs the rare collision.
+  const randomBase36Suffix = (len = 6) => {
+    const bytes = crypto.randomBytes(len)
+    let s = ''
+    for (let i = 0; i < len; i++) s += CUSTOM_ID_ALPHABET[bytes[i] % 36]
+    return s
+  }
+  const previewIdentifierExists = (recordId, relPath) =>
+    new Promise((resolve, reject) => {
+      const db = liveMediaDb()
+      if (!db) return resolve(false)
+      db.get(
+        `SELECT 1 FROM preview_sort WHERE record_id = ? AND identifier = ? LIMIT 1`,
+        [recordId, relPath],
+        (err, row) => (err ? reject(err) : resolve(!!row)),
+      )
+    })
+
+  // Copies user-picked local files into data/images/<recordId> and registers
+  // them as custom previews so the Media tab can display and sort them without
+  // an external download step.
+  ipcMain.handle('add-custom-previews', async (event, { recordId, items }) => {
+    if (!recordId || !Array.isArray(items) || items.length === 0) {
+      return { success: false, error: 'Invalid request' }
+    }
+    const results = []
+    const total = items.length
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      const { id, srcPath } = item
+      if (!id || !srcPath) continue
+      try {
+        const ext = path.extname(srcPath).toLowerCase() || '.webp'
+        const imageDir = path.join(dataDir, 'images', String(recordId))
+        await fs.promises.mkdir(imageDir, { recursive: true })
+        // Short random alphanumeric id keeps filenames small; the existence
+        // check + retry handles the rare per-record collision.
+        let fileName
+        let relPath
+        do {
+          fileName = `preview_custom_${randomBase36Suffix(6)}${ext}`
+          relPath = path.join('data', 'images', String(recordId), fileName)
+        } while (await previewIdentifierExists(recordId, relPath))
+        const destPath = path.join(imageDir, fileName)
+        await fs.promises.copyFile(srcPath, destPath)
+        await updatePreviews(recordId, relPath, null, true)
+        await insertPreviewSortRow(recordId, relPath, -1)
+        const absolutePath = path.join(getAssetBasePath(), relPath).replace(/\\/g, '/')
+        const displayUrl = `atlas-media://local/${encodeURIComponent(absolutePath)}`
+        results.push({ id, url: displayUrl })
+        emitPreviewProgress(event, id, i + 1, total, true, displayUrl)
+      } catch (err) {
+        emitPreviewProgress(event, id, 0, total, true, null, err.message)
+      }
+    }
+    BrowserWindow.getAllWindows().forEach((win) => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })
+    return results
+  })
+
+  // Fetches an image from a user-supplied URL, saves it as a custom preview,
+  // and reports download progress so the Media tab can show a live progress bar.
+  ipcMain.handle('add-custom-preview-from-url', async (event, { recordId, id, url }) => {
+    if (!recordId || !id || !url) {
+      return { success: false, error: 'Invalid request' }
+    }
+    try {
+      const ext = path.extname(new URL(url).pathname).toLowerCase() || '.webp'
+      const imageDir = path.join(dataDir, 'images', String(recordId))
+      await fs.promises.mkdir(imageDir, { recursive: true })
+      let fileName
+      let relPath
+      do {
+        fileName = `preview_custom_${randomBase36Suffix(6)}${ext}`
+        relPath = path.join('data', 'images', String(recordId), fileName)
+      } while (await previewIdentifierExists(recordId, relPath))
+      const destPath = path.join(imageDir, fileName)
+
+      const response = await axios.get(url, {
+        responseType: 'stream',
+        maxRedirects: 5,
+        headers: {
+          'User-Agent': 'Atlas/1.0 (+https://github.com/towerwatchman/Atlas)',
+        },
+      })
+
+      const totalLength = Number(response.headers?.['content-length']) || 0
+      let downloaded = 0
+      const writeStream = fs.createWriteStream(destPath)
+      await new Promise((resolve, reject) => {
+        response.data.on('data', (chunk) => {
+          downloaded += chunk.length
+          emitPreviewProgress(event, id, downloaded, totalLength)
+        })
+        response.data.pipe(writeStream)
+        writeStream.on('finish', resolve)
+        writeStream.on('error', reject)
+        response.data.on('error', reject)
+      })
+
+      // relPath computed above (with collision-checked unique id)
+      await updatePreviews(recordId, relPath, url, true)
+      await insertPreviewSortRow(recordId, relPath, -1)
+      const absolutePath = path.join(getAssetBasePath(), relPath).replace(/\\/g, '/')
+      const displayUrl = `atlas-media://local/${encodeURIComponent(absolutePath)}`
+      emitPreviewProgress(event, id, downloaded, totalLength, true, displayUrl)
+      BrowserWindow.getAllWindows().forEach((win) => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })
+      return { id, url: displayUrl }
+    } catch (err) {
+      emitPreviewProgress(event, id, 0, 0, true, null, err.message)
+      throw err
+    }
+  })
+
+  // Downloads an image from a URL and converts it into the custom banner
+  // sizes, emitting progress so the caller can update the Media tab UI.
+  ipcMain.handle('convert-and-save-banner-from-url', async (event, { recordId, id, url }) => {
+    if (!recordId || !id || !url) {
+      return { success: false, error: 'Invalid request' }
+    }
+    try {
+      const response = await axios.get(url, {
+        responseType: 'arraybuffer',
+        maxRedirects: 5,
+        headers: {
+          'User-Agent': 'Atlas/1.0 (+https://github.com/towerwatchman/Atlas)',
+        },
+      })
+      const totalLength = Number(response.headers?.['content-length']) || response.data?.length || 0
+      emitPreviewProgress(event, id, totalLength, totalLength, false)
+      const imageBytes = Buffer.from(response.data)
+      const displayUrl = await saveCustomBannerFromBuffer(recordId, imageBytes, event, id)
+      return { id, url: displayUrl }
+    } catch (err) {
+      emitPreviewProgress(event, id, 0, 0, true, null, err.message)
       throw err
     }
   })

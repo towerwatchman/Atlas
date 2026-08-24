@@ -166,12 +166,30 @@ const nextManualPreviewPosition = async (recordId) => {
   return pos;
 };
 
+// Monotonic, sub-millisecond created_at. Date.now() alone collides for
+// near-simultaneous uploads (e.g. a multi-file custom import), breaking the
+// created_at tiebreak sort. Epoch microseconds + a sub-ms counter stays
+// comparable across app restarts (unlike process.hrtime) and orders same-ms
+// inserts by finish order.
+let lastCreatedAtMs = 0;
+let createdAtSubCounter = 0;
+const nextCreatedAt = () => {
+  const now = Date.now();
+  if (now === lastCreatedAtMs) {
+    createdAtSubCounter += 1;
+  } else {
+    lastCreatedAtMs = now;
+    createdAtSubCounter = 0;
+  }
+  return now * 1000 + createdAtSubCounter;
+};
+
 // Inserts a preview_sort row with the current timestamp for created_at tiebreaking.
 // Used by future custom upload support and tests.
 const insertPreviewSortRow = (recordId, identifier, position) => {
   return new Promise((resolve, reject) => {
     const sql = `INSERT OR REPLACE INTO preview_sort (record_id, identifier, position, created_at) VALUES (?, ?, ?, ?)`;
-    const params = [recordId, identifier, position, Date.now()];
+    const params = [recordId, identifier, position, nextCreatedAt()];
     getDb().run(sql, params, (err) => {
       if (err) {
         console.error("Error inserting preview_sort row:", err);
@@ -1457,6 +1475,7 @@ module.exports = {
   updateBanners,
   updatePreviews,
   insertPreviewSortRow,
+  nextCreatedAt,
   nextManualPreviewPosition,
   hasLocalAndCustomPreview,
   hasCustomPreview,
