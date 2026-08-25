@@ -59,7 +59,6 @@ const defaultSavedFilterState = {
   updateAvailable: false,
   favoritesOnly: false,
   wishlistOnly: false,
-  steamMapped: false,
   personalRatingMin: 0,
   personalRatingStatus: 'any',
   personalRatingRatedOnly: false,
@@ -128,7 +127,6 @@ const normalizeSavedFilterState = (filters = {}) => {
   merged.updateAvailable = merged.updateAvailable === true
   merged.favoritesOnly = merged.favoritesOnly === true
   merged.wishlistOnly = merged.wishlistOnly === true
-  merged.steamMapped = merged.steamMapped === true
   const personalRatingMin = Number(merged.personalRatingMin)
   merged.personalRatingMin = Number.isFinite(personalRatingMin)
     ? Math.max(0, Math.min(10, Math.round(personalRatingMin)))
