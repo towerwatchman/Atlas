@@ -163,16 +163,30 @@ async function handleContextAction(data, sender, ctx) {
     }
     case "toggleWishlist": {
       // Context menus cannot prompt, so the same toggle the detail page uses
-      // is run here. The success path broadcasts wishlist-updated so the
-      // renderer can refresh its identity-key set and filtered lists -- the
-      // grid row reflects the new state the next time the menu opens.
+      // is run here.
+      //
+      // wishlist-updated is broadcast on EVERY outcome, not just success. The
+      // renderer flips its identity-key set optimistically before this call and
+      // then discards the result, so a silent failure would strand the grid in
+      // the wrong state forever. The broadcast makes the renderer re-read the
+      // wishlist from the DB, which reconciles the optimistic flip either way:
+      // it sticks when the write landed and reverts when it did not.
       const { toggleWishlistEntry } = require("../db/wishlist");
-      const result = await toggleWishlistEntry(data);
-      if (result?.success) {
-        BrowserWindow.getAllWindows().forEach((win) => {
-          if (!win.isDestroyed()) win.webContents.send("wishlist-updated", { source: "context-menu" });
-        });
+      let result = null;
+      try {
+        result = await toggleWishlistEntry(data);
+      } catch (err) {
+        console.error("toggleWishlist failed", err);
       }
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send("wishlist-updated", {
+            source: "context-menu",
+            success: result?.success === true,
+            inLibrary: result?.inLibrary === true,
+          });
+        }
+      });
       break;
     }
     case "collectionBulkTagRequested": {

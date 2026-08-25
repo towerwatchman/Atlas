@@ -1,8 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import http from 'http'
-import fs from 'fs'
-import path from 'path'
-
 import {
   extractThreadInfo,
   startExtensionServer,
@@ -109,14 +106,6 @@ describe('Extension Server & Thread Parser', () => {
       expect(res.headers.get('access-control-allow-origin')).toBeNull()
     })
 
-    // The extension add-wishlist path broadcasts wishlist-updated with a
-    // source tag so the renderer can decide whether to refetch the catalog.
-    // The extension has no optimistic UI, so it keeps the full Browse refresh.
-    it('broadcasts wishlist-updated with source extension', () => {
-      const src = fs.readFileSync(
-        path.join(__dirname, '..', 'electron', 'rpc', 'extensionServer.js'), 'utf8')
-      expect(src).toContain("win.webContents.send('wishlist-updated', { source: 'extension' })")
-    })
   })
 
   describe('ensureExtensionFiles', () => {

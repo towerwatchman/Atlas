@@ -157,6 +157,61 @@ test('wishlist toggle payload identity key matches the DB normalization', () => 
   expect(getWishlistIdentityKey(wishlist.data)).toBe(getWishlistIdentityKey(game))
 })
 
+// A local row that is still flagged can be cleared from the grid, so the badge
+// #366 now derives correctly has a way to be turned off outside the detail
+// panel. Adding a local title is not offered: addWishlistEntry refuses a record
+// that already exists in the library.
+test('a wishlisted local row can be un-wishlisted', () => {
+  const items = buildGameContextMenu({ game: localGame({ isWishlisted: true }) })
+  expect(labels(items)).toContain('Remove from Wishlist')
+  expect(labels(items)).not.toContain('Add to Wishlist')
+})
+
+test('a plain local row is not offered a wishlist toggle', () => {
+  const items = buildGameContextMenu({ game: localGame() })
+  expect(labels(items)).not.toContain('Add to Wishlist')
+  expect(labels(items)).not.toContain('Remove from Wishlist')
+})
+
+// The payload is picked, not spread: overview/preview_urls/versions used to
+// cross IPC on every toggle.
+test('wishlist toggle payload carries identity fields but not the whole row', () => {
+  const items = buildGameContextMenu({
+    game: {
+      title: 'Trim Me',
+      isCatalogEntry: true,
+      f95_id: 44821,
+      creator: 'Dev',
+      overview: 'x'.repeat(5000),
+      preview_urls: ['a.png', 'b.png'],
+      versions: [],
+      banner_cache_path: '/tmp/should-not-travel.png',
+      record_id: 99,
+      isWishlisted: false,
+    },
+  })
+  const { data } = find(items, 'Add to Wishlist')
+  expect(data.f95_id).toBe(44821)
+  expect(data.creator).toBe('Dev')
+  // overview and preview_urls ARE part of the wishlist row, so they travel.
+  expect(data.overview).toBeDefined()
+  expect(data.preview_urls).toBeDefined()
+  // ...but fields the wishlist layer never reads do not.
+  expect(data.versions).toBeUndefined()
+  expect(data.banner_cache_path).toBeUndefined()
+  expect(data.record_id).toBeUndefined()
+  expect(data.isWishlisted).toBeUndefined()
+})
+
+// Ordering guard: the action is written after the picked fields, so a game
+// carrying an `action` key of its own cannot redirect the dispatch.
+test('a game with its own action key cannot hijack the dispatch', () => {
+  const items = buildGameContextMenu({
+    game: { title: 'Sneaky', isCatalogEntry: true, f95_id: 1, action: 'deleteGame', versions: [] },
+  })
+  expect(find(items, 'Add to Wishlist').data.action).toBe('toggleWishlist')
+})
+
 test('destructive actions are grouped under Manage and flagged', () => {
   const manage = find(buildGameContextMenu({ game: localGame() }), 'Manage').submenu
   const danger = manage.filter((i) => i.danger).map((i) => i.label)

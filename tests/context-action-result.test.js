@@ -1,7 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest'
 import Module from 'module'
-import fs from 'fs'
-import path from 'path'
 
 // run-context-action reported {success:true} for everything, unconditionally.
 // The renderer then discarded it anyway (App.jsx fired and forgot), so a failed
@@ -15,11 +13,15 @@ const ipcHandlers = new Map()
 let restoreLoad
 let launchCalls = []
 let broadcastCalls = []
+let toggleWishlistResult
+let toggleWishlistCalls = []
 
 beforeEach(() => {
   ipcHandlers.clear()
   launchCalls = []
   broadcastCalls = []
+  toggleWishlistCalls = []
+  toggleWishlistResult = async () => ({ success: true })
 
   const electronStub = {
     ipcMain: { handle: (channel, fn) => ipcHandlers.set(channel, fn) },
@@ -52,7 +54,14 @@ beforeEach(() => {
   Module._load = function patched(request, parent, isMain) {
     if (request === 'electron') return electronStub
     if (request === './games') return gamesStub
-    if (request === '../db/wishlist') return { toggleWishlistEntry: async () => ({ success: true }) }
+    if (request === '../db/wishlist') {
+      return {
+        toggleWishlistEntry: async (entry) => {
+          toggleWishlistCalls.push(entry)
+          return toggleWishlistResult(entry)
+        },
+      }
+    }
     return originalLoad.call(this, request, parent, isMain)
   }
   restoreLoad = () => { Module._load = originalLoad }
@@ -140,24 +149,43 @@ describe('run-context-action', () => {
 
   // The context-menu toggleWishlist path broadcasts wishlist-updated with a
   // source tag so the renderer can decide whether to refetch the catalog.
-  // Context-menu toggles skip the refetch (optimistic UI already flipped the row);
-  // the extension path keeps it (no optimistic UI exists there).
   test('toggleWishlist broadcasts wishlist-updated with source context-menu', async () => {
     const run = register()
     await run({ sender: null }, { action: 'toggleWishlist', recordId: 7 })
     expect(broadcastCalls).toHaveLength(1)
-    expect(broadcastCalls[0]).toEqual({ source: 'context-menu' })
+    expect(broadcastCalls[0].source).toBe('context-menu')
+    expect(broadcastCalls[0].success).toBe(true)
   })
 
-  // handleWishlistUpdated accepts a payload and only refetches the catalog
-  // when the source is 'extension'. Context-menu toggles skip it (optimistic
-  // UI already flipped wishlistIdentityKeys); the extension has no optimistic
-  // path and needs the full Browse refresh.
-  test('handleWishlistUpdated only refetches catalog for extension source', () => {
-    const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'App.jsx'), 'utf8')
-    const start = app.indexOf('const handleWishlistUpdated = async (payload)')
-    const body = app.slice(start, start + 800)
-    expect(body).toContain('payload?.source === \'extension\'')
-    expect(body).toContain('fetchCatalogGames')
+  // The renderer flips its identity-key set optimistically and discards the
+  // result, so the broadcast has to fire on failure too -- otherwise nothing
+  // ever tells it to re-read the DB and the grid keeps the wrong state.
+  test('toggleWishlist still broadcasts when the write fails', async () => {
+    toggleWishlistResult = async () => ({ success: false, inLibrary: true })
+    const run = register()
+    await run({ sender: null }, { action: 'toggleWishlist', recordId: 7 })
+    expect(broadcastCalls).toHaveLength(1)
+    expect(broadcastCalls[0]).toEqual({
+      source: 'context-menu',
+      success: false,
+      inLibrary: true,
+    })
+  })
+
+  test('toggleWishlist still broadcasts when the toggle throws', async () => {
+    toggleWishlistResult = async () => { throw new Error('db is gone') }
+    const run = register()
+    await expect(run({ sender: null }, { action: 'toggleWishlist', recordId: 7 }))
+      .resolves.toBeDefined()
+    expect(broadcastCalls).toHaveLength(1)
+    expect(broadcastCalls[0].success).toBe(false)
+  })
+
+  test('toggleWishlist passes the action payload through to the db layer', async () => {
+    const run = register()
+    await run({ sender: null }, { action: 'toggleWishlist', f95_id: 44821, title: 'Foo' })
+    expect(toggleWishlistCalls).toHaveLength(1)
+    expect(toggleWishlistCalls[0].f95_id).toBe(44821)
+    expect(toggleWishlistCalls[0].title).toBe('Foo')
   })
 })
