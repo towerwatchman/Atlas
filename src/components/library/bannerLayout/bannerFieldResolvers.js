@@ -232,7 +232,7 @@ export const resolveBannerField = (fieldId, game = {}) => {
     case 'wishlist':
       return {
         value: 'Wishlist',
-        visible: game.isWishlisted === true || game.isWishlistEntry === true,
+        visible: game.isWishlisted === true,
         variant: 'wishlist',
       }
     case 'installedState':
