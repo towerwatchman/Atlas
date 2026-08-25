@@ -214,3 +214,52 @@ describe('SplitButtonMenu stacking', () => {
     expect(menu.style.position).toBe('fixed')
   })
 })
+
+describe('SplitButtonMenu disabled items', () => {
+  // A disabled entry says "this route exists, it just cannot be taken for this
+  // title" -- used by Download Version when the game has no F95 thread. It must
+  // survive the usable filter WITHOUT needing a dummy onSelect, since an item
+  // given one just to stay visible is an item that fires when clicked.
+  const disabledItem = () => ({
+    id: 'download-version',
+    label: 'Download Version',
+    description: 'No F95zone thread is linked to this title, so there are no builds to list.',
+    icon: 'fas fa-cloud-arrow-down',
+    disabled: true,
+  })
+
+  it('renders a disabled item that has no onSelect', () => {
+    render(
+      <SplitButtonMenu items={[disabledItem()]}>
+        <button type="button">PLAY</button>
+      </SplitButtonMenu>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'More options' }))
+    const item = screen.getByText('Download Version').closest('button')
+    expect(item.disabled).toBe(true)
+  })
+
+  it('does not fire or close the menu when a disabled item is clicked', () => {
+    const onSelect = vi.fn()
+    render(
+      <SplitButtonMenu items={[{ ...disabledItem(), onSelect }, manualItem(vi.fn())]}>
+        <button type="button">PLAY</button>
+      </SplitButtonMenu>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'More options' }))
+    fireEvent.click(screen.getByText('Download Version').closest('button'))
+    // Even with an onSelect present, disabled wins.
+    expect(onSelect).not.toHaveBeenCalled()
+    // The menu stays open so the reason text remains where the user clicked.
+    expect(screen.getByRole('menu')).toBeTruthy()
+  })
+
+  it('still renders nothing when every item is unusable', () => {
+    const { container } = render(
+      <SplitButtonMenu items={[{ id: 'x', label: 'X' }]}>
+        <button type="button">PLAY</button>
+      </SplitButtonMenu>,
+    )
+    expect(container.querySelector('[aria-label="More options"]')).toBeNull()
+  })
+})

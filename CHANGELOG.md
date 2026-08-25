@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Added a "Download Version" entry to the split-button caret on the game detail page, beside "Manual Install". It opens the same downloads modal the UPDATE button does, listing every build and mirror the thread offers, so a different version can be fetched over one already installed. Previously an installed title with no pending update had no route to that modal at all: the primary button becomes PLAY once a version is installed, and the UPDATE button only renders when an update is flagged. The entry goes straight to the downloads modal rather than through the source picker, and is shown disabled with a reason for titles with no F95zone thread linked.
+
 ### Fixed
 - Fixed the colour pickers in the Banner Editor's Layout tab closing as soon as the colour changed, so the slider and shade square could only be click-selected and never dragged open. The per-field editor (`Inspector`) was defined *inside* the editor's render body, which makes React treat it as a new component type on every re-render; the first `onChange` re-rendered the editor, remounted the whole inspector, and destroyed the `<input type="color">` the native dialog was bound to. `Inspector` is now module-scope and takes its state as props, so its identity is stable and the picker stays open through a drag. Size & Image and Panels tabs were unaffected.
 - Fixed Playtime Formatting & Badge Unit Bug: Standardized playtime logic across the game detail page and library banner badge by fixing unit conversions (treating database values consistently as minutes) and implementing proper ceiling rounding for fractional times to prevent improper displays like "1h 60m" or 0.4 minutes showing as "Not played". The banner editor and preset preview samples were carrying a seconds-era playtime constant and are corrected to minutes.
