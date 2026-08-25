@@ -886,7 +886,7 @@ const SearchSidebar = ({
           )}
           <Collapsible title="Quick Filters">
             <div className="space-y-3">
-              {!isCatalogMode && (
+              {(
                 <div>
                   <label className="block text-sm mb-1">Library scope</label>
                   <select
