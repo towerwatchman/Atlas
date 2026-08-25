@@ -14,6 +14,7 @@ const { fetchAndStoreSteamData } = require('../scanners/steamscanner')
 const { getGogIDbyRecord } = require('../db/gog')
 const { fetchAndStoreGogData } = require('../scanners/gogscanner')
 const { getLewdCornerIDbyRecord } = require('../db/lewdcorner')
+const { normalizePath } = require('../db/helpers')
 const {
   getF95IDbyRecord, getMediaSourceCache, upsertMediaSourceCache,
   nextCreatedAt,
@@ -843,8 +844,10 @@ module.exports = function registerMediaHandlers(ctx) {
             if (err) reject(err)
             else {
               for (const row of rows || []) {
-                const normalized = String(row.path || '').replace(/\\/g, '/')
-                identifierByPath.set(normalized, row.identifier)
+                const normalized = normalizePath(row.path)
+                // COALESCE(remote_url, path) may contain OS-native backslashes
+                // for custom uploads whose remote_url is NULL; normalize too.
+                identifierByPath.set(normalized, normalizePath(row.identifier))
               }
               resolve()
             }
@@ -973,14 +976,14 @@ module.exports = function registerMediaHandlers(ctx) {
       await run(
         `UPDATE preview_sort SET position = -1
          WHERE record_id = ? AND identifier IN (
-           SELECT path FROM previews WHERE record_id = ? AND is_custom = 1
+           SELECT REPLACE(path, '\\', '/') FROM previews WHERE record_id = ? AND is_custom = 1
          )`,
         [recordId, recordId],
       )
       await run(
         `DELETE FROM preview_sort
          WHERE record_id = ? AND identifier NOT IN (
-           SELECT path FROM previews WHERE record_id = ? AND is_custom = 1
+           SELECT REPLACE(path, '\\', '/') FROM previews WHERE record_id = ? AND is_custom = 1
          )`,
         [recordId, recordId],
       )
@@ -1086,7 +1089,7 @@ module.exports = function registerMediaHandlers(ctx) {
       if (!db) return resolve(false)
       db.get(
         `SELECT 1 FROM preview_sort WHERE record_id = ? AND identifier = ? LIMIT 1`,
-        [recordId, relPath],
+        [recordId, normalizePath(relPath)],
         (err, row) => (err ? reject(err) : resolve(!!row)),
       )
     })
@@ -1120,7 +1123,7 @@ module.exports = function registerMediaHandlers(ctx) {
         await fs.promises.copyFile(srcPath, destPath)
         await updatePreviews(recordId, relPath, null, true)
         await insertPreviewSortRow(recordId, relPath, -1)
-        const absolutePath = path.join(getAssetBasePath(), relPath).replace(/\\/g, '/')
+        const absolutePath = normalizePath(path.join(getAssetBasePath(), relPath))
         const displayUrl = `atlas-media://local/${encodeURIComponent(absolutePath)}`
         results.push({ id, url: displayUrl })
         emitPreviewProgress(event, id, i + 1, total, true, displayUrl)
@@ -1175,7 +1178,7 @@ module.exports = function registerMediaHandlers(ctx) {
       // relPath computed above (with collision-checked unique id)
       await updatePreviews(recordId, relPath, url, true)
       await insertPreviewSortRow(recordId, relPath, -1)
-      const absolutePath = path.join(getAssetBasePath(), relPath).replace(/\\/g, '/')
+      const absolutePath = normalizePath(path.join(getAssetBasePath(), relPath))
       const displayUrl = `atlas-media://local/${encodeURIComponent(absolutePath)}`
       emitPreviewProgress(event, id, downloaded, totalLength, true, displayUrl)
       BrowserWindow.getAllWindows().forEach((win) => { if (!win.isDestroyed()) win.webContents.send('game-updated', recordId) })
