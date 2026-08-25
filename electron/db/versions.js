@@ -1496,10 +1496,6 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
     }
     addTagFilter(filters.tags, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' });
     addTagFilter(filters.excludedTags, { exclude: true });
-    if (filters.steamMapped === true) {
-      filterWhereParts.push('(catalog.steam_id IS NOT NULL OR catalog.siteUrl LIKE ?)');
-      filterParams.push('%store.steampowered.com/app/%');
-    }
     if (filters.installState === 'installed') {
       filterWhereParts.push('catalog.is_installed = 1');
     } else if (filters.installState === 'uninstalled') {
@@ -1552,7 +1548,7 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
       }
     }
     if (filters.wishlistOnly === true) {
-      // A catalog row is wishlisted if it matches any provider ID. 
+      // A catalog row is wishlisted if it matches any provider ID.
       // Using four separate EXISTS clauses (rather than one EXISTS with a 4-way OR)
       // allows SQLite to use the per-column idx_wishlist_entries_* indexes.
       // A single EXISTS with an internal OR prevents index usage and forces a full scan.

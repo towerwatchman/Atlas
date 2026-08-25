@@ -545,10 +545,6 @@ const initializeDatabase = (dataDir) => {
     `);
     db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_flagged_at ON wishlist_entries(flagged_at);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_source ON wishlist_entries(source);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_atlas_id ON wishlist_entries(atlas_id);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_f95_id ON wishlist_entries(f95_id);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_lc_id ON wishlist_entries(lc_id);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_steam_id ON wishlist_entries(steam_id);`);
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN category TEXT;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN genre TEXT;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN rating TEXT;`, () => {});
@@ -558,6 +554,19 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN steam_url TEXT;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN lc_id INTEGER;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN preview_urls TEXT;`, () => {});
+    // These must come AFTER the ALTER TABLE block above: lc_id is a migration
+    // column, so on a database created before it existed the table does not
+    // carry it until the ALTER runs. Indexing it any earlier fails with
+    // "no such column: lc_id", and because sqlite3 emits that on the statement
+    // rather than returning it, an uncaught error would take down startup for
+    // upgrading users. The callbacks absorb the error for the same reason the
+    // ALTERs above have them.
+    // Required by the wishlist-only filter: it probes wishlist_entries once per
+    // provider id, and without a per-column index each probe is a full scan.
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_atlas_id ON wishlist_entries(atlas_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_f95_id ON wishlist_entries(f95_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_lc_id ON wishlist_entries(lc_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_steam_id ON wishlist_entries(steam_id);`, () => {});
     // User-set manual source IDs (F95 / Steam / LewdCorner) entered from the
     // game properties Mappings tab. Stored as a JSON blob on the per-game
     // override row so it survives metadata refreshes and is independent of the

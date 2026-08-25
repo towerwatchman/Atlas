@@ -1086,9 +1086,6 @@ const buildIndexWhere = (search = {}, filters = {}) => {
   addTags(filters.tags, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' })
   addTags(filters.excludedTags, { exclude: true })
 
-  if (filters.steamMapped === true) {
-    parts.push('(ci.steam_id IS NOT NULL OR ci.has_steam_link = 1)')
-  }
   if (filters.installState === 'installed') parts.push('ci.is_installed = 1')
   else if (filters.installState === 'uninstalled') parts.push('ci.is_installed = 0')
   if (filters.updateAvailable === true) parts.push('ci.is_installed = 1')
@@ -1118,7 +1115,7 @@ const buildIndexWhere = (search = {}, filters = {}) => {
 
   if (filters.wishlistOnly === true) {
     // Use separate EXISTS clauses instead of OR conditions in a single subquery.
-    // This allows SQLite to use indexes on each ID column and stop searching 
+    // This allows SQLite to use indexes on each ID column and stop searching
     // as soon as it finds a match. Mirrors wishlistOnly in versions.js.
     parts.push(`(
       EXISTS (SELECT 1 FROM wishlist_entries w WHERE w.atlas_id IS NOT NULL AND w.atlas_id = ci.atlas_id)
