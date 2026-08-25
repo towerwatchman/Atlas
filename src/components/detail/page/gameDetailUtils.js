@@ -104,7 +104,7 @@ export const getSteamAppId = (game = {}) => {
 }
 
 export const getMappedSteamAppId = (game = {}) => {
-  if (game.isCatalogEntry === true || game.isWishlistEntry === true || game.isMetadataOnly === true) return ''
+  if (game.isCatalogEntry === true || game.isMetadataOnly === true) return ''
   const candidates = [
     game.steam_appid,
     game.steam_id,
@@ -146,7 +146,7 @@ export const getGogId = (game = {}) => {
 }
 
 export const getMappedGogId = (game = {}) => {
-  if (game.isCatalogEntry === true || game.isWishlistEntry === true || game.isMetadataOnly === true) return ''
+  if (game.isCatalogEntry === true || game.isMetadataOnly === true) return ''
   const candidates = [game.gog_id, game.gog_appid, game.gogId, game.gogAppId]
   for (const candidate of candidates) {
     const id = cleanGogId(candidate)

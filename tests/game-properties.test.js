@@ -109,9 +109,10 @@ describe('Steam / GOG id mapping', () => {
   it('reads steam appid from external_ids JSON', () => {
     expect(getSteamAppId({ external_ids: '{"steam_appid":"620"}' })).toBe('620')
   })
-  it('getMappedSteamAppId is empty for catalog/wishlist/metadata-only entries', () => {
+  it('getMappedSteamAppId is empty for catalog/metadata-only entries', () => {
     expect(getMappedSteamAppId({ steam_appid: '440', isCatalogEntry: true })).toBe('')
-    expect(getMappedSteamAppId({ steam_appid: '440', isWishlistEntry: true })).toBe('')
+    // wishlist rows are catalog/metadata-only rows, so they are covered above;
+    // the old isWishlistEntry flag no longer gates this
     expect(getMappedSteamAppId({ steam_appid: '440', isMetadataOnly: true })).toBe('')
     expect(getMappedSteamAppId({ steam_appid: '440' })).toBe('440')
   })
