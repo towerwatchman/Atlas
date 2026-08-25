@@ -291,3 +291,127 @@ describe('convert-and-save-banner backward compatibility', () => {
     expect(result).toBe('fake-banner')
   })
 })
+
+// ── Custom upload input validation ───────────────────────────────────────────
+//
+// The custom-preview paths write user-chosen files into data/images and register
+// them as previews. The file dialog's filter and the drop zone's check are both
+// advisory: the dialog lets a determined user type any name, and a dropped path
+// arrives straight from the renderer. So the main process re-checks, and these
+// pin that check.
+//
+// A file that is not an image still copies fine and still gets a previews row --
+// it just renders as a permanently broken tile that atlas-media:// cannot draw
+// and the user has to hunt down by hand.
+
+const registerWithDataDir = (dataDir) => {
+  const registerMediaHandlers = require('../electron/ipc/media.js')
+  registerMediaHandlers({
+    getAssetBasePath: () => dataDir,
+    dataDir,
+    templatesDir: path.join(dataDir, 'templates'),
+    getMediaStorageMode: () => 'stream',
+    appConfig: {},
+    configPath: path.join(dataDir, 'config.ini'),
+    readActiveBannerLayout: () => null,
+    firstMediaPath: (v) => Array.isArray(v) ? v[0] || '' : v || '',
+    getBanner: () => Promise.resolve([]),
+    updatePreviews,
+    insertPreviewSortRow,
+    updateBanners,
+    deleteBanner: () => Promise.resolve(),
+    deletePreviews: () => Promise.resolve(),
+  })
+}
+
+describe('custom preview upload rejects non-images', () => {
+  it('refuses a local file whose extension is not an image', async () => {
+    const dataDir = freshDataDir()
+    await openFreshDatabase(dataDir)
+    await insertGame(1)
+
+    const srcExe = path.join(dataDir, 'installer.exe')
+    fs.writeFileSync(srcExe, 'MZ-not-an-image')
+    registerWithDataDir(dataDir)
+
+    const handler = ipcHandlers.get('add-custom-previews')
+    const result = await handler({ sender: null }, {
+      recordId: 1,
+      items: [{ id: 'exe-1', srcPath: srcExe }],
+    })
+
+    // Skipped, not copied: no result row and no previews row.
+    expect(result).toHaveLength(0)
+    const rows = await getDbAll('SELECT * FROM previews WHERE record_id = 1')
+    expect(rows).toHaveLength(0)
+    // ...and nothing landed in the image folder.
+    const imageDir = path.join(dataDir, 'images', '1')
+    const written = fs.existsSync(imageDir) ? fs.readdirSync(imageDir) : []
+    expect(written).toHaveLength(0)
+  })
+
+  it('still accepts the image extensions it should', async () => {
+    const dataDir = freshDataDir()
+    await openFreshDatabase(dataDir)
+    await insertGame(1)
+
+    const accepted = ['a.png', 'b.JPG', 'c.jpeg', 'd.webp', 'e.gif', 'f.avif']
+    const items = accepted.map((name, i) => {
+      const p = path.join(dataDir, name)
+      fs.writeFileSync(p, 'image-bytes')
+      return { id: `ok-${i}`, srcPath: p }
+    })
+    registerWithDataDir(dataDir)
+
+    const result = await ipcHandlers.get('add-custom-previews')({ sender: null }, {
+      recordId: 1, items,
+    })
+    // Case-insensitive: .JPG counts.
+    expect(result).toHaveLength(accepted.length)
+  })
+
+  it('refuses a non-http(s) URL rather than letting axios read it', async () => {
+    // file:// would turn the paste box into a way to copy arbitrary local
+    // files into the library.
+    const dataDir = freshDataDir()
+    await openFreshDatabase(dataDir)
+    await insertGame(1)
+    registerWithDataDir(dataDir)
+
+    await expect(
+      ipcHandlers.get('add-custom-preview-from-url')({ sender: null }, {
+        recordId: 1, id: 'u1', url: 'file:///etc/passwd',
+      }),
+    ).rejects.toThrow(/http and https/i)
+  })
+
+  it('refuses a URL that does not point at an image', async () => {
+    const dataDir = freshDataDir()
+    await openFreshDatabase(dataDir)
+    await insertGame(1)
+    registerWithDataDir(dataDir)
+
+    await expect(
+      ipcHandlers.get('add-custom-preview-from-url')({ sender: null }, {
+        recordId: 1, id: 'u2', url: 'https://example.com/payload.exe',
+      }),
+    ).rejects.toThrow(/does not point at an image/i)
+  })
+
+  it('leaves no partial file behind when a fetch fails', async () => {
+    const dataDir = freshDataDir()
+    await openFreshDatabase(dataDir)
+    await insertGame(1)
+    registerWithDataDir(dataDir)
+
+    await expect(
+      ipcHandlers.get('add-custom-preview-from-url')({ sender: null }, {
+        recordId: 1, id: 'u3', url: 'https://example.com/nope.txt',
+      }),
+    ).rejects.toThrow()
+
+    const imageDir = path.join(dataDir, 'images', '1')
+    const written = fs.existsSync(imageDir) ? fs.readdirSync(imageDir) : []
+    expect(written).toHaveLength(0)
+  })
+})

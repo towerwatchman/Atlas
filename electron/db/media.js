@@ -1134,11 +1134,9 @@ const deleteBanner = (recordId, appPath, isDev) => {
     try {
       const mediaRoot = path.resolve(getAssetBasePath(appPath, isDev), "data", "images");
       const banners = await getBanners(recordId, appPath, isDev);
-      console.log(`[deleteBanner] recordId=${recordId} bannersFromTable=${banners.length} mediaRoot=${mediaRoot}`);
 
       for (const banner_path of banners) {
         const filePath = banner_path.replace("file://", "");
-        console.log(`[deleteBanner] Attempting to delete banner file: ${filePath}`);
         try {
           if (
             await fsPromises
@@ -1159,9 +1157,7 @@ const deleteBanner = (recordId, appPath, isDev) => {
                 }
               },
             });
-            console.log(`[deleteBanner] Deleted banner file: ${filePath}`);
           } else {
-            console.log(`[deleteBanner] Banner file does not exist: ${filePath}`);
           }
         } catch (fileErr) {
           console.error(`[deleteBanner] Error deleting banner file ${filePath}:`, fileErr);
@@ -1176,7 +1172,6 @@ const deleteBanner = (recordId, appPath, isDev) => {
           (err, rows) => resolve(err ? [] : rows || [])
         );
       });
-      console.log(`[deleteBanner] media_assets banner rows: ${assetBanners.length}`);
 
       for (const row of assetBanners) {
         const rawPath = String(row?.path || "").replace("file://", "");
@@ -1191,14 +1186,12 @@ const deleteBanner = (recordId, appPath, isDev) => {
           );
         });
         if (sharedCount > 0) {
-          console.log(`[deleteBanner] Skipping shared media_assets banner: ${rawPath} (${sharedCount} other records)`);
           continue;
         }
 
         const filePath = path.isAbsolute(rawPath)
           ? rawPath
           : path.join(getAssetBasePath(appPath, isDev), rawPath);
-        console.log(`[deleteBanner] Attempting to delete media_assets banner file: ${filePath}`);
         try {
           if (
             await fsPromises
@@ -1219,9 +1212,7 @@ const deleteBanner = (recordId, appPath, isDev) => {
                 }
               },
             });
-            console.log(`[deleteBanner] Deleted media_assets banner file: ${filePath}`);
           } else {
-            console.log(`[deleteBanner] media_assets banner file does not exist: ${filePath}`);
           }
         } catch (fileErr) {
           console.error(`[deleteBanner] Error deleting media_assets banner file ${filePath}:`, fileErr);
@@ -1275,12 +1266,10 @@ const deletePreviews = (recordId, appPath, isDev) => {
           },
         );
       });
-      console.log('[deletePreviews] rows selected for file deletion:', downloadedRows.length, downloadedRows.map(r => ({ path: r.path, is_custom: r.is_custom })))
 
       for (const row of downloadedRows) {
         const previewUrl = toLocalAssetPath(appPath, isDev, row.path);
         const filePath = previewUrl.replace("file://", "");
-        console.log("[deletePreviews] Attempting to delete preview file:", filePath);
         try {
           if (
             await fsPromises
@@ -1328,14 +1317,12 @@ const deletePreviews = (recordId, appPath, isDev) => {
             console.error("Error deleting downloaded previews:", err);
             reject(err);
           } else {
-            console.log("Downloaded previews hard-deleted for recordId:", recordId, "rows affected:", this?.changes ?? 'unknown');
             // Verify: log remaining rows by is_custom (only custom rows should survive)
             getDb().all(
               `SELECT is_custom, COUNT(*) AS cnt FROM previews WHERE record_id = ? GROUP BY is_custom`,
               [recordId],
               (countErr, countRows) => {
                 if (!countErr && Array.isArray(countRows)) {
-                  console.log('[deletePreviews] remaining rows:', JSON.stringify(countRows))
                 }
               }
             )

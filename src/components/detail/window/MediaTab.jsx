@@ -4,6 +4,11 @@ import SourceIcon from '../../ui/SourceIcon.jsx'
 import { SHOW_LOCATION_BADGES } from '../../../assets/icons/sourceIcons'
 import PreviewLightbox from '../page/PreviewLightbox.jsx'
 
+// Mirrors CUSTOM_IMAGE_EXTENSIONS in electron/ipc/media.js. Duplicated across
+// the process boundary on purpose: this one gives immediate feedback on a
+// drop, the main-process one is the check that actually protects the library.
+const IMAGE_EXTENSIONS = /\.(webp|png|jpe?g|gif|bmp|avif|jfif)$/i
+
 export default function MediaTab({
   game, bannerUrl, bannerMediaStatus,
   validPreviewUrls, previewMediaStatus,
@@ -19,6 +24,7 @@ export default function MediaTab({
   const [cardOpen, setCardOpen] = useState(false)
   const [target, setTarget] = useState('preview')
   const [uploads, setUploads] = useState([])
+  const [dropError, setDropError] = useState('')
   const [urlInput, setUrlInput] = useState('')
   const [showUrlInput, setShowUrlInput] = useState(false)
 
@@ -29,7 +35,6 @@ export default function MediaTab({
     : 0
 
   useEffect(() => {
-    console.log('[MediaTab] validPreviewUrls changed (%d):', validPreviewUrls?.length, validPreviewUrls)
     setPreviewOrder(validPreviewUrls || [])
   }, [validPreviewUrls])
 
@@ -99,7 +104,6 @@ export default function MediaTab({
     e.preventDefault()
     if (dragIndex === null) return
     const finalOrder = [...previewOrder]
-    console.log('[MediaTab.handleDrop] local reorder (%d items), persisting...', finalOrder.length, finalOrder)
     setDragIndex(null)
     setPreviewOrder(finalOrder)
     if (typeof onSaveSortOrder === 'function') {
@@ -153,7 +157,7 @@ export default function MediaTab({
 
   const handleFileSelect = async () => {
     try {
-      const paths = await window.electronAPI.selectFiles()
+      const paths = await window.electronAPI.selectFiles({ images: true })
       if (!paths || paths.length === 0) return
       await processFiles(paths)
     } catch (err) {
@@ -166,12 +170,22 @@ export default function MediaTab({
     e.stopPropagation()
     const files = Array.from(e.dataTransfer.files || [])
     const paths = []
+    const rejected = []
     for (const f of files) {
       const resolved = (typeof window.electronAPI.getDroppedFilePath === 'function'
         ? window.electronAPI.getDroppedFilePath(f)
         : '') || f.path || ''
-      if (resolved) paths.push(resolved)
+      if (!resolved) continue
+      // A dropped path skips the file dialog entirely, so this is the only
+      // filter on the way in. The main process re-checks before copying; this
+      // is here to say so immediately rather than after a round-trip.
+      if (!IMAGE_EXTENSIONS.test(resolved)) {
+        rejected.push(resolved.split(/[\\/]/).pop())
+        continue
+      }
+      paths.push(resolved)
     }
+    setDropError(rejected.length > 0 ? `Not an image: ${rejected.join(', ')}` : '')
     processFiles(paths)
   }
 
@@ -449,6 +463,10 @@ export default function MediaTab({
                 </div>
               )}
             </div>
+
+            {dropError && (
+              <p className="text-xs text-danger" role="alert">{dropError}</p>
+            )}
 
             {uploads.length > 0 && (
               <div className="space-y-2 max-h-[200px] overflow-y-auto">

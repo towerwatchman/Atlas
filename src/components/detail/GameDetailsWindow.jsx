@@ -467,7 +467,6 @@ const GameDetailWindow = () => {
   // MediaTab's local previewOrder (the user's in-flight drag reorder).
   const handleSaveSortOrder = async (orderedUrls) => {
     try {
-      console.log('[handleSaveSortOrder] persisting %d previews for recordId:', orderedUrls?.length, game.record_id)
       await window.electronAPI.reorderPreviews(game.record_id, orderedUrls)
       const urls = await window.electronAPI.getPreviewsMeta(game.record_id)
       setPreviewUrls(Array.isArray(urls) ? urls : [])

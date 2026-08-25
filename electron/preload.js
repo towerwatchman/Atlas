@@ -63,10 +63,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking selectFile");
     return ipcRenderer.invoke("select-file");
   },
-  selectFiles: () => {
-    console.log("Invoking selectFiles");
-    return ipcRenderer.invoke("select-files");
-  },
+  selectFiles: (options) => ipcRenderer.invoke("select-files", options),
   selectDirectory: (options) => {
     console.log("Invoking selectDirectory");
     return ipcRenderer.invoke("select-directory", options);
@@ -421,7 +418,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Fired by the browser-extension RPC server after it writes a wishlist
   // entry, so an already-open library reflects the change without a restart.
   onWishlistUpdated: (callback) => {
-    const handler = () => callback();
+    const handler = (event, payload) => callback(payload);
     ipcRenderer.on("wishlist-updated", handler);
     return () => ipcRenderer.removeListener("wishlist-updated", handler);
   },
