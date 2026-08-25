@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Fixed slow "wishlist only" filtering in Browse and Library by 1. Adding indexes on columns used in query and 2. Splitting a single multi-OR subquery into separate EXISTS clauses.
 - Fix and remove the redundant isWishlistEntry memory flag which was set but never unset and cause unexpected behavior on entry display regarding wishlist. The isWishlisted logic will check the data from wishlist_entries instead. Note: the IPC behavior is not related and not updated.
 - Remove the 'has Steam mapping' quick filter
 - Fixed the library grid (banner view, Browse and Wishlist) nesting two scroll containers. `#gameGrid` scrolled while the virtualized grid inside it scrolled as well, so the working scrollbar sat a scrollbar's width in from the right edge with an empty track beside it. `#gameGrid` is now a flex column -- status banners are fixed rows and the pane below them is the only scroller -- and the grid's column count budgets for its own scrollbar, whose width now comes from a single `--scrollbar-size` shared by the CSS and the layout arithmetic. Status banners stay pinned at the top instead of scrolling away with the grid.
