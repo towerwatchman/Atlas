@@ -1086,9 +1086,6 @@ const buildIndexWhere = (search = {}, filters = {}) => {
   addTags(filters.tags, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' })
   addTags(filters.excludedTags, { exclude: true })
 
-  if (filters.steamMapped === true) {
-    parts.push('(ci.steam_id IS NOT NULL OR ci.has_steam_link = 1)')
-  }
   if (filters.installState === 'installed') parts.push('ci.is_installed = 1')
   else if (filters.installState === 'uninstalled') parts.push('ci.is_installed = 0')
   if (filters.updateAvailable === true) parts.push('ci.is_installed = 1')
