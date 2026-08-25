@@ -289,14 +289,12 @@ module.exports = {
   // id - without the alias every Buzzheavier mirror is filtered out as
   // unsupported even though the plugin handles it.
   hostAliases: ["buzzheavier", "bzzhr"],
-  
-  // Disabled rather than deleted, and pluginFor()/getPlugin() still resolve it,
-  // so a download ALREADY in the queue finishes instead of failing with "no
-  // plugin for this host" on a link the user cannot re-obtain. Deleting the file
-  // would also throw away working code and its 30-odd tests.
-  // ---    
-  // disabled: true,
-  
+
+  // Enabled: supportedHostIds() and listPlugins() include it, so Buzzheavier
+  // mirrors appear in the update modal and the host shows in Settings >
+  // Accounts. It shipped disabled while the Cloudflare gate could not be
+  // cleared; the browser resolve below is what changed that.
+
   // Cloudflare challenges the download route: it answers a plain fetch with
   // 403 + cf-mitigated: challenge, and asks for User-Agent Client Hints that
   // only a real browser supplies. Rather than impersonate one, the manager

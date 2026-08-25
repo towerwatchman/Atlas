@@ -131,6 +131,25 @@ function registerDownloadsHandlers(ctx = {}) {
         gateHosts: plugin?.gateHosts,
         requiresBrowser: plugin?.requiresBrowser,
       });
+      // Kept from before this host was added, and now carrying the two fields
+      // the Buzzheavier paths introduced. These are the first real signal that
+      // the hidden attempt works and that hx-redirect / will-download land
+      // where they should; dropping the log would make a regression in either
+      // invisible.
+      if (result?.diagnostics) {
+        console.log("[masked-resolve]", JSON.stringify({
+          ok: result.ok,
+          host: result.host,
+          hasFragment: result.hasFragment,
+          source: result.source,
+          plugin: plugin?.id || null,
+          directHost: result.directHost,
+          leftGateHost: result.leftGateHost,
+          cdnPath: result.cdnPath,
+          ms: Date.now() - resolveStart,
+          ...result.diagnostics,
+        }));
+      }
       return result;
     } catch (err) {
       return { ok: false, error: err.message || String(err) };

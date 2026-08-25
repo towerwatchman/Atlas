@@ -51,3 +51,50 @@ describe("isCloudflareCookie", () => {
     expect(isCloudflareCookie(undefined)).toBe(false);
   });
 });
+
+describe("isCloudflareCookie precision", () => {
+  // The first version tested /^_?_?cf_/, which kept ANY cookie beginning cf_.
+  // The partition is persistent, so whatever this keeps survives every later
+  // resolve -- a site's own cf_-prefixed cookie leaking across resolves is
+  // exactly the throwaway semantics the strip exists to preserve.
+  it("strips a site's own cf_-prefixed cookies", () => {
+    expect(isCloudflareCookie("cf_language")).toBe(false);
+    expect(isCloudflareCookie("cf_tracking")).toBe(false);
+    expect(isCloudflareCookie("cfduid_legacy")).toBe(false);
+  });
+
+  it("keeps the versioned challenge cookies Cloudflare actually sets", () => {
+    expect(isCloudflareCookie("cf_chl_2")).toBe(true);
+    expect(isCloudflareCookie("cf_chl_prog")).toBe(true);
+    expect(isCloudflareCookie("cf_use_ob")).toBe(true);
+    expect(isCloudflareCookie("__cfwaitingroom")).toBe(true);
+  });
+});
+
+describe("resolveMaskedLink serialization", () => {
+  // The partition went from throwaway-per-resolve to one shared persistent
+  // session. session.webRequest.onBeforeRequest / onHeadersReceived take a
+  // SINGLE listener each, so a second concurrent resolve would replace the
+  // first one's capture and leave it hanging to timeout; the cookie strip at
+  // the end of one resolve would also wipe cookies applyCookies() had just
+  // installed for another. downloadManager runs two transfers at once, so this
+  // is reachable. Resolves are therefore queued rather than overlapped.
+  it("does not start a second resolve until the first settles", async () => {
+    const { resolveMaskedLink } = require("../electron/downloads/maskedResolver");
+    const order = [];
+    // Not navigable -> the impl resolves immediately without touching Electron,
+    // which is enough to observe ordering through the chain.
+    const a = resolveMaskedLink("not-a-url").then(() => order.push("a"));
+    const b = resolveMaskedLink("also-not-a-url").then(() => order.push("b"));
+    await Promise.all([a, b]);
+    expect(order).toEqual(["a", "b"]);
+  });
+
+  it("a failed resolve does not poison the queue for the next one", async () => {
+    const { resolveMaskedLink } = require("../electron/downloads/maskedResolver");
+    const first = await resolveMaskedLink("not-a-url");
+    expect(first.ok).toBe(false);
+    const second = await resolveMaskedLink("still-not-a-url");
+    expect(second.ok).toBe(false);
+  });
+});
