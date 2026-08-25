@@ -215,6 +215,26 @@ function applyHeadingLines(state, lines) {
 }
 
 /**
+ * Fold ONE line in as a build heading, whatever it would classify as.
+ *
+ * Exists for "Part 3" and friends. PART_LINE cannot tell a story part from an
+ * archive fragment by looking at the line -- both read "Part 3" -- so the
+ * caller that CAN tell them apart (the parser, which knows whether a link came
+ * between the line and the platform below it) says so here. Everything else
+ * still goes through applyHeadingLines and keeps the fragment reading.
+ */
+function applyBuildLine(state, line) {
+  const next = { ...emptyHeading(), ...(state || {}) };
+  next.base = String(line || "").trim();
+  // Same clears as the default branch of applyHeadingLines: a new build owns
+  // none of the previous one's quality, fragment marker or platform.
+  next.quality = "";
+  next.part = null;
+  next.platform = "";
+  return next;
+}
+
+/**
  * The label to group links under: the poster's build heading, verbatim, with
  * only a trailing quality token folded in.
  *
@@ -231,6 +251,7 @@ module.exports = {
   splitHeadingLines,
   classifyHeadingLine,
   applyHeadingLines,
+  applyBuildLine,
   emptyHeading,
   headingLabel,
   parsePartLine,
