@@ -55,6 +55,7 @@ const {
   stripTags,
   splitHeadingLines,
   applyHeadingLines,
+  applyBuildLine,
   emptyHeading,
   headingLabel,
   classifyHeadingLine,
@@ -465,6 +466,27 @@ function parseThreadDownloads(html) {
   let heading = emptyHeading();
   let patchActive = false;
   let started = false;     // have we reached the first real download link yet
+  // ── "Part 3" the story part vs "Part 3" the archive fragment ──────────────
+  //
+  // PART_LINE matches both and the line itself cannot tell them apart. What
+  // separates them is what comes NEXT:
+  //
+  //   Being a DIK   SPLIT-S3 / Win/Linux / Part 1 -> LINK -> Part 2 -> LINK
+  //                 a fragment: links sit between it and anything else
+  //   Thief of…     Part 3 / Win/Linux -> LINK...  and  Part 1 / Win/Linux
+  //                 a build: a PLATFORM follows it with no link in between
+  //
+  // So a part line is held here rather than folded in immediately. If a platform
+  // line arrives before any link does, the line was naming a build and is
+  // promoted to one; if a link arrives first, it was a fragment marker and folds
+  // in as one. Holding it is what lets the same text mean both things.
+  let pendingPart = null;
+  // Fold a held part line back in as the fragment marker it turned out to be.
+  const flushPendingPart = () => {
+    if (pendingPart === null) return;
+    heading = applyHeadingLines(heading, [pendingPart]);
+    pendingPart = null;
+  };
 
   for (const node of coalesceBolds(walkElements(body), body)) {
     const tag = node.tag;
@@ -498,6 +520,34 @@ function parseThreadDownloads(html) {
         const text = line.replace(/^download\s+/i, "").trim();
         if (!text) continue;
         const kindOfLine = classifyHeadingLine(text);
+
+        // Held, not folded. See pendingPart above: the next line decides whether
+        // this was a build name or a fragment marker.
+        if (kindOfLine === "part") {
+          flushPendingPart();
+          pendingPart = text;
+          continue;
+        }
+
+        if (pendingPart !== null && kindOfLine === "platform") {
+          // A platform with no link in between: the held line was naming a
+          // build, so it becomes one and the platform hangs off it.
+          heading = applyBuildLine(heading, pendingPart);
+          pendingPart = null;
+          heading = applyHeadingLines(heading, [text]);
+          // A new build ends whatever section preceded it. Without this an
+          // "Extras" bold inside one build's block stays latched over every
+          // build below it -- on Thief of Hearts that put all of Part 1 into
+          // extras, which getUpdateLinks never passes to the modal, so those
+          // mirrors vanished from the list entirely. Only a promoted part line
+          // resets the divider: an ordinary build heading inside an Extras
+          // section is a mod's name, not the end of the section.
+          divider = null;
+          patchActive = false;
+          continue;
+        }
+
+        flushPendingPart();
         heading = applyHeadingLines(heading, [text]);
         // Patch tracking hangs off the BUILD line, not off any line: a bare
         // "Win/Linux" says nothing about whether the section is a patch, and
@@ -512,6 +562,9 @@ function parseThreadDownloads(html) {
     if (tag !== "a") continue;
     const href = node.attrs.href;
     if (!href) continue;
+    // A link before any platform line settles it: the held line was a fragment
+    // marker after all, so fold it in as one before this link is bucketed.
+    flushPendingPart();
 
     const classes = node.attrs.class || "";
     // An anchor wrapping an image is a screenshot thumbnail, not a download.

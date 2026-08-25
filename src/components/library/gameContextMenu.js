@@ -1,6 +1,7 @@
 import { buildCollectionMenuItems } from '../collections/collectionMenu.js'
 import { sortVersionsDesc } from '../detail/page/gameDetailUtils.js'
 import { linkableGameLinks } from '../detail/gameLinks.js'
+import { buildWishlistPayload } from '../../utils/wishlistPayload.js'
 
 // Item tree for a game's context menu.
 //
@@ -140,8 +141,34 @@ export function buildGameContextMenu({ game, collections = [], collectionIdsByRe
     })
   }
 
+  // Sits above the isLocal gate for the same reason Links does. Catalog and
+  // wishlist rows carry the identity fields a toggle needs despite having no
+  // local record, so "Add to Wishlist" belongs to them.
+  //
+  // A local row gets the entry only when it is ALREADY wishlisted, so an
+  // installed title that is still flagged can be cleared from the grid rather
+  // than only from the detail panel. Adding a local title is deliberately not
+  // offered: addWishlistEntry refuses a record that exists in the library
+  // (it returns { success: false, inLibrary: true }), so the menu would present
+  // an action that cannot succeed.
+  const isWishlisted = game.isWishlisted === true
+  if (!isLocal || isWishlisted) {
+    items.push({
+      label: isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist',
+      icon: 'fa-bookmark',
+      // Only the identity/metadata fields the main process reads are sent, not
+      // the whole row. `action` is written after the spread so a game carrying
+      // an `action` key of its own cannot hijack the dispatch.
+      data: {
+        ...buildWishlistPayload(game),
+        action: 'toggleWishlist',
+      },
+    })
+  }
+
   if (!isLocal) {
-    // Browse and wishlist rows have no local record, so nothing below applies.
+    // Browse and wishlist rows have no local record, so library-management
+    // actions (collections, open folder, remove/delete) do not apply.
     return items
   }
 
