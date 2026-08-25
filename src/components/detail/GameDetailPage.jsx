@@ -430,7 +430,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   }, [
     game?.record_id,
     game?.isWishlisted,
-    game?.isWishlistEntry,
     game?.isFavorite,
     game?.is_favorite,
     game?.personalRatingStory,
@@ -621,7 +620,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   // provided by the backend but recomputed here so optimistic UI stays correct.
   const titlePlaystate = effectiveTitlePlaystate(game.playstate, game.versions || [])
   const titlePlaystateIsDerived = !game.playstate && !!titlePlaystate
-  const canManageWishlist = game.isCatalogEntry === true || game.isWishlistEntry === true
+  // Wishlist rows are catalog rows (electron/db/wishlist.js sets isCatalogEntry),
+  // so the catalog flag alone covers them. The old isWishlistEntry flag is gone.
+  const canManageWishlist = game.isCatalogEntry === true
   const canLaunch = Boolean(
     actionVersion &&
     actionVersion.isInstalled !== false &&
