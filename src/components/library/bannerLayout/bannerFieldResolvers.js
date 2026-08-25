@@ -73,12 +73,17 @@ const formatRating = (value) => {
   return `${rating.toFixed(1)}/10`
 }
 
+// Atlas stores playtime in MINUTES (external sources report seconds, but the
+// xlibrary parser converts them to minutes on import). The detail view formats
+// the same column as minutes, so the badge must too. Mirrors the
+// detail view's numeric logic (hours floored, minutes ceiled) but keeps the
+// compact badge style (no "played" suffix).
 const formatPlaytime = (value) => {
-  const seconds = Number(value)
-  if (!Number.isFinite(seconds) || seconds <= 0) return ''
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  if (hours > 0) return `${hours}h ${minutes}m`
+  const totalMinutes = Math.ceil(Number(value))
+  if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) return ''
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
   return `${minutes}m`
 }
 

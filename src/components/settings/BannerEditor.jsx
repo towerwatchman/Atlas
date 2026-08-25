@@ -63,7 +63,11 @@ const previewGame = {
   comments: '42',
   platforms: 'Windows, Mac, Linux',
   personalRatingOverall: 4.8,
-  totalPlaytime: 9280,
+  // MINUTES, matching the games.total_playtime column the badge reads. This was
+  // 9280 back when the badge treated the value as seconds and rendered 2h 34m;
+  // read as minutes the same constant previews as 154h 40m, which is both
+  // implausible and wide enough to distort the layout being previewed.
+  totalPlaytime: 154,
   thread_updated: Math.floor((Date.now() - 5 * 3600 * 1000) / 1000),
   lastPlayed: Date.now() - 86400000,
   tags: 'Female Protagonist, Romance, Mystery, Choices, Animated',
