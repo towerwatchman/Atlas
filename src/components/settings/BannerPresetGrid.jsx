@@ -59,7 +59,9 @@ const SAMPLE_GAME = {
   comments: '42',
   platforms: 'Windows, Mac, Linux',
   personalRatingOverall: 4.8,
-  totalPlaytime: 9280,
+  // MINUTES, matching the games.total_playtime column the badge reads.
+  // See the same note in BannerEditor.jsx: 9280 was a seconds-era value.
+  totalPlaytime: 154,
   lastPlayed: Date.now() - 86400000,
   thread_updated: new Date(Date.now() - 3 * 86400000).toISOString(),
   tags: 'Female Protagonist, Romance, Mystery',

@@ -42,6 +42,7 @@ import { useTheme } from './theme/ThemeProvider.jsx'
 import { useBannerTemplate } from './theme/BannerTemplateProvider.jsx'
 import { getGameTitle, normalizeGameForRenderer } from './utils/gameDisplay.js'
 import { getWishlistIdentityKey, withWishlistStates } from './utils/wishlistIdentity.js'
+import { shouldRefetchCatalog } from './utils/wishlistRefresh.js'
 import { formatPercent, formatProgressNumber, sanitizePercentText } from './utils/formatPercent.js'
 import { BROWSE_MODE_ENABLED } from './features.js'
 
@@ -845,6 +846,29 @@ const App = () => {
   // menus share handleContextAction — confirmations and delete safeguards
   // included.
   const runGameContextAction = useCallback((data) => {
+    if (data.action === 'toggleWishlist') {
+      // Optimistic UI: flip the identity key and detail-panel flag before the
+      // DB round-trip. The grid row updates in place through the existing
+      // catalogWithWishlist memo (derived from wishlistIdentityKeys), so the
+      // badge/label changes immediately without replacing the catalogGames
+      // array and flashing the virtualized grid.
+      //
+      // Nothing is rolled back here. The main process broadcasts
+      // wishlist-updated on every outcome, and handleWishlistUpdated re-reads
+      // the wishlist from the DB, so a write that failed reverts this flip on
+      // the next tick.
+      const identityKey = getWishlistIdentityKey(data)
+      setWishlistIdentityKeys((prev) => {
+        const next = new Set(prev)
+        if (next.has(identityKey)) next.delete(identityKey)
+        else next.add(identityKey)
+        return next
+      })
+      setSelectedGame((prev) => {
+        if (!prev || getWishlistIdentityKey(prev) !== identityKey) return prev
+        return { ...prev, isWishlisted: !prev.isWishlisted }
+      })
+    }
     window.electronAPI.runContextAction?.(data)
   }, [])
 
@@ -869,8 +893,7 @@ const App = () => {
           setSelectedGame(localRecordId
             ? {
                 ...normalizedGame,
-                isWishlisted: selected.isWishlisted === true || selected.isWishlistEntry === true,
-                isWishlistEntry: selected.isWishlisted === true || selected.isWishlistEntry === true,
+                isWishlisted: selected.isWishlisted === true,
                 atlas_id: normalizedGame.atlas_id ?? selected.atlas_id,
                 f95_id: normalizedGame.f95_id ?? selected.f95_id,
                 lc_id: normalizedGame.lc_id ?? selected.lc_id,
@@ -912,8 +935,7 @@ const App = () => {
           if (Number.parseInt(current?.record_id, 10) !== id) return current
           return {
             ...normalizedGame,
-            isWishlisted: current?.isWishlisted === true || current?.isWishlistEntry === true,
-            isWishlistEntry: current?.isWishlisted === true || current?.isWishlistEntry === true,
+            isWishlisted: current?.isWishlisted === true,
           }
         })
       })
@@ -1714,13 +1736,22 @@ const App = () => {
     // open. Refresh the wishlist, the identity keys that annotate catalog rows,
     // and the main library, then re-sync the open detail panel if it is showing
     // the entry that just changed.
-    const handleWishlistUpdated = async () => {
+    //
+    // Source-tagged: context-menu toggles already flipped wishlistIdentityKeys
+    // optimistically in runGameContextAction, so catalogWithWishlist recomputes
+    // without replacing the array -- no flash, no fetchCatalogGames needed.
+    // shouldRefetchCatalog owns the exception cases (see wishlistRefresh.js):
+    // the extension has no optimistic path, and a wishlistOnly Browse filter
+    // decides its row set server-side so the optimistic flip cannot remove a
+    // row from it. loadWishlistIdentities() above has already re-read the DB,
+    // so this also reverts an optimistic flip whose write failed.
+    const handleWishlistUpdated = async (payload) => {
       await Promise.all([
         fetchWishlistGames(),
         loadWishlistIdentities(),
         fetchGames(),
       ])
-      if (browseAvailableRef.current) {
+      if (shouldRefetchCatalog(payload, catalogQueryFiltersRef.current, browseAvailableRef.current)) {
         fetchCatalogGames({ search: catalogSearchRef.current, filters: catalogQueryFiltersRef.current })
       }
       setSelectedGame((current) => {
@@ -1732,7 +1763,6 @@ const App = () => {
               return {
                 ...prev,
                 isWishlisted: isWish,
-                isWishlistEntry: isWish || prev.isWishlistEntry,
               }
             })
           }

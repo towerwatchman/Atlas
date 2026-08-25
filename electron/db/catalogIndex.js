@@ -1086,9 +1086,6 @@ const buildIndexWhere = (search = {}, filters = {}) => {
   addTags(filters.tags, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' })
   addTags(filters.excludedTags, { exclude: true })
 
-  if (filters.steamMapped === true) {
-    parts.push('(ci.steam_id IS NOT NULL OR ci.has_steam_link = 1)')
-  }
   if (filters.installState === 'installed') parts.push('ci.is_installed = 1')
   else if (filters.installState === 'uninstalled') parts.push('ci.is_installed = 0')
   if (filters.updateAvailable === true) parts.push('ci.is_installed = 1')
@@ -1117,12 +1114,14 @@ const buildIndexWhere = (search = {}, filters = {}) => {
   }
 
   if (filters.wishlistOnly === true) {
-    parts.push(`EXISTS (
-      SELECT 1 FROM wishlist_entries w
-       WHERE (w.atlas_id IS NOT NULL AND w.atlas_id = ci.atlas_id)
-          OR (w.f95_id  IS NOT NULL AND w.f95_id  = ci.f95_id)
-          OR (w.lc_id   IS NOT NULL AND w.lc_id   = ci.lc_id)
-          OR (w.steam_id IS NOT NULL AND w.steam_id = ci.steam_id))`)
+    // Use separate EXISTS clauses instead of OR conditions in a single subquery.
+    // This allows SQLite to use indexes on each ID column and stop searching
+    // as soon as it finds a match. Mirrors wishlistOnly in versions.js.
+    parts.push(`(
+      EXISTS (SELECT 1 FROM wishlist_entries w WHERE w.atlas_id IS NOT NULL AND w.atlas_id = ci.atlas_id)
+      OR EXISTS (SELECT 1 FROM wishlist_entries w WHERE w.f95_id  IS NOT NULL AND w.f95_id  = ci.f95_id)
+      OR EXISTS (SELECT 1 FROM wishlist_entries w WHERE w.lc_id   IS NOT NULL AND w.lc_id   = ci.lc_id)
+      OR EXISTS (SELECT 1 FROM wishlist_entries w WHERE w.steam_id IS NOT NULL AND w.steam_id = ci.steam_id))`)
   }
 
   // Generated from ratingCategories.js. This was a second hand-written copy of

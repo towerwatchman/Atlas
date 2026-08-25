@@ -391,7 +391,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Fired by the browser-extension RPC server after it writes a wishlist
   // entry, so an already-open library reflects the change without a restart.
   onWishlistUpdated: (callback) => {
-    const handler = () => callback();
+    const handler = (event, payload) => callback(payload);
     ipcRenderer.on("wishlist-updated", handler);
     return () => ipcRenderer.removeListener("wishlist-updated", handler);
   },
