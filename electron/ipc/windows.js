@@ -161,6 +161,34 @@ async function handleContextAction(data, sender, ctx) {
       sender?.send("rate-title-requested", { recordId: data.recordId, title: data.title });
       break;
     }
+    case "toggleWishlist": {
+      // Context menus cannot prompt, so the same toggle the detail page uses
+      // is run here.
+      //
+      // wishlist-updated is broadcast on EVERY outcome, not just success. The
+      // renderer flips its identity-key set optimistically before this call and
+      // then discards the result, so a silent failure would strand the grid in
+      // the wrong state forever. The broadcast makes the renderer re-read the
+      // wishlist from the DB, which reconciles the optimistic flip either way:
+      // it sticks when the write landed and reverts when it did not.
+      const { toggleWishlistEntry } = require("../db/wishlist");
+      let result = null;
+      try {
+        result = await toggleWishlistEntry(data);
+      } catch (err) {
+        console.error("toggleWishlist failed", err);
+      }
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send("wishlist-updated", {
+            source: "context-menu",
+            success: result?.success === true,
+            inLibrary: result?.inLibrary === true,
+          });
+        }
+      });
+      break;
+    }
     case "collectionBulkTagRequested": {
       // Same round-trip as rename/delete: a native menu cannot host a form, so
       // the renderer owns the dialog and already knows which records belong to
