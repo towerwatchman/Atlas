@@ -80,7 +80,7 @@ const previewModes = {
   ...(BROWSE_MODE_ENABLED
     ? { browse: { label: 'Browse catalog sample', patch: { isCatalogEntry: true, isMetadataOnly: true, hasInstalledVersion: true, isFavorite: false, personalRatingOverall: null, totalPlaytime: 0, lastPlayed: 0 } } }
     : {}),
-  wishlist: { label: 'Wishlist sample', patch: { isCatalogEntry: true, isWishlistEntry: true, isWishlisted: true } },
+  wishlist: { label: 'Wishlist sample', patch: { isCatalogEntry: true, isWishlisted: true } },
   missing: { label: 'Missing/uninstalled sample', patch: { hasInstalledVersion: false, versions: [], totalPlaytime: 0, lastPlayed: 0 } },
 }
 
