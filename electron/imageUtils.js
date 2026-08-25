@@ -651,7 +651,7 @@ async function downloadImages(
           fs.writeFileSync(videoPath, imageBytes);
         }
         await verifyTrackedFile(videoPath, existedBefore);
-        await updatePreviews(recordId, `${relativePath}${ext}`);
+        await updatePreviews(recordId, `${relativePath}${ext}`, url);
         result.previewRowsWritten++;
         result.localPreviewPaths.push(`${relativePath}${ext}`);
         result.downloaded++;
@@ -666,7 +666,7 @@ async function downloadImages(
           if (existedBefore) {
             // Already have it — skip the full animated frame decode.
             await verifyTrackedFile(animatedPreviewPath, true);
-            await updatePreviews(recordId, `${relativePath}_animated.webp`);
+            await updatePreviews(recordId, `${relativePath}_animated.webp`, url);
             result.previewRowsWritten++;
             result.localPreviewPaths.push(`${relativePath}_animated.webp`);
             animatedPreviewSaved = true;
@@ -687,7 +687,7 @@ async function downloadImages(
                 })
                 .toFile(animatedPreviewPath);
               await verifyTrackedFile(animatedPreviewPath, false);
-              await updatePreviews(recordId, `${relativePath}_animated.webp`);
+              await updatePreviews(recordId, `${relativePath}_animated.webp`, url);
               result.previewRowsWritten++;
               result.localPreviewPaths.push(`${relativePath}_animated.webp`);
               animatedPreviewSaved = true;
@@ -711,7 +711,7 @@ async function downloadImages(
       }
       await verifyTrackedFile(targetPath, targetExisted);
       if (!animatedPreviewSaved) {
-        await updatePreviews(recordId, `${relativePath}_pr.webp`);
+        await updatePreviews(recordId, `${relativePath}_pr.webp`, url);
         result.previewRowsWritten++;
         result.localPreviewPaths.push(`${relativePath}_pr.webp`);
         result.downloaded++;

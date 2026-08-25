@@ -469,10 +469,35 @@ const initializeDatabase = (dataDir) => {
       (
         record_id INTEGER REFERENCES games (record_id),
         path TEXT UNIQUE,
+        -- OBSOLETE: superseded by preview_sort.position. Never written by any code
+        -- path; kept in the schema only for dev/stable branch-swap DB compatibility.
+        -- DO NOT DROP.
         position INTEGER DEFAULT 256,
         UNIQUE (record_id, path)
       );
     `);
+    db.run(`ALTER TABLE previews ADD COLUMN remote_url TEXT;`, () => {});
+    db.run(`ALTER TABLE previews ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0;`, () => {});
+    // preview_sort persists user-reorder positions independently of the previews
+    // table so order survives re-downloads, stream/download switches, and
+    // metadata refreshes. Keyed by a stable identifier: remote_url for
+    // downloaded/streamed images (matches across re-downloads as long as the
+    // source URL is unchanged), or the relative path for custom uploads.
+    db.run(`
+      CREATE TABLE IF NOT EXISTS preview_sort
+      (
+        record_id INTEGER REFERENCES games (record_id),
+        identifier TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (record_id, identifier)
+      );
+    `, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_preview_sort_record ON preview_sort (record_id);`, () => {});
+    // One-time migration: normalize any backslash identifiers to forward
+    // slashes so sort keys are consistent across platforms.
+    db.run(`UPDATE preview_sort SET identifier = replace(identifier, '\\', '/') WHERE identifier LIKE '%\\%'`, () => {});
+
     db.run(`
       CREATE TABLE IF NOT EXISTS banners
       (
@@ -940,6 +965,7 @@ function sweepOrphanedRecords() {
     "gog_mappings",
     "game_personal_ratings",
     "collection_games",
+    "preview_sort",
   ];
   for (const tbl of childTables) {
     db.run(
