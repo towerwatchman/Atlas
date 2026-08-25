@@ -12,14 +12,30 @@ import Module from 'module'
 const ipcHandlers = new Map()
 let restoreLoad
 let launchCalls = []
+let broadcastCalls = []
+let toggleWishlistResult
+let toggleWishlistCalls = []
 
 beforeEach(() => {
   ipcHandlers.clear()
   launchCalls = []
+  broadcastCalls = []
+  toggleWishlistCalls = []
+  toggleWishlistResult = async () => ({ success: true })
 
   const electronStub = {
     ipcMain: { handle: (channel, fn) => ipcHandlers.set(channel, fn) },
-    BrowserWindow: { getAllWindows: () => [], fromWebContents: () => null },
+    BrowserWindow: {
+      getAllWindows: () => [{
+        isDestroyed: () => false,
+        webContents: {
+          send: (channel, payload) => {
+            if (channel === 'wishlist-updated') broadcastCalls.push(payload)
+          },
+        },
+      }],
+      fromWebContents: () => null,
+    },
     dialog: { showMessageBox: async () => ({ response: 1 }) },
     shell: { openPath: async () => '', openExternal: () => {} },
     app: { getVersion: () => '0.0.0' },
@@ -38,6 +54,14 @@ beforeEach(() => {
   Module._load = function patched(request, parent, isMain) {
     if (request === 'electron') return electronStub
     if (request === './games') return gamesStub
+    if (request === '../db/wishlist') {
+      return {
+        toggleWishlistEntry: async (entry) => {
+          toggleWishlistCalls.push(entry)
+          return toggleWishlistResult(entry)
+        },
+      }
+    }
     return originalLoad.call(this, request, parent, isMain)
   }
   restoreLoad = () => { Module._load = originalLoad }
@@ -121,5 +145,47 @@ describe('run-context-action', () => {
     expect(launchCalls).toHaveLength(1)
     expect(launchCalls[0].source).toBe('steam')
     expect(launchCalls[0].sourceAppId).toBe('620')
+  })
+
+  // The context-menu toggleWishlist path broadcasts wishlist-updated with a
+  // source tag so the renderer can decide whether to refetch the catalog.
+  test('toggleWishlist broadcasts wishlist-updated with source context-menu', async () => {
+    const run = register()
+    await run({ sender: null }, { action: 'toggleWishlist', recordId: 7 })
+    expect(broadcastCalls).toHaveLength(1)
+    expect(broadcastCalls[0].source).toBe('context-menu')
+    expect(broadcastCalls[0].success).toBe(true)
+  })
+
+  // The renderer flips its identity-key set optimistically and discards the
+  // result, so the broadcast has to fire on failure too -- otherwise nothing
+  // ever tells it to re-read the DB and the grid keeps the wrong state.
+  test('toggleWishlist still broadcasts when the write fails', async () => {
+    toggleWishlistResult = async () => ({ success: false, inLibrary: true })
+    const run = register()
+    await run({ sender: null }, { action: 'toggleWishlist', recordId: 7 })
+    expect(broadcastCalls).toHaveLength(1)
+    expect(broadcastCalls[0]).toEqual({
+      source: 'context-menu',
+      success: false,
+      inLibrary: true,
+    })
+  })
+
+  test('toggleWishlist still broadcasts when the toggle throws', async () => {
+    toggleWishlistResult = async () => { throw new Error('db is gone') }
+    const run = register()
+    await expect(run({ sender: null }, { action: 'toggleWishlist', recordId: 7 }))
+      .resolves.toBeDefined()
+    expect(broadcastCalls).toHaveLength(1)
+    expect(broadcastCalls[0].success).toBe(false)
+  })
+
+  test('toggleWishlist passes the action payload through to the db layer', async () => {
+    const run = register()
+    await run({ sender: null }, { action: 'toggleWishlist', f95_id: 44821, title: 'Foo' })
+    expect(toggleWishlistCalls).toHaveLength(1)
+    expect(toggleWishlistCalls[0].f95_id).toBe(44821)
+    expect(toggleWishlistCalls[0].title).toBe('Foo')
   })
 })
