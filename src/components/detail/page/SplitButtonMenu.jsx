@@ -91,7 +91,12 @@ export default function SplitButtonMenu({
   const caretRef = useRef(null)
   const menuRef = useRef(null)
 
-  const usable = items.filter((item) => item && typeof item.onSelect === 'function')
+  // An item earns a place if it can be chosen, OR if it is deliberately shown
+  // disabled to say the route exists but is unavailable for this title. Without
+  // the second clause a disabled item would need a dummy onSelect to survive
+  // this filter, which is how a "disabled" control ends up firing.
+  const usable = items.filter((item) =>
+    item && (typeof item.onSelect === 'function' || item.disabled === true))
 
   const place = useCallback(() => {
     const host = hostRef.current
@@ -141,6 +146,9 @@ export default function SplitButtonMenu({
   if (usable.length === 0) return <>{children}</>
 
   const choose = (item) => {
+    // A disabled item is inert: it neither runs nor closes the menu, so the
+    // reason text stays on screen where the user just clicked.
+    if (item.disabled === true || typeof item.onSelect !== 'function') return
     setOpen(false)
     item.onSelect()
   }
@@ -211,15 +219,22 @@ export default function SplitButtonMenu({
               key={item.id || item.label}
               type="button"
               role="menuitem"
+              disabled={item.disabled === true}
+              aria-disabled={item.disabled === true || undefined}
               onClick={(event) => { event.stopPropagation(); choose(item) }}
               style={{
                 display: 'flex', alignItems: 'flex-start', gap: 10, width: '100%',
                 padding: '10px 12px', textAlign: 'left',
-                background: 'transparent', border: 'none', cursor: 'pointer',
+                background: 'transparent', border: 'none',
+                cursor: item.disabled === true ? 'not-allowed' : 'pointer',
                 color: 'var(--color-text)',
+                // Dimmed rather than hidden: the route exists, it just cannot be
+                // taken for this title, and the description says why.
+                opacity: item.disabled === true ? 0.5 : 1,
                 borderTop: index > 0 ? '1px solid var(--color-border)' : 'none',
               }}
               onMouseEnter={(event) => {
+                if (item.disabled === true) return
                 event.currentTarget.style.background = 'var(--color-tertiary, var(--color-selected))'
               }}
               onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent' }}
