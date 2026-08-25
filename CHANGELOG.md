@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixed
+- Implement add/remove wishlist in Browse mode context menu that trigger `toggleWishlist` action for non-local rows, Using optimistc UI approach to dispatch the db update, and the success broadcast triggers the renderer so grid view without triggering full refresh. The `wishlist-updated` broadcast is now source-tagged: context-menu toggles skip the catalog refetch (optimistic UI already flipped the row), while the extension path keeps it (no optimistic UI exists there). The broadcast fires on every outcome so a failed write reconciles the optimistic flip, and a `wishlistOnly` Browse filter still refetches because its row set is decided server-side.
 - Fixed slow "wishlist only" filtering in Browse and Library by 1. Adding indexes on columns used in query and 2. Splitting a single multi-OR subquery into separate EXISTS clauses.
 - Fix and remove the redundant isWishlistEntry memory flag which was set but never unset and cause unexpected behavior on entry display regarding wishlist. The isWishlisted logic will check the data from wishlist_entries instead. Note: the IPC behavior is not related and not updated.
 - Remove the 'has Steam mapping' quick filter
