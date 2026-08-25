@@ -45,6 +45,16 @@ const STATE_LABELS = {
 const ACTIVE_STATES = ['downloading', 'verifying', 'extracting', 'importing']
 const WAITING_STATES = ['queued', 'paused', 'awaiting_file', 'failed', 'install_failed', 'ready']
 const FINISHED_STATES = ['done', 'canceled']
+
+// How long the scrollbar stays up after the last scroll event, or after the
+// cursor leaves the scroll zone. Long enough that a pause mid-scroll or a small
+// overshoot past the edge does not flicker it, short enough that it does not
+// linger over the list.
+const SCROLLBAR_HIDE_DELAY_MS = 500
+// Width of the right-side band that counts as "reaching for the scrollbar".
+// Wider than the 12px bar itself so the bar appears before the cursor is on
+// top of it -- it cannot be aimed at while invisible.
+const SCROLLBAR_ZONE_PX = 60
 const WORKING_STATES = ['verifying', 'extracting', 'importing']
 
 const formatBytes = (value) => {
@@ -419,10 +429,10 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
 
   // Scrollbar visibility: hidden by default, shown via the `scrollbar-visible`
   // class while scrolling or while the cursor is in the right-side scroll zone.
-  // HIDE_DELAY keeps it up briefly after scrolling stops / the cursor leaves the
-  // zone before it drops. No CSS `:hover` -- that would show it anywhere over
-  // the list instead of just the scroll zone.
-  const HIDE_DELAY = 500
+  // SCROLLBAR_HIDE_DELAY_MS keeps it up briefly after scrolling stops or the
+  // cursor leaves the zone, so a pause mid-scroll or a small overshoot past the
+  // edge does not make it flicker. No CSS `:hover` -- that would show it
+  // anywhere over the list rather than only near the scrollbar itself.
   const hideTimerRef = useRef(null)
   const scrollingRef = useRef(false)
   const inZoneRef = useRef(false)
@@ -431,46 +441,50 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
     setShowScrollbar(scrollingRef.current || inZoneRef.current)
   }, [])
 
+  // One place that schedules the hide, so the two triggers cannot drift apart.
+  // Whichever reason is still true when it fires keeps the bar up, because
+  // updateVisibility reads BOTH flags.
+  const scheduleHide = useCallback((clear) => {
+    clearTimeout(hideTimerRef.current)
+    hideTimerRef.current = setTimeout(() => {
+      clear()
+      updateVisibility()
+    }, SCROLLBAR_HIDE_DELAY_MS)
+  }, [updateVisibility])
+
   const handleScroll = useCallback(() => {
     scrollingRef.current = true
     updateVisibility()
-    clearTimeout(hideTimerRef.current)
-    hideTimerRef.current = setTimeout(() => {
-      scrollingRef.current = false
-      updateVisibility()
-    }, HIDE_DELAY)
-  }, [updateVisibility])
+    scheduleHide(() => { scrollingRef.current = false })
+  }, [updateVisibility, scheduleHide])
 
   const handleMouseMove = useCallback((e) => {
     const rect = e.currentTarget.getBoundingClientRect()
-    const inZone = e.clientX >= rect.right - 60
+    const inZone = e.clientX >= rect.right - SCROLLBAR_ZONE_PX
     if (inZone === inZoneRef.current) {
-      // No edge crossing; while in the zone keep the hide timer cancelled.
+      // No edge crossing. While in the zone the bar must not time out, so any
+      // pending hide is cancelled on every move.
       if (inZone) clearTimeout(hideTimerRef.current)
       return
     }
-    inZoneRef.current = inZone
-    clearTimeout(hideTimerRef.current)
     if (inZone) {
+      inZoneRef.current = true
+      clearTimeout(hideTimerRef.current)
       updateVisibility()
-    } else {
-      // Brief grace period before hiding.
-      hideTimerRef.current = setTimeout(() => {
-        inZoneRef.current = false
-        updateVisibility()
-      }, HIDE_DELAY)
+      return
     }
-  }, [updateVisibility])
+    // Left the zone. The flag stays TRUE until the timer clears it: clearing it
+    // here would make a re-entry during the grace period read as a fresh edge
+    // crossing rather than "still in the zone", restarting the whole cycle.
+    scheduleHide(() => { inZoneRef.current = false })
+  }, [updateVisibility, scheduleHide])
 
   const handleMouseLeave = useCallback(() => {
+    // Only the zone is cleared here; a scroll still in its grace period keeps
+    // the bar up on its own timer.
     if (!inZoneRef.current) return
-    inZoneRef.current = false
-    clearTimeout(hideTimerRef.current)
-    hideTimerRef.current = setTimeout(() => {
-      inZoneRef.current = false
-      updateVisibility()
-    }, HIDE_DELAY)
-  }, [updateVisibility])
+    scheduleHide(() => { inZoneRef.current = false })
+  }, [scheduleHide])
 
   useEffect(() => () => clearTimeout(hideTimerRef.current), [])
 
