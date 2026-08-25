@@ -42,7 +42,8 @@ const TECH_STACK = [
   ['Platforms', 'Windows & Linux'],
 ]
 
-const LINKS = {
+// The GitHub links are the single source for the repo URL across the app
+export const LINKS = {
   steamCurator:
     'https://store.steampowered.com/curator/44473903-Atlas-Game-Manager/',
   github: 'https://github.com/towerwatchman/Atlas',

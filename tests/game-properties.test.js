@@ -70,9 +70,20 @@ describe('formatPlaytime', () => {
     expect(formatPlaytime(60)).toBe('1h played')
     expect(formatPlaytime(135)).toBe('2h 15m played')
   })
+  
   it('handles invalid input', () => {
     expect(formatPlaytime(null)).toBe('Not played')
     expect(formatPlaytime(-5)).toBe('Not played')
+  })
+  // The DB can hold fractional minutes. The old code floored the hours THEN
+  // rounded the remainder, so a high decimal produced impossible outputs:
+  // 119.8 -> "1h 60m played" and 59.8 -> "60m played". Ceiling the total
+  // first keeps hours and minutes consistent and also prevents tiny values
+  // like 0.4m from hiding entirely (Math.round(0.4) === 0, Math.ceil(0.4) === 1).
+  it('ceilings fractional minutes before splitting into hours and minutes', () => {
+    expect(formatPlaytime(119.8)).toBe('2h played')
+    expect(formatPlaytime(59.8)).toBe('1h played')
+    expect(formatPlaytime(119.4)).toBe('2h played')
   })
 })
 
@@ -98,9 +109,10 @@ describe('Steam / GOG id mapping', () => {
   it('reads steam appid from external_ids JSON', () => {
     expect(getSteamAppId({ external_ids: '{"steam_appid":"620"}' })).toBe('620')
   })
-  it('getMappedSteamAppId is empty for catalog/wishlist/metadata-only entries', () => {
+  it('getMappedSteamAppId is empty for catalog/metadata-only entries', () => {
     expect(getMappedSteamAppId({ steam_appid: '440', isCatalogEntry: true })).toBe('')
-    expect(getMappedSteamAppId({ steam_appid: '440', isWishlistEntry: true })).toBe('')
+    // wishlist rows are catalog/metadata-only rows, so they are covered above;
+    // the old isWishlistEntry flag no longer gates this
     expect(getMappedSteamAppId({ steam_appid: '440', isMetadataOnly: true })).toBe('')
     expect(getMappedSteamAppId({ steam_appid: '440' })).toBe('440')
   })

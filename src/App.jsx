@@ -18,6 +18,7 @@ import BulkTagModal from './components/collections/BulkTagModal.jsx'
 import { useCollections, UNCATEGORIZED_ID } from './hooks/useCollections.js'
 import { retainImage } from './utils/imageRetention.js'
 import { toMediaSrc } from './utils/mediaSrc.js'
+import { releaseUrlFor } from './utils/releaseUrl.js'
 import SearchBox from './components/search/SearchBox.jsx'
 import SearchSidebar from './components/search/SearchSidebar.jsx'
 import GameDetailPage from './components/detail/GameDetailPage.jsx'
@@ -845,6 +846,24 @@ const App = () => {
   // menus share handleContextAction — confirmations and delete safeguards
   // included.
   const runGameContextAction = useCallback((data) => {
+    if (data.action === 'toggleWishlist') {
+      // Optimistic UI: flip the identity key and detail-panel flag before the
+      // DB round-trip. The grid row updates in place through the existing
+      // catalogWithWishlist memo (derived from wishlistIdentityKeys), so the
+      // badge/label changes immediately without replacing the catalogGames
+      // array and flashing the virtualized grid.
+      const identityKey = getWishlistIdentityKey(data)
+      setWishlistIdentityKeys((prev) => {
+        const next = new Set(prev)
+        const wasWishlisted = next.has(identityKey)
+        !wasWishlisted ? next.add(identityKey) : next.delete(identityKey)
+        return next
+      })
+      setSelectedGame((prev) => {
+        if (!prev || getWishlistIdentityKey(prev) !== identityKey) return prev
+        return { ...prev, isWishlisted: !prev.isWishlisted }
+      })
+    }
     window.electronAPI.runContextAction?.(data)
   }, [])
 
@@ -869,8 +888,7 @@ const App = () => {
           setSelectedGame(localRecordId
             ? {
                 ...normalizedGame,
-                isWishlisted: selected.isWishlisted === true || selected.isWishlistEntry === true,
-                isWishlistEntry: selected.isWishlisted === true || selected.isWishlistEntry === true,
+                isWishlisted: selected.isWishlisted === true,
                 atlas_id: normalizedGame.atlas_id ?? selected.atlas_id,
                 f95_id: normalizedGame.f95_id ?? selected.f95_id,
                 lc_id: normalizedGame.lc_id ?? selected.lc_id,
@@ -912,8 +930,7 @@ const App = () => {
           if (Number.parseInt(current?.record_id, 10) !== id) return current
           return {
             ...normalizedGame,
-            isWishlisted: current?.isWishlisted === true || current?.isWishlistEntry === true,
-            isWishlistEntry: current?.isWishlisted === true || current?.isWishlistEntry === true,
+            isWishlisted: current?.isWishlisted === true,
           }
         })
       })
@@ -1714,13 +1731,19 @@ const App = () => {
     // open. Refresh the wishlist, the identity keys that annotate catalog rows,
     // and the main library, then re-sync the open detail panel if it is showing
     // the entry that just changed.
-    const handleWishlistUpdated = async () => {
+    //
+    // Source-tagged: context-menu toggles already flipped wishlistIdentityKeys
+    // optimistically in runGameContextAction, so catalogWithWishlist recomputes
+    // without replacing the array -- no flash, no fetchCatalogGames needed.
+    // The extension has no optimistic path, so it explicitly requests a full
+    // Browse refresh via payload.source === 'extension'.
+    const handleWishlistUpdated = async (payload) => {
       await Promise.all([
         fetchWishlistGames(),
         loadWishlistIdentities(),
         fetchGames(),
       ])
-      if (browseAvailableRef.current) {
+      if (payload?.source === 'extension' && browseAvailableRef.current) {
         fetchCatalogGames({ search: catalogSearchRef.current, filters: catalogQueryFiltersRef.current })
       }
       setSelectedGame((current) => {
@@ -1732,7 +1755,6 @@ const App = () => {
               return {
                 ...prev,
                 isWishlisted: isWish,
-                isWishlistEntry: isWish || prev.isWishlistEntry,
               }
             })
           }
@@ -2059,7 +2081,14 @@ const App = () => {
                     collectionsActive={collectionsActive}
                     browseAvailable={browseAvailable}
                   />
-                  <span className="text-text text-xs whitespace-nowrap">Version: {version} <span style={{ color: 'Goldenrod' }}>β</span></span>
+                  <button
+                    type="button"
+                    onClick={() => window.electronAPI?.openExternalUrl?.(releaseUrlFor(version))}
+                    title="Go to Release Page"
+                    className="text-text text-xs whitespace-nowrap hover:text-accent hover:underline transition-colors cursor-pointer bg-transparent border-none p-0"
+                  >
+                    Version: {version} <span style={{ color: 'Goldenrod' }}>β</span>
+                  </button>
                 </div>
               </>
             ) : (
@@ -2112,7 +2141,14 @@ const App = () => {
                   <path d="M11 10.75C11 10.336 11.336 10 11.75 10L12.25 10C12.664 10 13 10.336 13 10.75L13 16.25C13 16.664 12.664 17 12.25 17L11.75 17C11.336 17 11 16.664 11 16.25L11 10.75Z" />
                 </svg>
               </button>
-              <span className="text-text text-xs mr-4">Version: {version} <span style={{ color: 'Goldenrod' }}>β</span></span>
+              <button
+                type="button"
+                onClick={() => window.electronAPI?.openExternalUrl?.(releaseUrlFor(version))}
+                title="Go to Release Page"
+                className="text-text text-xs mr-4 hover:text-accent hover:underline transition-colors cursor-pointer"
+              >
+                Version: {version} <span style={{ color: 'Goldenrod' }}>β</span>
+              </button>
             </div>
           )}
         </div>

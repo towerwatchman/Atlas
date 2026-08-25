@@ -137,7 +137,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   // render a broken "unavailable" tile. If everything fails, the section shows
   // the "No previews available" note instead.
   const [failedPreviews, setFailedPreviews] = useState(() => new Set())
-  const [isWishlisted, setIsWishlisted] = useState(game?.isWishlisted === true || game?.isWishlistEntry === true)
+  const [isWishlisted, setIsWishlisted] = useState(game?.isWishlisted === true)
   const [wishlistBusy, setWishlistBusy] = useState(false)
   const [isFavorite, setIsFavorite] = useState(game?.isFavorite === true || game?.is_favorite === 1)
   const [favoriteBusy, setFavoriteBusy] = useState(false)
@@ -390,13 +390,18 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   useEffect(() => {
     setShowInfo(false)
     setLightboxIndex(null)
-    const initialWish = game?.isWishlisted === true || game?.isWishlistEntry === true
-    setIsWishlisted(initialWish)
+    // Seed synchronously from the derived flag so the panel renders the correct
+    // state immediately — and, when the game prop changes on an already-mounted
+    // panel, before the async DB check below has a chance to resolve. Without it,
+    // switching games would flash the previous game's wishlist state.
+    setIsWishlisted(game?.isWishlisted === true)
     let cancelledWishCheck = false
     if (window.electronAPI?.isWishlistEntry && game) {
       window.electronAPI.isWishlistEntry(game).then((isWish) => {
+        // The live DB result is authoritative: it must be able to CLEAR the
+        // seeded value, so it is applied outright rather than OR'd into it.
         if (!cancelledWishCheck && typeof isWish === 'boolean') {
-          setIsWishlisted(isWish || initialWish)
+          setIsWishlisted(isWish)
         }
       })
     }

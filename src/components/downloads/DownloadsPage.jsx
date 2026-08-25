@@ -649,21 +649,16 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
   }
 
   return (
-    // No scroll container here. #gameGrid is already overflow-y-auto, and
-    // nesting a second scroller inside it meant two reserved scrollbar
-    // gutters - the inner one showing as dead space down the right of the
-    // page. CollectionsView, the sibling view, sets no overflow for the
-    // same reason and lets the grid do the scrolling.
-    //
-    // The sticky header still works: it now sticks against #gameGrid
-    // rather than against a nested box, which is what was wanted anyway.
-    <div>
+    // This view owns its scrolling: the shared pane is overflow-hidden for
+    // non-detail views and scrolls nothing. h-full (not min-h-full) so the list
+    // wrapper gets a bounded box below the pinned header.
+    <div className="h-full flex flex-col overflow-hidden">
       {/* Header: throughput, mirroring Steam's network/peak/disk row. */}
       {/* Header uses the same surface as a hovered card, so it reads as a
           distinct band above the list rather than blending into it. Opaque
           rather than the previous translucent bg-primary/95, which let the
           list show through while scrolling underneath. */}
-      <div className="sticky top-0 z-10 bg-selected border-b border-border">
+      <div className="shrink-0 bg-selected border-b border-border">
         <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
           <h1 className="text-xl text-text">Downloads</h1>
           <div className="flex items-center gap-4 sm:gap-5">
@@ -692,7 +687,7 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
         </div>
       </div>
 
-      <div className="px-4 sm:px-6 py-4 pb-10">
+      <div className="flex-1 min-h-0 overflow-y-auto downloads-scroll px-4 sm:px-6 py-4 pb-10">
 
         {items.length === 0 && (
           <div className="py-16 text-center">

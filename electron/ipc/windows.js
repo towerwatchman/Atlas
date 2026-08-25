@@ -161,6 +161,20 @@ async function handleContextAction(data, sender, ctx) {
       sender?.send("rate-title-requested", { recordId: data.recordId, title: data.title });
       break;
     }
+    case "toggleWishlist": {
+      // Context menus cannot prompt, so the same toggle the detail page uses
+      // is run here. The success path broadcasts wishlist-updated so the
+      // renderer can refresh its identity-key set and filtered lists -- the
+      // grid row reflects the new state the next time the menu opens.
+      const { toggleWishlistEntry } = require("../db/wishlist");
+      const result = await toggleWishlistEntry(data);
+      if (result?.success) {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) win.webContents.send("wishlist-updated", { source: "context-menu" });
+        });
+      }
+      break;
+    }
     case "collectionBulkTagRequested": {
       // Same round-trip as rename/delete: a native menu cannot host a form, so
       // the renderer owns the dialog and already knows which records belong to

@@ -331,6 +331,27 @@
   .atlas-scrollbar::-webkit-scrollbar-corner {
     background: var(--scrollbar-track);
   }
+
+  /* Downloads: hidden until hover so a long list looks uncluttered but still
+     scrolls. Pseudo-elements only -- adding scrollbar-width/scrollbar-color
+     disables them (tests/scrollbar-styling.test.js). */
+  .downloads-scroll::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border-color: transparent;
+  }
+
+  .downloads-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .downloads-scroll:hover::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--scrollbar-thumb) 65%, transparent);
+    border-color: transparent;
+  }
+
+  .downloads-scroll {
+    scrollbar-gutter: stable;
+  }
 }
 
 .-webkit-app-region-drag {
