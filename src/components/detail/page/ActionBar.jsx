@@ -62,11 +62,45 @@ export default function ActionBar({
   // colour, so it is green beside PLAY and accent beside INSTALL or UPDATE.
   const showInstallMenu = routes.showInstallMenu
   const caretHost = !showInstallMenu ? 'none' : game.isUpdateAvailable ? 'update' : 'primary'
-  // One entry today. The panel picks its own mode -- 'Install / Import Files' for
+  // ── Download Version ──────────────────────────────────────────────────────
+  //
+  // Opens the same downloads modal the UPDATE button does: every build and
+  // mirror the thread offers, so a different version can be fetched over one
+  // already installed.
+  //
+  // Without this the modal is unreachable for an installed title with no
+  // pending update. showInstallCta is `!canLaunch && canInstallFromDetail`, so
+  // an installed game gets PLAY instead of INSTALL, and the only other door --
+  // the UPDATE button -- renders only when game.isUpdateAvailable. Installing a
+  // DIFFERENT version of something you already have was therefore impossible
+  // from this page.
+  //
+  // It goes straight to the downloads modal rather than through the source
+  // picker even when Steam or GOG are also available: the picker answers "where
+  // should this come from", and this item has already answered it. Steam and GOG
+  // remain reachable through the primary button.
+  //
+  // UpdateModal reads `f95_id || f95Id` and shows its own error when neither is
+  // present, so the entry is disabled rather than hidden for a title with no
+  // thread -- the route exists, this title just cannot take it, and the
+  // description says so.
+  const hasF95Thread = Boolean(game?.f95_id || game?.f95Id)
+  const canDownloadVersion = typeof onOpenUpdate === 'function' && hasF95Thread
+  // Two entries. The panel picks its own mode -- 'Install / Import Files' for
   // a catalog row, 'Update / Import Files' for a library title -- from
   // canManageWishlist, so a single handler serves both and only the wording here
   // differs.
   const installMenuItems = [
+    {
+      id: 'download-version',
+      label: 'Download Version',
+      description: canDownloadVersion
+        ? 'Pick a build and mirror from the thread, including one you do not have yet.'
+        : 'No F95zone thread is linked to this title, so there are no builds to list.',
+      icon: 'fas fa-cloud-arrow-down',
+      disabled: !canDownloadVersion,
+      onSelect: canDownloadVersion ? onOpenUpdate : undefined,
+    },
     {
       id: 'manual-install',
       label: 'Manual Install',

@@ -19,7 +19,7 @@ const appLog = require("../appLog");
 const downloadsDb = require("../db/downloads");
 const manager = require("../downloads/downloadManager");
 const credentialStore = require("../downloads/credentialStore");
-const { getPlugin, listPlugins } = require("../downloads/hosts");
+const { getPlugin, listPlugins, pluginFor } = require("../downloads/hosts");
 const { resolveMaskedLink } = require("../downloads/maskedResolver");
 const { toLocalRecordId } = require("../downloads/recordId");
 const { toCatalogRef } = require("../library/catalogRef");
@@ -122,13 +122,31 @@ function registerDownloadsHandlers(ctx = {}) {
       }
       const cookieHeader = accountStore.getCookieHeaderForUrl(url) || "";
       const parentWindow = BrowserWindow.fromWebContents(event.sender);
-      const result = await resolveMaskedLink(url, { parentWindow, cookieHeader, title });
+      const plugin = pluginFor ? pluginFor(url) : null;
+      const resolveStart = Date.now();
+      const result = await resolveMaskedLink(url, {
+        parentWindow,
+        cookieHeader,
+        title,
+        gateHosts: plugin?.gateHosts,
+        requiresBrowser: plugin?.requiresBrowser,
+      });
+      // Kept from before this host was added, and now carrying the two fields
+      // the Buzzheavier paths introduced. These are the first real signal that
+      // the hidden attempt works and that hx-redirect / will-download land
+      // where they should; dropping the log would make a regression in either
+      // invisible.
       if (result?.diagnostics) {
         console.log("[masked-resolve]", JSON.stringify({
           ok: result.ok,
           host: result.host,
           hasFragment: result.hasFragment,
           source: result.source,
+          plugin: plugin?.id || null,
+          directHost: result.directHost,
+          leftGateHost: result.leftGateHost,
+          cdnPath: result.cdnPath,
+          ms: Date.now() - resolveStart,
           ...result.diagnostics,
         }));
       }
