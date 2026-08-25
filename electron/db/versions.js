@@ -1496,10 +1496,6 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
     }
     addTagFilter(filters.tags, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' });
     addTagFilter(filters.excludedTags, { exclude: true });
-    if (filters.steamMapped === true) {
-      filterWhereParts.push('(catalog.steam_id IS NOT NULL OR catalog.siteUrl LIKE ?)');
-      filterParams.push('%store.steampowered.com/app/%');
-    }
     if (filters.installState === 'installed') {
       filterWhereParts.push('catalog.is_installed = 1');
     } else if (filters.installState === 'uninstalled') {
