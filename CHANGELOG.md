@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- The version readout in the topnav and sidebar is now a button that opens that version's GitHub release page. The tag it builds matches what the release workflows publish -- `v<version>` for stable and `v<version>-nightly.<run>` for nightly -- so it lands on the real release rather than a 404. (#143)
 - Added a "Download Version" entry to the split-button caret on the game detail page, beside "Manual Install". It opens the same downloads modal the UPDATE button does, listing every build and mirror the thread offers, so a different version can be fetched over one already installed. Previously an installed title with no pending update had no route to that modal at all: the primary button becomes PLAY once a version is installed, and the UPDATE button only renders when an update is flagged. The entry goes straight to the downloads modal rather than through the source picker, and is shown disabled with a reason for titles with no F95zone thread linked.
 
 ### Fixed
