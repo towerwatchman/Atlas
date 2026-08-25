@@ -349,6 +349,25 @@ module.exports = function registerWindowsHandlers(ctx) {
     }
   })
 
+  // Inline-editable path fields type directly into the input. The renderer has
+  // no fs access, so it asks the main process to stat the path. Returns
+  // {exists,isDirectory,isFile} so the caller can enforce file vs directory and
+  // absolute-path rules without trusting the renderer. Any error is invalid, not thrown.
+  ipcMain.handle('check-path', async (_event, raw) => {
+    const p = String(raw || '').trim().replace(/^["']|["']$/g, '')
+    if (!p) return { exists: false }
+    // Relative paths must not resolve against the app's cwd — only absolute paths
+    // (including UNC on Windows) are user-meaningful here.
+    if (!path.isAbsolute(p)) return { exists: false }
+    try {
+      const st = await fs.promises.stat(p)
+      return { exists: true, isDirectory: st.isDirectory(), isFile: st.isFile() }
+    } catch (e) {
+      if (e && e.code === 'ENOENT') return { exists: false }
+      return { exists: false, error: String(e && e.message || e) }
+    }
+  })
+
   // Cross-screen color picker support. Captures every display at full
   // resolution and returns each as a PNG data URL along with its logical
   // bounds and scale factor. The renderer overlays these captures fullscreen
