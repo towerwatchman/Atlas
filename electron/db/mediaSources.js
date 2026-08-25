@@ -314,7 +314,7 @@ const buildExternalLinks = (rawExternalIds) => {
 // never drift. Keep them pointing at this single helper.
 const sourceFromRemoteUrl = (url) => {
   const u = String(url || '').toLowerCase()
-  if (!/^https?:\/\//.test(u)) return null
+  if (!/^https?:\/\//.test(u)) return null // local file path — leave in place
   if (u.includes('f95zone')) return 'f95'
   if (u.includes('lewdcorner')) return 'lewdcorner'
   if (u.includes('steamstatic') || u.includes('steamcdn') || u.includes('akamaihd') || u.includes('/steam/'))

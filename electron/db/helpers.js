@@ -13,6 +13,12 @@ const getAssetBasePath = (appPath, isDev) => appPath;
 const toLocalAssetPath = (appPath, isDev, assetPath) =>
   path.join(getAssetBasePath(appPath, isDev), assetPath).replace(/\\/g, "/");
 
+// Normalize path separators to forward slashes for consistent identifiers
+// across platforms. Used for preview_sort keys, display URLs, and any
+// comparison that must work the same on Windows and Linux.
+const normalizePath = (input) =>
+  String(input || '').replace(/\\/g, '/');
+
 const normalizeMediaStorageMode = (mode) =>
   mode === "download" ? "download" : "stream";
 
@@ -101,6 +107,7 @@ const buildBannerSelectFields = (baseImagePath, mediaStorageMode) => {
 module.exports = {
   getAssetBasePath,
   toLocalAssetPath,
+  normalizePath,
   normalizeMediaStorageMode,
   remoteBannerExpression,
   buildBannerJoinClauses,

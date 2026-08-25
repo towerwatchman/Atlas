@@ -11,6 +11,7 @@ const {
   getPreviews,
   getPreviewsWithMeta,
   deletePreviews,
+  deleteCustomPreviews,
   deleteBanner,
   updateBanners,
   nextManualPreviewPosition,
@@ -631,5 +632,131 @@ describe('getPreviewsWithMeta (source + location enrichment)', () => {
     // The plain-URL contract is preserved for non-meta consumers.
     const plain = await getPreviews(1, dataDir, false, { mode: 'stream' })
     expect(plain.every((p) => typeof p === 'string')).toBe(true)
+  })
+})
+
+// ── deleteCustomPreviews ──────────────────────────────────────────────────────
+
+describe('deleteCustomPreviews', () => {
+  it('deletes custom preview files from disk and removes preview_sort + previews rows', async () => {
+    const { dataDir } = await openFreshDatabase()
+
+    const imageDir = path.join(dataDir, 'data', 'images', '1')
+    fs.mkdirSync(imageDir, { recursive: true })
+    const customFile = path.join(imageDir, 'custom.webp')
+    const downloadedFile = path.join(imageDir, 'downloaded.webp')
+    fs.writeFileSync(customFile, 'fake-custom-data')
+    fs.writeFileSync(downloadedFile, 'fake-downloaded-data')
+
+    await updatePreviews(1, 'data/images/1/custom.webp', null, true)
+    await updatePreviews(1, 'data/images/1/downloaded.webp', 'https://example.com/dl.jpg', false)
+    await insertPreviewSortRow(1, 'data/images/1/custom.webp', -1)
+    await insertPreviewSortRow(1, 'https://example.com/dl.jpg', 0)
+
+    await deleteCustomPreviews(1, dataDir, false)
+
+    // Custom file deleted from disk.
+    expect(fs.existsSync(customFile)).toBe(false)
+    // Downloaded file untouched.
+    expect(fs.existsSync(downloadedFile)).toBe(true)
+
+    // Custom preview row gone.
+    const customRow = await getDbGet('SELECT * FROM previews WHERE record_id = 1 AND is_custom = 1')
+    expect(customRow).toBeNull()
+    // Downloaded preview row untouched.
+    const dlRow = await getDbGet('SELECT * FROM previews WHERE record_id = 1 AND is_custom = 0')
+    expect(dlRow).not.toBeNull()
+
+    // Custom preview_sort row gone.
+    const customSort = await getDbGet(
+      "SELECT * FROM preview_sort WHERE record_id = 1 AND identifier = 'data/images/1/custom.webp'"
+    )
+    expect(customSort).toBeNull()
+    // Downloaded preview_sort row untouched.
+    const dlSort = await getDbGet(
+      "SELECT * FROM preview_sort WHERE record_id = 1 AND identifier = 'https://example.com/dl.jpg'"
+    )
+    expect(dlSort).not.toBeNull()
+  })
+
+  it('does nothing when no custom previews exist', async () => {
+    const { dataDir } = await openFreshDatabase()
+
+    const imageDir = path.join(dataDir, 'data', 'images', '1')
+    fs.mkdirSync(imageDir, { recursive: true })
+    fs.writeFileSync(path.join(imageDir, 'dl.webp'), 'fake-data')
+
+    await updatePreviews(1, 'data/images/1/dl.webp', 'https://example.com/dl.jpg', false)
+    await insertPreviewSortRow(1, 'https://example.com/dl.jpg', 0)
+
+    await deleteCustomPreviews(1, dataDir, false)
+
+    // Downloaded file still there.
+    expect(fs.existsSync(path.join(imageDir, 'dl.webp'))).toBe(true)
+    // Downloaded row still there.
+    const dlRow = await getDbGet('SELECT * FROM previews WHERE record_id = 1')
+    expect(dlRow).not.toBeNull()
+    // Sort row still there.
+    const sortRow = await getDbGet('SELECT * FROM preview_sort WHERE record_id = 1')
+    expect(sortRow).not.toBeNull()
+  })
+})
+
+// ── clear-preview-sort behaviour ──────────────────────────────────────────────
+
+describe('clear-preview-sort behaviour', () => {
+  it('custom uploads return to -1, non-custom rows are removed', async () => {
+    const { dataDir } = await openFreshDatabase()
+    await insertGame(1)
+
+    const imageDir = path.join(dataDir, 'data', 'images', '1')
+    fs.mkdirSync(imageDir, { recursive: true })
+    fs.writeFileSync(path.join(imageDir, 'a.webp'), 'fake-data')
+    fs.writeFileSync(path.join(imageDir, 'custom.webp'), 'fake-data')
+
+    // Insert a downloaded preview and a custom preview, both with sort rows.
+    await updatePreviews(1, 'data/images/1/a.webp', 'https://example.com/a.jpg', false)
+    await updatePreviews(1, 'data/images/1/custom.webp', null, true)
+    await insertPreviewSortRow(1, 'https://example.com/a.jpg', 0)
+    await insertPreviewSortRow(1, 'data/images/1/custom.webp', 1)
+
+    // Simulate what clear-preview-sort does at the DB level.
+    // Uses REPLACE(path, '\\', '/') to match normalized identifiers.
+    await new Promise((resolve, reject) => {
+      dbIndex.db.serialize(() => {
+        dbIndex.db.run('BEGIN TRANSACTION')
+        // Custom uploads move back to -1.
+        dbIndex.db.run(
+          `UPDATE preview_sort SET position = -1
+           WHERE record_id = ? AND identifier IN (
+             SELECT REPLACE(path, '\\', '/') FROM previews WHERE record_id = ? AND is_custom = 1
+           )`,
+          [1, 1]
+        )
+        // Non-custom rows are removed.
+        dbIndex.db.run(
+          `DELETE FROM preview_sort
+           WHERE record_id = ? AND identifier NOT IN (
+             SELECT REPLACE(path, '\\', '/') FROM previews WHERE record_id = ? AND is_custom = 1
+           )`,
+          [1, 1],
+          (err) => err ? reject(err) : resolve()
+        )
+      })
+    })
+
+    const sortRows = await getDbAll(
+      'SELECT identifier, position FROM preview_sort WHERE record_id = 1 ORDER BY position, created_at'
+    )
+    // Only the custom row remains, at position -1.
+    expect(sortRows).toHaveLength(1)
+    expect(sortRows[0].position).toBe(-1)
+
+    // getPreviews should now show custom first (at -1), then downloaded in natural order.
+    const urls = await getPreviews(1, dataDir, false, { mode: 'stream' })
+    // Both files exist locally, so they resolve to local paths. Custom leads due to -1.
+    expect(urls).toHaveLength(2)
+    expect(urls[0]).toMatch(/custom\.webp$/)
+    expect(urls[1]).toMatch(/a\.webp$/)
   })
 })

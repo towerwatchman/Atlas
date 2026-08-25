@@ -494,6 +494,9 @@ const initializeDatabase = (dataDir) => {
       );
     `, () => {});
     db.run(`CREATE INDEX IF NOT EXISTS idx_preview_sort_record ON preview_sort (record_id);`, () => {});
+    // One-time migration: normalize any backslash identifiers to forward
+    // slashes so sort keys are consistent across platforms.
+    db.run(`UPDATE preview_sort SET identifier = replace(identifier, '\\', '/') WHERE identifier LIKE '%\\%'`, () => {});
 
     db.run(`
       CREATE TABLE IF NOT EXISTS banners

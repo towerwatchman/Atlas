@@ -7,8 +7,8 @@ const axios = require('axios')
 const sharp = require('sharp')
 const dbModule = require('./index')
 const getDb = () => dbModule.db
-const { toLocalAssetPath, getAssetBasePath, normalizeMediaStorageMode, remoteBannerExpression,
-        buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
+const { toLocalAssetPath, getAssetBasePath, normalizePath, normalizeMediaStorageMode,
+        remoteBannerExpression, buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
 const { normalizeSourceOrder, parseExternalIds, resolveSteamAppId, sourceFromRemoteUrl } = require('./mediaSources')
 
@@ -189,7 +189,10 @@ const nextCreatedAt = () => {
 const insertPreviewSortRow = (recordId, identifier, position) => {
   return new Promise((resolve, reject) => {
     const sql = `INSERT OR REPLACE INTO preview_sort (record_id, identifier, position, created_at) VALUES (?, ?, ?, ?)`;
-    const params = [recordId, identifier, position, nextCreatedAt()];
+    // Normalize to forward slashes so identifiers are consistent across
+    // platforms — previews.path uses OS-native separators but sort keys
+    // must match regardless of the OS that created them.
+    const params = [recordId, normalizePath(identifier), position, nextCreatedAt()];
     getDb().run(sql, params, (err) => {
       if (err) {
         console.error("Error inserting preview_sort row:", err);
@@ -1391,7 +1394,8 @@ const deleteCustomPreviews = (recordId, appPath, isDev) => {
         }
       }
 
-      const identifiers = customRows.map((r) => r.path).filter(Boolean);
+      // Normalize paths to match the forward-slash identifiers in preview_sort.
+      const identifiers = customRows.map((r) => normalizePath(r.path)).filter(Boolean);
       if (identifiers.length > 0) {
         await new Promise((res, rej) => {
           const placeholders = identifiers.map(() => "?").join(",");
