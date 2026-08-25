@@ -318,8 +318,85 @@ function* walkElements(fragment) {
 
     if (name === "b") boldEnd = contentEnd;
 
-    yield { tag: name, attrs, html: fragment.slice(contentStart, contentEnd) };
+    // Past the closing tag, not at it: the glue between two bolds starts after
+    // "</b>", and starting at contentEnd would put the close tag itself into
+    // every gap.
+    const closeEnd = fragment.indexOf(">", contentEnd);
+    const end = closeEnd === -1 ? fragment.length : closeEnd + 1;
+
+    yield {
+      tag: name,
+      attrs,
+      html: fragment.slice(contentStart, contentEnd),
+      start: match.index,
+      end,
+    };
   }
+}
+
+// Characters a poster uses to join platform names inside ONE heading:
+// "Win/Linux", "PC - Android", "Win, Mac". At least one of these has to appear
+// in the gap for two bolds to be treated as a single heading.
+const GLUE_SEPARATORS = "/,+|&\\-\u2013\u2014\u00b7\u2022";
+const GLUE_ONLY = new RegExp(`^[\\s${GLUE_SEPARATORS}]*$`);
+const GLUE_HAS_SEPARATOR = new RegExp(`[${GLUE_SEPARATORS}]`);
+
+/**
+ * Is the markup between two <b> tags nothing but a separator?
+ *
+ * Whitespace alone is NOT enough. "<b>Season 2</b> <b>Win/Linux</b>" renders on
+ * one line too, but those are two headings - a build and a platform - and
+ * merging them would rebuild the single mixed string headingLines.js exists to
+ * prevent. Requiring a real separator character keeps the merge to the case
+ * where the poster wrote the join themselves.
+ *
+ * A <br>, <hr>, <a> or <img> in the gap ends the run outright: the first two are
+ * a line break by definition, and the last two mean links or images have already
+ * been read under the earlier heading.
+ */
+function isHeadingGlue(text) {
+  const raw = String(text || "");
+  if (/<\s*\/?\s*(?:br|hr|a|img)\b/i.test(raw)) return false;
+  const visible = stripTags(raw);
+  return GLUE_ONLY.test(visible) && GLUE_HAS_SEPARATOR.test(visible);
+}
+
+/**
+ * Join <b> runs that a poster wrote as one heading.
+ *
+ *   <b>Win</b>/<b>Linux</b>: <a ...>MEGA</a>
+ *
+ * is one line saying "Win/Linux", but the scan emits two bolds and
+ * applyHeadingLines REPLACES the platform on each, so the state after the pair
+ * was "Linux". On Windows that made every mirror of the only usable build fail
+ * the platform filter: LA: Streets of Sorcery (thread 265629) writes its Win
+ * build exactly this way and parsed to zero offerable links, while its Mac and
+ * Android builds - written as a single bold each - were correctly rejected. The
+ * result was a thread with fifteen live mirrors and an empty update modal.
+ *
+ * The <br> split inside the merged html still runs afterwards, so
+ * "<b>Season 1<br>Win</b>/<b>Linux</b>" still yields ["Season 1", "Win/Linux"].
+ */
+function* coalesceBolds(nodes, fragment) {
+  let pending = null;
+  for (const node of nodes) {
+    if (node.tag !== "b") {
+      if (pending) {
+        yield pending;
+        pending = null;
+      }
+      yield node;
+      continue;
+    }
+    const glue = pending ? fragment.slice(pending.end, node.start) : "";
+    if (pending && isHeadingGlue(glue)) {
+      pending = { ...pending, html: pending.html + glue + node.html, end: node.end };
+      continue;
+    }
+    if (pending) yield pending;
+    pending = node;
+  }
+  if (pending) yield pending;
 }
 
 /**
@@ -389,7 +466,7 @@ function parseThreadDownloads(html) {
   let patchActive = false;
   let started = false;     // have we reached the first real download link yet
 
-  for (const node of walkElements(body)) {
+  for (const node of coalesceBolds(walkElements(body), body)) {
     const tag = node.tag;
 
     if (tag === "b") {

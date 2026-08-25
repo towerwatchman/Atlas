@@ -14,6 +14,7 @@ const {
   SEARCH_PREFIX_FIELDS, LEGACY_SEARCH_TYPE_FIELDS,
   unionColumnsForSearchFieldIds, normalizeSearchFieldIds,
 } = require('./searchFields')
+const { extractUrlId } = require('./urlIdExtractor')
 
 // A search payload may carry `fields` (current) or `type` (legacy, still in
 // saved_filters.json). Neither means "use the default set".
@@ -1337,6 +1338,17 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
         searchFields = ['url'];
       }
     }
+    // Same URL routing as the catalog_index path and the renderer -- see
+    // electron/db/urlIdExtractor.js. Only when no explicit prefix claimed
+    // the text, so `title:` and `url:` are not overridden by a URL in their
+    // argument.
+    const urlId = prefixedSearch && SEARCH_PREFIX_FIELDS[prefixedSearch[1].toLowerCase()]
+      ? null
+      : extractUrlId(searchText);
+    if (urlId) {
+      searchFields = [urlId.field];
+      searchText = urlId.query;
+    }
     const escapeLike = (value) => String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
     const buildLikeTerm = (value) => `%${escapeLike(value).toLowerCase()}%`;
     const searchTerms = searchText
@@ -1344,18 +1356,38 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
       .map((term) => term.trim())
       .filter((term) => term && !term.startsWith('-'));
     const searchParams = [];
-    const addLikeConditions = (fields, terms) => {
+    // A steamId search also reaches through atlas_external_steam, which holds
+    // EVERY appid for a game rather than the single MIN(steam_id) the tile
+    // carries -- so a DLC appid finds the game it belongs to. Mirrors
+    // buildIndexWhere in catalogIndex.js; both paths must resolve a search the
+    // same way or Browse returns different rows depending on index state.
+    //
+    // EXISTS, not a join: several appids per atlas_id would multiply the rows
+    // and repeat the tile once per appid.
+    const steamAliasExists = `EXISTS (
+      SELECT 1 FROM atlas_external_steam aes
+       WHERE aes.atlas_id = catalog.atlas_id
+         AND LOWER(CAST(aes.steam_appid AS TEXT)) LIKE ? ESCAPE '\\')`;
+    const addLikeConditions = (fields, terms, { withSteamAliases = false } = {}) => {
       if (terms.length === 0) return '';
       const clauses = terms.map((term) => {
         const likeTerm = buildLikeTerm(term);
         searchParams.push(...fields.map(() => likeTerm));
-        return `(${fields.map((field) => `LOWER(COALESCE(CAST(${field} AS TEXT), '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`;
+        const parts = fields.map(
+          (field) => `LOWER(COALESCE(CAST(${field} AS TEXT), '')) LIKE ? ESCAPE '\\'`);
+        if (withSteamAliases) {
+          parts.push(steamAliasExists);
+          searchParams.push(likeTerm);
+        }
+        return `(${parts.join(' OR ')})`;
       });
       return clauses.join(' AND ');
     };
     let searchWhere = '';
     if (searchTerms.length > 0) {
-      searchWhere = addLikeConditions(unionColumnsForSearchFieldIds(searchFields), searchTerms);
+      searchWhere = addLikeConditions(
+        unionColumnsForSearchFieldIds(searchFields), searchTerms,
+        { withSteamAliases: searchFields.includes('steamId') });
     }
     const filters = options.filters && typeof options.filters === 'object' ? options.filters : {};
     const filterParams = [];

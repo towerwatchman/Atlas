@@ -33,6 +33,7 @@ import { useGames } from './hooks/useGames.js'
 import {
   defaultFilters, filterGamesWithState, normalizeFilterState, useFilters,
   setDefaultSearchFieldIds, resolveSearchFieldIds,
+  makeCatalogSearch, catalogParamsKey,
 } from './hooks/useFilters.js'
 import { DEFAULT_SEARCH_FIELD_IDS, normalizeSearchFieldIds } from './utils/searchFields.js'
 import { useAppUpdate } from './hooks/useAppUpdate.js'
@@ -357,13 +358,13 @@ const App = () => {
   const catalogSearchFields = resolveSearchFieldIds(activeFilters)
   const catalogSearchFieldsKey = catalogSearchFields.join(',')
   const catalogSearch = useMemo(
-    () => ({
-      text: activeFilters.text,
-      type: activeFilters.type,
-      fields: catalogSearchFieldsKey ? catalogSearchFieldsKey.split(',') : [],
-    }),
+    () => makeCatalogSearch(activeFilters),
     // Keyed on the joined string so a new-but-equal array doesn't refire the
-    // catalog fetch; see lastFetchedCatalogParamsKeyRef below.
+    // catalog fetch; see lastFetchedCatalogParamsKeyRef below. activeFilters is
+    // deliberately NOT a dependency: only the three values makeCatalogSearch
+    // reads matter, and depending on the whole object would rebuild the search
+    // on any unrelated filter change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeFilters.text, activeFilters.type, catalogSearchFieldsKey],
   )
   const catalogQueryFilters = useMemo(
@@ -922,9 +923,21 @@ const App = () => {
   }, [browseAvailable, catalogQueryFilters, catalogSearch, fetchCatalogGames, fetchWishlistGames, refreshGame])
 
   // ── Grid sizing ────────────────────────────────────────────────────────────
-  // Scrollbar space is reserved permanently via scrollbar-gutter:stable on
-  // #gameGrid (main.css), so AutoSizer's measured width already excludes
-  // it — no JS-side measurement/subtraction needed here anymore.
+  // #gameGrid no longer scrolls (it is a flex column; see the container below),
+  // so AutoSizer's measured width is the FULL pane width. The virtualized Grid
+  // draws its own always-on scrollbar inside that width, so its thickness has
+  // to come off before the column count is worked out -- otherwise the last
+  // column is computed into space the scrollbar occupies and gets clipped.
+  //
+  // Read from --scrollbar-size rather than hardcoded, so the CSS that draws the
+  // scrollbar and the arithmetic that budgets for it cannot drift apart.
+  const scrollbarSize = useMemo(() => {
+    if (typeof window === 'undefined' || !document?.documentElement) return 12
+    const raw = window.getComputedStyle(document.documentElement)
+      .getPropertyValue('--scrollbar-size')
+    const parsed = Number.parseFloat(raw)
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 12
+  }, [])
 
   const getColumnCountForWidth = (width) => {
     const availableWidth = Math.max(0, Number(width) || 0)
@@ -1066,7 +1079,13 @@ const App = () => {
         includeUninstalled: true,
         installState: 'all',
       })
-      const browseSearch = { text: browseFilters.text, type: browseFilters.type }
+      // Built by the SAME helper the debounced reset effect uses. Hand-rolling
+      // `{text, type}` here left out `fields`, so the pre-marked key never
+      // matched the one the effect computed, the guard below never fired, and
+      // entering Browse always fetched twice - the second one a reset, which
+      // clears catalogGames and shows the full-screen spinner over results that
+      // had already rendered.
+      const browseSearch = makeCatalogSearch(browseFilters)
       // Update the real activeFilters state (so catalogQueryFilters/
       // catalogSearch recompute to match) while also fetching immediately
       // with the same values here, and pre-marking the params key as
@@ -1075,10 +1094,10 @@ const App = () => {
       // with the (momentarily stale) un-reset filters, undoing this and
       // re-triggering a flash/reload.
       handleFilterChange(browseFilters)
-      lastFetchedCatalogParamsKeyRef.current = JSON.stringify({ search: browseSearch, filters: browseFilters })
+      lastFetchedCatalogParamsKeyRef.current = catalogParamsKey(browseSearch, browseFilters)
       fetchCatalogGames({ reset: true, search: browseSearch, filters: browseFilters })
     } else if (catalogTotal === null) {
-      lastFetchedCatalogParamsKeyRef.current = JSON.stringify({ search: catalogSearch, filters: catalogQueryFilters })
+      lastFetchedCatalogParamsKeyRef.current = catalogParamsKey(catalogSearch, catalogQueryFilters)
       fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
     }
   }, [
@@ -1842,7 +1861,7 @@ const App = () => {
   const catalogResetDebounceRef = useRef(null)
   useEffect(() => {
     if (libraryMode !== 'catalog' || !browseAvailable) return
-    const paramsKey = JSON.stringify({ search: catalogSearch, filters: catalogQueryFilters })
+    const paramsKey = catalogParamsKey(catalogSearch, catalogQueryFilters)
     if (lastFetchedCatalogParamsKeyRef.current === paramsKey) {
       // Nothing about the search/filters actually changed since the last
       // fetch we dispatched — this effect only re-ran because some other
@@ -1877,9 +1896,7 @@ const App = () => {
     catalogIndexWasReadyRef.current = ready
     if (!becameReady) return
     if (libraryMode !== 'catalog' || !browseAvailable) return
-    lastFetchedCatalogParamsKeyRef.current = JSON.stringify({
-      search: catalogSearch, filters: catalogQueryFilters,
-    })
+    lastFetchedCatalogParamsKeyRef.current = catalogParamsKey(catalogSearch, catalogQueryFilters)
     fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
   }, [
     browseAvailable,
@@ -2189,7 +2206,7 @@ const App = () => {
 
         <div
           id="gameGrid"
-          className={`flex-1 bg-library overflow-y-auto ${
+          className={`flex-1 min-h-0 flex flex-col bg-library ${
             isTopNav
               ? (showLibrarySidebar && !(showSearchSidebar && filterSidebarMode === 'inline' && filterSidebarSide === 'left' && !selectedGame) ? 'ml-[200px]' : '')
               // When the inline-left filter sidebar is showing, IT already
@@ -2202,16 +2219,16 @@ const App = () => {
                 : showLibrarySidebar ? 'ml-[260px]' : 'ml-[60px]'
           }`}
           ref={gameGridRef}
-          // overflowY: 'scroll' rather than 'auto' so the track is always
-          // drawn. The space is reserved either way; with 'auto' a short view
-          // left it as an unexplained blank strip down the right, which is
-          // what showed on the downloads page. An always-visible track also
-          // stops the grid shifting horizontally when a filter narrows the
-          // results enough to remove the scrollbar.
-          style={{ overflowX: 'hidden', overflowY: 'scroll' }}
+          // This element does NOT scroll. It used to, while the virtualized
+          // Grid nested inside it scrolled as well -- two scroll containers,
+          // so the working scrollbar (the Grid's) sat a scrollbar's width in
+          // from the edge with this one's empty track beside it. It is now a
+          // flex column: the status banners are fixed-height rows and the pane
+          // below them is the only thing that scrolls.
+          style={{ overflowX: 'hidden', overflowY: 'hidden' }}
         >
           {!selectedGame && libraryView !== 'collections' && activeCollection && (
-            <div className="mx-3 mb-1 mt-3 flex items-center gap-3 rounded border border-border bg-secondary px-4 py-2 text-sm text-text">
+            <div className="flex-shrink-0 mx-3 mb-1 mt-3 flex items-center gap-3 rounded border border-border bg-secondary px-4 py-2 text-sm text-text">
               <span className="flex-1">
                 Showing <strong>{activeCollection.name}</strong>
               </span>
@@ -2232,7 +2249,7 @@ const App = () => {
             </div>
           )}
           {!selectedGame && invalidMappingCount > 0 && !mappingBannerDismissed && (
-            <div className="mx-3 mt-3 mb-1 flex items-center gap-3 rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-text">
+            <div className="flex-shrink-0 mx-3 mt-3 mb-1 flex items-center gap-3 rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-text">
               <i className="fas fa-triangle-exclamation text-amber-400" aria-hidden="true"></i>
               <span className="flex-1">
                 {invalidMappingCount} game{invalidMappingCount === 1 ? '' : 's'} {invalidMappingCount === 1 ? 'has' : 'have'} a mapping that was removed from the remote catalog. Run a database audit to review and remap.
@@ -2254,7 +2271,7 @@ const App = () => {
             </div>
           )}
           {!selectedGame && mergeableCount > 0 && !mergeBannerDismissed && (
-            <div className="mx-3 mt-3 mb-1 flex items-center gap-3 rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-text">
+            <div className="flex-shrink-0 mx-3 mt-3 mb-1 flex items-center gap-3 rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-text">
               <i className="fas fa-layer-group text-amber-400" aria-hidden="true"></i>
               <span className="flex-1">
                 {mergeableCount} game{mergeableCount === 1 ? '' : 's'} in your library appear{mergeableCount === 1 ? 's' : ''} more than once and can be merged into a single game with selectable versions.
@@ -2275,6 +2292,17 @@ const App = () => {
               </button>
             </div>
           )}
+          {/* The only scroll container in this column.
+
+              In detail mode it scrolls, because GameDetailPage is far taller
+              than the window. In grid mode it must NOT: the virtualized Grid
+              does its own scrolling, and a scroller wrapping a scroller is
+              what produced the offset scrollbar with a dead strip beside it.
+              scrollbar-gutter keeps the detail pane's width constant whether
+              or not its content currently overflows. */}
+          <div
+            className={`flex-1 min-h-0 ${selectedGame ? 'overflow-y-auto library-scroll-pane' : 'overflow-hidden'}`}
+          >
           {selectedGame ? (
             <GameDetailPage
               game={selectedGame}
@@ -2404,18 +2432,25 @@ const App = () => {
           ) : (
             <AutoSizer>
               {({ height, width }) => {
-                // scrollbar-gutter:stable on #gameGrid (main.css) reserves
-                // the scrollbar's space at the CSS layout level, always —
-                // so AutoSizer's measured width here already excludes it,
-                // the same way clientWidth would. No further subtraction
-                // needed (and doing one anyway double-counts that space,
-                // leaving an empty gap to the right of the scrollbar the
-                // same width as the scrollbar itself).
-                const adjustedWidth = Math.max(0, width)
-                const currentColumnCount = getColumnCountForWidth(adjustedWidth)
+                // Two different widths, and using one where the other belongs
+                // is what leaves a gap:
+                //
+                //   width        the Grid ELEMENT's width. It must span the
+                //                whole pane, because the Grid draws its own
+                //                scrollbar inside this box. Passing a reduced
+                //                width here makes the whole Grid narrower than
+                //                its parent and strands empty pane to the right
+                //                of the scrollbar.
+                //   contentWidth what is left for cells once that scrollbar has
+                //                taken its share -- so the column count and
+                //                column width are computed from this, or the
+                //                last column is sized into space the scrollbar
+                //                occupies and gets clipped.
+                const contentWidth = Math.max(0, width - scrollbarSize)
+                const currentColumnCount = getColumnCountForWidth(contentWidth)
                 const currentColumnWidth = currentColumnCount > 1
-                  ? Math.max(bannerSize.bannerWidth + (bannerSize.shadowEnabled ? 24 : 16), adjustedWidth / currentColumnCount)
-                  : Math.max(adjustedWidth, bannerSize.bannerWidth + (bannerSize.shadowEnabled ? 24 : 16))
+                  ? Math.max(bannerSize.bannerWidth + (bannerSize.shadowEnabled ? 24 : 16), contentWidth / currentColumnCount)
+                  : Math.max(contentWidth, bannerSize.bannerWidth + (bannerSize.shadowEnabled ? 24 : 16))
                 const currentRowCount = Math.ceil(filteredGames.length / currentColumnCount)
                 return (
                   <Grid
@@ -2425,7 +2460,7 @@ const App = () => {
                     rowCount={currentRowCount}
                     rowHeight={bannerSize.bannerHeight + (bannerSize.shadowEnabled ? 48 : 16)}
                     height={height}
-                    width={adjustedWidth}
+                    width={width}
                     cellRenderer={getCellRenderer(currentColumnCount)}
                     onScroll={({ scrollTop }) => {
                       if (pendingLibraryScrollTopRestoreRef.current === null) {
@@ -2439,12 +2474,16 @@ const App = () => {
                         (rowStopIndex + 1) * currentColumnCount - 1,
                       )
                     }}
-                    style={{ overflowX: 'hidden' }}
+                    // 'scroll' not 'auto': the track is always drawn, so a
+                    // filter that narrows the results below one screenful
+                    // cannot make the grid jump sideways.
+                    style={{ overflowX: 'hidden', overflowY: 'scroll' }}
                   />
                 )
               }}
             </AutoSizer>
           )}
+          </div>
           {/* Page-fetch indicator. This has to render as a SIBLING of the grid,
               not inside the empty-state branch: once the first page resolves,
               catalogGames becomes Array(total).fill(null), so filteredGames is

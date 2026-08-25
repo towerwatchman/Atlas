@@ -83,6 +83,65 @@ export const buildExternalLinks = (rawExternalIds) => {
   const ext = parseExternalIds(rawExternalIds)
   const links = []
   const seenUrls = new Set()
+  // Coerce a value that is meant to be a list into an array: real array,
+  // JSON-string array (e.g. '["1","2"]'), or comma-separated string.
+  const coerceList = (val) => {
+    if (Array.isArray(val)) return val
+    const s = String(val ?? '').trim()
+    if (!s) return []
+    if (s.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(s)
+        if (Array.isArray(parsed)) return parsed
+      } catch { /* fall through to CSV */ }
+    }
+    if (s.includes(',')) return s.split(',')
+    return [s]
+  }
+  const ARRAY_KEY_TO_SCALAR = {
+    steam_appids: 'steam_appid',
+    gog_ids: 'gog_id',
+    itch: 'itch',
+    custom: 'url',
+  }
+  // The DLC keys describe ids that steam_appids/gog_ids/itch ALREADY list, so
+  // they must not produce links of their own -- left alone they rendered a
+  // second "Steam Dlc Appids" row per DLC, and the parent map (an object)
+  // rendered as a single "[object Object]" link.
+  const DLC_ID_KEYS = { steam_dlc_appids: 'steam_appid', gog_dlc_ids: 'gog_id', itch_dlc: 'itch' }
+  const dlcValues = new Set()
+  for (const [listKey, scalarKey] of Object.entries(DLC_ID_KEYS)) {
+    for (const item of coerceList(ext[listKey])) {
+      const value = String(item ?? '').trim()
+      if (value) dlcValues.add(`${scalarKey}:${value}`)
+    }
+  }
+
+  // steam_dlc_parents is keyed by the PARENT's kind, then the parent's id:
+  //   {"steam": {"1000": ["2001", "2002"]}}
+  // Nested that way because a DLC may be parented across kinds -- a Steam DLC
+  // tied to a GOG base game is legal. Flattened here to child -> parent so a
+  // link can name its parent directly.
+  const KIND_TO_SCALAR = { steam: 'steam_appid', gog: 'gog_id', itch: 'itch' }
+  const dlcParents = new Map()
+  for (const [listKey, scalarKey] of Object.entries(DLC_ID_KEYS)) {
+    const groups = ext[`${listKey.replace(/_(appids|ids)$/, '')}_parents`]
+      ?? ext[`${scalarKey.replace(/_(appid|id)$/, '')}_dlc_parents`]
+    if (!groups || typeof groups !== 'object' || Array.isArray(groups)) continue
+    for (const [parentKind, byParent] of Object.entries(groups)) {
+      const parentScalar = KIND_TO_SCALAR[String(parentKind).toLowerCase()]
+      // A parent on a source mapping (f95_zone, lewdcorner) is not one of these
+      // links, so the DLC stays typed but shows as its own entry.
+      if (!parentScalar || !byParent || typeof byParent !== 'object') continue
+      for (const [parentValue, children] of Object.entries(byParent)) {
+        for (const child of coerceList(children)) {
+          const value = String(child ?? '').trim()
+          if (value) dlcParents.set(`${scalarKey}:${value}`, `${parentScalar}:${String(parentValue).trim()}`)
+        }
+      }
+    }
+  }
+  const dlcParentOf = (lower, value) => dlcParents.get(`${lower}:${value}`) ?? null
   const pushLink = (key, rawValue) => {
     const value = String(rawValue ?? '').trim()
     if (!value) return
@@ -100,34 +159,19 @@ export const buildExternalLinks = (rawExternalIds) => {
       url,
       icon: ICONS[lower] || 'fas fa-link',
       iconImage: IMAGE_ICONS[lower] || null,
+      // Typed by the admin on the server. An id absent from the DLC keys is a
+      // game, which is also what a package predating them yields.
+      isDlc: dlcValues.has(`${lower}:${value}`),
+      parentValue: dlcParentOf(lower, value),
     })
   }
   // Array id fields (multiple Steam/GOG appids under one atlas, from admin
   // manual links) map each element to the corresponding scalar link def so we
   // emit one link per id rather than a single mangled "1,2,3" link.
-  const ARRAY_KEY_TO_SCALAR = {
-    steam_appids: 'steam_appid',
-    gog_ids: 'gog_id',
-    itch: 'itch',
-    custom: 'url',
-  }
-  // Coerce a value that is meant to be a list into an array: real array,
-  // JSON-string array (e.g. '["1","2"]'), or comma-separated string.
-  const coerceList = (val) => {
-    if (Array.isArray(val)) return val
-    const s = String(val ?? '').trim()
-    if (!s) return []
-    if (s.startsWith('[')) {
-      try {
-        const parsed = JSON.parse(s)
-        if (Array.isArray(parsed)) return parsed
-      } catch { /* fall through to CSV */ }
-    }
-    if (s.includes(',')) return s.split(',')
-    return [s]
-  }
   for (const [key, rawValue] of Object.entries(ext)) {
     const lower = key.toLowerCase()
+    // Consumed above / below, not rendered as links in their own right.
+    if (lower in DLC_ID_KEYS || lower.endsWith('_dlc_parents')) continue
     if (lower in ARRAY_KEY_TO_SCALAR) {
       const scalarKey = ARRAY_KEY_TO_SCALAR[lower]
       for (const item of coerceList(rawValue)) pushLink(scalarKey, item)
@@ -140,4 +184,38 @@ export const buildExternalLinks = (rawExternalIds) => {
     pushLink(key, rawValue)
   }
   return links
+}
+
+// Folds a flat link list into parents each carrying their DLC:
+//   [{ ...baseGameLink, dlc: [dlcLink, ...] }, ...]
+//
+// A DLC is nested under its parent when that parent is present in the same
+// list. One that is not -- parented to a source mapping, to a link the admin
+// later removed, or never parented at all -- stays a top-level entry rather
+// than disappearing, because dropping it would hide a real store page.
+//
+// Order is preserved: parents keep their position in the original list, and a
+// promoted orphan DLC keeps its own. Nothing is duplicated -- a link appears
+// either at the top level or under exactly one parent.
+export const groupLinksByParent = (links = []) => {
+  const byKey = new Map()
+  for (const link of links) {
+    byKey.set(`${String(link.key || '').toLowerCase()}:${link.value}`, link)
+  }
+  const childrenOf = new Map()
+  const nested = new Set()
+  for (const link of links) {
+    if (!link.isDlc || !link.parentValue) continue
+    if (!byKey.has(link.parentValue)) continue
+    if (!childrenOf.has(link.parentValue)) childrenOf.set(link.parentValue, [])
+    childrenOf.get(link.parentValue).push(link)
+    nested.add(link)
+  }
+  const out = []
+  for (const link of links) {
+    if (nested.has(link)) continue
+    const key = `${String(link.key || '').toLowerCase()}:${link.value}`
+    out.push({ ...link, dlc: childrenOf.get(key) || [] })
+  }
+  return out
 }
