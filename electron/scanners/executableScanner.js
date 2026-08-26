@@ -96,7 +96,8 @@ async function findExecutables(dir, extensions) {
         // several candidates returns the same [0] every run rather than
         // whatever order the filesystem reported.
         matches.sort((a, b) => a.localeCompare(b));
-        console.log(`Executable scan matched in ${current}: ${matches.length} candidate(s)`);
+        // Helpful log when there are multiple executables, so the user can see what the chooser is presenting to report for blacklist
+        console.log(`Executable scan matched in ${path.basename(current)}: ${matches.length} candidate(s)${matches.length > 1 ? `: ${matches.join(', ')}` : ''}`);
         return matches;
       }
     }

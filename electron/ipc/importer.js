@@ -3551,6 +3551,8 @@ ipcMain.handle("import-games", async (event, params) => {
             total: 100,
           });
         } else {
+          // Helpful log when there are multiple executables, so the user can see what the chooser is presenting to report for blacklist
+          console.log(`Multiple executables for ${game.title}: ${execs.join(', ')}`);
           selectedExec = await new Promise((resolve) => {
             let settled = false;
             const finish = (value) => {
