@@ -15,11 +15,23 @@ const Accounts = () => {
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [modalSite, setModalSite] = useState(null)
+  const [tiers, setTiers] = useState({})
 
   const loadAccounts = useCallback(async () => {
     try {
       const list = await window.electronAPI.listAccounts()
       setAccounts(Array.isArray(list) ? list : [])
+      // Fetch tier for the connected LewdCorner account.
+      const newLcTiers = {}
+      if (Array.isArray(list) && list.some((a) => a.connected && a.site === 'lewdcorner')) {
+        try {
+          const t = await window.electronAPI.getLcUserTier()
+          newLcTiers.lewdcorner = t?.tier || null
+        } catch (_) {
+          newLcTiers.lewdcorner = null
+        }
+      }
+      setTiers(newLcTiers)
     } catch (err) {
       console.error('Failed to load accounts:', err)
       setAccounts([])
@@ -86,6 +98,17 @@ const Accounts = () => {
                   ) : (
                     <span className="text-xs text-text/50">{site.hint}</span>
                   )}
+                  {account && site.id === 'lewdcorner' && tiers[site.id] && (
+                    <span
+                      className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded uppercase tracking-wide ${
+                        tiers[site.id] === 'VIP'
+                          ? 'bg-yellow-500/20 text-yellow-400'
+                          : 'bg-black/20 text-text/70'
+                      }`}
+                    >
+                      {tiers[site.id] === 'VIP' ? 'Plus' : 'Standard'}
+                    </span>
+                  )}
                 </div>
                 <div className="text-xs text-text/60 truncate">
                   {account ? account.username : site.enabled ? site.hint : null}
@@ -132,9 +155,15 @@ const Accounts = () => {
           sites={addableSites}
           initialSite={modalSite}
           onClose={() => setModalOpen(false)}
-          onSaved={async () => {
+          // Override loadAccounts' possibly-cached LC tier with the freshly
+          // force-refreshed one, keyed by the site actually saved (savedSite),
+          // not the card that opened the modal.
+          onSaved={async (initialTier, savedSite) => {
             setModalOpen(false)
             await loadAccounts()
+            if (initialTier && savedSite) {
+              setTiers((prev) => ({ ...prev, [savedSite]: initialTier }))
+            }
           }}
         />
       )}
@@ -209,7 +238,19 @@ const AddAccountModal = ({ sites, initialSite = null, onClose, onSaved }) => {
     try {
       const result = await window.electronAPI.saveAccount({ site })
       if (result?.ok) {
-        await onSaved()
+        // For LewdCorner, scrape the tier immediately so the badge appears without
+        // requiring a navigate-away-and-back to pick up the background result.
+        let initialTier = null
+        if (site === 'lewdcorner') {
+          try {
+            const t = await window.electronAPI.getLcUserTier({ forceRefresh: true })
+            initialTier = t?.tier || null
+          } catch (_) { /* non-fatal — badge just won't show yet */ }
+        }
+        // Pass the real saved site so the override in onSaved keys the
+        // scraped tier by the account that was actually added, not by the
+        // card whose Connect button opened the modal.
+        await onSaved(initialTier, site)
       } else {
         setVerify({ status: 'error', message: result?.error || 'Could not add account.' })
         setVerified(false)

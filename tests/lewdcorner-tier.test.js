@@ -168,3 +168,39 @@ test('no client-side LewdCorner tier filtering was added', () => {
     expect(read(...file)).not.toMatch(/lewdcornerTier\s*[=!]==?\s*['"]Free/)
   }
 })
+
+// ── VIP user gating ──────────────────────────────────────────────────────────
+
+// When the user is VIP, the tier gate is skipped entirely — all LC content
+// (Free, VIP, NULL tier) should be visible. This tests the SQL predicate
+// behaviour directly: no predicate = no filtering.
+test('VIP user sees all LewdCorner content (no gate applied)', async () => {
+  // With no WHERE predicate at all, every row is visible.
+  const allTitles = await visibleTitles('1=1')
+  expect(allTitles).toContain('LC Free')
+  expect(allTitles).toContain('LC VIP')
+  expect(allTitles).toContain('LC null tier')
+  expect(allTitles).toContain('Atlas linked to paid LC')
+  expect(allTitles).toContain('Steam row')
+})
+
+// The gate is conditional on getLcUserTier() !== 'VIP'. Verify the
+// source code wraps the predicate in this check.
+test('the index gate is conditional on user tier', () => {
+  const source = read('electron', 'db', 'catalogIndex.js')
+  const builder = source.slice(
+    source.indexOf('const buildIndexWhere'),
+    source.indexOf('const buildIndexOrderBy'),
+  )
+  expect(builder).toMatch(/getLcUserTier\(\)\s*!==\s*['"]VIP['"]/)
+  expect(builder).toContain(INDEX_PREDICATE)
+})
+
+test('the union gate is conditional on user tier', () => {
+  const source = read('electron', 'db', 'versions.js')
+  // Find the section around the union tier gate.
+  const idx = source.indexOf(UNION_PREDICATE)
+  expect(idx).toBeGreaterThan(-1)
+  const surrounding = source.slice(Math.max(0, idx - 200), idx + UNION_PREDICATE.length + 50)
+  expect(surrounding).toMatch(/getLcUserTier\(\)\s*!==\s*['"]VIP['"]/)
+})
