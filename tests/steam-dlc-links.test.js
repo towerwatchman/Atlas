@@ -217,6 +217,7 @@ describe('DLC never become separate tiles', () => {
 // atlas_external_steam and the first background rebuild died with
 //   SQLITE_ERROR: table atlas_external_steam has no column named is_dlc
 // which aborted the whole build and left Browse on the slow union path.
+// 6: catalog_index gained tags_filter via the same ADD-COLUMN path.
 describe('upgrading an existing install', () => {
   const open = () => {
     const sqlite3 = require_('sqlite3')
@@ -230,9 +231,15 @@ describe('upgrading an existing install', () => {
     }
   }
   // The schema-4 table, as an install in the wild has it.
-  const V4 = `CREATE TABLE atlas_external_steam (
+  const V4_ATLAS = `CREATE TABLE atlas_external_steam (
      steam_appid INTEGER NOT NULL, atlas_id INTEGER NOT NULL,
      PRIMARY KEY (steam_appid, atlas_id))`
+  // catalog_index at schema-5 (pre-tags_filter) — the shape an existing
+  // install has before the 5→6 bump. Minimal projection needed for the
+  // migration test; the real DDL is wider but the column presence check is
+  // what matters.
+  const V4_CATALOG = `CREATE TABLE catalog_index (
+     catalog_key TEXT PRIMARY KEY, tags_text TEXT)`
   // Runs the SHIPPING statement builder, not a copy of it.
   const migrate = async ({ run, all }) => {
     const existingByTable = {}
@@ -245,32 +252,43 @@ describe('upgrading an existing install', () => {
 
   it('adds the missing columns to a pre-existing table', async () => {
     const h = open()
-    await h.run(V4)
+    await h.run(V4_ATLAS)
+    await h.run(V4_CATALOG)
     await migrate(h)
     const cols = (await h.all(`PRAGMA table_info(atlas_external_steam)`)).map((c) => c.name)
     expect(cols).toContain('is_dlc')
     expect(cols).toContain('parent_appid')
+    const catCols = (await h.all(`PRAGMA table_info(catalog_index)`)).map((c) => c.name)
+    expect(catCols).toContain('tags_filter')
     h.db.close()
   })
 
   it('lets the rebuild insert afterwards', async () => {
     const h = open()
-    await h.run(V4)
+    await h.run(V4_ATLAS)
+    await h.run(V4_CATALOG)
     await migrate(h)
     await h.run(`INSERT INTO atlas_external_steam
                    (steam_appid, atlas_id, is_dlc, parent_appid) VALUES (2001, 10, 1, 1000)`)
     const rows = await h.all(`SELECT is_dlc, parent_appid FROM atlas_external_steam`)
     expect(rows).toEqual([{ is_dlc: 1, parent_appid: 1000 }])
+    // tags_filter is now writable after migration
+    await h.run(`INSERT OR REPLACE INTO catalog_index (catalog_key, tags_text, tags_filter) VALUES ('atlas:1','a b','a,b')`)
+    const cat = await h.all(`SELECT tags_filter FROM catalog_index WHERE catalog_key='atlas:1'`)
+    expect(cat[0].tags_filter).toBe('a,b')
     h.db.close()
   })
 
   it('is idempotent, so a second launch does not error', async () => {
     const h = open()
-    await h.run(V4)
+    await h.run(V4_ATLAS)
+    await h.run(V4_CATALOG)
     await migrate(h)
     await migrate(h)
     const cols = (await h.all(`PRAGMA table_info(atlas_external_steam)`)).map((c) => c.name)
     expect(cols.filter((c) => c === 'is_dlc')).toHaveLength(1)
+    const catCols = (await h.all(`PRAGMA table_info(catalog_index)`)).map((c) => c.name)
+    expect(catCols.filter((c) => c === 'tags_filter')).toHaveLength(1)
     h.db.close()
   })
 
@@ -278,11 +296,16 @@ describe('upgrading an existing install', () => {
     // ADD COLUMN applies the default to rows already there, so every migrated
     // appid reads as a game until the forced rebuild types it.
     const h = open()
-    await h.run(V4)
+    await h.run(V4_ATLAS)
     await h.run(`INSERT INTO atlas_external_steam VALUES (1000, 10)`)
+    await h.run(V4_CATALOG)
+    await h.run(`INSERT INTO catalog_index (catalog_key, tags_text) VALUES ('atlas:1','hello')`)
     await migrate(h)
     expect(await h.all(`SELECT is_dlc, parent_appid FROM atlas_external_steam`))
       .toEqual([{ is_dlc: 0, parent_appid: null }])
+    // existing catalog_index rows get NULL tags_filter until rebuild populates it
+    const cat = await h.all(`SELECT tags_filter FROM catalog_index WHERE catalog_key='atlas:1'`)
+    expect(cat[0].tags_filter).toBeNull()
     h.db.close()
   })
 
