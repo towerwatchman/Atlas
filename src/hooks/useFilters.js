@@ -92,12 +92,13 @@ const arrayFilterKeys = [
 ]
 const searchTypes = ['all', 'title', 'creator', 'atlasId', 'f95Id', 'lewdcornerId', 'steamId', 'anyId']
 const sourceTypes = ['all', 'f95', 'lewdcorner', 'steam', 'atlas']
-const dateFields = ['none', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded']
+const dateFields = ['none', 'dateAdded', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded']
 const dateRanges = ['any', '7d', '30d', '90d', 'year', 'custom']
 const sortTypes = [
   'name',
   'creator',
   'date',
+  'dateAdded',
   'lastUpdated',
   'likes',
   'views',
@@ -109,7 +110,7 @@ const sortTypes = [
   'fileSize',
   'personalRating',
 ]
-const defaultDescSortTypes = ['date', 'lastUpdated', 'likes', 'views', 'rating', 'installedVersionCount', 'newlyInstalled', 'newlyPlayed', 'playtime', 'fileSize', 'personalRating']
+const defaultDescSortTypes = ['date', 'dateAdded', 'lastUpdated', 'likes', 'views', 'rating', 'installedVersionCount', 'newlyInstalled', 'newlyPlayed', 'playtime', 'fileSize', 'personalRating']
 
 export const getDefaultSortDirectionForSort = (sort) =>
   defaultDescSortTypes.includes(sort) ? 'desc' : 'asc'
@@ -417,6 +418,8 @@ const compareLocalGames = (a, b, activeFilters) => {
     result = compareText(a.creator, b.creator, direction)
   } else if (activeFilters.sort === 'date') {
     result = compareMaybeNumber(getReleaseDateValue(a), getReleaseDateValue(b), direction)
+  } else if (activeFilters.sort === 'dateAdded') {
+    result = compareMaybeNumber(getPositiveNumberOrNull(a.dateAdded), getPositiveNumberOrNull(b.dateAdded), direction)
   } else if (activeFilters.sort === 'lastUpdated') {
     result = compareMaybeNumber(getBrowseDate(a, 'thread_updated'), getBrowseDate(b, 'thread_updated'), direction)
   } else if (['likes', 'views', 'rating'].includes(activeFilters.sort)) {
@@ -873,6 +876,9 @@ const getDateRangeBounds = (range, dateFrom = '', dateTo = '') => {
 }
 
 const getDateFieldValue = (game = {}, field) => {
+  if (field === 'dateAdded') {
+    return normalizeDateValueMs(game.dateAdded ?? game.date_added ?? game.flagged_at ?? game.flaggedAt)
+  }
   if (field === 'releaseDate') {
     return normalizeDateValueMs(game.release_date ?? game.releaseDate ?? game.steam_release_date ?? game.steamReleaseDate)
   }

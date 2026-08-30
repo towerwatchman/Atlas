@@ -715,6 +715,17 @@ const sumPositiveNumbers = (values = []) =>
     return number > 0 ? sum + number : sum;
   }, 0);
 
+const minPositiveNumber = (values = []) =>
+  // Finds the lowest positive number in an array, ignoring non-positives and nulls.
+  // Used for dateAdded to find when the game was first introduced to the library
+  // (earliest version date_added), as opposed to maxPositiveNumber which tracks
+  // the most recent version install.
+  values.reduce((min, value) => {
+    const number = toFiniteNumber(value, 0);
+    if (number <= 0) return min;
+    return min === 0 ? number : Math.min(min, number);
+  }, 0);
+
 const applyLocalSortAggregates = (game, allVersions = [], installedVersions = []) => {
   const lastPlayedFromGame = toFiniteNumber(game.last_played_r, 0);
   const totalPlaytimeFromGame = toFiniteNumber(game.total_playtime, 0);
@@ -723,6 +734,8 @@ const applyLocalSortAggregates = (game, allVersions = [], installedVersions = []
     : maxPositiveNumber(allVersions.map((version) => version.last_played));
   const versionPlaytimeSum = sumPositiveNumbers(allVersions.map((version) => version.version_playtime));
   const totalPlaytime = Math.max(totalPlaytimeFromGame, versionPlaytimeSum);
+  const earliestVersionAdded = minPositiveNumber(allVersions.map((version) => version.date_added));
+  const dateAdded = toFiniteNumber(game.date_added, 0) || earliestVersionAdded || toFiniteNumber(game.flagged_at, 0) || null;
 
   return {
     ...game,
@@ -731,6 +744,7 @@ const applyLocalSortAggregates = (game, allVersions = [], installedVersions = []
     lastPlayed,
     totalPlaytime,
     lastInstalled: maxPositiveNumber(allVersions.map((version) => version.date_added)),
+    dateAdded: dateAdded > 0 ? dateAdded : null,
     totalFolderSize: sumPositiveNumbers(installedVersions.map((version) => version.folder_size)),
     installedVersionCount: installedVersions.length,
   };
@@ -874,6 +888,7 @@ const getGame = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
         games.last_played_r,
         games.last_played_version,
         games.selected_version_id,
+        games.date_added,
 ${bannerSelectFields},
         f95_zone_data.f95_id as f95_id,
         COALESCE(f95_zone_data.site_url, direct_lewdcorner_data.site_url, lewdcorner_data.site_url) as siteUrl,
@@ -1032,6 +1047,7 @@ const getGames = (
         games.last_played_r,
         games.last_played_version,
         games.selected_version_id,
+        games.date_added,
 ${bannerSelectFields},
         f95_zone_data.f95_id as f95_id,
         COALESCE(f95_zone_data.site_url, direct_lewdcorner_data.site_url, lewdcorner_data.site_url) as siteUrl,

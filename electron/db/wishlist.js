@@ -202,6 +202,8 @@ const mapWishlistRow = (row = {}) => {
     atlas_logo: firstText(row.current_atlas_logo) || null,
     preview_urls: firstText(row.preview_urls, row.current_atlas_previews, row.current_f95_screens, row.current_lewdcorner_screens) || null,
     flagged_at: row.flagged_at,
+    date_added: row.flagged_at,
+    dateAdded: row.flagged_at,
     note: row.note,
     versions: [],
     versionCount: 0,
