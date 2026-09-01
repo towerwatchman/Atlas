@@ -6,6 +6,7 @@ import {
   normalizeSearchFieldIds,
 } from '../utils/searchFields.js'
 import { extractUrlId } from '../utils/urlIdExtractor.js'
+import { normalizeTagText as _normalizeTagText, splitTagSources, buildTagsFilterValue, normalizeTagList } from '../utils/tagTokens.js'
 
 // The user's configured default field set, from [Search] defaultFields in
 // config.ini. Held at module scope because normalizeFilterState is a pure
@@ -642,15 +643,18 @@ const cleanSearchText = (value) =>
 const splitListText = (value) =>
   safeText(value).split(',').map((item) => item.trim()).filter(Boolean)
 
-const normalizeTagText = (value) =>
-  safeText(value).trim().toLowerCase().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ')
+// Mirrored module is the single source of truth. Re-exported so
+// tests can assert parity and the catalog can reuse the exact same logic.
+export const normalizeTagText = _normalizeTagText
+export { splitTagSources, buildTagsFilterValue, normalizeTagList }
 
 const includesExact = (values, value) =>
   values.some((item) => safeText(item).toLowerCase() === safeText(value).toLowerCase())
 
 const includesTag = (values, value) => {
-  const normalizedValue = normalizeTagText(value)
-  return values.some((item) => normalizeTagText(item) === normalizedValue)
+  const normalizedValue = normalizeTagText(value).trim()
+  if (!normalizedValue) return false
+  return values.some((item) => normalizeTagText(item).trim() === normalizedValue)
 }
 
 const hasAnyTag = (values, excludedValues) =>
