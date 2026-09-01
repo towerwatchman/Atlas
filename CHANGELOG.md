@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Changed
+- (Dev-Only) DevTools no longer auto-opens in dev mode unless explicitly enabled in config.
+- Removed the stale restart popup and hint on the Show debug console toggle — it applies immediately to all open windows.
 - Allow setting folder and program locations by typing or paste a path directly besides using Browse / Select Folder button. 
   - Affected locations:  Atlas Importer, Library path settings,and Emulators. The 7z field path is not touched as it have more requirements than the based one.
   - Path resolution highlighting: red if invalid, green if path exists or pass the check.
