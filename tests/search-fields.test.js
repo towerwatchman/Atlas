@@ -138,6 +138,112 @@ test('url: still selects a source instead of overriding fields', () => {
   expect(parsed.fields).toEqual(['title'])
 })
 
+// ── pasted URLs route to the matching ID field ──────────────────────────────
+
+// Pasting a thread URL used to match against the indexed site_url, which is
+// incomplete -- Steam URLs are not indexed at all, LewdCorner mixes slugged and
+// bare forms. The ID is pulled out of the URL instead.
+test('a known thread URL overrides fields to the site id', () => {
+  expect(parseSearchQuery('https://f95zone.to/threads/slug.310615/', ['title']))
+    .toEqual({ fields: ['f95Id'], query: '310615', urlSource: null })
+  expect(parseSearchQuery('https://lewdcorner.com/threads/slug.5913/', ['title']))
+    .toEqual({ fields: ['lcId'], query: '5913', urlSource: null })
+  expect(parseSearchQuery('https://store.steampowered.com/app/4585540/Slug/', ['title']))
+    .toEqual({ fields: ['steamId'], query: '4585540', urlSource: null })
+})
+
+// Non-slug and protocol-less forms must also route.
+test('URL extraction works without slug, https, or www', () => {
+  expect(parseSearchQuery('f95zone.to/threads/310615/', ['title']))
+    .toEqual({ fields: ['f95Id'], query: '310615', urlSource: null })
+  expect(parseSearchQuery('lewdcorner.com/threads/5913/', ['title']))
+    .toEqual({ fields: ['lcId'], query: '5913', urlSource: null })
+  expect(parseSearchQuery('store.steampowered.com/app/4585540/', ['title']))
+    .toEqual({ fields: ['steamId'], query: '4585540', urlSource: null })
+})
+
+// The URL scheme parses as a prefix (`https:`), and a slug can contain one too.
+// Neither may divert the URL away from ID routing.
+test('a URL is not parsed as a prefix', () => {
+  expect(parseSearchQuery('https://f95zone.to/threads/f95-is-awesome.123/', ['title']))
+    .toEqual({ fields: ['f95Id'], query: '123', urlSource: null })
+})
+
+// An EXPLICIT prefix wins over URL extraction. The user said which field they
+// meant; a URL in the argument must not silently override it. Ordering these
+// the other way round makes `url:` unreachable for the three known domains.
+test('an explicit prefix is not overridden by a URL in its argument', () => {
+  const url = parseSearchQuery('url: https://f95zone.to/threads/slug.123/', ['title'])
+  expect(url.fields).toEqual(['title'])
+  expect(url.query).toBe('https://f95zone.to/threads/slug.123/')
+
+  const title = parseSearchQuery('title: https://f95zone.to/threads/slug.123/', ['creator'])
+  expect(title.fields).toEqual(['title'])
+  expect(title.query).toBe('https://f95zone.to/threads/slug.123/')
+
+  const steam = parseSearchQuery('steam: 4585540', ['title'])
+  expect(steam.fields).toEqual(['steamId'])
+  expect(steam.query).toBe('4585540')
+})
+
+// A title that happens to contain a URL is still a title search.
+test('a URL embedded in longer text does not become an ID search', () => {
+  expect(parseSearchQuery('Half-Life 2 store.steampowered.com/app/220/', ['title']))
+    .toEqual({ fields: ['title'], query: 'Half-Life 2 store.steampowered.com/app/220/', urlSource: null })
+})
+
+// ── all three search paths must route URLs the same way ─────────────────────
+
+// Library (catalog_index), Browse (union) and the renderer's JS filter each
+// resolve search fields independently. If only one learns about URL routing,
+// the same pasted link returns different rows depending on the view. These read
+// the two main-process files as text -- neither buildIndexWhere nor
+// getCatalogGamesFromUnion is exported.
+// buildIndexWhere IS exported, so Library's routing is asserted by calling it
+// rather than by reading the file. The emitted LIKE params are the observable:
+// a routed URL searches for the bare ID, an unrouted one for the whole string.
+test('the catalog_index path searches the bare id for a pasted URL', () => {
+  const { buildIndexWhere } = require('../electron/db/catalogIndex.js')
+  const paramsFor = (text) => buildIndexWhere({ text, fields: ['title'] }, {}).params
+
+  expect(paramsFor('https://f95zone.to/threads/slug.310615/')).toEqual(['%310615%'])
+  expect(paramsFor('https://lewdcorner.com/threads/slug.5913/')).toEqual(['%5913%'])
+  // A steamId search also probes atlas_external_steam, so the id is bound twice
+  // -- once for ci.steam_id and once for the EXISTS. Both must be the extracted
+  // appid and nothing else.
+  expect(paramsFor('store.steampowered.com/app/4585540/')).toEqual(['%4585540%', '%4585540%'])
+})
+
+// The main-process paths reassign `text` inside the prefix branch, so without an
+// explicit ordering guard the URL left in a prefix's argument would override the
+// field the user actually asked for.
+test('the catalog_index path lets an explicit prefix beat a URL in its argument', () => {
+  const { buildIndexWhere } = require('../electron/db/catalogIndex.js')
+  const params = buildIndexWhere(
+    { text: 'title: https://f95zone.to/threads/slug.123/', fields: ['creator'] }, {}).params
+  // Searching the whole URL text, not the extracted "123".
+  expect(params.every((p) => p.includes('f95zone.to'))).toBe(true)
+  expect(params).not.toContain('%123%')
+})
+
+test('the catalog_index path does not route a URL embedded in longer text', () => {
+  const { buildIndexWhere } = require('../electron/db/catalogIndex.js')
+  const params = buildIndexWhere(
+    { text: 'Half-Life 2 store.steampowered.com/app/220/', fields: ['title'] }, {}).params
+  expect(params).not.toEqual(['%220%'])
+  expect(params.some((p) => p.includes('half-life'))).toBe(true)
+})
+
+// getCatalogGamesFromUnion is not exported, so Browse keeps a text guard. It
+// must route URLs identically to Library or the same paste returns different
+// rows in the two views.
+test('the union path routes URLs through the shared extractor', () => {
+  const source = read('electron', 'db', 'versions.js')
+  expect(source).toContain("require('./urlIdExtractor')")
+  expect(source).toContain('extractUrlId(searchText)')
+  expect(source).toContain("prefixedSearch && SEARCH_PREFIX_FIELDS[prefixedSearch[1].toLowerCase()]")
+})
+
 // A title with a colon must not be swallowed as an unknown prefix.
 test('an unrecognised prefix is treated as literal text', () => {
   expect(parseSearchQuery('Ep 2: Reunion', ['title'])).toEqual({

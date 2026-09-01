@@ -1,4 +1,5 @@
 import { buildFolderRegex } from '../folderRegex.js'
+import EditablePathField from '../../ui/EditablePathField.jsx'
 
 // Checkbox + label row used throughout the settings form. Defined at module
 // scope so it isn't re-created (and its children re-mounted) on every render.
@@ -18,7 +19,7 @@ export default function SettingsStep({
   moveFoldersToLibrary, deleteSourceArchiveAfterImport, autoSelectLatestReplaceVersion,
   defaultLibraryPath, askingForLibraryFolder,
   libraryFormat, setLibraryFormat,
-  onSelectFolder, onStartScan, onOpenHelp, livePreview,
+  onSelectFolder, onPickScanFolder, setFolder, saveImporterDefaults, onStartScan, onOpenHelp, livePreview,
   setCustomFormat, setUseUnstructured, setGameExt, setArchiveExt,
   setIncludeArchives, setUseCustomRegex, setCustomRegex,
   setDownloadBannerImages, setDownloadPreviewImages, setMoveFoldersToLibrary,
@@ -62,10 +63,14 @@ export default function SettingsStep({
     <div className="space-y-4 flex-1">
       <div className={fieldRow}>
         <label className={fieldLabel}>Game Path:</label>
-        <input type="text" value={folder} readOnly className="sm:ml-2 flex-1 min-w-0 bg-secondary text-text border border-border rounded-buttonTheme p-1 focus:outline-none focus:ring-1 focus:ring-accent" />
-        <button onClick={onSelectFolder} className="sm:ml-2 bg-accent hover:bg-accentHover text-white rounded-buttonTheme px-3 py-1 transition-colors" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
-          Set Folder
-        </button>
+        <EditablePathField
+          value={folder}
+          mode="directory"
+          pickerLabel="Set Folder"
+          onPick={onPickScanFolder || onSelectFolder}
+          onSave={(p) => { setFolder?.(p); saveImporterDefaults?.({ sourceGamePath: p }) }}
+          wrapperClassName="sm:ml-2 flex-1 min-w-0 flex gap-2"
+        />
       </div>
 
       <div className={fieldRow}>

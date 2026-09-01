@@ -24,9 +24,14 @@ export const getWishlistIdentityKey = (game = {}) => {
   return `${source}:title:${slug(title)}:${slug(creator)}`
 }
 
+// isWishlisted is derived solely from the identity-key set that mirrors the
+// wishlist table. It deliberately ignores any stale isWishlistEntry flag that a
+// row may still carry in memory (that legacy flag could not be cleared, which
+// is what made an installed wishlist game look permanently wishlisted); the set
+// is the only source of truth so a removed entry actually stops showing.
 export const withWishlistState = (game, identityKeys = new Set()) => ({
   ...game,
-  isWishlisted: game?.isWishlistEntry === true || identityKeys.has(getWishlistIdentityKey(game)),
+  isWishlisted: identityKeys.has(getWishlistIdentityKey(game)),
 })
 
 export const withWishlistStates = (games, identityKeys = new Set()) =>

@@ -14,6 +14,9 @@ const {
   SEARCH_PREFIX_FIELDS, LEGACY_SEARCH_TYPE_FIELDS,
   unionColumnsForSearchFieldIds, normalizeSearchFieldIds,
 } = require('./searchFields')
+const { extractUrlId } = require('./urlIdExtractor')
+const { normalizeTagText, normalizeTagList } = require('./tagTokens')
+const { tokenPredicate, tagColumnExpr, stripSpaces, escapeLike } = require('./tagFilterSql')
 
 // A search payload may carry `fields` (current) or `type` (legacy, still in
 // saved_filters.json). Neither means "use the default set".
@@ -795,6 +798,33 @@ const getVersionForRecord = (recordId, version) => {
   });
 };
 
+// Look a version up by its id, making NO judgement about whether it is
+// installed. That judgement is what getVersionForRecord's mapVersionRow call
+// exists to make, and it is the wrong question for "open this folder" -- see
+// electron/library/gameFolder.js. Returns the raw row so nothing downstream can
+// mistake it for an install check.
+//
+// record_id is in the WHERE clause deliberately: version_id is a bare rowid
+// (this table has no INTEGER PRIMARY KEY), so it is only unique, not stable
+// across a VACUUM.
+const getVersionById = (recordId, versionId) => {
+  return new Promise((resolve, reject) => {
+    getDb().get(
+      `SELECT rowid AS version_id, record_id, version, game_path, exec_path, in_place, source, source_app_id
+       FROM versions
+       WHERE rowid = ? AND record_id = ?`,
+      [versionId, recordId],
+      (err, row) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(row || null);
+      },
+    );
+  });
+};
+
 const getInstalledVersionsForRecord = (recordId) => {
   return new Promise((resolve, reject) => {
     getDb().all(
@@ -1326,25 +1356,55 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
         searchFields = ['url'];
       }
     }
-    const escapeLike = (value) => String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
+    // Same URL routing as the catalog_index path and the renderer -- see
+    // electron/db/urlIdExtractor.js. Only when no explicit prefix claimed
+    // the text, so `title:` and `url:` are not overridden by a URL in their
+    // argument.
+    const urlId = prefixedSearch && SEARCH_PREFIX_FIELDS[prefixedSearch[1].toLowerCase()]
+      ? null
+      : extractUrlId(searchText);
+    if (urlId) {
+      searchFields = [urlId.field];
+      searchText = urlId.query;
+    }
     const buildLikeTerm = (value) => `%${escapeLike(value).toLowerCase()}%`;
     const searchTerms = searchText
       .split(/\s+/)
       .map((term) => term.trim())
       .filter((term) => term && !term.startsWith('-'));
     const searchParams = [];
-    const addLikeConditions = (fields, terms) => {
+    // A steamId search also reaches through atlas_external_steam, which holds
+    // EVERY appid for a game rather than the single MIN(steam_id) the tile
+    // carries -- so a DLC appid finds the game it belongs to. Mirrors
+    // buildIndexWhere in catalogIndex.js; both paths must resolve a search the
+    // same way or Browse returns different rows depending on index state.
+    //
+    // EXISTS, not a join: several appids per atlas_id would multiply the rows
+    // and repeat the tile once per appid.
+    const steamAliasExists = `EXISTS (
+      SELECT 1 FROM atlas_external_steam aes
+       WHERE aes.atlas_id = catalog.atlas_id
+         AND LOWER(CAST(aes.steam_appid AS TEXT)) LIKE ? ESCAPE '\\')`;
+    const addLikeConditions = (fields, terms, { withSteamAliases = false } = {}) => {
       if (terms.length === 0) return '';
       const clauses = terms.map((term) => {
         const likeTerm = buildLikeTerm(term);
         searchParams.push(...fields.map(() => likeTerm));
-        return `(${fields.map((field) => `LOWER(COALESCE(CAST(${field} AS TEXT), '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`;
+        const parts = fields.map(
+          (field) => `LOWER(COALESCE(CAST(${field} AS TEXT), '')) LIKE ? ESCAPE '\\'`);
+        if (withSteamAliases) {
+          parts.push(steamAliasExists);
+          searchParams.push(likeTerm);
+        }
+        return `(${parts.join(' OR ')})`;
       });
       return clauses.join(' AND ');
     };
     let searchWhere = '';
     if (searchTerms.length > 0) {
-      searchWhere = addLikeConditions(unionColumnsForSearchFieldIds(searchFields), searchTerms);
+      searchWhere = addLikeConditions(
+        unionColumnsForSearchFieldIds(searchFields), searchTerms,
+        { withSteamAliases: searchFields.includes('steamId') });
     }
     const filters = options.filters && typeof options.filters === 'object' ? options.filters : {};
     const filterParams = [];
@@ -1378,16 +1438,28 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
       filterWhereParts.push(`(${field} IS NULL OR ${field} COLLATE NOCASE NOT IN (${safeValues.map(() => '?').join(', ')}))`);
       filterParams.push(...safeValues);
     };
+    // Exact-token tag filter via the shared tokenPredicate + 3-REPLACE wrapper.
+    // Mirrors the index's tags_filter semantics: comma-anchored,
+    // COALESCE-guarded, `;`/`|` literal, with the fallback's space-stripping
+    // wrapper paired with stripSpaces(normalize) on the bound token.
     const addTagFilter = (values, { exclude = false, logic = 'AND' } = {}) => {
       const safeValues = toArray(values);
       if (safeValues.length === 0) return;
       const tagFields = ['catalog.f95_tags', 'catalog.tags', 'catalog.lewdcornerTags', 'catalog.lewdcornerPrefixes'];
-      const perTagClauses = safeValues.map((value) => {
-        const clauses = tagFields.map((field) => `LOWER(COALESCE(${field}, '')) LIKE ? ESCAPE '\\'`);
-        filterParams.push(...tagFields.map(() => `%${escapeLike(value).toLowerCase()}%`));
-        const tagClause = `(${clauses.join(' OR ')})`;
-        return exclude ? `NOT ${tagClause}` : tagClause;
-      });
+      const perTagClauses = []
+      for (const raw of safeValues) {
+        const token = stripSpaces(normalizeTagText(raw).trim())
+        if (!token) continue
+        const perFieldClauses = []
+        for (const field of tagFields) {
+          const { sql, params } = tokenPredicate(tagColumnExpr(field), token)
+          perFieldClauses.push(sql)
+          filterParams.push(...params)
+        }
+        const perTag = `(${perFieldClauses.join(' OR ')})`
+        perTagClauses.push(exclude ? `NOT ${perTag}` : perTag)
+      }
+      if (perTagClauses.length === 0) return
       filterWhereParts.push(`(${perTagClauses.join(exclude || logic === 'AND' ? ' AND ' : ' OR ')})`);
     };
     const dateMsExpression = (field) => `
@@ -1451,12 +1523,10 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
       filterWhereParts.push(`(${languageValues.map(() => `LOWER(COALESCE(catalog.language, '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`);
       filterParams.push(...languageValues.map((value) => `%${escapeLike(value).toLowerCase()}%`));
     }
-    addTagFilter(filters.tags, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' });
-    addTagFilter(filters.excludedTags, { exclude: true });
-    if (filters.steamMapped === true) {
-      filterWhereParts.push('(catalog.steam_id IS NOT NULL OR catalog.siteUrl LIKE ?)');
-      filterParams.push('%store.steampowered.com/app/%');
-    }
+    const normalizedIncludesForTags = normalizeTagList(filters.tags)
+    const normalizedExcludesForTags = normalizeTagList(filters.excludedTags)
+    addTagFilter(normalizedIncludesForTags, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' });
+    addTagFilter(normalizedExcludesForTags, { exclude: true });
     if (filters.installState === 'installed') {
       filterWhereParts.push('catalog.is_installed = 1');
     } else if (filters.installState === 'uninstalled') {
@@ -1509,13 +1579,19 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
       }
     }
     if (filters.wishlistOnly === true) {
-      filterWhereParts.push(`EXISTS (
-        SELECT 1
-        FROM wishlist_entries wishlist
-        WHERE (wishlist.atlas_id IS NOT NULL AND wishlist.atlas_id = catalog.atlas_id)
-           OR (wishlist.f95_id IS NOT NULL AND wishlist.f95_id = catalog.f95_id)
-           OR (wishlist.lc_id IS NOT NULL AND wishlist.lc_id = catalog.lc_id)
-           OR (wishlist.steam_id IS NOT NULL AND wishlist.steam_id = catalog.steam_id)
+      // A catalog row is wishlisted if it matches any provider ID.
+      // Using four separate EXISTS clauses (rather than one EXISTS with a 4-way OR)
+      // allows SQLite to use the per-column idx_wishlist_entries_* indexes.
+      // A single EXISTS with an internal OR prevents index usage and forces a full scan.
+      filterWhereParts.push(`(
+        EXISTS (SELECT 1 FROM wishlist_entries wishlist
+                WHERE wishlist.atlas_id IS NOT NULL AND wishlist.atlas_id = catalog.atlas_id)
+        OR EXISTS (SELECT 1 FROM wishlist_entries wishlist
+                WHERE wishlist.f95_id IS NOT NULL AND wishlist.f95_id = catalog.f95_id)
+        OR EXISTS (SELECT 1 FROM wishlist_entries wishlist
+                WHERE wishlist.lc_id IS NOT NULL AND wishlist.lc_id = catalog.lc_id)
+        OR EXISTS (SELECT 1 FROM wishlist_entries wishlist
+                WHERE wishlist.steam_id IS NOT NULL AND wishlist.steam_id = catalog.steam_id)
       )`);
     }
     // Generated from ratingCategories.js. The previous literal version listed
@@ -2404,6 +2480,7 @@ module.exports = {
   checkRecordExist,
   checkPathExist,
   getVersionForRecord,
+  getVersionById,
   getInstalledVersionsForRecord,
   getVersionPathsForRecord,
   getGame,

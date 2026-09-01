@@ -63,9 +63,10 @@ const { ensureSevenZipConfigured } = require('./utils/sevenZipDetect')
 const {
   addVersion, upsertVersion, updateVersion,
   findExistingRecordForImport, checkRecordExist, checkPathExist,
-  getVersionForRecord, getInstalledVersionsForRecord, getVersionPathsForRecord,
+  getVersionForRecord, getVersionById, getInstalledVersionsForRecord, getVersionPathsForRecord,
   getGame, getGames, getCatalogGames,
 } = require('./db/versions')
+const { createGameFolderOpener } = require('./library/gameFolder')
 
 const {
   repairDoubledApostropheRows, repairStaleVersionExecutables,
@@ -84,8 +85,8 @@ const {
 
 const {
   updateFolderSize, getBannerUrl, getScreensUrlList,
-  updateBanners, updatePreviews, getRemotePreviewUrls, getSteamMovieThumbnails,
-  getPreviews, getBanners, getBanner, getRemoteBannerUrl, getBrowsePreviewUrls,
+  updateBanners, updatePreviews, insertPreviewSortRow, getRemotePreviewUrls, getSteamMovieThumbnails,
+  getPreviews, getPreviewsWithMeta, getBanners, getBanner, getRemoteBannerUrl, getBrowsePreviewUrls,
   getSteamBrowseMediaForAppId,
   getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
   deleteBanner, deletePreviews,
@@ -152,6 +153,7 @@ const {
   resolveDataRoot, grantUsersModify, isElevated,
   getLegacyDataDirs, directorySize, migrateLegacyData,
 } = require('./dataLocation')
+const appLog = require('./appLog')
 const accountStore = require('./accounts/accountStore')
 
 // ── Shared mutable state ────────────────────────────────────────────────────
@@ -226,6 +228,13 @@ try {
   dataWriteState = { writable: false, error: err.message }
   console.error('Failed to create data directories:', err.message)
 }
+
+// Point the shared file logger at the data folder. Done here rather than letting
+// appLog fall back to app.getPath('logs') because that path is only redirected
+// into the data folder for packaged builds (see the setPath block below, guarded
+// by process.defaultApp), so in dev the log would land somewhere else entirely --
+// and dev is where it gets read while a fix is being written.
+appLog.configure(path.join(dataDir, 'logs'))
 
 // Point Electron/Chromium's own storage (userData, session data, HTTP cache,
 // GPUCache, cookies, logs) at our data folder instead of the OS default
@@ -815,6 +824,14 @@ function isPathInside(parentPath, childPath) {
   return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative))
 }
 
+// Strict variant for deletion checks only. isPathInside() accepts the parent
+// itself (path.relative returns '' there), which is what allowed the library
+// root to pass as a deletable game folder. See electron/deleteUtils.js.
+function isStrictlyInsidePath(parentPath, childPath) {
+  const relative = path.relative(normalizeForPathCompare(parentPath), normalizeForPathCompare(childPath))
+  return !!relative && !relative.startsWith('..') && !path.isAbsolute(relative)
+}
+
 async function removeEmptyParentDirectories(startPath, stopAtPath) {
   if (!startPath || !stopAtPath) return
   let current = path.dirname(path.resolve(startPath))
@@ -835,6 +852,19 @@ async function removeEmptyParentDirectories(startPath, stopAtPath) {
 async function isAllowedDeletionPath(recordId, folderPath) {
   if (!recordId || !folderPath || typeof folderPath !== 'string') return false
   const resolvedPath = path.resolve(folderPath)
+
+  // Rejected BEFORE the recorded-path shortcut. A poisoned versions row (a scan
+  // whose source folder was the library root can record the library root as a
+  // game_path) must not become a standing deletion licence.
+  const configuredRoot = appConfig?.Library?.gameFolder
+  if (
+    configuredRoot &&
+    normalizeForPathCompare(resolvedPath) === normalizeForPathCompare(path.resolve(configuredRoot))
+  ) {
+    console.warn(`Refusing deletion of the configured library root: ${resolvedPath}`)
+    return false
+  }
+
   const knownVersionPaths = await getVersionPathsForRecord(recordId)
   const recentlyDeletedPaths = recentlyDeleted.pathsFor(recordId)
   if (
@@ -843,7 +873,7 @@ async function isAllowedDeletionPath(recordId, folderPath) {
     )
   ) return true
   const libraryRoot = appConfig?.Library?.gameFolder
-  return Boolean(libraryRoot && fs.existsSync(libraryRoot) && isPathInside(libraryRoot, resolvedPath))
+  return Boolean(libraryRoot && fs.existsSync(libraryRoot) && isStrictlyInsidePath(libraryRoot, resolvedPath))
 }
 
 async function getTrustedVersion(recordId, version) {
@@ -853,6 +883,14 @@ async function getTrustedVersion(recordId, version) {
   if (!selectedVersion.isInstalled) throw new Error('Version is not installed or its paths are missing')
   return selectedVersion
 }
+
+// Deliberately NOT getTrustedVersion. Opening a folder asks a different question
+// from launching one, and answering it with the install gate is what kept Steam
+// and GOG versions -- which have no exec_path -- from opening at all. The
+// reasoning is written out in electron/library/gameFolder.js.
+const openGameFolderForVersion = createGameFolderOpener({
+  getVersionById, getVersionForRecord, shell, fs,
+})
 
 function dedupeDeletionPaths(paths = []) {
   const seen = new Set()
@@ -882,6 +920,7 @@ async function deleteLinkedGameFolders(recordId, versionPaths) {
       force: true,
       description: 'Delete game folder',
       window: mainWindow,
+      containmentRoot: appConfig?.Library?.gameFolder || null,
       validatePath: async (candidatePath) => {
         if (candidatePath === path.parse(candidatePath).root) throw new Error('Refusing to delete a drive root')
         if (!(await isAllowedDeletionPath(recordId, candidatePath))) {
@@ -1698,24 +1737,20 @@ function showExecutableChooser(title, version, executables) {
     executableChooserWindow.webContents.send('init-executable-chooser', { title, version, executables })
     return
   }
+  // Size relative to the primary display: a fifth of the width and half the
+  // height keeps the chooser compact beside the (large) import list while still
+  // leaving room for many executable candidates on long scroll lists.
+  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
   const windowState = applySavedWindowBounds('executableChooser', {
-    width: 600,
-    height: 400,
+    width: Math.round(sw / 5),
+    height: Math.round(sh / 2),
     frame: false,
-    // Windows draws a native DWM resize border (often tinted with the
-    // system accent color) around frame:false windows that aren't also
-    // transparent -- that's the stray colored line on the left/right/
-    // bottom edges that no amount of CSS could ever reach, since it's
-    // painted by the OS outside the web content entirely. The renderer
-    // already paints a fully opaque background on every window's root
-    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
-    // safe to go fully transparent at the native level instead.
     transparent: true,
-    // Windows needs an explicit zero-alpha background color for true
-    // per-pixel transparency to render cleanly -- without it, the
-    // "transparent" region (e.g. outside a rounded-corner content clip)
-    // can render with artifacts instead of properly showing through.
     backgroundColor: '#00000000',
+    // Allow the user to resize so long executable lists are reachable; the
+    // renderer already paints an opaque, rounded background on a transparent
+    // native window, so resizing won't expose OS-drawn artifacts.
+    resizable: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1766,7 +1801,7 @@ function buildCtx() {
     getMetadataSourceOrder,
     normalizeForPathCompare, isPathInside, removeEmptyParentDirectories,
     deletePathWithElevationFallback,
-    isAllowedDeletionPath, getTrustedVersion, deleteTitleRecord,
+    isAllowedDeletionPath, getTrustedVersion, openGameFolderForVersion, deleteTitleRecord,
     // db functions
     addGame, updateGame, addVersion, upsertVersion, updateVersion,
     recordGameLaunchStarted, recordGamePlaytime, setGameFavorite, setGamePersonalRatings, setGamePlaystate, setVersionPlaystate,
@@ -1777,14 +1812,14 @@ function buildCtx() {
     getBannerUrl, getScreensUrlList, getRemoteBannerUrl, getRemotePreviewUrls, getSteamMovieThumbnails,
     getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
     getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension,
-    GetAtlasIDbyRecord, getPreviews, getBanner, deleteBanner, deletePreviews,
+    GetAtlasIDbyRecord, getPreviews, getPreviewsWithMeta, getBanner, deleteBanner, deletePreviews,
     getBrowsePreviewUrls,
     getSteamBrowseMediaForAppId,
     searchAtlas, searchAtlasByF95Id, findF95Id, checkPathExist,
     findExistingRecordForImport, getImportRecordStatus,
-    updateBanners, updatePreviews, getAtlasData, getSteamIDbyRecord, addSteamMapping,
+    updateBanners, updatePreviews, insertPreviewSortRow, getAtlasData, getSteamIDbyRecord, addSteamMapping,
     countVersions, deleteVersion, deleteGameCompletely,
-    getUniqueFilterOptions, getVersionForRecord, getInstalledVersionsForRecord,
+    getUniqueFilterOptions, getVersionForRecord, getVersionById, getInstalledVersionsForRecord,
     getVersionPathsForRecord, db: dbIndex.db,
     getManualMappings, setManualMappings, setSelectedGameVersion,
     getGameOverrides, clearGameOverrides, validateGameMetadataOverrides,

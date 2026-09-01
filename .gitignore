@@ -22,3 +22,10 @@ scratch/
 # as "key" and is safe to commit; this private key is not and must never be.
 *.pem
 keys/
+
+# Extension icons are generated from /logo.png by
+# scripts/generate-extension-icons.js on every build. They were previously
+# committed, which meant the same 501 KB PNG existed three times in the repo and
+# an edit to logo.png silently did not reach the extension until someone ran the
+# packaging script. /logo.png is now the only committed copy.
+extension/icons/

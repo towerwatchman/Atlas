@@ -1,4 +1,4 @@
-import atlasLogo from '../../../assets/icons/atlas_logo.svg'
+import atlasLogo from '../../../assets/icons/atlas_logo_mark.svg'
 import GogIcon from '../../ui/GogIcon.jsx'
 
 export default function SourceStep({ onSelect, onStartSteam, onStartGog, onStartRenpy, onStartManualAdd }) {

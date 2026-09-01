@@ -45,6 +45,9 @@ const {
   SEARCH_PREFIX_FIELDS, LEGACY_SEARCH_TYPE_FIELDS,
   indexColumnsForSearchFieldIds, normalizeSearchFieldIds,
 } = require('./searchFields')
+const { extractUrlId } = require('./urlIdExtractor')
+const { buildTagsFilterValue, normalizeTagText, normalizeTagList, splitTagSources } = require('./tagTokens')
+const { tokenPredicate, escapeLike } = require('./tagFilterSql')
 
 // A search payload may carry `fields` (current) or `type` (legacy). Neither
 // present means the caller wants the default set.
@@ -60,7 +63,17 @@ const { withTransaction, isWriteLockBusy } = require('./writeLock')
 
 // Bump when the projection (columns, tier semantics, source precedence)
 // changes. A mismatch marks the index stale and triggers one rebuild.
-const CATALOG_INDEX_VERSION = 4
+// 5: atlas_external_steam gained is_dlc/parent_appid. The table is rebuilt
+// from external_ids, so a bump is what makes an existing install pick the
+// new columns up instead of keeping a schema-4 table with every appid
+// typed as a game.
+
+// 6: catalog_index gained tags_filter (comma-joined normalized tokens) + catalog_index_tags
+// indexed tag map for fast exact-token filtering (LIKE with leading wildcard
+// cannot use an index) so the tag include/exclude filter is exact-token rather
+// than substring over tags_text. Reuses the ADD-COLUMN path so existing installs
+// migrate without a full DROP/CREATE.
+const CATALOG_INDEX_VERSION = 6
 
 const CHUNK_SIZE = 2000
 
@@ -170,15 +183,55 @@ const joinText = (...parts) => {
 // Replaces the five correlated LIKE patterns. Parsing the JSON is immune to the
 // whitespace and key-order variation that made the LIKE list miss
 // `{"steam_id": "123"}`, and it covers the array form in one place.
-const extractSteamAppIds = (rawExternalIds) => {
-  if (!rawExternalIds) return []
+//
+// Returns typed entries rather than bare ids. The server exports a game's DLC
+// appids under their own keys (steam_dlc_appids / steam_dlc_parents) while
+// steam_appids keeps its old meaning -- EVERY appid for the game -- so an id
+// appearing in both is a DLC, and an id in steam_appids alone is the game. A
+// package predating those keys yields all-game entries, which is exactly how
+// this behaved before.
+const toAppId = (value) => {
+  const n = Number.parseInt(String(value ?? '').trim(), 10)
+  return Number.isInteger(n) && n > 0 ? n : null
+}
+
+const parseExternalIdsBlob = (rawExternalIds) => {
+  if (!rawExternalIds) return null
   let parsed
   try {
     parsed = typeof rawExternalIds === 'object' ? rawExternalIds : JSON.parse(rawExternalIds)
   } catch {
-    return []
+    return null
   }
-  if (!parsed || typeof parsed !== 'object') return []
+  return parsed && typeof parsed === 'object' ? parsed : null
+}
+
+// steam_dlc_parents is keyed by the PARENT's kind, then the parent's id:
+//   {"steam": {"1000": ["2001", "2002"]}}
+// Only a steam parent yields a parent_appid; a DLC parented to a GOG or itch
+// entry (which manualLinks.js permits) is still a DLC, just with no steam
+// parent to point at.
+const steamDlcParentsByAppId = (parsed) => {
+  const out = new Map()
+  const groups = parsed?.steam_dlc_parents
+  if (!groups || typeof groups !== 'object') return out
+  const steamGroup = groups.steam
+  if (!steamGroup || typeof steamGroup !== 'object') return out
+  for (const [parentRaw, children] of Object.entries(steamGroup)) {
+    const parent = toAppId(parentRaw)
+    if (!parent || !Array.isArray(children)) continue
+    for (const child of children) {
+      const appid = toAppId(child)
+      if (appid) out.set(appid, parent)
+    }
+  }
+  return out
+}
+
+// `{ appid, isDlc, parentAppId }`, one per distinct appid.
+const extractSteamAppIds = (rawExternalIds) => {
+  const parsed = parseExternalIdsBlob(rawExternalIds)
+  if (!parsed) return []
 
   const candidates = []
   for (const key of ['steam_appid', 'steam_id', 'steamAppId', 'steamId']) {
@@ -194,12 +247,35 @@ const extractSteamAppIds = (rawExternalIds) => {
     }
   }
 
-  const ids = new Set()
-  for (const candidate of candidates) {
-    const n = Number.parseInt(String(candidate).trim(), 10)
-    if (Number.isInteger(n) && n > 0) ids.add(n)
+  const dlcIds = new Set()
+  for (const key of ['steam_dlc_appids', 'steamDlcAppIds']) {
+    const list = parsed[key]
+    if (!Array.isArray(list)) continue
+    for (const value of list) {
+      const appid = toAppId(value)
+      // A DLC id may be absent from steam_appids on a hand-edited blob, so it
+      // is added as a candidate too rather than being silently skipped.
+      if (appid) { dlcIds.add(appid); candidates.push(appid) }
+    }
   }
-  return Array.from(ids)
+
+  const parents = steamDlcParentsByAppId(parsed)
+  const seen = new Set()
+  const out = []
+  for (const candidate of candidates) {
+    const appid = toAppId(candidate)
+    if (!appid || seen.has(appid)) continue
+    seen.add(appid)
+    const isDlc = dlcIds.has(appid)
+    out.push({
+      appid,
+      isDlc,
+      // A parent only means anything for a DLC, and only when the parent is
+      // itself a steam appid.
+      parentAppId: isDlc ? (parents.get(appid) ?? null) : null,
+    })
+  }
+  return out
 }
 
 // ── schema ───────────────────────────────────────────────────────────────────
@@ -225,6 +301,7 @@ const CATALOG_INDEX_DDL = [
      censored         TEXT,
      language         TEXT,
      tags_text        TEXT,
+     tags_filter      TEXT,
      search_text      TEXT,
      site_url         TEXT,
      rating_best      REAL,
@@ -241,10 +318,25 @@ const CATALOG_INDEX_DDL = [
 
   // (steam_appid -> atlas_id) resolved from atlas_data.external_ids. Replaces
   // the correlated-LIKE NOT EXISTS with a primary-key probe.
+  //
+  // is_dlc says whether this appid is an add-on rather than the game itself,
+  // and parent_appid which game it belongs to. Both come from the server's
+  // atlas_manual_links, where an admin types every store link -- but the export
+  // used to flatten a base game and its DLC into one steam_appids array, so
+  // this table could not represent the difference and every appid looked like a
+  // game. Defaults keep an older package (no *_dlc_* keys) behaving as before.
   `CREATE TABLE IF NOT EXISTS atlas_external_steam (
-     steam_appid INTEGER NOT NULL,
-     atlas_id    INTEGER NOT NULL,
+     steam_appid  INTEGER NOT NULL,
+     atlas_id     INTEGER NOT NULL,
+     is_dlc       INTEGER NOT NULL DEFAULT 0,
+     parent_appid INTEGER,
      PRIMARY KEY (steam_appid, atlas_id)
+   );`,
+
+  `CREATE TABLE IF NOT EXISTS catalog_index_tags (
+     catalog_key TEXT NOT NULL,
+     tag         TEXT NOT NULL,
+     PRIMARY KEY (catalog_key, tag)
    );`,
 
   `CREATE TABLE IF NOT EXISTS catalog_index_meta (
@@ -294,10 +386,66 @@ const CATALOG_INDEX_INDEXES = [
   `CREATE INDEX IF NOT EXISTS idx_catalog_index_local_record ON catalog_index(local_record_id);`,
   `CREATE INDEX IF NOT EXISTS idx_atlas_external_steam_atlas
      ON atlas_external_steam(atlas_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_catalog_index_tags_tag
+     ON catalog_index_tags(tag);`,
 ]
+
+// Columns added to a table that already exists on installs in the wild.
+//
+// CREATE TABLE IF NOT EXISTS is a no-op against an existing table, so widening
+// the DDL alone reaches new installs only -- an upgrade kept its old table and
+// the first rebuild died on
+//   SQLITE_ERROR: table atlas_external_steam has no column named is_dlc
+// which failed the whole background build, leaving Browse on the slow union
+// path indefinitely.
+//
+// Every column here must be nullable or defaulted, since ADD COLUMN applies it
+// to existing rows. Values are filled by the rebuild that the
+// CATALOG_INDEX_VERSION bump forces, so a migrated row is briefly untyped
+// (is_dlc 0) rather than wrong -- which is also what a package predating the
+// server's DLC keys yields.
+const CATALOG_INDEX_ADDED_COLUMNS = [
+  ['atlas_external_steam', 'is_dlc', 'INTEGER NOT NULL DEFAULT 0'],
+  ['atlas_external_steam', 'parent_appid', 'INTEGER'],
+  ['catalog_index', 'tags_filter', 'TEXT'],
+]
+
+// The ALTER statements a database with these columns still needs. Pure, so the
+// upgrade path is tested by calling THIS rather than by a test reimplementing
+// the same loop -- a copy passes whatever the real one does.
+//
+// `existingByTable` maps a table name to the column names it currently has.
+const catalogIndexAddColumnStatements = (existingByTable = {}) => {
+  const statements = []
+  const seen = new Map()
+  for (const [table, column, type] of CATALOG_INDEX_ADDED_COLUMNS) {
+    if (!seen.has(table)) {
+      seen.set(table, new Set((existingByTable[table] || []).map((c) => String(c))))
+    }
+    if (seen.get(table).has(column)) continue
+    statements.push(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
+    seen.get(table).add(column)
+  }
+  return statements
+}
+
+const ensureAddedColumns = async () => {
+  const existingByTable = {}
+  for (const [table] of CATALOG_INDEX_ADDED_COLUMNS) {
+    if (existingByTable[table]) continue
+    // PRAGMA rather than catching the duplicate-column error, so a genuine
+    // failure (locked db, missing table) is not swallowed along with it.
+    const info = await dbAll(`PRAGMA table_info(${table})`)
+    existingByTable[table] = info.map((c) => String(c.name))
+  }
+  for (const sql of catalogIndexAddColumnStatements(existingByTable)) await dbRun(sql)
+}
 
 const ensureCatalogIndexSchema = async () => {
   for (const ddl of CATALOG_INDEX_DDL) await dbRun(ddl)
+  // After CREATE (so the table exists on a fresh install) and before the
+  // indexes, which may reference a migrated column.
+  await ensureAddedColumns()
   for (const ddl of CATALOG_INDEX_INDEXES) await dbRun(ddl)
 }
 
@@ -372,8 +520,8 @@ const rebuildAtlasExternalSteam = async ({ onProgress } = {}) => {
 
   const pairs = []
   for (const row of rows) {
-    for (const appid of extractSteamAppIds(row.external_ids)) {
-      pairs.push([appid, row.atlas_id])
+    for (const entry of extractSteamAppIds(row.external_ids)) {
+      pairs.push([entry.appid, row.atlas_id, entry.isDlc ? 1 : 0, entry.parentAppId])
     }
   }
 
@@ -381,9 +529,10 @@ const rebuildAtlasExternalSteam = async ({ onProgress } = {}) => {
     await dbRun('DELETE FROM atlas_external_steam')
     for (let i = 0; i < pairs.length; i += CHUNK_SIZE) {
       const slice = pairs.slice(i, i + CHUNK_SIZE)
-      const values = slice.map(() => '(?, ?)').join(', ')
+      const values = slice.map(() => '(?, ?, ?, ?)').join(', ')
       await dbRun(
-        `INSERT OR IGNORE INTO atlas_external_steam (steam_appid, atlas_id) VALUES ${values}`,
+        `INSERT OR IGNORE INTO atlas_external_steam
+           (steam_appid, atlas_id, is_dlc, parent_appid) VALUES ${values}`,
         slice.flat())
       if (typeof onProgress === 'function') {
         try { onProgress({ phase: 'steam-links', processed: Math.min(i + CHUNK_SIZE, pairs.length), total: pairs.length }) }
@@ -399,7 +548,7 @@ const rebuildAtlasExternalSteam = async ({ onProgress } = {}) => {
 const CATALOG_INDEX_COLUMNS = [
   'catalog_key', 'record_id', 'source', 'atlas_id', 'steam_id', 'gog_id', 'lc_id',
   'f95_id', 'local_record_id', 'is_installed', 'title', 'short_name', 'creator',
-  'engine', 'category', 'status', 'censored', 'language', 'tags_text', 'search_text',
+  'engine', 'category', 'status', 'censored', 'language', 'tags_text', 'tags_filter', 'search_text',
   'site_url', 'rating_best', 'likes_best',
   'thread_updated_tier', 'thread_updated_ms',
   'thread_publish_tier', 'thread_publish_ms',
@@ -472,6 +621,7 @@ const projectAtlasRow = (row, nowMs) => {
     row.censored ?? null,
     row.language ?? null,
     joinText(row.atlas_tags, row.f95_tags, row.lc_tags, row.lc_prefixes),
+    buildTagsFilterValue(row.atlas_tags, row.f95_tags, row.lc_tags, row.lc_prefixes),
     joinText(title, row.short_name, row.creator, row.engine, row.status, row.category),
     row.f95_site_url || row.lc_site_url || null,
     bestOf(row.f95_rating, row.lc_rating),
@@ -492,6 +642,28 @@ const insertProjectedRows = async (rows) => {
     const slice = rows.slice(i, i + 500)
     await dbRun(
       `INSERT OR REPLACE INTO catalog_index (${cols}) VALUES ${slice.map(() => one).join(', ')}`,
+      slice.flat())
+  }
+}
+
+// Why a separate tag table: `tags_filter LIKE '%,token,%'` has a leading
+// wildcard so no B-tree index on `tags_filter` can be used — it scans the
+// whole table and concatenates per row. An indexed `catalog_index_tags(tag)`
+// lets `EXISTS (SELECT 1 ... WHERE tag=?)` hit the index instead.
+const insertCatalogIndexTags = async (rows) => {
+  const tagRows = []
+  for (const r of rows) {
+    const key = r[0]
+    const filter = r[19]
+    if (!filter) continue
+    const tags = String(filter).split(',').map((t) => t.trim()).filter(Boolean)
+    for (const tag of tags) tagRows.push([key, tag])
+  }
+  if (tagRows.length === 0) return
+  for (let i = 0; i < tagRows.length; i += 500) {
+    const slice = tagRows.slice(i, i + 500)
+    await dbRun(
+      `INSERT OR IGNORE INTO catalog_index_tags (catalog_key, tag) VALUES ${slice.map(() => '(?, ?)').join(', ')}`,
       slice.flat())
   }
 }
@@ -520,6 +692,7 @@ const rebuildCatalogIndex = async ({ onProgress, chunkSize = CHUNK_SIZE } = {}) 
   const total = totalRow?.c || 0
 
   await dbRun('DELETE FROM catalog_index')
+  await dbRun('DELETE FROM catalog_index_tags')
   await setMeta('stale', '1')
   await setMeta('stale_reason', 'rebuild in progress')
 
@@ -536,7 +709,10 @@ const rebuildCatalogIndex = async ({ onProgress, chunkSize = CHUNK_SIZE } = {}) 
     // One transaction PER CHUNK, taken under the shared write lock. The lock is
     // released between chunks, so a concurrent catalog sync interleaves at a
     // transaction boundary instead of committing this one out from under us.
-    await withTransaction('catalogIndex.chunk', dbRun, () => insertProjectedRows(projected))
+    await withTransaction('catalogIndex.chunk', dbRun, async () => {
+      await insertProjectedRows(projected)
+      await insertCatalogIndexTags(projected)
+    })
 
     processed += rows.length
     report({
@@ -594,7 +770,10 @@ const rebuildOrphanBranches = async ({ onProgress, chunkSize, nowMs }) => {
       const rows = await dbAll(pageSql, [chunkSize, offset])
       if (rows.length === 0) break
       const projected = rows.map((row) => project(row, nowMs))
-      await withTransaction(`catalogIndex.${label}`, dbRun, () => insertProjectedRows(projected))
+      await withTransaction(`catalogIndex.${label}`, dbRun, async () => {
+        await insertProjectedRows(projected)
+        await insertCatalogIndexTags(projected)
+      })
       done += rows.length
       report({ phase: label, processed: done, total, message: `Indexing ${label} entries…` })
       await yieldToLoop()
@@ -630,7 +809,7 @@ const rebuildOrphanBranches = async ({ onProgress, chunkSize, nowMs }) => {
         row.local_record_id ?? null, row.local_record_id != null ? 1 : 0,
         title, title, creator, row.engine ?? null, row.category ?? null,
         row.status ?? null, row.censored ?? null, row.language ?? null,
-        joinText(row.tags), joinText(title, creator, row.engine, row.status, row.category),
+        joinText(row.tags), buildTagsFilterValue(row.tags), joinText(title, creator, row.engine, row.status, row.category),
         null, null, null,
         2, null, 2, null, dateTier(releaseMs, now), releaseMs, null, 1,
       ]
@@ -659,7 +838,7 @@ const rebuildOrphanBranches = async ({ onProgress, chunkSize, nowMs }) => {
         row.local_record_id ?? null, row.local_record_id != null ? 1 : 0,
         title, title, creator, row.engine ?? null, row.category ?? null,
         row.status ?? null, row.censored ?? null, row.language ?? null,
-        joinText(row.tags), joinText(title, creator, row.engine, row.status, row.category),
+        joinText(row.tags), buildTagsFilterValue(row.tags), joinText(title, creator, row.engine, row.status, row.category),
         row.store_url ?? null, null, null,
         2, null, 2, null, dateTier(releaseMs, now), releaseMs, null, 0,
       ]
@@ -690,7 +869,7 @@ const rebuildOrphanBranches = async ({ onProgress, chunkSize, nowMs }) => {
         null, null, null, row.lc_id, null,
         row.local_record_id ?? null, row.local_record_id != null ? 1 : 0,
         title, title, FALLBACK_CREATOR, null, null, null, null, null,
-        joinText(row.tags, row.prefixes), joinText(title, FALLBACK_CREATOR),
+        joinText(row.tags, row.prefixes), buildTagsFilterValue(row.tags, row.prefixes), joinText(title, FALLBACK_CREATOR),
         row.site_url ?? null, toNumberOrNull(row.rating), toNumberOrNull(row.likes),
         dateTier(tuMs, now), tuMs, dateTier(tpMs, now), tpMs, 2, null, null, 0,
       ]
@@ -725,11 +904,23 @@ const refreshCatalogIndexForAtlasIds = async (atlasIds = []) => {
 
     await withTransaction('catalogIndex.refresh', dbRun, async () => {
       if (missing.length > 0) {
+        const missingKeys = missing.map((id) => `atlas:${id}`)
         await dbRun(
           `DELETE FROM catalog_index WHERE catalog_key IN (${missing.map(() => '?').join(', ')})`,
-          missing.map((id) => `atlas:${id}`))
+          missingKeys)
+        await dbRun(
+          `DELETE FROM catalog_index_tags WHERE catalog_key IN (${missing.map(() => '?').join(', ')})`,
+          missingKeys)
       }
-      await insertProjectedRows(rows.map((row) => projectAtlasRow(row, nowMs)))
+      const projected = rows.map((row) => projectAtlasRow(row, nowMs))
+      if (projected.length > 0) {
+        const keys = projected.map((r) => r[0])
+        await dbRun(
+          `DELETE FROM catalog_index_tags WHERE catalog_key IN (${keys.map(() => '?').join(', ')})`,
+          keys)
+      }
+      await insertProjectedRows(projected)
+      await insertCatalogIndexTags(projected)
     })
     refreshed += rows.length
     await yieldToLoop()
@@ -777,6 +968,9 @@ module.exports = {
   CATALOG_INDEX_DDL,
   CATALOG_INDEX_INDEXES,
   ensureCatalogIndexSchema,
+  // exported so the upgrade path can be tested against a pre-migration table
+  CATALOG_INDEX_ADDED_COLUMNS,
+  catalogIndexAddColumnStatements,
   getCatalogIndexStatus,
   markCatalogIndexStale,
   rebuildCatalogIndex,
@@ -821,7 +1015,6 @@ const buildIndexWhere = (search = {}, filters = {}) => {
   parts.push(`(ci.lc_id IS NULL OR lct.tier = 'Free')`)
   const params = []
 
-  const escapeLike = (value) => String(value).replace(/[\\%_]/g, (c) => `\\${c}`)
   const like = (value) => `%${escapeLike(value).toLowerCase()}%`
   const toArray = (value) => {
     if (Array.isArray(value)) {
@@ -852,6 +1045,18 @@ const buildIndexWhere = (search = {}, filters = {}) => {
       fields = ['url']
     }
   }
+  // A pasted thread or store URL routes to its ID column instead of matching
+  // ci.site_url, which is incomplete -- see electron/db/urlIdExtractor.js.
+  // Runs only when no explicit prefix claimed the text, so `title:` and
+  // `url:` still mean what they say. Browse must resolve this identically to
+  // the renderer or the same query returns different rows in the two views.
+  const urlId = prefixed && SEARCH_PREFIX_FIELDS[prefixed[1].toLowerCase()]
+    ? null
+    : extractUrlId(text)
+  if (urlId) {
+    fields = [urlId.field]
+    text = urlId.query
+  }
   const terms = text.split(/\s+/).map((t) => t.trim()).filter((t) => t && !t.startsWith('-'))
   if (terms.length > 0) {
     // search_text is a precomputed concatenation of title, short_name, creator,
@@ -859,9 +1064,31 @@ const buildIndexWhere = (search = {}, filters = {}) => {
     // selected fields are exactly what it bakes in — otherwise it would quietly
     // widen the search to fields the user deselected.
     const columns = indexColumnsForSearchFieldIds(fields)
+    // ci.steam_id holds ONE appid per tile (MIN of the linked steam_data rows),
+    // so a game's other appids -- its DLC especially -- were unfindable: pasting
+    // a DLC store URL matched nothing even though the game was right there.
+    // atlas_external_steam has every appid for the row, so searching a steamId
+    // reaches through it to the game the appid belongs to.
+    //
+    // Deliberately EXISTS rather than a LEFT JOIN: a join against a table with
+    // several appids per atlas_id multiplies the rows and the grid shows the
+    // same game once per appid, which then has to be undone with DISTINCT --
+    // and DISTINCT on the count query too, or the scrollbar sizes for rows that
+    // are never rendered. EXISTS cannot fan out, so neither is needed.
+    const searchesSteamId = fields.includes('steamId')
     for (const term of terms) {
-      parts.push(`(${columns.map((f) => `LOWER(COALESCE(CAST(ci.${f} AS TEXT), '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`)
-      params.push(...columns.map(() => like(term)))
+      const clauses = columns.map(
+        (f) => `LOWER(COALESCE(CAST(ci.${f} AS TEXT), '')) LIKE ? ESCAPE '\\'`)
+      const values = columns.map(() => like(term))
+      if (searchesSteamId) {
+        clauses.push(`EXISTS (
+          SELECT 1 FROM atlas_external_steam aes
+           WHERE aes.atlas_id = ci.atlas_id
+             AND LOWER(CAST(aes.steam_appid AS TEXT)) LIKE ? ESCAPE '\\')`)
+        values.push(like(term))
+      }
+      parts.push(`(${clauses.join(' OR ')})`)
+      params.push(...values)
     }
   }
 
@@ -903,24 +1130,27 @@ const buildIndexWhere = (search = {}, filters = {}) => {
     params.push(...languages.map(like))
   }
 
-  // All four tag sources are concatenated into tags_text at index time, so one
-  // LIKE per tag replaces four.
+  // Exact-token tag filter via indexed catalog_index_tags (tag = ? hits idx_catalog_index_tags_tag)
+  // instead of LIKE with leading wildcard on tags_filter (full scan).
   const addTags = (values, { exclude = false, logic = 'AND' } = {}) => {
     const safe = toArray(values)
     if (safe.length === 0) return
-    const clauses = safe.map((value) => {
-      params.push(like(value))
-      const one = `LOWER(COALESCE(ci.tags_text, '')) LIKE ? ESCAPE '\\'`
-      return exclude ? `NOT (${one})` : `(${one})`
-    })
-    parts.push(`(${clauses.join(exclude || logic === 'AND' ? ' AND ' : ' OR ')})`)
+    const perFilterClauses = []
+    for (const value of safe) {
+      const token = normalizeTagText(value).trim()
+      if (!token) continue
+      const existsSql = `EXISTS (SELECT 1 FROM catalog_index_tags cit WHERE cit.catalog_key = ci.catalog_key AND cit.tag = ?)`
+      params.push(token)
+      perFilterClauses.push(exclude ? `NOT ${existsSql}` : existsSql)
+    }
+    if (perFilterClauses.length === 0) return
+    parts.push(`(${perFilterClauses.join(exclude || logic === 'AND' ? ' AND ' : ' OR ')})`)
   }
-  addTags(filters.tags, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' })
-  addTags(filters.excludedTags, { exclude: true })
+  const normalizedIncludes = normalizeTagList(filters.tags)
+  const normalizedExcludes = normalizeTagList(filters.excludedTags)
+  addTags(normalizedIncludes, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' })
+  addTags(normalizedExcludes, { exclude: true })
 
-  if (filters.steamMapped === true) {
-    parts.push('(ci.steam_id IS NOT NULL OR ci.has_steam_link = 1)')
-  }
   if (filters.installState === 'installed') parts.push('ci.is_installed = 1')
   else if (filters.installState === 'uninstalled') parts.push('ci.is_installed = 0')
   if (filters.updateAvailable === true) parts.push('ci.is_installed = 1')
@@ -949,12 +1179,14 @@ const buildIndexWhere = (search = {}, filters = {}) => {
   }
 
   if (filters.wishlistOnly === true) {
-    parts.push(`EXISTS (
-      SELECT 1 FROM wishlist_entries w
-       WHERE (w.atlas_id IS NOT NULL AND w.atlas_id = ci.atlas_id)
-          OR (w.f95_id  IS NOT NULL AND w.f95_id  = ci.f95_id)
-          OR (w.lc_id   IS NOT NULL AND w.lc_id   = ci.lc_id)
-          OR (w.steam_id IS NOT NULL AND w.steam_id = ci.steam_id))`)
+    // Use separate EXISTS clauses instead of OR conditions in a single subquery.
+    // This allows SQLite to use indexes on each ID column and stop searching
+    // as soon as it finds a match. Mirrors wishlistOnly in versions.js.
+    parts.push(`(
+      EXISTS (SELECT 1 FROM wishlist_entries w WHERE w.atlas_id IS NOT NULL AND w.atlas_id = ci.atlas_id)
+      OR EXISTS (SELECT 1 FROM wishlist_entries w WHERE w.f95_id  IS NOT NULL AND w.f95_id  = ci.f95_id)
+      OR EXISTS (SELECT 1 FROM wishlist_entries w WHERE w.lc_id   IS NOT NULL AND w.lc_id   = ci.lc_id)
+      OR EXISTS (SELECT 1 FROM wishlist_entries w WHERE w.steam_id IS NOT NULL AND w.steam_id = ci.steam_id))`)
   }
 
   // Generated from ratingCategories.js. This was a second hand-written copy of

@@ -85,7 +85,7 @@ export default [
   // ── Main process ──────────────────────────────────────────────────────────
   {
     files: ['electron/**/*.js', 'workers/**/*.js'],
-    ignores: ['extension/**/*.js', 'electron/extension/**/*.js'],
+    ignores: ['extension/**/*.js'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'commonjs',
@@ -99,14 +99,31 @@ export default [
     },
   },
   // ── Browser Extension ─────────────────────────────────────────────────────
+  //
+  // Three execution contexts share this one glob, and the globals are the union
+  // of all three rather than any single one:
+  //
+  //   * content scripts and popup/  -> a DOM window (globals.browser)
+  //   * background.js on Chromium   -> an MV3 service worker, which is where
+  //     importScripts comes from (globals.serviceworker). It is not a DOM
+  //     global, so globals.browser alone reported it as no-undef.
+  //   * background.js on Firefox    -> a non-persistent event page, a DOM
+  //     context with no importScripts at all. background.js guards the call for
+  //     exactly that reason; the guard is runtime behaviour and does not tell
+  //     eslint the name exists.
+  //
+  // `browser` is declared alongside `chrome` because compat.js resolves one or
+  // the other depending on engine.
   {
-    files: ['extension/**/*.js', 'electron/extension/**/*.js'],
+    files: ['extension/**/*.js'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',
       globals: {
         ...globals.browser,
+        ...globals.serviceworker,
         chrome: 'readonly',
+        browser: 'readonly',
       },
     },
     rules: {

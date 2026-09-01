@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { saveLibrarySetting, saveLibrarySettings, pickGameFolder } from '../../utils/librarySettings.js'
+import { saveLibrarySetting, saveLibrarySettings } from '../../utils/librarySettings.js'
+import EditablePathField from '../ui/EditablePathField.jsx'
 
 // Library.jsx  (updated)
 //
@@ -24,6 +25,7 @@ const Library = () => {
   const [sevenZipPath, setSevenZipPath] = useState(""); // ← added
   const [sevenZipStatus, setSevenZipStatus] = useState("");
   const [detectingSevenZip, setDetectingSevenZip] = useState(false);
+  const [autoInstallPrompt, setAutoInstallPrompt] = useState(false);
   const [autoSelectLatestReplaceVersion, setAutoSelectLatestReplaceVersion] =
     useState(false);
   const [validatePathsOnStartup, setValidatePathsOnStartup] = useState(false);
@@ -43,6 +45,9 @@ const Library = () => {
       );
       setExtractionExtensions(lib.extractionExtensions || "zip,7z,rar");
       setSevenZipPath(lib.sevenZipPath || ""); // ← added
+      setAutoInstallPrompt(
+        lib.autoInstallPrompt === true || lib.autoInstallPrompt === "true",
+      );
       setAutoSelectLatestReplaceVersion(
         lib.autoSelectLatestReplaceVersion === true ||
           lib.autoSelectLatestReplaceVersion === "true",
@@ -67,22 +72,6 @@ const Library = () => {
     });
     return () => window.electronAPI.removeAllListeners?.("library-validation-progress");
   }, []);
-
-  const handleSetGameFolder = async () => {
-    // pickGameFolder persists the choice itself, so there is no saveLibrarySetting
-    // call here — that is the point of sharing it. An empty return is a cancelled
-    // dialog and must not clear a folder that is already set.
-    const path = await pickGameFolder();
-    if (path) setGameFolder(path);
-  };
-
-  const handleSetDownloadsFolder = async () => {
-    const path = await window.electronAPI.selectDirectory();
-    if (path) {
-      setDownloadsFolder(path);
-      saveLibrarySetting("downloadsFolder", path);
-    }
-  };
 
   // Clearing falls back to the OS downloads directory rather than to a folder
   // inside the library, which must never hold in-progress archives.
@@ -160,6 +149,12 @@ const Library = () => {
     saveLibrarySetting("extractionExtensions", val);
   };
 
+  const handleAutoInstallPromptChange = (e) => {
+    const checked = e.target.checked;
+    setAutoInstallPrompt(checked);
+    saveLibrarySetting("autoInstallPrompt", checked);
+  };
+
   const handleAutoSelectLatestReplaceVersionChange = (e) => {
     const checked = e.target.checked;
     setAutoSelectLatestReplaceVersion(checked);
@@ -207,20 +202,14 @@ const Library = () => {
       {/* Default Game Folder */}
       <div data-tour="LibraryFolder">
         <label className="block mb-1">Default Game Folder</label>
-        <div className="flex gap-3">
-          <input
-            type="text"
-            className="flex-1 bg-secondary border border-border p-2 rounded"
-            value={gameFolder}
-            readOnly
-          />
-          <button
-            onClick={handleSetGameFolder}
-            className="bg-accent px-5 py-2 rounded hover:bg-accentHover"
-          >
-            Set Folder
-          </button>
-        </div>
+        <EditablePathField
+          data-tour="LibraryFolder"
+          value={gameFolder}
+          mode="directory"
+          pickerLabel="Set Folder"
+          onPick={() => window.electronAPI.selectDirectory()}
+          onSave={(p) => { setGameFolder(p); saveLibrarySetting('gameFolder', p) }}
+        />
         <p className="text-xs opacity-60 mt-1">
           Newly imported / extracted games will be placed here.
         </p>
@@ -230,19 +219,15 @@ const Library = () => {
       <div>
         <label className="block mb-1">Downloads Folder</label>
         <div className="flex gap-3">
-          <input
-            type="text"
-            className="flex-1 bg-secondary border border-border p-2 rounded"
+          <EditablePathField
             value={downloadsFolder}
+            mode="directory"
+            allowEmpty
             placeholder="Default: your system Downloads folder"
-            readOnly
+            pickerLabel="Set Folder"
+            onPick={() => window.electronAPI.selectDirectory()}
+            onSave={(p) => { setDownloadsFolder(p); saveLibrarySetting('downloadsFolder', p) }}
           />
-          <button
-            onClick={handleSetDownloadsFolder}
-            className="bg-accent px-5 py-2 rounded hover:bg-accentHover"
-          >
-            Set Folder
-          </button>
           {downloadsFolder && (
             <button
               onClick={handleClearDownloadsFolder}
@@ -257,6 +242,26 @@ const Library = () => {
           this separate from the game folder &mdash; that one is scanned for
           installed games, and in-progress downloads sitting there get picked up
           as titles.
+        </p>
+      </div>
+
+      {/* Sits with the downloads folder rather than with the other install
+          options below, because it is about what happens when a DOWNLOAD ends —
+          someone looking for it will be looking here. */}
+      <div className="border border-border bg-primary/40 p-3 rounded">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={autoInstallPrompt}
+            onChange={handleAutoInstallPromptChange}
+          />
+          <span>Ask to install when a download finishes</span>
+        </label>
+        <p className="text-xs opacity-60 mt-1">
+          Opens the install dialog on its own instead of waiting for you to press
+          Install on the Downloads page. It still asks &mdash; the version and
+          which build to replace are yours to confirm, nothing installs
+          unattended. If another dialog is already open, this waits its turn.
         </p>
       </div>
 

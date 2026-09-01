@@ -105,6 +105,7 @@ describe('Extension Server & Thread Parser', () => {
       })
       expect(res.headers.get('access-control-allow-origin')).toBeNull()
     })
+
   })
 
   describe('ensureExtensionFiles', () => {

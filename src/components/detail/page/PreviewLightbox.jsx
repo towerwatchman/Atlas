@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import SafeImage from '../../ui/SafeImage.jsx'
 import DashVideo from './DashVideo.jsx'
 import { toMediaSrc } from '../../../utils/mediaSrc.js'
@@ -38,14 +38,30 @@ function fitSize(natural, vp) {
 export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPrev, onNext }) {
   const vp = useViewport()
   const [natural, setNatural] = useState(null)
-  const key = lightboxIndex === null ? null : previews[lightboxIndex]
+  const raw = lightboxIndex === null ? null : previews[lightboxIndex]
+  // previews may be plain URL strings OR enriched objects ({ url, ... }).
+  const current = raw && typeof raw === 'string' ? raw : (raw?.url || raw)
+  const key = lightboxIndex === null ? null : current
 
   // Reset measured size whenever the displayed media changes.
   useEffect(() => { setNatural(null) }, [key])
 
+  // Migrate the navigation callbacks from GameDetails to here to control all lightbox navigation
+  const navRef = useRef({ onClose, onPrev, onNext })
+  navRef.current = { onClose, onPrev, onNext }
+  useEffect(() => {
+    if (lightboxIndex === null) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') navRef.current.onClose()
+      else if (e.key === 'ArrowLeft') navRef.current.onPrev()
+      else if (e.key === 'ArrowRight') navRef.current.onNext()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lightboxIndex, previews.length])
+
   if (lightboxIndex === null || !previews[lightboxIndex]) return null
 
-  const current = previews[lightboxIndex]
   const isVideo = /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(current || ''))
   // GOG trailers are stored as YouTube embed URLs (no file extension); play them
   // inline via an <iframe> rather than the <video> element.

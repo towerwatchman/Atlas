@@ -52,4 +52,43 @@ export function buildThreadUrl({
   return ''
 }
 
+/**
+ * The same thing, given a raw game record.
+ *
+ * A record reaches the UI under either naming convention depending on which
+ * query produced it, so every call site was repeating the same chain of ||
+ * fallbacks. Two copies of that chain is a future bug where a card and a modal
+ * disagree about where the same game's thread is; this is the one copy.
+ *
+ * @param {object|null} game
+ * @returns {string} an absolute URL, or '' when there is nothing to open
+ */
+export function threadUrlForGame(game) {
+  if (!game) return ''
+  return buildThreadUrl({
+    siteUrl: game.siteUrl || game.site_url,
+    lewdCornerSiteUrl: game.lewdCornerSiteUrl || game.lewdcornerSiteUrl,
+    f95Id: game.f95_id || game.f95Id,
+    lcId: game.lc_id || game.lcId || game.lewdCornerId,
+  })
+}
+
+/**
+ * Whether a library row represents an installed game.
+ *
+ * Reads `hasInstalledVersion` rather than deriving from `versions`, which is
+ * what GameDetailPage does. Detail works from a hydrated record; the library
+ * list also yields plain catalog rows, and those are built with `versions: []`
+ * (db/versions.js) even when the title is installed -- so deriving would report
+ * every one of them as uninstalled. `hasInstalledVersion` is set on both shapes.
+ *
+ * A null game is a game the renderer has not loaded, which is UNKNOWN rather
+ * than uninstalled. Returning false is still right for the caller (it has no
+ * record to open a game page with) but the distinction matters if this is ever
+ * used to decide something else.
+ */
+export function isInstalledGame(game) {
+  return game?.hasInstalledVersion === true
+}
+
 export default buildThreadUrl

@@ -1,0 +1,93 @@
+{
+  "_comment": [
+    "Firefox (Gecko) MV3 manifest. Differs from ../manifest.json in exactly four",
+    "places, all forced by Gecko and none of them cosmetic:",
+    "",
+    "1. NO \"key\". That field is a Chromium mechanism for deriving a stable",
+    "   extension ID from a public key. Gecko ignores it and AMO rejects",
+    "   manifests carrying unknown top-level fields in strict validation, so it",
+    "   is dropped rather than left inert.",
+    "",
+    "2. \"browser_specific_settings.gecko.id\" replaces it. Without an explicit id",
+    "   Firefox assigns a temporary one that changes on every reload, which",
+    "   breaks storage.local persistence across restarts of a temporarily-loaded",
+    "   add-on. Note this id is NOT the extension origin -- see point 4.",
+    "",
+    "3. \"background.scripts\" instead of \"background.service_worker\". Gecko MV3",
+    "   backgrounds are non-persistent event pages, not service workers. This is",
+    "   also the only place compat.js can be loaded for the background context",
+    "   on Firefox, because importScripts does not exist in an event page.",
+    "",
+    "4. strict_min_version 115. scripting.executeScript with a func: argument,",
+    "   MV3 event pages, and promise-returning permissions.request all predate",
+    "   115, but 115 is the current ESR floor and is where this was verified.",
+    "",
+    "What is NOT here, and cannot be: an extension ID that Atlas's RPC server",
+    "could pin in its CORS allowlist. A Firefox extension's page origin is",
+    "moz-extension://<uuid>, where the uuid is generated per INSTALLATION, not",
+    "per add-on. electron/rpc/extensionServer.js therefore accepts the",
+    "moz-extension scheme by shape and leans on the X-Atlas-Token pairing secret",
+    "as the actual authorization boundary, which it already was.",
+    "",
+    "Host permissions are optional-by-default under Gecko MV3: they are listed",
+    "below but not granted at install. popup.js detects that and offers a grant",
+    "button; see the permissionBox block in popup.html."
+  ],
+  "manifest_version": 3,
+  "name": "Atlas Browser Extension",
+  "short_name": "Atlas",
+  "author": "Atlas Developer",
+  "version": "1.2.1",
+  "description": "Integration between visual novel forums and Atlas Desktop Game Manager",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "atlas@towerwatchman.github.io",
+      "strict_min_version": "115.0"
+    }
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png"
+    },
+    "default_title": "Atlas Game Manager",
+    "default_popup": "popup/popup.html"
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "background": {
+    "scripts": ["compat.js", "background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.f95zone.to/*", "*://*.lewdcorner.com/*"],
+      "js": ["compat.js", "content.js"],
+      "css": ["styles/overlay.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "scripting",
+    "activeTab",
+    "contextMenus",
+    "webNavigation",
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.f95zone.to/*",
+    "*://*.lewdcorner.com/*",
+    "https://atlas-gamesdb.com/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/logo.png", "styles/overlay.css"],
+      "matches": ["*://*.f95zone.to/*", "*://*.lewdcorner.com/*"]
+    }
+  ]
+}

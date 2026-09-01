@@ -51,16 +51,18 @@ const PLATFORM_TOKENS = {
   any: "all",
 };
 
-// Which platforms this machine can actually run. Offering a Linux-only build
-// to a Windows user is a download they cannot use, and "Win/Linux" headings
-// mean the reverse filter matters just as much - a Linux user should not be
-// shown Windows-only builds either.
+// Which platforms this machine can actually run. A Windows machine cannot run
+// a Linux build, and a macOS machine cannot run a Win/Linux one - both are
+// filtered out. A Linux machine CAN run a Windows build (electron/ipc/games.js
+// routes .exe launchers through Wine via resolveLinuxLaunch), so it is offered
+// BOTH its own "linux" builds and "win" ones; a combined "Win/Linux" heading
+// suits it directly for the same reason.
 //
 // "all" and unlabeled always pass: they are the poster saying the download
 // suits everyone, and rejecting those would hide most of the library.
 const PLATFORM_SETS = {
   win32: new Set(["win", "all"]),
-  linux: new Set(["linux", "all"]),
+  linux: new Set(["linux", "win", "all"]),
   darwin: new Set(["mac", "all"]),
 };
 
@@ -176,6 +178,18 @@ function classifyGroup(group, link = null, options = {}) {
   // the nesting; a regex over a flattened label did not, which is why this is
   // preferred over the PART match below rather than merely agreeing with it.
   const declaredPart = link?.part || null;
+  // Whether the parser SPOKE, as opposed to what it said. A link it produced
+  // always carries a `part` key, so an explicit null means "I looked at the
+  // nesting and this is not a fragment" -- a different statement from a caller
+  // that never had the field at all (a flat heading out of the db, say).
+  //
+  // The distinction matters because a build can legitimately be NAMED "Part 3".
+  // Thief of Hearts lists Part 1, Part 2 and Part 3 as separate games; the
+  // parser reads them as build names, and the PART regex below then read those
+  // same names as fragments of one split archive. The three builds were
+  // assembled into one set requiring all three parts, so no single part was
+  // offerable on its own and the current build could not be downloaded at all.
+  const partWasDecided = link != null && Object.prototype.hasOwnProperty.call(link, "part");
 
   // ── Kind first. A patch that mentions Windows is still a patch. ──────────
   for (const [pattern, kind] of KIND_MARKERS) {
@@ -208,7 +222,7 @@ function classifyGroup(group, link = null, options = {}) {
       result.part = { index: declaredPart.index, total: declaredPart.total };
       result.requiresAllParts = true;
     }
-  } else {
+  } else if (!partWasDecided) {
     const partMatch = raw.match(PART);
     const totalMatch = raw.match(PART_TOTAL);
     if (partMatch) {

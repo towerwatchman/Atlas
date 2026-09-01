@@ -6,7 +6,10 @@ const fs = require('fs')
 const { launchGame } = require('./games')
 
 
-function handleContextAction(data, sender, ctx) {
+// Async because openFolder REPORTS. Every other action is still fire-and-forget
+// and returns nothing, which run-context-action reads as success -- so only the
+// case that has something to say has to say it.
+async function handleContextAction(data, sender, ctx) {
   if (!data || typeof data.action === "undefined") {
     console.error("handleContextAction: Invalid or missing data object", data);
     return;
@@ -26,15 +29,26 @@ function handleContextAction(data, sender, ctx) {
             extension,
             recordId: data.recordId,
             version: selectedVersion.version,
+            // Forwarded so this matches the launch-game IPC handler in
+            // ipc/games.js. Without them launchGame falls back to
+            // getSteamIDbyRecord, which resolves the TITLE mapping -- so a
+            // title holding two Steam versions launched whichever one that
+            // pointed at, regardless of the version clicked.
+            source: selectedVersion.source || null,
+            sourceAppId: selectedVersion.source_app_id || null,
           });
         })
         .catch((err) => console.error("Context launch failed:", err));
       break;
     case "openFolder":
-      ctx.getTrustedVersion(data.recordId, data.version)
-        .then((selectedVersion) => shell.openPath(selectedVersion.game_path))
-        .catch((err) => console.error("Context open folder failed:", err));
-      break;
+      // Returned rather than logged. This used to end in a .catch that wrote to
+      // a console the user does not have open, so a folder that could not be
+      // opened was indistinguishable from a menu item that did nothing.
+      return await ctx.openGameFolderForVersion({
+        recordId: data.recordId,
+        versionId: data.versionId,
+        version: data.version,
+      });
     case "openUrl":
       shell.openExternal(data.url);
       break;
@@ -147,6 +161,34 @@ function handleContextAction(data, sender, ctx) {
       sender?.send("rate-title-requested", { recordId: data.recordId, title: data.title });
       break;
     }
+    case "toggleWishlist": {
+      // Context menus cannot prompt, so the same toggle the detail page uses
+      // is run here.
+      //
+      // wishlist-updated is broadcast on EVERY outcome, not just success. The
+      // renderer flips its identity-key set optimistically before this call and
+      // then discards the result, so a silent failure would strand the grid in
+      // the wrong state forever. The broadcast makes the renderer re-read the
+      // wishlist from the DB, which reconciles the optimistic flip either way:
+      // it sticks when the write landed and reverts when it did not.
+      const { toggleWishlistEntry } = require("../db/wishlist");
+      let result = null;
+      try {
+        result = await toggleWishlistEntry(data);
+      } catch (err) {
+        console.error("toggleWishlist failed", err);
+      }
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send("wishlist-updated", {
+            source: "context-menu",
+            success: result?.success === true,
+            inLibrary: result?.inLibrary === true,
+          });
+        }
+      });
+      break;
+    }
     case "collectionBulkTagRequested": {
       // Same round-trip as rename/delete: a native menu cannot host a form, so
       // the renderer owns the dialog and already knows which records belong to
@@ -187,7 +229,11 @@ function processTemplate(items, sender, ctx) {
       ctx.contextMenuData.set(id, newItem.data);
       newItem.click = () => {
         const data = ctx.contextMenuData.get(id);
-        handleContextAction(data, sender, ctx);
+        // A native menu click has nowhere to return a result to, so the outcome
+        // is logged here rather than surfaced. Only the collection menus still
+        // come through this path; game menus use the React one.
+        Promise.resolve(handleContextAction(data, sender, ctx))
+          .catch((err) => console.error("Context action failed:", err));
         ctx.contextMenuData.delete(id);
       };
       delete newItem.data;
@@ -244,8 +290,10 @@ module.exports = function registerWindowsHandlers(ctx) {
   // prompts and delete safeguards all still live in one place.
   ipcMain.handle('run-context-action', async (event, data) => {
     try {
-      handleContextAction(data, event.sender, ctx)
-      return { success: true }
+      // Actions that report an outcome return one; the rest return undefined and
+      // keep the old always-true shape, so no existing caller changes.
+      const result = await handleContextAction(data, event.sender, ctx)
+      return result || { success: true }
     } catch (err) {
       console.error('run-context-action failed:', err)
       return { success: false, error: err.message }
@@ -258,6 +306,23 @@ module.exports = function registerWindowsHandlers(ctx) {
       properties: ['openFile'],
     })
     return result.canceled ? null : result.filePaths[0]
+  })
+
+  // Opens a native multi-file picker so the renderer can let the user pick
+  // local images to add as custom media without knowing the dialog options.
+  ipcMain.handle('select-files', async (event, options = {}) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    // Callers that only want images pass { images: true }. Advisory only --
+    // the dialog still lets a determined user type any name -- so the receiving
+    // handler re-checks the extension rather than trusting this.
+    const filters = options?.images
+      ? [{ name: 'Images', extensions: ['webp', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'avif', 'jfif'] }]
+      : undefined
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile', 'multiSelections'],
+      ...(filters ? { filters } : {}),
+    })
+    return result.canceled ? [] : result.filePaths
   })
 
   ipcMain.handle('open-banner-editor', () => {
@@ -281,6 +346,25 @@ module.exports = function registerWindowsHandlers(ctx) {
       return { success: true, folders }
     } catch (err) {
       return { success: false, error: String(err?.message || err), folders: [] }
+    }
+  })
+
+  // Inline-editable path fields type directly into the input. The renderer has
+  // no fs access, so it asks the main process to stat the path. Returns
+  // {exists,isDirectory,isFile} so the caller can enforce file vs directory and
+  // absolute-path rules without trusting the renderer. Any error is invalid, not thrown.
+  ipcMain.handle('check-path', async (_event, raw) => {
+    const p = String(raw || '').trim().replace(/^["']|["']$/g, '')
+    if (!p) return { exists: false }
+    // Relative paths must not resolve against the app's cwd — only absolute paths
+    // (including UNC on Windows) are user-meaningful here.
+    if (!path.isAbsolute(p)) return { exists: false }
+    try {
+      const st = await fs.promises.stat(p)
+      return { exists: true, isDirectory: st.isDirectory(), isFile: st.isFile() }
+    } catch (e) {
+      if (e && e.code === 'ENOENT') return { exists: false }
+      return { exists: false, error: String(e && e.message || e) }
     }
   })
 
@@ -352,6 +436,7 @@ module.exports = function registerWindowsHandlers(ctx) {
         force: true,
         description: 'Delete game folder',
         window: BrowserWindow.fromWebContents(event.sender),
+        containmentRoot: appConfig?.Library?.gameFolder || null,
         validatePath: async (candidatePath) => {
           if (candidatePath === path.parse(candidatePath).root) throw new Error('Refusing to delete a drive root')
           if (!(await isAllowedDeletionPath(recordId, candidatePath))) {

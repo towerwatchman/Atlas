@@ -89,6 +89,20 @@ eq(rules.normalizeVersionName("  1.2  "), "1.2", "trimmed");
      "exactly two segments added, so the field could not inject extra levels");
 }
 
+{
+  // A format with no usable segments must NOT return the library root. Returning
+  // it made the library root an extraction destination and, downstream, a
+  // deletion target -- the path that cost a user their archive drive.
+  const root = path.join("C:", "Games");
+  for (const format of ["", "   ", "///", " / / "]) {
+    const built = rules.buildStructuredImportPath(root, format, { title: "Game" });
+    ok(built !== root, `format ${JSON.stringify(format)} does not collapse to the library root`);
+    ok(built.startsWith(root), `format ${JSON.stringify(format)} still lands inside the library`);
+  }
+  const untitled = rules.buildStructuredImportPath(root, "", {});
+  ok(untitled !== root, "an empty game object still descends a level");
+}
+
 // ── toPositiveInteger ───────────────────────────────────────────────────────
 eq(rules.toPositiveInteger("42"), 42, "numeric string");
 eq(rules.toPositiveInteger(42), 42, "number");

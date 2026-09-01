@@ -14,16 +14,19 @@ import PreviewLightbox from './page/PreviewLightbox.jsx'
 import HoverVideo from './page/HoverVideo.jsx'
 import DetailPanelGrid, { DEFAULT_DETAIL_LAYOUT } from './page/DetailPanelGrid.jsx'
 import SafeImage from '../ui/SafeImage.jsx'
+import ConfirmModal from '../ui/ConfirmModal.jsx'
+import VersionCard from './page/VersionCard.jsx'
 import RefreshMediaModal from '../ui/RefreshMediaModal.jsx'
 import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
   sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl, formatReleaseDate,
   isSteamGame, getMappedSteamAppId, isGogGame, getMappedGogId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
 } from './page/gameDetailUtils.js'
-import { buildGameLinks, gogStoreUrl } from './gameLinks.js'
+import { buildGroupedGameLinks, gogStoreUrl } from './gameLinks.js'
 import InstallSourceModal from './page/InstallSourceModal.jsx'
 import { resolveInstallSources } from './page/installSources.js'
 import GogIcon from '../ui/GogIcon.jsx'
+import ExternalLinksSection from './ExternalLinksSection.jsx'
 import PlaystatePicker from '../ui/PlaystatePicker.jsx'
 import { effectiveTitlePlaystate } from '../../utils/playstates.js'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
@@ -58,14 +61,6 @@ const getPersonalRatingsPayload = (draft = {}) =>
       draft[key] === '' ? null : Math.max(0, Math.min(10, Math.round(Number(draft[key])))),
     ]),
   )
-
-const getPersonalRatingsOverall = (draft = {}) => {
-  const values = Object.values(getPersonalRatingsPayload(draft))
-    .filter((value) => Number.isFinite(value))
-  if (values.length === 0) return null
-  const average = values.reduce((sum, value) => sum + value, 0) / values.length
-  return Math.round(average * 10) / 10
-}
 
 const splitPreviewUrls = (value) => {
   if (Array.isArray(value)) return value.map((url) => String(url || '').trim()).filter(Boolean)
@@ -142,7 +137,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   // render a broken "unavailable" tile. If everything fails, the section shows
   // the "No previews available" note instead.
   const [failedPreviews, setFailedPreviews] = useState(() => new Set())
-  const [isWishlisted, setIsWishlisted] = useState(game?.isWishlisted === true || game?.isWishlistEntry === true)
+  const [isWishlisted, setIsWishlisted] = useState(game?.isWishlisted === true)
   const [wishlistBusy, setWishlistBusy] = useState(false)
   const [isFavorite, setIsFavorite] = useState(game?.isFavorite === true || game?.is_favorite === 1)
   const [favoriteBusy, setFavoriteBusy] = useState(false)
@@ -155,6 +150,10 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   // starts out hiding a source it is merely uninformed about.
   const [metadataSourceOrder, setMetadataSourceOrder] = useState(null)
   const [installSourceModalOpen, setInstallSourceModalOpen] = useState(false)
+  // Why a folder could not be opened. shell.openPath RESOLVES with an error
+  // string rather than throwing, and this result used to be discarded outright,
+  // so a click on a folder that had been moved did nothing at all.
+  const [folderError, setFolderError] = useState('')
   const [launchState, setLaunchState] = useState(LAUNCH_STATE.IDLE)
   const [lightboxIndex, setLightboxIndex] = useState(null)
   const [bannerMask, setBannerMask] = useState({ image: 'none', composite: null })
@@ -391,13 +390,18 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   useEffect(() => {
     setShowInfo(false)
     setLightboxIndex(null)
-    const initialWish = game?.isWishlisted === true || game?.isWishlistEntry === true
-    setIsWishlisted(initialWish)
+    // Seed synchronously from the derived flag so the panel renders the correct
+    // state immediately — and, when the game prop changes on an already-mounted
+    // panel, before the async DB check below has a chance to resolve. Without it,
+    // switching games would flash the previous game's wishlist state.
+    setIsWishlisted(game?.isWishlisted === true)
     let cancelledWishCheck = false
     if (window.electronAPI?.isWishlistEntry && game) {
       window.electronAPI.isWishlistEntry(game).then((isWish) => {
+        // The live DB result is authoritative: it must be able to CLEAR the
+        // seeded value, so it is applied outright rather than OR'd into it.
         if (!cancelledWishCheck && typeof isWish === 'boolean') {
-          setIsWishlisted(isWish || initialWish)
+          setIsWishlisted(isWish)
         }
       })
     }
@@ -426,7 +430,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   }, [
     game?.record_id,
     game?.isWishlisted,
-    game?.isWishlistEntry,
     game?.isFavorite,
     game?.is_favorite,
     game?.personalRatingStory,
@@ -483,17 +486,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
     if (scroller) scroller.scrollTop = 0
     else rootRef.current?.scrollIntoView?.({ block: 'start' })
   }, [game?.record_id])
-
-  useEffect(() => {
-    if (lightboxIndex === null) return
-    const onKey = (e) => {
-      if (e.key === 'Escape') setLightboxIndex(null)
-      else if (e.key === 'ArrowLeft') setLightboxIndex((i) => (i === null ? i : (i - 1 + previews.length) % previews.length))
-      else if (e.key === 'ArrowRight') setLightboxIndex((i) => (i === null ? i : (i + 1) % previews.length))
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [lightboxIndex, previews.length])
 
   // ── Banner feathering ─────────────────────────────────────────────────────
   const recomputeFeather = () => {
@@ -628,7 +620,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   // provided by the backend but recomputed here so optimistic UI stays correct.
   const titlePlaystate = effectiveTitlePlaystate(game.playstate, game.versions || [])
   const titlePlaystateIsDerived = !game.playstate && !!titlePlaystate
-  const canManageWishlist = game.isCatalogEntry === true || game.isWishlistEntry === true
+  // Wishlist rows are catalog rows (electron/db/wishlist.js sets isCatalogEntry),
+  // so the catalog flag alone covers them. The old isWishlistEntry flag is gone.
+  const canManageWishlist = game.isCatalogEntry === true
   const canLaunch = Boolean(
     actionVersion &&
     actionVersion.isInstalled !== false &&
@@ -638,7 +632,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   )
   const canInstallFromDetail = !canLaunch && (canManageWishlist || canManageLocalTitle || game.hasInstalledVersion === false)
   const importPanelMode = canManageWishlist ? 'catalog' : 'local'
-  const canOpenFolder = Boolean(actionVersion?.game_path && actionVersion.isInstalled !== false)
   const latestVersion = game.latestVersion || game.latest_version || ''
   const versionOptions = sortVersionsDesc(game.versions || [])
 
@@ -735,9 +728,15 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   const localVersion = actionVersion?.version || selectedVersion?.version || game.versions?.[0]?.version || game.version || ''
   const localImportIsArchive = isArchiveSourcePath(localImportPath, localArchiveExtensions)
 
-  const externalLinks = buildGameLinks(game)
+  // Folded so DLC render under the game they belong to instead of as a flat
+  // run of identical Steam rows. The flat list stays for anything counting links.
+  const externalLinkGroups = buildGroupedGameLinks(game)
   const personalRatingsDirty = JSON.stringify(personalRatingsDraft) !== JSON.stringify(personalRatingsSaved)
-  const personalRatingsOverall = getPersonalRatingsOverall(personalRatingsDraft)
+  // Shared with RatingModal and electron/db/ratingCategories.js rather than
+  // averaged here, because a private copy is exactly how this diverged: the
+  // local one counted an unrated 0 as a score of zero and dragged the average
+  // down, so the page and the modal open on top of it disagreed.
+  const personalRatingsOverall = computeRatingAverage(personalRatingsDraft)
 
   // While viewing an uninstalled Steam game, poll every 15s to see if Steam has
   // finished installing it (e.g. after the Install button handed off to Steam).
@@ -789,9 +788,17 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
     }
   }
 
-  const openSelectedFolder = async () => {
-    if (!canOpenFolder) return
-    await window.electronAPI.openGameFolder({ recordId: game.record_id, version: actionVersion.version })
+  // Takes the version it was clicked on, not the selected one. versionId is
+  // exact where the version string is not -- see the note in gameContextMenu.js
+  // about duplicate and blank version labels.
+  const openVersionFolder = async (version) => {
+    if (!version?.game_path || version.isInstalled === false) return
+    const result = await window.electronAPI.openGameFolder({
+      recordId: game.record_id,
+      versionId: version.version_id,
+      version: version.version,
+    })
+    if (result?.success === false) setFolderError(result.error || 'The folder could not be opened.')
   }
 
   const openProperties = async () => {
@@ -1242,7 +1249,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         actionVersion={actionVersion}
         latestVersion={latestVersion}
         canLaunch={canLaunch}
-        canOpenFolder={canOpenFolder}
         canInstallFromDetail={canInstallFromDetail}
         onSteamInstall={steamInstall}
         onGogInstall={gogInstall}
@@ -1258,7 +1264,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         isRefreshingMedia={isRefreshingMedia}
         canManageLocalTitle={canManageLocalTitle}
         onLaunch={launchSelectedGame}
-        onOpenFolder={openSelectedFolder}
         onOpenProperties={openProperties}
         onToggleWishlist={toggleWishlist}
         onToggleFavorite={toggleFavorite}
@@ -1584,48 +1589,17 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
                 </div>
                 {versionOptions.length > 0 ? (
                   <div className="space-y-2">
-                    {versionOptions.map((version) => {
-                      const isSelected = selectedVersion?.version === version.version && selectedVersion?.game_path === version.game_path
-                      const installed = version.isInstalled !== false
-                      return (
-                        <div
-                          key={`${version.version}-${version.game_path}`}
-                          className={`border transition-colors ${isSelected ? 'border-accent bg-selected' : 'border-border bg-primary'}`}
-                        >
-                          <button
-                            onClick={() => selectVersion(version)}
-                            className={`w-full text-left p-3 transition-colors ${isSelected ? 'bg-selected' : 'bg-primary hover:bg-selected'}`}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                              <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
-                                {isSelected && <i className="fas fa-play" style={{ fontSize: 9, color: 'var(--color-accent,#86a8e7)' }}></i>}
-                                {version.version || 'Unknown version'}
-                                {version.source === 'steam' && (
-                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px' }}>
-                                    <i className="fab fa-steam" style={{ fontSize: 10 }}></i> Steam
-                                  </span>
-                                )}
-                                {version.source === 'gog' && (
-                                  <span style={{ fontSize: 10, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px' }}>GOG</span>
-                                )}
-                              </span>
-                              <span style={{ fontSize: 11, color: installed ? 'var(--color-success)' : 'var(--color-danger)' }}>{installed ? 'Installed' : 'Missing'}</span>
-                            </div>
-                            <div style={{ fontSize: 11, color: 'var(--color-text)', marginTop: 3 }}>{formatPlaytime(version.version_playtime)}</div>
-                            <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{version.game_path || 'No path set'}</div>
-                          </button>
-                          {canManageLocalTitle && version.version_id ? (
-                            <div style={{ padding: '6px 12px 10px', borderTop: '1px solid var(--color-border)' }}>
-                              <PlaystatePicker
-                                value={version.playstate}
-                                onChange={(next) => handleSetVersionPlaystate(version.version_id, next)}
-                                size="sm"
-                              />
-                            </div>
-                          ) : null}
-                        </div>
-                      )
-                    })}
+                    {versionOptions.map((version) => (
+                      <VersionCard
+                        key={`${version.version}-${version.game_path}`}
+                        version={version}
+                        isSelected={selectedVersion?.version === version.version && selectedVersion?.game_path === version.game_path}
+                        canManageLocalTitle={canManageLocalTitle}
+                        onSelect={() => selectVersion(version)}
+                        onSetPlaystate={(next) => handleSetVersionPlaystate(version.version_id, next)}
+                        onOpenFolder={() => openVersionFolder(version)}
+                      />
+                    ))}
                   </div>
                 ) : (
                   <div style={{ color: 'var(--color-muted)' }}>No versions recorded</div>
@@ -1721,35 +1695,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
                 </div>
               </section>
             ),
-            links: externalLinks.length > 0 ? (
-              <section className="bg-secondary border border-border p-2">
-                <h2 className="text-lg font-semibold mb-3">External Links</h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {externalLinks.map((link) => (
-                    <div key={link.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                      {link.iconImage ? (
-                        <GogIcon size={16} style={{ width: 18, color: 'var(--color-muted)' }} />
-                      ) : (
-                        <i className={link.icon} style={{ width: 18, textAlign: 'center', color: 'var(--color-muted)' }} aria-hidden="true"></i>
-                      )}
-                      <span style={{ color: 'var(--color-muted)', minWidth: 92 }}>{link.label}</span>
-                      {link.url ? (
-                        <a
-                          href={link.url}
-                          onClick={(e) => { e.preventDefault(); window.electronAPI.openExternalUrl(link.url) }}
-                          className="text-accent hover:underline"
-                          style={{ cursor: 'pointer', wordBreak: 'break-all' }}
-                        >
-                          {link.value}
-                        </a>
-                      ) : (
-                        <span style={{ wordBreak: 'break-all' }}>{link.value}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ) : null,
+            links: <ExternalLinksSection groups={externalLinkGroups} />,
             // Editable here as well as in the properties window. When an
             // override exists the editor is the source of truth; otherwise it
             // seeds from the catalog list, which is also what detailTags shows
@@ -1810,6 +1756,15 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         error={personalRatingsError}
         onSave={savePersonalRatings}
         onCancel={() => { if (!personalRatingsBusy) setRatingModalOpen(false) }}
+      />
+
+      <ConfirmModal
+        open={Boolean(folderError)}
+        alert
+        title="Could not open folder"
+        body={folderError}
+        confirmLabel="OK"
+        onCancel={() => setFolderError('')}
       />
 
       <RefreshMediaModal

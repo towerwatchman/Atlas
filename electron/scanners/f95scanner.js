@@ -7,6 +7,7 @@ const {
 } = require("../db/index");
 const { findGlInfosForGameFolder } = require("./glInfosParser");
 const { findExecutables } = require("./executableScanner");
+const { resolveGameRoots } = require("./runtimeFolders");
 const { isImportBlacklisted } = require("./importBlacklist");
 
 const engineMap = {
@@ -442,7 +443,7 @@ async function startScan(params, window, cancelToken = {}) {
             ? format.split("/").map((p) => p.trim()).filter(Boolean).length
             : 0;
         if (schemeSegmentCount === 1 && target !== folder) {
-          const nestedLaunchables = findExecutables(target, extensions);
+          const nestedLaunchables = await findExecutables(target, extensions);
           if (nestedLaunchables.length > 0) {
             const res = await findGame(
               target,
@@ -511,6 +512,16 @@ async function startScan(params, window, cancelToken = {}) {
             ? format.split("/").map((part) => part.replace(/\{|\}/g, ""))
             : [];
         const expectedDepth = formatParts.length || 2;
+        // ── Structured vs unstructured candidate selection ──────────────────
+        //
+        // With a format, the user has declared the layout and the depth filter
+        // enforces it; a folder at the declared version depth IS a version even
+        // if it happens to be called "lib". Their statement wins.
+        //
+        // Without a format there is no declared layout, so every directory at
+        // any depth is a candidate -- and that is what turned engine runtime
+        // folders into games. resolveGameRoots drops those and promotes their
+        // real parent in their place. See electron/scanners/runtimeFolders.js.
         const versionDirs =
           format && format.trim() !== ""
             ? subdirs.filter((subdir) => {
@@ -518,13 +529,25 @@ async function startScan(params, window, cancelToken = {}) {
                 const pathParts = relativePath.split(path.sep);
                 return pathParts.length === expectedDepth;
               })
-            : subdirs;
+            : resolveGameRoots(
+                subdirs.map((subdir) => path.relative(folder, subdir)),
+              ).map((root) => ({
+                dir: path.join(folder, root.path),
+                ownsRuntimeChild: root.ownsRuntimeChild,
+              }));
 
-        for (const subdir of versionDirs) {
+        for (const candidate of versionDirs) {
           throwIfScanCanceled(cancelToken);
-          const subdirLaunchables = getRootFiles(subdir, extensions).map((f) =>
-            path.basename(f),
-          );
+          const subdir = candidate.dir || candidate;
+          // A folder that owns a runtime child has no launcher at its own root
+          // by definition, so it needs the recursive search -- that is what
+          // makes lib/windows-i686/GameA.exe the SELECTION of the version
+          // folder rather than a game of its own. Everything else keeps the
+          // root-level search: recursing everywhere would promote every
+          // ancestor directory, creator folders included, into a game.
+          const subdirLaunchables = candidate.ownsRuntimeChild
+            ? await findExecutables(subdir, extensions)
+            : getRootFiles(subdir, extensions).map((f) => path.basename(f));
           if (subdirLaunchables.length > 0) {
             console.log(`Scanning version directory: ${subdir}`);
             const res = await findGame(
@@ -915,6 +938,16 @@ async function findGame(
       singleVisible,
       multipleVisible,
       folder: isArchive || isFile ? path.dirname(t) : t,
+      // True when the SCAN ROOT itself was treated as a game folder, which
+      // happens whenever loose launchables sit at the top of the scanned
+      // directory (see the scanTargets construction in startScan). That row's
+      // `folder` is the whole scanned tree -- routinely the user's library
+      // root -- so the importer must never move it or delete from it.
+      isScanRoot:
+        !isFile &&
+        !isArchive &&
+        !!rootPath &&
+        path.resolve(t).toLowerCase() === path.resolve(rootPath).toLowerCase(),
       sourceFile: isArchive ? t : undefined,
       sourceRoot: rootPath,
       results,

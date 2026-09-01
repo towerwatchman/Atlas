@@ -3,11 +3,9 @@ import SafeImage from '../ui/SafeImage.jsx'
 import { useImageFallback } from '../../hooks/useImageFallback.js'
 import HostIcon from './HostIcon.jsx'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
-import InstallModal from './InstallModal.jsx'
-import LibraryFolderModal from './LibraryFolderModal.jsx'
-import LibraryStructureModal from './LibraryStructureModal.jsx'
 import { describeBuild } from './linkSections.js'
-import { getLibraryConfig } from '../../utils/librarySettings.js'
+import { threadUrlForGame } from './threadUrl.js'
+import { keepsBothVersions, bannerTargetFor } from './cardFacts.js'
 
 // ── Downloads page ───────────────────────────────────────────────────────────
 //
@@ -47,6 +45,16 @@ const STATE_LABELS = {
 const ACTIVE_STATES = ['downloading', 'verifying', 'extracting', 'importing']
 const WAITING_STATES = ['queued', 'paused', 'awaiting_file', 'failed', 'install_failed', 'ready']
 const FINISHED_STATES = ['done', 'canceled']
+
+// How long the scrollbar stays up after the last scroll event, or after the
+// cursor leaves the scroll zone. Long enough that a pause mid-scroll or a small
+// overshoot past the edge does not flicker it, short enough that it does not
+// linger over the list.
+const SCROLLBAR_HIDE_DELAY_MS = 500
+// Width of the right-side band that counts as "reaching for the scrollbar".
+// Wider than the 12px bar itself so the bar appears before the cursor is on
+// top of it -- it cannot be aimed at while invisible.
+const SCROLLBAR_ZONE_PX = 60
 const WORKING_STATES = ['verifying', 'extracting', 'importing']
 
 const formatBytes = (value) => {
@@ -307,7 +315,12 @@ function Action({ icon, title, onClick, tone = 'default', disabled }) {
   )
 }
 
-export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame }) {
+// onRequestInstall hands an item to InstallFlowHost, which owns the install
+// dialog and its setup prompts at App level now. They used to live here, which
+// meant they could only be shown on this screen - and the whole point of the
+// "prompt me when a download finishes" setting is that a download can finish
+// while the user is somewhere else entirely. See InstallFlowHost.jsx.
+export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame, onRequestInstall }) {
   const [items, setItems] = useState([])
   const [rates, setRates] = useState({})
   // Mirror of `rates` for the sampling interval, so the timer is created once
@@ -315,28 +328,13 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
   const ratesRef = useRef({})
   const [busyId, setBusyId] = useState(null)
   const [folder, setFolder] = useState('')
-  // The item awaiting install confirmation, plus the version Atlas suggests
-  // for it. Null when the modal is closed.
-  const [installTarget, setInstallTarget] = useState(null)
-  // A one-off notice after installing: currently only "the old version was not
-  // removed, and here is why".
-  const [installNotice, setInstallNotice] = useState(null)
-  // ── Setup prompts standing between Install and the install ────────────────
-  //
-  // Both are settings the install NEEDS and that have never been answered, so
-  // both are raised here rather than in InstallModal: they gate whether the
-  // install dialog should open at all, and a dialog that opens only to be
-  // covered by another dialog is worse than one that waits its turn.
-  //
-  // Each holds the pending item so the flow can be picked up where it stopped
-  // once the setting is answered. Null when closed.
-  const [folderPrompt, setFolderPrompt] = useState(null)
-  const [structurePrompt, setStructurePrompt] = useState(null)
   const samplesRef = useRef(new Map())
   const peakRef = useRef(0)
   // 60 one-second samples of aggregate throughput. Kept in state rather than a
   // ref because the graph has to re-render as it fills.
   const [speedHistory, setSpeedHistory] = useState(() => new Array(60).fill(0))
+
+  const [showScrollbar, setShowScrollbar] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -352,6 +350,14 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
     window.electronAPI.downloadsFolder?.().then((result) => {
       if (result?.success) setFolder(result.path)
     }).catch(() => {})
+  }, [refresh])
+
+  // The install dialog lives in InstallFlowHost at App level now, so it cannot
+  // call this page's refresh() directly the way it did when it was mounted here.
+  useEffect(() => {
+    const onRefresh = () => refresh()
+    window.addEventListener('atlas:downloads-refresh', onRefresh)
+    return () => window.removeEventListener('atlas:downloads-refresh', onRefresh)
   }, [refresh])
 
   useEffect(() => {
@@ -421,6 +427,67 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
     ratesRef.current = pruned
   }, [items])
 
+  // Scrollbar visibility: hidden by default, shown via the `scrollbar-visible`
+  // class while scrolling or while the cursor is in the right-side scroll zone.
+  // SCROLLBAR_HIDE_DELAY_MS keeps it up briefly after scrolling stops or the
+  // cursor leaves the zone, so a pause mid-scroll or a small overshoot past the
+  // edge does not make it flicker. No CSS `:hover` -- that would show it
+  // anywhere over the list rather than only near the scrollbar itself.
+  const hideTimerRef = useRef(null)
+  const scrollingRef = useRef(false)
+  const inZoneRef = useRef(false)
+
+  const updateVisibility = useCallback(() => {
+    setShowScrollbar(scrollingRef.current || inZoneRef.current)
+  }, [])
+
+  // One place that schedules the hide, so the two triggers cannot drift apart.
+  // Whichever reason is still true when it fires keeps the bar up, because
+  // updateVisibility reads BOTH flags.
+  const scheduleHide = useCallback((clear) => {
+    clearTimeout(hideTimerRef.current)
+    hideTimerRef.current = setTimeout(() => {
+      clear()
+      updateVisibility()
+    }, SCROLLBAR_HIDE_DELAY_MS)
+  }, [updateVisibility])
+
+  const handleScroll = useCallback(() => {
+    scrollingRef.current = true
+    updateVisibility()
+    scheduleHide(() => { scrollingRef.current = false })
+  }, [updateVisibility, scheduleHide])
+
+  const handleMouseMove = useCallback((e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const inZone = e.clientX >= rect.right - SCROLLBAR_ZONE_PX
+    if (inZone === inZoneRef.current) {
+      // No edge crossing. While in the zone the bar must not time out, so any
+      // pending hide is cancelled on every move.
+      if (inZone) clearTimeout(hideTimerRef.current)
+      return
+    }
+    if (inZone) {
+      inZoneRef.current = true
+      clearTimeout(hideTimerRef.current)
+      updateVisibility()
+      return
+    }
+    // Left the zone. The flag stays TRUE until the timer clears it: clearing it
+    // here would make a re-entry during the grace period read as a fresh edge
+    // crossing rather than "still in the zone", restarting the whole cycle.
+    scheduleHide(() => { inZoneRef.current = false })
+  }, [updateVisibility, scheduleHide])
+
+  const handleMouseLeave = useCallback(() => {
+    // Only the zone is cleared here; a scroll still in its grace period keeps
+    // the bar up on its own timer.
+    if (!inZoneRef.current) return
+    scheduleHide(() => { inZoneRef.current = false })
+  }, [scheduleHide])
+
+  useEffect(() => () => clearTimeout(hideTimerRef.current), [])
+
   // An install already running. The main process refuses a second one, so the
   // button reflects that instead of letting the user find out by clicking. The
   // states are the ones downloads-install sets while it works.
@@ -439,43 +506,6 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
   // kept in a ref so it survives re-renders without becoming state churn.
   const totalRate = current.reduce((sum, item) => sum + (rates[item.id] || 0), 0)
   if (totalRate > peakRef.current) peakRef.current = totalRate
-
-  // The version suggestion is derived in the main process, where the parser
-  // and the catalog version both live; the modal only presents it.
-  const showInstallModal = useCallback(async (item) => {
-    let suggestion = null
-    try {
-      suggestion = await window.electronAPI.downloadsSuggestVersion?.({ id: item.id })
-    } catch {
-      // A failed suggestion is not fatal - the field is editable anyway.
-    }
-    setInstallTarget({ item, suggestion: suggestion?.ok ? suggestion : null })
-  }, [])
-
-  // Ordered, one question at a time. The folder comes first because it is the
-  // only one that actually blocks — without it there is nowhere to unpack — and
-  // because the structure preview is meaningless until there is a root path to
-  // show it under.
-  //
-  // A config read that fails resolves to {}, which reads as "neither answered"
-  // and would raise both prompts against a working install. gameFolder is
-  // therefore only treated as missing when the read produced SOMETHING, so a
-  // broken config falls through to the install and its existing failure path
-  // rather than being interrupted by a dialog it cannot honour.
-  const openInstall = useCallback(async (item) => {
-    const library = await getLibraryConfig()
-    const known = Object.keys(library).length > 0
-
-    if (known && !String(library.gameFolder || '').trim()) {
-      setFolderPrompt({ item, reason: 'preflight' })
-      return
-    }
-    if (known && library.structurePrompted !== true) {
-      setStructurePrompt({ item, gameFolder: String(library.gameFolder || '') })
-      return
-    }
-    await showInstallModal(item)
-  }, [showInstallModal])
 
   const move = async (id, direction) => {
     const ordered = [...current, ...upNext].map((item) => item.id)
@@ -498,6 +528,16 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
       ? (item.totalBytes - item.receivedBytes) / rate
       : null
     const transferring = item.state === 'downloading'
+    // Where the banner goes. Installed titles open inside Atlas; everything else
+    // opens the thread it came from, which is the page a user wants while they
+    // are still deciding. A download with no library record -- Browse, wishlist --
+    // has neither, and the banner stays inert rather than becoming a dead link.
+    const gameThreadUrl = threadUrlForGame(game)
+    // The download's own page on the host, behind the host name. Guarded on the
+    // scheme: a row can carry a non-http url and opening one externally is not
+    // something to do on the strength of a substring.
+    const hostUrl = /^https?:\/\//i.test(String(item.url || '')) ? item.url : ''
+    const bannerTarget = bannerTargetFor({ game, threadUrl: gameThreadUrl, hostUrl })
     const working = WORKING_STATES.includes(item.state)
     const errored = item.state === 'failed' || item.state === 'install_failed'
     const tone = errored ? 'danger' : item.state === 'done' ? 'success' : 'accent'
@@ -509,9 +549,24 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
       >
         <button
           type="button"
-          onClick={() => game && onOpenGame?.(game)}
-          disabled={!game}
-          className={game ? 'cursor-pointer' : 'cursor-default'}
+          onClick={() => {
+            if (bannerTarget === 'game') onOpenGame?.(game)
+            else if (bannerTarget === 'thread') window.electronAPI.openExternalUrl?.(gameThreadUrl)
+            else if (bannerTarget === 'host') window.electronAPI.openExternalUrl?.(hostUrl)
+          }}
+          disabled={!bannerTarget}
+          // Said out loud, because one control doing two different things with
+          // no visible difference is otherwise a coin flip for the user.
+          title={
+            bannerTarget === 'game'
+              ? `Open ${item.title} in Atlas`
+              : bannerTarget === 'thread'
+                ? `Open the ${item.title} thread in your browser`
+                : bannerTarget === 'host'
+                  ? `Open this download's page on ${item.host || 'the host'}`
+                  : undefined
+          }
+          className={bannerTarget ? 'cursor-pointer' : 'cursor-default'}
         >
           <Cover game={game} item={item} title={item.title} />
         </button>
@@ -549,12 +604,29 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
             {transferring && <span className="text-text">{formatRate(rate)}</span>}
             {transferring && remaining && <span>{formatEta(remaining)}</span>}
             {item.host && (
-              <span className="inline-flex items-center gap-1">
-                <HostIcon host={item.host} />
-                {item.host}
-              </span>
+              hostUrl ? (
+                // -mx-1 px-1 py-0.5 keeps the text aligned with the other chips
+                // in this row while giving the control a real hit area: the row
+                // is text-xs, which is well under a comfortable touch target,
+                // and bare text that is secretly clickable is worse than no
+                // link at all.
+                <button
+                  type="button"
+                  onClick={() => window.electronAPI.openExternalUrl?.(hostUrl)}
+                  title={`Open this download's page on ${item.host}`}
+                  className="-mx-1 inline-flex items-center gap-1 rounded px-1 py-0.5 text-inherit hover:bg-highlight hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                >
+                  <HostIcon host={item.host} />
+                  {item.host}
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-1">
+                  <HostIcon host={item.host} />
+                  {item.host}
+                </span>
+              )
             )}
-            {item.onComplete === 'add' && <span>keeps both versions</span>}
+            {keepsBothVersions(item, game) && <span>keeps both versions</span>}
             {item.state === 'done' && item.completedAt && (
               <span>{formatWhen(item.completedAt)}</span>
             )}
@@ -612,7 +684,7 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
           {item.installable && (
             <button
               type="button"
-              onClick={() => openInstall(item)}
+              onClick={() => onRequestInstall?.(item)}
               disabled={Boolean(installingItem)}
               title={installingItem
                 ? `Installing ${installingItem.title || 'another game'} — one at a time`
@@ -650,21 +722,16 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
   }
 
   return (
-    // No scroll container here. #gameGrid is already overflow-y-auto, and
-    // nesting a second scroller inside it meant two reserved scrollbar
-    // gutters - the inner one showing as dead space down the right of the
-    // page. CollectionsView, the sibling view, sets no overflow for the
-    // same reason and lets the grid do the scrolling.
-    //
-    // The sticky header still works: it now sticks against #gameGrid
-    // rather than against a nested box, which is what was wanted anyway.
-    <div>
+    // This view owns its scrolling: the shared pane is overflow-hidden for
+    // non-detail views and scrolls nothing. h-full (not min-h-full) so the list
+    // wrapper gets a bounded box below the pinned header.
+    <div className="h-full flex flex-col overflow-hidden">
       {/* Header: throughput, mirroring Steam's network/peak/disk row. */}
       {/* Header uses the same surface as a hovered card, so it reads as a
           distinct band above the list rather than blending into it. Opaque
           rather than the previous translucent bg-primary/95, which let the
           list show through while scrolling underneath. */}
-      <div className="sticky top-0 z-10 bg-selected border-b border-border">
+      <div className="shrink-0 bg-selected border-b border-border">
         <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
           <h1 className="text-xl text-text">Downloads</h1>
           <div className="flex items-center gap-4 sm:gap-5">
@@ -693,7 +760,12 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
         </div>
       </div>
 
-      <div className="px-4 sm:px-6 py-4 pb-10">
+      <div
+        onScroll={handleScroll}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        className={`flex-1 min-h-0 overflow-y-auto downloads-scroll px-4 sm:px-6 py-4 pb-10${showScrollbar ? ' scrollbar-visible' : ''}`}
+      >
 
         {items.length === 0 && (
           <div className="py-16 text-center">
@@ -738,109 +810,6 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame 
         )}
       </div>
 
-      {installNotice && (
-        <div className="fixed inset-0 z-[1500] bg-black/60 flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-lg border border-border bg-primary shadow-2xl">
-            <div className="px-4 py-3 border-b border-border">
-              <h2 className="text-base text-text">Installed{installNotice.title ? ` ${installNotice.title}` : ''}</h2>
-            </div>
-            <p className="px-4 py-3 text-xs text-text">{installNotice.message}</p>
-            <div className="px-4 py-3 border-t border-border flex justify-end">
-              <button
-                type="button"
-                onClick={() => setInstallNotice(null)}
-                className="h-8 px-4 text-xs rounded-buttonTheme bg-accent hover:bg-accentHover text-white"
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <InstallModal
-        item={installTarget?.item}
-        suggestion={installTarget?.suggestion}
-        open={Boolean(installTarget)}
-        onClose={() => setInstallTarget(null)}
-        onInstalled={(result) => {
-          setInstallTarget(null)
-          refresh()
-          // The new version installs either way, so a declined replace is a
-          // notice rather than an error — but the user asked for the old build
-          // to go, and saying nothing about it staying is what made this read as
-          // broken rather than as a refusal.
-          if (result?.busy) {
-            setInstallNotice({
-              title: '',
-              message: result.error || 'Another install is already running.',
-            })
-            return
-          }
-          // Not a notice — a question with an answer. The item stays installable
-          // (fail() parks it in install_failed with the archive intact), so
-          // setting the folder and retrying costs nothing but the click.
-          if (result?.step === 'no-library-folder') {
-            const pending = installTarget?.item
-            if (pending) setFolderPrompt({ item: pending, reason: 'failed' })
-            return
-          }
-          // A download promoted onto a record that matched by TITLE rather than
-          // by any id is the one outcome here worth interrupting for: no atlas,
-          // f95, LewdCorner or Steam id linked these two, only the name did, so
-          // it may not be the game that was meant. Everything else about a
-          // promotion is the expected result and needs no dialog.
-          if (result?.success && result.attachedByTitle) {
-            setInstallNotice({
-              title: result.version || '',
-              message:
-                `Atlas added this version to the existing library entry for `
-                + `"${result.promotedTitle || installTarget?.item?.title || 'this game'}", which matched by `
-                + `name only — no store or thread id linked them. If that is a different `
-                + `game, move the version from its page.`
-                + (result.replaceMessage ? ` ${result.replaceMessage}` : ''),
-            })
-            return
-          }
-          if (result?.success && result.replaceMessage) {
-            setInstallNotice({ title: result.version || '', message: result.replaceMessage })
-          }
-        }}
-      />
-
-      {/* The reactive half of the folder prompt. openInstall checks the setting
-          up front, but the folder can be cleared between that check and the
-          install actually running, and the main process is the only thing that
-          knows the difference between "not set" and "set but unusable". `step`
-          is what fail() puts on the refusal, so branching on it here is reading
-          the main process's own classification rather than matching its prose. */}
-      <LibraryFolderModal
-        open={Boolean(folderPrompt)}
-        reason={folderPrompt?.reason || 'preflight'}
-        title={folderPrompt?.item?.title || ''}
-        onCancel={() => setFolderPrompt(null)}
-        onChosen={async () => {
-          const pending = folderPrompt?.item
-          setFolderPrompt(null)
-          // Straight back into openInstall rather than into the install modal:
-          // the structure question may still be outstanding, and this is the
-          // only place that decides the order between them.
-          if (pending) await openInstall(pending)
-        }}
-      />
-
-      <LibraryStructureModal
-        open={Boolean(structurePrompt)}
-        gameFolder={structurePrompt?.gameFolder || ''}
-        onDone={async () => {
-          const pending = structurePrompt?.item
-          setStructurePrompt(null)
-          // showInstallModal, not openInstall: the flag has just been written and
-          // re-reading it would be a race with no upside, and both questions are
-          // now answered by construction.
-          if (pending) await showInstallModal(pending)
-        }}
-      />
     </div>
   )
 }
