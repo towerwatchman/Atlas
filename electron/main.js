@@ -1737,24 +1737,20 @@ function showExecutableChooser(title, version, executables) {
     executableChooserWindow.webContents.send('init-executable-chooser', { title, version, executables })
     return
   }
+  // Size relative to the primary display: a fifth of the width and half the
+  // height keeps the chooser compact beside the (large) import list while still
+  // leaving room for many executable candidates on long scroll lists.
+  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
   const windowState = applySavedWindowBounds('executableChooser', {
-    width: 600,
-    height: 400,
+    width: Math.round(sw / 5),
+    height: Math.round(sh / 2),
     frame: false,
-    // Windows draws a native DWM resize border (often tinted with the
-    // system accent color) around frame:false windows that aren't also
-    // transparent -- that's the stray colored line on the left/right/
-    // bottom edges that no amount of CSS could ever reach, since it's
-    // painted by the OS outside the web content entirely. The renderer
-    // already paints a fully opaque background on every window's root
-    // element (bg-canvas/bg-secondary/etc. -- see e.g. App.jsx), so it's
-    // safe to go fully transparent at the native level instead.
     transparent: true,
-    // Windows needs an explicit zero-alpha background color for true
-    // per-pixel transparency to render cleanly -- without it, the
-    // "transparent" region (e.g. outside a rounded-corner content clip)
-    // can render with artifacts instead of properly showing through.
     backgroundColor: '#00000000',
+    // Allow the user to resize so long executable lists are reachable; the
+    // renderer already paints an opaque, rounded background on a transparent
+    // native window, so resizing won't expose OS-drawn artifacts.
+    resizable: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
