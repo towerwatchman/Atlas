@@ -77,6 +77,9 @@
 - `ExtensionSettings` shows that reason, and "Open extension folder" reports a refusal rather than logging it to a console the user does not have open. A button that does nothing visible reads as a broken button, not as a missing folder.
 
 ### Added
+- Added "Date Added" (`dateAdded`) sorting and date filtering to the Filters sidebar (`SearchSidebar`). Users can now organize library and wishlist entries by when they were added to the program (using the new `fa-calendar-plus` icon in the Sorting grid) and filter entries added within specific timeframes (e.g. last 7, 30, 90 days or custom range) under the Dates section.
+- Added `date_added` column migration to the `games` table and mapped `flagged_at` to `dateAdded` for wishlist entries so uninstalled and wishlisted titles properly sort and filter by addition date.
+- `tests/date-added.test.js`. Validates Date Added sorting (ascending/descending, ties, null handling), date range filtering, version aggregation distinctions (`dateAdded` vs `lastInstalled`), and wishlist entry normalization.
 - `tests/extension-site-matching.test.js` (6). Tests extension thread URL site parsing, cross-site ID collision prevention (F95Zone vs LewdCorner), and dual-site game matching.
 - `.gitattributes` configuration to enforce CRLF line ending normalization on text/code files across development environments.
 - `tests/extension-files.test.js` (5). Exercises the function rather than scanning it, because this failure was invisible to a source scan of the copy: the copy was fine, its destination was not. All five fail against the pre-fix target and pass after -- verified by restoring `path.join(appDataRoot, 'extension')` in a scratch tree. Stubs `require('electron')` through `Module._load`, the same way `tests/main-startup-smoke.test.js` does, because `vi.mock` cannot reach a CommonJS `require` at load time.

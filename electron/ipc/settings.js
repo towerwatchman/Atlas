@@ -105,7 +105,7 @@ const normalizeSavedFilterState = (filters = {}) => {
   )
   merged.sort = String(merged.sort || 'name')
   merged.sortDirection = merged.sortDirection === 'desc' ? 'desc' : 'asc'
-  merged.dateField = ['none', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded'].includes(merged.dateField)
+  merged.dateField = ['none', 'dateAdded', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded'].includes(merged.dateField)
     ? merged.dateField
     : 'none'
   merged.dateRange = ['any', '7d', '30d', '90d', 'year', 'custom'].includes(merged.dateRange)

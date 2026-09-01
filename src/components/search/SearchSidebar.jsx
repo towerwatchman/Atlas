@@ -50,6 +50,7 @@ const SORT_OPTIONS = [
   { value: 'playtime', label: 'Playtime', icon: 'fa-stopwatch' },
   { value: 'fileSize', label: 'File Size', icon: 'fa-hard-drive' },
   { value: 'date', label: 'Release Date', icon: 'fa-calendar-day' },
+  { value: 'dateAdded', label: 'Date Added', icon: 'fa-calendar-plus' },
 ]
 
 // Catalog (Browse) sorting is server-side and uses distinct browseSort
@@ -321,6 +322,7 @@ const SearchSidebar = ({
       ]
     : [
         ["none", "No date filter"],
+        ["dateAdded", "Date Added"],
         ["releaseDate", "Release Date"],
         ["lastInstalled", "Last Installed"],
         ["lastPlayed", "Last Played"],
