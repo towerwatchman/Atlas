@@ -149,6 +149,7 @@ const App = () => {
   const [wishlistIdentityKeys, setWishlistIdentityKeys] = useState(new Set())
   const [activeSavedFilterId, setActiveSavedFilterId] = useState('')
   const [savedFilterDeleteStateById, setSavedFilterDeleteStateById] = useState({})
+  const [resetInputSignal, setResetInputSignal] = useState(0)
   // Banner card dimensions for Grid sizing — derived from the same
   // resolved template BannerTemplateProvider already computed once for
   // <GameBanner> (see src/theme/BannerTemplateProvider.jsx), rather than
@@ -1214,6 +1215,7 @@ const App = () => {
     setActiveSavedFilterId('')
     pendingLibraryScrollTopRestoreRef.current = 0
     libraryScrollTopRef.current = 0
+    setResetInputSignal((n) => n + 1)
     if (libraryMode === 'catalog') {
       // "Reset" in Browse mode should mean the whole catalog, not the
       // local library's installed-only default — otherwise resetting
@@ -1889,7 +1891,11 @@ const App = () => {
     }
   }, [filterSidebarMode, selectedGame])
 
-  const catalogResetDebounceRef = useRef(null)
+  // Search input already debounces via useDebouncedSearch (SearchBox/
+  // SearchSidebar) before activeFilters updates, so debouncing again here
+  // would stack an extra delay before the spinner shows. Fetch immediately
+  // once the debounced filters arrive; the paramsKey guard still prevents
+  // the catalogTotal/enter-mode re-runs from wiping correct data.
   useEffect(() => {
     if (libraryMode !== 'catalog' || !browseAvailable) return
     const paramsKey = catalogParamsKey(catalogSearch, catalogQueryFilters)
@@ -1902,18 +1908,8 @@ const App = () => {
       // the "banners flash, spinner, banners reload" sequence this fixes.
       return
     }
-    if (catalogResetDebounceRef.current) clearTimeout(catalogResetDebounceRef.current)
-    catalogResetDebounceRef.current = setTimeout(() => {
-      catalogResetDebounceRef.current = null
-      lastFetchedCatalogParamsKeyRef.current = paramsKey
-      fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
-    }, 300)
-    return () => {
-      if (catalogResetDebounceRef.current) {
-        clearTimeout(catalogResetDebounceRef.current)
-        catalogResetDebounceRef.current = null
-      }
-    }
+    lastFetchedCatalogParamsKeyRef.current = paramsKey
+    fetchCatalogGames({ reset: true, search: catalogSearch, filters: catalogQueryFilters })
   }, [browseAvailable, catalogQueryFilters, catalogSearch, catalogTotal, fetchCatalogGames, libraryMode])
 
   // When the catalog index finishes building, anything already on screen in
@@ -2106,7 +2102,7 @@ const App = () => {
               // layout there is no search box here and Collections is a nav
               // button instead (see TopNav's LEFT_ORDER).
               <div className="flex justify-center w-full">
-                <SearchBox value={activeFilters.text} onSearchChange={handleSearchChange} onToggleSidebar={toggleSearchSidebar} />
+                <SearchBox value={activeFilters.text} onSearchChange={handleSearchChange} onToggleSidebar={toggleSearchSidebar} resetInputSignal={resetInputSignal} />
               </div>
             )}
           </div>
@@ -2244,6 +2240,7 @@ const App = () => {
               savedFilterDeleteStateById={savedFilterDeleteStateById}
               onApplySavedFilter={applySavedFilter}
               onDeleteSavedFilter={deleteSavedFilter}
+              resetInputSignal={resetInputSignal}
               onClose={() => setShowSearchSidebar(false)}
             />
           </div>
@@ -2579,6 +2576,7 @@ const App = () => {
             savedFilterDeleteStateById={savedFilterDeleteStateById}
             onApplySavedFilter={applySavedFilter}
             onDeleteSavedFilter={deleteSavedFilter}
+            resetInputSignal={resetInputSignal}
             onClose={() => setShowSearchSidebar(false)}
           />
         )}
@@ -2601,6 +2599,7 @@ const App = () => {
             savedFilterDeleteStateById={savedFilterDeleteStateById}
             onApplySavedFilter={applySavedFilter}
             onDeleteSavedFilter={deleteSavedFilter}
+            resetInputSignal={resetInputSignal}
             onClose={() => setShowSearchSidebar(false)}
           />
         )}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { builtInSavedFilters, getDefaultSortDirectionForSort, normalizeFilterState } from '../../hooks/useFilters.js'
+import { useDebouncedSearch } from '../../hooks/useDebouncedSearch.js'
 import SavedFiltersPanel from './SavedFiltersPanel.jsx'
 import SearchScopePicker from './SearchScopePicker.jsx'
 import { PLAYSTATE_OPTIONS } from '../../utils/playstates.js'
@@ -85,6 +86,7 @@ const SearchSidebar = ({
   savedFilterDeleteStateById = {},
   onApplySavedFilter,
   onDeleteSavedFilter,
+  resetInputSignal,
   // mode: 'overlay' (default, original behavior) floats fixed on top of
   // the library grid without affecting its layout. 'inline' instead
   // renders as a normal block — App.jsx places it as a flex sibling of
@@ -103,6 +105,14 @@ const SearchSidebar = ({
   const [saveBusy, setSaveBusy] = useState(false);
   const [tagError, setTagError] = useState("");
   const [showSavedView, setShowSavedView] = useState(false);
+  // The sidebar's search field is debounced the same way the header
+  // SearchBox is: keystrokes echo instantly from local state while the
+  // parent filter (Library's in-memory filter and Browse's catalog fetch)
+  // waits for a pause. See useDebouncedSearch.js for why the delay lives
+  // before setActiveFilters rather than only before the fetch.
+  const { localValue: debouncedSearchText, handleChange: handleDebouncedSearchChange, handleClear: handleDebouncedSearchClear } =
+    useDebouncedSearch({ value: searchText, onSearchChange, resetInputSignal })
+
   const selectedFilters = normalizeFilterState(activeFilters);
   const [options, setOptions] = useState({
     categories: [],
@@ -457,17 +467,17 @@ const SearchSidebar = ({
             <input
               type="text"
               placeholder="Search Atlas"
-              value={searchText}
+              value={debouncedSearchText}
               onChange={(e) => {
-                onSearchChange?.(e.target.value);
+                handleDebouncedSearchChange(e.target.value);
               }}
               onKeyDown={handleInputKeyDown}
               className="bg-transparent outline-none text-text flex-1 px-3 py-2 focus:outline-none -webkit-app-region-no-drag"
             />
-            {searchText && (
+            {debouncedSearchText && (
               <button
                 type="button"
-                onClick={() => onSearchChange?.("")}
+                onClick={handleDebouncedSearchClear}
                 title="Clear search"
                 aria-label="Clear search"
                 className="w-8 h-8 flex items-center justify-center text-muted hover:text-text focus:outline-none -webkit-app-region-no-drag"

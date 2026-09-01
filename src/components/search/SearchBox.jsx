@@ -1,4 +1,8 @@
-export default function SearchBox({ value = "", onSearchChange, onToggleSidebar }) {
+import { useDebouncedSearch } from '../../hooks/useDebouncedSearch.js'
+
+export default function SearchBox({ value = "", onSearchChange, onToggleSidebar, resetInputSignal }) {
+  const { localValue, handleChange, handleClear } = useDebouncedSearch({ value, onSearchChange, resetInputSignal })
+
   const handleInputKeyDown = (event) => {
     event.stopPropagation()
   }
@@ -10,15 +14,15 @@ export default function SearchBox({ value = "", onSearchChange, onToggleSidebar 
         <input
           type="text"
           placeholder="Search Atlas"
-          value={value}
-          onChange={(e) => onSearchChange?.(e.target.value)}
+          value={localValue}
+          onChange={(e) => handleChange(e.target.value)}
           onKeyDown={handleInputKeyDown}
           className="bg-transparent outline-none text-text flex-1 px-2 focus:outline-none -webkit-app-region-no-drag"
         />
-        {value && (
+        {localValue && (
           <button
             type="button"
-            onClick={() => onSearchChange?.("")}
+            onClick={handleClear}
             title="Clear search"
             aria-label="Clear search"
             className="w-6 h-6 flex items-center justify-center text-muted hover:text-text focus:outline-none -webkit-app-region-no-drag"
