@@ -47,11 +47,14 @@ export const filterOutBanner = (urls = [], bannerUrl) => {
   })
 }
 
-export const formatPlaytime = (minutes) => {
-  const totalMinutes = Number(minutes || 0)
+export const formatPlaytime = (rawMinutes) => {
+  // Ceil the total minutes first to prevent the 1h 60m bug (119.8 -> 120m -> 2h)
+  // and the hidden sub-minute edge case (0.4m -> 1m instead of 0m -> "Not played").
+  const totalMinutes = Math.ceil(Number(rawMinutes || 0))
   if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) return 'Not played'
+
   const hours = Math.floor(totalMinutes / 60)
-  const mins = Math.round(totalMinutes % 60)
+  const mins = totalMinutes % 60
   if (hours <= 0) return `${mins}m played`
   if (mins <= 0) return `${hours}h played`
   return `${hours}h ${mins}m played`
@@ -101,7 +104,7 @@ export const getSteamAppId = (game = {}) => {
 }
 
 export const getMappedSteamAppId = (game = {}) => {
-  if (game.isCatalogEntry === true || game.isWishlistEntry === true || game.isMetadataOnly === true) return ''
+  if (game.isCatalogEntry === true || game.isMetadataOnly === true) return ''
   const candidates = [
     game.steam_appid,
     game.steam_id,
@@ -143,7 +146,7 @@ export const getGogId = (game = {}) => {
 }
 
 export const getMappedGogId = (game = {}) => {
-  if (game.isCatalogEntry === true || game.isWishlistEntry === true || game.isMetadataOnly === true) return ''
+  if (game.isCatalogEntry === true || game.isMetadataOnly === true) return ''
   const candidates = [game.gog_id, game.gog_appid, game.gogId, game.gogAppId]
   for (const candidate of candidates) {
     const id = cleanGogId(candidate)

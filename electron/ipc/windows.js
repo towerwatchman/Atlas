@@ -161,6 +161,34 @@ async function handleContextAction(data, sender, ctx) {
       sender?.send("rate-title-requested", { recordId: data.recordId, title: data.title });
       break;
     }
+    case "toggleWishlist": {
+      // Context menus cannot prompt, so the same toggle the detail page uses
+      // is run here.
+      //
+      // wishlist-updated is broadcast on EVERY outcome, not just success. The
+      // renderer flips its identity-key set optimistically before this call and
+      // then discards the result, so a silent failure would strand the grid in
+      // the wrong state forever. The broadcast makes the renderer re-read the
+      // wishlist from the DB, which reconciles the optimistic flip either way:
+      // it sticks when the write landed and reverts when it did not.
+      const { toggleWishlistEntry } = require("../db/wishlist");
+      let result = null;
+      try {
+        result = await toggleWishlistEntry(data);
+      } catch (err) {
+        console.error("toggleWishlist failed", err);
+      }
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send("wishlist-updated", {
+            source: "context-menu",
+            success: result?.success === true,
+            inLibrary: result?.inLibrary === true,
+          });
+        }
+      });
+      break;
+    }
     case "collectionBulkTagRequested": {
       // Same round-trip as rename/delete: a native menu cannot host a form, so
       // the renderer owns the dialog and already knows which records belong to
@@ -278,6 +306,23 @@ module.exports = function registerWindowsHandlers(ctx) {
       properties: ['openFile'],
     })
     return result.canceled ? null : result.filePaths[0]
+  })
+
+  // Opens a native multi-file picker so the renderer can let the user pick
+  // local images to add as custom media without knowing the dialog options.
+  ipcMain.handle('select-files', async (event, options = {}) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    // Callers that only want images pass { images: true }. Advisory only --
+    // the dialog still lets a determined user type any name -- so the receiving
+    // handler re-checks the extension rather than trusting this.
+    const filters = options?.images
+      ? [{ name: 'Images', extensions: ['webp', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'avif', 'jfif'] }]
+      : undefined
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile', 'multiSelections'],
+      ...(filters ? { filters } : {}),
+    })
+    return result.canceled ? [] : result.filePaths
   })
 
   ipcMain.handle('open-banner-editor', () => {

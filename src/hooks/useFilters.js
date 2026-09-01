@@ -99,7 +99,6 @@ export const defaultFilters = {
   // atlas_data metadata category (Games/Comics/etc.).
   collectionIds: [],
   wishlistOnly: false,
-  steamMapped: false,
   personalRatingMin: 0,
   personalRatingStatus: 'any',
   personalRatingRatedOnly: false,
@@ -290,7 +289,6 @@ export const normalizeFilterState = (filters = {}) => {
   merged.updateAvailable = merged.updateAvailable === true
   merged.favoritesOnly = merged.favoritesOnly === true
   merged.wishlistOnly = merged.wishlistOnly === true
-  merged.steamMapped = merged.steamMapped === true
   const personalRatingMin = Number(merged.personalRatingMin)
   merged.personalRatingMin = Number.isFinite(personalRatingMin)
     ? Math.max(0, Math.min(10, Math.round(personalRatingMin)))
@@ -760,10 +758,6 @@ const getLewdCornerIdValues = (game = {}) => [
   ...getExternalValues(game, ['lc_id', 'lcId', 'lewdcornerId', 'lewdCornerId', 'lewdcorner_id']),
 ]
 
-const hasSteamMapping = (game = {}) =>
-  getSteamIdValues(game).some((value) => /^\d+$/.test(cleanIdText(value))) ||
-  getUrlValues(game).some((url) => urlMatchesSource(url, 'steam'))
-
 const getUrlValues = (game = {}) => {
   const externalIds = getExternalIds(game)
   return [
@@ -1084,10 +1078,6 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
       const rating = Math.max(f95 ?? 0, lc ?? 0)
       return rating > 0 && rating >= activeFilters.communityRatingMin
     })
-  }
-
-  if (activeFilters.steamMapped) {
-    result = result.filter(hasSteamMapping)
   }
 
   if (activeFilters.installState === 'installed') {

@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking selectFile");
     return ipcRenderer.invoke("select-file");
   },
+  selectFiles: (options) => ipcRenderer.invoke("select-files", options),
   selectDirectory: (options) => {
     console.log("Invoking selectDirectory");
     return ipcRenderer.invoke("select-directory", options);
@@ -213,6 +214,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     console.log("Invoking getPreviews for recordId:", recordId, "appid:", sourceAppId);
     return ipcRenderer.invoke("get-previews", { recordId, sourceAppId });
   },
+  getPreviewsMeta: (recordId, sourceAppId = null) => {
+    return ipcRenderer.invoke("get-previews-meta", { recordId, sourceAppId });
+  },
   getSteamMovieThumbnails: (recordId, sourceAppId = null) =>
     ipcRenderer.invoke("get-steam-movie-thumbnails", { recordId, sourceAppId }),
   getBrowsePreviewUrls: (record) =>
@@ -246,7 +250,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("media-rate-limited", handler);
     return () => ipcRenderer.removeListener("media-rate-limited", handler);
   },
-  convertAndSaveBanner: (recordId, filePath) => {
+  convertAndSaveBanner: (recordId, filePath, options = {}) => {
     console.log(
       "Invoking convertAndSaveBanner for recordId:",
       recordId,
@@ -256,7 +260,30 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return ipcRenderer.invoke("convert-and-save-banner", {
       recordId,
       filePath,
+      ...options,
     });
+  },
+  convertAndSaveBannerFromUrl: (recordId, id, url) => {
+    console.log("Invoking convertAndSaveBannerFromUrl for recordId:", recordId, "url:", url);
+    return ipcRenderer.invoke("convert-and-save-banner-from-url", {
+      recordId,
+      id,
+      url,
+    });
+  },
+  addCustomPreviews: (recordId, items) => {
+    console.log("Invoking addCustomPreviews for recordId:", recordId, "items:", items?.length);
+    return ipcRenderer.invoke("add-custom-previews", { recordId, items });
+  },
+  addCustomPreviewFromUrl: (recordId, id, url) => {
+    console.log("Invoking addCustomPreviewFromUrl for recordId:", recordId, "url:", url);
+    return ipcRenderer.invoke("add-custom-preview-from-url", { recordId, id, url });
+  },
+  onCustomMediaProgress: (callback) => {
+    ipcRenderer.on("custom-media-progress", (event, data) => callback(data));
+  },
+  removeCustomMediaProgressListener: (callback) => {
+    ipcRenderer.removeListener("custom-media-progress", callback);
   },
   updateGame: (game) => {
     console.log("Invoking updateGame with game data:", game);
@@ -391,7 +418,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Fired by the browser-extension RPC server after it writes a wishlist
   // entry, so an already-open library reflects the change without a restart.
   onWishlistUpdated: (callback) => {
-    const handler = () => callback();
+    const handler = (event, payload) => callback(payload);
     ipcRenderer.on("wishlist-updated", handler);
     return () => ipcRenderer.removeListener("wishlist-updated", handler);
   },
@@ -415,6 +442,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deletePreviews: (recordId) => {
     console.log("Invoking deletePreviews for recordId:", recordId);
     return ipcRenderer.invoke("delete-previews", recordId);
+  },
+  deleteCustomPreviews: (recordId) => {
+    console.log("Invoking deleteCustomPreviews for recordId:", recordId);
+    return ipcRenderer.invoke("delete-custom-previews", recordId);
+  },
+  reorderPreviews: (recordId, orderedPaths) => {
+    console.log("Invoking reorderPreviews for recordId:", recordId);
+    return ipcRenderer.invoke("reorder-previews", { recordId, orderedPaths });
+  },
+  clearPreviewSort: (recordId) => {
+    console.log("Invoking clearPreviewSort for recordId:", recordId);
+    return ipcRenderer.invoke("clear-preview-sort", recordId);
   },
   onScanProgress: (callback) =>
     ipcRenderer.on("scan-progress", (event, progress) => callback(progress)),
@@ -565,6 +604,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "library-validation-progress",
       "library-exec-paths-repaired",
       "wishlist-updated",
+      "custom-media-progress",
     ]);
 
     if (allowedChannels.has(channel)) {

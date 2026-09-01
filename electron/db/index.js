@@ -469,10 +469,35 @@ const initializeDatabase = (dataDir) => {
       (
         record_id INTEGER REFERENCES games (record_id),
         path TEXT UNIQUE,
+        -- OBSOLETE: superseded by preview_sort.position. Never written by any code
+        -- path; kept in the schema only for dev/stable branch-swap DB compatibility.
+        -- DO NOT DROP.
         position INTEGER DEFAULT 256,
         UNIQUE (record_id, path)
       );
     `);
+    db.run(`ALTER TABLE previews ADD COLUMN remote_url TEXT;`, () => {});
+    db.run(`ALTER TABLE previews ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0;`, () => {});
+    // preview_sort persists user-reorder positions independently of the previews
+    // table so order survives re-downloads, stream/download switches, and
+    // metadata refreshes. Keyed by a stable identifier: remote_url for
+    // downloaded/streamed images (matches across re-downloads as long as the
+    // source URL is unchanged), or the relative path for custom uploads.
+    db.run(`
+      CREATE TABLE IF NOT EXISTS preview_sort
+      (
+        record_id INTEGER REFERENCES games (record_id),
+        identifier TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (record_id, identifier)
+      );
+    `, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_preview_sort_record ON preview_sort (record_id);`, () => {});
+    // One-time migration: normalize any backslash identifiers to forward
+    // slashes so sort keys are consistent across platforms.
+    db.run(`UPDATE preview_sort SET identifier = replace(identifier, '\\', '/') WHERE identifier LIKE '%\\%'`, () => {});
+
     db.run(`
       CREATE TABLE IF NOT EXISTS banners
       (
@@ -554,6 +579,19 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN steam_url TEXT;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN lc_id INTEGER;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN preview_urls TEXT;`, () => {});
+    // These must come AFTER the ALTER TABLE block above: lc_id is a migration
+    // column, so on a database created before it existed the table does not
+    // carry it until the ALTER runs. Indexing it any earlier fails with
+    // "no such column: lc_id", and because sqlite3 emits that on the statement
+    // rather than returning it, an uncaught error would take down startup for
+    // upgrading users. The callbacks absorb the error for the same reason the
+    // ALTERs above have them.
+    // Required by the wishlist-only filter: it probes wishlist_entries once per
+    // provider id, and without a per-column index each probe is a full scan.
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_atlas_id ON wishlist_entries(atlas_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_f95_id ON wishlist_entries(f95_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_lc_id ON wishlist_entries(lc_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_steam_id ON wishlist_entries(steam_id);`, () => {});
     // User-set manual source IDs (F95 / Steam / LewdCorner) entered from the
     // game properties Mappings tab. Stored as a JSON blob on the per-game
     // override row so it survives metadata refreshes and is independent of the
@@ -927,6 +965,7 @@ function sweepOrphanedRecords() {
     "gog_mappings",
     "game_personal_ratings",
     "collection_games",
+    "preview_sort",
   ];
   for (const tbl of childTables) {
     db.run(

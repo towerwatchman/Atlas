@@ -331,6 +331,29 @@
   .atlas-scrollbar::-webkit-scrollbar-corner {
     background: var(--scrollbar-track);
   }
+
+  /* Downloads: scrollbar hidden by default, shown only by the JS-driven
+     `scrollbar-visible` class (on scroll, or while the cursor is in the
+     right-side scroll zone). No `:hover` rule -- that would keep it up anywhere
+     over the list. Pseudo-elements only -- adding scrollbar-width/scrollbar-color
+     disables them (tests/scrollbar-styling.test.js). */
+  .downloads-scroll::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border-color: transparent;
+  }
+
+  .downloads-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .downloads-scroll.scrollbar-visible::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border-color: transparent;
+  }
+
+  .downloads-scroll {
+    scrollbar-gutter: stable;
+  }
 }
 
 .-webkit-app-region-drag {
@@ -439,3 +462,56 @@ html[data-text-glow-game-titles="on"] .banner-root:hover .text-glow-fx.game-titl
 .bg-secondary { background-image: var(--gradient-secondary); }
 .bg-tertiary  { background-image: var(--gradient-tertiary); }
 .bg-library   { background-image: var(--gradient-library); }
+
+/*
+ * FAB morph animation
+ * Two states: square (closed) → circle (open).
+ * Icons always in DOM; CSS crossfades with staggered timing.
+ */
+.fab-morph {
+  overflow: hidden;
+  will-change: border-radius;
+  transition:
+    border-radius 400ms cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 300ms ease,
+    box-shadow 300ms ease;
+}
+
+.fab-morph .fab-icon-default,
+.fab-morph .fab-icon-circle {
+  position: absolute;
+  transition:
+    opacity 180ms cubic-bezier(0.4, 0, 1, 1),
+    transform 180ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.fab-morph.is-circle .fab-icon-default {
+  opacity: 0;
+  transform: scale(0.75);
+  pointer-events: none;
+}
+
+.fab-morph:not(.is-circle) .fab-icon-default {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+  pointer-events: auto;
+  transition:
+    opacity 200ms ease 150ms,
+    transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1) 150ms;
+}
+
+.fab-morph:not(.is-circle) .fab-icon-circle {
+  opacity: 0;
+  transform: scale(0.3) rotate(-45deg);
+  pointer-events: none;
+}
+
+.fab-morph.is-circle .fab-icon-circle {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+  pointer-events: auto;
+  transition:
+    opacity 200ms ease 150ms,
+    transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1) 150ms;
+}
+

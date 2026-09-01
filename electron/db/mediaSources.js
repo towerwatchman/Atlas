@@ -309,40 +309,49 @@ const buildExternalLinks = (rawExternalIds) => {
 
 // ── Preview ordering ──────────────────────────────────────────────────────────
 
-const detectPreviewSource = (url) => {
+// Canonical remote-URL → source label. Used by both the preview badge (via
+// db/media, which re-exports it) and orderPreviewsBySource below, so the two
+// never drift. Keep them pointing at this single helper.
+const sourceFromRemoteUrl = (url) => {
   const u = String(url || '').toLowerCase()
   if (!/^https?:\/\//.test(u)) return null // local file path — leave in place
+  if (u.includes('f95zone')) return 'f95'
+  if (u.includes('lewdcorner')) return 'lewdcorner'
   if (u.includes('steamstatic') || u.includes('steamcdn') || u.includes('akamaihd') || u.includes('/steam/'))
     return 'steam'
+  // YouTube embeds are GOG trailers (stored that way upstream), so bucket them as gog.
   if (u.includes('gog-statics') || u.includes('gog.com') || u.includes('youtube.com') || u.includes('youtu.be') || u.includes('ytimg.com'))
     return 'gog'
-  if (u.includes('lewdcorner.com'))
-    return 'lewdcorner'
-  if (u.includes('f95zone'))
-    return 'f95'
   return 'atlas'
-}// Stable-reorders only the remote (http) entries of a preview list by source
+}
+const detectPreviewSource = (url) => sourceFromRemoteUrl(url)
+// Stable-reorders only the remote (http) entries of a preview list by source
 // priority, preserving the position of any local file paths.
 const orderPreviewsBySource = (urls, rawOrder) => {
   if (!Array.isArray(urls) || urls.length < 2) return urls || []
   const order = normalizeSourceOrder(rawOrder)
-  const rankOf = (url) => {
-    const src = detectPreviewSource(url)
+  // Preview lists may be plain URL strings OR enriched objects ({ url, ... })
+  // coming from getPreviews. Normalize to the URL for source detection so the
+  // function re-sorts remote previews correctly regardless of shape.
+  const asUrl = (entry) =>
+    typeof entry === 'string' ? entry : (entry && entry.url) || ''
+  const rankOf = (entry) => {
+    const src = detectPreviewSource(asUrl(entry))
     if (src === null) return null
     const idx = order.indexOf(src)
     return idx === -1 ? order.length : idx
   }
 
   const remoteSlots = []
-  urls.forEach((url, i) => {
-    if (rankOf(url) !== null) remoteSlots.push(i)
+  urls.forEach((entry, i) => {
+    if (rankOf(entry) !== null) remoteSlots.push(i)
   })
   if (remoteSlots.length < 2) return urls
 
   const sortedRemote = remoteSlots
-    .map((i) => ({ url: urls[i], rank: rankOf(urls[i]), i }))
+    .map((i) => ({ entry: urls[i], rank: rankOf(urls[i]), i }))
     .sort((a, b) => a.rank - b.rank || a.i - b.i)
-    .map((entry) => entry.url)
+    .map((d) => d.entry)
 
   const result = [...urls]
   remoteSlots.forEach((slot, idx) => {
@@ -362,4 +371,5 @@ module.exports = {
   applyMediaSources,
   buildExternalLinks,
   orderPreviewsBySource,
+  sourceFromRemoteUrl,
 }

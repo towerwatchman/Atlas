@@ -211,7 +211,6 @@ const mapWishlistRow = (row = {}) => {
     isUpdateAvailable: false,
     isCatalogEntry: true,
     isMetadataOnly: true,
-    isWishlistEntry: true,
     isWishlisted: true,
   }
 }
