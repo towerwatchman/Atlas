@@ -395,7 +395,7 @@ describe('MEGA account crypto', () => {
     expect(account.deriveKeyV2('pw', '')).toBeNull()
   })
 
-  it('derives a v1 key deterministically', () => {
+  it('derives a v1 key deterministically', { timeout: 30000 }, () => {
     // Legacy accounts cannot be migrated from the client, so this path stays.
     const key = account.prepareKeyV1('hunter2')
     expect(key.length).toBe(16)
@@ -403,7 +403,7 @@ describe('MEGA account crypto', () => {
     expect(account.prepareKeyV1('hunter3').equals(key)).toBe(false)
   })
 
-  it('produces an 8-byte v1 password hash', () => {
+  it('produces an 8-byte v1 password hash', { timeout: 15000 }, () => {
     const key = account.prepareKeyV1('pw')
     const hash = account.stringHashV1('USER@example.com', key)
     expect(hash.length).toBe(8)

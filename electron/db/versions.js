@@ -15,6 +15,8 @@ const {
   unionColumnsForSearchFieldIds, normalizeSearchFieldIds,
 } = require('./searchFields')
 const { extractUrlId } = require('./urlIdExtractor')
+const { normalizeTagText, normalizeTagList } = require('./tagTokens')
+const { tokenPredicate, tagColumnExpr, stripSpaces, escapeLike } = require('./tagFilterSql')
 
 // A search payload may carry `fields` (current) or `type` (legacy, still in
 // saved_filters.json). Neither means "use the default set".
@@ -716,6 +718,17 @@ const sumPositiveNumbers = (values = []) =>
     return number > 0 ? sum + number : sum;
   }, 0);
 
+const minPositiveNumber = (values = []) =>
+  // Finds the lowest positive number in an array, ignoring non-positives and nulls.
+  // Used for dateAdded to find when the game was first introduced to the library
+  // (earliest version date_added), as opposed to maxPositiveNumber which tracks
+  // the most recent version install.
+  values.reduce((min, value) => {
+    const number = toFiniteNumber(value, 0);
+    if (number <= 0) return min;
+    return min === 0 ? number : Math.min(min, number);
+  }, 0);
+
 const applyLocalSortAggregates = (game, allVersions = [], installedVersions = []) => {
   const lastPlayedFromGame = toFiniteNumber(game.last_played_r, 0);
   const totalPlaytimeFromGame = toFiniteNumber(game.total_playtime, 0);
@@ -724,6 +737,8 @@ const applyLocalSortAggregates = (game, allVersions = [], installedVersions = []
     : maxPositiveNumber(allVersions.map((version) => version.last_played));
   const versionPlaytimeSum = sumPositiveNumbers(allVersions.map((version) => version.version_playtime));
   const totalPlaytime = Math.max(totalPlaytimeFromGame, versionPlaytimeSum);
+  const earliestVersionAdded = minPositiveNumber(allVersions.map((version) => version.date_added));
+  const dateAdded = toFiniteNumber(game.date_added, 0) || earliestVersionAdded || toFiniteNumber(game.flagged_at, 0) || null;
 
   return {
     ...game,
@@ -732,6 +747,7 @@ const applyLocalSortAggregates = (game, allVersions = [], installedVersions = []
     lastPlayed,
     totalPlaytime,
     lastInstalled: maxPositiveNumber(allVersions.map((version) => version.date_added)),
+    dateAdded: dateAdded > 0 ? dateAdded : null,
     totalFolderSize: sumPositiveNumbers(installedVersions.map((version) => version.folder_size)),
     installedVersionCount: installedVersions.length,
   };
@@ -902,6 +918,7 @@ const getGame = (recordId, appPath, isDev, mediaStorageMode = "stream") => {
         games.last_played_r,
         games.last_played_version,
         games.selected_version_id,
+        games.date_added,
 ${bannerSelectFields},
         f95_zone_data.f95_id as f95_id,
         COALESCE(f95_zone_data.site_url, direct_lewdcorner_data.site_url, lewdcorner_data.site_url) as siteUrl,
@@ -1060,6 +1077,7 @@ const getGames = (
         games.last_played_r,
         games.last_played_version,
         games.selected_version_id,
+        games.date_added,
 ${bannerSelectFields},
         f95_zone_data.f95_id as f95_id,
         COALESCE(f95_zone_data.site_url, direct_lewdcorner_data.site_url, lewdcorner_data.site_url) as siteUrl,
@@ -1349,7 +1367,6 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
       searchFields = [urlId.field];
       searchText = urlId.query;
     }
-    const escapeLike = (value) => String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
     const buildLikeTerm = (value) => `%${escapeLike(value).toLowerCase()}%`;
     const searchTerms = searchText
       .split(/\s+/)
@@ -1421,16 +1438,28 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
       filterWhereParts.push(`(${field} IS NULL OR ${field} COLLATE NOCASE NOT IN (${safeValues.map(() => '?').join(', ')}))`);
       filterParams.push(...safeValues);
     };
+    // Exact-token tag filter via the shared tokenPredicate + 3-REPLACE wrapper.
+    // Mirrors the index's tags_filter semantics: comma-anchored,
+    // COALESCE-guarded, `;`/`|` literal, with the fallback's space-stripping
+    // wrapper paired with stripSpaces(normalize) on the bound token.
     const addTagFilter = (values, { exclude = false, logic = 'AND' } = {}) => {
       const safeValues = toArray(values);
       if (safeValues.length === 0) return;
       const tagFields = ['catalog.f95_tags', 'catalog.tags', 'catalog.lewdcornerTags', 'catalog.lewdcornerPrefixes'];
-      const perTagClauses = safeValues.map((value) => {
-        const clauses = tagFields.map((field) => `LOWER(COALESCE(${field}, '')) LIKE ? ESCAPE '\\'`);
-        filterParams.push(...tagFields.map(() => `%${escapeLike(value).toLowerCase()}%`));
-        const tagClause = `(${clauses.join(' OR ')})`;
-        return exclude ? `NOT ${tagClause}` : tagClause;
-      });
+      const perTagClauses = []
+      for (const raw of safeValues) {
+        const token = stripSpaces(normalizeTagText(raw).trim())
+        if (!token) continue
+        const perFieldClauses = []
+        for (const field of tagFields) {
+          const { sql, params } = tokenPredicate(tagColumnExpr(field), token)
+          perFieldClauses.push(sql)
+          filterParams.push(...params)
+        }
+        const perTag = `(${perFieldClauses.join(' OR ')})`
+        perTagClauses.push(exclude ? `NOT ${perTag}` : perTag)
+      }
+      if (perTagClauses.length === 0) return
       filterWhereParts.push(`(${perTagClauses.join(exclude || logic === 'AND' ? ' AND ' : ' OR ')})`);
     };
     const dateMsExpression = (field) => `
@@ -1494,8 +1523,10 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
       filterWhereParts.push(`(${languageValues.map(() => `LOWER(COALESCE(catalog.language, '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`);
       filterParams.push(...languageValues.map((value) => `%${escapeLike(value).toLowerCase()}%`));
     }
-    addTagFilter(filters.tags, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' });
-    addTagFilter(filters.excludedTags, { exclude: true });
+    const normalizedIncludesForTags = normalizeTagList(filters.tags)
+    const normalizedExcludesForTags = normalizeTagList(filters.excludedTags)
+    addTagFilter(normalizedIncludesForTags, { logic: filters.tagLogic === 'OR' ? 'OR' : 'AND' });
+    addTagFilter(normalizedExcludesForTags, { exclude: true });
     if (filters.installState === 'installed') {
       filterWhereParts.push('catalog.is_installed = 1');
     } else if (filters.installState === 'uninstalled') {

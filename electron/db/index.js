@@ -794,6 +794,8 @@ const initializeDatabase = (dataDir) => {
     db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_mappings_record_id ON f95_zone_mappings(record_id);`);
     db.run(`ALTER TABLE games ADD COLUMN is_favorite INTEGER DEFAULT 0;`, () => {});
     db.run(`ALTER TABLE games ADD COLUMN selected_version_id INTEGER;`, () => {});
+    // Timestamp when the title record was created in the user's Atlas library.
+    db.run(`ALTER TABLE games ADD COLUMN date_added INTEGER;`, () => {});
     // User playstate (finished/played/dropped/on_hold/planned). Per-version on
     // the versions table; per-title override on games (null = derive from
     // versions). Separate from atlas_data.status (developer/thread status).

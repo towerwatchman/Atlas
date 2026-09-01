@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { saveLibrarySetting, saveLibrarySettings, pickGameFolder } from '../../utils/librarySettings.js'
+import { saveLibrarySetting, saveLibrarySettings } from '../../utils/librarySettings.js'
+import EditablePathField from '../ui/EditablePathField.jsx'
 
 // Library.jsx  (updated)
 //
@@ -71,22 +72,6 @@ const Library = () => {
     });
     return () => window.electronAPI.removeAllListeners?.("library-validation-progress");
   }, []);
-
-  const handleSetGameFolder = async () => {
-    // pickGameFolder persists the choice itself, so there is no saveLibrarySetting
-    // call here — that is the point of sharing it. An empty return is a cancelled
-    // dialog and must not clear a folder that is already set.
-    const path = await pickGameFolder();
-    if (path) setGameFolder(path);
-  };
-
-  const handleSetDownloadsFolder = async () => {
-    const path = await window.electronAPI.selectDirectory();
-    if (path) {
-      setDownloadsFolder(path);
-      saveLibrarySetting("downloadsFolder", path);
-    }
-  };
 
   // Clearing falls back to the OS downloads directory rather than to a folder
   // inside the library, which must never hold in-progress archives.
@@ -217,20 +202,14 @@ const Library = () => {
       {/* Default Game Folder */}
       <div data-tour="LibraryFolder">
         <label className="block mb-1">Default Game Folder</label>
-        <div className="flex gap-3">
-          <input
-            type="text"
-            className="flex-1 bg-secondary border border-border p-2 rounded"
-            value={gameFolder}
-            readOnly
-          />
-          <button
-            onClick={handleSetGameFolder}
-            className="bg-accent px-5 py-2 rounded hover:bg-accentHover"
-          >
-            Set Folder
-          </button>
-        </div>
+        <EditablePathField
+          data-tour="LibraryFolder"
+          value={gameFolder}
+          mode="directory"
+          pickerLabel="Set Folder"
+          onPick={() => window.electronAPI.selectDirectory()}
+          onSave={(p) => { setGameFolder(p); saveLibrarySetting('gameFolder', p) }}
+        />
         <p className="text-xs opacity-60 mt-1">
           Newly imported / extracted games will be placed here.
         </p>
@@ -240,19 +219,15 @@ const Library = () => {
       <div>
         <label className="block mb-1">Downloads Folder</label>
         <div className="flex gap-3">
-          <input
-            type="text"
-            className="flex-1 bg-secondary border border-border p-2 rounded"
+          <EditablePathField
             value={downloadsFolder}
+            mode="directory"
+            allowEmpty
             placeholder="Default: your system Downloads folder"
-            readOnly
+            pickerLabel="Set Folder"
+            onPick={() => window.electronAPI.selectDirectory()}
+            onSave={(p) => { setDownloadsFolder(p); saveLibrarySetting('downloadsFolder', p) }}
           />
-          <button
-            onClick={handleSetDownloadsFolder}
-            className="bg-accent px-5 py-2 rounded hover:bg-accentHover"
-          >
-            Set Folder
-          </button>
           {downloadsFolder && (
             <button
               onClick={handleClearDownloadsFolder}

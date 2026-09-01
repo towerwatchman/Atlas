@@ -6,6 +6,7 @@ import {
   normalizeSearchFieldIds,
 } from '../utils/searchFields.js'
 import { extractUrlId } from '../utils/urlIdExtractor.js'
+import { normalizeTagText as _normalizeTagText, splitTagSources, buildTagsFilterValue, normalizeTagList } from '../utils/tagTokens.js'
 
 // The user's configured default field set, from [Search] defaultFields in
 // config.ini. Held at module scope because normalizeFilterState is a pure
@@ -129,12 +130,13 @@ const arrayFilterKeys = [
 ]
 const searchTypes = ['all', 'title', 'creator', 'atlasId', 'f95Id', 'lewdcornerId', 'steamId', 'anyId']
 const sourceTypes = ['all', 'f95', 'lewdcorner', 'steam', 'atlas']
-const dateFields = ['none', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded']
+const dateFields = ['none', 'dateAdded', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded']
 const dateRanges = ['any', '7d', '30d', '90d', 'year', 'custom']
 const sortTypes = [
   'name',
   'creator',
   'date',
+  'dateAdded',
   'lastUpdated',
   'likes',
   'views',
@@ -146,7 +148,7 @@ const sortTypes = [
   'fileSize',
   'personalRating',
 ]
-const defaultDescSortTypes = ['date', 'lastUpdated', 'likes', 'views', 'rating', 'installedVersionCount', 'newlyInstalled', 'newlyPlayed', 'playtime', 'fileSize', 'personalRating']
+const defaultDescSortTypes = ['date', 'dateAdded', 'lastUpdated', 'likes', 'views', 'rating', 'installedVersionCount', 'newlyInstalled', 'newlyPlayed', 'playtime', 'fileSize', 'personalRating']
 
 export const getDefaultSortDirectionForSort = (sort) =>
   defaultDescSortTypes.includes(sort) ? 'desc' : 'asc'
@@ -465,6 +467,8 @@ const compareLocalGames = (a, b, activeFilters) => {
     result = compareText(a.creator, b.creator, direction)
   } else if (activeFilters.sort === 'date') {
     result = compareMaybeNumber(getReleaseDateValue(a), getReleaseDateValue(b), direction)
+  } else if (activeFilters.sort === 'dateAdded') {
+    result = compareMaybeNumber(getPositiveNumberOrNull(a.dateAdded), getPositiveNumberOrNull(b.dateAdded), direction)
   } else if (activeFilters.sort === 'lastUpdated') {
     result = compareMaybeNumber(getBrowseDate(a, 'thread_updated'), getBrowseDate(b, 'thread_updated'), direction)
   } else if (['likes', 'views', 'rating'].includes(activeFilters.sort)) {
@@ -642,15 +646,18 @@ const cleanSearchText = (value) =>
 const splitListText = (value) =>
   safeText(value).split(',').map((item) => item.trim()).filter(Boolean)
 
-const normalizeTagText = (value) =>
-  safeText(value).trim().toLowerCase().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ')
+// Mirrored module is the single source of truth. Re-exported so
+// tests can assert parity and the catalog can reuse the exact same logic.
+export const normalizeTagText = _normalizeTagText
+export { splitTagSources, buildTagsFilterValue, normalizeTagList }
 
 const includesExact = (values, value) =>
   values.some((item) => safeText(item).toLowerCase() === safeText(value).toLowerCase())
 
 const includesTag = (values, value) => {
-  const normalizedValue = normalizeTagText(value)
-  return values.some((item) => normalizeTagText(item) === normalizedValue)
+  const normalizedValue = normalizeTagText(value).trim()
+  if (!normalizedValue) return false
+  return values.some((item) => normalizeTagText(item).trim() === normalizedValue)
 }
 
 const hasAnyTag = (values, excludedValues) =>
@@ -924,6 +931,9 @@ const getDateRangeBounds = (range, dateFrom = '', dateTo = '') => {
 }
 
 const getDateFieldValue = (game = {}, field) => {
+  if (field === 'dateAdded') {
+    return normalizeDateValueMs(game.dateAdded ?? game.date_added ?? game.flagged_at ?? game.flaggedAt)
+  }
   if (field === 'releaseDate') {
     return normalizeDateValueMs(game.release_date ?? game.releaseDate ?? game.steam_release_date ?? game.steamReleaseDate)
   }
