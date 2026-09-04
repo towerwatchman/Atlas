@@ -1421,7 +1421,7 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/renderer/index.html'))
   }
-  if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
+  if (appConfig?.Interface?.showDebugConsole) {
     mainWindow.webContents.openDevTools()
   }
   mainWindow.on('maximize', () => mainWindow.webContents.send('window-state-changed', 'maximized'))
@@ -1470,7 +1470,7 @@ function createSettingsWindow(options = {}) {
   } else {
     settingsWindow.loadFile(path.join(__dirname, '../dist/renderer/settings.html'), tourQuery ? { search: tourQuery } : undefined)
   }
-  if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
+  if (appConfig?.Interface?.showDebugConsole) {
     settingsWindow.webContents.openDevTools()
   }
   settingsWindow.on('maximize', () => settingsWindow.webContents.send('window-state-changed', 'maximized'))
@@ -1522,7 +1522,7 @@ function createThemeBuilderWindow() {
   } else {
     themeBuilderWindow.loadFile(path.join(__dirname, '../dist/renderer/themebuilder.html'))
   }
-  if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
+  if (appConfig?.Interface?.showDebugConsole) {
     themeBuilderWindow.webContents.openDevTools()
   }
   themeBuilderWindow.on('maximize', () => themeBuilderWindow.webContents.send('window-state-changed', 'maximized'))
@@ -1596,7 +1596,7 @@ function createBannerEditorWindow() {
   } else {
     bannerEditorWindow.loadFile(path.join(__dirname, '../dist/renderer/bannereditor.html'))
   }
-  if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
+  if (appConfig?.Interface?.showDebugConsole) {
     bannerEditorWindow.webContents.openDevTools()
   }
   bannerEditorWindow.on('maximize', () => bannerEditorWindow.webContents.send('window-state-changed', 'maximized'))
@@ -1680,7 +1680,7 @@ function createImporterWindow(source = 'atlas') {
   ).then(() => {
     console.log('importer.html loaded successfully')
     sendImporterSource(importerSource)
-    if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
+    if (appConfig?.Interface?.showDebugConsole) {
       importerWindow.webContents.openDevTools()
     }
   }).catch((err) => {
@@ -1722,7 +1722,7 @@ function createGameDetailsWindow(recordId) {
   } else {
     win.loadFile(path.join(__dirname, '../dist/renderer/gamedetails.html'))
   }
-  if (process.defaultApp || appConfig?.Interface?.showDebugConsole) {
+  if (appConfig?.Interface?.showDebugConsole) {
     win.webContents.openDevTools()
   }
   win.on('maximize', () => win.webContents.send('window-state-changed', 'maximized'))
