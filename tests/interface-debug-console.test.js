@@ -7,8 +7,7 @@ const src = fs.readFileSync(
   'utf8',
 )
 
-// The debug-console toggle applies live via save-settings (main opens/closes
-// DevTools on all open windows), so it must not show a restart popup or hint.
+// The toggle applies live, so no restart popup or hint.
 describe('Interface debug console (no restart)', () => {
   test('toggling never pops a restart alert', () => {
     expect(src).not.toMatch(/debug console setting requires a restart/i)

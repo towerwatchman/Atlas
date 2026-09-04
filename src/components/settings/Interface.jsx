@@ -289,7 +289,7 @@ const Interface = () => {
         override this for a single query.
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
-      {/* No restart needed: save-settings opens/closes DevTools on all open windows live. */}
+      {/* Applies live, no restart needed. */}
       <div className="flex items-center mb-2">
         <label className="flex-1">Show debug console window</label>
         <input
