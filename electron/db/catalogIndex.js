@@ -48,6 +48,7 @@ const {
 const { extractUrlId } = require('./urlIdExtractor')
 const { buildTagsFilterValue, normalizeTagText, normalizeTagList, splitTagSources } = require('./tagTokens')
 const { tokenPredicate, escapeLike } = require('./tagFilterSql')
+const { buildBlacklistExclusionSql } = require('./blacklistSql')
 
 // A search payload may carry `fields` (current) or `type` (legacy). Neither
 // present means the caller wants the default set.
@@ -1188,6 +1189,11 @@ const buildIndexWhere = (search = {}, filters = {}) => {
       OR EXISTS (SELECT 1 FROM wishlist_entries w WHERE w.lc_id   IS NOT NULL AND w.lc_id   = ci.lc_id)
       OR EXISTS (SELECT 1 FROM wishlist_entries w WHERE w.steam_id IS NOT NULL AND w.steam_id = ci.steam_id))`)
   }
+
+  // Unconditional, not a filter flag: a blacklisted title stays hidden no matter
+  // which filters or saved filter is active. Mirrored in versions.js from the
+  // same builder.
+  parts.push(buildBlacklistExclusionSql('ci', 'ci.is_installed = 1'))
 
   // Generated from ratingCategories.js. This was a second hand-written copy of
   // the same average, and it drifted from the one in versions.js: both still

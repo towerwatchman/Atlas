@@ -17,6 +17,7 @@ export default function ActionBar({
   // the button and hid the mirrors.
   installSources = [],
   canManageWishlist = false, isWishlisted = false, wishlistBusy = false,
+  canBlacklist = false, blacklistBusy = false, onBlacklist = null,
   canManageFavorite = false, isFavorite = false, favoriteBusy = false,
   launchState, isRefreshingMedia, canManageLocalTitle = true,
   onLaunch, onOpenProperties, onToggleWishlist, onRefreshMedia,
@@ -279,6 +280,31 @@ export default function ActionBar({
               <span style={{ display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap' }}>
                 <i className={wishlistBusy ? 'fas fa-circle-notch fa-spin' : 'fas fa-bookmark'} style={{ fontSize: 11 }}></i>
                 {isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
+              </span>
+            </button>
+          )}
+          {canBlacklist && onBlacklist && (
+            // The existing danger token, not a new detail-* one: a theme that
+            // predates this button has no value for a new variable, and an unset
+            // one renders the button transparent.
+            <button
+              onClick={onBlacklist}
+              disabled={blacklistBusy}
+              title="Hide this game from Browse. Undo in Settings > Blacklist."
+              style={{
+                ...ACTION_BTN,
+                height: 32,
+                background: 'var(--color-danger)',
+                color: 'var(--color-detail-accent-text)',
+                opacity: blacklistBusy ? 0.65 : 1,
+                cursor: blacklistBusy ? 'wait' : 'pointer',
+              }}
+              onMouseEnter={(e) => { if (!blacklistBusy) e.currentTarget.style.filter = 'brightness(1.12)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap' }}>
+                <i className={blacklistBusy ? 'fas fa-circle-notch fa-spin' : 'fas fa-ban'} style={{ fontSize: 11 }}></i>
+                Blacklist
               </span>
             </button>
           )}

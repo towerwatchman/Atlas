@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   isWishlistEntry: (identity) => ipcRenderer.invoke("wishlist-check", identity),
   getWishlistEntries: () => ipcRenderer.invoke("wishlist-list"),
   getWishlistEntryIdentities: () => ipcRenderer.invoke("wishlist-identities"),
+  addBlacklistEntry: (entry) => ipcRenderer.invoke("blacklist-add", entry),
+  removeBlacklistEntry: (identity) =>
+    ipcRenderer.invoke("blacklist-remove", identity),
+  getBlacklistEntries: () => ipcRenderer.invoke("blacklist-list"),
   validateLibraryPaths: () => ipcRenderer.invoke("validate-library-paths"),
   removeGame: (id) => ipcRenderer.invoke("remove-game", id),
   checkUpdates: () => ipcRenderer.invoke("check-updates"),
@@ -422,6 +426,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     const handler = (event, payload) => callback(payload);
     ipcRenderer.on("wishlist-updated", handler);
     return () => ipcRenderer.removeListener("wishlist-updated", handler);
+  },
+  onBlacklistUpdated: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("blacklist-updated", handler);
+    return () => ipcRenderer.removeListener("blacklist-updated", handler);
   },
   onDbUpdateProgress: (callback) => {
     ipcRenderer.on("db-update-progress", (event, progress) =>

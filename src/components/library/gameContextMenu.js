@@ -166,6 +166,28 @@ export function buildGameContextMenu({ game, collections = [], collectionIdsByRe
     })
   }
 
+  // Not offered on local rows, nor on Browse rows for a title that is installed
+  // (hasInstalledVersion): the exclusion never hides an installed title, so the
+  // entry would appear to do nothing. Wishlist-view rows do get it
+  // -- they are the same catalog titles, and blacklisting one also takes it off
+  // the wishlist (electron/db/blacklist.js), so the click has a visible effect.
+  //
+  // The payload reuses the wishlist field contract so identity resolves the
+  // same way on both lists, plus the gog id the wishlist has no use for but the
+  // SQL exclusion needs to match a GOG-only tile. `action` again goes last.
+  if (!isLocal && game.hasInstalledVersion !== true) {
+    items.push({
+      label: 'Blacklist',
+      icon: 'fa-ban',
+      danger: true,
+      data: {
+        ...buildWishlistPayload(game),
+        ...(game.gog_id !== undefined ? { gog_id: game.gog_id } : {}),
+        action: 'blacklistGame',
+      },
+    })
+  }
+
   if (!isLocal) {
     // Browse and wishlist rows have no local record, so library-management
     // actions (collections, open folder, remove/delete) do not apply.

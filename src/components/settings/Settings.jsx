@@ -8,6 +8,7 @@ import Accounts from './Accounts.jsx'
 import Database from './Database.jsx'
 import ExtensionSettings from './ExtensionSettings.jsx'
 import EmulatorLauncher from './EmulatorLauncher.jsx'
+import BlacklistSettings from './BlacklistSettings.jsx'
 import { settingsIcons } from './settingsIcons.js'
 import WelcomeTour from '../ui/WelcomeTour.jsx'
 
@@ -79,6 +80,8 @@ const Settings = () => {
         return <Interface />;
       case "Library":
         return <Library />;
+      case "Blacklist":
+        return <BlacklistSettings />;
       case "Import":
         return <ImportSources />;
       case "Emulators":

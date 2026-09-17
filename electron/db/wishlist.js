@@ -580,4 +580,8 @@ module.exports = {
   getWishlistEntries,
   getWishlistEntryIdentities,
   normalizeWishlistEntry,
+  // Exported for electron/db/blacklist.js, which needs a blacklisted row to
+  // carry every provider id the catalog knows so the Browse exclusion can hide
+  // the same title's rows from the other sources too.
+  resolveMissingIds,
 }

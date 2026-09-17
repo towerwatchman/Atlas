@@ -12,6 +12,16 @@ export const settingsIcons = [
     viewBox: "0 0 32 32",
   },
   {
+    // Browse titles the user hid. Sits beside Library because it is about which
+    // games are shown, and it is the only place a blacklisted title can be
+    // brought back from.
+    name: "Blacklist",
+    icon: "blacklist_icon",
+    // Circle with a diagonal bar ("ban").
+    path: "M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 2c1.848 0 3.545.633 4.9 1.686L5.686 16.9A7.96 7.96 0 0 1 4 12c0-4.418 3.582-8 8-8zm6.314 3.1A7.96 7.96 0 0 1 20 12c0 4.418-3.582 8-8 8a7.96 7.96 0 0 1-4.9-1.686L18.314 7.1z",
+    viewBox: "0 0 24 24",
+  },
+  {
     name: "Import",
     icon: "import_icon",
     // Download-into-tray glyph: this section is about bringing data in from
