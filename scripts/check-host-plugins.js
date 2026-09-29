@@ -14,6 +14,7 @@
 const assert = require("assert");
 const pixeldrain = require("../electron/downloads/hosts/pixeldrain");
 const buzzheavier = require("../electron/downloads/hosts/buzzheavier");
+const gofile = require("../electron/downloads/hosts/gofile");
 const registry = require("../electron/downloads/hosts");
 const { selectDownloadableLinks } = require("../electron/downloads/groupClassifier");
 
@@ -453,9 +454,99 @@ const ok = (condition, message) => { assert.ok(condition, message); checks += 1;
     // it would need "buzz" in the supported set, and no plugin has ever claimed
     // it. Asserted so a future alias cannot reintroduce it by accident.
     ok(!registry.supportedHostIds().includes("buzz"), "buzz.to is not offered either");
-    // pixeldrain, mega, and buzzheavier (with its bzzhr alias).
-    eq(registry.supportedHostIds().length, 4, "four offered host labels");
+    // pixeldrain, mega, buzzheavier (with its bzzhr alias), and gofile.
+    eq(registry.supportedHostIds().length, 5, "five offered host labels");
     ok(registry.supportedHostIds().includes("mega"), "mega is offered");
+  } finally {
+    global.fetch = realFetch;
+  }
+
+  // ── Gofile ──────────────────────────────────────────────────────────────
+  // Share pages are JS shells, so the plugin reads the folder through the same
+  // API the web client uses. These pin recognition, the token request shape,
+  // and the one-file vs multi-file split the modal picker depends on.
+  ok(gofile.matches("https://gofile.io/d/AbCdEfGh"), "share page matched");
+  ok(gofile.matches("https://store1.gofile.io/download/web/u1/game.zip"), "store host claimed for a fresh cookie");
+  ok(!gofile.matches("https://pixeldrain.com/u/x"), "other hosts not claimed");
+  eq(gofile.fileIdFrom("https://gofile.io/d/AbCdEfGh"), "AbCdEfGh", "id extracted");
+  eq(gofile.fileIdFrom("https://gofile.io/?c=AbCd12"), "AbCd12", "legacy param id extracted");
+  eq(gofile.fileIdFrom("https://gofile.io/pricing"), null, "site route is not a folder id");
+  eq(gofile.classifyError(null, { status: 429 }), "quota", "429 is quota");
+  eq(gofile.classifyError(null, { body: { status: "error-notFound" } }), "fatal", "notFound is fatal");
+  eq(gofile.classifyError(new Error("ECONNRESET")), "transient", "socket error retries");
+  eq(gofile.quotaWithoutAccount, true, "quota loads with no account saved");
+  // The renderer never sees the module, only the serialized list shape.
+  eq(registry.listPlugins().find((p) => p.id === "gofile")?.quotaWithoutAccount, true, "flag survives listPlugins");
+  eq(registry.listPlugins().find((p) => p.id === "gofile")?.quotaTemplate, "Transfer used: {used} of {cap} per 30 days", "template survives listPlugins");
+
+  try {
+    const child = (name, size, link) => ({ id: "u", type: "file", name, size, link });
+    // Seedless probes fetch the script first; shared so each stub needn't.
+    const withScript = (handler) => stub(async (url, init) => {
+      if (String(url).includes("wt.obf.js")) {
+        return { ok: true, status: 200, text: async () => 'salt="bb22cc33dd44ee"' };
+      }
+      return handler(url, init);
+    });
+    {
+      let seen = null;
+      withScript(async (url, init) => {
+        if (String(url).includes("/accounts")) {
+          seen = { url, init };
+          return jsonResponse({ status: "ok", data: { token: "guest-1", id: "account-1" } });
+        }
+        return jsonResponse({ status: "ok", data: { children: {
+          a: child("game.zip", 7, "https://store1.gofile.io/download/web/u/game.zip"),
+        } } });
+      });
+      const result = await gofile.probe("https://gofile.io/d/AbCdEfGh");
+      eq(result.ok, true, "one-file folder resolves");
+      eq(seen.init.method, "POST", "guest account created first");
+      eq(result.directUrl, "https://store1.gofile.io/download/web/u/game.zip", "child link used verbatim");
+      eq(result.headers.cookie, "accountToken=guest-1", "store cookie carried to the transfer");
+    }
+    {
+      withScript(async (url) => {
+        if (String(url).includes("/accounts")) {
+          return jsonResponse({ status: "ok", data: { token: "guest-1" } });
+        }
+        return jsonResponse({ status: "ok", data: { children: {
+          a: child("part1.zip", 1, "https://store1.gofile.io/1"),
+          b: child("part2.zip", 2, "https://store1.gofile.io/2"),
+        } } });
+      });
+      const result = await gofile.probe("https://gofile.io/d/AbCdEfGh");
+      eq(result.ok, true, "multi-file folder resolves");
+      eq(result.directUrl, undefined, "no silent first-file grab");
+      eq(result.choices.length, 2, "both files offered to the picker");
+    }
+    {
+      withScript(async (url) => {
+        if (String(url).includes("/accounts")) {
+          return jsonResponse({ status: "ok", data: { token: "guest-1" } });
+        }
+        throw new Error(`unstubbed fetch: ${url}`);
+      });
+      const result = await gofile.probe("https://store1.gofile.io/download/web/u/game.zip");
+      eq(result.ok, true, "store file resolves");
+      eq(result.headers.cookie, "accountToken=guest-1", "store transfer carries a cookie");
+    }
+    eq(registry.pluginFor("https://gofile.io/d/AbCdEfGh")?.id, "gofile", "routed");
+    eq(registry.pluginFor("https://store1.gofile.io/download/web/u/game.zip")?.id, "gofile", "picked file re-probes");
+    ok(registry.supportedHostIds().includes("gofile"), "offered as a mirror");
+    {
+      // Fresh guest: the quota block must not depend on probe-block leftovers.
+      gofile.saltStore.resetGuest();
+      stub(async (url) => {
+        if (String(url).includes("/accounts/")) {
+          return jsonResponse({ status: "ok", data: { tier: "guest", ipTraffic: {} } });
+        }
+        return jsonResponse({ status: "ok", data: { token: "guest-1", id: "account-1" } });
+      });
+      const quota = await gofile.getQuota();
+      eq(quota.ok, true, "free usage readable");
+      eq(quota.cap, 1000000000000, "free allowance is 1 TB");
+    }
   } finally {
     global.fetch = realFetch;
   }

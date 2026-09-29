@@ -358,6 +358,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   downloadsOpenFolder: () => ipcRenderer.invoke("downloads-open-folder"),
   downloadsAttachFile: (params) => ipcRenderer.invoke("downloads-attach-file", params),
   downloadsResolveMasked: (params) => ipcRenderer.invoke("downloads-resolve-masked", params),
+  downloadsListFolder: (params) => ipcRenderer.invoke("downloads-list-folder", params),
   downloadsInstall: (params) => ipcRenderer.invoke("downloads-install", params),
   downloadsSuggestVersion: (params) => ipcRenderer.invoke("downloads-suggest-version", params),
   hostsList: () => ipcRenderer.invoke("hosts-list"),

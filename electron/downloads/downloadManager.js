@@ -344,6 +344,11 @@ const startTransfer = async (item) => {
       return;
     }
     if (!probe.passthrough) {
+      if (probe.choices) {
+        await handleFailure(item.id, "fatal",
+          `This folder has ${probe.choices.length} files. Pick one to download.`);
+        return;
+      }
       transferUrl = probe.directUrl || item.url;
       decryptSpec = probe.decrypt || null;
       Object.assign(headers, probe.headers || {});
