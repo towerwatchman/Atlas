@@ -15,6 +15,7 @@ const {
   unionColumnsForSearchFieldIds, normalizeSearchFieldIds,
 } = require('./searchFields')
 const { extractUrlId } = require('./urlIdExtractor')
+const { getLcUserTier } = require('../accounts/accountStore')
 const { normalizeTagText, normalizeTagList } = require('./tagTokens')
 const { tokenPredicate, tagColumnExpr, stripSpaces, escapeLike } = require('./tagFilterSql')
 const { buildBlacklistExclusionSql } = require('./blacklistSql')
@@ -1415,13 +1416,19 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
     // Mirrors buildIndexWhere in catalogIndex.js. Both paths have to carry it:
     // this union is the fallback used whenever catalog_index is missing or stale,
     // so filtering only the fast path would make the same browse show different
-    // rows depending on index state.
+    // rows depending on index state. The stored user-tier value 'VIP' sees all
+    // LC content (gate skipped); 'Free'/'null' see Standard-content rows only.
     //
     // No join needed here — all four union branches already select lc_id and
-    // lewdcornerTier (NULL in the steam and gog branches). NULL tier is excluded
-    // with the paid tiers, so LC rows scraped before the tier column was added
-    // stay hidden until a rescrape fills it in.
-    filterWhereParts.push(`(catalog.lc_id IS NULL OR catalog.lewdcornerTier = 'Free')`);
+    // lewdcornerTier (NULL in the steam and gog branches). Rows with a NULL
+    // content tier fail `= 'Free'` and are hidden the same as 'VIP', until a
+    // rescrape fills the tier in.
+    //
+    // Not-logged-in (getLcUserTier returns null) is treated the same as Standard:
+    // an unauthenticated user must not see members-only content.
+    if (getLcUserTier() !== 'VIP') {
+      filterWhereParts.push(`(catalog.lc_id IS NULL OR catalog.lewdcornerTier = 'Free')`);
+    }
     const toArray = (value) => {
       if (Array.isArray(value)) return value.filter((item) => item !== undefined && item !== null && String(item).trim() !== '').map(String);
       if (value === undefined || value === null || value === '') return [];

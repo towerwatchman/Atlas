@@ -24,6 +24,7 @@ const { runClientAudit, repairClientAuditSection } = require('../db/clientAudit'
 const { auditSeasonMerges, applySeasonMerge, applyAllSeasonMerges } = require('../db/seasonMerge')
 // Required directly for the same curated-ctx reason as tagOverrides above.
 const { addBlacklistEntry, removeBlacklistEntry, getBlacklistEntries } = require('../db/blacklist')
+const { parseCatalogRef } = require('../library/catalogRef')
 
 // Guards against two full rebuilds interleaving their chunked transactions on
 // the single shared sqlite connection.
