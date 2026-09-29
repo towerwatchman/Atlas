@@ -1982,7 +1982,7 @@ const App = () => {
         <div
           className="w-[60px] bg-accent flex items-center justify-center h-[70px] z-50 cursor-pointer -webkit-app-region-no-drag shadow-[0_8px_8px_-8px_rgba(0,0,0,0.5)]"
           onClick={goHome}
-          title="Back to Library"
+          title="Home"
         >
           {logoVariant === 'colored' ? (
             <img
@@ -2021,7 +2021,7 @@ const App = () => {
                 <div
                   className="text-shadow-fx text-glow-fx page-titles text-accent font-semibold cursor-pointer -webkit-app-region-no-drag"
                   onClick={goHome}
-                  title="Back to Library"
+                  title="Home"
                 >
                   {viewTitle}
                 </div>

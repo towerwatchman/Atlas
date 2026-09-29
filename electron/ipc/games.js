@@ -22,6 +22,7 @@ const { runDatabaseAudit, getInvalidMappingCount } = require('../db/audit')
 const { getCatalogIndexStatus, rebuildCatalogIndex } = require('../db/catalogIndex')
 const { runClientAudit, repairClientAuditSection } = require('../db/clientAudit')
 const { auditSeasonMerges, applySeasonMerge, applyAllSeasonMerges } = require('../db/seasonMerge')
+const { parseCatalogRef } = require('../library/catalogRef')
 
 // Guards against two full rebuilds interleaving their chunked transactions on
 // the single shared sqlite connection.
@@ -446,6 +447,32 @@ function registerGamesHandlers(ctx) {
       },
     )
     return { total: Number(result?.total || 0) }
+  })
+
+  // One Browse entry by catalog ref. Single-row fetch so a banner click
+  // doesn't page the catalog.
+  ipcMain.handle('get-catalog-entry', async (_, ref) => {
+    if (!BROWSE_MODE_ENABLED) return { success: false, error: 'Browse is not available' }
+    const raw = typeof ref === 'string' ? ref : ref?.ref
+    const parsed = parseCatalogRef(raw)
+    if (!parsed) return { success: false, error: 'Unknown catalog entry' }
+    try {
+      const result = await getCatalogGames(
+        getAssetBasePath(),
+        process.defaultApp,
+        {
+          hydrateKeys: [`${parsed.kind}:${parsed.id}`],
+          offset: 0,
+          limit: 1,
+          mediaStorageMode: getMediaStorageMode(),
+        },
+      )
+      const game = result?.games?.[0] || null
+      if (!game) return { success: false, error: 'Catalog entry not found' }
+      return { success: true, game: withMedia(game) }
+    } catch (err) {
+      return { success: false, error: err?.message || String(err) }
+    }
   })
 
   ipcMain.handle('wishlist-add', async (_, entry = {}) => {

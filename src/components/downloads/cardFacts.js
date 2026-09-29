@@ -29,26 +29,28 @@ export function keepsBothVersions(item, game) {
 }
 
 /**
- * Where the banner click goes: 'game' | 'thread' | 'host' | null.
+ * Where the download banner goes: 'game' | 'catalog' | null.
  *
- * Installed titles open inside Atlas; anything else opens the page a user would
- * want while still deciding. The order matters more than it looks:
- *
- *   - A library game with no thread url still opens its game page. Requiring a
- *     thread url made Steam imports and local titles silently dead, which was a
- *     regression against the original behaviour of opening the game page for any
- *     row that had a record at all.
- *   - A row with no record at all falls back to the host page. That was
- *     originally left inert on the understanding it meant Browse and wishlist
- *     downloads only; it actually covers every download of a game not already in
- *     the library, which is the common case, and an inert banner there reads as
- *     broken rather than deliberate.
+ * Banner stays in-app; the host chip already opens the download URL.
+ * Installed opens the library entry. Not installed opens Browse when the
+ * entry is known. Otherwise falls back to the library entry when there is
+ * one (local titles have no Browse entry). Else nowhere.
  */
-export function bannerTargetFor({ game = null, threadUrl = '', hostUrl = '' } = {}) {
-  if (game) {
-    if (isInstalledGame(game)) return 'game'
-    return threadUrl ? 'thread' : 'game'
-  }
-  if (threadUrl) return 'thread'
-  return hostUrl ? 'host' : null
+export function downloadBannerTarget({ game = null, catalogRef = null } = {}) {
+  if (game && isInstalledGame(game)) return 'game'
+  if (catalogRef) return 'catalog'
+  if (game) return 'game'
+  return null
+}
+
+/**
+ * Which catalog entry this download belongs to.
+ * Uses the saved reference first, then the game's Atlas id if needed.
+ * Returns null if neither is available.
+ */
+export function downloadCatalogRef(item, game) {
+  if (item?.catalogRef) return item.catalogRef
+  const atlas = game?.atlas_id ?? game?.atlasId
+  if (atlas) return `catalog:${atlas}`
+  return null
 }

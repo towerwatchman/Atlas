@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   getCatalogGames: (args = {}) => ipcRenderer.invoke("get-catalog-games", args),
   getCatalogCount: (args = {}) => ipcRenderer.invoke("get-catalog-count", args),
+  getCatalogEntry: (ref) => ipcRenderer.invoke("get-catalog-entry", ref),
   addWishlistEntry: (entry) => ipcRenderer.invoke("wishlist-add", entry),
   removeWishlistEntry: (identity) =>
     ipcRenderer.invoke("wishlist-remove", identity),

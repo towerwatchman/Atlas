@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Changed
+- Downloads: clicking a cover now opens the game entry inside Atlas Library/ Catalog, and clicking the build label (e.g. Full Archive) opens the source thread in your browser.
 - (Dev-Only) DevTools no longer auto-opens in dev mode unless explicitly enabled in config.
 - Removed the stale restart popup and hint on the Show debug console toggle — it applies immediately to all open windows.
 - Allow setting folder and program locations by typing or paste a path directly besides using Browse / Select Folder button. 
