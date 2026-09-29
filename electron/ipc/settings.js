@@ -259,11 +259,15 @@ module.exports = function registerSettingsHandlers(ctx) {
         BrowserWindow.getAllWindows().forEach((win) => {
           if (win.isDestroyed()) return
           if (nextShowDebugConsole) {
-            if (!win.webContents.isDevToolsOpened()) win.webContents.openDevTools()
+            // Open in place without stealing focus from Settings.
+            if (!win.webContents.isDevToolsOpened()) win.webContents.openDevTools({ activate: false })
           } else if (win.webContents.isDevToolsOpened()) {
             win.webContents.closeDevTools()
           }
         })
+        // Not every Electron version honors activate: false, so keep Settings on top.
+        const senderWin = BrowserWindow.fromWebContents(event.sender)
+        if (senderWin && !senderWin.isDestroyed()) senderWin.focus()
       }
 
       const previousUpdateBranch = ctx.getConfiguredAppUpdateBranch?.({ Interface: previousInterface })
