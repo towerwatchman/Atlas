@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import HostIcon from './HostIcon.jsx'
 import { buildThreadUrl, threadUrlForGame } from './threadUrl.js'
 import { buildDownloadOptions } from './linkSections.js'
@@ -34,12 +34,22 @@ import { buildDownloadOptions } from './linkSections.js'
 
 const prettyHost = (host) => String(host || '').replace(/^www\./, '')
 
+const formatBytes = (value) => {
+  const bytes = Number(value) || 0
+  if (bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+  const scaled = bytes / 1024 ** index
+  return `${scaled.toFixed(index === 0 ? 0 : scaled >= 10 ? 1 : 2)} ${units[index]}`
+}
+
 export default function UpdateModal({ game, open, onClose, onQueued, session = null }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [errorCode, setErrorCode] = useState('')
   const [data, setData] = useState(null)
   const [resolvingUrl, setResolvingUrl] = useState('')
+  const [folderChoices, setFolderChoices] = useState(null)
 
   const threadId = game?.f95_id || game?.f95Id || null
   const title = game?.title || 'this game'
@@ -81,26 +91,13 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
 
   useEffect(() => {
     if (open) load(false)
-    else { setData(null); setError(''); setResolvingUrl('') }
+    else { setData(null); setError(''); setResolvingUrl(''); setFolderChoices(null) }
   }, [open, load])
 
   // Resolving opens a real browser window where the user clears F95's gate
   // themselves. Atlas reads the destination and queues it.
-  const choose = async (link) => {
-    setResolvingUrl(link.url)
-    setError('')
-    try {
-      const resolved = await window.electronAPI.downloadsResolveMasked?.({
-        url: link.url,
-        title,
-      })
-      if (!resolved?.ok) {
-        if (!resolved?.canceled) {
-          setError(resolved?.error || 'Could not get the download link')
-        }
-        return
-      }
-      const queued = await window.electronAPI.downloadsEnqueue?.({
+  const queueDownload = async (link, url, host) => {
+    const queued = await window.electronAPI.downloadsEnqueue?.({
         // Every browse row already knows whether it is in the library:
         // local_record_id is projected as localRecordId in all four branches of
         // the catalog union, resolved from the atlas / f95 / lewdcorner / steam
@@ -125,8 +122,8 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
         title,
         creator: game?.creator || '',
         version: game?.latestVersion || game?.latest_version || '',
-        url: resolved.url,
-        host: resolved.host || link.host,
+        url,
+        host,
         source: 'f95',
         // Which build this is, in the poster's own words. The queue otherwise
         // shows the game title and the LATEST version on every row, so an old
@@ -144,6 +141,7 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
         onComplete: 'replace',
       })
       if (queued?.success) {
+        setFolderChoices(null)
         onQueued?.(queued.item)
         // In a session the parent advances to the next game, which unmounts
         // this content anyway. Closing here as well would race that and leave
@@ -152,6 +150,49 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
       } else {
         setError(queued?.error || 'Could not add this to the download queue')
       }
+  }
+
+  const choose = async (link) => {
+    setResolvingUrl(link.url)
+    setError('')
+    setFolderChoices(null)
+    try {
+      const resolved = await window.electronAPI.downloadsResolveMasked?.({
+        url: link.url,
+        title,
+      })
+      if (!resolved?.ok) {
+        if (!resolved?.canceled) {
+          setError(resolved?.error || 'Could not get the download link')
+        }
+        return
+      }
+      // The listing decides: choices present means pick, anything else queues.
+      // Hosts with no plugin fall through to the queue instead of erroring.
+      const folder = await window.electronAPI.downloadsListFolder?.({ url: resolved.url })?.catch(() => null)
+      if (folder?.ok && folder.choices?.length) {
+        setFolderChoices({ linkUrl: link.url, link, resolved, choices: folder.choices })
+        return
+      }
+      if (folder && !folder.ok && !/no plugin/i.test(folder.error || '')) {
+        setError(folder.error || 'Could not read this folder')
+        return
+      }
+      await queueDownload(link, folder?.directUrl || resolved.url, resolved.host || link.host)
+    } catch (err) {
+      setError(err.message || 'Could not start this download')
+    } finally {
+      setResolvingUrl('')
+    }
+  }
+
+  const chooseFile = async (choice) => {
+    const picked = folderChoices
+    if (!picked) return
+    setResolvingUrl(picked.linkUrl)
+    setError('')
+    try {
+      await queueDownload(picked.link, choice.directUrl, picked.resolved.host || picked.link.host)
     } catch (err) {
       setError(err.message || 'Could not start this download')
     } finally {
@@ -376,8 +417,8 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
                     {option.links.map((link) => {
                       const busy = resolvingUrl === link.url
                       return (
+                        <Fragment key={link.url}>
                         <button
-                          key={link.url}
                           type="button"
                           onClick={() => choose(link)}
                           disabled={Boolean(resolvingUrl)}
@@ -408,6 +449,28 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
                             )}
                           </span>
                         </button>
+                        {folderChoices?.linkUrl === link.url && (
+                          <div className="basis-full rounded border border-border bg-tertiary/30 px-2 py-1.5 space-y-1">
+                            {folderChoices.choices.map((choice) => (
+                              <button
+                                key={choice.directUrl}
+                                type="button"
+                                onClick={() => chooseFile(choice)}
+                                disabled={Boolean(resolvingUrl)}
+                                className="w-full flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-tertiary disabled:opacity-40"
+                              >
+                                <i className="fas fa-file-archive text-[11px] text-muted shrink-0" aria-hidden="true"></i>
+                                <span className="min-w-0 flex-1 truncate text-xs text-text">
+                                  {choice.name}
+                                </span>
+                                <span className="text-[10px] text-muted shrink-0">
+                                  {formatBytes(choice.size)}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        </Fragment>
                       )
                     })}
                   </div>

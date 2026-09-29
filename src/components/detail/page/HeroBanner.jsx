@@ -71,7 +71,7 @@ export default function HeroBanner({ game, heroOverride = null, bannerRef, banne
           onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0,0,0,0.65)' }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(0,0,0,0.45)' }}
         >
-          <i className="fas fa-arrow-left" style={{ marginRight: 6 }}></i>Back to Library
+          <i className="fas fa-arrow-left" style={{ marginRight: 6 }}></i>Back
         </button>
       </div>
 

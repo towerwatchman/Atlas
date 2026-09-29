@@ -214,6 +214,7 @@ function registerUpdateLinkHandlers() {
       if (!threadId) return { ok: false, error: "No F95 thread id for this game" };
       return await getUpdateLinks(threadId, { force });
     } catch (err) {
+      console.warn(`update-links-get failed for thread ${threadId ?? '?'}:`, err.message || err);
       return { ok: false, code: err.code || "", error: err.message || String(err) };
     }
   });

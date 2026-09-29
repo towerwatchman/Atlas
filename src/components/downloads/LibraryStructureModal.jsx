@@ -59,7 +59,8 @@ const previewPath = (pattern) =>
         .replace(/\{title\}/g, SAMPLE.title)
         .replace(/\{version\}/g, SAMPLE.version)
         .replace(/\{engine\}/g, 'RenPy')
-        .replace(/\{f95Id\}/g, '12345'),
+        .replace(/\{f95Id\}/g, '12345')
+        .replace(/\{atlasId\}/g, '6789'),
     )
     .filter(Boolean)
 

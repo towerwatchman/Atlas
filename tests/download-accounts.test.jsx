@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
 
 import DownloadAccounts from '../src/components/settings/DownloadAccounts.jsx'
 
@@ -38,6 +38,22 @@ const openModal = async () => {
   render(<DownloadAccounts />)
   const button = await screen.findByRole('button', { name: 'Add account' })
   fireEvent.click(button)
+}
+
+const gofileCard = {
+  id: 'gofile',
+  label: 'Gofile',
+  supportsAnonymous: true,
+  quotaWithoutAccount: true,
+  quotaTemplate: 'Transfer used: {used} of {cap} per 30 days',
+  hasAccount: false,
+  credentialFields: [],
+}
+
+const mockGofileCard = () => {
+  window.electronAPI.hostsList = vi.fn().mockResolvedValue({
+    ok: true, available: true, plugins: [gofileCard], accounts: [],
+  })
 }
 
 describe('DownloadAccounts host form', () => {
@@ -126,5 +142,61 @@ describe('DownloadAccounts host form', () => {
     fireEvent.click(screen.getByRole('button', { name: /Verify and save/ }))
     expect(await screen.findByText('MEGA rejected that password.')).toBeTruthy()
     expect(screen.getByLabelText(/Email/)).toBeTruthy()
+  })
+
+  it('shows an Add account that explains login is unsupported', async () => {
+    mockGofileCard()
+    // 4.4 GB used of a 1 TB allowance, decimal units like gofile.io.
+    window.electronAPI.hostsQuota = vi.fn().mockResolvedValue({
+      ok: true, used: 4400000000, cap: 1000000000000,
+    })
+    render(<DownloadAccounts />)
+    expect(await screen.findByText('Transfer used: 4.4 GB of 1.0 TB per 30 days')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+    expect(await screen.findByText('Account login is not supported for this host yet')).toBeTruthy()
+  })
+
+  it('dismisses the unsupported-login message after a few seconds', async () => {
+    mockGofileCard()
+    window.electronAPI.hostsQuota = vi.fn().mockResolvedValue({ ok: false })
+    render(<DownloadAccounts />)
+    const addButton = await screen.findByRole('button', { name: 'Add account' })
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(addButton)
+      expect(screen.getByText('Account login is not supported for this host yet')).toBeTruthy()
+      act(() => { vi.advanceTimersByTime(4000) })
+      expect(screen.queryByText('Account login is not supported for this host yet')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('renders used-only quota when the host reports no cap or template', async () => {
+    window.electronAPI.hostsList = vi.fn().mockResolvedValue({
+      ok: true,
+      available: true,
+      plugins: [{
+        id: 'gofile',
+        label: 'Gofile',
+        supportsAnonymous: true,
+        quotaWithoutAccount: true,
+        hasAccount: false,
+        credentialFields: [],
+      }],
+      accounts: [],
+    })
+    window.electronAPI.hostsQuota = vi.fn().mockResolvedValue({ ok: true, used: 4400000000, cap: null })
+    render(<DownloadAccounts />)
+    expect(await screen.findByText('Transfer used 4.4 GB')).toBeTruthy()
+  })
+
+  it('does not fetch quota for a login host with no account', async () => {
+    render(<DownloadAccounts />)
+    // The default plugins fixture is mega without an account: quota stays
+    // unfetched rather than failing against a missing session.
+    await screen.findByRole('button', { name: 'Add account' })
+    await waitFor(() => expect(window.electronAPI.hostsList).toHaveBeenCalled())
+    expect(window.electronAPI.hostsQuota).not.toHaveBeenCalled()
   })
 })

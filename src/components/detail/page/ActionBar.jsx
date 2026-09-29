@@ -160,7 +160,7 @@ export default function ActionBar({
         {showBack && (
           <button
             onClick={onBack}
-            title="Back to Library"
+            title="Back"
             style={{
               ...ACTION_BTN,
               background: 'var(--color-primary, #19191c)',

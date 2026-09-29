@@ -132,7 +132,6 @@ const Interface = () => {
   const handleDebugConsoleChange = () => {
     setShowDebugConsole(!showDebugConsole);
     saveSettings({ showDebugConsole: !showDebugConsole });
-    alert("Changing the debug console setting requires a restart.");
   };
 
   const handleStartupUpdateCheckChange = () => {
@@ -290,6 +289,7 @@ const Interface = () => {
         override this for a single query.
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
+      {/* Applies live, no restart needed. */}
       <div className="flex items-center mb-2">
         <label className="flex-1">Show debug console window</label>
         <input
@@ -299,9 +299,6 @@ const Interface = () => {
           onChange={handleDebugConsoleChange}
         />
       </div>
-      <p className="text-xs opacity-50 mb-2">
-        Enabling or Disabling the debug console will require a restart
-      </p>
       <div className="border-t border-text opacity-25 my-2"></div>
       <div className="flex items-center mb-2">
         <label className="flex-1">Enable adult (18+) content in Browse mode</label>

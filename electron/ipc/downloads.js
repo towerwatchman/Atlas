@@ -156,6 +156,24 @@ function registerDownloadsHandlers(ctx = {}) {
     }
   });
 
+  // Folder listing for the update modal's picker. The modal cannot probe itself
+  // (renderer has no plugin access), and the queue only takes single files.
+  ipcMain.handle("downloads-list-folder", async (event, { url } = {}) => {
+    try {
+      if (!url) return { ok: false, error: "No URL supplied" };
+      const plugin = pluginFor(url);
+      if (!plugin) return { ok: false, error: "No plugin for this host" };
+      const result = await plugin.probe(url, credentialStore.getCredentials(plugin.id));
+      if (!result?.ok) return { ok: false, error: result?.error || "Could not read this folder" };
+      if (result.choices) return { ok: true, choices: result.choices };
+      // Single file: hand the direct URL back so the modal queues it without
+      // a second probe spending guest budget.
+      return { ok: true, directUrl: result.directUrl, fileName: result.fileName, fileSize: result.fileSize };
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
+  });
+
   // Version suggestion for the install prompt. Lives here rather than in the
   // renderer because it reconciles the archive filename against the catalog's
   // version, and the parser and the record both sit on this side.

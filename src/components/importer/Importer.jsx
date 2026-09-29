@@ -995,6 +995,7 @@ const Importer = () => {
           engine: groups.engine || '',
           f95Id: groups.f95id || '',
           lcId: groups.lcid || '',
+          atlasId: groups.atlasid || '',
         }
         if (!cancelled) {
           setLivePreview({

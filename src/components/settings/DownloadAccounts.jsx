@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import HostIcon from '../downloads/HostIcon.jsx'
 
 // ── Settings: Download Accounts ──────────────────────────────────────────────
@@ -30,6 +30,24 @@ function formatBytes(value) {
   return `${scaled.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
 }
 
+// Quota renders decimal to match the host's own site.
+function formatQuotaBytes(value) {
+  const bytes = Number(value) || 0
+  if (bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1000)))
+  const scaled = bytes / 1000 ** index
+  return `${scaled.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
+}
+function formatQuota(plugin, quota) {
+  const used = formatQuotaBytes(quota.used)
+  const cap = quota.cap != null ? formatQuotaBytes(quota.cap) : null
+  if (cap != null && plugin.quotaTemplate) {
+    return plugin.quotaTemplate.replace('{used}', used).replace('{cap}', cap)
+  }
+  return cap != null ? `Transfer used ${used} of ${cap}` : `Transfer used ${used}`
+}
+
 // A machine with SHA-NI hashes tens of gigabytes per second across all threads,
 // so MB/s stops being readable well before the top of the range.
 function formatThroughput(mbPerSecond) {
@@ -53,6 +71,9 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [quota, setQuota] = useState(null)
+  const [infoMsg, setInfoMsg] = useState('')
+  const infoTimer = useRef(null)
+  useEffect(() => () => clearTimeout(infoTimer.current), [])
   // A centred modal rather than a panel expanding inside the card, matching the
   // site accounts above (Accounts.jsx / AddAccountModal). Signing in to a host
   // is the same kind of act as signing in to a site, and MEGA's form is three
@@ -69,7 +90,8 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
   const hasAccount = Boolean(account)
 
   const loadQuota = useCallback(async () => {
-    if (!hasAccount) return
+    // Gofile reports free usage with no login, so its card loads either way.
+    if (!hasAccount && !plugin.quotaWithoutAccount) return
     try {
       const result = await window.electronAPI.hostsQuota?.({ hostId: plugin.id })
       if (result?.ok) setQuota(result)
@@ -77,7 +99,7 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
       // A quota readout is informational; failing to get one is not an error
       // worth showing.
     }
-  }, [plugin.id, hasAccount])
+  }, [plugin.id, plugin.quotaWithoutAccount, hasAccount])
 
   useEffect(() => { loadQuota() }, [loadQuota])
 
@@ -163,8 +185,7 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
           </p>
           {quota?.ok && (quota.cap != null || quota.used != null) && (
             <p className="text-[11px] text-muted mt-0.5">
-              Transfer used {formatBytes(quota.used)}
-              {quota.cap != null && ` of ${formatBytes(quota.cap)}`}
+              {formatQuota(plugin, quota)}
             </p>
           )}
         </div>
@@ -189,6 +210,21 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
             >
               {hasAccount ? 'Replace' : 'Add account'}
             </button>
+          )}
+          {fields.length === 0 && !hasAccount && (
+            <span title="Account login is not supported for this host yet">
+              <button
+                type="button"
+                onClick={() => {
+                  setInfoMsg('Account login is not supported for this host yet')
+                  clearTimeout(infoTimer.current)
+                  infoTimer.current = setTimeout(() => setInfoMsg(''), 4000)
+                }}
+                className="h-8 px-3 text-xs rounded-buttonTheme bg-accentMuted hover:bg-accentHover text-white"
+              >
+                Add account
+              </button>
+            </span>
           )}
         </div>
       </div>
@@ -256,6 +292,7 @@ function HostCard({ plugin, account, available, onSaved, onRemoved }) {
       {/* The modal owns the error while it is open, and a failed save keeps it
           open, so the card only reports the outcome that closed it. */}
       {notice && <p className="text-xs text-success mt-2">{notice}</p>}
+      {infoMsg && <p className="text-xs text-warning mt-2">{infoMsg}</p>}
       {modalOpen && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
