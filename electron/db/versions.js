@@ -17,6 +17,7 @@ const {
 const { extractUrlId } = require('./urlIdExtractor')
 const { normalizeTagText, normalizeTagList } = require('./tagTokens')
 const { tokenPredicate, tagColumnExpr, stripSpaces, escapeLike } = require('./tagFilterSql')
+const { buildBlacklistExclusionSql } = require('./blacklistSql')
 
 // A search payload may carry `fields` (current) or `type` (legacy, still in
 // saved_filters.json). Neither means "use the default set".
@@ -1594,6 +1595,10 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
                 WHERE wishlist.steam_id IS NOT NULL AND wishlist.steam_id = catalog.steam_id)
       )`);
     }
+    // Same clause as buildIndexWhere in catalogIndex.js. Without it a blacklisted
+    // title reappears whenever Browse falls back to this path (index not ready
+    // yet, updateAvailable, or a fast-path error).
+    filterWhereParts.push(buildBlacklistExclusionSql('catalog', 'catalog.is_installed = 1'));
     // Generated from ratingCategories.js. The previous literal version listed
     // the columns by hand, still counted fappability, and treated an explicit 0
     // as a real score, so rating one category 0 dragged the average down instead

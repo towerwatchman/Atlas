@@ -871,8 +871,20 @@ const App = () => {
         return { ...prev, isWishlisted: !prev.isWishlisted }
       })
     }
+    if (data.action === 'blacklistGame') {
+      // The success path needs nothing here: the main process broadcasts
+      // blacklist-updated and handleBlacklistUpdated refetches Browse. Only a
+      // failure is read, because no broadcast follows one and the title would
+      // otherwise just stay put with no explanation.
+      window.electronAPI.runContextAction?.(data).then((result) => {
+        if (result?.success === false) {
+          toast.error('Could not blacklist this game', { message: result.error || 'Unknown error' })
+        }
+      })
+      return
+    }
     window.electronAPI.runContextAction?.(data)
-  }, [])
+  }, [toast])
 
   const selectGame = useCallback((game) => {
     setShowSearchSidebar(false)
@@ -1200,6 +1212,14 @@ const App = () => {
       })
     }
   }, [fetchWishlistGames, libraryMode])
+
+  // The detail page for a title that was just blacklisted has nothing left to
+  // show, so it closes back to the grid. Refreshing Browse is left to the
+  // blacklist-updated broadcast, the same one a Settings removal or a
+  // context-menu blacklist sends, so there is one refresh path, not three.
+  const handleBlacklisted = useCallback(() => {
+    setSelectedGame(null)
+  }, [])
 
   const toggleSearchSidebar = useCallback(() => {
     if (selectedGame) return
@@ -1774,9 +1794,26 @@ const App = () => {
       })
     }
 
+    // Sent after any blacklist write, from any window. Browse is refetched from
+    // the first page rather than patched: its row set and total are decided by
+    // the exclusion in the catalog SQL, and dropping one row out of the sparse
+    // array would shift every page already loaded behind it. The wishlist is
+    // re-read only when blacklisting actually removed an entry from it.
+    const handleBlacklistUpdated = (payload) => {
+      if (browseAvailableRef.current) {
+        fetchCatalogGames({ search: catalogSearchRef.current, filters: catalogQueryFiltersRef.current })
+      }
+      if (payload?.removedFromWishlist === true) {
+        fetchWishlistGames()
+        loadWishlistIdentities()
+      }
+    }
+
     window.electronAPI.onWindowStateChanged(handleWindowStateChanged)
     const removeWishlistUpdatedListener =
       window.electronAPI.onWishlistUpdated?.(handleWishlistUpdated)
+    const removeBlacklistUpdatedListener =
+      window.electronAPI.onBlacklistUpdated?.(handleBlacklistUpdated)
     window.electronAPI.onDbUpdateProgress(handleDbUpdateProgress)
     window.electronAPI.onImportProgress(handleImportProgress)
     window.electronAPI.onGameImported(handleGameImported)
@@ -1864,6 +1901,7 @@ const App = () => {
       if (typeof removeCollectionBulkTagListener === 'function') removeCollectionBulkTagListener()
       if (typeof removeRateTitleListener === 'function') removeRateTitleListener()
       if (typeof removeWishlistUpdatedListener === 'function') removeWishlistUpdatedListener()
+      if (typeof removeBlacklistUpdatedListener === 'function') removeBlacklistUpdatedListener()
       window.removeEventListener('resize', debounceResize)
       ;[
         'window-state-changed', 'db-update-progress', 'import-progress',
@@ -2352,6 +2390,7 @@ const App = () => {
               onBack={goBackToLibrary}
               onRefresh={refreshDetailGame}
               onWishlistChanged={handleWishlistChanged}
+              onBlacklisted={handleBlacklisted}
               openRatingFor={pendingRatingRecordId}
               onRatingOpened={() => setPendingRatingRecordId(null)}
             />

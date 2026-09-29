@@ -81,7 +81,7 @@ test('catalog rows get a wishlist toggle', () => {
       versions: [],
     },
   })
-  expect(labels(items)).toEqual(['Links', 'Add to Wishlist'])
+  expect(labels(items)).toEqual(['Links', 'Add to Wishlist', 'Blacklist'])
 })
 
 test('wishlisted catalog rows get Remove from Wishlist', () => {
@@ -94,7 +94,7 @@ test('wishlisted catalog rows get Remove from Wishlist', () => {
       versions: [],
     },
   })
-  expect(labels(items)).toEqual(['Links', 'Remove from Wishlist'])
+  expect(labels(items)).toEqual(['Links', 'Remove from Wishlist', 'Blacklist'])
 })
 
 test('wishlist toggle action payload carries every identity field', () => {
@@ -279,8 +279,45 @@ test('every action the menu emits has a case in handleContextAction', () => {
     collectionIdsByRecord: new Map([[7, [2]]]),
   })
 
-  const unhandled = [...collect(items)].filter((action) => !handled.has(action))
+  // Browse rows take a different branch (wishlist toggle, blacklist) that the
+  // local game above never reaches.
+  const catalogItems = buildGameContextMenu({
+    game: { title: 'Catalog Game', isCatalogEntry: true, f95_id: 1, versions: [] },
+  })
+
+  const unhandled = [...collect(items), ...collect(catalogItems)].filter((action) => !handled.has(action))
   expect(unhandled).toEqual([])
+})
+
+// Browse blacklist: offered on every row without a local record. Installed
+// titles are never hidden by the exclusion, so a local row does not get it.
+test('a Browse row can be blacklisted', () => {
+  const items = buildGameContextMenu({
+    game: { title: 'Unwanted', isCatalogEntry: true, isMetadataOnly: true, f95_id: 321, versions: [] },
+  })
+  const blacklist = find(items, 'Blacklist')
+  expect(blacklist).toBeDefined()
+  expect(blacklist.danger).toBe(true)
+  expect(blacklist.data).toMatchObject({ action: 'blacklistGame', f95_id: 321, title: 'Unwanted' })
+})
+
+test('local rows are not offered Blacklist, even when wishlisted', () => {
+  expect(labels(buildGameContextMenu({ game: localGame() }))).not.toContain('Blacklist')
+  expect(labels(buildGameContextMenu({ game: localGame({ isWishlisted: true }) }))).not.toContain('Blacklist')
+  const installedBrowseRow = buildGameContextMenu({
+    game: { title: 'Owned', isCatalogEntry: true, hasInstalledVersion: true, f95_id: 9, versions: [] },
+  })
+  expect(labels(installedBrowseRow)).not.toContain('Blacklist')
+})
+
+test('the blacklist payload carries the gog id and cannot be hijacked', () => {
+  const items = buildGameContextMenu({
+    game: { title: 'Store', isCatalogEntry: true, gog_id: 1207658924, action: 'deleteGame', overview: 'long', versions: [] },
+  })
+  const { data } = find(items, 'Blacklist')
+  expect(data.gog_id).toBe(1207658924)
+  expect(data.action).toBe('blacklistGame')
+  expect(data.versions).toBeUndefined()
 })
 
 test('the main process exposes a dispatch entry point with ctx', () => {
@@ -433,7 +470,7 @@ test('catalog rows still get their links', () => {
       versions: [],
     },
   })
-  expect(labels(items)).toEqual(['Links', 'Add to Wishlist'])
+  expect(labels(items)).toEqual(['Links', 'Add to Wishlist', 'Blacklist'])
   expect(find(items, 'Links').submenu[0].data.url).toBe('https://store.steampowered.com/app/440')
 })
 

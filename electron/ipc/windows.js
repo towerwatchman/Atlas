@@ -189,6 +189,28 @@ async function handleContextAction(data, sender, ctx) {
       });
       break;
     }
+    case "blacklistGame": {
+      // Unlike toggleWishlist there is no optimistic flip in the renderer to
+      // reconcile -- a title cannot be hidden from a sparse grid in place -- so
+      // the broadcast goes out only when the write landed, and a failure is
+      // returned so the renderer can say so instead of the click doing nothing.
+      const { addBlacklistEntry } = require("../db/blacklist");
+      let result;
+      try {
+        result = await addBlacklistEntry(data);
+      } catch (err) {
+        console.error("blacklistGame failed", err);
+        return { success: false, error: err?.message || String(err) };
+      }
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send("blacklist-updated", {
+            removedFromWishlist: result?.removedFromWishlist === true,
+          });
+        }
+      });
+      return result;
+    }
     case "collectionBulkTagRequested": {
       // Same round-trip as rename/delete: a native menu cannot host a form, so
       // the renderer owns the dialog and already knows which records belong to

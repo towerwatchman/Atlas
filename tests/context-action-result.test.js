@@ -15,6 +15,9 @@ let launchCalls = []
 let broadcastCalls = []
 let toggleWishlistResult
 let toggleWishlistCalls = []
+let blacklistBroadcasts = []
+let blacklistResult
+let blacklistCalls = []
 
 beforeEach(() => {
   ipcHandlers.clear()
@@ -22,6 +25,9 @@ beforeEach(() => {
   broadcastCalls = []
   toggleWishlistCalls = []
   toggleWishlistResult = async () => ({ success: true })
+  blacklistBroadcasts = []
+  blacklistCalls = []
+  blacklistResult = async () => ({ success: true, isBlacklisted: true, removedFromWishlist: false })
 
   const electronStub = {
     ipcMain: { handle: (channel, fn) => ipcHandlers.set(channel, fn) },
@@ -31,6 +37,7 @@ beforeEach(() => {
         webContents: {
           send: (channel, payload) => {
             if (channel === 'wishlist-updated') broadcastCalls.push(payload)
+            if (channel === 'blacklist-updated') blacklistBroadcasts.push(payload)
           },
         },
       }],
@@ -59,6 +66,14 @@ beforeEach(() => {
         toggleWishlistEntry: async (entry) => {
           toggleWishlistCalls.push(entry)
           return toggleWishlistResult(entry)
+        },
+      }
+    }
+    if (request === '../db/blacklist') {
+      return {
+        addBlacklistEntry: async (entry) => {
+          blacklistCalls.push(entry)
+          return blacklistResult(entry)
         },
       }
     }
@@ -187,5 +202,29 @@ describe('run-context-action', () => {
     expect(toggleWishlistCalls).toHaveLength(1)
     expect(toggleWishlistCalls[0].f95_id).toBe(44821)
     expect(toggleWishlistCalls[0].title).toBe('Foo')
+  })
+
+  // Browse refreshes only on blacklist-updated, so a successful blacklist that
+  // did not broadcast would leave the title on screen until something else
+  // refetched the catalog.
+  test('blacklistGame writes the entry and broadcasts blacklist-updated', async () => {
+    blacklistResult = async () => ({ success: true, isBlacklisted: true, removedFromWishlist: true })
+    const run = register()
+    const result = await run({ sender: null }, { action: 'blacklistGame', f95_id: 321, title: 'Unwanted' })
+    expect(blacklistCalls).toHaveLength(1)
+    expect(blacklistCalls[0]).toMatchObject({ f95_id: 321, title: 'Unwanted' })
+    expect(result.success).toBe(true)
+    expect(blacklistBroadcasts).toEqual([{ removedFromWishlist: true }])
+  })
+
+  // No optimistic flip exists to reconcile, so a failure broadcasts nothing and
+  // is returned instead -- App.jsx toasts it.
+  test('a failed blacklist is returned, not broadcast', async () => {
+    blacklistResult = async () => { throw new Error('db is gone') }
+    const run = register()
+    const result = await run({ sender: null }, { action: 'blacklistGame', f95_id: 321 })
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('db is gone')
+    expect(blacklistBroadcasts).toEqual([])
   })
 })

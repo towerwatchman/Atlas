@@ -592,6 +592,36 @@ const initializeDatabase = (dataDir) => {
     db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_f95_id ON wishlist_entries(f95_id);`, () => {});
     db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_lc_id ON wishlist_entries(lc_id);`, () => {});
     db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_steam_id ON wishlist_entries(steam_id);`, () => {});
+    // Browse titles the user never wants to see again. Kept separate from
+    // wishlist_entries (rather than a flag on it) because the two lists are
+    // mutually exclusive and the wishlist's rows are hydrated and installable,
+    // which a blacklisted title must never be. Only the ids the Browse exclusion
+    // matches on and what the Settings list displays are stored.
+    db.run(`
+      CREATE TABLE IF NOT EXISTS blacklist_entries
+      (
+        blacklist_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        identity_key TEXT NOT NULL UNIQUE,
+        source TEXT NOT NULL,
+        atlas_id INTEGER,
+        f95_id INTEGER,
+        lc_id INTEGER,
+        steam_id INTEGER,
+        gog_id INTEGER,
+        title TEXT NOT NULL,
+        creator TEXT,
+        banner_url TEXT,
+        site_url TEXT,
+        blacklisted_at INTEGER NOT NULL
+      );
+    `);
+    // The Browse exclusion (electron/db/blacklistSql.js) probes this table once
+    // per provider id for every catalog row; unindexed, each probe is a scan.
+    db.run(`CREATE INDEX IF NOT EXISTS idx_blacklist_entries_atlas_id ON blacklist_entries(atlas_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_blacklist_entries_f95_id ON blacklist_entries(f95_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_blacklist_entries_lc_id ON blacklist_entries(lc_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_blacklist_entries_steam_id ON blacklist_entries(steam_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_blacklist_entries_gog_id ON blacklist_entries(gog_id);`);
     // User-set manual source IDs (F95 / Steam / LewdCorner) entered from the
     // game properties Mappings tab. Stored as a JSON blob on the per-game
     // override row so it survives metadata refreshes and is independent of the

@@ -125,6 +125,9 @@ const isArchiveSourcePath = (sourcePath = '', archiveExtensions = ['zip', '7z', 
 
 const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRatingFor = null,
   onRatingOpened,
+  // Called after a successful blacklist so App can close this page; the title
+  // it shows is about to disappear from Browse.
+  onBlacklisted = null,
   // Raised to App so the mirror picker survives navigation. Update All
   // drives it across many games, and a modal owned by this page would
   // drag the detail view along with each one.
@@ -139,6 +142,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   const [failedPreviews, setFailedPreviews] = useState(() => new Set())
   const [isWishlisted, setIsWishlisted] = useState(game?.isWishlisted === true)
   const [wishlistBusy, setWishlistBusy] = useState(false)
+  const [blacklistBusy, setBlacklistBusy] = useState(false)
   const [isFavorite, setIsFavorite] = useState(game?.isFavorite === true || game?.is_favorite === 1)
   const [favoriteBusy, setFavoriteBusy] = useState(false)
   const [selectedVersion, setSelectedVersion] = useState(null)
@@ -623,6 +627,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   // Wishlist rows are catalog rows (electron/db/wishlist.js sets isCatalogEntry),
   // so the catalog flag alone covers them. The old isWishlistEntry flag is gone.
   const canManageWishlist = game.isCatalogEntry === true
+  // Same rule as the context menu (gameContextMenu.js): the Browse exclusion
+  // never hides an installed title, so the button is not offered for one.
+  const canBlacklist = canManageWishlist && game.hasInstalledVersion !== true
   const canLaunch = Boolean(
     actionVersion &&
     actionVersion.isInstalled !== false &&
@@ -1056,6 +1063,25 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
     }
   }
 
+  // Blacklisting is one-way from here (undone only in Settings > Blacklist), so
+  // unlike the wishlist toggle there is no local on/off state to keep: on
+  // success the page asks App to close it, and the blacklist-updated broadcast
+  // from the main process refreshes Browse.
+  const blacklistGame = async () => {
+    if (!canBlacklist || blacklistBusy) return
+    setBlacklistBusy(true)
+    try {
+      const result = await window.electronAPI.addBlacklistEntry?.(game)
+      if (!result?.success) throw new Error(result?.error || 'Blacklist update failed')
+      onBlacklisted?.(result, game)
+    } catch (err) {
+      console.error('Failed to blacklist game:', err)
+      alert(`Failed to blacklist this game: ${err.message || err}`)
+    } finally {
+      setBlacklistBusy(false)
+    }
+  }
+
   const toggleFavorite = async () => {
     if (!canManageFavorite || favoriteBusy) return
     const nextFavorite = !isFavorite
@@ -1257,6 +1283,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         canManageWishlist={canManageWishlist}
         isWishlisted={isWishlisted}
         wishlistBusy={wishlistBusy}
+        canBlacklist={canBlacklist}
+        blacklistBusy={blacklistBusy}
+        onBlacklist={blacklistGame}
         canManageFavorite={canManageFavorite}
         isFavorite={isFavorite}
         favoriteBusy={favoriteBusy}
