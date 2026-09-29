@@ -79,6 +79,17 @@ describe('buildStructuredImportPath', () => {
     const out = T.buildStructuredImportPath('/lib', '{lcid}', { lcId: 'LC9' })
     expect(out).toBe(path.join('/lib', 'LC9'))
   })
+
+  it('supports atlasid from camelCase or snake_case, any casing', () => {
+    expect(T.buildStructuredImportPath('/lib', '{atlasId}', { atlasId: '456' })).toBe(path.join('/lib', '456'))
+    expect(T.buildStructuredImportPath('/lib', '{atlasId}', { atlas_id: 456 })).toBe(path.join('/lib', '456'))
+    expect(T.buildStructuredImportPath('/lib', '{AtlasID}', { atlasId: '456' })).toBe(path.join('/lib', '456'))
+  })
+
+  it('falls back to Unknown for a missing atlas id, even mid-segment', () => {
+    const out = T.buildStructuredImportPath('/lib', '{title} [{atlasId}]/{version}', { title: 'My Game', version: '1.0' })
+    expect(out).toBe(path.join('/lib', 'My Game [Unknown]', '1.0'))
+  })
 })
 
 
@@ -121,7 +132,7 @@ test('downloads-install passes required fields in buildStructuredImportPath', ()
   if (!obj) throw new Error('buildStructuredImportPath was not given an object literal')
 
   const keys = obj.properties.map((p) => p.key.name)
-  const required = ['f95Id', 'engine', 'creator', 'title', 'version']
+  const required = ['f95Id', 'atlasId', 'engine', 'creator', 'title', 'version']
 
   for (const key of required) {
     expect(keys).toContain(key)

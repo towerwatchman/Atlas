@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { keepsBothVersions, bannerTargetFor } from '../src/components/downloads/cardFacts.js'
+import { keepsBothVersions, downloadBannerTarget, downloadCatalogRef } from '../src/components/downloads/cardFacts.js'
 
 // ── Two bugs, one root cause ─────────────────────────────────────────────────
 //
@@ -41,31 +41,42 @@ describe('keepsBothVersions', () => {
   })
 })
 
-describe('bannerTargetFor', () => {
+describe('downloadBannerTarget', () => {
   const game = { hasInstalledVersion: false }
   const installedGame = { hasInstalledVersion: true }
 
-  it('opens the game in Atlas once installed', () => {
-    expect(bannerTargetFor({ game: installedGame, threadUrl: 'https://t/', hostUrl: 'https://h/' }))
-      .toBe('game')
+  it('opens the library entry once installed', () => {
+    expect(downloadBannerTarget({ game: installedGame, catalogRef: 'catalog:1' })).toBe('game')
   })
 
-  it('opens the thread while it is not installed', () => {
-    expect(bannerTargetFor({ game, threadUrl: 'https://t/', hostUrl: 'https://h/' })).toBe('thread')
+  it('opens Browse when the entry is known', () => {
+    expect(downloadBannerTarget({ game, catalogRef: 'catalog:1' })).toBe('catalog')
+    expect(downloadBannerTarget({ game: null, catalogRef: 'catalog:steam:480' })).toBe('catalog')
   })
 
-  it('still opens the game page when a library game has no thread', () => {
-    // Regression guard. Before the click targets landed, ANY row with a game
-    // record opened the game page; requiring a thread url made Steam imports and
-    // local titles -- which have no forum link -- silently dead.
-    expect(bannerTargetFor({ game, threadUrl: '', hostUrl: '' })).toBe('game')
+  it('falls back to the library row when there is one', () => {
+    // Local titles have no Browse entry.
+    expect(downloadBannerTarget({ game, catalogRef: null })).toBe('game')
   })
 
-  it('falls back to the host page when there is no library record', () => {
-    expect(bannerTargetFor({ game: null, threadUrl: '', hostUrl: 'https://h/' })).toBe('host')
+  it('is inert only when there is nowhere to go', () => {
+    expect(downloadBannerTarget({ game: null, catalogRef: null })).toBeNull()
+  })
+})
+
+describe('downloadCatalogRef', () => {
+  it('passes the stored ref through', () => {
+    expect(downloadCatalogRef({ catalogRef: 'catalog:steam:480' }, null))
+      .toBe('catalog:steam:480')
   })
 
-  it('is inert only when there is genuinely nowhere to go', () => {
-    expect(bannerTargetFor({ game: null, threadUrl: '', hostUrl: '' })).toBeNull()
+  it('falls back to the atlas id', () => {
+    expect(downloadCatalogRef({}, { atlas_id: 30956 })).toBe('catalog:30956')
+    expect(downloadCatalogRef({}, { atlasId: 30956 })).toBe('catalog:30956')
+  })
+
+  it('returns null when there is nothing to open', () => {
+    expect(downloadCatalogRef({}, null)).toBeNull()
+    expect(downloadCatalogRef({}, {})).toBeNull()
   })
 })

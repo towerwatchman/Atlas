@@ -5,7 +5,7 @@ import HostIcon from './HostIcon.jsx'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
 import { describeBuild } from './linkSections.js'
 import { threadUrlForGame } from './threadUrl.js'
-import { keepsBothVersions, bannerTargetFor } from './cardFacts.js'
+import { keepsBothVersions, downloadBannerTarget, downloadCatalogRef } from './cardFacts.js'
 
 // ── Downloads page ───────────────────────────────────────────────────────────
 //
@@ -528,16 +528,13 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
       ? (item.totalBytes - item.receivedBytes) / rate
       : null
     const transferring = item.state === 'downloading'
-    // Where the banner goes. Installed titles open inside Atlas; everything else
-    // opens the thread it came from, which is the page a user wants while they
-    // are still deciding. A download with no library record -- Browse, wishlist --
-    // has neither, and the banner stays inert rather than becoming a dead link.
-    const gameThreadUrl = threadUrlForGame(game)
-    // The download's own page on the host, behind the host name. Guarded on the
-    // scheme: a row can carry a non-http url and opening one externally is not
-    // something to do on the strength of a substring.
+    // Banner stays in-app. Installed opens the library entry, otherwise the Browse entry when known.
+    const catalogRef = downloadCatalogRef(item, game)
+    const bannerTarget = downloadBannerTarget({ game, catalogRef })
     const hostUrl = /^https?:\/\//i.test(String(item.url || '')) ? item.url : ''
-    const bannerTarget = bannerTargetFor({ game, threadUrl: gameThreadUrl, hostUrl })
+    const threadUrl = threadUrlForGame(game)
+    const buildDesc = describeBuild(item.buildLabel)
+    const buildChipClass = 'inline-block max-w-full truncate rounded border border-border bg-tertiary/50 px-1.5 py-0.5 text-[11px] text-text'
     const working = WORKING_STATES.includes(item.state)
     const errored = item.state === 'failed' || item.state === 'install_failed'
     const tone = errored ? 'danger' : item.state === 'done' ? 'success' : 'accent'
@@ -549,23 +546,15 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
       >
         <button
           type="button"
-          onClick={() => {
+          onClick={async () => {
             if (bannerTarget === 'game') onOpenGame?.(game)
-            else if (bannerTarget === 'thread') window.electronAPI.openExternalUrl?.(gameThreadUrl)
-            else if (bannerTarget === 'host') window.electronAPI.openExternalUrl?.(hostUrl)
+            else if (bannerTarget === 'catalog') {
+              const result = await window.electronAPI.getCatalogEntry?.(catalogRef)
+              if (result?.success) onOpenGame?.(result.game)
+            }
           }}
           disabled={!bannerTarget}
-          // Said out loud, because one control doing two different things with
-          // no visible difference is otherwise a coin flip for the user.
-          title={
-            bannerTarget === 'game'
-              ? `Open ${item.title} in Atlas`
-              : bannerTarget === 'thread'
-                ? `Open the ${item.title} thread in your browser`
-                : bannerTarget === 'host'
-                  ? `Open this download's page on ${item.host || 'the host'}`
-                  : undefined
-          }
+          title={bannerTarget ? 'Open game entry in Atlas' : undefined}
           className={bannerTarget ? 'cursor-pointer' : 'cursor-default'}
         >
           <Cover game={game} item={item} title={item.title} />
@@ -582,11 +571,24 @@ export default function DownloadsPage({ gamesByRecordId = new Map(), onOpenGame,
               running them together is what made an old season, a compressed
               build and the current one three identical-looking rows. Rendered
               only when the row actually recorded one - see describeBuild. */}
-          {describeBuild(item.buildLabel) && (
+          {buildDesc && (
             <div className="mt-1">
-              <span className="inline-block max-w-full truncate rounded border border-border bg-tertiary/50 px-1.5 py-0.5 text-[11px] text-text">
-                {describeBuild(item.buildLabel)}
-              </span>
+              {threadUrl || catalogRef ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const url = threadUrl
+                      || threadUrlForGame((await window.electronAPI.getCatalogEntry?.(catalogRef))?.game)
+                    if (url) window.electronAPI.openExternalUrl?.(url)
+                  }}
+                  title="Open source thread for this download"
+                  className={`${buildChipClass} cursor-pointer hover:bg-highlight hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-accent`}
+                >
+                  {buildDesc}
+                </button>
+              ) : (
+                <span className={buildChipClass}>{buildDesc}</span>
+              )}
             </div>
           )}
 

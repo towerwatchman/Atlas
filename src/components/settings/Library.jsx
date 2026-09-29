@@ -277,7 +277,7 @@ const Library = () => {
         <p className="text-xs opacity-60 mt-1">
           Used when imports are moved or archives are extracted into the default
           library folder. Options: {"{creator}"}, {"{title}"}, {"{version}"},{" "}
-          {"{engine}"}, {"{f95Id}"}.
+          {"{engine}"}, {"{f95Id}"}, {"{atlasId}"}.
           <br />
           Example: {"{f95Id}/{creator}/{title}/{version}"}
         </p>
