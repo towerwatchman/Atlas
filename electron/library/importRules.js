@@ -73,6 +73,7 @@ function buildStructuredImportPath(targetLibrary, format, game) {
           if (key === "version") return normalizeVersionName(game.version);
           if (key === "engine") return game.engine || "Unknown";
           if (key === "f95id") return game.f95Id || "Unknown";
+          if (key === "atlasid") return game.atlasId || game.atlas_id || "Unknown";
           if (key === "lcid" || key === "lewdcornerid") return game.lcId || game.lewdCornerId || "Unknown";
           return "Unknown";
         }),

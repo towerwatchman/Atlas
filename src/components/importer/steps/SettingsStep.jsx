@@ -31,6 +31,7 @@ export default function SettingsStep({
     { label: 'Creator / Title - Version', value: '{creator}/{title} - {version}' },
     { label: 'Title / Version, Creator', value: '{title}/{version},{creator}' },
     { label: 'F95 ID / Title / Version', value: '{f95Id}/{title}/{version}' },
+    { label: 'Atlas ID / Title / Version', value: '{atlasId}/{title}/{version}' },
     { label: 'LewdCorner ID / Title / Version', value: '{lcId}/{title}/{version}' },
   ]
   // "Auto detect" (unstructured name guessing) has been removed for now, so the
@@ -167,6 +168,7 @@ export default function SettingsStep({
                 ['Engine', livePreview.fields.engine, false],
                 ['F95 ID', livePreview.fields.f95Id, false],
                 ['LC ID', livePreview.fields.lcId, false],
+                ['Atlas ID', livePreview.fields.atlasId, false],
               ].filter(([, value, always]) => always || value).map(([label, value]) => (
                 <div key={label} className="min-w-0">
                   <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
@@ -221,7 +223,7 @@ export default function SettingsStep({
                   onChange={(e) => setLibraryFormat(e.target.value)}
                   spellCheck={false}
                   placeholder="{creator}/{title}/{version}"
-                  title="Destination path template. Tokens: {creator} {title} {version} {f95Id} {lcId}"
+                  title="Destination path template. Tokens: {creator} {title} {version} {f95Id} {lcId} {atlasId}"
                   className="sm:ml-2 flex-1 min-w-0 bg-secondary text-text border border-border rounded-buttonTheme p-1 focus:outline-none focus:ring-1 focus:ring-accent font-mono text-xs"
                 />
               </div>

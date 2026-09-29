@@ -4771,6 +4771,7 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
         currentConfig?.Library?.libraryFolderStructure,
         {
           f95Id: record.f95_id || record.f95Id || "",
+          atlasId: record.atlas_id || record.atlasId || "",
           engine: record.engine || "Unknown",
           creator: record.creator,
           title: record.title,
