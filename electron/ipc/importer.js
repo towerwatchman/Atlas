@@ -2007,7 +2007,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
       await fsp.mkdir(path.dirname(targetBase), { recursive: true });
       await fsp.cp(sourcePath, targetBase, { recursive: true });
       gamePath = targetBase;
-      const execs = findExecutables(gamePath, extensions);
+      const execs = await findExecutables(gamePath, extensions);
       relativeExec = execs[0] || "";
       execPath = relativeExec ? path.join(gamePath, relativeExec) : "";
     } else if (sourceIsArchive) {
@@ -2048,7 +2048,7 @@ ipcMain.handle("import-catalog-entry", async (event, payload = {}) => {
         await fsp.rmdir(subPath).catch(() => {});
       }
 
-      const execs = findExecutables(gamePath, extensions);
+      const execs = await findExecutables(gamePath, extensions);
       relativeExec = execs[0] || "";
       execPath = relativeExec ? path.join(gamePath, relativeExec) : "";
     } else if (stat.isFile()) {
@@ -2273,7 +2273,7 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
       await fsp.mkdir(path.dirname(targetBase), { recursive: true });
       await fsp.cp(sourcePath, targetBase, { recursive: true });
       gamePath = targetBase;
-      const execs = findExecutables(gamePath, extensions);
+      const execs = await findExecutables(gamePath, extensions);
       console.log("[LocalImport] Folder executable scan", { gamePath, execCount: execs.length, execs });
       relativeExec = execs[0] || "";
       execPath = relativeExec ? path.join(gamePath, relativeExec) : "";
@@ -2314,7 +2314,7 @@ ipcMain.handle("import-local-game-version", async (event, payload = {}) => {
         await fsp.rmdir(subPath).catch(() => {});
         console.log("[LocalImport] Flattened single archive root", { gamePath, subPath });
       }
-      const execs = findExecutables(gamePath, extensions);
+      const execs = await findExecutables(gamePath, extensions);
       console.log("[LocalImport] Archive executable scan", { gamePath, execCount: execs.length, execs });
       relativeExec = execs[0] || "";
       execPath = relativeExec ? path.join(gamePath, relativeExec) : "";
@@ -3482,7 +3482,7 @@ ipcMain.handle("import-games", async (event, params) => {
 
         // ── Find executables after extraction ────────────────────────────────
         const { findExecutables } = require("../scanners/executableScanner");
-        let execs = findExecutables(extractPath, gameExt);
+        let execs = await findExecutables(extractPath, gameExt);
 
         // Clean up common unwanted root-level folders
         const foldersToRemove = ["__MACOSX", "__LINUX"];
@@ -3529,7 +3529,7 @@ ipcMain.handle("import-games", async (event, params) => {
           } catch {}
 
           // Re-scan executables after flattening
-          execs = findExecutables(extractPath, gameExt);
+          execs = await findExecutables(extractPath, gameExt);
         }
 
         // ── Executable selection ─────────────────────────────────────────────
@@ -3551,6 +3551,8 @@ ipcMain.handle("import-games", async (event, params) => {
             total: 100,
           });
         } else {
+          // Helpful log when there are multiple executables, so the user can see what the chooser is presenting to report for blacklist
+          console.log(`Multiple executables for ${game.title}: ${execs.join(', ')}`);
           selectedExec = await new Promise((resolve) => {
             let settled = false;
             const finish = (value) => {
@@ -4769,6 +4771,7 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
         currentConfig?.Library?.libraryFolderStructure,
         {
           f95Id: record.f95_id || record.f95Id || "",
+          atlasId: record.atlas_id || record.atlasId || "",
           engine: record.engine || "Unknown",
           creator: record.creator,
           title: record.title,
@@ -4821,7 +4824,7 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
     await downloadManager.setItemState(id, "importing");
 
     const extensions = getConfiguredGameExtensions(currentConfig);
-    const relativeExec = findExecutables(gamePath, extensions)[0] || "";
+    const relativeExec = (await findExecutables(gamePath, extensions))[0] || "";
     const execPath = relativeExec ? path.join(gamePath, relativeExec) : "";
     const folderSize = await calculatePathSizeSafe(gamePath);
 

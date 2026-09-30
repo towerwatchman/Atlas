@@ -1,4 +1,5 @@
 import { buildFolderRegex } from '../folderRegex.js'
+import EditablePathField from '../../ui/EditablePathField.jsx'
 
 // Checkbox + label row used throughout the settings form. Defined at module
 // scope so it isn't re-created (and its children re-mounted) on every render.
@@ -18,7 +19,7 @@ export default function SettingsStep({
   moveFoldersToLibrary, deleteSourceArchiveAfterImport, autoSelectLatestReplaceVersion,
   defaultLibraryPath, askingForLibraryFolder,
   libraryFormat, setLibraryFormat,
-  onSelectFolder, onStartScan, onOpenHelp, livePreview,
+  onSelectFolder, onPickScanFolder, setFolder, saveImporterDefaults, onStartScan, onOpenHelp, livePreview,
   setCustomFormat, setUseUnstructured, setGameExt, setArchiveExt,
   setIncludeArchives, setUseCustomRegex, setCustomRegex,
   setDownloadBannerImages, setDownloadPreviewImages, setMoveFoldersToLibrary,
@@ -30,6 +31,7 @@ export default function SettingsStep({
     { label: 'Creator / Title - Version', value: '{creator}/{title} - {version}' },
     { label: 'Title / Version, Creator', value: '{title}/{version},{creator}' },
     { label: 'F95 ID / Title / Version', value: '{f95Id}/{title}/{version}' },
+    { label: 'Atlas ID / Title / Version', value: '{atlasId}/{title}/{version}' },
     { label: 'LewdCorner ID / Title / Version', value: '{lcId}/{title}/{version}' },
   ]
   // "Auto detect" (unstructured name guessing) has been removed for now, so the
@@ -62,10 +64,14 @@ export default function SettingsStep({
     <div className="space-y-4 flex-1">
       <div className={fieldRow}>
         <label className={fieldLabel}>Game Path:</label>
-        <input type="text" value={folder} readOnly className="sm:ml-2 flex-1 min-w-0 bg-secondary text-text border border-border rounded-buttonTheme p-1 focus:outline-none focus:ring-1 focus:ring-accent" />
-        <button onClick={onSelectFolder} className="sm:ml-2 bg-accent hover:bg-accentHover text-white rounded-buttonTheme px-3 py-1 transition-colors" style={{ pointerEvents: 'auto', zIndex: 1000 }}>
-          Set Folder
-        </button>
+        <EditablePathField
+          value={folder}
+          mode="directory"
+          pickerLabel="Set Folder"
+          onPick={onPickScanFolder || onSelectFolder}
+          onSave={(p) => { setFolder?.(p); saveImporterDefaults?.({ sourceGamePath: p }) }}
+          wrapperClassName="sm:ml-2 flex-1 min-w-0 flex gap-2"
+        />
       </div>
 
       <div className={fieldRow}>
@@ -162,6 +168,7 @@ export default function SettingsStep({
                 ['Engine', livePreview.fields.engine, false],
                 ['F95 ID', livePreview.fields.f95Id, false],
                 ['LC ID', livePreview.fields.lcId, false],
+                ['Atlas ID', livePreview.fields.atlasId, false],
               ].filter(([, value, always]) => always || value).map(([label, value]) => (
                 <div key={label} className="min-w-0">
                   <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
@@ -216,7 +223,7 @@ export default function SettingsStep({
                   onChange={(e) => setLibraryFormat(e.target.value)}
                   spellCheck={false}
                   placeholder="{creator}/{title}/{version}"
-                  title="Destination path template. Tokens: {creator} {title} {version} {f95Id} {lcId}"
+                  title="Destination path template. Tokens: {creator} {title} {version} {f95Id} {lcId} {atlasId}"
                   className="sm:ml-2 flex-1 min-w-0 bg-secondary text-text border border-border rounded-buttonTheme p-1 focus:outline-none focus:ring-1 focus:ring-accent font-mono text-xs"
                 />
               </div>

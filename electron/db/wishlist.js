@@ -202,6 +202,8 @@ const mapWishlistRow = (row = {}) => {
     atlas_logo: firstText(row.current_atlas_logo) || null,
     preview_urls: firstText(row.preview_urls, row.current_atlas_previews, row.current_f95_screens, row.current_lewdcorner_screens) || null,
     flagged_at: row.flagged_at,
+    date_added: row.flagged_at,
+    dateAdded: row.flagged_at,
     note: row.note,
     versions: [],
     versionCount: 0,
@@ -211,7 +213,6 @@ const mapWishlistRow = (row = {}) => {
     isUpdateAvailable: false,
     isCatalogEntry: true,
     isMetadataOnly: true,
-    isWishlistEntry: true,
     isWishlisted: true,
   }
 }
@@ -579,4 +580,8 @@ module.exports = {
   getWishlistEntries,
   getWishlistEntryIdentities,
   normalizeWishlistEntry,
+  // Exported for electron/db/blacklist.js, which needs a blacklisted row to
+  // carry every provider id the catalog knows so the Browse exclusion can hide
+  // the same title's rows from the other sources too.
+  resolveMissingIds,
 }

@@ -347,6 +347,73 @@ const mirror = (n) => `<a href="https://f95zone.to/masked/mega.nz/1/2/s/i/p${n}"
 }
 
 {
+  // The SIBLING case, which the nested guard above does not cover. LA: Streets
+  // of Sorcery (thread 265629) writes `<b>Win</b>/<b>Linux</b>: <a>...</a>`, two
+  // bolds joined by a slash. Each ran applyHeadingLines separately and the
+  // second REPLACED the platform, so the only Windows-capable build in the post
+  // was labelled Linux-only and every one of its mirrors failed the platform
+  // filter. Fifteen live links, an empty modal, and no message saying why.
+  const parsed = parseThreadDownloads(wrapBody(
+    `<b>DOWNLOAD</b><br /><b>Win</b>/<b>Linux</b>: ${mirror(1)}`));
+  assert.deepStrictEqual(parsed.downloads.map((l) => l.platform), ["Win/Linux"],
+    "sibling bolds joined by a separator are one heading");
+  assert.deepStrictEqual(parsed.downloads.map((l) => l.group), [""],
+    "and the merged platform line is still a platform, not a build label");
+  checks += 2;
+
+  // Proof the merge is what did it: on a Windows box the build now survives
+  // selection. Before, all of it was rejected as "targets linux".
+  const selection = selectDownloadableLinks(parsed.downloads, { platform: "win32" });
+  check(selection.singles.length === 1, "a Win/Linux build is offerable on Windows");
+  check(selection.hiddenPlatform.links === 0, "and is not counted as hidden");
+}
+
+{
+  // WHITESPACE IS NOT GLUE. `<b>Season 2</b> <b>Win/Linux</b>` renders on one
+  // line too, but those are two headings - a build and a platform - and merging
+  // them rebuilds the single mixed "Season 2 Win/Linux" string that headingLines
+  // was written to eliminate. Only a separator the poster typed counts.
+  const parsed = parseThreadDownloads(wrapBody(
+    `<b>DOWNLOAD</b><br /><b>Season 2</b> <b>Win/Linux</b> ${mirror(1)}`));
+  assert.deepStrictEqual(parsed.downloads.map((l) => `${l.group}|${l.platform}`),
+    ["Season 2|Win/Linux"],
+    "a space between bolds keeps the build and platform on separate axes");
+  checks += 1;
+}
+
+{
+  // An <a> in the gap ends the run: the first heading has already produced a
+  // link, so the second bold opens a new one. Merging across it would give the
+  // Mac mirror the label "Win/Mac" and offer a Mac build to a Windows user.
+  const parsed = parseThreadDownloads(wrapBody(
+    `<b>DOWNLOAD</b><br /><b>Win</b>: ${mirror(1)} - <b>Mac</b>: ${mirror(2)}`));
+  assert.deepStrictEqual(parsed.downloads.map((l) => l.platform), ["Win", "Mac"],
+    "a link in the gap breaks the bold run");
+  checks += 1;
+}
+
+{
+  // A <br> in the gap is a line break by definition, separator or not.
+  const parsed = parseThreadDownloads(wrapBody(
+    `<b>DOWNLOAD</b><br /><b>Season 1</b>-<br /><b>Win/Linux</b> ${mirror(1)}`));
+  assert.deepStrictEqual(parsed.downloads.map((l) => `${l.group}|${l.platform}`),
+    ["Season 1|Win/Linux"],
+    "a <br> in the gap is never glue");
+  checks += 1;
+}
+
+{
+  // Merging happens on HTML, so the <br> split inside the merged run still
+  // works: the build line survives and only the platform line is joined.
+  const parsed = parseThreadDownloads(wrapBody(
+    `<b>DOWNLOAD</b><br /><b>Season 1<br>Win</b>/<b>Linux</b> ${mirror(1)}`));
+  assert.deepStrictEqual(parsed.downloads.map((l) => `${l.group}|${l.platform}`),
+    ["Season 1|Win/Linux"],
+    "merging a bold run does not flatten the lines inside it");
+  checks += 1;
+}
+
+{
   // Three-level nesting, from Being a DIK. Before the part axis, "Part 1" was an
   // unrecognised line and therefore a BUILD: it replaced "SPLIT-S3" and cleared
   // "Win/Linux", so the Win/Linux Part 1 and the Mac Part 1 were identical

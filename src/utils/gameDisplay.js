@@ -69,6 +69,7 @@ export const normalizeGameForRenderer = (game) => {
     lastPlayed: safeNumber(game.lastPlayed ?? game.last_played_r),
     totalPlaytime: safeNumber(game.totalPlaytime ?? game.total_playtime),
     lastInstalled: safeNumber(game.lastInstalled),
+    dateAdded: safeNumber(game.dateAdded ?? game.date_added ?? game.flagged_at ?? game.flaggedAt),
     totalFolderSize: safeNumber(game.totalFolderSize),
     isUpdateAvailable: game.isUpdateAvailable === true,
     isFavorite: game.isFavorite === true || game.is_favorite === 1,

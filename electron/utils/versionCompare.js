@@ -253,6 +253,12 @@ function parseVersion(raw) {
  * Compare two parsed descriptors.
  * @returns {number|null} 1 if a>b, -1 if a<b, 0 if equal, null if incomparable.
  */
+// Does this descriptor use any progression LABEL at all (as opposed to a bare
+// semver)? Used to tell a within-scheme comparison from a cross-scheme one.
+function hasAnyLabel(v) {
+  return !!(v.season || v.chapter || v.episode || v.part);
+}
+
 function compareParsed(a, b) {
   // Terminal dominates everything in-progress.
   if (a.terminal || b.terminal) {
@@ -273,6 +279,36 @@ function compareParsed(a, b) {
   }
   // One structured, one not → incomparable.
   if (a.hasStructure !== b.hasStructure) return null;
+
+  // CROSS-SCHEME: one side carries a progression label and the other is bare
+  // semver. The label axes rank above semver, and a missing axis counts as 0,
+  // so walking the hierarchy here lets the labelled side win on an axis the
+  // other side never uses. "Season 1 & 2 - 0.8.3" therefore ranked ABOVE
+  // "0.11.1" (season [2] vs [0]) and above the "v0.12.0" latest, which is how a
+  // Being a DIK library holding 0.8.3 and 0.11.1 showed no update at all: the
+  // stale 0.8.3 folder won getIsUpdateAvailable's newest-comparable scan and
+  // masked the 0.11.1 that genuinely was behind.
+  //
+  // When BOTH sides carry a semver, the label is packaging rather than
+  // progression - the developer's real axis is the number, and the season is a
+  // folder-naming artifact - so compare on semver and ignore the labels.
+  //
+  // When the labelled side has no semver ("Season 2" alone), there is nothing
+  // numeric to line up against and no honest ordering exists, so say so rather
+  // than guess. getIsUpdateAvailable drops incomparable installs from its scan,
+  // which is exactly the right handling.
+  //
+  // This only fires when the two sides disagree about using labels AT ALL.
+  // Within one scheme ("Ch.2" vs "Ch.2 Ep.1") the hierarchy below still runs
+  // unchanged, so a deeper label still reads as newer than a shallower one.
+  if (hasAnyLabel(a) !== hasAnyLabel(b)) {
+    if (!a.semver || !b.semver) return null;
+    const c = cmpArray(a.semver, b.semver);
+    if (c !== 0) return c;
+    if (a.letter !== b.letter) return a.letter > b.letter ? 1 : -1;
+    if (a.qualifier !== b.qualifier) return a.qualifier > b.qualifier ? 1 : -1;
+    return 0;
+  }
 
   // Hierarchy: season → chapter → episode → part → semver → letter → qualifier.
   const keys = ["season", "chapter", "episode", "part", "semver"];

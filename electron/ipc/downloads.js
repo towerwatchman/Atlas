@@ -19,7 +19,7 @@ const appLog = require("../appLog");
 const downloadsDb = require("../db/downloads");
 const manager = require("../downloads/downloadManager");
 const credentialStore = require("../downloads/credentialStore");
-const { getPlugin, listPlugins } = require("../downloads/hosts");
+const { getPlugin, listPlugins, pluginFor } = require("../downloads/hosts");
 const { resolveMaskedLink } = require("../downloads/maskedResolver");
 const { toLocalRecordId } = require("../downloads/recordId");
 const { toCatalogRef } = require("../library/catalogRef");
@@ -122,17 +122,53 @@ function registerDownloadsHandlers(ctx = {}) {
       }
       const cookieHeader = accountStore.getCookieHeaderForUrl(url) || "";
       const parentWindow = BrowserWindow.fromWebContents(event.sender);
-      const result = await resolveMaskedLink(url, { parentWindow, cookieHeader, title });
+      const plugin = pluginFor ? pluginFor(url) : null;
+      const resolveStart = Date.now();
+      const result = await resolveMaskedLink(url, {
+        parentWindow,
+        cookieHeader,
+        title,
+        gateHosts: plugin?.gateHosts,
+        requiresBrowser: plugin?.requiresBrowser,
+      });
+      // Kept from before this host was added, and now carrying the two fields
+      // the Buzzheavier paths introduced. These are the first real signal that
+      // the hidden attempt works and that hx-redirect / will-download land
+      // where they should; dropping the log would make a regression in either
+      // invisible.
       if (result?.diagnostics) {
         console.log("[masked-resolve]", JSON.stringify({
           ok: result.ok,
           host: result.host,
           hasFragment: result.hasFragment,
           source: result.source,
+          plugin: plugin?.id || null,
+          directHost: result.directHost,
+          leftGateHost: result.leftGateHost,
+          cdnPath: result.cdnPath,
+          ms: Date.now() - resolveStart,
           ...result.diagnostics,
         }));
       }
       return result;
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
+  });
+
+  // Folder listing for the update modal's picker. The modal cannot probe itself
+  // (renderer has no plugin access), and the queue only takes single files.
+  ipcMain.handle("downloads-list-folder", async (event, { url } = {}) => {
+    try {
+      if (!url) return { ok: false, error: "No URL supplied" };
+      const plugin = pluginFor(url);
+      if (!plugin) return { ok: false, error: "No plugin for this host" };
+      const result = await plugin.probe(url, credentialStore.getCredentials(plugin.id));
+      if (!result?.ok) return { ok: false, error: result?.error || "Could not read this folder" };
+      if (result.choices) return { ok: true, choices: result.choices };
+      // Single file: hand the direct URL back so the modal queues it without
+      // a second probe spending guest budget.
+      return { ok: true, directUrl: result.directUrl, fileName: result.fileName, fileSize: result.fileSize };
     } catch (err) {
       return { ok: false, error: err.message || String(err) };
     }

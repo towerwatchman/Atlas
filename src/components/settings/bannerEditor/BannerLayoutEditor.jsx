@@ -30,6 +30,328 @@ const ICON_FIELDS = new Set([
   'likes', 'views', 'downloads', 'comments', 'lastUpdated', 'favorite', 'wishlist',
 ])
 
+// Per-field inspector for the Layout tab. Defined at module scope (not inside
+// the editor's render body) so its identity stays stable across re-renders: a
+// component defined inside a render body is a NEW component type every render,
+// which makes React unmount and rebuild its whole subtree — including any open
+// native colour picker. Threading the editor's state in as props instead of
+// closing over it keeps the module-scope identity constant.
+function Inspector({
+  field,
+  fieldLabels,
+  slotLabels,
+  badgeFields,
+  enabledPanelSides,
+  eyedropperAvailable,
+  onFieldChange,
+  onRemoveField,
+  onResetField,
+  onPickColor,
+  onSelectField,
+}) {
+  if (!field) {
+    return (
+      <div className="border border-border rounded p-3 bg-secondary/60">
+        <p className="text-sm opacity-60">Select a field to edit it.</p>
+      </div>
+    )
+  }
+  const region = field.region || 'image'
+  if (field.type === 'divider') {
+    return (
+      <div className="border border-border rounded p-3 bg-secondary/60 space-y-3">
+        <div className="font-medium">{field.orientation === 'vertical' ? '│ Vertical line' : '─ Horizontal line'}</div>
+        <label className="block text-sm">
+          Orientation
+          <select className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.orientation || 'horizontal'} onChange={(e) => onFieldChange(field.id, { orientation: e.target.value })}>
+            <option value="horizontal">Horizontal (full row)</option>
+            <option value="vertical">Vertical</option>
+          </select>
+        </label>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <label className="block">
+            Panel
+            <select className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={region} onChange={(e) => onFieldChange(field.id, { region: e.target.value })}>
+              <option value="bottom">Bottom</option>
+              <option value="top">Top</option>
+              <option value="left">Left</option>
+              <option value="right">Right</option>
+            </select>
+          </label>
+          <label className="block">
+            Row
+            <input type="number" min="0" max="30" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.row ?? 0} onChange={(e) => onFieldChange(field.id, { row: Number(e.target.value) })} />
+          </label>
+        </div>
+        <label className="block text-sm">
+          Thickness ({field.lineSize ?? 2}px)
+          <input type="range" min="1" max="20" step="1" className="mt-2 w-full" value={field.lineSize ?? 2} onChange={(e) => onFieldChange(field.id, { lineSize: Number(e.target.value) })} />
+        </label>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <label className="block">
+            Padding top
+            <input type="number" min="0" max="48" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.padding?.top ?? 2} onChange={(e) => onFieldChange(field.id, { padding: { ...field.padding, top: Number(e.target.value) } })} />
+          </label>
+          <label className="block">
+            Padding bottom
+            <input type="number" min="0" max="48" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.padding?.bottom ?? 2} onChange={(e) => onFieldChange(field.id, { padding: { ...field.padding, bottom: Number(e.target.value) } })} />
+          </label>
+          <label className="block">
+            Padding left
+            <input type="number" min="0" max="48" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.padding?.left ?? 4} onChange={(e) => onFieldChange(field.id, { padding: { ...field.padding, left: Number(e.target.value) } })} />
+          </label>
+          <label className="block">
+            Padding right
+            <input type="number" min="0" max="48" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.padding?.right ?? 4} onChange={(e) => onFieldChange(field.id, { padding: { ...field.padding, right: Number(e.target.value) } })} />
+          </label>
+        </div>
+        <label className="block text-sm">
+          Color
+          <div className="mt-1 flex items-center gap-2">
+            <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.lineColor || '') ? field.lineColor : '#ffffff'} onChange={(e) => onFieldChange(field.id, { lineColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+            <input type="text" value={field.lineColor ?? '#ffffff'} onChange={(e) => onFieldChange(field.id, { lineColor: e.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="#ffffff" />
+            {eyedropperAvailable && (
+              <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { lineColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
+                <i className="fas fa-eye-dropper"></i>
+              </button>
+            )}
+          </div>
+        </label>
+        <button type="button" onClick={() => { onRemoveField?.(field.id); onSelectField?.('title') }} className="w-full text-sm bg-button hover:bg-danger hover:text-white px-3 py-1.5 rounded">Remove line</button>
+      </div>
+    )
+  }
+  const updateConditions = (patch) =>
+    onFieldChange(field.id, { conditions: { ...field.conditions, ...patch } })
+  const updateSourceCondition = (source, enabled) => {
+    const current = Array.isArray(field.conditions?.source) ? field.conditions.source : []
+    updateConditions({ source: enabled ? Array.from(new Set([...current, source])) : current.filter((s) => s !== source) })
+  }
+
+  return (
+    <div className="border border-border rounded p-3 bg-secondary/60 space-y-3">
+      <div className="font-medium">{fieldLabels[field.id]}</div>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={field.visible !== false} onChange={(e) => onFieldChange(field.id, { visible: e.target.checked })} />
+        Visible on banner
+      </label>
+
+      <label className="block text-sm">
+        Region
+        <select
+          className="mt-1 w-full bg-secondary border border-border text-text rounded p-1"
+          value={region}
+          onChange={(e) => onFieldChange(field.id, { region: e.target.value, visible: true })}
+        >
+          <option value="image">Image</option>
+          {BANNER_PANEL_SIDES.map((side) => (
+            <option key={side} value={side} disabled={!enabledPanelSides.includes(side)}>
+              {PANEL_LABELS[side]}{enabledPanelSides.includes(side) ? '' : ' (disabled)'}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {region === 'image' ? (
+        <label className="block text-sm">
+          Slot
+          <select
+            className="mt-1 w-full bg-secondary border border-border text-text rounded p-1"
+            value={field.slot}
+            onChange={(e) => onFieldChange(field.id, { slot: e.target.value, visible: true })}
+          >
+            {SUPPORTED_BANNER_SLOTS.map((slot) => (
+              <option key={slot} value={slot}>{slotLabels[slot]}</option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block text-sm">
+            Row
+            <input type="number" min="0" max="30" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.row ?? 0} onChange={(e) => onFieldChange(field.id, { row: Number(e.target.value) })} />
+          </label>
+          <label className="block text-sm">
+            Align
+            <select className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.align || 'left'} onChange={(e) => onFieldChange(field.id, { align: e.target.value })}>
+              {Object.entries(ALIGN_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block text-sm">
+          Offset X
+          <input type="number" min="-400" max="400" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.offsetX ?? 0} onChange={(e) => onFieldChange(field.id, { offsetX: Number(e.target.value) })} />
+        </label>
+        <label className="block text-sm">
+          Offset Y
+          <input type="number" min="-400" max="400" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.offsetY ?? 0} onChange={(e) => onFieldChange(field.id, { offsetY: Number(e.target.value) })} />
+        </label>
+      </div>
+
+      <label className="block text-sm">
+        Order (within its slot/row — lower shows first)
+        <input type="number" min="0" max="100" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.order ?? 0} onChange={(e) => onFieldChange(field.id, { order: Number(e.target.value) })} />
+      </label>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block text-sm">
+          Font size
+          <input type="number" min="8" max="24" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.fontSize ?? 12} onChange={(e) => onFieldChange(field.id, { fontSize: Number(e.target.value) })} />
+        </label>
+        <label className="flex items-end gap-2 text-sm pb-1">
+          <input type="checkbox" disabled={!badgeFields.has(field.id)} checked={badgeFields.has(field.id) && field.badge === true} onChange={(e) => onFieldChange(field.id, { badge: e.target.checked })} />
+          Badge style
+        </label>
+      </div>
+
+      {/* Text styling */}
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <label className="flex items-center gap-1.5">
+          <input type="checkbox" checked={field.bold === true} onChange={(e) => onFieldChange(field.id, { bold: e.target.checked })} />
+          <span className="font-bold">Bold</span>
+        </label>
+        <label className="flex items-center gap-1.5">
+          <input type="checkbox" checked={field.italic === true} onChange={(e) => onFieldChange(field.id, { italic: e.target.checked })} />
+          <span className="italic">Italic</span>
+        </label>
+        <label className="flex items-center gap-1.5">
+          <input type="checkbox" checked={field.textShadow === true} onChange={(e) => onFieldChange(field.id, { textShadow: e.target.checked })} />
+          Text shadow
+        </label>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <label className="block">
+          Border size
+          <input type="number" min="0" max="10" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.border?.width ?? 0} onChange={(e) => onFieldChange(field.id, { border: { ...field.border, width: Number(e.target.value) } })} />
+        </label>
+        <label className="block">
+          Border color
+          <div className="mt-1 flex items-center gap-2">
+            <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.border?.color || '') ? field.border.color : '#000000'} onChange={(e) => onFieldChange(field.id, { border: { ...field.border, color: e.target.value } })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+            <input type="text" value={field.border?.color ?? '#000000'} onChange={(e) => onFieldChange(field.id, { border: { ...field.border, color: e.target.value } })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="#000000" />
+            {eyedropperAvailable && (
+              <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { border: { ...field.border, color } }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
+                <i className="fas fa-eye-dropper"></i>
+              </button>
+            )}
+          </div>
+        </label>
+      </div>
+
+      {/* Text color */}
+      <label className="block text-sm">
+        Text color
+        <div className="mt-1 flex items-center gap-2">
+          <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.textColor || '') ? field.textColor : '#ffffff'} onChange={(e) => onFieldChange(field.id, { textColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+          <input type="text" value={field.textColor ?? ''} onChange={(e) => onFieldChange(field.id, { textColor: e.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="(default)" />
+          {eyedropperAvailable && (
+            <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { textColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
+              <i className="fas fa-eye-dropper"></i>
+            </button>
+          )}
+          <button type="button" title="Clear (default)" onClick={() => onFieldChange(field.id, { textColor: '' })} className="h-8 px-2 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover text-xs">Clear</button>
+        </div>
+      </label>
+
+      {/* Badge background color — only meaningful for badge-style fields.
+          Overrides the built-in engine/status/etc. palette. */}
+      {badgeFields.has(field.id) && field.badge === true && (
+        <label className="block text-sm">
+          Badge color
+          <div className="mt-1 flex items-center gap-2">
+            <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.badgeColor || '') ? field.badgeColor : '#3f4043'} onChange={(e) => onFieldChange(field.id, { badgeColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+            <input type="text" value={field.badgeColor ?? ''} onChange={(e) => onFieldChange(field.id, { badgeColor: e.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="(auto)" />
+            {eyedropperAvailable && (
+              <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { badgeColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
+                <i className="fas fa-eye-dropper"></i>
+              </button>
+            )}
+            <button type="button" title="Clear (auto)" onClick={() => onFieldChange(field.id, { badgeColor: '' })} className="h-8 px-2 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover text-xs">Clear</button>
+          </div>
+        </label>
+      )}
+
+      {/* Text outline (stroke around the glyphs) */}
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <label className="block">
+          Outline size
+          <input type="number" min="0" max="8" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.outline?.width ?? 0} onChange={(e) => onFieldChange(field.id, { outline: { ...field.outline, width: Number(e.target.value) } })} />
+        </label>
+        <label className="block">
+          Outline color
+          <div className="mt-1 flex items-center gap-2">
+            <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.outline?.color || '') ? field.outline.color : '#000000'} onChange={(e) => onFieldChange(field.id, { outline: { ...field.outline, color: e.target.value } })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
+            {eyedropperAvailable && (
+              <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { outline: { ...field.outline, color } }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
+                <i className="fas fa-eye-dropper"></i>
+              </button>
+            )}
+          </div>
+        </label>
+      </div>
+
+      {/* Icon size (only for fields that render an icon) */}
+      {ICON_FIELDS.has(field.id) && (
+        <label className="block text-sm">
+          Icon size ({Math.round((field.iconScale ?? 1) * 100)}% of text)
+          <input
+            type="range"
+            min="0.5"
+            max="3"
+            step="0.1"
+            className="mt-2 w-full"
+            value={field.iconScale ?? 1}
+            onChange={(e) => onFieldChange(field.id, { iconScale: Number(e.target.value) })}
+          />
+        </label>
+      )}
+
+      <button type="button" className="w-full bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={() => onResetField(field.id)}>
+        Reset this field
+      </button>
+
+      <details className="text-sm">
+        <summary className="cursor-pointer opacity-80">Advanced conditions</summary>
+        <div className="mt-2 space-y-2">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={field.hideWhenEmpty === true} onChange={(e) => onFieldChange(field.id, { hideWhenEmpty: e.target.checked })} />
+            Hide when empty
+          </label>
+          {[
+            ['localOnly', 'Local only'],
+            ...(BROWSE_MODE_ENABLED ? [['browseOnly', 'Browse only']] : []),
+            ['wishlistOnly', 'Wishlist only'],
+            ['installedOnly', 'Installed only'],
+            ['uninstalledOnly', 'Uninstalled only'],
+            ['updateOnly', 'Update only'],
+            ['favoriteOnly', 'Favorite only'],
+          ].map(([key, label]) => (
+            <label key={key} className="flex items-center gap-2">
+              <input type="checkbox" checked={field.conditions?.[key] === true} onChange={(e) => updateConditions({ [key]: e.target.checked })} />
+              {label}
+            </label>
+          ))}
+          <div>
+            <div className="text-xs opacity-60 mb-1">Source</div>
+            {['atlas', 'f95', 'steam', 'lewdcorner'].map((source) => (
+              <label key={source} className="mr-3 inline-flex items-center gap-1">
+                <input type="checkbox" checked={(field.conditions?.source || []).includes(source)} onChange={(e) => updateSourceCondition(source, e.target.checked)} />
+                {source}
+              </label>
+            ))}
+          </div>
+        </div>
+      </details>
+    </div>
+  )
+}
 const BannerLayoutEditor = ({
   layout,
   fieldLabels,
@@ -273,7 +595,19 @@ const BannerLayoutEditor = ({
 
         {/* ── Inspector ────────────────────────────────────────────── */}
         <div className="h-full min-h-0 overflow-y-auto pr-1">
-          <Inspector />
+          <Inspector
+            field={selectedField}
+            fieldLabels={fieldLabels}
+            slotLabels={slotLabels}
+            badgeFields={badgeFields}
+            enabledPanelSides={enabledPanelSides}
+            eyedropperAvailable={eyedropperAvailable}
+            onFieldChange={onFieldChange}
+            onRemoveField={onRemoveField}
+            onResetField={onResetField}
+            onPickColor={onPickColor}
+            onSelectField={setSelectedFieldId}
+          />
         </div>
       </div>
     </section>
@@ -341,312 +675,6 @@ const BannerLayoutEditor = ({
     )
   }
 
-  function Inspector() {
-    if (!selectedField) {
-      return (
-        <div className="border border-border rounded p-3 bg-secondary/60">
-          <p className="text-sm opacity-60">Select a field to edit it.</p>
-        </div>
-      )
-    }
-    const field = selectedField
-    const region = field.region || 'image'
-    if (field.type === 'divider') {
-      return (
-        <div className="border border-border rounded p-3 bg-secondary/60 space-y-3">
-          <div className="font-medium">{field.orientation === 'vertical' ? '│ Vertical line' : '─ Horizontal line'}</div>
-          <label className="block text-sm">
-            Orientation
-            <select className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.orientation || 'horizontal'} onChange={(e) => onFieldChange(field.id, { orientation: e.target.value })}>
-              <option value="horizontal">Horizontal (full row)</option>
-              <option value="vertical">Vertical</option>
-            </select>
-          </label>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <label className="block">
-              Panel
-              <select className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={region} onChange={(e) => onFieldChange(field.id, { region: e.target.value })}>
-                <option value="bottom">Bottom</option>
-                <option value="top">Top</option>
-                <option value="left">Left</option>
-                <option value="right">Right</option>
-              </select>
-            </label>
-            <label className="block">
-              Row
-              <input type="number" min="0" max="30" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.row ?? 0} onChange={(e) => onFieldChange(field.id, { row: Number(e.target.value) })} />
-            </label>
-          </div>
-          <label className="block text-sm">
-            Thickness ({field.lineSize ?? 2}px)
-            <input type="range" min="1" max="20" step="1" className="mt-2 w-full" value={field.lineSize ?? 2} onChange={(e) => onFieldChange(field.id, { lineSize: Number(e.target.value) })} />
-          </label>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <label className="block">
-              Padding top
-              <input type="number" min="0" max="48" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.padding?.top ?? 2} onChange={(e) => onFieldChange(field.id, { padding: { ...field.padding, top: Number(e.target.value) } })} />
-            </label>
-            <label className="block">
-              Padding bottom
-              <input type="number" min="0" max="48" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.padding?.bottom ?? 2} onChange={(e) => onFieldChange(field.id, { padding: { ...field.padding, bottom: Number(e.target.value) } })} />
-            </label>
-            <label className="block">
-              Padding left
-              <input type="number" min="0" max="48" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.padding?.left ?? 4} onChange={(e) => onFieldChange(field.id, { padding: { ...field.padding, left: Number(e.target.value) } })} />
-            </label>
-            <label className="block">
-              Padding right
-              <input type="number" min="0" max="48" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.padding?.right ?? 4} onChange={(e) => onFieldChange(field.id, { padding: { ...field.padding, right: Number(e.target.value) } })} />
-            </label>
-          </div>
-          <label className="block text-sm">
-            Color
-            <div className="mt-1 flex items-center gap-2">
-              <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.lineColor || '') ? field.lineColor : '#ffffff'} onChange={(e) => onFieldChange(field.id, { lineColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
-              <input type="text" value={field.lineColor ?? '#ffffff'} onChange={(e) => onFieldChange(field.id, { lineColor: e.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="#ffffff" />
-              {eyedropperAvailable && (
-                <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { lineColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
-                  <i className="fas fa-eye-dropper"></i>
-                </button>
-              )}
-            </div>
-          </label>
-          <button type="button" onClick={() => { onRemoveField?.(field.id); setSelectedFieldId('title') }} className="w-full text-sm bg-button hover:bg-danger hover:text-white px-3 py-1.5 rounded">Remove line</button>
-        </div>
-      )
-    }
-    const updateConditions = (patch) =>
-      onFieldChange(field.id, { conditions: { ...field.conditions, ...patch } })
-    const updateSourceCondition = (source, enabled) => {
-      const current = Array.isArray(field.conditions?.source) ? field.conditions.source : []
-      updateConditions({ source: enabled ? Array.from(new Set([...current, source])) : current.filter((s) => s !== source) })
-    }
-
-    return (
-      <div className="border border-border rounded p-3 bg-secondary/60 space-y-3">
-        <div className="font-medium">{fieldLabels[field.id]}</div>
-
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={field.visible !== false} onChange={(e) => onFieldChange(field.id, { visible: e.target.checked })} />
-          Visible on banner
-        </label>
-
-        <label className="block text-sm">
-          Region
-          <select
-            className="mt-1 w-full bg-secondary border border-border text-text rounded p-1"
-            value={region}
-            onChange={(e) => onFieldChange(field.id, { region: e.target.value, visible: true })}
-          >
-            <option value="image">Image</option>
-            {BANNER_PANEL_SIDES.map((side) => (
-              <option key={side} value={side} disabled={!enabledPanelSides.includes(side)}>
-                {PANEL_LABELS[side]}{enabledPanelSides.includes(side) ? '' : ' (disabled)'}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {region === 'image' ? (
-          <label className="block text-sm">
-            Slot
-            <select
-              className="mt-1 w-full bg-secondary border border-border text-text rounded p-1"
-              value={field.slot}
-              onChange={(e) => onFieldChange(field.id, { slot: e.target.value, visible: true })}
-            >
-              {SUPPORTED_BANNER_SLOTS.map((slot) => (
-                <option key={slot} value={slot}>{slotLabels[slot]}</option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block text-sm">
-              Row
-              <input type="number" min="0" max="30" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.row ?? 0} onChange={(e) => onFieldChange(field.id, { row: Number(e.target.value) })} />
-            </label>
-            <label className="block text-sm">
-              Align
-              <select className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.align || 'left'} onChange={(e) => onFieldChange(field.id, { align: e.target.value })}>
-                {Object.entries(ALIGN_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block text-sm">
-            Offset X
-            <input type="number" min="-400" max="400" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.offsetX ?? 0} onChange={(e) => onFieldChange(field.id, { offsetX: Number(e.target.value) })} />
-          </label>
-          <label className="block text-sm">
-            Offset Y
-            <input type="number" min="-400" max="400" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.offsetY ?? 0} onChange={(e) => onFieldChange(field.id, { offsetY: Number(e.target.value) })} />
-          </label>
-        </div>
-
-        <label className="block text-sm">
-          Order (within its slot/row \u2014 lower shows first)
-          <input type="number" min="0" max="100" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.order ?? 0} onChange={(e) => onFieldChange(field.id, { order: Number(e.target.value) })} />
-        </label>
-
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block text-sm">
-            Font size
-            <input type="number" min="8" max="24" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.fontSize ?? 12} onChange={(e) => onFieldChange(field.id, { fontSize: Number(e.target.value) })} />
-          </label>
-          <label className="flex items-end gap-2 text-sm pb-1">
-            <input type="checkbox" disabled={!badgeFields.has(field.id)} checked={badgeFields.has(field.id) && field.badge === true} onChange={(e) => onFieldChange(field.id, { badge: e.target.checked })} />
-            Badge style
-          </label>
-        </div>
-
-        {/* Text styling */}
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <label className="flex items-center gap-1.5">
-            <input type="checkbox" checked={field.bold === true} onChange={(e) => onFieldChange(field.id, { bold: e.target.checked })} />
-            <span className="font-bold">Bold</span>
-          </label>
-          <label className="flex items-center gap-1.5">
-            <input type="checkbox" checked={field.italic === true} onChange={(e) => onFieldChange(field.id, { italic: e.target.checked })} />
-            <span className="italic">Italic</span>
-          </label>
-          <label className="flex items-center gap-1.5">
-            <input type="checkbox" checked={field.textShadow === true} onChange={(e) => onFieldChange(field.id, { textShadow: e.target.checked })} />
-            Text shadow
-          </label>
-        </div>
-
-        {/* Field border */}
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <label className="block">
-            Border size
-            <input type="number" min="0" max="10" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.border?.width ?? 0} onChange={(e) => onFieldChange(field.id, { border: { ...field.border, width: Number(e.target.value) } })} />
-          </label>
-          <label className="block">
-            Border color
-            <div className="mt-1 flex items-center gap-2">
-              <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.border?.color || '') ? field.border.color : '#000000'} onChange={(e) => onFieldChange(field.id, { border: { ...field.border, color: e.target.value } })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
-              <input type="text" value={field.border?.color ?? '#000000'} onChange={(e) => onFieldChange(field.id, { border: { ...field.border, color: e.target.value } })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="#000000" />
-              {eyedropperAvailable && (
-                <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { border: { ...field.border, color } }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
-                  <i className="fas fa-eye-dropper"></i>
-                </button>
-              )}
-            </div>
-          </label>
-        </div>
-
-        {/* Text color */}
-        <label className="block text-sm">
-          Text color
-          <div className="mt-1 flex items-center gap-2">
-            <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.textColor || '') ? field.textColor : '#ffffff'} onChange={(e) => onFieldChange(field.id, { textColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
-            <input type="text" value={field.textColor ?? ''} onChange={(e) => onFieldChange(field.id, { textColor: e.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="(default)" />
-            {eyedropperAvailable && (
-              <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { textColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
-                <i className="fas fa-eye-dropper"></i>
-              </button>
-            )}
-            <button type="button" title="Clear (default)" onClick={() => onFieldChange(field.id, { textColor: '' })} className="h-8 px-2 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover text-xs">Clear</button>
-          </div>
-        </label>
-
-        {/* Badge background color — only meaningful for badge-style fields.
-            Overrides the built-in engine/status/etc. palette. */}
-        {badgeFields.has(field.id) && field.badge === true && (
-          <label className="block text-sm">
-            Badge color
-            <div className="mt-1 flex items-center gap-2">
-              <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.badgeColor || '') ? field.badgeColor : '#3f4043'} onChange={(e) => onFieldChange(field.id, { badgeColor: e.target.value })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
-              <input type="text" value={field.badgeColor ?? ''} onChange={(e) => onFieldChange(field.id, { badgeColor: e.target.value })} className="flex-1 min-w-0 bg-secondary border border-border text-text rounded p-1" placeholder="(auto)" />
-              {eyedropperAvailable && (
-                <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { badgeColor: color }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
-                  <i className="fas fa-eye-dropper"></i>
-                </button>
-              )}
-              <button type="button" title="Clear (auto)" onClick={() => onFieldChange(field.id, { badgeColor: '' })} className="h-8 px-2 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover text-xs">Clear</button>
-            </div>
-          </label>
-        )}
-
-        {/* Text outline (stroke around the glyphs) */}
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <label className="block">
-            Outline size
-            <input type="number" min="0" max="8" className="mt-1 w-full bg-secondary border border-border text-text rounded p-1" value={field.outline?.width ?? 0} onChange={(e) => onFieldChange(field.id, { outline: { ...field.outline, width: Number(e.target.value) } })} />
-          </label>
-          <label className="block">
-            Outline color
-            <div className="mt-1 flex items-center gap-2">
-              <input type="color" onClick={(e) => e.stopPropagation()} value={/^#[0-9a-fA-F]{6}$/.test(field.outline?.color || '') ? field.outline.color : '#000000'} onChange={(e) => onFieldChange(field.id, { outline: { ...field.outline, color: e.target.value } })} className="h-8 w-9 rounded bg-transparent cursor-pointer flex-shrink-0" />
-              {eyedropperAvailable && (
-                <button type="button" title="Pick a color from anywhere on screen" onClick={() => onPickColor?.((color) => onFieldChange(field.id, { outline: { ...field.outline, color } }))} className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded bg-button hover:bg-buttonHover">
-                  <i className="fas fa-eye-dropper"></i>
-                </button>
-              )}
-            </div>
-          </label>
-        </div>
-
-        {/* Icon size (only for fields that render an icon) */}
-        {ICON_FIELDS.has(field.id) && (
-          <label className="block text-sm">
-            Icon size ({Math.round((field.iconScale ?? 1) * 100)}% of text)
-            <input
-              type="range"
-              min="0.5"
-              max="3"
-              step="0.1"
-              className="mt-2 w-full"
-              value={field.iconScale ?? 1}
-              onChange={(e) => onFieldChange(field.id, { iconScale: Number(e.target.value) })}
-            />
-          </label>
-        )}
-
-        <button type="button" className="w-full bg-secondary border border-border text-text px-3 py-1 rounded hover:bg-tertiary" onClick={() => onResetField(field.id)}>
-          Reset this field
-        </button>
-
-        <details className="text-sm">
-          <summary className="cursor-pointer opacity-80">Advanced conditions</summary>
-          <div className="mt-2 space-y-2">
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={field.hideWhenEmpty === true} onChange={(e) => onFieldChange(field.id, { hideWhenEmpty: e.target.checked })} />
-              Hide when empty
-            </label>
-            {[
-              ['localOnly', 'Local only'],
-              ...(BROWSE_MODE_ENABLED ? [['browseOnly', 'Browse only']] : []),
-              ['wishlistOnly', 'Wishlist only'],
-              ['installedOnly', 'Installed only'],
-              ['uninstalledOnly', 'Uninstalled only'],
-              ['updateOnly', 'Update only'],
-              ['favoriteOnly', 'Favorite only'],
-            ].map(([key, label]) => (
-              <label key={key} className="flex items-center gap-2">
-                <input type="checkbox" checked={field.conditions?.[key] === true} onChange={(e) => updateConditions({ [key]: e.target.checked })} />
-                {label}
-              </label>
-            ))}
-            <div>
-              <div className="text-xs opacity-60 mb-1">Source</div>
-              {['atlas', 'f95', 'steam', 'lewdcorner'].map((source) => (
-                <label key={source} className="mr-3 inline-flex items-center gap-1">
-                  <input type="checkbox" checked={(field.conditions?.source || []).includes(source)} onChange={(e) => updateSourceCondition(source, e.target.checked)} />
-                  {source}
-                </label>
-              ))}
-            </div>
-          </div>
-        </details>
-      </div>
-    )
-  }
 }
 
 export default BannerLayoutEditor

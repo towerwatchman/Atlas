@@ -48,7 +48,7 @@ accepts("Win/Linux", "24678");
 // was the reported bug: Linux items showing up on a Windows machine.
 rejects("Linux", "5894 - Linux-only build on a Windows machine");
 accepts("Linux", "5894 - and accepted on Linux", { platform: 'linux' });
-rejects("Win", "Windows-only build on a Linux machine", { platform: 'linux' });
+accepts("Win", "Windows-only build is runnable on Linux via Wine", { platform: 'linux' });
 // A combined heading suits both, so it passes either way.
 accepts("Win/Linux", "combined heading on Linux", { platform: 'linux' });
 accepts("All", "3415");
@@ -296,4 +296,21 @@ checks += 8;
   checks += 3;
 }
 
+
+{
+  // On a Linux machine both Win AND Linux builds are offered; Mac still is not.
+  // The Win build is runnable there (electron/ipc/games.js resolveLinuxLaunch
+  // routes .exe through Wine), so rejecting it on this platform would hide a
+  // playable download.
+  const links = [
+    { host: "mega.nz", group: "Win", type: "game" },
+    { host: "mega.nz", group: "Linux", type: "game" },
+    { host: "mega.nz", group: "Mac", type: "game" },
+  ];
+  const result = selectDownloadableLinks(links, { platform: 'linux' });
+  assert.strictEqual(result.singles.length, 2, "Win and Linux both offered on Linux");
+  assert.strictEqual(result.rejected.length, 1, "only the Mac build is rejected");
+  assert.strictEqual(result.hiddenPlatform.links, 1, "the Mac build is reported as hidden");
+  checks += 3;
+}
 console.log(`Group classifier checks passed (${checks} assertions)`);

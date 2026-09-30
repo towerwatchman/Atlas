@@ -37,9 +37,14 @@ function originFor(url) {
 // Confirmed against a real thread: shares are posted as bzzhr.to. An earlier
 // guess of bzzhr.co matched nothing.
 const LINK_PATTERNS = [
-  /buzzheavier\.com\/(?:f\/)?([a-zA-Z0-9]{4,})/i,
-  /bzzhr\.to\/(?:f\/)?([a-zA-Z0-9]{4,})/i,
-  /bzzhr\.co\/(?:f\/)?([a-zA-Z0-9]{4,})/i,
+  /(?:^|\/\/|\.)(?:buzzheavier\.com|bzzhr\.(?:to|co))\/(?:f\/)?([a-zA-Z0-9]{4,})/i,
+   // A /d/ URL (ts.bzzhr.to/d/<id>) is the DIRECT CDN link the browser resolve
+   // hands back. It is matched separately, purely so the id can be read.
+   // It must never drive a re-resolve: startTransfer treats
+  // an already-resolved CDN link as final (see resolvedLink.js) and probe()
+  // short-circuits /d/ URLs below, so this pattern cannot start the loop the
+  // old comment warned about.
+  /(?:^|\/\/|\.)(?:buzzheavier\.com|bzzhr\.(?:to|co))\/(?:d\/)([a-zA-Z0-9]{4,})/i,
 ];
 
 // Their own site routes are pages, not shares.
@@ -59,6 +64,7 @@ function fileIdFrom(url) {
     const match = text.match(pattern);
     if (match && !SITE_ROUTES.test(match[1])) return match[1];
   }
+  // A null here is what surfaces as "Could not read a file id from this link".
   return null;
 }
 
@@ -119,6 +125,20 @@ function classifyError(err, { status = 0, body = null } = {}) {
  * following it would begin the transfer inside the probe.
  */
 async function probe(url, credentials = {}) {
+  // A /d/ CDN link (ts.bzzhr.to/d/<id>) is the OUTPUT of a successful browser
+  // resolve - it is already the file, not a share to resolve again. Returning
+  // it as a passthrough stops any caller that reaches probe with one (and would
+  // otherwise hit the /d/ file-id path) from re-resolving in a loop.
+  if (/\/d\/[a-zA-Z0-9]/.test(String(url || ""))) {
+    return {
+      ok: true,
+      directUrl: String(url).split(/[?#]/)[0],
+      fileName: "",
+      fileSize: 0,
+      passthrough: true,
+    };
+  }
+
   const fileId = fileIdFrom(url);
   if (!fileId) {
     return { ok: false, kind: "fatal", error: "Not a recognisable Buzzheavier link" };
@@ -269,16 +289,12 @@ module.exports = {
   // id - without the alias every Buzzheavier mirror is filtered out as
   // unsupported even though the plugin handles it.
   hostAliases: ["buzzheavier", "bzzhr"],
-  // ── Hidden ────────────────────────────────────────────────────────────────
-  // Offered to nobody: supportedHostIds() and listPlugins() skip a disabled
-  // plugin, so no Buzzheavier mirror appears in the update modal and the host
-  // vanishes from Settings > Accounts.
-  //
-  // Disabled rather than deleted, and pluginFor()/getPlugin() still resolve it,
-  // so a download ALREADY in the queue finishes instead of failing with "no
-  // plugin for this host" on a link the user cannot re-obtain. Deleting the file
-  // would also throw away working code and its 30-odd tests.
-  disabled: true,
+
+  // Enabled: supportedHostIds() and listPlugins() include it, so Buzzheavier
+  // mirrors appear in the update modal and the host shows in Settings >
+  // Accounts. It shipped disabled while the Cloudflare gate could not be
+  // cleared; the browser resolve below is what changed that.
+
   // Cloudflare challenges the download route: it answers a plain fetch with
   // 403 + cf-mitigated: challenge, and asks for User-Agent Client Hints that
   // only a real browser supplies. Rather than impersonate one, the manager

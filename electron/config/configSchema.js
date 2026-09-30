@@ -208,6 +208,48 @@ const buildDefaultConfig = (dataDir = '') => ({
   NSFW: {
     enabled: false,
   },
+  // Endpoints + selectors used to scrape the logged-in LC user's membership
+  // tier. Kept in config so a markup or URL change can be addressed with a
+  // settings edit instead of a code change + release. Values are informational
+  // overrides of hardcoded defaults; a key left '' (or blank) falls back to the
+  // built-in default for that key.
+  //
+  // The statusPill OWNED token is the class-attribute fragment LC signals
+  // ownership with (verified Aug 2026: class "statusPill owned", text "Owned").
+  // statusPillClass is the ownership-pill container class itself — kept fully
+  // configurable so a future rename of either the container or the owned
+  // fragment is a settings edit, not a code change.
+  //
+  // This is a best-effort escape hatch: it only helps if LC retains the same
+  // page structure and changes just a URL or a class/text name here. A deeper
+  // restructure (different attribute, different element, redesigned markup)
+  // still needs a code edit to the parser.
+  LewdCorner: {
+    // Member-gated thread probed as a fallback when the shop page is
+    // unreachable or its parser yields no confident answer. Stored as a bare
+    // thread id (combined with the site base URL at runtime) so the config
+    // never advertises a clickable link.
+    lcProbeThreadId: 14057,
+    // Shop paths are stored without the site origin and combined with the base
+    // URL at runtime, keeping the config free of full clickable URLs.
+    lcUserTierPath: '/shop/index.php#user-ranks',
+    lcUserPrestigePath: '/shop/index.php?rank_bundle=prestige',
+    // Container + owned-token for the rank ownership pill.
+    lcStatusPillClass: 'statusPill',
+    lcStatusPillOwnedToken: 'owned',
+    lcStatusPillOwnedText: 'owned',
+    // How fresh the cached membership tier must be, in hours, before a re-scrape
+    // is skipped. The tier is scraped (a few requests) then held in the encrypted
+    // account blob keyed to tierCheckedAt; whenever a recheck — on startup, on the
+    // periodic timer, or a force — runs, it is skipped if the cached tier is newer
+    // than this window. So it bounds network traffic to at most one scrape per
+    // window regardless of how often the client is opened. 0 disables the periodic
+    // recheck entirely (startup + re-link still verify). This is a rolling window
+    // from the last successful check, not a fixed time of day. A promotion
+    // (Standard → Plus) is only noticed on the next recheck, and re-linking the
+    // account always forces a fresh scrape regardless of freshness.
+    lcTierRecheckHours: 24,
+  },
   WindowBounds: {},
 })
 

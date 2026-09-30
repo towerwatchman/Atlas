@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import EditablePathField from '../ui/EditablePathField.jsx'
 
 // Two ways to point a launcher at a game, because ".sh" and "game.sh" are
 // different questions. The extension mapping is the broad rule — run every
@@ -85,18 +86,6 @@ const EmulatorLauncher = () => {
     } catch (err) {
       console.error("Error saving emulator config:", err);
       alert("Failed to save emulator configuration.");
-    }
-  };
-
-  // Handle selecting a program file
-  const handleSelectProgram = async () => {
-    try {
-      const filePath = await window.electronAPI.selectFile();
-      if (filePath) {
-        setProgramPath(filePath);
-      }
-    } catch (err) {
-      console.error("Error selecting program:", err);
     }
   };
 
@@ -199,22 +188,15 @@ const EmulatorLauncher = () => {
             <label className="block text-sm font-medium text-text mb-1">
               Program Path
             </label>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="text"
-                value={programPath}
-                readOnly
-                placeholder="Select a program"
-                className="w-full p-2 bg-primary border border-border text-text rounded focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={handleSelectProgram}
-                className="p-2 bg-accent text-text rounded hover:bg-accentHover whitespace-nowrap"
-              >
-                Browse
-              </button>
-            </div>
+            <EditablePathField
+              value={programPath}
+              mode="file"
+              placeholder="Select a program"
+              pickerLabel="Browse"
+              onPick={() => window.electronAPI.selectFile()}
+              onSave={setProgramPath}
+              wrapperClassName="flex flex-col sm:flex-row gap-2"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-text mb-1">

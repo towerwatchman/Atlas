@@ -12,6 +12,7 @@
 
 import { useState } from 'react'
 import atlasLogoUrl from '../../assets/images/atlas_logo_full.svg'
+import { LINKS } from '../../utils/links.js'
 
 // Third-party components bundled with Atlas and their licenses. Kept here so
 // the About screen can surface attribution/notices for the open-source
@@ -42,16 +43,10 @@ const TECH_STACK = [
   ['Platforms', 'Windows & Linux'],
 ]
 
-const LINKS = {
-  steamCurator:
-    'https://store.steampowered.com/curator/44473903-Atlas-Game-Manager/',
-  github: 'https://github.com/towerwatchman/Atlas',
-  discord: 'https://discord.gg/3rQhnq65U',
-  // Stub: the GitHub wiki hasn't been created yet. Kept here as the single
-  // place to update once the real help/docs destination exists.
-  helpWiki: 'https://github.com/towerwatchman/Atlas/wiki',
-  issues: 'https://github.com/towerwatchman/Atlas/issues',
-}
+// Defined in utils/links.js so non-component code (releaseUrl.js) can reach the
+// repo URL without importing this modal. Re-exported because callers already
+// import LINKS from here.
+export { LINKS }
 
 const openUrl = (url) => {
   try {

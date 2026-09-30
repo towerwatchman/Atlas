@@ -443,7 +443,7 @@ async function startScan(params, window, cancelToken = {}) {
             ? format.split("/").map((p) => p.trim()).filter(Boolean).length
             : 0;
         if (schemeSegmentCount === 1 && target !== folder) {
-          const nestedLaunchables = findExecutables(target, extensions);
+          const nestedLaunchables = await findExecutables(target, extensions);
           if (nestedLaunchables.length > 0) {
             const res = await findGame(
               target,
@@ -546,7 +546,7 @@ async function startScan(params, window, cancelToken = {}) {
           // root-level search: recursing everywhere would promote every
           // ancestor directory, creator folders included, into a game.
           const subdirLaunchables = candidate.ownsRuntimeChild
-            ? findExecutables(subdir, extensions)
+            ? await findExecutables(subdir, extensions)
             : getRootFiles(subdir, extensions).map((f) => path.basename(f));
           if (subdirLaunchables.length > 0) {
             console.log(`Scanning version directory: ${subdir}`);

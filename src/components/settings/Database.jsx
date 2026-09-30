@@ -290,8 +290,14 @@ export default function Database() {
   const catalogOrphans = result?.catalogOrphans
   const items = result?.items || []
 
+  // No overflow or height of its own: the Settings shell already scrolls
+  // the panel it renders tabs into (Settings.jsx, "flex-1 min-h-0
+  // overflow-y-auto"). Declaring a second scroller here nested one
+  // scrollbar inside another, so the working one sat a scrollbar's width
+  // in from the edge with an empty track beside it. Every other settings
+  // tab leaves scrolling to the shell; this one did not.
   return (
-    <div className="p-6 space-y-5 text-text overflow-y-auto h-full">
+    <div className="p-6 space-y-5 text-text">
       <div>
         <h1 className="text-xl font-semibold">Database</h1>
         <p className="text-sm text-muted mt-1 max-w-2xl">

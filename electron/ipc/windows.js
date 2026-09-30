@@ -161,6 +161,56 @@ async function handleContextAction(data, sender, ctx) {
       sender?.send("rate-title-requested", { recordId: data.recordId, title: data.title });
       break;
     }
+    case "toggleWishlist": {
+      // Context menus cannot prompt, so the same toggle the detail page uses
+      // is run here.
+      //
+      // wishlist-updated is broadcast on EVERY outcome, not just success. The
+      // renderer flips its identity-key set optimistically before this call and
+      // then discards the result, so a silent failure would strand the grid in
+      // the wrong state forever. The broadcast makes the renderer re-read the
+      // wishlist from the DB, which reconciles the optimistic flip either way:
+      // it sticks when the write landed and reverts when it did not.
+      const { toggleWishlistEntry } = require("../db/wishlist");
+      let result = null;
+      try {
+        result = await toggleWishlistEntry(data);
+      } catch (err) {
+        console.error("toggleWishlist failed", err);
+      }
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send("wishlist-updated", {
+            source: "context-menu",
+            success: result?.success === true,
+            inLibrary: result?.inLibrary === true,
+          });
+        }
+      });
+      break;
+    }
+    case "blacklistGame": {
+      // Unlike toggleWishlist there is no optimistic flip in the renderer to
+      // reconcile -- a title cannot be hidden from a sparse grid in place -- so
+      // the broadcast goes out only when the write landed, and a failure is
+      // returned so the renderer can say so instead of the click doing nothing.
+      const { addBlacklistEntry } = require("../db/blacklist");
+      let result;
+      try {
+        result = await addBlacklistEntry(data);
+      } catch (err) {
+        console.error("blacklistGame failed", err);
+        return { success: false, error: err?.message || String(err) };
+      }
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send("blacklist-updated", {
+            removedFromWishlist: result?.removedFromWishlist === true,
+          });
+        }
+      });
+      return result;
+    }
     case "collectionBulkTagRequested": {
       // Same round-trip as rename/delete: a native menu cannot host a form, so
       // the renderer owns the dialog and already knows which records belong to
@@ -280,6 +330,23 @@ module.exports = function registerWindowsHandlers(ctx) {
     return result.canceled ? null : result.filePaths[0]
   })
 
+  // Opens a native multi-file picker so the renderer can let the user pick
+  // local images to add as custom media without knowing the dialog options.
+  ipcMain.handle('select-files', async (event, options = {}) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    // Callers that only want images pass { images: true }. Advisory only --
+    // the dialog still lets a determined user type any name -- so the receiving
+    // handler re-checks the extension rather than trusting this.
+    const filters = options?.images
+      ? [{ name: 'Images', extensions: ['webp', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'avif', 'jfif'] }]
+      : undefined
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile', 'multiSelections'],
+      ...(filters ? { filters } : {}),
+    })
+    return result.canceled ? [] : result.filePaths
+  })
+
   ipcMain.handle('open-banner-editor', () => {
     ctx.createBannerEditorWindow()
   })
@@ -301,6 +368,25 @@ module.exports = function registerWindowsHandlers(ctx) {
       return { success: true, folders }
     } catch (err) {
       return { success: false, error: String(err?.message || err), folders: [] }
+    }
+  })
+
+  // Inline-editable path fields type directly into the input. The renderer has
+  // no fs access, so it asks the main process to stat the path. Returns
+  // {exists,isDirectory,isFile} so the caller can enforce file vs directory and
+  // absolute-path rules without trusting the renderer. Any error is invalid, not thrown.
+  ipcMain.handle('check-path', async (_event, raw) => {
+    const p = String(raw || '').trim().replace(/^["']|["']$/g, '')
+    if (!p) return { exists: false }
+    // Relative paths must not resolve against the app's cwd — only absolute paths
+    // (including UNC on Windows) are user-meaningful here.
+    if (!path.isAbsolute(p)) return { exists: false }
+    try {
+      const st = await fs.promises.stat(p)
+      return { exists: true, isDirectory: st.isDirectory(), isFile: st.isFile() }
+    } catch (e) {
+      if (e && e.code === 'ENOENT') return { exists: false }
+      return { exists: false, error: String(e && e.message || e) }
     }
   })
 

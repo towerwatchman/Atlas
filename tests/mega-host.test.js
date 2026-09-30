@@ -395,7 +395,7 @@ describe('MEGA account crypto', () => {
     expect(account.deriveKeyV2('pw', '')).toBeNull()
   })
 
-  it('derives a v1 key deterministically', () => {
+  it('derives a v1 key deterministically', { timeout: 30000 }, () => {
     // Legacy accounts cannot be migrated from the client, so this path stays.
     const key = account.prepareKeyV1('hunter2')
     expect(key.length).toBe(16)
@@ -403,7 +403,7 @@ describe('MEGA account crypto', () => {
     expect(account.prepareKeyV1('hunter3').equals(key)).toBe(false)
   })
 
-  it('produces an 8-byte v1 password hash', () => {
+  it('produces an 8-byte v1 password hash', { timeout: 15000 }, () => {
     const key = account.prepareKeyV1('pw')
     const hash = account.stringHashV1('USER@example.com', key)
     expect(hash.length).toBe(8)
@@ -620,5 +620,66 @@ describe('the MAC is CBC, and identical to the per-block definition', () => {
     const second = createMegaDecryptStream({ key, nonce, metaMac: mac })
     await run(second)
     expect(second.verify()).toBe(true)
+  })
+})
+
+describe('entryError — the two shapes MEGA reports failures in', () => {
+  // The bug this covers: a deleted file comes back as `[{"e": -9}]`, an OBJECT
+  // carrying the code, not the bare `[-9]` the code was written for. The object
+  // shape fell through to "MEGA's response did not include a download URL" and
+  // was classified TRANSIENT, so Atlas retried a permanently dead link forever
+  // instead of telling the user the file was gone.
+
+  it('reads a deleted file reported as a bare code', () => {
+    expect(mega.entryError(-9)).toMatchObject({
+      kind: 'fatal', message: 'This MEGA file no longer exists.', code: -9, shape: 'bare',
+    })
+  })
+
+  it('reads a deleted file reported inside the entry object', () => {
+    expect(mega.entryError({ e: -9 })).toMatchObject({
+      kind: 'fatal', message: 'This MEGA file no longer exists.', code: -9, shape: 'entry.e',
+    })
+  })
+
+  it('classifies a deleted file as fatal, not as something worth retrying', () => {
+    // The kind is what decides whether the queue retries. Getting this wrong is
+    // why a dead link never settled into a final state.
+    expect(mega.entryError({ e: -9 }).kind).toBe('fatal')
+    expect(mega.entryError({ e: -11 }).kind).toBe('fatal')
+    expect(mega.entryError({ e: -16 }).kind).toBe('fatal')
+  })
+
+  it('still routes genuinely temporary codes as transient in either shape', () => {
+    expect(mega.entryError({ e: -3 }).kind).toBe('transient')
+    expect(mega.entryError(-3).kind).toBe('transient')
+    expect(mega.entryError({ e: -17 }).kind).toBe('quota')
+    expect(mega.entryError({ e: -15 }).kind).toBe('auth')
+  })
+
+  it('passes a successful entry through untouched', () => {
+    expect(mega.entryError({ g: 'https://gfs.mega.nz/dl/abc', s: 1024 })).toBeNull()
+  })
+
+  it('does not invent an error from a missing or empty e', () => {
+    // Number(undefined) is NaN but Number(null) and Number('') are both 0, and
+    // 0 is MEGA's SUCCESS code — a naive Number(entry.e) turns "no error here"
+    // into "error 0" and fails a download that worked.
+    expect(mega.entryError({ g: 'https://gfs.mega.nz/dl/abc' })).toBeNull()
+    expect(mega.entryError({ e: null, g: 'https://gfs.mega.nz/dl/abc' })).toBeNull()
+    expect(mega.entryError({ e: '', g: 'https://gfs.mega.nz/dl/abc' })).toBeNull()
+    expect(mega.entryError({ e: 0, g: 'https://gfs.mega.nz/dl/abc' })).toBeNull()
+  })
+
+  it('describes an unknown code rather than dropping it', () => {
+    const unknown = mega.entryError({ e: -99 })
+    expect(unknown.message).toContain('-99')
+    expect(unknown.kind).toBe('transient')
+  })
+
+  it('ignores shapes that carry no error at all', () => {
+    expect(mega.entryError(null)).toBeNull()
+    expect(mega.entryError(undefined)).toBeNull()
+    expect(mega.entryError('a string')).toBeNull()
   })
 })

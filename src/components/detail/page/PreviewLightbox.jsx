@@ -38,7 +38,10 @@ function fitSize(natural, vp) {
 export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPrev, onNext }) {
   const vp = useViewport()
   const [natural, setNatural] = useState(null)
-  const key = lightboxIndex === null ? null : previews[lightboxIndex]
+  const raw = lightboxIndex === null ? null : previews[lightboxIndex]
+  // previews may be plain URL strings OR enriched objects ({ url, ... }).
+  const current = raw && typeof raw === 'string' ? raw : (raw?.url || raw)
+  const key = lightboxIndex === null ? null : current
 
   // Reset measured size whenever the displayed media changes.
   useEffect(() => { setNatural(null) }, [key])
@@ -59,7 +62,6 @@ export default function PreviewLightbox({ previews, lightboxIndex, onClose, onPr
 
   if (lightboxIndex === null || !previews[lightboxIndex]) return null
 
-  const current = previews[lightboxIndex]
   const isVideo = /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(current || ''))
   // GOG trailers are stored as YouTube embed URLs (no file extension); play them
   // inline via an <iframe> rather than the <video> element.

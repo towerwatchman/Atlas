@@ -23,6 +23,7 @@ import CollectionModal from '../src/components/collections/CollectionModal.jsx'
 import GameTree from '../src/components/library/GameTree.jsx'
 import Settings from '../src/components/settings/Settings.jsx'
 import ExtensionSettings from '../src/components/settings/ExtensionSettings.jsx'
+import SearchSidebar from '../src/components/search/SearchSidebar.jsx'
 
 // Components that call useKnownTags() fetch on mount and set state when the
 // promise resolves. Rendering them outside act() produces a "not wrapped in
@@ -53,6 +54,7 @@ beforeEach(() => {
       getAppUpdateState: async () => ({ status: 'idle' }),
       getExtensionStatus: async () => ({ running: false, port: 57096, extensionPath: '/test/ext' }),
       getExtensionPath: async () => ({ extensionPath: '/test/ext', exists: true }),
+      getUniqueFilterOptions: async () => ({ tags: [], categories: [], engines: [], statuses: [], censored: [] }),
       minimizeWindow: () => {},
       maximizeWindow: () => {},
       closeWindow: () => {},
@@ -203,4 +205,49 @@ test('ExtensionSettings mounts and shows extension info', async () => {
   await renderSettled(<ExtensionSettings />)
   expect(screen.getByText('Browser Extension')).toBeTruthy()
   expect(screen.getByText('Atlas RPC Local Server')).toBeTruthy()
+})
+
+test('SearchSidebar shows library-only quick filters in library mode', async () => {
+  await renderSettled(
+    <SearchSidebar
+      isVisible={true}
+      isCatalogMode={false}
+      activeFilters={{
+        installState: 'all',
+        updateAvailable: false,
+        favoritesOnly: false,
+        multipleInstalledVersions: false,
+      }}
+      onFilterChange={() => {}}
+    />,
+  )
+  await act(() => screen.getByText('Quick Filters').click())
+  expect(screen.getByText('Library scope')).toBeTruthy()
+  expect(screen.getByText('Show only games with updates available')).toBeTruthy()
+  expect(screen.getByText('Favorites only')).toBeTruthy()
+  expect(screen.getByText('Show games with multiple installed versions')).toBeTruthy()
+  expect(screen.queryByText('Has Steam mapping')).toBeNull()
+})
+
+test('SearchSidebar shows catalog-only ratings in catalog mode', async () => {
+  await renderSettled(
+    <SearchSidebar
+      isVisible={true}
+      isCatalogMode={true}
+      activeFilters={{
+        installState: 'all',
+        communityRatingMin: 0,
+        updateAvailable: false,
+        favoritesOnly: false,
+        multipleInstalledVersions: false,
+      }}
+      onFilterChange={() => {}}
+    />,
+  )
+  await act(() => screen.getByText('Quick Filters').click())
+  expect(screen.getByText('Library scope')).toBeTruthy()
+  expect(screen.queryByText('Show only games with updates available')).toBeNull()
+  expect(screen.queryByText('Favorites only')).toBeNull()
+  expect(screen.queryByText('Show games with multiple installed versions')).toBeNull()
+  expect(screen.queryByText('Has Steam mapping')).toBeNull()
 })

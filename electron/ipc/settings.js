@@ -13,6 +13,7 @@ const { LEGACY_SEARCH_TYPE_FIELDS, normalizeSearchFieldIds } = require('../db/se
 // config.ini on every single settings save.
 const { buildDefaultConfig, mergeWithDefaults } = require('../config/configSchema')
 const { detectSevenZipPath } = require('../utils/sevenZipDetect')
+const { DEFAULT_SAVED_BROWSE_SORT, normalizeSavedBrowseSort } = require('../utils/savedFilterSort')
 
 
 const sanitizeFeatureSettings = (settings = {}) => {
@@ -53,12 +54,11 @@ const defaultSavedFilterState = {
   browseSource: 'all',
   browseDateBasis: 'thread_updated',
   browseDateRange: 'any',
-  browseSort: 'nameAsc',
+  browseSort: DEFAULT_SAVED_BROWSE_SORT,
   tagLogic: 'AND',
   updateAvailable: false,
   favoritesOnly: false,
   wishlistOnly: false,
-  steamMapped: false,
   personalRatingMin: 0,
   personalRatingStatus: 'any',
   personalRatingRatedOnly: false,
@@ -105,7 +105,7 @@ const normalizeSavedFilterState = (filters = {}) => {
   )
   merged.sort = String(merged.sort || 'name')
   merged.sortDirection = merged.sortDirection === 'desc' ? 'desc' : 'asc'
-  merged.dateField = ['none', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded'].includes(merged.dateField)
+  merged.dateField = ['none', 'dateAdded', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded'].includes(merged.dateField)
     ? merged.dateField
     : 'none'
   merged.dateRange = ['any', '7d', '30d', '90d', 'year', 'custom'].includes(merged.dateRange)
@@ -122,15 +122,11 @@ const normalizeSavedFilterState = (filters = {}) => {
   merged.browseDateRange = ['any', '7d', '30d', '90d', 'year'].includes(merged.browseDateRange)
     ? merged.browseDateRange
     : 'any'
-  if (merged.browseSort === 'name') merged.browseSort = 'nameAsc'
-  merged.browseSort = ['nameAsc', 'nameDesc', 'newest', 'oldest'].includes(merged.browseSort)
-    ? merged.browseSort
-    : 'nameAsc'
+  merged.browseSort = normalizeSavedBrowseSort(merged.browseSort)
   merged.tagLogic = merged.tagLogic === 'OR' ? 'OR' : 'AND'
   merged.updateAvailable = merged.updateAvailable === true
   merged.favoritesOnly = merged.favoritesOnly === true
   merged.wishlistOnly = merged.wishlistOnly === true
-  merged.steamMapped = merged.steamMapped === true
   const personalRatingMin = Number(merged.personalRatingMin)
   merged.personalRatingMin = Number.isFinite(personalRatingMin)
     ? Math.max(0, Math.min(10, Math.round(personalRatingMin)))
@@ -263,11 +259,15 @@ module.exports = function registerSettingsHandlers(ctx) {
         BrowserWindow.getAllWindows().forEach((win) => {
           if (win.isDestroyed()) return
           if (nextShowDebugConsole) {
-            if (!win.webContents.isDevToolsOpened()) win.webContents.openDevTools()
+            // Open in place without stealing focus from Settings.
+            if (!win.webContents.isDevToolsOpened()) win.webContents.openDevTools({ activate: false })
           } else if (win.webContents.isDevToolsOpened()) {
             win.webContents.closeDevTools()
           }
         })
+        // Not every Electron version honors activate: false, so keep Settings on top.
+        const senderWin = BrowserWindow.fromWebContents(event.sender)
+        if (senderWin && !senderWin.isDestroyed()) senderWin.focus()
       }
 
       const previousUpdateBranch = ctx.getConfiguredAppUpdateBranch?.({ Interface: previousInterface })

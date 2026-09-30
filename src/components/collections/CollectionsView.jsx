@@ -17,7 +17,11 @@ export default function CollectionsView({
       .filter(Boolean)
 
   return (
-    <div className="p-4">
+    // Owns its scrolling, like DownloadsPage. App.jsx mounts this in a pane
+    // that is overflow-hidden for every non-detail view, so without a scroll
+    // container here the grid is clipped to one screenful and the collections
+    // below the fold cannot be reached.
+    <div className="h-full overflow-y-auto p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-text">Collections</h2>

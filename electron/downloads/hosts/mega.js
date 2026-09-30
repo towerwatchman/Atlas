@@ -48,6 +48,33 @@ const ERROR_CODES = {
   "-27": { kind: "auth", message: "That two-factor code was not accepted." },
 };
 
+// MEGA reports the SAME failures in two different shapes, and only one of them
+// was ever read.
+//
+//   [-9]          -> unwrapped to the bare number -9 by sendRequest
+//   [{"e": -9}]   -> an OBJECT carrying the code, which is what a deleted or
+//                    taken-down file actually comes back as
+//
+// The second shape fell through to the "MEGA's response did not include a
+// download URL" fallback: untrue, and classified transient, so Atlas retried a
+// permanently dead link forever instead of reporting it gone.
+//
+// Both shapes go through one place now. Returns null when the entry carries no
+// error, so a caller can treat null as "keep going".
+function entryError(entry) {
+  if (typeof entry === "number") return { ...errorFor(entry), code: entry, shape: "bare" };
+  if (!entry || typeof entry !== "object") return null;
+  // Deliberately not `Number(entry.e)` on a missing key: Number(undefined) is
+  // NaN, but Number(null) and Number("") are both 0, and 0 is MEGA's SUCCESS
+  // code — treating a null `e` as error 0 would invent a failure.
+  if (!Object.prototype.hasOwnProperty.call(entry, "e")) return null;
+  const code = Number(entry.e);
+  if (!Number.isFinite(code)) return null;
+  // A literal 0 is success, not an error to report.
+  if (code === 0) return null;
+  return { ...errorFor(code), code, shape: "entry.e" };
+}
+
 function errorFor(code) {
   return ERROR_CODES[String(code)]
     || { kind: "transient", message: `MEGA returned error ${code}.` };
@@ -381,15 +408,23 @@ async function probe(url, credentials = {}) {
     };
   }
 
-  // Either `-2` or `[-2]`; a success is `[{ … }]`.
+  // A bare `-2`, a wrapped `[-2]`, or an object carrying `e`. Success is
+  // `[{ g: ... }]`. See entryError() for why both error shapes exist.
   const entry = result.entry;
-  if (typeof entry === "number") {
-    const mapped = errorFor(entry);
+  const failure = entryError(entry);
+  if (failure) {
     return {
-      ok: false, kind: mapped.kind, error: mapped.message,
-      diagnostic: { megaError: entry, fileId: link.id, authenticated: Boolean(session) },
+      ok: false, kind: failure.kind, error: failure.message,
+      diagnostic: {
+        megaError: failure.code, shape: failure.shape,
+        fileId: link.id, authenticated: Boolean(session),
+      },
     };
   }
+
+  // Genuinely unrecognised now: an object with neither a download URL nor an
+  // error code. Kept transient because an unparseable response really might be
+  // a blip, unlike the coded failures above.
   if (!entry || typeof entry !== "object" || !entry.g) {
     return {
       ok: false, kind: "transient",
@@ -623,4 +658,6 @@ module.exports = {
   // Exported for tests
   fileIdFrom,
   ERROR_CODES,
+  // Exported for tests
+  entryError,
 };

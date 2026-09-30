@@ -339,6 +339,7 @@ const initializeDatabase = (dataDir) => {
         edited INTEGER NOT NULL DEFAULT 0,
         edited_at INTEGER,
         edited_by STRING,
+        locked_fields STRING,
         removed_from_server INTEGER NOT NULL DEFAULT 0
       );
     `);
@@ -468,10 +469,35 @@ const initializeDatabase = (dataDir) => {
       (
         record_id INTEGER REFERENCES games (record_id),
         path TEXT UNIQUE,
+        -- OBSOLETE: superseded by preview_sort.position. Never written by any code
+        -- path; kept in the schema only for dev/stable branch-swap DB compatibility.
+        -- DO NOT DROP.
         position INTEGER DEFAULT 256,
         UNIQUE (record_id, path)
       );
     `);
+    db.run(`ALTER TABLE previews ADD COLUMN remote_url TEXT;`, () => {});
+    db.run(`ALTER TABLE previews ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0;`, () => {});
+    // preview_sort persists user-reorder positions independently of the previews
+    // table so order survives re-downloads, stream/download switches, and
+    // metadata refreshes. Keyed by a stable identifier: remote_url for
+    // downloaded/streamed images (matches across re-downloads as long as the
+    // source URL is unchanged), or the relative path for custom uploads.
+    db.run(`
+      CREATE TABLE IF NOT EXISTS preview_sort
+      (
+        record_id INTEGER REFERENCES games (record_id),
+        identifier TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (record_id, identifier)
+      );
+    `, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_preview_sort_record ON preview_sort (record_id);`, () => {});
+    // One-time migration: normalize any backslash identifiers to forward
+    // slashes so sort keys are consistent across platforms.
+    db.run(`UPDATE preview_sort SET identifier = replace(identifier, '\\', '/') WHERE identifier LIKE '%\\%'`, () => {});
+
     db.run(`
       CREATE TABLE IF NOT EXISTS banners
       (
@@ -553,6 +579,49 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN steam_url TEXT;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN lc_id INTEGER;`, () => {});
     db.run(`ALTER TABLE wishlist_entries ADD COLUMN preview_urls TEXT;`, () => {});
+    // These must come AFTER the ALTER TABLE block above: lc_id is a migration
+    // column, so on a database created before it existed the table does not
+    // carry it until the ALTER runs. Indexing it any earlier fails with
+    // "no such column: lc_id", and because sqlite3 emits that on the statement
+    // rather than returning it, an uncaught error would take down startup for
+    // upgrading users. The callbacks absorb the error for the same reason the
+    // ALTERs above have them.
+    // Required by the wishlist-only filter: it probes wishlist_entries once per
+    // provider id, and without a per-column index each probe is a full scan.
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_atlas_id ON wishlist_entries(atlas_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_f95_id ON wishlist_entries(f95_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_lc_id ON wishlist_entries(lc_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_wishlist_entries_steam_id ON wishlist_entries(steam_id);`, () => {});
+    // Browse titles the user never wants to see again. Kept separate from
+    // wishlist_entries (rather than a flag on it) because the two lists are
+    // mutually exclusive and the wishlist's rows are hydrated and installable,
+    // which a blacklisted title must never be. Only the ids the Browse exclusion
+    // matches on and what the Settings list displays are stored.
+    db.run(`
+      CREATE TABLE IF NOT EXISTS blacklist_entries
+      (
+        blacklist_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        identity_key TEXT NOT NULL UNIQUE,
+        source TEXT NOT NULL,
+        atlas_id INTEGER,
+        f95_id INTEGER,
+        lc_id INTEGER,
+        steam_id INTEGER,
+        gog_id INTEGER,
+        title TEXT NOT NULL,
+        creator TEXT,
+        banner_url TEXT,
+        site_url TEXT,
+        blacklisted_at INTEGER NOT NULL
+      );
+    `);
+    // The Browse exclusion (electron/db/blacklistSql.js) probes this table once
+    // per provider id for every catalog row; unindexed, each probe is a scan.
+    db.run(`CREATE INDEX IF NOT EXISTS idx_blacklist_entries_atlas_id ON blacklist_entries(atlas_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_blacklist_entries_f95_id ON blacklist_entries(f95_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_blacklist_entries_lc_id ON blacklist_entries(lc_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_blacklist_entries_steam_id ON blacklist_entries(steam_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_blacklist_entries_gog_id ON blacklist_entries(gog_id);`);
     // User-set manual source IDs (F95 / Steam / LewdCorner) entered from the
     // game properties Mappings tab. Stored as a JSON blob on the per-game
     // override row so it survives metadata refreshes and is independent of the
@@ -755,6 +824,8 @@ const initializeDatabase = (dataDir) => {
     db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_mappings_record_id ON f95_zone_mappings(record_id);`);
     db.run(`ALTER TABLE games ADD COLUMN is_favorite INTEGER DEFAULT 0;`, () => {});
     db.run(`ALTER TABLE games ADD COLUMN selected_version_id INTEGER;`, () => {});
+    // Timestamp when the title record was created in the user's Atlas library.
+    db.run(`ALTER TABLE games ADD COLUMN date_added INTEGER;`, () => {});
     // User playstate (finished/played/dropped/on_hold/planned). Per-version on
     // the versions table; per-title override on games (null = derive from
     // versions). Separate from atlas_data.status (developer/thread status).
@@ -831,6 +902,13 @@ const initializeDatabase = (dataDir) => {
     db.run(`ALTER TABLE atlas_data ADD COLUMN edited INTEGER NOT NULL DEFAULT 0;`, () => {});
     db.run(`ALTER TABLE atlas_data ADD COLUMN edited_at INTEGER;`, () => {});
     db.run(`ALTER TABLE atlas_data ADD COLUMN edited_by STRING;`, () => {});
+    // Which atlas fields an admin has pinned against the scraper. Server-side
+    // behaviour -- the client never writes it and nothing reads it yet -- but
+    // it arrives in every package, and an unknown column was being dropped
+    // with a warning on every single ingest. Stored so atlas_data stays a
+    // faithful mirror of the server table and the warning goes back to
+    // meaning "the server grew a field we have not handled".
+    db.run(`ALTER TABLE atlas_data ADD COLUMN locked_fields STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN downloads STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN patches STRING;`, () => {});
     db.run(`ALTER TABLE f95_zone_data ADD COLUMN extras STRING;`, () => {});
@@ -919,6 +997,7 @@ function sweepOrphanedRecords() {
     "gog_mappings",
     "game_personal_ratings",
     "collection_games",
+    "preview_sort",
   ];
   for (const tbl of childTables) {
     db.run(

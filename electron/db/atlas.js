@@ -398,6 +398,10 @@ const updateTableColumns = {
     "edited",
     "edited_at",
     "edited_by",
+    // Server-side scraper-lock bookkeeping. Accepted and stored so a faithful
+    // atlas_data mirror is kept and the unknown-column warning stops firing on
+    // every ingest; nothing in the client reads it yet.
+    "locked_fields",
   ]),
   f95_zone_data: new Set([
     "f95_id",

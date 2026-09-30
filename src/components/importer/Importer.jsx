@@ -995,6 +995,7 @@ const Importer = () => {
           engine: groups.engine || '',
           f95Id: groups.f95id || '',
           lcId: groups.lcid || '',
+          atlasId: groups.atlasid || '',
         }
         if (!cancelled) {
           setLivePreview({
@@ -1024,6 +1025,15 @@ const Importer = () => {
       saveImporterDefaults({ sourceGamePath: path })
     }
   }
+
+  // Pure picker for the inline-editable Game Path field. Unlike selectFolder
+  // it does not write to state itself — the field's onSave handles that after
+  // validation, or the picker result is committed directly.
+  const pickScanFolder = () => window.electronAPI.selectDirectory({
+    title: 'Select the folder to scan for games',
+    message: 'Choose the folder that contains the games (or archives) you want to import.',
+    buttonLabel: 'Scan this folder',
+  })
 
   const handleCustomFormatChange = (value) => {
     setCustomFormat(value)
@@ -1951,7 +1961,7 @@ const Importer = () => {
               autoSelectLatestReplaceVersion={autoSelectLatestReplaceVersion}
               defaultLibraryPath={defaultLibraryPath} askingForLibraryFolder={askingForLibraryFolder}
               libraryFormat={libraryFormat} setLibraryFormat={handleLibraryFormatChange}
-              onSelectFolder={selectFolder} onStartScan={startScan}
+              onSelectFolder={selectFolder} onPickScanFolder={pickScanFolder} setFolder={setFolder} saveImporterDefaults={saveImporterDefaults} onStartScan={startScan}
               onOpenHelp={openImporterHelp}
               livePreview={livePreview}
               setCustomFormat={handleCustomFormatChange} setUseUnstructured={handleUseUnstructuredChange}

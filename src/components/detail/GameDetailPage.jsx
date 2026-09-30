@@ -22,10 +22,11 @@ import {
   sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl, formatReleaseDate,
   isSteamGame, getMappedSteamAppId, isGogGame, getMappedGogId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
 } from './page/gameDetailUtils.js'
-import { buildGameLinks, gogStoreUrl } from './gameLinks.js'
+import { buildGroupedGameLinks, gogStoreUrl } from './gameLinks.js'
 import InstallSourceModal from './page/InstallSourceModal.jsx'
 import { resolveInstallSources } from './page/installSources.js'
 import GogIcon from '../ui/GogIcon.jsx'
+import ExternalLinksSection from './ExternalLinksSection.jsx'
 import PlaystatePicker from '../ui/PlaystatePicker.jsx'
 import { effectiveTitlePlaystate } from '../../utils/playstates.js'
 import { toMediaSrc } from '../../utils/mediaSrc.js'
@@ -60,14 +61,6 @@ const getPersonalRatingsPayload = (draft = {}) =>
       draft[key] === '' ? null : Math.max(0, Math.min(10, Math.round(Number(draft[key])))),
     ]),
   )
-
-const getPersonalRatingsOverall = (draft = {}) => {
-  const values = Object.values(getPersonalRatingsPayload(draft))
-    .filter((value) => Number.isFinite(value))
-  if (values.length === 0) return null
-  const average = values.reduce((sum, value) => sum + value, 0) / values.length
-  return Math.round(average * 10) / 10
-}
 
 const splitPreviewUrls = (value) => {
   if (Array.isArray(value)) return value.map((url) => String(url || '').trim()).filter(Boolean)
@@ -132,6 +125,9 @@ const isArchiveSourcePath = (sourcePath = '', archiveExtensions = ['zip', '7z', 
 
 const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRatingFor = null,
   onRatingOpened,
+  // Called after a successful blacklist so App can close this page; the title
+  // it shows is about to disappear from Browse.
+  onBlacklisted = null,
   // Raised to App so the mirror picker survives navigation. Update All
   // drives it across many games, and a modal owned by this page would
   // drag the detail view along with each one.
@@ -144,8 +140,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   // render a broken "unavailable" tile. If everything fails, the section shows
   // the "No previews available" note instead.
   const [failedPreviews, setFailedPreviews] = useState(() => new Set())
-  const [isWishlisted, setIsWishlisted] = useState(game?.isWishlisted === true || game?.isWishlistEntry === true)
+  const [isWishlisted, setIsWishlisted] = useState(game?.isWishlisted === true)
   const [wishlistBusy, setWishlistBusy] = useState(false)
+  const [blacklistBusy, setBlacklistBusy] = useState(false)
   const [isFavorite, setIsFavorite] = useState(game?.isFavorite === true || game?.is_favorite === 1)
   const [favoriteBusy, setFavoriteBusy] = useState(false)
   const [selectedVersion, setSelectedVersion] = useState(null)
@@ -397,13 +394,18 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   useEffect(() => {
     setShowInfo(false)
     setLightboxIndex(null)
-    const initialWish = game?.isWishlisted === true || game?.isWishlistEntry === true
-    setIsWishlisted(initialWish)
+    // Seed synchronously from the derived flag so the panel renders the correct
+    // state immediately — and, when the game prop changes on an already-mounted
+    // panel, before the async DB check below has a chance to resolve. Without it,
+    // switching games would flash the previous game's wishlist state.
+    setIsWishlisted(game?.isWishlisted === true)
     let cancelledWishCheck = false
     if (window.electronAPI?.isWishlistEntry && game) {
       window.electronAPI.isWishlistEntry(game).then((isWish) => {
+        // The live DB result is authoritative: it must be able to CLEAR the
+        // seeded value, so it is applied outright rather than OR'd into it.
         if (!cancelledWishCheck && typeof isWish === 'boolean') {
-          setIsWishlisted(isWish || initialWish)
+          setIsWishlisted(isWish)
         }
       })
     }
@@ -432,7 +434,6 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   }, [
     game?.record_id,
     game?.isWishlisted,
-    game?.isWishlistEntry,
     game?.isFavorite,
     game?.is_favorite,
     game?.personalRatingStory,
@@ -623,7 +624,12 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   // provided by the backend but recomputed here so optimistic UI stays correct.
   const titlePlaystate = effectiveTitlePlaystate(game.playstate, game.versions || [])
   const titlePlaystateIsDerived = !game.playstate && !!titlePlaystate
-  const canManageWishlist = game.isCatalogEntry === true || game.isWishlistEntry === true
+  // Wishlist rows are catalog rows (electron/db/wishlist.js sets isCatalogEntry),
+  // so the catalog flag alone covers them. The old isWishlistEntry flag is gone.
+  const canManageWishlist = game.isCatalogEntry === true
+  // Same rule as the context menu (gameContextMenu.js): the Browse exclusion
+  // never hides an installed title, so the button is not offered for one.
+  const canBlacklist = canManageWishlist && game.hasInstalledVersion !== true
   const canLaunch = Boolean(
     actionVersion &&
     actionVersion.isInstalled !== false &&
@@ -729,9 +735,15 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   const localVersion = actionVersion?.version || selectedVersion?.version || game.versions?.[0]?.version || game.version || ''
   const localImportIsArchive = isArchiveSourcePath(localImportPath, localArchiveExtensions)
 
-  const externalLinks = buildGameLinks(game)
+  // Folded so DLC render under the game they belong to instead of as a flat
+  // run of identical Steam rows. The flat list stays for anything counting links.
+  const externalLinkGroups = buildGroupedGameLinks(game)
   const personalRatingsDirty = JSON.stringify(personalRatingsDraft) !== JSON.stringify(personalRatingsSaved)
-  const personalRatingsOverall = getPersonalRatingsOverall(personalRatingsDraft)
+  // Shared with RatingModal and electron/db/ratingCategories.js rather than
+  // averaged here, because a private copy is exactly how this diverged: the
+  // local one counted an unrated 0 as a score of zero and dragged the average
+  // down, so the page and the modal open on top of it disagreed.
+  const personalRatingsOverall = computeRatingAverage(personalRatingsDraft)
 
   // While viewing an uninstalled Steam game, poll every 15s to see if Steam has
   // finished installing it (e.g. after the Install button handed off to Steam).
@@ -1051,6 +1063,25 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
     }
   }
 
+  // Blacklisting is one-way from here (undone only in Settings > Blacklist), so
+  // unlike the wishlist toggle there is no local on/off state to keep: on
+  // success the page asks App to close it, and the blacklist-updated broadcast
+  // from the main process refreshes Browse.
+  const blacklistGame = async () => {
+    if (!canBlacklist || blacklistBusy) return
+    setBlacklistBusy(true)
+    try {
+      const result = await window.electronAPI.addBlacklistEntry?.(game)
+      if (!result?.success) throw new Error(result?.error || 'Blacklist update failed')
+      onBlacklisted?.(result, game)
+    } catch (err) {
+      console.error('Failed to blacklist game:', err)
+      alert(`Failed to blacklist this game: ${err.message || err}`)
+    } finally {
+      setBlacklistBusy(false)
+    }
+  }
+
   const toggleFavorite = async () => {
     if (!canManageFavorite || favoriteBusy) return
     const nextFavorite = !isFavorite
@@ -1252,6 +1283,9 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         canManageWishlist={canManageWishlist}
         isWishlisted={isWishlisted}
         wishlistBusy={wishlistBusy}
+        canBlacklist={canBlacklist}
+        blacklistBusy={blacklistBusy}
+        onBlacklist={blacklistGame}
         canManageFavorite={canManageFavorite}
         isFavorite={isFavorite}
         favoriteBusy={favoriteBusy}
@@ -1690,35 +1724,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
                 </div>
               </section>
             ),
-            links: externalLinks.length > 0 ? (
-              <section className="bg-secondary border border-border p-2">
-                <h2 className="text-lg font-semibold mb-3">External Links</h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {externalLinks.map((link) => (
-                    <div key={link.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                      {link.iconImage ? (
-                        <GogIcon size={16} style={{ width: 18, color: 'var(--color-muted)' }} />
-                      ) : (
-                        <i className={link.icon} style={{ width: 18, textAlign: 'center', color: 'var(--color-muted)' }} aria-hidden="true"></i>
-                      )}
-                      <span style={{ color: 'var(--color-muted)', minWidth: 92 }}>{link.label}</span>
-                      {link.url ? (
-                        <a
-                          href={link.url}
-                          onClick={(e) => { e.preventDefault(); window.electronAPI.openExternalUrl(link.url) }}
-                          className="text-accent hover:underline"
-                          style={{ cursor: 'pointer', wordBreak: 'break-all' }}
-                        >
-                          {link.value}
-                        </a>
-                      ) : (
-                        <span style={{ wordBreak: 'break-all' }}>{link.value}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ) : null,
+            links: <ExternalLinksSection groups={externalLinkGroups} />,
             // Editable here as well as in the properties window. When an
             // override exists the editor is the source of truth; otherwise it
             // seeds from the catalog list, which is also what detailTags shows

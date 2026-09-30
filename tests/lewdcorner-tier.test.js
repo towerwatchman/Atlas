@@ -140,10 +140,21 @@ test('the union fallback applies the gate as well', () => {
 // live through the join means no reindex is needed to adopt it, and a rescrape
 // that changes a tier takes effect at once instead of waiting for the row to be
 // re-projected.
+//
+// This used to pin CATALOG_INDEX_VERSION to the literal 4. That asserted more
+// than it meant to: the point is that THE TIER GATE adds no column, not that the
+// index schema is frozen, and an unrelated bump (adding is_dlc to
+// atlas_external_steam) failed it. The tier-specific checks below are the real
+// guard and are unchanged.
 test('the gate needs no catalog_index schema change or version bump', () => {
   const source = read('electron', 'db', 'catalogIndex.js')
   expect(source).not.toContain('lc_tier')
-  expect(source).toMatch(/const CATALOG_INDEX_VERSION = 4\b/)
+  // The catalog_index DDL must carry no LewdCorner tier column. Matched
+  // specifically rather than on /tier/, which also hits the unrelated
+  // thread_updated_tier / release_date_tier date-sort columns.
+  const ddl = source.slice(source.indexOf('const CATALOG_INDEX_DDL'),
+    source.indexOf('const CATALOG_INDEX_COLUMNS'))
+  expect(ddl).not.toMatch(/\b(lc|lewdcorner)_?tier\b/i)
 })
 
 // It must be SQL-side. A post-fetch filter in the renderer would corrupt Browse's
@@ -156,4 +167,40 @@ test('no client-side LewdCorner tier filtering was added', () => {
   ]) {
     expect(read(...file)).not.toMatch(/lewdcornerTier\s*[=!]==?\s*['"]Free/)
   }
+})
+
+// ── VIP user gating ──────────────────────────────────────────────────────────
+
+// When the user is VIP, the tier gate is skipped entirely — all LC content
+// (Free, VIP, NULL tier) should be visible. This tests the SQL predicate
+// behaviour directly: no predicate = no filtering.
+test('VIP user sees all LewdCorner content (no gate applied)', async () => {
+  // With no WHERE predicate at all, every row is visible.
+  const allTitles = await visibleTitles('1=1')
+  expect(allTitles).toContain('LC Free')
+  expect(allTitles).toContain('LC VIP')
+  expect(allTitles).toContain('LC null tier')
+  expect(allTitles).toContain('Atlas linked to paid LC')
+  expect(allTitles).toContain('Steam row')
+})
+
+// The gate is conditional on getLcUserTier() !== 'VIP'. Verify the
+// source code wraps the predicate in this check.
+test('the index gate is conditional on user tier', () => {
+  const source = read('electron', 'db', 'catalogIndex.js')
+  const builder = source.slice(
+    source.indexOf('const buildIndexWhere'),
+    source.indexOf('const buildIndexOrderBy'),
+  )
+  expect(builder).toMatch(/getLcUserTier\(\)\s*!==\s*['"]VIP['"]/)
+  expect(builder).toContain(INDEX_PREDICATE)
+})
+
+test('the union gate is conditional on user tier', () => {
+  const source = read('electron', 'db', 'versions.js')
+  // Find the section around the union tier gate.
+  const idx = source.indexOf(UNION_PREDICATE)
+  expect(idx).toBeGreaterThan(-1)
+  const surrounding = source.slice(Math.max(0, idx - 200), idx + UNION_PREDICATE.length + 50)
+  expect(surrounding).toMatch(/getLcUserTier\(\)\s*!==\s*['"]VIP['"]/)
 })

@@ -1,4 +1,4 @@
-// background.js - Atlas Browser Extension background context
+ // background.js - Atlas Browser Extension background context
 //
 // ── How this file gets `atlasBrowser` ────────────────────────────────────────
 //
@@ -118,6 +118,93 @@ const addGame = async (url, tabId) => {
   await notifyTabsToRefresh()
 }
 
+// ── Remote AtlasDB queue-refresh (admin API) ────────────────────────────────
+//
+// The content script cannot safely do a credentialed cross-origin POST itself
+// in every browser, so it asks the background to perform it. credentials:
+// "include" is required so the user's existing atlas-gamesdb.com session cookie
+// is sent; without it the admin endpoint returns 401.
+const ATLAS_GAMESDB_ORIGIN = 'https://atlas-gamesdb.com'
+
+// Cache admin-session check for a few minutes so MutationObserver + page
+// navigations do not hammer the admin origin.
+let adminSessionCache = { ok: false, checkedAt: 0 }
+const ADMIN_SESSION_TTL_MS = 5 * 60 * 1000
+
+const checkAdminSession = async (force = false) => {
+  const now = Date.now()
+  if (
+    !force &&
+    adminSessionCache.checkedAt &&
+    now - adminSessionCache.checkedAt < ADMIN_SESSION_TTL_MS
+  ) {
+    return adminSessionCache.ok
+  }
+
+  try {
+    // Hitting /admin/home:
+    //   - logged in  → stays on /admin/home
+    //   - logged out → redirected to /admin
+    const res = await fetch(`${ATLAS_GAMESDB_ORIGIN}/admin/home`, {
+      method: 'GET',
+      credentials: 'include',
+      redirect: 'follow',
+      cache: 'no-store',
+    })
+
+    const finalUrl = (res.url || '').toLowerCase()
+    const ok = finalUrl.includes('/admin/home')
+
+    adminSessionCache = { ok, checkedAt: now }
+    return ok
+  } catch (err) {
+    console.warn('[Atlas] admin session check failed:', err)
+    adminSessionCache = { ok: false, checkedAt: now }
+    return false
+  }
+}
+
+const queueF95Refresh = async (f95Id, source) => {
+  const id = Number(f95Id)
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error('Invalid thread id')
+  }
+
+  const body = { f95Id: id }
+  if (source) body.source = source
+
+  const res = await fetch(`${ATLAS_GAMESDB_ORIGIN}/admin/api/f95-refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    credentials: 'include',
+  })
+
+  let data = null
+  try {
+    data = await res.json()
+  } catch (_) {
+    // non-JSON body is fine; we still surface status
+  }
+
+  if (res.status >= 200 && res.status < 300) {
+    // Successful queue implies a valid admin session — refresh the cache.
+    adminSessionCache = { ok: true, checkedAt: Date.now() }
+    return data || {}
+  }
+
+  // Auth failure → clear cache so the button disappears on next check
+  if (res.status === 401 || res.status === 403) {
+    adminSessionCache = { ok: false, checkedAt: Date.now() }
+  }
+
+  const errMsg =
+    (data && (data.error || data.message)) ||
+    (typeof data === 'string' ? data : null) ||
+    `HTTP ${res.status}`
+  throw new Error(`${res.status}: ${errMsg}`)
+}
+
 // Firefox keeps context menus under browser.menus and aliases contextMenus
 // only when that permission is present. Chromium has no `menus` namespace at
 // all. Resolve once rather than at every call site.
@@ -190,6 +277,25 @@ api.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(() => {
         sendResponse({ games: [], settings: {} })
       })
+    return true // async response
+  }
+
+  if (request && request.action === 'queue_f95_refresh') {
+    queueF95Refresh(request.f95Id, request.source)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((err) =>
+        sendResponse({
+          ok: false,
+          error: err && err.message ? err.message : String(err),
+        }),
+      )
+    return true // async response
+  }
+
+  if (request && request.action === 'check_admin_session') {
+    checkAdminSession(Boolean(request.force))
+      .then((ok) => sendResponse({ ok }))
+      .catch(() => sendResponse({ ok: false }))
     return true // async response
   }
 })

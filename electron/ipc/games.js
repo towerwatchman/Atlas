@@ -22,6 +22,9 @@ const { runDatabaseAudit, getInvalidMappingCount } = require('../db/audit')
 const { getCatalogIndexStatus, rebuildCatalogIndex } = require('../db/catalogIndex')
 const { runClientAudit, repairClientAuditSection } = require('../db/clientAudit')
 const { auditSeasonMerges, applySeasonMerge, applyAllSeasonMerges } = require('../db/seasonMerge')
+// Required directly for the same curated-ctx reason as tagOverrides above.
+const { addBlacklistEntry, removeBlacklistEntry, getBlacklistEntries } = require('../db/blacklist')
+const { parseCatalogRef } = require('../library/catalogRef')
 
 // Guards against two full rebuilds interleaving their chunked transactions on
 // the single shared sqlite connection.
@@ -29,6 +32,17 @@ let catalogIndexRebuildInFlight = false
 // Repairs mutate shared tables and VACUUM takes an exclusive lock, so only one
 // may run at a time.
 let clientAuditRepairInFlight = false
+
+// Every window, not just the sender: the Settings list and Browse live in
+// different BrowserWindows, and each has to redraw when the other changes the
+// blacklist. Browse cannot patch its rows in place -- the grid is a sparse array
+// indexed by row offset, so one removed title shifts every loaded page -- which
+// is why this is a signal to refetch rather than a diff.
+function broadcastBlacklistUpdated(payload) {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) win.webContents.send('blacklist-updated', payload)
+  })
+}
 
 function emitGameUpdated(recordId) {
   if (!recordId) return
@@ -230,12 +244,27 @@ async function launchGame({ execPath, gamePath, extension, recordId, version, so
       cwd: path.dirname(execPath),
     })
   } else if (['exe', 'bat', 'cmd'].includes(extension)) {
-    await spawnTrackedGame(execPath, [], {
-      recordId,
-      version,
-      cwd: path.dirname(execPath),
-      shell: extension === 'bat' || extension === 'cmd',
-    })
+    if (extension === 'bat' || extension === 'cmd') {
+      // Spawn cmd.exe explicitly (shell:false) and pass the script as its own
+      // argv element so Node quotes the (possibly spaced or bracketed) path as
+      // a single token. The previous shell:true path built `cmd /c "<path>"`
+      // whose quoting splits at the first space, so cmd reported the truncated
+      // "<drive:\path up to the space>" as not recognized and the script never
+      // ran — which is why these launchers silently did nothing.
+      await spawnTrackedGame('cmd.exe', ['/c', execPath], {
+        recordId,
+        version,
+        cwd: path.dirname(execPath),
+        shell: false,
+      })
+    } else {
+      await spawnTrackedGame(execPath, [], {
+        recordId,
+        version,
+        cwd: path.dirname(execPath),
+        shell: false,
+      })
+    }
   } else {
     const openResult = await shell.openPath(execPath)
     if (openResult) throw new Error(openResult)
@@ -433,6 +462,32 @@ function registerGamesHandlers(ctx) {
     return { total: Number(result?.total || 0) }
   })
 
+  // One Browse entry by catalog ref. Single-row fetch so a banner click
+  // doesn't page the catalog.
+  ipcMain.handle('get-catalog-entry', async (_, ref) => {
+    if (!BROWSE_MODE_ENABLED) return { success: false, error: 'Browse is not available' }
+    const raw = typeof ref === 'string' ? ref : ref?.ref
+    const parsed = parseCatalogRef(raw)
+    if (!parsed) return { success: false, error: 'Unknown catalog entry' }
+    try {
+      const result = await getCatalogGames(
+        getAssetBasePath(),
+        process.defaultApp,
+        {
+          hydrateKeys: [`${parsed.kind}:${parsed.id}`],
+          offset: 0,
+          limit: 1,
+          mediaStorageMode: getMediaStorageMode(),
+        },
+      )
+      const game = result?.games?.[0] || null
+      if (!game) return { success: false, error: 'Catalog entry not found' }
+      return { success: true, game: withMedia(game) }
+    } catch (err) {
+      return { success: false, error: err?.message || String(err) }
+    }
+  })
+
   ipcMain.handle('wishlist-add', async (_, entry = {}) => {
     return await addWishlistEntry(entry)
   })
@@ -455,6 +510,31 @@ function registerGamesHandlers(ctx) {
 
   ipcMain.handle('wishlist-identities', async () => {
     return await getWishlistEntryIdentities()
+  })
+
+  // Used by the detail page's Blacklist button. The broadcast carries
+  // removedFromWishlist because blacklisting can also delete a wishlist row, and
+  // the main window must refresh its wishlist state from that one event rather
+  // than a second wishlist-updated that would refetch Browse again.
+  ipcMain.handle('blacklist-add', async (_, entry = {}) => {
+    const result = await addBlacklistEntry(entry)
+    broadcastBlacklistUpdated({ removedFromWishlist: result.removedFromWishlist === true })
+    return result
+  })
+
+  // Called from Settings > Blacklist. The title has to reappear in Browse in the
+  // main window, which is a different window from the one that made the call.
+  ipcMain.handle('blacklist-remove', async (_, identity = {}) => {
+    const result = await removeBlacklistEntry(identity)
+    broadcastBlacklistUpdated({ removedFromWishlist: false })
+    return result
+  })
+
+  // Raw rows, deliberately not passed through withMedia: the Settings list only
+  // shows a small remote thumbnail, and localising media for every entry is work
+  // the list does not need.
+  ipcMain.handle('blacklist-list', async () => {
+    return await getBlacklistEntries()
   })
 
   ipcMain.handle('validate-library-paths', async (event) => {

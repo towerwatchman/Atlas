@@ -11,7 +11,7 @@
 // filtered out here. Callers that need somewhere to navigate should use
 // `linkableGameLinks` instead.
 
-import { buildExternalLinks } from './externalLinks.js'
+import { buildExternalLinks, groupLinksByParent } from './externalLinks.js'
 import { getMappedSteamAppId, getMappedGogId } from './page/gameDetailUtils.js'
 import gogLogo from '../../assets/icons/gog_logo.svg'
 
@@ -126,6 +126,12 @@ export const buildGameLinks = (game = {}) => {
 
   return links
 }
+
+// The same list folded into parents carrying their DLC, for the details page.
+// The flat form stays the default: the context menu and anything else that just
+// wants "every link" should not have to know about nesting.
+export const buildGroupedGameLinks = (game = {}) =>
+  groupLinksByParent(buildGameLinks(game))
 
 // Only the entries that actually go somewhere. Used by the context menu, which
 // has no way to render a row that isn't clickable.

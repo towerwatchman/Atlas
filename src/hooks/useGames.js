@@ -358,7 +358,6 @@ export function useGames() {
             ...game,
             isCatalogEntry: true,
             isMetadataOnly: true,
-            isWishlistEntry: true,
             isWishlisted: true,
           }))
           console.log(`Fetched ${gamesArray.length} wishlist entries`)

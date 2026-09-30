@@ -55,6 +55,7 @@ const {
   stripTags,
   splitHeadingLines,
   applyHeadingLines,
+  applyBuildLine,
   emptyHeading,
   headingLabel,
   classifyHeadingLine,
@@ -318,8 +319,85 @@ function* walkElements(fragment) {
 
     if (name === "b") boldEnd = contentEnd;
 
-    yield { tag: name, attrs, html: fragment.slice(contentStart, contentEnd) };
+    // Past the closing tag, not at it: the glue between two bolds starts after
+    // "</b>", and starting at contentEnd would put the close tag itself into
+    // every gap.
+    const closeEnd = fragment.indexOf(">", contentEnd);
+    const end = closeEnd === -1 ? fragment.length : closeEnd + 1;
+
+    yield {
+      tag: name,
+      attrs,
+      html: fragment.slice(contentStart, contentEnd),
+      start: match.index,
+      end,
+    };
   }
+}
+
+// Characters a poster uses to join platform names inside ONE heading:
+// "Win/Linux", "PC - Android", "Win, Mac". At least one of these has to appear
+// in the gap for two bolds to be treated as a single heading.
+const GLUE_SEPARATORS = "/,+|&\\-\u2013\u2014\u00b7\u2022";
+const GLUE_ONLY = new RegExp(`^[\\s${GLUE_SEPARATORS}]*$`);
+const GLUE_HAS_SEPARATOR = new RegExp(`[${GLUE_SEPARATORS}]`);
+
+/**
+ * Is the markup between two <b> tags nothing but a separator?
+ *
+ * Whitespace alone is NOT enough. "<b>Season 2</b> <b>Win/Linux</b>" renders on
+ * one line too, but those are two headings - a build and a platform - and
+ * merging them would rebuild the single mixed string headingLines.js exists to
+ * prevent. Requiring a real separator character keeps the merge to the case
+ * where the poster wrote the join themselves.
+ *
+ * A <br>, <hr>, <a> or <img> in the gap ends the run outright: the first two are
+ * a line break by definition, and the last two mean links or images have already
+ * been read under the earlier heading.
+ */
+function isHeadingGlue(text) {
+  const raw = String(text || "");
+  if (/<\s*\/?\s*(?:br|hr|a|img)\b/i.test(raw)) return false;
+  const visible = stripTags(raw);
+  return GLUE_ONLY.test(visible) && GLUE_HAS_SEPARATOR.test(visible);
+}
+
+/**
+ * Join <b> runs that a poster wrote as one heading.
+ *
+ *   <b>Win</b>/<b>Linux</b>: <a ...>MEGA</a>
+ *
+ * is one line saying "Win/Linux", but the scan emits two bolds and
+ * applyHeadingLines REPLACES the platform on each, so the state after the pair
+ * was "Linux". On Windows that made every mirror of the only usable build fail
+ * the platform filter: LA: Streets of Sorcery (thread 265629) writes its Win
+ * build exactly this way and parsed to zero offerable links, while its Mac and
+ * Android builds - written as a single bold each - were correctly rejected. The
+ * result was a thread with fifteen live mirrors and an empty update modal.
+ *
+ * The <br> split inside the merged html still runs afterwards, so
+ * "<b>Season 1<br>Win</b>/<b>Linux</b>" still yields ["Season 1", "Win/Linux"].
+ */
+function* coalesceBolds(nodes, fragment) {
+  let pending = null;
+  for (const node of nodes) {
+    if (node.tag !== "b") {
+      if (pending) {
+        yield pending;
+        pending = null;
+      }
+      yield node;
+      continue;
+    }
+    const glue = pending ? fragment.slice(pending.end, node.start) : "";
+    if (pending && isHeadingGlue(glue)) {
+      pending = { ...pending, html: pending.html + glue + node.html, end: node.end };
+      continue;
+    }
+    if (pending) yield pending;
+    pending = node;
+  }
+  if (pending) yield pending;
 }
 
 /**
@@ -388,8 +466,29 @@ function parseThreadDownloads(html) {
   let heading = emptyHeading();
   let patchActive = false;
   let started = false;     // have we reached the first real download link yet
+  // ── "Part 3" the story part vs "Part 3" the archive fragment ──────────────
+  //
+  // PART_LINE matches both and the line itself cannot tell them apart. What
+  // separates them is what comes NEXT:
+  //
+  //   Being a DIK   SPLIT-S3 / Win/Linux / Part 1 -> LINK -> Part 2 -> LINK
+  //                 a fragment: links sit between it and anything else
+  //   Thief of…     Part 3 / Win/Linux -> LINK...  and  Part 1 / Win/Linux
+  //                 a build: a PLATFORM follows it with no link in between
+  //
+  // So a part line is held here rather than folded in immediately. If a platform
+  // line arrives before any link does, the line was naming a build and is
+  // promoted to one; if a link arrives first, it was a fragment marker and folds
+  // in as one. Holding it is what lets the same text mean both things.
+  let pendingPart = null;
+  // Fold a held part line back in as the fragment marker it turned out to be.
+  const flushPendingPart = () => {
+    if (pendingPart === null) return;
+    heading = applyHeadingLines(heading, [pendingPart]);
+    pendingPart = null;
+  };
 
-  for (const node of walkElements(body)) {
+  for (const node of coalesceBolds(walkElements(body), body)) {
     const tag = node.tag;
 
     if (tag === "b") {
@@ -421,6 +520,34 @@ function parseThreadDownloads(html) {
         const text = line.replace(/^download\s+/i, "").trim();
         if (!text) continue;
         const kindOfLine = classifyHeadingLine(text);
+
+        // Held, not folded. See pendingPart above: the next line decides whether
+        // this was a build name or a fragment marker.
+        if (kindOfLine === "part") {
+          flushPendingPart();
+          pendingPart = text;
+          continue;
+        }
+
+        if (pendingPart !== null && kindOfLine === "platform") {
+          // A platform with no link in between: the held line was naming a
+          // build, so it becomes one and the platform hangs off it.
+          heading = applyBuildLine(heading, pendingPart);
+          pendingPart = null;
+          heading = applyHeadingLines(heading, [text]);
+          // A new build ends whatever section preceded it. Without this an
+          // "Extras" bold inside one build's block stays latched over every
+          // build below it -- on Thief of Hearts that put all of Part 1 into
+          // extras, which getUpdateLinks never passes to the modal, so those
+          // mirrors vanished from the list entirely. Only a promoted part line
+          // resets the divider: an ordinary build heading inside an Extras
+          // section is a mod's name, not the end of the section.
+          divider = null;
+          patchActive = false;
+          continue;
+        }
+
+        flushPendingPart();
         heading = applyHeadingLines(heading, [text]);
         // Patch tracking hangs off the BUILD line, not off any line: a bare
         // "Win/Linux" says nothing about whether the section is a patch, and
@@ -435,6 +562,9 @@ function parseThreadDownloads(html) {
     if (tag !== "a") continue;
     const href = node.attrs.href;
     if (!href) continue;
+    // A link before any platform line settles it: the held line was a fragment
+    // marker after all, so fold it in as one before this link is bucketed.
+    flushPendingPart();
 
     const classes = node.attrs.class || "";
     // An anchor wrapping an image is a screenshot thumbnail, not a download.

@@ -106,10 +106,15 @@ const addGame = (game) => {
           return;
         }
         // Game doesn't exist, insert new record
+        // Store creation timestamp so titles without versions (e.g. uninstalled/tracked
+        // titles) retain their original add date for sorting and filtering.
+        const dateAdded = Number(game.date_added || game.dateAdded) > 0
+          ? Number(game.date_added || game.dateAdded)
+          : Math.floor(Date.now() / 1000);
         getDb().run(
-          `INSERT INTO games (title, creator, engine, last_played_r, total_playtime)
-           VALUES (?, ?, ?, 0, 0)`,
-          [title, creator, engine],
+          `INSERT INTO games (title, creator, engine, last_played_r, total_playtime, date_added)
+           VALUES (?, ?, ?, 0, 0, ?)`,
+          [title, creator, engine, dateAdded],
           function (err) {
             if (err) {
               console.error("Error inserting game:", err);

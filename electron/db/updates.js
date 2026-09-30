@@ -280,6 +280,7 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
   const lz4 = require("lz4js");
   const http = require("http");
   const https = require("https");
+  const { packageProgress, downloadText } = require("./updateProgress");
 
   // Atlas ids touched by this run, so the browse index can be brought up to
   // date incrementally instead of rebuilt from scratch after every sync.
@@ -347,13 +348,58 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
     // Insertion stays strictly sequential to preserve ordering guarantees
     // (f95_latest_order, snapshot pruning, and the updates ledger).
     const PREFETCH = 4;
-    const downloadPackage = async (update) => {
+
+    // Live byte counts per package, so the bar can move DURING a transfer
+    // instead of freezing until the whole package lands.
+    //
+    // Indexed rather than kept as a single "current" pair because up to
+    // PREFETCH downloads are in flight at once: package 5 reporting bytes while
+    // the loop is still waiting on package 3 must not overwrite what the bar is
+    // showing. Only the awaited index is ever emitted; the rest is bookkeeping
+    // for when its turn comes.
+    const transfers = new Array(ordered.length);
+    // Which package the loop is actually waiting on. Downloads that finished
+    // ahead of the loop report into `transfers` and are read back when reached.
+    let awaiting = 0;
+
+    const sendDownloadProgress = (i) => {
+      const seen = transfers[i] || { loaded: 0, size: 0 };
+      mainWindow.webContents.send("db-update-progress", {
+        text: downloadText(i + 1, total, seen.loaded, seen.size),
+        progress: packageProgress(i, "download", seen.size > 0 ? seen.loaded / seen.size : 0),
+        total,
+      });
+    };
+
+    const downloadPackage = async (update, index) => {
       try {
         const downloadUrl = `https://atlas-gamesdb.com/packages/${update.name}`;
         const outputPath = path.join(updatesDir, update.name);
-        const res = await client.get(downloadUrl, { responseType: "arraybuffer" });
+        const res = await client.get(downloadUrl, {
+          responseType: "arraybuffer",
+          // `total` is undefined when the server omits Content-Length, which is
+          // why the size is carried separately and the text falls back to the
+          // bare counter rather than printing "of 0 MB".
+          onDownloadProgress: (event) => {
+            transfers[index] = {
+              loaded: Number(event?.loaded) || 0,
+              size: Number(event?.total) || 0,
+            };
+            // Only the package being waited on drives the bar. A prefetched
+            // download three slots ahead reporting here would make the bar jump
+            // forward and then back when the loop caught up.
+            if (index === awaiting) sendDownloadProgress(index);
+          },
+        });
         const buffer = Buffer.from(res.data);
         fs.writeFileSync(outputPath, buffer);
+        // Settle the record even when no progress event ever fired (a small
+        // package can arrive in one chunk), so the completed transfer reads as
+        // complete rather than as never started.
+        transfers[index] = {
+          loaded: buffer.length,
+          size: transfers[index]?.size || buffer.length,
+        };
         return { ok: true, buffer };
       } catch (error) {
         // Resolve (never reject) so a prefetched failure can't trigger an
@@ -365,7 +411,7 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
 
     const downloads = new Array(ordered.length);
     const startDownload = (i) => {
-      if (i < ordered.length && !downloads[i]) downloads[i] = downloadPackage(ordered[i]);
+      if (i < ordered.length && !downloads[i]) downloads[i] = downloadPackage(ordered[i], i);
     };
     for (let i = 0; i < Math.min(PREFETCH, ordered.length); i += 1) startDownload(i);
 
@@ -432,7 +478,7 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
       if (isSnapshot) {
         mainWindow.webContents.send("db-update-progress", {
           text: `Reconciling removed games ${processed + 1}/${total}`,
-          progress: processed,
+          progress: packageProgress(processed, "reconcile"),
           total,
         });
         try {

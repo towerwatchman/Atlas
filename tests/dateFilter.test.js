@@ -79,6 +79,7 @@ const getDateRangeBounds = (range, dateFrom = "", dateTo = "") => {
 };
 
 const getDateFieldValue = (g, field) => {
+  if (field === "dateAdded") return normalizeDateValueMs(g.dateAdded ?? g.date_added ?? g.flagged_at ?? g.flaggedAt);
   if (field === "releaseDate")
     return normalizeDateValueMs(g.release_date ?? g.releaseDate ?? g.steam_release_date ?? g.steamReleaseDate);
   if (field === "lastInstalled") return normalizeDateValueMs(g.lastInstalled);
@@ -154,6 +155,20 @@ check(
 );
 check("none => passthrough", titles({ dateField: "none", dateRange: "30d" }) === "compact,iso,none,old");
 check("missing date excluded", !applyDateFilter(games, { dateField: "releaseDate", dateRange: "90d" }).some((g) => g.title === "none"));
+
+// ── dateAdded field filtering ───────────────────────────────────────────────
+const addedGames = [
+  { title: "recent", dateAdded: Math.floor((now - 3 * day) / 1000) },
+  { title: "monthOld", dateAdded: Math.floor((now - 20 * day) / 1000) },
+  { title: "longAgo", dateAdded: Math.floor((now - 120 * day) / 1000) },
+  { title: "undated" },
+];
+const addedTitles = (f) => applyDateFilter(addedGames, f).map((g) => g.title).sort().join(",");
+
+check("dateAdded in 7d range", addedTitles({ dateField: "dateAdded", dateRange: "7d" }) === "recent");
+check("dateAdded in 30d range", addedTitles({ dateField: "dateAdded", dateRange: "30d" }) === "monthOld,recent");
+check("dateAdded in 90d range", addedTitles({ dateField: "dateAdded", dateRange: "90d" }) === "monthOld,recent");
+check("dateAdded custom range", addedTitles({ dateField: "dateAdded", dateRange: "custom", dateFrom: iso(now - 150 * day), dateTo: iso(now - 10 * day) }) === "longAgo,monthOld");
 
 test("every dateFilter check is registered", () => {
   expect(pass).toBeGreaterThan(0);

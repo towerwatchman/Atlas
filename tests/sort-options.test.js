@@ -55,3 +55,18 @@ test('the default sort state is unchanged', () => {
   expect(defaultFilters.sort).toBeDefined()
   expect(defaultFilters.sort).not.toBe('personalRating')
 })
+
+test('dateAdded is offered in the sort grid with a calendar icon', () => {
+  expect(sortOptionValues()).toContain('dateAdded')
+  const start = sidebar.indexOf('const SORT_OPTIONS = [')
+  const block = sidebar.slice(start, sidebar.indexOf(']', start))
+  expect(block).toMatch(/value:\s*'dateAdded',\s*label:\s*'Date Added',\s*icon:\s*'fa-calendar-plus'/)
+})
+
+test('dateAdded defaults to descending (newest additions first)', () => {
+  expect(getDefaultSortDirectionForSort('dateAdded')).toBe('desc')
+})
+
+test('the comparator handles dateAdded', () => {
+  expect(filters).toMatch(/activeFilters\.sort === 'dateAdded'/)
+})

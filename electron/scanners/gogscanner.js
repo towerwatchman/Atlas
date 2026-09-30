@@ -704,7 +704,7 @@ async function startGogScan(db, params, event) {
         }
         if (!execPath) {
           try {
-            const found = findExecutables(installDir, ["exe"]);
+            const found = await findExecutables(installDir, ["exe"]);
             if (found && found.length > 0) {
               relativeExec = found[0];
               execPath = path.join(installDir, found[0]);
