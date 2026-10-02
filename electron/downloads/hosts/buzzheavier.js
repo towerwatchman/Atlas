@@ -132,7 +132,7 @@ async function probe(url, credentials = {}) {
   if (/\/d\/[a-zA-Z0-9]/.test(String(url || ""))) {
     return {
       ok: true,
-      directUrl: String(url).split(/[?#]/)[0],
+      directUrl: String(url),
       fileName: "",
       fileSize: 0,
       passthrough: true,

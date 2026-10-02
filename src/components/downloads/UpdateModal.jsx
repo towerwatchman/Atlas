@@ -34,6 +34,13 @@ import { buildDownloadOptions } from './linkSections.js'
 
 const prettyHost = (host) => String(host || '').replace(/^www\./, '')
 
+// Only folder hosts take the list-folder step. A Gofile share URL names a
+// folder, so the listing picks between picker and single file. Other hosts
+// queue the resolved URL untouched: probing their links rewrote good URLs
+// (Buzzheavier lost its ?v= token and the CDN 403d) or dropped data the
+// queue needs (Mega's decrypt spec). A future folder host opts in here.
+const FOLDER_PICKER_HOST = /gofile/i
+
 const formatBytes = (value) => {
   const bytes = Number(value) || 0
   if (bytes <= 0) return '0 B'
@@ -165,6 +172,11 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
         if (!resolved?.canceled) {
           setError(resolved?.error || 'Could not get the download link')
         }
+        return
+      }
+      // Only folder hosts get a listing. The rest queue the resolved URL.
+      if (!FOLDER_PICKER_HOST.test(link.host || '')) {
+        await queueDownload(link, resolved.url, resolved.host || link.host)
         return
       }
       // The listing decides: choices present means pick, anything else queues.

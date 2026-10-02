@@ -139,22 +139,42 @@ describe('UpdateModal build options', () => {
     expect(window.electronAPI.downloadsEnqueue.mock.calls[0][0].url).toBe('https://store1.gofile.io/download/web/u1/game.zip')
   })
 
-  it('shows the picker for any host whose listing returns choices', async () => {
-    mount([link('buzzheavier.com', 'Season 2', 'Win')])
+  it('shows the picker for a gofile listing that returns choices', async () => {
+    mount([link('gofile.io', 'Season 2', 'Win')])
     window.electronAPI.downloadsResolveMasked.mockResolvedValue({
-      ok: true, url: 'https://buzzheavier.com/f/AbCd12', host: 'buzzheavier.com',
+      ok: true, url: 'https://gofile.io/d/AbCdEfGh', host: 'gofile.io',
     })
     window.electronAPI.downloadsListFolder = vi.fn().mockResolvedValue({
       ok: true,
       choices: [
-        { name: 'a.zip', size: 1, directUrl: 'https://buzzheavier.com/d/a' },
+        { name: 'a.zip', size: 1, directUrl: 'https://store1.gofile.io/1' },
       ],
+    })
+    window.electronAPI.downloadsEnqueue.mockResolvedValue({ success: true, item: {} })
+    await waitFor(() => { expect(screen.getByText('gofile.io')).toBeTruthy() })
+    fireEvent.click(screen.getByText('gofile.io'))
+    await waitFor(() => { expect(screen.getByText('a.zip')).toBeTruthy() })
+    expect(window.electronAPI.downloadsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('queues a non-gofile link untouched without calling the folder listing', async () => {
+    // Regression: the listing step once rewrote every host's resolved URL.
+    // Buzzheavier's ?v= token was stripped and the CDN 403d. Only folder
+    // hosts take that step now, so the queued URL keeps its query.
+    mount([link('buzzheavier.com', 'Season 2', 'Win')])
+    window.electronAPI.downloadsResolveMasked.mockResolvedValue({
+      ok: true, url: 'https://ts.bzzhr.to/d/uld7h6izau9t?v=token', host: 'ts.bzzhr.to',
+    })
+    window.electronAPI.downloadsListFolder = vi.fn().mockResolvedValue({
+      ok: true, directUrl: 'https://ts.bzzhr.to/d/uld7h6izau9t',
     })
     window.electronAPI.downloadsEnqueue.mockResolvedValue({ success: true, item: {} })
     await waitFor(() => { expect(screen.getByText('buzzheavier.com')).toBeTruthy() })
     fireEvent.click(screen.getByText('buzzheavier.com'))
-    await waitFor(() => { expect(screen.getByText('a.zip')).toBeTruthy() })
-    expect(window.electronAPI.downloadsEnqueue).not.toHaveBeenCalled()
+    await waitFor(() => { expect(window.electronAPI.downloadsEnqueue).toHaveBeenCalled() })
+    expect(window.electronAPI.downloadsListFolder).not.toHaveBeenCalled()
+    expect(window.electronAPI.downloadsEnqueue.mock.calls[0][0].url)
+      .toBe('https://ts.bzzhr.to/d/uld7h6izau9t?v=token')
   })
 
   it('shows a failed folder listing instead of queueing blindly', async () => {
