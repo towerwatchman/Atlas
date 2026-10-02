@@ -42,7 +42,7 @@ describe("buzzheavier already-resolved CDN link", () => {
     const result = await buzzheavier.probe("https://ts.bzzhr.to/d/uld7h6izau9t?v=token");
     expect(result.ok).toBe(true);
     expect(result.passthrough).toBe(true);
-    expect(result.directUrl).toBe("https://ts.bzzhr.to/d/uld7h6izau9t");
+    expect(result.directUrl).toBe("https://ts.bzzhr.to/d/uld7h6izau9t?v=token");
   });
 
   it("probe still resolves a genuine share link", async () => {
