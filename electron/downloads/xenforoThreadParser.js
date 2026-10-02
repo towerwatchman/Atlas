@@ -665,8 +665,6 @@ function parseThreadDownloads(html, site = "f95") {
     // A link still masked on the forum's own domain is a download the parser
     // could not read - kept for the browser resolver instead of dropped.
     // F95 never lands here: its masked links always carry the real host.
-    // TODO remove when the masked resolver takes a site: LC rows still
-    // resolve with F95 cookies and fail loudly.
     const needsResolve = masked && host === cfg.self;
     const isFile = started
       ? !isNonDownloadHost(url, cfg) || needsResolve

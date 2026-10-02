@@ -212,8 +212,10 @@ async function ipcHandler({ lcId, force = false } = {}) {
 }
 
 function registerLcLinkHandlers() {
+  // LC thread links under the user's own session. Tier-gated like Browse.
   ipcMain.handle("lewdcorner-links-get", async (event, params) => ipcHandler(params));
 
+  // Drops the per-session lc: cache so a re-login takes effect at once.
   ipcMain.handle("lewdcorner-links-clear-cache", async (event, { lcId = null } = {}) => {
     clearLcLinkCache(lcId);
     return { ok: true };

@@ -24,6 +24,10 @@ const { resolveMaskedLink } = require("../downloads/maskedResolver");
 const { toLocalRecordId } = require("../downloads/recordId");
 const { toCatalogRef } = require("../library/catalogRef");
 const accountStore = require("../accounts/accountStore");
+// Forum bases per site, shared with the LC link handler. The masked-resolve
+// path needs the right base for cookies, so it reads the same table rather
+// than hardcoding a second copy of the origins.
+const { SITES } = require("../downloads/xenforoThreadParser");
 
 let handlerCtx = null;
 
@@ -98,17 +102,31 @@ function registerDownloadsHandlers(ctx = {}) {
 
   });
 
-  // Resolve one F95 masked link by opening it in a visible window carrying the
+  // Resolve one masked link by opening it in a visible window carrying the
   // user's own session. The user clicks through; Atlas reads the address bar.
   // Nothing is clicked on their behalf - see maskedResolver.js.
+  //
+  // `site` selects whose session applies ('lewdcorner' for the parser's
+  // masked:true fallbacks). When omitted, the site is inferred from the URL,
+  // so today's renderer — which sends no site — still resolves LC links
+  // under LC cookies. Undecodable LC /masked/* URLs live on lewdcorner.com,
+  // where F95 cookies would never be sent.
   //
   // The diagnostics come back with the result and are logged deliberately: we
   // could not verify offline which Electron navigation event preserves the
   // URL fragment, and Mega's decryption key lives there. The first real
   // resolve tells us which source to trust.
-  ipcMain.handle("downloads-resolve-masked", async (event, { url, title = "" } = {}) => {
+  ipcMain.handle("downloads-resolve-masked", async (event, { url, title = "", site } = {}) => {
     try {
       if (!url) return { ok: false, error: "No URL supplied" };
+      // An explicit site wins. Otherwise infer from the URL, because the
+      // cookie header already comes from the URL's own site and the refresh
+      // must follow it. Anything unknown falls back to F95 rather than
+      // throwing, so a typo still resolves under a real session.
+      const inferred = accountStore.siteForUrl(url);
+      const siteKey = site === "f95" || site === "lewdcorner" ? site
+        : SITES[inferred]?.base ? inferred : "f95";
+      const base = SITES[siteKey]?.base || SITES.f95.base;
       // Refresh first so an expired cookie fails here, with a clear message,
       // rather than as a mystery captcha loop in the window.
       // Same shape as updateLinks: ensureFreshCookies is async,
@@ -116,9 +134,9 @@ function registerDownloadsHandlers(ctx = {}) {
       // thenable, so neither can be .catch()'d - that mistake is what produced
       // ".catch is not a function" at runtime.
       try {
-        await accountStore.ensureFreshCookies("f95");
+        await accountStore.ensureFreshCookies(siteKey);
       } catch (err) {
-        console.warn("Could not refresh F95 cookies:", err.message);
+        console.warn(`Could not refresh ${siteKey} cookies:`, err.message);
       }
       const cookieHeader = accountStore.getCookieHeaderForUrl(url) || "";
       const parentWindow = BrowserWindow.fromWebContents(event.sender);
@@ -128,7 +146,11 @@ function registerDownloadsHandlers(ctx = {}) {
         parentWindow,
         cookieHeader,
         title,
-        gateHosts: plugin?.gateHosts,
+        // The forum origin for cookies plus the gate default when no plugin
+        // claims the URL. Masked URLs live on the forum itself, so plugin is
+        // null and the gate would otherwise fall back to F95 for LC links.
+        baseUrl: base,
+        gateHosts: plugin?.gateHosts ?? [new URL(base).hostname],
         requiresBrowser: plugin?.requiresBrowser,
       });
       // Kept from before this host was added, and now carrying the two fields
