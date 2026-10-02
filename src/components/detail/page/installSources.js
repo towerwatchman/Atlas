@@ -28,11 +28,12 @@
 // normalizeSourceOrder does with null, and is the right default for a config
 // key most people never touch.
 //
-// LewdCorner is not a source here even though it is one in Metadata.sourceOrder.
-// UpdateModal fetches by `f95_id` and there is no LewdCorner download path yet,
-// so listing it would be an option that cannot be taken.
 
-/** Every source id this module knows how to install from, in fallback order. */
+// `f95` is the mirrors entry for threads from either site (F95Zone,
+// LewdCorner) — the id predates LewdCorner support. LewdCorner needs no
+// entry of its own: its mirrors arrive through this same route. Deliberately
+// not renamed to `mirrors`: the id is saved in sourceOrder configs, and a
+// rename would orphan custom orders still listing it.
 const KNOWN_SOURCES = Object.freeze(['f95', 'steam', 'gog'])
 
 const SOURCE_META = Object.freeze({
