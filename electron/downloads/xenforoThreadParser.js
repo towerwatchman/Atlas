@@ -728,6 +728,7 @@ function parseThreadDownloads(html, site = "f95") {
 }
 
 module.exports = {
+  SITES,
   parseThreadDownloads,
   stripTags,
   unwrap,
