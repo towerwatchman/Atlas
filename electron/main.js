@@ -147,6 +147,7 @@ const registerAccountsHandlers = require('./ipc/accounts')
 const registerCollectionsHandlers = require('./ipc/collections')
 const registerDownloadsHandlers = require('./ipc/downloads')
 const registerUpdateLinkHandlers = require('./ipc/updateLinks')
+const registerLcLinkHandlers = require('./ipc/lcLinks')
 const { registerExtensionHandlers } = require('./ipc/extension')
 const { startExtensionServer, stopExtensionServer } = require('./rpc/extensionServer')
 const {
@@ -2463,6 +2464,7 @@ app.whenReady().then(async () => {
   registerCollectionsHandlers(ctx)
   registerDownloadsHandlers(ctx)
   registerUpdateLinkHandlers(ctx)
+  registerLcLinkHandlers(ctx)
   registerExtensionHandlers(ctx)
 
   const extConfig = appConfig?.Extension || {}

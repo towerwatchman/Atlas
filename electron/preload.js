@@ -372,6 +372,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   hostsMegaSelfTest: () => ipcRenderer.invoke("hosts-mega-selftest"),
   updateLinksGet: (params) => ipcRenderer.invoke("update-links-get", params),
   updateLinksClearCache: (params) => ipcRenderer.invoke("update-links-clear-cache", params),
+  lcLinksGet: (params) => ipcRenderer.invoke("lewdcorner-links-get", params),
+  lcLinksClearCache: (params) => ipcRenderer.invoke("lewdcorner-links-clear-cache", params),
   // Each returns its own unsubscribe function so a remounting panel does not
   // stack duplicate listeners.
   onDownloadAdded: (cb) => {

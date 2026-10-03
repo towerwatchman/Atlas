@@ -2,14 +2,15 @@
 
 // ── Masked link resolver ─────────────────────────────────────────────────────
 //
-// Opens an F95 /masked/ link in a real, visible browser window carrying the
-// user's own session, waits for THEM to click through, and captures where the
-// browser ended up.
+// Opens a forum /masked/ link (F95 or LewdCorner) in a real, visible browser
+// window carrying the user's own session, waits for THEM to click through,
+// and captures where the browser ended up.
 //
-// Why a window at all: masked links are AES-encrypted server-side with an
+// Why a window at all: F95 masked links are AES-encrypted server-side with an
 // HMAC over the requesting account's user id, so they cannot be decoded
 // offline, and the landing page loads reCAPTCHA. A real browser is the only
-// honest way through.
+// honest way through. (LC masked links normally decode offline in the parser;
+// only undecodable fallbacks reach this window, under LC cookies.)
 //
 // Two-stage resolve. The window is created HIDDEN and the continue link is
 // clicked programmatically; if that produces a destination within a few
@@ -126,11 +127,17 @@ const CLICK_HOST_LINK = `
   })();
 `;
 
-// Cookie header -> individual cookies on the window's session, so F95 sees the
-// user's real login. Stored cookies come back as a single header string, which
-// is what the headless fetch path uses.
-async function applyCookies(ses, cookieHeader, baseUrl) {
+// Copies the user's forum cookies into the resolve window, so the site sees
+// a logged-in user instead of a guest. The domain comes from baseUrl because
+// cookies are per-host: an LC cookie stored under F95 would never be sent to LC
+async function applyCookies(ses, cookieHeader, baseUrl = `https://${F95_HOST}/`) {
   if (!cookieHeader) return 0;
+  let domain = F95_HOST;
+  try {
+    domain = new URL(baseUrl).hostname || F95_HOST;
+  } catch {
+    // A malformed base keeps the F95 default instead of failing the resolve.
+  }
   let applied = 0;
   for (const pair of String(cookieHeader).split(";")) {
     const trimmed = pair.trim();
@@ -144,7 +151,7 @@ async function applyCookies(ses, cookieHeader, baseUrl) {
         url: baseUrl,
         name,
         value,
-        domain: `.${F95_HOST}`,
+        domain: `.${domain}`,
         path: "/",
         secure: true,
         httpOnly: false,
@@ -163,7 +170,8 @@ async function applyCookies(ses, cookieHeader, baseUrl) {
  * @param {string} maskedUrl
  * @param {object} [options]
  * @param {BrowserWindow} [options.parentWindow]
- * @param {string} [options.cookieHeader] the user's F95 cookies
+ * @param {string} [options.cookieHeader] the user's site cookies for the link's site
+ * @param {string} [options.baseUrl] forum origin the cookies belong to (F95 default)
  * @param {string} [options.title] window title, e.g. the game name
  * @param {number} [options.timeoutMs]
  * @returns {Promise<{ok:boolean, url?:string, host?:string, hasFragment?:boolean,
@@ -174,6 +182,7 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
   const {
     parentWindow = null,
     cookieHeader = "",
+    baseUrl = `https://${F95_HOST}/`,
     title = "",
     timeoutMs = DEFAULT_TIMEOUT_MS,
     // Set false to go straight to a visible window - useful if the automated
@@ -545,7 +554,7 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     // ── Go ──────────────────────────────────────────────────────────────────
     (async () => {
       try {
-        await applyCookies(ses, cookieHeader, `https://${F95_HOST}/`);
+        await applyCookies(ses, cookieHeader, baseUrl);
         await contents.loadURL(maskedUrl);
         // Stay hidden while the automated attempt runs. reveal() brings it up
         // if that does not pan out.

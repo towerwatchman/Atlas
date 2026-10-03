@@ -37,10 +37,10 @@ const { supportedHostIds } = require("../downloads/hosts");
 
 const SUPPORTED_HOSTS = new Set(supportedHostIds());
 
-// threadId -> { at, payload }
+// f95:{id} -> { at, payload }
 const cache = new Map();
 
-const cacheKey = (threadId) => String(threadId);
+const cacheKey = (threadId) => `f95:${String(threadId)}`;
 
 function clearUpdateLinkCache(threadId = null) {
   if (threadId == null) cache.clear();
