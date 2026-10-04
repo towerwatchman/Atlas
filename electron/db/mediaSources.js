@@ -51,6 +51,25 @@ const steamImages = (appid, game = {}) => ({
   logo: resolvedSteamAsset(game && game.steam_logo) || steamAsset(appid, 'logo.png'),
 })
 
+// Longest hex run (>= 16 chars) in a value, lowercased, or ''. Steam, F95 and
+// most CDN hosts embed the file's content hash in the name, so this is the
+// cheapest cross-host "same picture" test without downloading bytes.
+const longestHexToken = (value) => {
+  const runs = String(value || '').match(/[0-9a-f]{16,}/gi)
+  if (!runs || runs.length === 0) return ''
+  return [...runs].sort((a, b) => b.length - a.length)[0].toLowerCase()
+}
+
+// Content key for a Steam asset URL: its embedded hash, e.g.
+//   .../apps/1091500/ss_0002f18563d313bdd1d82c725d411408ebf762b0.1920x1080.jpg?t=...
+//   -> 0002f18563d313bdd1d82c725d411408ebf762b0
+const steamImageContentKey = (url) => {
+  const s = String(url || '')
+  if (!s) return ''
+  const path = s.split(/[?#]/)[0]
+  return longestHexToken(path) || path.split('/').filter(Boolean).slice(-2).join('/').toLowerCase()
+}
+
 // external_ids is stored as a JSON object string, e.g.
 //   {"patreon":"DrPinkCake","steam_appid":"1126320","twitter":"DrPinkCake"}
 const parseExternalIds = (raw) => {
@@ -325,6 +344,16 @@ const sourceFromRemoteUrl = (url) => {
   return 'atlas'
 }
 const detectPreviewSource = (url) => sourceFromRemoteUrl(url)
+
+// Twin key for preview dedupe (#301): pairs a saved file with its remote twin.
+// A long hex token is a content hash, so it pairs across hosts. Without one
+// there is nothing to pair on, so only Steam falls back to its appid-qualified path.
+const previewTwinKey = (url) => {
+  const hash = longestHexToken(String(url || '').split(/[?#]/)[0])
+  if (hash) return hash
+  if (sourceFromRemoteUrl(url) === 'steam') return steamImageContentKey(url) || null
+  return null
+}
 // Stable-reorders only the remote (http) entries of a preview list by source
 // priority, preserving the position of any local file paths.
 const orderPreviewsBySource = (urls, rawOrder) => {
@@ -372,4 +401,6 @@ module.exports = {
   buildExternalLinks,
   orderPreviewsBySource,
   sourceFromRemoteUrl,
+  steamImageContentKey,
+  previewTwinKey,
 }

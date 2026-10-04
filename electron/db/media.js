@@ -10,7 +10,7 @@ const getDb = () => dbModule.db
 const { toLocalAssetPath, getAssetBasePath, normalizePath, normalizeMediaStorageMode,
         remoteBannerExpression, buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
-const { normalizeSourceOrder, parseExternalIds, resolveSteamAppId, sourceFromRemoteUrl } = require('./mediaSources')
+const { normalizeSourceOrder, parseExternalIds, resolveSteamAppId, sourceFromRemoteUrl, previewTwinKey } = require('./mediaSources')
 
 function normalizeVersionName(value, fallback = "Unknown") {
   const normalized = String(value ?? "").trim();
@@ -569,7 +569,10 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, gogId, lcId, sourceOrde
         FROM steam_screens
         JOIN steam_data ON steam_screens.steam_id = steam_data.steam_id
         WHERE (? IS NOT NULL AND steam_screens.steam_id = ?)
-           OR (? IS NOT NULL AND steam_data.atlas_id = ?)
+           -- A picked season scopes Steam art to that appid: several appids
+           -- can share one atlas_id (seasons), so the atlas fallback must not
+           -- run when a steam id was given or every season leaks back in.
+           OR (? IS NOT NULL AND ? IS NULL AND steam_data.atlas_id = ?)
         UNION ALL
         SELECT 'gog_screens' AS source, gog_screens.screen_url AS url_blob, 4 AS sort_order
         FROM gog_screens
@@ -590,7 +593,7 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, gogId, lcId, sourceOrde
         atlasParam, atlasParam,
         atlasParam, atlasParam,
         steamParam, steamParam,
-        atlasParam, atlasParam,
+        atlasParam, steamParam, atlasParam,
         gogParam, gogParam,
         atlasParam, atlasParam,
       ],
@@ -721,6 +724,9 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
            OR atlas_data.external_ids LIKE '%"steam_appid": "' || steam_movies.steam_id || '"%'
            OR atlas_data.external_ids LIKE '%"steam_id":"' || steam_movies.steam_id || '"%'
            OR atlas_data.external_ids LIKE '%"steam_id": "' || steam_movies.steam_id || '"%'
+           -- Seasons fetched on demand have atlas_id NULL and may be missing
+           -- from external_ids, so link them through their version rows instead.
+           OR steam_movies.steam_id IN (SELECT v.source_app_id FROM versions v WHERE v.record_id = games.record_id AND v.source = 'steam')
         UNION
          SELECT 'f95' AS source, f95_zone_screens.screen_url AS url, 1 AS sort_order, NULL AS steam_ref
         FROM f95_zone_screens
@@ -750,6 +756,8 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
            OR atlas_data.external_ids LIKE '%"steam_appid": "' || steam_screens.steam_id || '"%'
            OR atlas_data.external_ids LIKE '%"steam_id":"' || steam_screens.steam_id || '"%'
            OR atlas_data.external_ids LIKE '%"steam_id": "' || steam_screens.steam_id || '"%'
+           -- Same version-row linkage as above.
+           OR steam_screens.steam_id IN (SELECT v.source_app_id FROM versions v WHERE v.record_id = games.record_id AND v.source = 'steam')
         UNION
          SELECT 'gog' AS source, gog_movies.movie_url AS url, 1 AS sort_order, NULL AS steam_ref
         FROM gog_movies
@@ -931,25 +939,51 @@ const getPreviews = async (recordId, appPath, isDev, mediaStorageMode = "stream"
         location: "remote",
       }));
 
-    // Normalize local rows into the unified item shape; skip missing files.
-    // Enrich each with a derived source (from its logged remote_url) and a
-    // location: custom uploads vs downloaded-local vs remote-streamed.
+    // Twin dedupe (#301): a saved file and its remote twin share an embedded
+    // content hash across ?t= rotations, CDN hosts and source hosts, so pair
+    // them by key instead of exact string. Disk copy wins; videos exempt.
+    // Rows still resolve to one item each (missing disk file falls back to
+    // remote_url) enriched with source/location before dedupe.
     const localItems = [];
     const seen = new Set();
+    const seenTwinKeys = new Set();
     for (const row of localRows) {
       const item = await resolveLocalPreview(row, appPath, isDev);
       if (!item) continue;
       const isCustom = row.is_custom === 1 || row.is_custom === true;
       const source = isCustom ? "custom" : sourceFromRemoteUrl(row.remote_url) || "atlas";
+      // Season scope for disk rows: a downloaded file's name carries no
+      // identity, so its season is recovered from the appid embedded in its
+      // stored remote_url. When a Steam season is selected, another season's
+      // Steam files stay on disk but out of this view — skipped before display
+      // AND before twin-key registration so they suppress nothing. Fail open:
+      // customs, videos, non-Steam rows, and unparseable URLs all pass, and a
+      // null sourceAppId keeps today's aggregate view.
+      if (sourceAppId && item.type === "image" && !isCustom && source === "steam") {
+        const rowAppId = /steam\/apps\/(\d+)/i.exec(String(row.remote_url || ""))?.[1];
+        if (rowAppId && rowAppId !== String(sourceAppId)) continue;
+      }
       const location = isCustom ? "custom" : "local";
       localItems.push({ ...item, source, location });
       seen.add(item.url);
       if (item.remoteUrl) seen.add(item.remoteUrl);
+      if (item.type === "image") {
+        const key = previewTwinKey(item.remoteUrl || item.url);
+        if (key) seenTwinKeys.add(key);
+      }
     }
 
-    // Remote screenshots that aren't already represented by a local row.
+    // Remote screenshots with no local twin, by URL or content key.
     const uniqueRemoteScreenshots = remoteAll
-      .filter((u) => !isPreviewVideo(u) && !seen.has(u))
+      .filter((u) => {
+        if (isPreviewVideo(u) || seen.has(u)) return false;
+        const key = previewTwinKey(u);
+        if (key) {
+          if (seenTwinKeys.has(key)) return false;
+          seenTwinKeys.add(key);
+        }
+        return true;
+      })
       .map((url) => ({
         url,
         identifier: url,

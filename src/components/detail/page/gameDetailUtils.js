@@ -27,6 +27,19 @@ export const getDefaultVersion = (versions = []) => {
   return sortVersionsDesc(versions)[0] || null
 }
 
+// The Steam appid of the selected season
+export const selectedSteamAppId = (selectedVersion) =>
+  (selectedVersion && selectedVersion.source === 'steam')
+    ? (selectedVersion.source_app_id ?? selectedVersion.sourceAppId ?? null)
+    : null
+
+// Season scope steam logo.
+export const seasonLogoOverride = (selectedVersion) => {
+  const appId = selectedSteamAppId(selectedVersion)
+  if (!appId) return null
+  return `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/logo.png`
+}
+
 export const normalizeUrl = (url) => {
   if (!url) return ''
   return String(url).split(/[?#]/)[0].trim().toLowerCase().replace(/\/+$/, '')
