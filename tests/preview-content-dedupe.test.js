@@ -200,6 +200,51 @@ describe('preview season scoping (#301)', () => {
   })
 })
 
+describe('preview season linkage without atlas (#301)', () => {
+  const S1 = 101
+  const S2 = 102
+  const s1Shot = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${S1}/ss_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.1920x1080.jpg`
+  const s2Shot = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${S2}/ss_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.1920x1080.jpg`
+  const s2Movie = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${S2}/movie_1080.mp4`
+
+  // Production shape for on-demand rows: fetchAndStoreSteamData is the only
+  // steam_data writer and stores atlas_id NULL, steam_mappings holds S1 only,
+  // and no atlas_data row links S2. The season exists solely as a version row
+  // (source/appid), exactly like an owned-but-uninstalled season.
+  const unlinkedSecondSeason = async () => {
+    await insertGame(1)
+    await linkSteam(1, S1)
+    await run(`INSERT OR IGNORE INTO steam_data (steam_id) VALUES (?)`, [S2])
+    await addSteamScreen(S1, s1Shot)
+    await addSteamScreen(S2, s2Shot)
+    const now = Date.now()
+    await run(`INSERT INTO versions (record_id, version, game_path, exec_path, in_place, date_added, source, source_app_id)
+               VALUES (1, 'Season 1', '', '', 0, ?, 'steam', ?)`, [now, String(S1)])
+    await run(`INSERT INTO versions (record_id, version, game_path, exec_path, in_place, date_added, source, source_app_id)
+               VALUES (1, 'Season 2', '', '', 0, ?, 'steam', ?)`, [now + 1, String(S2)])
+  }
+
+  it('season linked only by its version row shows its own steam art', async () => {
+    const { dataDir } = await openFreshDatabase()
+    await unlinkedSecondSeason()
+
+    const urls = await getPreviews(1, dataDir, false, { mode: 'stream', sourceAppId: String(S2) })
+
+    expect(urls).toHaveLength(1)
+    expect(urls[0]).toBe(s2Shot)
+  })
+
+  it('season linked only by its version row shows its trailers', async () => {
+    const { dataDir } = await openFreshDatabase()
+    await unlinkedSecondSeason()
+    await run(`INSERT INTO steam_movies (steam_id, movie_url, thumbnail) VALUES (?, ?, ?)`, [S2, s2Movie, s2Shot])
+
+    const urls = await getPreviews(1, dataDir, false, { mode: 'stream', sourceAppId: String(S2) })
+
+    expect(urls).toContain(s2Movie)
+  })
+})
+
 describe('browse season scoping (#301)', () => {
   const S1 = 101
   const S2 = 102

@@ -724,6 +724,9 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
            OR atlas_data.external_ids LIKE '%"steam_appid": "' || steam_movies.steam_id || '"%'
            OR atlas_data.external_ids LIKE '%"steam_id":"' || steam_movies.steam_id || '"%'
            OR atlas_data.external_ids LIKE '%"steam_id": "' || steam_movies.steam_id || '"%'
+           -- Seasons fetched on demand have atlas_id NULL and may be missing
+           -- from external_ids, so link them through their version rows instead.
+           OR steam_movies.steam_id IN (SELECT v.source_app_id FROM versions v WHERE v.record_id = games.record_id AND v.source = 'steam')
         UNION
          SELECT 'f95' AS source, f95_zone_screens.screen_url AS url, 1 AS sort_order, NULL AS steam_ref
         FROM f95_zone_screens
@@ -753,6 +756,8 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
            OR atlas_data.external_ids LIKE '%"steam_appid": "' || steam_screens.steam_id || '"%'
            OR atlas_data.external_ids LIKE '%"steam_id":"' || steam_screens.steam_id || '"%'
            OR atlas_data.external_ids LIKE '%"steam_id": "' || steam_screens.steam_id || '"%'
+           -- Same version-row linkage as above.
+           OR steam_screens.steam_id IN (SELECT v.source_app_id FROM versions v WHERE v.record_id = games.record_id AND v.source = 'steam')
         UNION
          SELECT 'gog' AS source, gog_movies.movie_url AS url, 1 AS sort_order, NULL AS steam_ref
         FROM gog_movies
