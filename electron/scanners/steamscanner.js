@@ -16,6 +16,9 @@ const {
 // the only reliable way to get the initialized connection.
 const dbIndex = require("../db/index");
 const liveDb = () => dbIndex.db;
+// steamImageContentKey lives in db/mediaSources (dependency-free, shared with
+// db/media.js display-dedupe); re-exported below for existing consumers.
+const { steamImageContentKey } = require("../db/mediaSources");
 
 function parseVDF(text) {
   const lines = text
@@ -468,28 +471,6 @@ async function insertSteamData(db, data) {
       },
     );
   });
-}
-
-// Steam screenshot/asset URLs embed a content hash in the filename, e.g.
-//   .../apps/1091500/ss_0002f18563d313bdd1d82c725d411408ebf762b0.1920x1080.jpg?t=...
-// The 40-hex `ss_<hash>` (or any long hex filename token) IS Steam's own content
-// identifier — same image => same hash, regardless of the ?t= cache-buster or
-// which CDN host served it. So we can dedupe by this hash without downloading a
-// single byte. Falls back to the path-without-query when no hex token is found.
-function steamImageContentKey(url) {
-  const s = String(url || "");
-  if (!s) return "";
-  // Longest hex run of >=16 chars in the path (covers ss_<40hex> and library
-  // asset hashes). Ignore the query string entirely.
-  const path = s.split(/[?#]/)[0];
-  const hexes = path.match(/[0-9a-f]{16,}/gi);
-  if (hexes && hexes.length > 0) {
-    // Use the longest hex token — that's the content hash, not an appid.
-    return hexes.sort((a, b) => b.length - a.length)[0].toLowerCase();
-  }
-  // No hash token: dedupe by the base path (host-agnostic: last two segments).
-  const segs = path.split("/").filter(Boolean);
-  return segs.slice(-2).join("/").toLowerCase();
 }
 
 async function insertSteamScreens(db, steamId, screens) {

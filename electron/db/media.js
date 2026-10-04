@@ -10,7 +10,7 @@ const getDb = () => dbModule.db
 const { toLocalAssetPath, getAssetBasePath, normalizePath, normalizeMediaStorageMode,
         remoteBannerExpression, buildBannerJoinClauses, buildBannerSelectFields } = require('./helpers')
 const { deletePathWithElevationFallback } = require('../deleteUtils')
-const { normalizeSourceOrder, parseExternalIds, resolveSteamAppId, sourceFromRemoteUrl } = require('./mediaSources')
+const { normalizeSourceOrder, parseExternalIds, resolveSteamAppId, sourceFromRemoteUrl, previewTwinKey } = require('./mediaSources')
 
 function normalizeVersionName(value, fallback = "Unknown") {
   const normalized = String(value ?? "").trim();
@@ -931,11 +931,14 @@ const getPreviews = async (recordId, appPath, isDev, mediaStorageMode = "stream"
         location: "remote",
       }));
 
-    // Normalize local rows into the unified item shape; skip missing files.
-    // Enrich each with a derived source (from its logged remote_url) and a
-    // location: custom uploads vs downloaded-local vs remote-streamed.
+    // Twin dedupe (#301): a saved file and its remote twin share an embedded
+    // content hash across ?t= rotations, CDN hosts and source hosts, so pair
+    // them by key instead of exact string. Disk copy wins; videos exempt.
+    // Rows still resolve to one item each (missing disk file falls back to
+    // remote_url) enriched with source/location before dedupe.
     const localItems = [];
     const seen = new Set();
+    const seenTwinKeys = new Set();
     for (const row of localRows) {
       const item = await resolveLocalPreview(row, appPath, isDev);
       if (!item) continue;
@@ -945,11 +948,23 @@ const getPreviews = async (recordId, appPath, isDev, mediaStorageMode = "stream"
       localItems.push({ ...item, source, location });
       seen.add(item.url);
       if (item.remoteUrl) seen.add(item.remoteUrl);
+      if (item.type === "image") {
+        const key = previewTwinKey(item.remoteUrl || item.url);
+        if (key) seenTwinKeys.add(key);
+      }
     }
 
-    // Remote screenshots that aren't already represented by a local row.
+    // Remote screenshots with no local twin, by URL or content key.
     const uniqueRemoteScreenshots = remoteAll
-      .filter((u) => !isPreviewVideo(u) && !seen.has(u))
+      .filter((u) => {
+        if (isPreviewVideo(u) || seen.has(u)) return false;
+        const key = previewTwinKey(u);
+        if (key) {
+          if (seenTwinKeys.has(key)) return false;
+          seenTwinKeys.add(key);
+        }
+        return true;
+      })
       .map((url) => ({
         url,
         identifier: url,
