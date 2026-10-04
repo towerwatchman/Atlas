@@ -21,6 +21,7 @@ import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
   sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl, formatReleaseDate,
   isSteamGame, getMappedSteamAppId, isGogGame, getMappedGogId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
+  seasonLogoOverride,
 } from './page/gameDetailUtils.js'
 import { buildGroupedGameLinks, gogStoreUrl } from './gameLinks.js'
 import InstallSourceModal from './page/InstallSourceModal.jsx'
@@ -1230,6 +1231,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
           // falls through its candidate chain if this URL fails to load.
           return `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/library_hero.jpg`
         })()}
+        logoOverride={seasonLogoOverride(selectedVersion)}
         bannerRef={bannerRef}
         bannerDimsRef={bannerDimsRef}
         bannerMask={bannerMask}
