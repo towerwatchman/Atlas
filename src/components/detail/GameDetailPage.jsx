@@ -262,25 +262,16 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
             setPreviews(filterOutBanner(browsePreviewCacheRef.current.get(cacheKey), game.banner_url))
             return
           }
-          const urls = await window.electronAPI.getBrowsePreviewUrls?.({
-            atlas_id: game.atlas_id,
-            f95_id: game.f95_id,
-            lc_id: game.lc_id || game.lcId,
-            steam_id: browseSteamAppId,
-            gog_id: game.gog_id || game.gog_appid,
-          })
-          const safeUrls = Array.isArray(urls) ? urls : []
-          // On-demand: fetch the selected Steam season's screens + trailers so
-          // browse mode shows them like an installed game. Trailer urls are
-          // prepended (they lead the media grid) and their thumbnails feed the
-          // movieThumbs map used by the Videos section.
-          let steamPreviews = []
+          // Fetch the selected season's media BEFORE reading: the browse query
+          // only returns season rows already in the local DB. Trailers are
+          // prepended (the browse query returns screenshots only) and their
+          // thumbnails feed the movieThumbs map used by the Videos section.
+          let trailerUrls = []
           if (browseSteamAppId) {
             try {
               const media = await window.electronAPI.ensureSteamBrowseMedia?.(browseSteamAppId)
               if (media) {
-                const trailerUrls = (media.trailers || []).map((t) => t.url).filter(Boolean)
-                steamPreviews = [...trailerUrls, ...(media.previews || [])]
+                trailerUrls = (media.trailers || []).map((t) => String(t?.url || '').trim()).filter(Boolean)
                 if ((media.trailers || []).length > 0) {
                   setMovieThumbs((prev) => {
                     const next = { ...prev }
@@ -293,15 +284,18 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
               console.warn('Failed to load browse steam media:', mediaErr?.message)
             }
           }
+          const urls = await window.electronAPI.getBrowsePreviewUrls?.({
+            atlas_id: game.atlas_id,
+            f95_id: game.f95_id,
+            lc_id: game.lc_id || game.lcId,
+            steam_id: browseSteamAppId,
+            gog_id: game.gog_id || game.gog_appid,
+          })
+          const safeUrls = Array.isArray(urls) ? urls : []
           const snapshotPreviews = splitPreviewUrls(game.preview_urls || game.previewUrls)
-          // Merge: steam trailers/screens first, then whatever the browse query
-          // returned, then the snapshot fallback. De-duped, order-preserving.
-          const merged = []
-          const seen = new Set()
-          for (const u of [...steamPreviews, ...safeUrls, ...(safeUrls.length === 0 && steamPreviews.length === 0 ? snapshotPreviews : [])]) {
-            const s = String(u || '').trim()
-            if (s && !seen.has(s)) { seen.add(s); merged.push(s) }
-          }
+          // Season trailers first, then the browse query result (which already
+          // includes the season's screens), then the snapshot fallback.
+          const merged = [...new Set([...trailerUrls, ...safeUrls, ...(safeUrls.length === 0 && trailerUrls.length === 0 ? snapshotPreviews : [])])]
           browsePreviewCacheRef.current.set(cacheKey, merged)
           setPreviews(filterOutBanner(merged, game.banner_url))
           return
@@ -309,40 +303,27 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         const selectedSteamAppId = (selectedVersion && selectedVersion.source === 'steam')
           ? (selectedVersion.source_app_id ?? selectedVersion.sourceAppId ?? null)
           : null
-        const urls = await window.electronAPI.getPreviews(game.record_id, selectedSteamAppId)
-        let localPreviews = Array.isArray(urls) ? urls : []
-        // For a Steam version, the selected season's screens/trailers may not be
-        // in the local DB yet (only the imported appid's media gets fetched at
-        // import time). Lazily fetch this appid's media so switching versions
-        // shows the right previews + trailers, mirroring browse mode. Trailer
-        // urls lead the grid; their thumbnails feed movieThumbs.
+        // Fetch the selected season's media BEFORE reading: getPreviews only
+        // returns season rows already in the local DB, and only the imported
+        // appid's media is fetched at import time. The backend merges and
+        // dedupes, so there is no manual concat here — just the trailer
+        // thumbnails for the Videos section.
         if (selectedSteamAppId) {
           try {
             const media = await window.electronAPI.ensureSteamBrowseMedia?.(selectedSteamAppId)
-            if (media) {
-              const trailerUrls = (media.trailers || []).map((t) => t.url).filter(Boolean)
-              const steamMedia = [...trailerUrls, ...(media.previews || [])]
-              const merged = []
-              const seen = new Set()
-              // Steam media for the selected appid first, then whatever getPreviews
-              // returned (local downloaded art, other-source screens), deduped.
-              for (const u of [...steamMedia, ...localPreviews]) {
-                const s = String(u || '').trim()
-                if (s && !seen.has(s)) { seen.add(s); merged.push(s) }
-              }
-              localPreviews = merged
-              if ((media.trailers || []).length > 0) {
-                setMovieThumbs((prev) => {
-                  const next = { ...prev }
-                  for (const t of media.trailers) if (t?.url && t?.thumbnail) next[t.url] = t.thumbnail
-                  return next
-                })
-              }
+            if ((media?.trailers || []).length > 0) {
+              setMovieThumbs((prev) => {
+                const next = { ...prev }
+                for (const t of media.trailers) if (t?.url && t?.thumbnail) next[t.url] = t.thumbnail
+                return next
+              })
             }
           } catch (mediaErr) {
             console.warn('Failed to load selected steam version media:', mediaErr?.message)
           }
         }
+        const urls = await window.electronAPI.getPreviews(game.record_id, selectedSteamAppId)
+        const localPreviews = Array.isArray(urls) ? urls : []
         setPreviews(filterOutBanner(localPreviews, game.banner_url))
       } catch (err) {
         console.error('Failed to load previews:', err)
@@ -352,7 +333,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
       }
     }
     loadPreviews()
-  }, [game?.record_id, game?.versions, game?.selected_version_id, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.lc_id, game?.lcId, game?.steam_id, selectedVersion?.version_id, selectedVersion?.source_app_id])
+  }, [game?.record_id, game?.versions, game?.selected_version_id, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.lc_id, game?.lcId, game?.steam_id, selectedVersion?.version_id, selectedVersion?.source_app_id, selectedVersion?.sourceAppId])
 
   // Steam provides a poster thumbnail per trailer; fetch a url->thumbnail map so
   // the Videos section can show it instead of a video first-frame. Real records

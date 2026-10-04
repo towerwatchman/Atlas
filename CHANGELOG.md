@@ -24,6 +24,7 @@
 
 ### Fixed
 - Fixed Steam-version previews rendering twice in download mode. Use identifiable content hash in URL to create twin pair dedup besides exact remote_url check.
+- Fixed multi-season Steam galleries mixing seasons and doubling pictures. Downloaded files for an unselected season no longer leak into the picked season's view.
 - Hotfixed: isolate Gofile folder-picker support from url resolve logic of other downloader sources
 - Catalog tag filtering now matches Library. Library already did exact-token filtering via `splitListText`/`normalizeTagText`/`includesTag` `src/hooks/useFilters.js`; Catalog used substring `LOWER(col) LIKE '%tag%'`. Fix copies those Library helpers into shared `src/utils/tagTokens.js` ↔ `electron/db/tagTokens.js` and adds a stored `tags_filter` column plus an indexed `catalog_index_tags` table (`catalog_key, tag` + `idx_catalog_index_tags_tag`). Browse now filters via `EXISTS (SELECT 1 FROM catalog_index_tags WHERE tag=?)` hitting the index instead of `LIKE '%,token,%'` with leading wildcard on `tags_filter` (full scan, a few seconds per tag click). `COALESCE`/`ESCAPE`/`REPLACE` remain only for the union fallback path when the index is not ready.
 - Fixed MEGA v1 test timeout — legacy key derivation is intentionally slow and needed a longer test timeout.

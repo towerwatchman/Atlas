@@ -11,7 +11,7 @@ const os = require('os')
 const path = require('path')
 
 const dbIndex = require('../electron/db/index.js')
-const { getPreviews } = require('../electron/db/media.js')
+const { getPreviews, getBrowsePreviewUrls } = require('../electron/db/media.js')
 
 const freshDataDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-preview-dedupe-'))
 
@@ -114,5 +114,126 @@ describe('preview cross-representation dedupe (#301)', () => {
     const urls = await getPreviews(1, dataDir, false, { mode: 'stream' })
 
     expect(urls).toHaveLength(1)
+  })
+})
+
+describe('preview season scoping (#301)', () => {
+  const S1 = 101
+  const S2 = 102
+  const S1_HASH = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  const S2_HASH = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  const s1Url = (t) => `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${S1}/ss_${S1_HASH}.1920x1080.jpg?t=${t}`
+  const s2Url = (t) => `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${S2}/ss_${S2_HASH}.1920x1080.jpg?t=${t}`
+
+  // A second season reaches the same record through the shared atlas link:
+  // steam_mappings holds one steam_id per record, so S2's steam_data row is
+  // atlas-linked instead of mapped.
+  const linkAtlasSeason = (appid) =>
+    run(`INSERT OR IGNORE INTO steam_data (steam_id, atlas_id) VALUES (?, 1)`, [appid])
+
+  const twoSeasonLibrary = async () => {
+    await insertGame(1)
+    await linkSteam(1, S1)
+    await addSteamScreen(S1, s1Url(111))
+    await linkAtlasSeason(S2)
+    await addSteamScreen(S2, s2Url(111))
+  }
+
+  it('downloaded S1 files stay hidden while S2 is selected', async () => {
+    const { dataDir } = await openFreshDatabase()
+    await twoSeasonLibrary()
+    await saveDownload(1, 'data/images/1/s1.webp', s1Url(222), dataDir)
+
+    const urls = await getPreviews(1, dataDir, false, { mode: 'stream', sourceAppId: String(S2) })
+
+    expect(urls).toHaveLength(1)
+    expect(urls[0]).toBe(s2Url(111))
+  })
+
+  it('downloaded S1 files collapse with their remote twin while S1 is selected', async () => {
+    const { dataDir } = await openFreshDatabase()
+    await twoSeasonLibrary()
+    await saveDownload(1, 'data/images/1/s1.webp', s1Url(222), dataDir)
+
+    const urls = await getPreviews(1, dataDir, false, { mode: 'stream', sourceAppId: String(S1) })
+
+    expect(urls).toHaveLength(1)
+    expect(urls[0]).toMatch(/data\/images\/1\/s1\.webp$/)
+  })
+
+  it('no season selected shows every downloaded set', async () => {
+    const { dataDir } = await openFreshDatabase()
+    await twoSeasonLibrary()
+    await saveDownload(1, 'data/images/1/s1.webp', s1Url(222), dataDir)
+
+    const urls = await getPreviews(1, dataDir, false, { mode: 'stream' })
+
+    expect(urls).toHaveLength(2)
+    expect(urls[0]).toMatch(/data\/images\/1\/s1\.webp$/)
+    expect(urls).toContain(s2Url(111))
+  })
+
+  it('selected season shows only its own art when nothing is downloaded', async () => {
+    const { dataDir } = await openFreshDatabase()
+    await twoSeasonLibrary()
+
+    const urls = await getPreviews(1, dataDir, false, { mode: 'stream', sourceAppId: String(S2) })
+
+    expect(urls).toHaveLength(1)
+    expect(urls[0]).toBe(s2Url(111))
+  })
+
+  it('customs and videos pass through the season filter', async () => {
+    const { dataDir } = await openFreshDatabase()
+    await twoSeasonLibrary()
+    saveFile(dataDir, 'data/images/1/custom.webp')
+    await run(`INSERT OR REPLACE INTO previews (record_id, path, remote_url, is_custom) VALUES (1, ?, NULL, 1)`, ['data/images/1/custom.webp'])
+    const s1Mp4 = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${S1}/movie_1080.mp4`
+    saveFile(dataDir, 'data/images/1/s1clip.mp4')
+    await run(`INSERT OR REPLACE INTO previews (record_id, path, remote_url, is_custom) VALUES (1, ?, ?, 0)`, ['data/images/1/s1clip.mp4', s1Mp4])
+
+    const urls = await getPreviews(1, dataDir, false, { mode: 'stream', sourceAppId: String(S2) })
+
+    expect(urls).toContain(s2Url(111))
+    expect(urls.find((u) => /custom\.webp$/.test(String(u)))).toBeTruthy()
+    expect(urls.find((u) => /s1clip\.mp4$/.test(String(u)))).toBeTruthy()
+  })
+})
+
+describe('browse season scoping (#301)', () => {
+  const S1 = 101
+  const S2 = 102
+  const S1_HASH = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  const S2_HASH = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  const s1Url = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${S1}/ss_${S1_HASH}.1920x1080.jpg`
+  const s2Url = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${S2}/ss_${S2_HASH}.1920x1080.jpg`
+
+  // Production shape: the server links several appids to one atlas_id via
+  // steam_data.atlas_id, so both seasons are atlas-linked (no steam_mappings
+  // involved on the catalog path).
+  const twoAtlasLinkedSeasons = async () => {
+    await run(`INSERT OR IGNORE INTO steam_data (steam_id, atlas_id) VALUES (?, 1)`, [S1])
+    await run(`INSERT OR IGNORE INTO steam_data (steam_id, atlas_id) VALUES (?, 1)`, [S2])
+    await addSteamScreen(S1, s1Url)
+    await addSteamScreen(S2, s2Url)
+  }
+
+  it('picked season hides the other atlas-linked season', async () => {
+    await openFreshDatabase()
+    await twoAtlasLinkedSeasons()
+
+    const urls = await getBrowsePreviewUrls({ atlasId: 1, steamId: S2 })
+
+    expect(urls).toHaveLength(1)
+    expect(urls[0]).toBe(s2Url)
+  })
+
+  it('atlas-only lookup still aggregates when no season is picked', async () => {
+    await openFreshDatabase()
+    await twoAtlasLinkedSeasons()
+
+    const urls = await getBrowsePreviewUrls({ atlasId: 1 })
+
+    expect(urls).toHaveLength(2)
   })
 })

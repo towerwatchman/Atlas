@@ -569,7 +569,10 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, gogId, lcId, sourceOrde
         FROM steam_screens
         JOIN steam_data ON steam_screens.steam_id = steam_data.steam_id
         WHERE (? IS NOT NULL AND steam_screens.steam_id = ?)
-           OR (? IS NOT NULL AND steam_data.atlas_id = ?)
+           -- A picked season scopes Steam art to that appid: several appids
+           -- can share one atlas_id (seasons), so the atlas fallback must not
+           -- run when a steam id was given or every season leaks back in.
+           OR (? IS NOT NULL AND ? IS NULL AND steam_data.atlas_id = ?)
         UNION ALL
         SELECT 'gog_screens' AS source, gog_screens.screen_url AS url_blob, 4 AS sort_order
         FROM gog_screens
@@ -590,7 +593,7 @@ const getBrowsePreviewUrls = ({ atlasId, f95Id, steamId, gogId, lcId, sourceOrde
         atlasParam, atlasParam,
         atlasParam, atlasParam,
         steamParam, steamParam,
-        atlasParam, atlasParam,
+        atlasParam, steamParam, atlasParam,
         gogParam, gogParam,
         atlasParam, atlasParam,
       ],
@@ -944,6 +947,17 @@ const getPreviews = async (recordId, appPath, isDev, mediaStorageMode = "stream"
       if (!item) continue;
       const isCustom = row.is_custom === 1 || row.is_custom === true;
       const source = isCustom ? "custom" : sourceFromRemoteUrl(row.remote_url) || "atlas";
+      // Season scope for disk rows: a downloaded file's name carries no
+      // identity, so its season is recovered from the appid embedded in its
+      // stored remote_url. When a Steam season is selected, another season's
+      // Steam files stay on disk but out of this view — skipped before display
+      // AND before twin-key registration so they suppress nothing. Fail open:
+      // customs, videos, non-Steam rows, and unparseable URLs all pass, and a
+      // null sourceAppId keeps today's aggregate view.
+      if (sourceAppId && item.type === "image" && !isCustom && source === "steam") {
+        const rowAppId = /steam\/apps\/(\d+)/i.exec(String(row.remote_url || ""))?.[1];
+        if (rowAppId && rowAppId !== String(sourceAppId)) continue;
+      }
       const location = isCustom ? "custom" : "local";
       localItems.push({ ...item, source, location });
       seen.add(item.url);
