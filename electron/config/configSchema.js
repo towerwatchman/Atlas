@@ -89,6 +89,8 @@ const buildDefaultConfig = (dataDir = '') => ({
     appUpdateBranch: null,
     showGameList: true,
     sidePanelMode: 'games',
+    browserId: 'default',
+    customBrowserPaths: [],
   },
   // Per-channel record of the app version last INSTALLED from each update
   // channel. The updater compares the active channel's latest release against
@@ -253,9 +255,10 @@ const buildDefaultConfig = (dataDir = '') => ({
   WindowBounds: {},
 })
 
-// Deep-merge a parsed ini over the defaults so every known key always has a
-// value, coercing the strings ini.parse() produces back to booleans/numbers
-// where the default says so.
+// Deep-merge the saved settings over the defaults so every known key always
+// has a value. The settings file stores everything as text, so values are
+// converted back to true/false, numbers, and single-item lists wherever the
+// default says so.
 //
 // Unknown keys inside a KNOWN section are preserved — that is what keeps
 // WindowBounds' generated keys alive, and it means a config written by a newer
@@ -275,6 +278,8 @@ const mergeWithDefaults = (parsed, defaults) => {
       } else if (typeof def === 'number') {
         const n = Number(raw)
         result[section][key] = Number.isFinite(n) ? n : def
+      } else if (Array.isArray(def)) {
+        result[section][key] = Array.isArray(raw) ? raw : (typeof raw === 'string' ? [raw] : def)
       } else {
         result[section][key] = raw
       }
