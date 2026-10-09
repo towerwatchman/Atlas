@@ -1,9 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { formatPercent, sanitizePercentText } from '../../utils/formatPercent.js'
 import {
   DEFAULT_SEARCH_FIELD_IDS, SEARCH_FIELDS, SEARCH_FIELD_GROUPS,
   describeSearchFieldIds, normalizeSearchFieldIds, serializeSearchFieldIds,
 } from '../../utils/searchFields.js'
+import {
+  addCustomBrowserPath, parseCustomBrowserId, removeCustomBrowserPath,
+} from '../../utils/customBrowsers.js'
 
 const PACKAGE_NOT_READY_CODE = 'UPDATE_PACKAGE_NOT_READY'
 
@@ -11,6 +14,10 @@ const Interface = () => {
   const [language, setLanguage] = useState("English");
   const [atlasStartup, setAtlasStartup] = useState("Do Nothing");
   const [gameStartup, setGameStartup] = useState("Do Nothing");
+  const [browserId, setBrowserId] = useState("default");
+  const [browsers, setBrowsers] = useState([]);
+  const [customBrowserPaths, setCustomBrowserPaths] = useState([]);
+  const [browserError, setBrowserError] = useState("");
   const [showDebugConsole, setShowDebugConsole] = useState(false);
   const [checkForAppUpdatesOnStartup, setCheckForAppUpdatesOnStartup] =
     useState(true);
@@ -46,11 +53,14 @@ const Interface = () => {
   };
 
   useEffect(() => {
-    window.electronAPI.getConfig().then((config) => {
+    Promise.all([window.electronAPI.getConfig(), window.electronAPI.listBrowsers?.()?.catch(() => undefined)]).then(([config, detected]) => {
       const interfaceSettings = config.Interface || {};
       setLanguage(interfaceSettings.language || "English");
       setAtlasStartup(interfaceSettings.atlasStartup || "Do Nothing");
       setGameStartup(interfaceSettings.gameStartup || "Do Nothing");
+      setBrowserId(interfaceSettings.browserId || "default");
+      setCustomBrowserPaths(Array.isArray(interfaceSettings.customBrowserPaths) ? interfaceSettings.customBrowserPaths : []);
+      setBrowsers(Array.isArray(detected) ? detected : []);
       setShowDebugConsole(interfaceSettings.showDebugConsole || false);
       setCheckForAppUpdatesOnStartup(
         interfaceSettings.checkForAppUpdatesOnStartup ?? true,
@@ -128,6 +138,75 @@ const Interface = () => {
     setGameStartup(e.target.value);
     saveSettings({ gameStartup: e.target.value });
   };
+
+  // Make sure the picked file can launch before saving it. Linux binaries
+  // carry no extension, so there the executable bit is the whole check.
+  const validateCustomBrowserPath = async (picked) => {
+    const isLinux = window.electronAPI.isLinux?.() === true;
+    const isMac = !isLinux && !window.electronAPI.isWindows?.();
+    const lower = String(picked).toLowerCase();
+    if (!isLinux && (isMac ? !lower.endsWith(".app") : !lower.endsWith(".exe"))) {
+      return { ok: false, error: isMac ? "Choose a macOS application (.app)." : "Choose a Windows executable (.exe)." };
+    }
+    let info = null;
+    try {
+      info = await window.electronAPI.checkPath?.(picked);
+    } catch {
+      info = null;
+    }
+    if (!info?.exists) return { ok: false, error: "That path does not exist." };
+    if (isMac && info.isDirectory === false) return { ok: false, error: "Choose a macOS application (.app)." };
+    if (!isMac && !isLinux && info.isFile === false) return { ok: false, error: "Choose a Windows executable (.exe)." };
+    if (isLinux && info.isExecutable === false) return { ok: false, error: "Choose an executable file." };
+    return { ok: true };
+  };
+
+  const handleBrowserChange = async (e) => {
+    const next = e.target.value;
+    setBrowserError("");
+    if (next === "add-custom") {
+      // Adding a custom browser opens the picker, appends the validated path,
+      // and selects the new entry; cancelling reverts to the previous
+      // selection and saves nothing.
+      // State never holds "add-custom", so it already is the pre-picker value.
+      const previous = browserId;
+      const picked = await window.electronAPI.selectCustomBrowser?.();
+      if (!picked) {
+        setBrowserId(previous);
+        return;
+      }
+      const validation = await validateCustomBrowserPath(picked);
+      if (!validation.ok) {
+        setBrowserError(validation.error);
+        setBrowserId(previous);
+        return;
+      }
+      const added = addCustomBrowserPath(customBrowserPaths, picked);
+      setCustomBrowserPaths(added.paths);
+      setBrowserId(added.browserId);
+      saveSettings({ browserId: added.browserId, customBrowserPaths: added.paths });
+      return;
+    }
+    // Selection outside "Add custom" does not trigger file picker.
+    setBrowserId(next);
+    saveSettings({ browserId: next });
+  };
+
+  const handleClearCustomBrowser = () => {
+    if (parseCustomBrowserId(browserId) < 0) return;
+    const selected = parseCustomBrowserId(browserId);
+    const removed = removeCustomBrowserPath(customBrowserPaths, browserId, selected);
+    setCustomBrowserPaths(removed.paths);
+    setBrowserError("");
+    setBrowserId("default");
+    saveSettings({ browserId: "default", customBrowserPaths: removed.paths });
+  };
+
+  const customLabel = (entry) => `Custom (${String(entry).split(/[\\/]/).pop()})`;
+  // If the saved custom entry is gone from the list, show Default until the
+  // next pick instead of a selection that points nowhere.
+  const selectedCustomIndex = parseCustomBrowserId(browserId);
+  const customSelectionInRange = selectedCustomIndex >= 0 && selectedCustomIndex < customBrowserPaths.length;
 
   const handleDebugConsoleChange = () => {
     setShowDebugConsole(!showDebugConsole);
@@ -245,6 +324,33 @@ const Interface = () => {
       </div>
       <p className="text-xs opacity-50 mb-2">
         This will only take effect once game has fully launched
+      </p>
+      <div className="border-t border-text opacity-25 my-2"></div>
+      <div className="flex items-center mb-2">
+        <label className="flex-1">Browser:</label>
+        <select
+          className="w-40 bg-secondary border border-border text-text rounded p-1"
+          value={customSelectionInRange ? browserId : (browsers.some((b) => b.id === browserId) ? browserId : "default")}
+          onChange={handleBrowserChange}
+        >
+          <option value="default">Use Default Browser</option>
+          {browsers.map((b) => (
+            <option key={b.id} value={b.id}>{b.name}</option>
+          ))}
+          {customBrowserPaths.map((entry, i) => (
+            <option key={`custom:${i}`} value={`custom:${i}`}>{customLabel(entry)}</option>
+          ))}
+          <option value="add-custom">Add custom...</option>
+        </select>
+        {customSelectionInRange && (
+          <button onClick={handleClearCustomBrowser} className="ml-2 text-xs text-danger underline">
+            Clear
+          </button>
+        )}
+      </div>
+      {browserError && <p className="text-xs text-danger mb-2">{browserError}</p>}
+      <p className="text-xs opacity-50 mb-2">
+        Which browser Atlas uses for external links. Takes effect immediately, no restart.
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
       <div className="mb-2">

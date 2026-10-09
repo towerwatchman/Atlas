@@ -3,8 +3,89 @@
 const { ipcMain, BrowserWindow, dialog, shell, app, Menu, desktopCapturer, screen } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const { spawn } = require('child_process')
+const { listInstalledBrowsers, resolveBrowserLaunch } = require('../utils/browserDetect')
 const { launchGame } = require('./games')
 
+
+const isAllowedExternalUrl = (value) =>
+  /^https?:\/\//i.test(value) ||
+  /^steam:\/\/(?:nav\/games\/details|install|uninstall|run|rungameid)\/\d+$/i.test(value)
+
+// Check the URL is safe before honoring the browser choice, so picking a
+// browser can never open more than the allowlist permits. Steam links always
+// use the OS handler.
+function resolveOpenExternalTarget({ url, browserId, resolve, allowed }) {
+  if (!allowed(url)) {
+    throw new Error('External URL must be http(s) or an approved Steam app URL')
+  }
+  if (!/^https?:\/\//i.test(url)) return { action: 'os' }
+  if (!browserId || browserId === 'default') return { action: 'os' }
+  const found = resolve(browserId, url)
+  if (!found) return { action: 'fallback', keepStoredId: true }
+  return { action: 'spawn', appPath: found.appPath, args: [url] }
+}
+
+// macOS must go through `open -a <appPath>`: bare `open <appPath> <url>`
+// launches the app but opens the URL in the OS-default handler instead.
+function resolveSpawnTarget(appPath, url, platform = process.platform) {
+  if (platform === 'darwin') {
+    return { command: 'open', args: ['-a', appPath, url], options: { detached: true, stdio: 'ignore' } }
+  }
+  if (platform === 'win32') {
+    return { command: appPath, args: [url], options: { detached: true, stdio: 'ignore', windowsHide: true } }
+  }
+  return { command: appPath, args: [url], options: { detached: true, stdio: 'ignore' } }
+}
+
+// Hand the URL straight to the browser, no shell involved.
+function spawnBrowserUrl(appPath, url, deps = {}) {
+  const { command, args, options } = resolveSpawnTarget(
+    appPath, url, deps.platform || process.platform)
+  const spawnFn = deps.spawnFn || spawn
+  return new Promise((settle, reject) => {
+    let child
+    try {
+      child = spawnFn(command, args, options)
+    } catch (err) {
+      reject(err)
+      return
+    }
+    child.once('error', reject)
+    child.once('spawn', () => {
+      child.unref()
+      settle()
+    })
+  })
+}
+
+// Opens the link and returns nothing. If the browser is gone, the OS handler
+// opens it instead and this returns { success: true, fallback: true }, so the
+// caller sees a fallback, not a failure. The stored browser id stays put.
+async function openExternalThroughBrowser(rawUrl, browserId, deps = {}) {
+  const value = String(rawUrl || '').trim()
+  const resolve = deps.resolve || ((id, u) => resolveBrowserLaunch(id, u))
+  const spawnBrowser = deps.spawnBrowser || spawnBrowserUrl
+  const openExternal = deps.openExternal || ((v) => shell.openExternal(v))
+  const target = resolveOpenExternalTarget({
+    url: value,
+    browserId,
+    resolve,
+    allowed: isAllowedExternalUrl,
+  })
+  if (target.action === 'spawn') {
+    try {
+      await spawnBrowser(target.appPath, value)
+      return undefined
+    } catch (err) {
+      console.error(`open-external-url: browser '${browserId}' launch failed, falling back to OS handler:`, err)
+      await openExternal(value)
+      return { success: true, fallback: true }
+    }
+  }
+  await openExternal(value)
+  return target.action === 'fallback' ? { success: true, fallback: true } : undefined
+}
 
 // Async because openFolder REPORTS. Every other action is still fire-and-forget
 // and returns nothing, which run-context-action reads as success -- so only the
@@ -50,7 +131,16 @@ async function handleContextAction(data, sender, ctx) {
         version: data.version,
       });
     case "openUrl":
-      shell.openExternal(data.url);
+     // A menu click cannot report failure, so log it instead of letting it throw.
+      try {
+        await openExternalThroughBrowser(data.url, ctx.appConfig?.Interface?.browserId || 'default', {
+          resolve: (id, u) => resolveBrowserLaunch(id, u, {
+            customBrowserPaths: ctx.appConfig?.Interface?.customBrowserPaths || [],
+          }),
+        });
+      } catch (err) {
+        console.error("Context openUrl failed:", err);
+      }
       break;
     case "properties":
       console.log("Creating GameDetailsWindow for recordId:", data.recordId);
@@ -373,8 +463,10 @@ module.exports = function registerWindowsHandlers(ctx) {
 
   // Inline-editable path fields type directly into the input. The renderer has
   // no fs access, so it asks the main process to stat the path. Returns
-  // {exists,isDirectory,isFile} so the caller can enforce file vs directory and
-  // absolute-path rules without trusting the renderer. Any error is invalid, not thrown.
+  // {exists,isDirectory,isFile,isExecutable} so the caller can enforce file vs
+  // directory and launchability rules without trusting the renderer. Any error
+  // is invalid, not thrown. isExecutable is isFile plus the executable bit on
+  // POSIX, isFile alone on Windows, matching defaultIsExecutableFile.
   ipcMain.handle('check-path', async (_event, raw) => {
     const p = String(raw || '').trim().replace(/^["']|["']$/g, '')
     if (!p) return { exists: false }
@@ -383,7 +475,15 @@ module.exports = function registerWindowsHandlers(ctx) {
     if (!path.isAbsolute(p)) return { exists: false }
     try {
       const st = await fs.promises.stat(p)
-      return { exists: true, isDirectory: st.isDirectory(), isFile: st.isFile() }
+      let executable = st.isFile()
+      if (executable && process.platform !== 'win32') {
+        try {
+          fs.accessSync(p, fs.constants.X_OK)
+        } catch {
+          executable = false
+        }
+      }
+      return { exists: true, isDirectory: st.isDirectory(), isFile: st.isFile(), isExecutable: executable }
     } catch (e) {
       if (e && e.code === 'ENOENT') return { exists: false }
       return { exists: false, error: String(e && e.message || e) }
@@ -508,15 +608,48 @@ module.exports = function registerWindowsHandlers(ctx) {
     menu.popup({ window: senderWindow })
   })
 
-  const isAllowedExternalUrl = (value) =>
-    /^https?:\/\//i.test(value) ||
-    /^steam:\/\/(?:nav\/games\/details|install|uninstall|run|rungameid)\/\d+$/i.test(value)
-
   ipcMain.handle('open-external-url', async (event, url) => {
-    const value = String(url || '').trim()
-    if (!isAllowedExternalUrl(value)) {
-      throw new Error('External URL must be http(s) or an approved Steam app URL')
-    }
-    await shell.openExternal(value)
+    const browserId = ctx.appConfig?.Interface?.browserId || 'default'
+    const customBrowserPaths = ctx.appConfig?.Interface?.customBrowserPaths || []
+    return openExternalThroughBrowser(url, browserId, {
+      resolve: (id, u) => resolveBrowserLaunch(id, u, { customBrowserPaths }),
+    })
+  })
+
+  // The renderer cannot read the registry, so this enumerates on every
+  // Settings open. No cache: installs show up without a restart, and launch
+  // never reads this list anyway (it re-probes per click).
+  ipcMain.handle('browsers-list', async () => listInstalledBrowsers())
+
+  // The renderer cannot open native dialogs, so this shows the
+  // platform-filtered picker and returns the picked path for the caller to
+  // validate and save.
+  ipcMain.handle('select-custom-browser', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const dialogOptions = customBrowserDialogOptions(process.platform)
+    const result = win
+      ? await dialog.showOpenDialog(win, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions)
+    if (result.canceled) return null
+    return (result.filePaths && result.filePaths[0]) || null
   })
 }
+
+// The picker can only filter by extension, and Linux binaries have none,
+// so there the dialog shows everything and the executable check happens
+// at save and at launch instead.
+function customBrowserDialogOptions(platform = process.platform) {
+  if (platform === 'darwin') {
+    return { properties: ['openFile', 'openDirectory'], filters: [{ name: 'Application', extensions: ['app'] }] }
+  }
+  if (platform === 'win32') {
+    return { properties: ['openFile'], filters: [{ name: 'Executable', extensions: ['exe'] }] }
+  }
+  return { properties: ['openFile'] }
+}
+
+module.exports.resolveOpenExternalTarget = resolveOpenExternalTarget
+module.exports.resolveSpawnTarget = resolveSpawnTarget
+module.exports.customBrowserDialogOptions = customBrowserDialogOptions
+module.exports.spawnBrowserUrl = spawnBrowserUrl
+module.exports.openExternalThroughBrowser = openExternalThroughBrowser

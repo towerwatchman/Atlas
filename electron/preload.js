@@ -196,6 +196,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // ─── FIXED: Added missing external URL opener for Update Available button ──
   openExternalUrl: (url) => ipcRenderer.invoke("open-external-url", url),
+  listBrowsers: () => ipcRenderer.invoke("browsers-list"),
+  selectCustomBrowser: () => ipcRenderer.invoke("select-custom-browser"),
   launchGame: (data) => ipcRenderer.invoke("launch-game", data),
   openGameFolder: (data) => ipcRenderer.invoke("open-game-folder", data),
   openGameImageFolder: (recordId) =>
