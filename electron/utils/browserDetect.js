@@ -17,31 +17,37 @@ const KNOWN_BROWSERS = [
     id: 'chrome', name: 'Google Chrome',
     macAppNames: ['Google Chrome.app'], macBundleIds: ['com.google.Chrome'],
     winExeNames: ['chrome.exe'], winStartMenuNames: ['Google Chrome'],
+    linuxBins: ['google-chrome', 'google-chrome-stable'],
   },
   {
     id: 'brave', name: 'Brave',
     macAppNames: ['Brave Browser.app'], macBundleIds: ['com.brave.Browser'],
     winExeNames: ['brave.exe'], winStartMenuNames: ['Brave'],
+    linuxBins: ['brave-browser', 'brave'],
   },
   {
     id: 'edge', name: 'Microsoft Edge',
     macAppNames: ['Microsoft Edge.app'], macBundleIds: ['com.microsoft.edgemac'],
     winExeNames: ['msedge.exe'], winStartMenuNames: ['Microsoft Edge'],
+    linuxBins: ['microsoft-edge'],
   },
   {
     id: 'firefox', name: 'Firefox',
     macAppNames: ['Firefox.app'], macBundleIds: ['org.mozilla.firefox'],
     winExeNames: ['firefox.exe'], winStartMenuNames: ['Firefox'],
+    linuxBins: ['firefox'],
   },
   {
     id: 'vivaldi', name: 'Vivaldi',
     macAppNames: ['Vivaldi.app'], macBundleIds: ['com.vivaldi.Vivaldi'],
     winExeNames: ['vivaldi.exe'], winStartMenuNames: ['Vivaldi'],
+    linuxBins: ['vivaldi', 'vivaldi-stable'],
   },
   {
     id: 'zen', name: 'Zen Browser',
     macAppNames: ['Zen.app', 'Zen Browser.app'], macBundleIds: ['app.zen-browser.zen'],
     winExeNames: ['zen.exe'], winStartMenuNames: ['Zen'],
+    linuxBins: ['zen', 'zen-browser'],
   },
   {
     id: 'duckduckgo', name: 'DuckDuckGo',
@@ -57,6 +63,7 @@ const KNOWN_BROWSERS = [
     id: 'opera', name: 'Opera',
     macAppNames: ['Opera.app'], macBundleIds: ['com.operasoftware.Opera'],
     winExeNames: ['opera.exe'], winStartMenuNames: ['Opera'],
+    linuxBins: ['opera', 'opera-stable'],
   },
   {
     id: 'arc', name: 'Arc',
@@ -299,12 +306,41 @@ function listMacBrowsers({ env = process.env, fs: fsImpl = fs, runCommand = defa
   return browsers
 }
 
+// Linux has no registry: a browser counts when one of its binaries is an
+// executable file somewhere on PATH. Flatpak installs have no PATH binary
+// and are out of scope; those links open through the OS default handler
+// as before.
+function listLinuxBrowsers({ env = process.env, isExecutableFile = defaultIsExecutableFile } = {}) {
+  const browsers = []
+  const seen = new Set()
+  const pathValue = (env && env.PATH) || ''
+  for (const dir of String(pathValue).split(':')) {
+    if (!dir || !path.isAbsolute(dir)) continue
+    for (const browser of KNOWN_BROWSERS) {
+      if (seen.has(browser.id) || !browser.linuxBins) continue
+      for (const bin of browser.linuxBins) {
+        let ok = false
+        try {
+          ok = isExecutableFile(`${dir}/${bin}`)
+        } catch {
+          continue
+        }
+        if (!ok) continue
+        seen.add(browser.id)
+        browsers.push({ id: browser.id, name: browser.name })
+        break
+      }
+    }
+  }
+  return browsers
+}
+
 function detectBrowserEntries(options = {}) {
   const platform = options.platform || process.platform
   const result =
     platform === 'win32' ? listWindowsBrowsers(options)
     : platform === 'darwin' ? listMacBrowsers(options)
-    // Linux detection is explicitly out of v1.
+    : platform === 'linux' ? listLinuxBrowsers(options)
     : []
   // The dropdown lists alphabetically by display name, so sort here instead
   // of trusting registry order or table order.
@@ -340,6 +376,7 @@ function resolveBrowserLaunch(browserId, url, options = {}) {
     if (id === 'custom' || id.startsWith('custom:')) return resolveCustomBrowserPath(platform, options, id)
     if (platform === 'darwin') return resolveMacBrowserPath(id, options)
     if (platform === 'win32') return resolveWindowsBrowserPath(id, options)
+    if (platform === 'linux') return resolveLinuxBrowserPath(id, options)
     return null
   } catch {
     return null
@@ -377,8 +414,10 @@ function resolveCustomBrowserPath(platform, { customBrowserPaths, isExecutableFi
     }
     return { appPath: candidate }
   }
-  if (platform === 'win32') {
-    if (!/\.exe$/i.test(stored)) return null
+  // Linux binaries carry no extension; Windows ones must end .exe. Either
+  // way the executable check below is the whole gate.
+  if (platform === 'win32' || platform === 'linux') {
+    if (platform === 'win32' && !/\.exe$/i.test(stored)) return null
     let ok = false
     try {
       ok = isExecutableFile(stored)
@@ -386,6 +425,27 @@ function resolveCustomBrowserPath(platform, { customBrowserPaths, isExecutableFi
       return null
     }
     return ok ? { appPath: stored } : null
+  }
+  return null
+}
+
+// Same source as the lister, narrowed to one id: the first PATH binary in
+// directory order wins.
+function resolveLinuxBrowserPath(id, { env = process.env, isExecutableFile = defaultIsExecutableFile } = {}) {
+  const browser = KNOWN_BROWSERS.find((entry) => entry.id === id)
+  if (!browser) return null
+  const pathValue = (env && env.PATH) || ''
+  for (const dir of String(pathValue).split(':')) {
+    if (!dir || !path.isAbsolute(dir)) continue
+    for (const bin of browser.linuxBins || []) {
+      let ok = false
+      try {
+        ok = isExecutableFile(`${dir}/${bin}`)
+      } catch {
+        continue
+      }
+      if (ok) return { appPath: `${dir}/${bin}` }
+    }
   }
   return null
 }

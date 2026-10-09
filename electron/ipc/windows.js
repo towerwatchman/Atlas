@@ -358,8 +358,6 @@ function processTemplate(items, sender, ctx) {
 // STEAM FUNCTIONS
 // ────────────────────────────────────────────────
 
-let browsersListCache = null
-
 module.exports = function registerWindowsHandlers(ctx) {
   const { mainWindow, settingsWindow, createImporterWindow, contextMenuData } = ctx
 
@@ -465,8 +463,10 @@ module.exports = function registerWindowsHandlers(ctx) {
 
   // Inline-editable path fields type directly into the input. The renderer has
   // no fs access, so it asks the main process to stat the path. Returns
-  // {exists,isDirectory,isFile} so the caller can enforce file vs directory and
-  // absolute-path rules without trusting the renderer. Any error is invalid, not thrown.
+  // {exists,isDirectory,isFile,isExecutable} so the caller can enforce file vs
+  // directory and launchability rules without trusting the renderer. Any error
+  // is invalid, not thrown. isExecutable is isFile plus the executable bit on
+  // POSIX, isFile alone on Windows, matching defaultIsExecutableFile.
   ipcMain.handle('check-path', async (_event, raw) => {
     const p = String(raw || '').trim().replace(/^["']|["']$/g, '')
     if (!p) return { exists: false }
@@ -475,7 +475,15 @@ module.exports = function registerWindowsHandlers(ctx) {
     if (!path.isAbsolute(p)) return { exists: false }
     try {
       const st = await fs.promises.stat(p)
-      return { exists: true, isDirectory: st.isDirectory(), isFile: st.isFile() }
+      let executable = st.isFile()
+      if (executable && process.platform !== 'win32') {
+        try {
+          fs.accessSync(p, fs.constants.X_OK)
+        } catch {
+          executable = false
+        }
+      }
+      return { exists: true, isDirectory: st.isDirectory(), isFile: st.isFile(), isExecutable: executable }
     } catch (e) {
       if (e && e.code === 'ENOENT') return { exists: false }
       return { exists: false, error: String(e && e.message || e) }
@@ -608,21 +616,17 @@ module.exports = function registerWindowsHandlers(ctx) {
     })
   })
 
-  // The renderer cannot read the registry, so this enumerates once per session
-  // and serves the cached list to every Settings open.
-  ipcMain.handle('browsers-list', async () => {
-    if (!browsersListCache) browsersListCache = listInstalledBrowsers()
-    return browsersListCache
-  })
+  // The renderer cannot read the registry, so this enumerates on every
+  // Settings open. No cache: installs show up without a restart, and launch
+  // never reads this list anyway (it re-probes per click).
+  ipcMain.handle('browsers-list', async () => listInstalledBrowsers())
 
   // The renderer cannot open native dialogs, so this shows the
   // platform-filtered picker and returns the picked path for the caller to
   // validate and save.
   ipcMain.handle('select-custom-browser', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    const dialogOptions = process.platform === 'darwin'
-      ? { properties: ['openFile', 'openDirectory'], filters: [{ name: 'Application', extensions: ['app'] }] }
-      : { properties: ['openFile'], filters: [{ name: 'Executable', extensions: ['exe'] }] }
+    const dialogOptions = customBrowserDialogOptions(process.platform)
     const result = win
       ? await dialog.showOpenDialog(win, dialogOptions)
       : await dialog.showOpenDialog(dialogOptions)
@@ -631,7 +635,21 @@ module.exports = function registerWindowsHandlers(ctx) {
   })
 }
 
+// The picker can only filter by extension, and Linux binaries have none,
+// so there the dialog shows everything and the executable check happens
+// at save and at launch instead.
+function customBrowserDialogOptions(platform = process.platform) {
+  if (platform === 'darwin') {
+    return { properties: ['openFile', 'openDirectory'], filters: [{ name: 'Application', extensions: ['app'] }] }
+  }
+  if (platform === 'win32') {
+    return { properties: ['openFile'], filters: [{ name: 'Executable', extensions: ['exe'] }] }
+  }
+  return { properties: ['openFile'] }
+}
+
 module.exports.resolveOpenExternalTarget = resolveOpenExternalTarget
 module.exports.resolveSpawnTarget = resolveSpawnTarget
+module.exports.customBrowserDialogOptions = customBrowserDialogOptions
 module.exports.spawnBrowserUrl = spawnBrowserUrl
 module.exports.openExternalThroughBrowser = openExternalThroughBrowser

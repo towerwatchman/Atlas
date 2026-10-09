@@ -340,3 +340,21 @@ describe('Interface custom-browser row wiring', () => {
     expect(ifaceSrc).toMatch(/customSelectionInRange \? browserId : /)
   })
 })
+
+describe('resolveBrowserLaunch custom on linux', () => {
+  test('executable path resolves, no extension required', () => {
+    expect(resolveBrowserLaunch('custom:0', 'https://example.com', {
+      platform: 'linux',
+      customBrowserPaths: ['/opt/browsers/nightly'],
+      isExecutableFile: () => true,
+    })).toEqual({ appPath: '/opt/browsers/nightly' })
+  })
+
+  test('non-executable path reads as null', () => {
+    expect(resolveBrowserLaunch('custom:0', 'https://example.com', {
+      platform: 'linux',
+      customBrowserPaths: ['/opt/browsers/nightly'],
+      isExecutableFile: () => false,
+    })).toBeNull()
+  })
+})

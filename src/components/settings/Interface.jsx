@@ -53,7 +53,7 @@ const Interface = () => {
   };
 
   useEffect(() => {
-    Promise.all([window.electronAPI.getConfig(), window.electronAPI.listBrowsers?.()]).then(([config, detected]) => {
+    Promise.all([window.electronAPI.getConfig(), window.electronAPI.listBrowsers?.()?.catch(() => undefined)]).then(([config, detected]) => {
       const interfaceSettings = config.Interface || {};
       setLanguage(interfaceSettings.language || "English");
       setAtlasStartup(interfaceSettings.atlasStartup || "Do Nothing");
@@ -139,11 +139,13 @@ const Interface = () => {
     saveSettings({ gameStartup: e.target.value });
   };
 
-  // Make sure the picked file can launch before saving it.
+  // Make sure the picked file can launch before saving it. Linux binaries
+  // carry no extension, so there the executable bit is the whole check.
   const validateCustomBrowserPath = async (picked) => {
-    const isMac = !window.electronAPI.isWindows?.() && !window.electronAPI.isLinux?.();
+    const isLinux = window.electronAPI.isLinux?.() === true;
+    const isMac = !isLinux && !window.electronAPI.isWindows?.();
     const lower = String(picked).toLowerCase();
-    if (isMac ? !lower.endsWith(".app") : !lower.endsWith(".exe")) {
+    if (!isLinux && (isMac ? !lower.endsWith(".app") : !lower.endsWith(".exe"))) {
       return { ok: false, error: isMac ? "Choose a macOS application (.app)." : "Choose a Windows executable (.exe)." };
     }
     let info = null;
@@ -154,7 +156,8 @@ const Interface = () => {
     }
     if (!info?.exists) return { ok: false, error: "That path does not exist." };
     if (isMac && info.isDirectory === false) return { ok: false, error: "Choose a macOS application (.app)." };
-    if (!isMac && info.isFile === false) return { ok: false, error: "Choose a Windows executable (.exe)." };
+    if (!isMac && !isLinux && info.isFile === false) return { ok: false, error: "Choose a Windows executable (.exe)." };
+    if (isLinux && info.isExecutable === false) return { ok: false, error: "Choose an executable file." };
     return { ok: true };
   };
 

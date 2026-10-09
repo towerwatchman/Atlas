@@ -1,5 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import Module from 'module'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 
 // Open-external-url branching plus resolveBrowserLaunch coverage. The unit
 // under test is the pure branch helper in windows.js, so the table is
@@ -182,10 +185,11 @@ describe('resolveBrowserLaunch', () => {
   })
 })
 
-// The browsers-list handler caches per session: a Settings-open scan shells
-// out per candidate, so repeated opens must share one cached result.
-describe('browsers-list session memo', () => {
-  test('repeated invokes return the same cached result', async () => {
+// The browsers-list handler re-enumerates on every Settings open: installs
+// show up without a restart, so repeated invokes must be fresh results,
+// and not one cached snapshot.
+describe('browsers-list fresh enumeration', () => {
+  test('repeated invokes return equal but distinct results', async () => {
     const registerWindowsHandlers = require('../electron/ipc/windows.js')
     registerWindowsHandlers({
       contextMenuData: new Map(),
@@ -196,13 +200,32 @@ describe('browsers-list session memo', () => {
     const list = ipcHandlers.get('browsers-list')
     const first = await list()
     const second = await list()
-    expect(second).toBe(first)
+    expect(second).toEqual(first)
+    expect(second).not.toBe(first)
   })
 })
 
 // macOS launches via `open -a <appPath> <url>`. Bare `open <appPath> <url>`
 // opens the URL in the OS-default handler instead.
 const spawnTarget = () => require('../electron/ipc/windows.js').resolveSpawnTarget
+const spawnUrl = () => require('../electron/ipc/windows.js').spawnBrowserUrl
+
+// spawn() settles on the child 'spawn' event; errors reject.
+const fakeSpawnedChild = () => ({
+  once: (event, cb) => { if (event === 'spawn') cb() },
+  unref: () => {},
+})
+
+describe('spawnBrowserUrl argv', () => {
+  test('darwin keeps the -a prefix through the spawner, not just the resolver', async () => {
+    const calls = []
+    await spawnUrl()('/Applications/Brave Browser.app', 'https://example.com', {
+      platform: 'darwin',
+      spawnFn: (command, argv) => { calls.push([command, argv]); return fakeSpawnedChild() },
+    })
+    expect(calls).toEqual([['open', ['-a', '/Applications/Brave Browser.app', 'https://example.com']]])
+  })
+})
 
 describe('resolveSpawnTarget', () => {
   test('darwin pins the -a argv', () => {
@@ -302,6 +325,104 @@ describe('context-menu openUrl', () => {
       expect(errSpy).toHaveBeenCalled()
     } finally {
       errSpy.mockRestore()
+    }
+  })
+})
+
+const linuxExecFs = (paths) => ({
+  isExecutableFile: (p) => paths.has(p),
+})
+
+describe('resolveBrowserLaunch (linux)', () => {
+  test('native id resolves to its PATH binary', () => {
+    expect(resolveBrowserLaunch('firefox', 'https://example.com', {
+      platform: 'linux',
+      env: { PATH: '/usr/bin' },
+      ...linuxExecFs(new Set(['/usr/bin/firefox'])),
+    })).toEqual({ appPath: '/usr/bin/firefox' })
+  })
+
+  test('missing native id reads as null, caller falls back', () => {
+    expect(resolveBrowserLaunch('firefox', 'https://example.com', {
+      platform: 'linux',
+      env: { PATH: '/usr/bin' },
+      ...linuxExecFs(new Set()),
+    })).toBeNull()
+  })
+
+  test('unknown id resolves to null', () => {
+    expect(resolveBrowserLaunch('definitely-not-a-browser', 'https://example.com', {
+      platform: 'linux',
+      env: { PATH: '/usr/bin' },
+      ...linuxExecFs(new Set(['/usr/bin/firefox'])),
+    })).toBeNull()
+  })
+})
+
+const dialogOptions = () => require('../electron/ipc/windows.js').customBrowserDialogOptions
+
+describe('customBrowserDialogOptions', () => {
+  test('darwin opens apps and directories with an app filter', () => {
+    expect(dialogOptions()('darwin')).toEqual({
+      properties: ['openFile', 'openDirectory'],
+      filters: [{ name: 'Application', extensions: ['app'] }],
+    })
+  })
+
+  test('win32 filters to executables', () => {
+    expect(dialogOptions()('win32')).toEqual({
+      properties: ['openFile'],
+      filters: [{ name: 'Executable', extensions: ['exe'] }],
+    })
+  })
+
+  test('linux shows all files, binaries carry no extension', () => {
+    expect(dialogOptions()('linux')).toEqual({ properties: ['openFile'] })
+  })
+})
+
+describe('check-path executable bit', () => {
+  const checkPathHandler = () => {
+    const registerWindowsHandlers = require('../electron/ipc/windows.js')
+    registerWindowsHandlers({
+      contextMenuData: new Map(),
+      contextMenuId: 1,
+      mainWindow: null,
+      appConfig: { Interface: { browserId: 'default' } },
+    })
+    return ipcHandlers.get('check-path')
+  }
+
+  test('reports the executable bit for a real file', async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'atlas-exec-'))
+    const file = path.join(dir, 'browser')
+    await fs.promises.writeFile(file, '#!/bin/sh\n')
+    // writeFile makes 0644; the bit under test must be set explicitly or
+    // this is green on Windows and red on POSIX.
+    await fs.promises.chmod(file, 0o755)
+    try {
+      await expect(checkPathHandler()({}, file)).resolves.toMatchObject({
+        exists: true, isFile: true, isExecutable: true,
+      })
+    } finally {
+      await fs.promises.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('execute-access failure clears isExecutable on POSIX, ignored on Windows', async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'atlas-exec-'))
+    const file = path.join(dir, 'browser')
+    await fs.promises.writeFile(file, '#!/bin/sh\n')
+    const accessSpy = vi.spyOn(fs, 'accessSync').mockImplementation(() => { throw new Error('EACCES') })
+    try {
+      // Windows never probes (matches defaultIsExecutableFile); POSIX honors it.
+      const expected = process.platform === 'win32'
+      await expect(checkPathHandler()({}, file)).resolves.toMatchObject({
+        exists: true, isFile: true, isExecutable: expected,
+      })
+    } finally {
+      accessSpy.mockRestore()
+      await fs.promises.rm(dir, { recursive: true, force: true })
     }
   })
 })

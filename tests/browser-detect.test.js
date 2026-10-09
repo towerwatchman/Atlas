@@ -1,6 +1,18 @@
 import { describe, test, expect } from 'vitest'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 
 const { listInstalledBrowsers } = require('../electron/utils/browserDetect')
+
+// PATH is walked in order and each candidate must be an executable file: a
+// present-but-not-executable entry must not list, and relative entries are
+// skipped (never probed against the app's cwd). The mock models the
+// isExecutableFile contract (real helper: stat isFile plus the X_OK bit,
+// so directories never qualify on any platform).
+const linuxFs = (executables) => ({
+  isExecutableFile: (p) => executables.has(p),
+})
 
 // Verbatim excerpt of the 2026-10-09 box (HKCU view). The hash suffixes are
 // the point. Mapping must ignore the key name. Do not tidy this fixture.
@@ -64,8 +76,20 @@ test('locked-down reg.exe returns [], never throws', () => {
   })).toEqual([])
 })
 
-test('linux returns [] (detection explicitly out of v1)', () => {
-  expect(listInstalledBrowsers({ platform: 'linux' })).toEqual([])
+test('linux with an empty PATH lists nothing, never throws', () => {
+  expect(listInstalledBrowsers({
+    platform: 'linux',
+    env: { PATH: '' },
+    ...linuxFs(new Set()),
+  })).toEqual([])
+})
+
+test('relative PATH entries are skipped, never probed against cwd', () => {
+  expect(listInstalledBrowsers({
+    platform: 'linux',
+    env: { PATH: '.:/usr/bin' },
+    ...linuxFs(new Set(['./firefox'])),
+  })).toEqual([])
 })
 
 test('dedupes duplicate live entries by stable id', () => {
@@ -204,5 +228,49 @@ describe('Interface.browserId config', () => {
       buildDefaultConfig(),
     )
     expect(newer.Interface.browserId).toBe('future-browser')
+  })
+})
+
+describe('listInstalledBrowsers (linux native)', () => {
+  test('lists PATH binaries with the executable bit set', () => {
+    const browsers = listInstalledBrowsers({
+      platform: 'linux',
+      env: { PATH: '/usr/bin:/snap/bin' },
+      ...linuxFs(new Set(['/usr/bin/firefox', '/snap/bin/brave-browser'])),
+    })
+    expect(browsers.map((b) => b.id).sort()).toEqual(['brave', 'firefox'])
+  })
+
+  test('present-but-not-executable binaries do not list', () => {
+    const browsers = listInstalledBrowsers({
+      platform: 'linux',
+      env: { PATH: '/usr/bin' },
+      ...linuxFs(new Set()),
+    })
+    expect(browsers).toEqual([])
+  })
+
+  test('alias binaries resolve to the same stable id once', () => {
+    const browsers = listInstalledBrowsers({
+      platform: 'linux',
+      env: { PATH: '/usr/bin' },
+      ...linuxFs(new Set(['/usr/bin/vivaldi', '/usr/bin/vivaldi-stable'])),
+    })
+    expect(browsers).toEqual([{ id: 'vivaldi', name: 'Vivaldi' }])
+  })
+
+  // Real fs, no mocks: accessSync(X_OK) succeeds on directories, so the
+  // executable-bit check alone would list a `firefox/` folder as Firefox.
+  test('an executable directory on PATH does not list as a browser', async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'atlas-bin-'))
+    await fs.promises.mkdir(path.join(dir, 'firefox'))
+    try {
+      expect(listInstalledBrowsers({
+        platform: 'linux',
+        env: { PATH: dir },
+      })).toEqual([])
+    } finally {
+      await fs.promises.rm(dir, { recursive: true, force: true })
+    }
   })
 })
