@@ -117,11 +117,14 @@ const getScreensUrlList = (atlasId) => {
   });
 };
 
-const updateBanners = (recordId, bannerPath, type) => {
+// Banners store their remote_url. Installs compare it with the fresh list
+// and skip what is already saved. Custom uploads have no source URL and
+// pass nothing.
+const updateBanners = (recordId, bannerPath, type, remoteUrl = null) => {
   return new Promise((resolve, reject) => {
     getDb().run(
-      `INSERT OR REPLACE INTO banners (record_id, path, type) VALUES (?, ?, ?)`,
-      [recordId, bannerPath, type],
+      `INSERT OR REPLACE INTO banners (record_id, path, type, remote_url) VALUES (?, ?, ?, ?)`,
+      [recordId, bannerPath, type, remoteUrl],
       (err) => {
         if (err) {
           console.error("Error updating banners:", err);
@@ -1022,6 +1025,34 @@ const getPreviews = async (recordId, appPath, isDev, mediaStorageMode = "stream"
 const getPreviewsWithMeta = (recordId, appPath, isDev, mediaStorageMode = "stream") =>
   getPreviews(recordId, appPath, isDev, mediaStorageMode, true)
 
+// Stored source URLs for the install diff. Custom rows carry NULL
+// remote_url. The IS NOT NULL filter keeps them out of the comparison
+// without any filename checks. Fail open: a read error means "nothing
+// stored". The caller downloads rather than skipping.
+const getStoredPreviewUrls = (recordId) => {
+  return new Promise((resolve) => {
+    getDb().all(
+      `SELECT remote_url FROM previews WHERE record_id = ? AND is_custom = 0 AND remote_url IS NOT NULL`,
+      [recordId],
+      (err, rows) => resolve(err ? [] : (rows || []).map((row) => row.remote_url)),
+    );
+  });
+};
+
+const getStoredBannerUrls = (recordId) => {
+  // No is_custom guard here because banners have no such column. This
+  // trusts that custom uploads always store NULL remote_url. A future
+  // caller that passes a URL for a custom row would silently enter the
+  // download diff.
+  return new Promise((resolve) => {
+    getDb().all(
+      `SELECT remote_url FROM banners WHERE record_id = ? AND remote_url IS NOT NULL`,
+      [recordId],
+      (err, rows) => resolve(err ? [] : (rows || []).map((row) => row.remote_url)),
+    );
+  });
+};
+
 const getBanners = (recordId, appPath, isDev) => {
   return new Promise((resolve, reject) => {
     const baseImagePath = getAssetBasePath(appPath, isDev);
@@ -1568,6 +1599,8 @@ module.exports = {
   getBrowsePreviewUrls,
   getSteamBrowseMediaForAppId,
   getRemotePreviewUrls,
+  getStoredPreviewUrls,
+  getStoredBannerUrls,
   getPreviews,
   getPreviewsWithMeta,
   getSteamMovieThumbnails,

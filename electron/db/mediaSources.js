@@ -354,6 +354,25 @@ const previewTwinKey = (url) => {
   if (sourceFromRemoteUrl(url) === 'steam') return steamImageContentKey(url) || null
   return null
 }
+// Fresh URLs with no stored twin. The install path feeds this the stored
+// remote_url values and the fresh list, and downloads only what comes back.
+// Raw equality first, then previewTwinKey where one exists: a host swap or a
+// rotated query string still matches its stored twin. Callers pass non-custom
+// URLs only. Custom rows store NULL remote_url and never reach this function.
+const findNewRemoteUrls = (storedUrls, freshUrls) => {
+  const known = new Set()
+  for (const url of storedUrls || []) {
+    known.add(String(url))
+    const key = previewTwinKey(url)
+    if (key) known.add(`twin:${key}`)
+  }
+  return (freshUrls || []).filter((url) => {
+    if (known.has(String(url))) return false
+    const key = previewTwinKey(url)
+    if (key && known.has(`twin:${key}`)) return false
+    return true
+  })
+}
 // Stable-reorders only the remote (http) entries of a preview list by source
 // priority, preserving the position of any local file paths.
 const orderPreviewsBySource = (urls, rawOrder) => {
@@ -403,4 +422,5 @@ module.exports = {
   sourceFromRemoteUrl,
   steamImageContentKey,
   previewTwinKey,
+  findNewRemoteUrls,
 }
