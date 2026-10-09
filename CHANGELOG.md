@@ -24,6 +24,7 @@
 - Added a "Download Version" entry to the split-button caret on the game detail page, beside "Manual Install". It opens the same downloads modal the UPDATE button does, listing every build and mirror the thread offers, so a different version can be fetched over one already installed. Previously an installed title with no pending update had no route to that modal at all: the primary button becomes PLAY once a version is installed, and the UPDATE button only renders when an update is flagged. The entry goes straight to the downloads modal rather than through the source picker, and is shown disabled with a reason for titles with no F95zone thread linked.
 
 ### Fixed
+- Fixed: installing a game in Download mode now downloads its images in the background once the install finishes. Add logic to preserve download image even if server url change. (#421)
 - Steam previews & assets fix:
   - Fixed Steam-version previews rendering twice in download mode. 
   - Scope Steam previews / banner / trailers, logo into season.

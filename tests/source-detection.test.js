@@ -1,4 +1,4 @@
-const { sourceFromRemoteUrl, orderPreviewsBySource } = require('../electron/db/mediaSources.js')
+const { sourceFromRemoteUrl, orderPreviewsBySource, findNewRemoteUrls } = require('../electron/db/mediaSources.js')
 
 describe('sourceFromRemoteUrl', () => {
   it('returns null for local paths and empty input', () => {
@@ -47,5 +47,29 @@ describe('orderPreviewsBySource uses the same matcher as the badge', () => {
     )
     expect(ordered[0]).toBe('https://lewdcorner.to/y')
     expect(ordered[1]).toBe('https://gog.com/x')
+  })
+})
+
+describe('findNewRemoteUrls', () => {
+  it('returns only fresh URLs with no stored twin', () => {
+    const stored = ['https://example.com/a.jpg', 'https://example.com/b.jpg', 'https://example.com/c.jpg']
+    const fresh = ['https://example.com/a.jpg', 'https://example.com/c.jpg', 'https://example.com/d.jpg']
+    expect(findNewRemoteUrls(stored, fresh)).toEqual(['https://example.com/d.jpg'])
+  })
+
+  it('returns nothing when stored covers fresh', () => {
+    const urls = ['https://example.com/a.jpg', 'https://example.com/b.jpg']
+    expect(findNewRemoteUrls(urls, [...urls])).toEqual([])
+  })
+
+  it('downloads everything when nothing is stored', () => {
+    const fresh = ['https://example.com/a.jpg', 'https://example.com/b.jpg']
+    expect(findNewRemoteUrls([], fresh)).toEqual(fresh)
+  })
+
+  it('treats host swaps and ?t= rotations as the same picture', () => {
+    const stored = ['https://cdn1.example.com/x/a1b2c3d4e5f60718293a4b5c6d7e8f90.jpg?t=111']
+    const fresh = ['https://cdn2.example.com/x/a1b2c3d4e5f60718293a4b5c6d7e8f90.jpg?t=222']
+    expect(findNewRemoteUrls(stored, fresh)).toEqual([])
   })
 })
