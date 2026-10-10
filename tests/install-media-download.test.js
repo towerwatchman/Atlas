@@ -133,4 +133,31 @@ describe('downloadMediaForInstalledGame (421)', () => {
     expect(out.success).toBe(false)
     expect(done).toEqual(out)
   })
+
+  it('421: forwards pacing and rate-limit wiring to downloadImages', async () => {
+    const downloadImagesFn = vi.fn(async () => ({ success: true }))
+    const blockedSources = new Set()
+    const onRateLimited = vi.fn()
+    await downloadMediaForInstalledGame(baseDeps({
+      downloadImagesFn,
+      requestDelayMs: 250,
+      blockedSources,
+      onRateLimited,
+    }))
+
+    const args = downloadImagesFn.mock.calls[0]
+    expect(args[12].requestDelayMs).toBe(250)
+    expect(args[12].blockedSources).toBe(blockedSources)
+    expect(args[12].onRateLimited).toBe(onRateLimited)
+  })
+
+  it('421: pacing wiring defaults to unpaced with no shared block list', async () => {
+    const downloadImagesFn = vi.fn(async () => ({ success: true }))
+    await downloadMediaForInstalledGame(baseDeps({ downloadImagesFn }))
+
+    const args = downloadImagesFn.mock.calls[0]
+    expect(args[12].requestDelayMs).toBe(0)
+    expect(args[12].blockedSources).toBeNull()
+    expect(args[12].onRateLimited).toBeNull()
+  })
 })
