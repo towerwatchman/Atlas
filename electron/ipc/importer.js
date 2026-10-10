@@ -970,6 +970,9 @@ const downloadMediaForInstalledGame = async ({
   downloadImagesFn = downloadImages,
   onProgress = null,
   onDone = null,
+  requestDelayMs = 0,
+  blockedSources = null,
+  onRateLimited = null,
 }) => {
   const [storedBanners, freshBanner] = await Promise.all([
     getStoredBannerUrls(recordId).catch(() => []),
@@ -1017,6 +1020,9 @@ const downloadMediaForInstalledGame = async ({
       {
         source: newBannerUrls[0] ? inferSource(newBannerUrls[0]) : "remote",
         appendPreviews: true,
+        requestDelayMs,
+        blockedSources,
+        onRateLimited,
       },
     );
   } catch (err) {
@@ -5119,6 +5125,11 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
             if (!win.isDestroyed()) win.webContents.send(channel, payload);
           });
         };
+        // Paced like every other download path. Without the configured delay
+        // this fires one game of unpaced requests, which is what gets a source
+        // rate-limited. The block set and toast match import and refresh runs.
+        const installMediaSettings = getMediaPerformanceSettings(getLiveConfig());
+        const installBlockedSources = new Set();
         await downloadMediaForInstalledGame({
           recordId,
           atlasId: atlasId || recordId,
@@ -5132,6 +5143,11 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
           updatePreviews,
           inferSource: sourceFromRemoteUrl,
           isVideoUrl,
+          requestDelayMs: installMediaSettings.mediaRequestDelayMs,
+          blockedSources: installBlockedSources,
+          onRateLimited: (source, retryAfterMs) => {
+            sendToAllWindows("media-rate-limited", { source, retryAfterMs });
+          },
           onProgress: (current, total) => {
             sendToAllWindows("game-details-import-progress", {
               text: `Downloading images ${current}/${total}`,
