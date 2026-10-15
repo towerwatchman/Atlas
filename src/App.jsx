@@ -1899,6 +1899,9 @@ const App = () => {
       })
     })
     const removeMetadataListener = window.electronAPI.onMetadataChanged?.(handleMetadataChanged)
+    const removeClickModeListener = window.electronAPI.onDetailClickSearchModeChanged?.((data) => {
+      setDetailClickSearchMode(data?.mode === 'library' ? 'library' : 'browse')
+    })
     const removeNsfwListener = window.electronAPI.onNsfwChanged?.((data) => {
       // Keeps this window's Browse availability in sync when the NSFW
       // setting is changed from elsewhere — e.g. the Settings window's
@@ -1948,6 +1951,7 @@ const App = () => {
     return () => {
       window.electronAPI.removeUpdateStatusListener?.()
       if (typeof removeMetadataListener === 'function') removeMetadataListener()
+      if (typeof removeClickModeListener === 'function') removeClickModeListener()
       if (typeof removeNsfwListener === 'function') removeNsfwListener()
       if (typeof removeExecRepairListener === 'function') removeExecRepairListener()
       if (typeof removeImportFailedListener === 'function') removeImportFailedListener()
