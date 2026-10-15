@@ -124,7 +124,7 @@ export default function SplitButtonMenu({
       if (caretRef.current?.contains(event.target)) return
       setOpen(false)
     }
-    const onEsc = (event) => { if (event.key === 'Escape') setOpen(false) }
+    const onEsc = (event) => { if (event.key === 'Escape') { event.preventDefault(); setOpen(false) } }
     // The bar is sticky and the page behind it scrolls, so a fixed menu has to
     // be told to follow. Capture, because the scroll happens on an inner
     // container rather than the window.

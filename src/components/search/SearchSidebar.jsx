@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { builtInSavedFilters, getDefaultSortDirectionForSort, normalizeFilterState } from '../../hooks/useFilters.js'
 import { useDebouncedSearch } from '../../hooks/useDebouncedSearch.js'
 import SavedFiltersPanel from './SavedFiltersPanel.jsx'
@@ -8,10 +8,32 @@ import { PLAYSTATE_OPTIONS } from '../../utils/playstates.js'
 // Collapsible accordion section — keeps the long filter list scannable so
 // the panel isn't one endless scroll (matches the grouped/accordion layout
 // of the reference filter sidebars). Each section owns its own open state
-// and starts closed unless defaultOpen is set; the most-used sections open
-// by default. An optional badge shows a count/summary next to the title.
-function Collapsible({ title, badge, defaultOpen = false, children }) {
-  const [open, setOpen] = useState(defaultOpen);
+// and starts closed unless defaultOpen is set or it holds applied values
+// (activeCount); the most-used sections open by default. An optional badge
+// shows a count/summary next to the title.
+function Collapsible({ title, badge, defaultOpen = false, activeCount = 0, children }) {
+  // Start open when values are already applied so the body (and its input)
+  // exists on the first commit; focusing a not-yet-mounted input is a no-op.
+  const [open, setOpen] = useState(defaultOpen || activeCount > 0);
+  const bodyRef = useRef(null);
+  // Focus once when landing with values already applied — a detail jump
+  // always mounts the sidebar fresh, so mount-only focus reaches the jump
+  // while later count changes leave focus alone and toggling values never
+  // yanks the cursor.
+  const focusOnMountRef = useRef(activeCount > 0);
+  // Sections holding applied values open themselves so an applied filter is
+  // always visible, then offer the section input (if any) for follow-up typing.
+  // Sections without inputs simply have nothing to focus. The user can still
+  // collapse afterwards until values change.
+  useEffect(() => { if (activeCount > 0) setOpen(true) }, [activeCount]);
+  useEffect(() => {
+    if (!focusOnMountRef.current) return;
+    focusOnMountRef.current = false;
+    const frame = requestAnimationFrame(() => {
+      bodyRef.current?.querySelector("input")?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
   return (
     <div className="border-b border-border">
       <button
@@ -27,7 +49,7 @@ function Collapsible({ title, badge, defaultOpen = false, children }) {
         </span>
         <i className={`fas fa-chevron-down text-xs text-muted transition-transform ${open ? "rotate-180" : ""}`}></i>
       </button>
-      {open && <div className="pb-4">{children}</div>}
+      {open && <div className="pb-4" ref={bodyRef}>{children}</div>}
     </div>
   );
 }
@@ -114,6 +136,13 @@ const SearchSidebar = ({
     useDebouncedSearch({ value: searchText, onSearchChange, resetInputSignal })
 
   const selectedFilters = normalizeFilterState(activeFilters);
+  // Applied-value counts shared by each section's badge, auto-open and (for
+  // Tags) its applied-chips row, so the three cannot disagree by editing
+  // one include/exclude sum and missing the other.
+  const tagCount = selectedFilters.tags.length + selectedFilters.excludedTags.length;
+  const categoryCount = selectedFilters.category.length + selectedFilters.excludedCategories.length;
+  const engineCount = selectedFilters.engine.length + selectedFilters.excludedEngines.length;
+  const statusCount = selectedFilters.status.length + selectedFilters.excludedStatuses.length;
   const [options, setOptions] = useState({
     categories: [],
     engines: [],
@@ -187,6 +216,8 @@ const SearchSidebar = ({
   };
 
   const handleInputKeyDown = (event) => {
+    // First Escape releases focus, matching the header search box.
+    if (event.key === "Escape") event.currentTarget.blur();
     event.stopPropagation();
   };
 
@@ -626,7 +657,11 @@ const SearchSidebar = ({
           </Collapsible>
 
           {/* Tags */}
-          <Collapsible title="Tags">
+          <Collapsible
+            title="Tags"
+            badge={tagCount ? String(tagCount) : ""}
+            activeCount={tagCount}
+          >
             <div className="flex items-center gap-2 mb-3">
               <input
                 type="text"
@@ -634,6 +669,12 @@ const SearchSidebar = ({
                 value={tagSearch}
                 onChange={(e) => setTagSearch(e.target.value)}
                 onKeyDown={(e) => {
+                  // First Escape releases focus, matching the header box.
+                  if (e.key === "Escape") {
+                    e.currentTarget.blur();
+                    e.stopPropagation();
+                    return;
+                  }
                   if (filteredTags.length === 0) return;
 
                   if (e.key === "ArrowDown") {
@@ -675,7 +716,7 @@ const SearchSidebar = ({
                 </button>
               </div>
             </div>
-            {(selectedFilters.tags.length > 0 || selectedFilters.excludedTags.length > 0) && (
+            {tagCount > 0 && (
               <div className="flex flex-wrap gap-2 mb-3">
                 {selectedFilters.tags.map((tag) => (
                   <span
@@ -730,7 +771,11 @@ const SearchSidebar = ({
           </Collapsible>
 
           {/* Category */}
-          <Collapsible title="Category">
+          <Collapsible
+            title="Category"
+            badge={categoryCount ? String(categoryCount) : ""}
+            activeCount={categoryCount}
+          >
             <div className="border border-border p-2 rounded bg-tertiary">
               {options.categories.length === 0 ? (
                 <p className="text-sm text-muted">No categories found</p>
@@ -751,7 +796,8 @@ const SearchSidebar = ({
           {/* Engine */}
           <Collapsible
             title="Engine"
-            badge={selectedFilters.engine.length ? String(selectedFilters.engine.length) : ""}
+            badge={engineCount ? String(engineCount) : ""}
+            activeCount={engineCount}
           >
             <div className="border border-border p-2 rounded bg-tertiary">
               {options.engines.length === 0 ? (
@@ -773,7 +819,8 @@ const SearchSidebar = ({
           {/* Status */}
           <Collapsible
             title="Status"
-            badge={selectedFilters.status.length ? String(selectedFilters.status.length) : ""}
+            badge={statusCount ? String(statusCount) : ""}
+            activeCount={statusCount}
           >
             <div className="border border-border p-2 rounded bg-tertiary">
               {options.statuses.length === 0 ? (

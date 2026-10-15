@@ -91,6 +91,7 @@ const buildDefaultConfig = (dataDir = '') => ({
     sidePanelMode: 'games',
     browserId: 'default',
     customBrowserPaths: [],
+    detailClickSearchMode: 'browse',
   },
   // Per-channel record of the app version last INSTALLED from each update
   // channel. The updater compares the active channel's latest release against

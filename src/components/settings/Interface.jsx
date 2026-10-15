@@ -33,6 +33,9 @@ const Interface = () => {
   // Default set of fields the search box looks at. Lives in [Search], not
   // [Interface], so it goes through its own save path below.
   const [searchFields, setSearchFields] = useState(() => [...DEFAULT_SEARCH_FIELD_IDS]);
+  // Where a detail-view metadata click lands. Shift-click always goes to the
+  // other one. Lives in [Interface], so it uses the saveSettings() helper.
+  const [detailClickSearchMode, setDetailClickSearchMode] = useState("browse");
 
   const applyUpdateStatus = (status) => {
     if (!status?.status) return;
@@ -69,6 +72,7 @@ const Interface = () => {
         setAppUpdateBranch(interfaceSettings.appUpdateBranch);
       }
       setSearchFields(normalizeSearchFieldIds(config.Search?.defaultFields));
+      setDetailClickSearchMode(interfaceSettings.detailClickSearchMode === "library" ? "library" : "browse");
     });
 
     const removeUpdateListener = window.electronAPI.onUpdateStatus?.(
@@ -121,6 +125,12 @@ const Interface = () => {
         Search: { ...config.Search, defaultFields: serializeSearchFieldIds(normalized) },
       });
     });
+  };
+
+  const handleDetailClickSearchModeChange = (e) => {
+    const next = e.target.value === "library" ? "library" : "browse";
+    setDetailClickSearchMode(next);
+    saveSettings({ detailClickSearchMode: next });
   };
 
   const handleLanguageChange = (e) => {
@@ -393,6 +403,22 @@ const Interface = () => {
         specific search. Currently: {describeSearchFieldIds(searchFields)}. Prefixes
         like <code>id:</code>, <code>f95:</code> or <code>title:</code> still
         override this for a single query.
+      </p>
+      <div className="border-t border-text opacity-25 my-2"></div>
+      <div className="flex items-center mb-2">
+        <label className="flex-1">Click-to-search default mode:</label>
+        <select
+          className="w-40 bg-secondary border border-border text-text rounded p-1"
+          value={detailClickSearchMode}
+          onChange={handleDetailClickSearchModeChange}
+        >
+          <option value="browse">Browse mode</option>
+          <option value="library">Library search</option>
+        </select>
+      </div>
+      <p className="text-xs opacity-50 mb-2">
+        Clicking a creator, tag, or category in game details searches here.
+        Shift-click always searches the other mode.
       </p>
       <div className="border-t border-text opacity-25 my-2"></div>
       {/* Applies live, no restart needed. */}
