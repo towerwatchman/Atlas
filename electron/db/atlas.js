@@ -55,8 +55,13 @@ const buildAtlasSearchKeys = (title) => {
 const scoreAtlasSearchRow = (row, searchKeys, title, creator) => {
   const rowShortName = normalizeSearchKey(row.short_name || row.title);
   const rowTitle = normalizeSearchKey(row.title);
+  // The original (former) name is a title alias: an exact or near match on it
+  // scores like a title match, so Find Match can locate a renamed game.
+  const rowOriginal = normalizeSearchKey(row.original_name);
   const queryWords = new Set(normalizeSearchWords(title));
-  const rowWords = normalizeSearchWords(row.title);
+  // Word overlap covers the former name too, so a partial or reordered query
+  // against a multi-word original_name scores like it does for the title.
+  const rowWords = [...normalizeSearchWords(row.title), ...normalizeSearchWords(row.original_name)];
   const creatorKey = normalizeSearchKey(creator);
   const rowCreatorKey = normalizeSearchKey(row.creator);
   let score = 0;
@@ -81,6 +86,15 @@ const scoreAtlasSearchRow = (row, searchKeys, title, creator) => {
       rowTitle.length / key.length >= 0.45
     ) {
       score = Math.max(score, 780 - Math.abs(key.length - rowTitle.length));
+    }
+
+    if (rowOriginal && rowOriginal === key) score = Math.max(score, 900);
+    else if (
+      rowOriginal.length >= 8 &&
+      key.includes(rowOriginal) &&
+      rowOriginal.length / key.length >= 0.45
+    ) {
+      score = Math.max(score, 780 - Math.abs(key.length - rowOriginal.length));
     }
   }
 
@@ -111,6 +125,7 @@ const searchAtlasExact = async (title, creator) => {
     SELECT
       a.atlas_id,
       a.title,
+      a.original_name,
       a.creator,
       a.engine,
       a.version as latestVersion,
@@ -157,6 +172,7 @@ const searchAtlas = async (title, creator) => {
     SELECT
       a.atlas_id,
       a.title,
+      a.original_name,
       a.creator,
       a.engine,
       a.version as latestVersion,
@@ -171,11 +187,12 @@ const searchAtlas = async (title, creator) => {
     LEFT JOIN lewdcorner_data lc ON lc.atlas_id = a.atlas_id
     WHERE
       a.title LIKE ?
+      OR a.original_name LIKE ?
       OR a.creator LIKE ?
       OR ${keyConditions}
   `;
 
-  const params = [`%${title}%`, `%${creator}%`, ...keyParams];
+  const params = [`%${title}%`, `%${title}%`, `%${creator}%`, ...keyParams];
 
   const rows = await new Promise((resolve, reject) => {
     getDb().all(sql, params, (err, resultRows) => {
