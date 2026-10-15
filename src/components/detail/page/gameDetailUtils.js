@@ -192,6 +192,11 @@ export const formatLanguages = (raw, cap = 5) => {
   return list.join(', ')
 }
 
+// formatLanguages collapses long lists into a "Multiple languages (N)"
+// summary. That summary is display-only: searching it literally matches
+// nothing, so callers render it as plain text, not a search link.
+export const isLanguageSummary = (value) => String(value || '').startsWith('Multiple languages (')
+
 // Convert Steam's HTML description (or plain/bbcode text) into readable plain
 // text. Avoids dangerouslySetInnerHTML — block tags become line breaks, list
 // items get bullets, everything else is stripped and entities decoded.

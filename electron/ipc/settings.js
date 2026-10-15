@@ -289,6 +289,16 @@ module.exports = function registerSettingsHandlers(ctx) {
         })
       }
 
+      // Detail click target lives in App state from launch; without a broadcast
+      // a Settings change only takes effect after restart.
+      const previousClickMode = previousInterface?.detailClickSearchMode === 'library' ? 'library' : 'browse'
+      const nextClickMode = nextSettings?.Interface?.detailClickSearchMode === 'library' ? 'library' : 'browse'
+      if (previousClickMode !== nextClickMode) {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (!win.isDestroyed()) win.webContents.send('detail-click-search-mode-changed', { mode: nextClickMode })
+        })
+      }
+
       return { success: true }
     } catch (err) {
       console.error('save-settings error:', err)

@@ -32,6 +32,17 @@ export default function VersionsTab({
               className={`p-2 cursor-pointer ${selectedVersion?.version === version.version ? 'bg-selected' : 'hover:bg-buttonHover'} ${version.isInstalled === false ? 'text-danger' : ''}`}
             >
               {version.version}
+              {version.source === 'steam' && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px', marginLeft: 4 }}>
+                  <i className="fab fa-steam" style={{ fontSize: 10 }}></i> Steam
+                </span>
+              )}
+              {version.source === 'gog' && (
+                <span style={{ fontSize: 10, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px', marginLeft: 4 }}>GOG</span>
+              )}
+              {version.source === 'itch' && (
+                <span style={{ fontSize: 10, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px', marginLeft: 4 }}>Itch</span>
+              )}
               {version.isInstalled === false && <span className="block text-xs">Missing</span>}
             </li>
           ))}

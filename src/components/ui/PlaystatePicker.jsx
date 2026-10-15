@@ -23,7 +23,7 @@ export default function PlaystatePicker({ value, onChange, disabled = false, siz
     const onDocClick = (e) => {
       if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false)
     }
-    const onEsc = (e) => { if (e.key === 'Escape') setOpen(false) }
+    const onEsc = (e) => { if (e.key === 'Escape') { e.preventDefault(); setOpen(false) } }
     document.addEventListener('mousedown', onDocClick)
     document.addEventListener('keydown', onEsc)
     return () => {

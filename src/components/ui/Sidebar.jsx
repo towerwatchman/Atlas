@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getNavItems, parseIconParts } from './navItems.js'
+import { getNavItems, parseIconParts, navItemIsActive } from './navItems.js'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
 import ImporterSourceMenu from '../importer/ImporterSourceMenu.jsx'
 
@@ -38,19 +38,7 @@ const Sidebar = ({
   return (
     <div className="w-navSize bg-primary flex flex-col items-center min-w-[60px] py-[1px] fixed top-[70px] bottom-[40px] z-50">
       {items.map((item) => {
-        const isActive =
-          item.name === 'Collections'
-            ? collectionsActive
-            : item.name === 'Favorites'
-            ? favoritesActive
-            : item.name === 'Library'
-              ? (libraryMode === 'local' && !favoritesActive && !collectionsActive)
-              : item.name === 'List'
-                ? false
-                : (
-                    selected === item.name ||
-                    (item.name === 'Browse' && libraryMode === 'catalog')
-                  )
+        const isActive = navItemIsActive(item.name, { libraryMode, favoritesActive, collectionsActive, selected })
         const buttonContent = (
           <>
             <div className="absolute left-0 w-[3px] h-full bg-accent transition-opacity opacity-0 group-hover:opacity-100" />
