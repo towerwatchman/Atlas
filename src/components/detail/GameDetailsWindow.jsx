@@ -23,7 +23,7 @@ const formatBytes = (bytes) => {
 }
 
 const EMPTY_FORM = {
-  title: '', mappings: '', platform: '', engine: '', developer: '',
+  title: '', original_name: '', platform: '', engine: '', developer: '',
   publisher: '', release_date: '', status: '', tags: '', description: '',
   category: '', latest_version: '', censored: '', language: '',
   translations: '', genre: '', voice: '', rating: '', notes: '',
@@ -71,15 +71,10 @@ const toDateInputValue = (raw) => {
 // blank mm/dd/yyyy field here even though the game page displayed it fine.
 const formatRecordDateInput = (game) => toDateInputValue(formatReleaseDate(game))
 
-function gameToFormData(g) {
-  const mapperNames = []
-  if (g.f95_id) mapperNames.push('F95Zone')
-  if (g.atlas_id) mapperNames.push('Atlas')
-  if (g.steam_id) mapperNames.push('Steam')
-  if (g.lc_id || g.lcId || g.lewdCornerId) mapperNames.push('LewdCorner')
+export function gameToFormData(g) {
   return {
     title: g.title || '',
-    mappings: mapperNames.join(', '),
+    original_name: g.original_name || '',
     platform: g.os || '',
     engine: g.engine || '',
     developer: g.creator || '',
@@ -101,7 +96,7 @@ function gameToFormData(g) {
 }
 
 // Maps a RecordTab form field to the key updateGame() expects. Anything absent
-// from this map (e.g. the read-only "mappings" summary) is never sent.
+// from this map (e.g. the read-only "original_name" row) is never sent.
 //
 // title / engine / developer are real `games` columns; everything else lands in
 // game_metadata_overrides. Note description -> overview: the override column is
@@ -140,7 +135,7 @@ const FORM_TO_PAYLOAD = {
 //
 // A field the user has emptied is still "changed", and is sent as '' — the DB
 // layer reads that as "clear this override" and restores the source value.
-function buildChangedPayload(current, baseline) {
+export function buildChangedPayload(current, baseline) {
   const payload = {}
   for (const [formKey, payloadKey] of Object.entries(FORM_TO_PAYLOAD)) {
     const next = current?.[formKey] ?? ''

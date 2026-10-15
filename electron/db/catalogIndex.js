@@ -75,7 +75,7 @@ const { withTransaction, isWriteLockBusy } = require('./writeLock')
 // cannot use an index) so the tag include/exclude filter is exact-token rather
 // than substring over tags_text. Reuses the ADD-COLUMN path so existing installs
 // migrate without a full DROP/CREATE.
-const CATALOG_INDEX_VERSION = 6
+const CATALOG_INDEX_VERSION = 7
 
 const CHUNK_SIZE = 2000
 
@@ -315,7 +315,8 @@ const CATALOG_INDEX_DDL = [
      release_date_tier   INTEGER NOT NULL DEFAULT 2,
      release_date_ms     INTEGER,
      f95_latest_order REAL,
-     has_steam_link   INTEGER NOT NULL DEFAULT 0
+     has_steam_link   INTEGER NOT NULL DEFAULT 0,
+     original_name    TEXT
    );`,
 
   // (steam_appid -> atlas_id) resolved from atlas_data.external_ids. Replaces
@@ -410,6 +411,7 @@ const CATALOG_INDEX_ADDED_COLUMNS = [
   ['atlas_external_steam', 'is_dlc', 'INTEGER NOT NULL DEFAULT 0'],
   ['atlas_external_steam', 'parent_appid', 'INTEGER'],
   ['catalog_index', 'tags_filter', 'TEXT'],
+  ['catalog_index', 'original_name', 'TEXT'],
 ]
 
 // The ALTER statements a database with these columns still needs. Pure, so the
@@ -555,14 +557,14 @@ const CATALOG_INDEX_COLUMNS = [
   'thread_updated_tier', 'thread_updated_ms',
   'thread_publish_tier', 'thread_publish_ms',
   'release_date_tier', 'release_date_ms',
-  'f95_latest_order', 'has_steam_link',
+  'f95_latest_order', 'has_steam_link', 'original_name',
 ]
 
 // Mirrors atlas_branch_base's source precedence and COALESCE chains. Kept in one
 // place so the projection and the hydrate query cannot drift apart.
 const ATLAS_SOURCE_QUERY = `
   SELECT
-    a.atlas_id, a.title, a.short_name,
+    a.atlas_id, a.title, a.short_name, a.original_name,
     COALESCE(NULLIF(a.creator, ''), a.developer)               AS creator,
     a.engine, a.status, a.release_date, a.tags AS atlas_tags,
     COALESCE(NULLIF(a.category, ''), MIN(s.category))          AS category,
@@ -633,6 +635,7 @@ const projectAtlasRow = (row, nowMs) => {
     dateTier(releaseDateMs, nowMs), releaseDateMs,
     toNumberOrNull(row.f95_latest_order),
     row.steam_id != null ? 1 : 0,
+    row.original_name ?? null,
   ]
 }
 
@@ -813,7 +816,7 @@ const rebuildOrphanBranches = async ({ onProgress, chunkSize, nowMs }) => {
         row.status ?? null, row.censored ?? null, row.language ?? null,
         joinText(row.tags), buildTagsFilterValue(row.tags), joinText(title, creator, row.engine, row.status, row.category),
         null, null, null,
-        2, null, 2, null, dateTier(releaseMs, now), releaseMs, null, 1,
+        2, null, 2, null, dateTier(releaseMs, now), releaseMs, null, 1, null,
       ]
     }, 'steamRows')
 
@@ -842,7 +845,7 @@ const rebuildOrphanBranches = async ({ onProgress, chunkSize, nowMs }) => {
         row.status ?? null, row.censored ?? null, row.language ?? null,
         joinText(row.tags), buildTagsFilterValue(row.tags), joinText(title, creator, row.engine, row.status, row.category),
         row.store_url ?? null, null, null,
-        2, null, 2, null, dateTier(releaseMs, now), releaseMs, null, 0,
+        2, null, 2, null, dateTier(releaseMs, now), releaseMs, null, 0, null,
       ]
     }, 'gogRows')
 
@@ -873,7 +876,7 @@ const rebuildOrphanBranches = async ({ onProgress, chunkSize, nowMs }) => {
         title, title, FALLBACK_CREATOR, null, null, null, null, null,
         joinText(row.tags, row.prefixes), buildTagsFilterValue(row.tags, row.prefixes), joinText(title, FALLBACK_CREATOR),
         row.site_url ?? null, toNumberOrNull(row.rating), toNumberOrNull(row.likes),
-        dateTier(tuMs, now), tuMs, dateTier(tpMs, now), tpMs, 2, null, null, 0,
+        dateTier(tuMs, now), tuMs, dateTier(tpMs, now), tpMs, 2, null, null, 0, null,
       ]
     }, 'lewdcornerRows')
 

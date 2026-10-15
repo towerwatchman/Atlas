@@ -16,8 +16,8 @@ const SEARCH_FIELDS = [
     id: 'title',
     label: 'Title',
     group: 'Basics',
-    indexColumns: ['title', 'short_name'],
-    unionColumns: ['catalog.title', 'catalog.short_name'],
+    indexColumns: ['title', 'short_name', 'original_name'],
+    unionColumns: ['catalog.title', 'catalog.short_name', 'catalog.original_name'],
   },
   {
     id: 'creator',

@@ -11,7 +11,7 @@ import TagEditor from '../../tags/TagEditor.jsx'
 
 const LEFT_FIELDS = [
   { name: 'title', label: 'Title' },
-  { name: 'mappings', label: 'Mappings', disabled: true, source: false },
+  { name: 'original_name', label: 'Original Name', disabled: true, source: false },
   { name: 'platform', label: 'Platform' },
   { name: 'engine', label: 'Engine' },
   { name: 'developer', label: 'Developer' },
