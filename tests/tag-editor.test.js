@@ -29,7 +29,12 @@ test('reset is only offered when an override exists', () => {
 
 test('the editor is present in both hosts', () => {
   expect(recordTab).toContain('<TagEditor')
-  expect(detailPage).toContain('<TagEditor')
+  expect(read('src/components/detail/page/DetailTagsPanel.jsx')).toContain('<TagEditor')
+})
+
+test('the detail page hosts the tags panel instead of the editor inline', () => {
+  expect(detailPage).toContain('<DetailTagsPanel')
+  expect(detailPage).not.toContain('<TagEditor')
 })
 
 // The disabled "Coming soon" textarea it replaced.

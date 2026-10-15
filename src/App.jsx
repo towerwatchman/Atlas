@@ -37,6 +37,7 @@ import {
   makeCatalogSearch, catalogParamsKey,
 } from './hooks/useFilters.js'
 import { DEFAULT_SEARCH_FIELD_IDS, normalizeSearchFieldIds } from './utils/searchFields.js'
+import { resolveMetadataSearch, resolveSearchTarget } from './utils/metadataSearch.js'
 import { useAppUpdate } from './hooks/useAppUpdate.js'
 import { useWindowState } from './hooks/useWindowState.js'
 import { useTheme } from './theme/ThemeProvider.jsx'
@@ -144,12 +145,18 @@ const App = () => {
   const [selectedGame, setSelectedGame] = useState(null)
   const [sidebarMode, setSidebarMode] = useState(SIDE_PANEL_MODES.GAMES)
   const [libraryMode, setLibraryMode] = useState('local')
+  // Where detail-view metadata clicks land ('browse' default). Shift-click
+  // always goes to the other mode. Loaded from config below.
+  const [detailClickSearchMode, setDetailClickSearchMode] = useState('browse')
   const [showSearchSidebar, setShowSearchSidebar] = useState(false)
   const [userSavedFilters, setUserSavedFilters] = useState([])
   const [wishlistIdentityKeys, setWishlistIdentityKeys] = useState(new Set())
   const [activeSavedFilterId, setActiveSavedFilterId] = useState('')
   const [savedFilterDeleteStateById, setSavedFilterDeleteStateById] = useState({})
   const [resetInputSignal, setResetInputSignal] = useState(0)
+  // Bumped whenever a detail jump lands text in the search box, handing the
+  // cursor over with it. Mirrors resetInputSignal above.
+  const [searchFocusSignal, setSearchFocusSignal] = useState(0)
   // Banner card dimensions for Grid sizing — derived from the same
   // resolved template BannerTemplateProvider already computed once for
   // <GameBanner> (see src/theme/BannerTemplateProvider.jsx), rather than
@@ -1109,6 +1116,9 @@ const App = () => {
       // installed-only default, or a saved filter someone left applied).
       // This also clears any saved-filter selection so Browse never opens
       // pre-narrowed to "your library" by accident.
+      // handleMetadataSearch bypasses this reset with its own full filter
+      // state, so a future restore-remembered-filters here must not run
+      // after an explicit detail jump.
       setActiveSavedFilterId('')
       const browseFilters = normalizeFilterState({
         ...defaultFilters,
@@ -1230,6 +1240,49 @@ const App = () => {
     setActiveSavedFilterId('')
     handleFilterChange({ text })
   }, [handleFilterChange])
+
+  // Detail-view metadata click: close the page and land on the grid with the
+  // value applied as the same filter the sidebar would set. Filtered views
+  // span installed and uninstalled alike (see openCollection), and the fetch
+  // key is pre-marked exactly like browseCatalog does so the debounced effect
+  // below does not immediately refetch the same query.
+  // Future per-view filter memory must yield to this jump: it establishes the
+  // full filter state up front, so restoring remembered filters on the mode
+  // switch would wipe the just-applied value.
+  const handleMetadataSearch = useCallback((payload = {}) => {
+    const { text, filters } = resolveMetadataSearch(payload.field, payload.value)
+    const target = resolveSearchTarget(detailClickSearchMode, payload.secondaryMode === true)
+    // Text jumps hand the cursor to the search box; filter jumps land with
+    // their sidebar section opened and focused instead (see Collapsible).
+    if (text) setSearchFocusSignal((n) => n + 1)
+    // One base for both jumps so the Library and Browse paths cannot drift
+    // apart; the catalog path only adds normalization for its fetch.
+    const baseFilters = { ...defaultFilters, includeUninstalled: true, installState: 'all', text, ...filters }
+    if (target !== 'catalog' || !browseAvailable) {
+      setLibraryMode('local')
+      setLibraryView('grid')
+      setSelectedGame(null)
+      setShowSearchSidebar(true)
+      setActiveSavedFilterId('')
+      handleFilterChange(baseFilters)
+      return
+    }
+    const nextFilters = normalizeFilterState(baseFilters)
+    const nextSearch = makeCatalogSearch(nextFilters)
+    setLibraryMode('catalog')
+    setLibraryView('grid')
+    setSelectedGame(null)
+    // Same panel rail Browse leaves behind, without rewriting the saved
+    // preference: the jump borrows catalog for now, it is not a setting.
+    if (sidebarMode !== SIDE_PANEL_MODES.SAVED_FILTERS) {
+      setSidebarMode(SIDE_PANEL_MODES.CATALOG)
+    }
+    setShowSearchSidebar(true)
+    setActiveSavedFilterId('')
+    handleFilterChange(nextFilters)
+    lastFetchedCatalogParamsKeyRef.current = catalogParamsKey(nextSearch, nextFilters)
+    fetchCatalogGames({ reset: true, search: nextSearch, filters: nextFilters })
+  }, [browseAvailable, detailClickSearchMode, fetchCatalogGames, handleFilterChange, sidebarMode])
 
   const resetFilters = useCallback(() => {
     setActiveSavedFilterId('')
@@ -1603,6 +1656,9 @@ const App = () => {
           .filter(Boolean)
         if (savedExpanded.length > 0) setExpandedCollectionIds(new Set(savedExpanded))
 
+        // Where detail-view metadata clicks land; anything but 'library' is Browse.
+        if (config.Interface?.detailClickSearchMode === 'library') setDetailClickSearchMode('library')
+
         const browseOk = BROWSE_MODE_ENABLED && enabled
         let nextMode = normalizeSidePanelMode(
           config.Interface?.sidePanelMode,
@@ -1843,6 +1899,9 @@ const App = () => {
       })
     })
     const removeMetadataListener = window.electronAPI.onMetadataChanged?.(handleMetadataChanged)
+    const removeClickModeListener = window.electronAPI.onDetailClickSearchModeChanged?.((data) => {
+      setDetailClickSearchMode(data?.mode === 'library' ? 'library' : 'browse')
+    })
     const removeNsfwListener = window.electronAPI.onNsfwChanged?.((data) => {
       // Keeps this window's Browse availability in sync when the NSFW
       // setting is changed from elsewhere — e.g. the Settings window's
@@ -1892,6 +1951,7 @@ const App = () => {
     return () => {
       window.electronAPI.removeUpdateStatusListener?.()
       if (typeof removeMetadataListener === 'function') removeMetadataListener()
+      if (typeof removeClickModeListener === 'function') removeClickModeListener()
       if (typeof removeNsfwListener === 'function') removeNsfwListener()
       if (typeof removeExecRepairListener === 'function') removeExecRepairListener()
       if (typeof removeImportFailedListener === 'function') removeImportFailedListener()
@@ -2140,7 +2200,7 @@ const App = () => {
               // layout there is no search box here and Collections is a nav
               // button instead (see TopNav's LEFT_ORDER).
               <div className="flex justify-center w-full">
-                <SearchBox value={activeFilters.text} onSearchChange={handleSearchChange} onToggleSidebar={toggleSearchSidebar} resetInputSignal={resetInputSignal} />
+                <SearchBox value={activeFilters.text} onSearchChange={handleSearchChange} onToggleSidebar={toggleSearchSidebar} resetInputSignal={resetInputSignal} focusSignal={searchFocusSignal} />
               </div>
             )}
           </div>
@@ -2393,6 +2453,8 @@ const App = () => {
               onBlacklisted={handleBlacklisted}
               openRatingFor={pendingRatingRecordId}
               onRatingOpened={() => setPendingRatingRecordId(null)}
+              onMetadataSearch={handleMetadataSearch}
+              defaultSearchMode={detailClickSearchMode}
             />
           ) : libraryView === 'downloads' ? (
             <DownloadsPage

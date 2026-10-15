@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getNavItems, parseIconParts } from './navItems.js'
+import { getNavItems, parseIconParts, navItemIsActive } from './navItems.js'
 import { useTheme } from '../../theme/ThemeProvider.jsx'
 import ImporterSourceMenu from '../importer/ImporterSourceMenu.jsx'
 
@@ -83,25 +83,7 @@ const TopNav = ({
   return (
     <div className="flex items-center gap-1 h-full -webkit-app-region-no-drag">
       {groupItems.map((item) => {
-        const isActive =
-          item.name === 'Collections'
-            ? collectionsActive
-            : item.name === 'Favorites'
-            ? favoritesActive
-            : item.name === 'Library'
-              // Library reflects the actual view (plain local library, not
-              // favorites/browse) rather than a per-group click flag — the
-              // left/right TopNav groups each have their own `selected`, so
-              // clicking Favorites (right group) can't otherwise clear
-              // Library's highlight (left group).
-              ? (libraryMode === 'local' && !favoritesActive && !collectionsActive)
-              : item.name === 'List'
-                // List is a view toggle, not a destination — hover/normal only.
-                ? false
-                : (
-                    selected === item.name ||
-                    (item.name === 'Browse' && libraryMode === 'catalog')
-                  )
+        const isActive = navItemIsActive(item.name, { libraryMode, favoritesActive, collectionsActive, selected })
         const buttonContent = (
           <>
             {showIcon && (

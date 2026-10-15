@@ -12,6 +12,12 @@
   - Path resolution highlighting: red if invalid, green if path exists or pass the check.
   
 ### Added
+- Add Esc keyboard handling for exit game entry page + input boxes to support (#130)
+- Game detail metadata is now clickable (#130)
+  - Tags, category, engine and status jump to that filtered search, while developer and language run a text search.
+  - Plain click follows the Click-to-search default mode in Settings > Interface (Browse mode or Library search); Shift-click jumps to the other mode.
+  - Jumped-to filter sections open themselves with the cursor in the section input; text jumps hand the cursor to the search box.
+  - Tag removal in game entry page is only allowed after entering edit mode (pencil icon)
 - Add version source (Steam, GOG, Itch) chips in the Edit Game Details Versions list for remote game installed (#345)
 - Add `Original Name` field in Edit Game Details section. Search now consider original_name in the rebuilt search index (#346)
 - Add Browser selection for external links opening under Settings -> Interface.
@@ -26,6 +32,9 @@
 - Added a "Download Version" entry to the split-button caret on the game detail page, beside "Manual Install". It opens the same downloads modal the UPDATE button does, listing every build and mirror the thread offers, so a different version can be fetched over one already installed. Previously an installed title with no pending update had no route to that modal at all: the primary button becomes PLAY once a version is installed, and the UPDATE button only renders when an update is flagged. The entry goes straight to the downloads modal rather than through the source picker, and is shown disabled with a reason for titles with no F95zone thread linked.
 
 ### Fixed
+- Fix nightly existing bugs:
+  - Tags/Category in Filter side bar now correctly show badge counter.  Engine/Status also have their counter logic fix to include exclusive.
+  - Double highlight issues on browse/library mode switching without clicking on Library / Browse button on the sidebar rail.
 - Fixed: installing a game in Download mode now downloads its images in the background once the install finishes, paced by the Delay after each media request setting with per-source rate-limit pauses like import and refresh. Add logic to preserve download image even if server url change. (#421)
 - Steam previews & assets fix:
   - Fixed Steam-version previews rendering twice in download mode. 

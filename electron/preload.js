@@ -426,6 +426,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("metadata-changed", (event, metadata) => callback(metadata));
     return () => ipcRenderer.removeAllListeners("metadata-changed");
   },
+  onDetailClickSearchModeChanged: (callback) => {
+    ipcRenderer.on("detail-click-search-mode-changed", (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners("detail-click-search-mode-changed");
+  },
   // Fired by the browser-extension RPC server after it writes a wishlist
   // entry, so an already-open library reflects the change without a restart.
   onWishlistUpdated: (callback) => {

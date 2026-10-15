@@ -155,6 +155,20 @@ export function getNavItems({
   ].filter(Boolean)
 }
 
+// Whether a nav item renders highlighted. Library and Browse follow the
+// actual libraryMode rather than the rail's click flag: programmatic jumps
+// (detail metadata clicks) switch modes without a rail click, and a stale
+// flag kept both lit at once. Everything else follows the click flag;
+// List is a view toggle, not a destination, so it never highlights.
+export function navItemIsActive(itemName, { libraryMode = 'local', favoritesActive = false, collectionsActive = false, selected = null } = {}) {
+  if (itemName === 'Collections') return collectionsActive
+  if (itemName === 'Favorites') return favoritesActive
+  if (itemName === 'Library') return libraryMode === 'local' && !favoritesActive && !collectionsActive
+  if (itemName === 'List') return false
+  if (itemName === 'Browse') return libraryMode === 'catalog'
+  return selected === itemName
+}
+
 // Parses the raw path/rect strings above into actual SVG element specs.
 // Shared so both Sidebar and TopNav render icons identically. Returns an
 // array of { tag: 'path' | 'rect', props: {...} } for the caller to map
