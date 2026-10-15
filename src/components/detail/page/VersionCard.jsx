@@ -50,6 +50,9 @@ export default function VersionCard({
             {version.source === 'gog' && (
               <span style={{ fontSize: 10, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px' }}>GOG</span>
             )}
+            {version.source === 'itch' && (
+              <span style={{ fontSize: 10, color: 'var(--color-muted)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px' }}>Itch</span>
+            )}
           </span>
           <span style={{ fontSize: 11, color: installed ? 'var(--color-success)' : 'var(--color-danger)' }}>{installed ? 'Installed' : 'Missing'}</span>
         </div>

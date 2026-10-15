@@ -18,7 +18,8 @@
   - Plain click follows the Click-to-search default mode in Settings > Interface (Browse mode or Library search); Shift-click jumps to the other mode.
   - Jumped-to filter sections open themselves with the cursor in the section input; text jumps hand the cursor to the search box.
   - Tag removal in game entry page is only allowed after entering edit mode (pencil icon)
-- Add `Original Name` field in Edit Game Details section. Search now consider original_name in the rebuilt search index
+- Add version source (Steam, GOG, Itch) chips in the Edit Game Details Versions list for remote game installed (#345)
+- Add `Original Name` field in Edit Game Details section. Search now consider original_name in the rebuilt search index (#346)
 - Add Browser selection for external links opening under Settings -> Interface.
 - LewdCorner download support. The Update dialog now shows F95zone and LewdCorner tabs for games linked to both sites, each loading only when opened. LewdCorner links use a separate per-game cache and the same tier rule as Browse, and masked-link resolves now use the session that matches the link.
 - Added a Browse blacklist. A title can be blacklisted from its right-click menu or with the new Blacklist button next to Add to Wishlist on its detail page, and it is then hidden from Browse. Entries are stored in a new `blacklist_entries` table, so they survive a restart, and the new Settings > Blacklist section lists them with a Remove button to bring a title back. The exclusion is part of the shared catalog WHERE clause on both the index and the union query paths (`electron/db/blacklistSql.js`), so the result count and scrollbar stay correct instead of leaving gaps. Blacklisting a wishlisted title also removes it from the wishlist, and titles that are installed are never hidden.
@@ -32,7 +33,7 @@
 
 ### Fixed
 - Fix nightly existing bugs:
-  -Tags/Category in Filter side bar now correctly show badge counter.  Engine/Status also have their counter logic fix to include exclusive.
+  - Tags/Category in Filter side bar now correctly show badge counter.  Engine/Status also have their counter logic fix to include exclusive.
   - Double highlight issues on browse/library mode switching without clicking on Library / Browse button on the sidebar rail.
 - Fixed: installing a game in Download mode now downloads its images in the background once the install finishes, paced by the Delay after each media request setting with per-source rate-limit pauses like import and refresh. Add logic to preserve download image even if server url change. (#421)
 - Steam previews & assets fix:
