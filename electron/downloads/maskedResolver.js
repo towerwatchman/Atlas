@@ -49,6 +49,10 @@ const {
   pickBestCandidate,
   hostOf,
 } = require("./maskedResolverUrls");
+// Shared with forum thread fetching (forumWindowFetch.js, updateLinks.js):
+// the persistent session whose jar holds solved Cloudflare grants, and the
+// cookie copier that seeds a window with the user's forum session.
+const RESOLVER_PARTITION = "persist:masked-resolver";
 // Long enough for a slow challenge, short enough that a forgotten window does
 // not pin a queue slot indefinitely.
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -198,7 +202,7 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     // applied explicitly via applyCookies(), so they do not depend on the
     // partition. The shared persistent store means a challenge solved once
     // is remembered for subsequent resolves until the cookie expires.
-    const partition = "persist:masked-resolver";
+    const partition = RESOLVER_PARTITION;
     const win = new BrowserWindow({
       width: 900,
       height: 800,
@@ -595,6 +599,10 @@ function resolveMaskedLink(maskedUrl, options = {}) {
 
 module.exports = {
   resolveMaskedLink,
+  // Persistent partition + cookie seeding, shared with forum thread fetching
+  // so both use the one session that holds solved Cloudflare grants.
+  RESOLVER_PARTITION,
+  applyCookies,
   // Pure Cloudflare-challenge detector, exported for the same reason.
   isCloudflareChallenge,
   // Keeps Cloudflare challenge cookies (cf_clearance, __cf_bm, __cfruid,

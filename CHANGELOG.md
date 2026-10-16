@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Changed
+- Cloudlfare Handling: Hotfix f95 cloudflare stricter change
 - Downloads: clicking a cover now opens the game entry inside Atlas Library/ Catalog, and clicking the build label (e.g. Full Archive) opens the source thread in your browser.
 - (Dev-Only) DevTools no longer auto-opens in dev mode unless explicitly enabled in config.
 - Removed the stale restart popup and hint on the Show debug console toggle — it applies immediately to all open windows.
