@@ -16,18 +16,18 @@
 // cache is dropped on restart, which is the same lifetime the rest of the
 // client's catalog state has.
 
-const { ipcMain } = require("electron");
+const { ipcMain, session } = require("electron");
 
 const accountStore = require("../accounts/accountStore");
 const { parseThreadDownloads } = require("../downloads/f95ThreadParser");
 const { selectDownloadableLinks } = require("../downloads/groupClassifier");
+const forumWindowFetch = require("../downloads/forumWindowFetch");
+const { RESOLVER_PARTITION, isCloudflareCookie } = require("../downloads/maskedResolver");
 
 const THREAD_URL = "https://f95zone.to/threads/{id}/";
-// A plausible desktop UA, matching what xenforoAuth already sends. The cookie
-// is what authenticates; this just keeps the forum from gating us as a bot.
-const USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+// No hardcoded UA here: the saved cf_clearance grant is bound to the real
+// Chromium UA of the window that solved the challenge, and a spoofed UA
+// mismatches it. Let the stack identify itself.
 
 // Hosts with a working download plugin, read from the registry rather than
 // hand-maintained - a list that has to be updated alongside every new plugin
@@ -56,9 +56,12 @@ async function fetchThreadHtml(threadId) {
   // A false return is meaningful rather than incidental: browser-added accounts
   // store no password, so an expired session cannot be refreshed headlessly and
   // the user has to sign in again. Saying so beats a generic failure.
-  let fresh = false;
+  // ensureFreshCookies also refreshes password-account sessions as a side
+  // effect, so still call it — but its boolean runs over the axios liveness
+  // check, which Cloudflare challenges regardless of cookie validity. A false
+  // proves nothing, so attempt silently and let the failure logs speak.
   try {
-    fresh = await accountStore.ensureFreshCookies("f95");
+    await accountStore.ensureFreshCookies("f95");
   } catch (err) {
     console.warn("Could not refresh F95 cookies:", err.message);
   }
@@ -70,21 +73,62 @@ async function fetchThreadHtml(threadId) {
     error.code = "NO_SESSION";
     throw error;
   }
-  if (!fresh) {
-    // Cookies exist but did not verify. Try them anyway - checkCookiesLive can
-    // fail on a transient network blip - and let the logged-in check below
-    // catch a genuinely dead session.
-    console.warn("F95 cookies did not verify as fresh; attempting the fetch anyway");
+  // Cookie names only — values never reach the log. Built where needed so
+  // the success path stays silent.
+  const cookieNames = () => cookieHeader.split(";").map((p) => p.trim().split("=")[0]).filter(Boolean).join(",") || "none";
+  // The resolver window keeps solved Cloudflare grants (cf_clearance) in its
+  // persistent partition. ses.fetch() issues from that same session so the
+  // grant attaches; net.fetch is default-session only and takes no session
+  // option, so it cannot. The forum cookies still travel explicitly below.
+  let ses = null;
+  try {
+    ses = session && typeof session.fromPartition === "function"
+      ? session.fromPartition(RESOLVER_PARTITION)
+      : null;
+  } catch {
+    ses = null;
   }
-  const response = await fetch(url, {
+  const sesFetch = ses && typeof ses.fetch === "function" ? ses.fetch.bind(ses) : null;
+  const impl = sesFetch || fetch;
+  // The jar carries the live clearance grant; a stale harvested one in the
+  // explicit header beside it lets the server read the wrong one, so drop
+  // clearance names there and keep the forum cookies.
+  const explicitCookies = sesFetch
+    ? String(cookieHeader).split(";").map((p) => p.trim()).filter((p) => {
+      const name = p.split("=")[0].trim();
+      return name && !isCloudflareCookie(name);
+    }).join("; ")
+    : cookieHeader;
+  const init = {
     headers: {
-      cookie: cookieHeader,
-      "user-agent": USER_AGENT,
+      cookie: explicitCookies,
       accept: "text/html,application/xhtml+xml",
     },
     redirect: "follow",
-  });
+  };
+  // Fast path first: Chromium-stack fetch from the resolver partition, where a
+  // previously solved Cloudflare grant lives. When that answers 403 +
+  // challenge, fall back to loading the thread in a real window so the user
+  // solves it once visibly instead of failing outright.
+  let response;
+  try {
+    response = await impl(url, init);
+  } catch (err) {
+    console.warn(`F95 thread fetch failed for ${threadId} (cookies: ${cookieNames()}): ${err.message || err} cause=${err?.cause?.code || err?.cause?.message || 'n/a'}`);
+    throw err;
+  }
   if (!response.ok) {
+    let mitigated = "n/a";
+    try {
+      mitigated = response.headers.get("cf-mitigated") || "n/a";
+    } catch {
+      // Headers unreadable — status below is still the signal.
+    }
+    console.warn(`F95 thread fetch HTTP ${response.status} for ${threadId} (cookies: ${cookieNames()}): cf-mitigated=${mitigated}`);
+    if (response.status === 403 && forumWindowFetch.isAvailable()) {
+      console.warn(`F95 thread ${threadId}: headless fetch challenged, opening window fallback`);
+      return forumWindowFetch.fetchThreadHtmlViaWindow(threadId, explicitCookies);
+    }
     throw new Error(`F95zone returned ${response.status} for thread ${threadId}`);
   }
   return response.text();
