@@ -22,7 +22,7 @@ const accountStore = require("../accounts/accountStore");
 const { parseThreadDownloads } = require("../downloads/f95ThreadParser");
 const { selectDownloadableLinks } = require("../downloads/groupClassifier");
 const forumWindowFetch = require("../downloads/forumWindowFetch");
-const { RESOLVER_PARTITION, isCloudflareCookie } = require("../downloads/maskedResolver");
+const { RESOLVER_PARTITION, isCloudflareCookie, applyCookies, isCloudflareChallenge } = require("../downloads/maskedResolver");
 
 const THREAD_URL = "https://f95zone.to/threads/{id}/";
 // No hardcoded UA here: the saved cf_clearance grant is bound to the real
@@ -106,6 +106,12 @@ async function fetchThreadHtml(threadId) {
     },
     redirect: "follow",
   };
+  // ses.fetch runs on Chromium's network stack, which treats Cookie as a
+  // forbidden request header and silently drops it in favour of the partition
+  // jar's own cookies. Seed the jar from the stored session so the forum
+  // session actually travels; cf_* names are already filtered out, so a
+  // solved challenge grant in the jar is never clobbered by a stale harvest.
+  if (ses) await applyCookies(ses, explicitCookies, url);
   // Fast path first: Chromium-stack fetch from the resolver partition, where a
   // previously solved Cloudflare grant lives. When that answers 403 +
   // challenge, fall back to loading the thread in a real window so the user
@@ -131,7 +137,14 @@ async function fetchThreadHtml(threadId) {
     }
     throw new Error(`F95zone returned ${response.status} for thread ${threadId}`);
   }
-  return response.text();
+  const body = await response.text();
+  // An interstitial can arrive signed HTTP 200; letting it hit the parser
+  // yields a guest render and a misleading "re-add your account" error.
+  if (isCloudflareChallenge(body) && forumWindowFetch.isAvailable()) {
+    console.warn(`F95 thread ${threadId}: challenge delivered as HTTP 200, opening window fallback`);
+    return forumWindowFetch.fetchThreadHtmlViaWindow(threadId, explicitCookies);
+  }
+  return body;
 }
 
 /**
