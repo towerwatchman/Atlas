@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Changed
+- Cloudflare Handling (part 2): fix F95 dropped session cookies on the no-challenge fetch path
 - Cloudlfare Handling: Hotfix f95 cloudflare stricter change
 - Downloads: clicking a cover now opens the game entry inside Atlas Library/ Catalog, and clicking the build label (e.g. Full Archive) opens the source thread in your browser.
 - (Dev-Only) DevTools no longer auto-opens in dev mode unless explicitly enabled in config.
