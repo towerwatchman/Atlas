@@ -124,24 +124,18 @@ async function fetchThreadHtml(threadId) {
     throw err;
   }
   if (!response.ok) {
-    let mitigated = "n/a";
-    try {
-      mitigated = response.headers.get("cf-mitigated") || "n/a";
-    } catch {
-      // Headers unreadable — status below is still the signal.
-    }
-    console.warn(`F95 thread fetch HTTP ${response.status} for ${threadId} (cookies: ${cookieNames()}): cf-mitigated=${mitigated}`);
+    // Challenge is the expected path into the window fallback, so it logs
+    // nothing here; the fallback's own error surfaces if that fails too.
     if (response.status === 403 && forumWindowFetch.isAvailable()) {
-      console.warn(`F95 thread ${threadId}: headless fetch challenged, opening window fallback`);
       return forumWindowFetch.fetchThreadHtmlViaWindow(threadId, explicitCookies);
     }
     throw new Error(`F95zone returned ${response.status} for thread ${threadId}`);
   }
   const body = await response.text();
   // An interstitial can arrive signed HTTP 200; letting it hit the parser
-  // yields a guest render and a misleading "re-add your account" error.
+  // yields a guest render and a misleading "re-add your account" error. The
+  // silent route into the window fallback is deliberate - see the 403 branch.
   if (isCloudflareChallenge(body) && forumWindowFetch.isAvailable()) {
-    console.warn(`F95 thread ${threadId}: challenge delivered as HTTP 200, opening window fallback`);
     return forumWindowFetch.fetchThreadHtmlViaWindow(threadId, explicitCookies);
   }
   return body;

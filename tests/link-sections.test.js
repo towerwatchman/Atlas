@@ -42,8 +42,31 @@ describe('buildDownloadOptions', () => {
     expect(options[1].isUnlabeled).toBe(false)
   })
 
+  it('shortens a "<platform> <qualifier>" heading to the qualifier, which the badge already shows', () => {
+    // "Win/Linux Heavy" as the section head with a "Win/Linux" badge beside it
+    // repeats the platform twice on one line. The key stays the full label -
+    // only the rendered name shrinks, and only when every platform word is
+    // spoken by the badge.
+    const options = buildDownloadOptions([
+      link('gofile.io', 'Win/Linux Heavy', 'Win/Linux'),
+      link('mega.nz', 'Win/Linux Lite', 'Win/Linux'),
+      link('mega.nz', 'Mac Lite', 'Mac'),
+      link('mega.nz', 'Season 2 Final', 'Win/Linux'),
+      link('mega.nz', 'Win/Linux', 'Win/Linux'),
+    ])
+    expect(options.map((o) => o.name)).toEqual([
+      'Heavy', 'Lite', 'Lite', 'Season 2 Final', 'Win/Linux',
+    ])
+    // But the section identity is untouched: same keys, same links.
+    expect(options.map((o) => o.title)).toEqual([
+      'Win/Linux Heavy', 'Win/Linux Lite', 'Mac Lite',
+      'Season 2 Final', 'Win/Linux',
+    ])
+    expect(options[0].links).toHaveLength(1)
+  })
+
   it('does NOT collapse two builds that share a platform', () => {
-    // The FreshWomen bug, at this layer. Both DLCs were posted under
+    // Two DLCs were posted under
     // "<b>Win/Linux/Mac</b>", and while platform was part of `group` they became
     // one option named after the platform. Now platform is its own field and the
     // two builds stay two builds.

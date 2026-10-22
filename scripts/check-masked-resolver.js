@@ -119,4 +119,91 @@ ok(!hasFragment(""), "empty string");
   eq(pickBestCandidate([]), null, "no candidates");
 }
 
+// ── /dl/ interstitial automation ─────────────────────────────────────────────
+//
+// F95 now sends download clicks to its own intermediate page
+// (f95zone.to/dl/<postId>/?...): a form the page's own f95dl JS walks through
+// Continue -> visible countdown -> "Generate your link" -> redirect to the
+// mirror. The resolver must click that flow's REAL controls each poll tick -
+// never synthesize the POST, since `_xfToken` and the `w` code are
+// session-bound - and hold the window open (hidden) while the countdown runs.
+
+const dlGate = require("../electron/downloads/dlGate");
+const { JSDOM, VirtualConsole } = require("jsdom");
+
+// Builds one interstitial state and evaluates DL_POLL_SCRIPT against it, the
+// same way the resolver evaluates it against the live window each tick. The
+// virtual console swallows jsdom's "Not implemented: requestSubmit" notice -
+// the live page's f95dl JS intercepts the submit; jsdom just logs its lack.
+const runPoll = (html) => {
+  const dom = new JSDOM(html, { virtualConsole: new VirtualConsole() });
+  const document = dom.window.document;
+  const result = eval(dlGate.DL_POLL_SCRIPT);
+  dom.window.close();
+  return result;
+};
+
+const DL_BODY = (state) => {
+  const countdown =
+    state === "counting"
+      ? `<div class="f95dl-countdown js-f95dlCountdown"><span class="js-f95dlSeconds">7</span></div>`
+      : `<div class="f95dl-countdown js-f95dlCountdown u-hidden"><span class="js-f95dlSeconds">0</span></div>`;
+  const continueBtn =
+    state === "generate"
+      ? `<button type="button">Generate your link</button>`
+      : `<button type="submit" class="button--primary js-f95dlContinue"><span class="button-text">Continue</span></button>`;
+  return `<html><body><form action="/dl/21960808/" method="post">
+    <input name="w" class="js-f95dlCode" value="abc" />
+    ${countdown}${continueBtn}
+    <span class="f95dl-link-host">bzzhr.to</span>
+  </form></body></html>`;
+};
+const OTHER_BODY = `<html><body><div>Some off-site page or old /masked/ gate</div></body></html>`;
+
+{
+  // Fresh interstitial: the poll clicks the real submit button; nothing is
+  // counting, so the reveal holds nothing.
+  const result = runPoll(DL_BODY("fresh"));
+  eq(result.clicked, "continue", "fresh interstitial: the continue button is clicked");
+  eq(result.dlActive, false, "fresh interstitial is not yet progressing");
+  eq(result.seconds, null, "no countdown yet");
+}
+{
+  // Mid-countdown: nothing clicked, the resolver is told to wait.
+  const result = runPoll(DL_BODY("counting"));
+  eq(result.clicked, false, "countdown state clicks nothing");
+  eq(result.dlActive, true, "countdown marks the interstitial as progressing");
+  eq(result.seconds, 7, "the tick's remaining seconds are reported");
+  const at = 5000;
+  ok(dlGate.holdReveal({ dlActive: true, at }, at + 9000) === true,
+    "a live countdown holds the reveal");
+  ok(dlGate.holdReveal({ dlActive: true, at }, at + 15001) === false,
+    "the hold expires so a stuck page still gets shown");
+  // The resolver refreshes `at` every tick, so a fresh `at` proves nothing: a
+  // page whose JS hangs mid-countdown still reports dlActive every second. The
+  // hold is therefore bounded from the first sighting of the countdown, not by
+  // the last poll - past DL_HOLD_MS from then, the window is revealed.
+  const firstSeen = at + 200;
+  ok(dlGate.holdReveal({ dlActive: true, at: at + 15500 }, at + 15501, firstSeen) === false,
+    "a fresh last poll cannot keep a stale countdown hidden forever");
+  ok(dlGate.holdReveal({ dlActive: true, at }, at + 9001, firstSeen) === true,
+    "a countdown under the ceiling still holds");
+  ok(dlGate.holdReveal({ dlActive: false, at }, at + 1000) === false,
+    "no progress, no hold");
+  ok(dlGate.holdReveal(null, at + 1000) === false, "no poll data, no hold");
+}
+{
+  // Countdown done: the button text changes but carries no known class; the
+  // poll still has to click it.
+  const result = runPoll(DL_BODY("generate"));
+  eq(result.clicked, "generate", "the Generate-state button is clicked by text match");
+}
+{
+  // Not an interstitial (old /masked/ page or the destination): the script is
+  // a no-op, leaving the htmx poll and continue logic untouched.
+  const result = runPoll(OTHER_BODY);
+  eq(result.clicked, false, "no /dl/ controls, nothing clicked");
+  eq(result.dlActive, false, "no /dl/ controls, no hold");
+}
+
 console.log(`Masked resolver checks passed (${checks} assertions)`);

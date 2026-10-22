@@ -169,4 +169,33 @@ describe('f95 challenge fallback', () => {
       'Could not read the thread',
     )
   })
+
+  it('offers dl-redirect mirrors with the favicon-recovered host through getUpdateLinks', async () => {
+    const dl = (t, style, label) =>
+      `<a href="https://f95zone.to/dl/21960808/?u=45151&k=5fbe367c8e88&r=1792644872&t=${t}"`
+      + (style ? ` style="background-image: url(&quot;${style}&quot;);"` : "")
+      + `>${label}</a>`
+    const bodyWithDl = `<b>DOWNLOAD</b><br><b>Win</b>: `
+      + dl('B', 'https://external-content.duckduckgo.com/ip3/bzzhr.to.ico', 'BUZZHEAVIER') + ` - `
+      + dl('C', 'https://external-content.duckduckgo.com/ip3/datanodes.to.ico', 'DATANODES')
+    const { fakeSes } = installStubs({ withPartition: true })
+    // The parser's host recovery is the behavior under test; the fetch only
+    // has to hand it a logged-in /dl/ thread page.
+    fakeSes.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => f95page('true', bodyWithDl),
+    }))
+    const updateLinks = fresh('../electron/ipc/updateLinks.js')
+
+    const result = await updateLinks.getUpdateLinks('308445', { force: true })
+
+    const bzzhr = result.links.find((link) => link.host === 'bzzhr.to')
+    const datanodes = result.links.find((link) => link.host === 'datanodes.to')
+    expect(bzzhr).toBeDefined()
+    expect(bzzhr.unsupported).toBeUndefined()
+    expect(bzzhr.masked).toBe(true)
+    expect(datanodes).toBeDefined()
+    expect(datanodes.unsupported).toBe(true)
+  })
 })
