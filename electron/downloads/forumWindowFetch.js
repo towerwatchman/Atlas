@@ -17,6 +17,10 @@ const { RESOLVER_PARTITION, applyCookies, F95_HOST } = require("./maskedResolver
 
 const CHALLENGE_MARKERS = /just a moment|verify you are human|attention required|cf-chl|turnstile|checking your browser/i;
 
+// Watchdog per executeJavaScript read, so one hung read cannot stall the poll
+// loop; the failed read is retried on the next tick.
+const POLL_READ_TIMEOUT_MS = 10000;
+
 function isAvailable() {
   try {
     const { BrowserWindow } = require("electron");
@@ -36,6 +40,11 @@ function fetchThreadHtmlViaWindow(threadId, cookieHeader, { timeoutMs = 180000 }
     let poll = null;
     let revealed = false;
     let calmPolls = 0;
+    // Kept so the timeout error can name the phase that stalled.
+    let lastPollError = null;
+    // Wall-clock from window open, so a slow fetch points at the phase that ate the time.
+    const openedAt = Date.now();
+    const stamp = () => `[forum-window +${((Date.now() - openedAt) / 1000).toFixed(1)}s]`;
 
     const win = new BrowserWindow({
       width: 1000,
@@ -50,6 +59,22 @@ function fetchThreadHtmlViaWindow(threadId, cookieHeader, { timeoutMs = 180000 }
       },
     });
     const contents = win.webContents;
+    // Electron queues executeJavaScript calls behind the current load, so
+    // polling during a long load piles up pending calls and trips
+    // MaxListenersExceededWarning. Only poll after the first did-stop-loading,
+    // the same signal core waits for.
+    let loadStopped = false;
+    contents.on("did-stop-loading", () => {
+      loadStopped = true;
+    });
+
+    const withTimeout = (promise, ms, label) => new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(`${label} made no progress for ${ms}ms`)), ms);
+      promise.then(
+        (value) => { clearTimeout(t); resolve(value); },
+        (err) => { clearTimeout(t); reject(err); },
+      );
+    });
 
     const done = (fn, value) => {
       if (settled) return;
@@ -67,9 +92,11 @@ function fetchThreadHtmlViaWindow(threadId, cookieHeader, { timeoutMs = 180000 }
     const reveal = () => {
       if (revealed || settled) return;
       revealed = true;
+      console.warn(`${stamp()} challenge visible, showing the window`);
       try {
         if (!win.isDestroyed()) {
           win.show();
+          win.moveTop();
           win.focus();
         }
       } catch {
@@ -84,16 +111,21 @@ function fetchThreadHtmlViaWindow(threadId, cookieHeader, { timeoutMs = 180000 }
     });
 
     timer = setTimeout(() => {
-      const error = new Error("Timed out waiting for the F95 thread to load.");
+      const hint = !loadStopped
+        ? " (first load never stopped)"
+        : lastPollError ? ` (last poll read: ${lastPollError})` : "";
+      const error = new Error(`Timed out waiting for the F95 thread to load${hint}.`);
       error.code = "TIMEOUT";
       done(reject, error);
     }, timeoutMs);
 
     poll = setInterval(async () => {
       if (settled || contents.isDestroyed()) return;
+      if (!loadStopped) return;
       let state = null;
       try {
-        state = await contents.executeJavaScript(
+        state = await withTimeout(
+          contents.executeJavaScript(
           `(() => ({
             title: document.title || "",
             body: (document.body && document.body.innerText || "").slice(0, 2000),
@@ -101,26 +133,41 @@ function fetchThreadHtmlViaWindow(threadId, cookieHeader, { timeoutMs = 180000 }
             loggedIn: document.documentElement && document.documentElement.getAttribute("data-logged-in"),
             hasPost: !!document.querySelector(".bbWrapper"),
           }))()`,
-          true,
+            true,
+          ),
+          POLL_READ_TIMEOUT_MS,
+          "poll read",
         );
-      } catch {
+      } catch (err) {
+        // executeJavaScript rejects legitimately while the page navigates;
+        // only reported if the fetch ends up timing out.
+        lastPollError = err && err.message || err;
         return;
       }
       if (!state) return;
+      lastPollError = null;
       if (CHALLENGE_MARKERS.test(`${state.title} ${state.body}`)) {
         calmPolls = 0;
         reveal();
         return;
       }
-      // Past the challenge (or never challenged) with the post present: two
-      // calm polls so late-injected markup settles before reading.
-      if (state.ready === "complete" && (state.hasPost || state.loggedIn !== null)) {
+      // Past the challenge with the post present: two calm polls so
+      // late-injected markup settles. "complete" is too strict here - the post
+      // DOM is server-rendered and ready while ad frames and fonts keep
+      // streaming, and waiting for it paid that tail on every fetch.
+      if (state.ready !== "loading" && (state.hasPost || state.loggedIn !== null)) {
         calmPolls += 1;
         if (calmPolls >= 2) {
           try {
-            const html = await contents.executeJavaScript(
-              "document.documentElement.outerHTML",
-              true,
+            // A re-navigation can queue this behind did-stop-loading
+            // indefinitely; bounded so the next tick can retry.
+            const html = await withTimeout(
+              contents.executeJavaScript(
+                "document.documentElement.outerHTML",
+                true,
+              ),
+              POLL_READ_TIMEOUT_MS,
+              "html capture",
             );
             if (html) done(resolve, String(html));
           } catch {

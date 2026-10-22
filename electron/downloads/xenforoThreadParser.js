@@ -77,6 +77,9 @@ const SITES = {
     self: "f95zone.to",
     bodyPattern: /<div\b[^>]*class="[^"]*\bbbWrapper\b[^"]*"[^>]*>/i,
     unwrapLink: (href) => ({ url: unwrap(href, SITES.f95.base), masked: isMasked(href) }),
+    // The tail qualifier after a bold ("Win/Linux (Compressed):") rides on the
+    // row's label. LC reads that shape as the build name itself and must not.
+    tailQualifier: true,
   },
 
   lewdcorner: {
@@ -172,6 +175,10 @@ const DOWNLOAD_HOSTS = [
 // the socials. A new mirror host now works on the day it appears; a new social
 // network shows up as one junk row that can be added here.
 const NON_DOWNLOAD_HOSTS = [
+  // F95's alternate forum domain. Not the SITES self entry (that one carries
+  // the attachment allowance for the real domain) - every host on it is a
+  // pointer to another page.
+  "f95zone.com",
   "patreon.com",
   "subscribestar.com",
   "subscribestar.adult",
@@ -207,6 +214,9 @@ const NON_DOWNLOAD_HOSTS = [
  * Is this link something other than a file to fetch?
  */
 function isNonDownloadHost(url, site = SITES.f95) {
+  // The deny below targets pointers to other forum posts. A /dl/ href shares
+  // the forum's hostname but redirects to a real mirror and must pass.
+  if (isDlRedirect(url, site)) return false;
   const host = hostOf(url, site).toLowerCase();
   if (!host) return true;
   if (host === site.self || host.endsWith(`.${site.self}`)) {
@@ -237,6 +247,46 @@ const TYPE_RULES = [
 ];
 
 const isMasked = (url) => String(url || "").includes("/masked/");
+
+/** F95's /dl/ redirect to a real mirror. The href itself carries no
+ *  destination host, so recovery falls to the anchor's own markup. A F95-only
+ *  mint: the other sites have no /dl/ scheme. */
+function isDlRedirect(url, site = SITES.f95) {
+  if (site !== SITES.f95) return false;
+  try {
+    const u = new URL(url, site.base);
+    return (
+      u.hostname.replace(/^www\./, "") === site.self &&
+      /^\/dl\/\d+\/?/.test(u.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Host from the anchor's favicon style (`ip3/<host>.ico`), or null;
+ *  www. prefix stripped to match DOWNLOAD_HOSTS. */
+function faviconHostOfAnchor(node) {
+  const style = node.attrs.style || "";
+  const hit = style.match(/ip3\/([a-z0-9.\-]+)\.ico/i);
+  if (!hit) return null;
+  return hit[1].toLowerCase().replace(/^www\./, "");
+}
+
+/** Host from the anchor's label ("MEGA" -> mega.nz), or null when no
+ *  DOWNLOAD_HOSTS entry starts with it. A dotless entry ("mixdrop") matches
+ *  every domain it covers and wins over picking just one. */
+function labelHostOfAnchor(label) {
+  const name = String(label || "").toLowerCase().trim();
+  if (!name) return null;
+  let hit = null;
+  for (const host of DOWNLOAD_HOSTS) {
+    if (name !== host.split(".")[0]) continue;
+    if (!host.includes(".")) return host;
+    hit = host;
+  }
+  return hit;
+}
 
 /**
  * For F95, an attachment link to a forum page - "COMPRESSED", "Crack", "Here" -
@@ -269,6 +319,10 @@ function isAttachmentUrl(url, site) {
 
 function unwrap(href, base = SITES.f95.base) {
   if (!href) return href;
+  // The browser decodes a bare & written as &amp; in the href attribute; this
+  // string is what the resolver loads instead, so the escape must be undone
+  // here or every query token after the first arrives as a nonsense name.
+  href = href.replace(/&amp;/g, "&");
   if (!href.includes("link-confirmation") && !href.includes("proxy.php")) return href;
   try {
     const parsed = new URL(href, base);
@@ -366,9 +420,19 @@ function* walkElements(fragment) {
   // nested <a> is invalid html and does not occur, and an <a> inside a <b> is a
   // link that genuinely needs emitting.
   let boldEnd = -1;
+  // Tracks open spans as a stack, not a count: a plain span opening and
+  // closing inside the copy would zero a count. Rows inside `u-hidden
+  // js-noSelectToQuote` are XenForo's duplicate copy, and fresh k/t values
+  // make content keys useless. Only this flag separates them from real rows.
+  const spanStack = [];
   while ((match = scanner.exec(fragment)) !== null) {
     const closing = match[1] === "/";
     const name = match[2].toLowerCase();
+    if (name === "span") {
+      if (closing) spanStack.pop();
+      else spanStack.push(match[3].includes("js-noSelectToQuote"));
+      continue;
+    }
     if (closing || (name !== "b" && name !== "a")) continue;
     if (name === "b" && match.index < boldEnd) continue;
 
@@ -403,6 +467,7 @@ function* walkElements(fragment) {
       html: fragment.slice(contentStart, contentEnd),
       start: match.index,
       end,
+      hidden: spanStack.includes(true),
     };
   }
 }
@@ -450,26 +515,58 @@ function isHeadingGlue(text) {
  * The <br> split inside the merged html still runs afterwards, so
  * "<b>Season 1<br>Win</b>/<b>Linux</b>" still yields ["Season 1", "Win/Linux"].
  */
-function* coalesceBolds(nodes, fragment) {
+function* coalesceBolds(nodes, fragment, qualifierTail = false) {
+  // Trailing text that still belongs to the heading: a colon-terminated node
+  // right after the bold, e.g. "(Compressed):". Longer text or text without
+  // the colon is prose between the bold and its links and stays untouched.
+  // F95-only: other sites' posts use the same "(...):" shape as the build's
+  // own label (LC thread 3272's "Android (v2.0):"), and folding it into the
+  // heading split a real build into two entries there.
+  const tailOf = !qualifierTail
+    ? () => ""
+    : (node) => {
+    const rest = fragment.slice(node.end);
+    // Step over whitespace and font-only <span>s before the text; any other
+    // tag (<a>, <br>, <b>) ends the tail because it changes the layout.
+    let pos = 0;
+    for (;;) {
+      const gap = rest.slice(pos).match(/^(?:\s+|<\/?span\b[^>]*>)/);
+      if (gap) pos += gap[0].length;
+      else break;
+    }
+    const stop = rest.slice(pos).indexOf("<");
+    if (stop === -1 || pos >= rest.length) return "";
+    const tail = stop > 60 ? "" : rest.slice(pos, pos + stop);
+    const match = tail.match(/^\s*(?:\(([^]{1,40}?)\)\s*)?:\s*$/);
+    if (!match) return "";
+    // Returned as heading text: splitHeadingLines strips the colon, and the
+    // qualifier lands on the last line, the row it labels.
+    return match[1] != null ? ` (${match[1]})` : "";
+  };
   let pending = null;
   for (const node of nodes) {
     if (node.tag !== "b") {
       if (pending) {
-        yield pending;
+        yield { ...pending, html: pending.html + tailOf(pending) };
         pending = null;
       }
       yield node;
       continue;
     }
     const glue = pending ? fragment.slice(pending.end, node.start) : "";
-    if (pending && isHeadingGlue(glue)) {
+    // Merge two visible bolds only: the result keeps the first one's hidden
+    // flag. A copy bold in either slot would hide the real heading or leak
+    // copy text into it.
+    if (pending && !pending.hidden && !node.hidden && isHeadingGlue(glue)) {
       pending = { ...pending, html: pending.html + glue + node.html, end: node.end };
       continue;
     }
-    if (pending) yield pending;
+    if (pending) {
+      yield { ...pending, html: pending.html + tailOf(pending) };
+    }
     pending = node;
   }
-  if (pending) yield pending;
+  if (pending) yield { ...pending, html: pending.html + tailOf(pending) };
 }
 
 /**
@@ -564,7 +661,10 @@ function parseThreadDownloads(html, site = "f95") {
     pendingPart = null;
   };
 
-  for (const node of coalesceBolds(walkElements(body), body)) {
+  for (const node of coalesceBolds(walkElements(body), body, Boolean(cfg.tailQualifier))) {
+    // XenForo's hidden duplicate row (see spanStack): skip it, including its
+    // bolds, which must not touch heading state.
+    if (node.hidden) continue;
     const tag = node.tag;
 
     if (tag === "b") {
@@ -651,12 +751,22 @@ function parseThreadDownloads(html, site = "f95") {
     // pass through unchanged on both.
     const { url, masked } = cfg.unwrapLink(href);
     const known = downloadHost(url);
-    const host = known || hostOf(url, cfg);
     const label = stripTags(node.html) || filenameFromUrl(url, cfg.base);
+    // F95's /dl/ mint hides the destination. Recover the host from the
+    // favicon first, then the anchor's label.
+    const dl = isDlRedirect(url, cfg);
+    const host = dl
+      ? faviconHostOfAnchor(node) || labelHostOfAnchor(label) || hostOf(url, cfg)
+      : known || hostOf(url, cfg);
+    // The token page must be opened in the browser, so it rides the resolver
+    // the same way an unreadable masked link does.
+    const linkMasked = masked || dl;
 
     // A known host still opens the download area on threads that never write a
-    // "DOWNLOAD" bold at all.
+    // "DOWNLOAD" bold at all. The site mints /dl/ anchors only inside a
+    // download section, so a redirect row does the same.
     if (known) started = true;
+    if (dl) started = true;
 
     // Inside the download area, anything that is not obviously a store page, a
     // funding link or a social is a mirror. Outside it, only a known file host
@@ -665,7 +775,7 @@ function parseThreadDownloads(html, site = "f95") {
     // A link still masked on the forum's own domain is a download the parser
     // could not read - kept for the browser resolver instead of dropped.
     // F95 never lands here: its masked links always carry the real host.
-    const needsResolve = masked && host === cfg.self;
+    const needsResolve = linkMasked && host === cfg.self;
     const isFile = started
       ? !isNonDownloadHost(url, cfg) || needsResolve
       : Boolean(known) || isAttachmentUrl(url, cfg);
@@ -718,7 +828,7 @@ function parseThreadDownloads(html, site = "f95") {
       type: kind,
       host,
       url,
-      masked,
+      masked: linkMasked,
     });
   }
 

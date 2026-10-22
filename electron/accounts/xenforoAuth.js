@@ -327,18 +327,9 @@ async function login(site, username, password) {
       validateStatus: () => true,
     })
   } catch (err) {
-    console.warn(`F95 login GET unreachable: ${err.message || err} cause=${err?.cause?.code || err?.cause?.message || 'n/a'}`);
-    throw new Error(`Could not reach ${cfg.label} (${err.message}).`)
+    throw new Error(`Could not reach ${cfg.label} (${err.message || err}).`)
   }
   if (g.status !== 200) {
-    const headers = (g && g.headers) || {};
-    // No body in the log: the login page embeds the _xfToken CSRF value,
-    // which must not land in shared logs. The headers prove a challenge.
-    console.warn(
-      `F95 login GET HTTP ${g.status}: server=${headers.server || 'n/a'} ` +
-      `cf-ray=${headers['cf-ray'] || 'n/a'} cf-mitigated=${headers['cf-mitigated'] || 'n/a'} ` +
-      `content-type=${headers['content-type'] || 'n/a'}`,
-    );
     throw new Error(`Could not load ${cfg.label} login page (HTTP ${g.status}).`)
   }
   jar.setFromResponse(g)

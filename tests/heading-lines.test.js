@@ -84,9 +84,13 @@ describe('classifyHeadingLine', () => {
   })
 
   it('does not read a line that tokenizes to nothing as a platform', () => {
-    // The bare value "-" appears in the data. Treating it as "platform: none"
-    // would wipe the platform of the build above it for no reason.
-    expect(classifyHeadingLine('-')).toBe('build')
+    // The bare value "-" appears in the data. A separator bold is not a build:
+    // treating it as "platform: none" would wipe the platform of the build
+    // above, and as a build name it filed the mirrors after it under a junk "-"
+    // section. Punctuation-only dashes are ignored outright.
+    expect(classifyHeadingLine('-')).toBe('ignore')
+    expect(classifyHeadingLine('–')).toBe('ignore')
+    expect(classifyHeadingLine('*')).toBe('ignore')
     expect(classifyHeadingLine('()')).toBe('build')
     expect(classifyHeadingLine('')).toBe('build')
   })
@@ -109,7 +113,7 @@ describe('applyHeadingLines', () => {
   })
 
   it('appends a quality line to the build it follows', () => {
-    // FreshWomen: "<b>Season 2 Final</b>" then "<b>4K<br>Win/Linux/Mac</b>".
+    // A build line followed by a quality+platform line: "<b>Season 2 Final</b>" then "<b>4K<br>Win/Linux/Mac</b>".
     const state = fold('Season 2 Final', '4K<br>Win/Linux/Mac')
     expect(headingLabel(state)).toBe('Season 2 Final 4K')
     expect(state.platform).toBe('Win/Linux/Mac')

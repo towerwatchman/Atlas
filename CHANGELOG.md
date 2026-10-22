@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Changed
+- Update F95 parsing and link fetch due to F95 structure change
 - Cloudflare Handling (part 2): fix F95 dropped session cookies on the no-challenge fetch path
 - Cloudlfare Handling: Hotfix f95 cloudflare stricter change
 - Downloads: clicking a cover now opens the game entry inside Atlas Library/ Catalog, and clicking the build label (e.g. Full Archive) opens the source thread in your browser.

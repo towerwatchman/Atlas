@@ -50,6 +50,9 @@ const {
   pickBestCandidate,
   hostOf,
 } = require("./maskedResolverUrls");
+// Drives F95's own /dl/ interstitial: the poll clicks its Continue / Generate
+// controls and reports the countdown so the reveal can hold while it runs.
+const { DL_POLL_SCRIPT, holdReveal } = require("./dlGate");
 // Shared with forum thread fetching (forumWindowFetch.js, updateLinks.js):
 // the persistent session whose jar holds solved Cloudflare grants, and the
 // cookie copier that seeds a window with the user's forum session.
@@ -250,6 +253,22 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     // them back to Atlas when the download is intercepted. Without these,
     // Cloudflare-challenged CDNs reject the anonymous Node.js request.
     let cachedBrowserHeaders = null;
+    // Last tick's report from the /dl/ poll: whether the countdown is live,
+    // seconds left, and the host the page says the link will land on. The
+    // reveal hold and the settle warnings both read it.
+    let dlPoll = null;
+    // When a countdown first turned visible: the hold ceiling runs from here.
+    let firstDlActiveAt = null;
+    // The same queueing hazard forumWindowFetch guards against: an
+    // executeJavaScript made while any load is running sits pending until the
+    // load stops, so unbounded poll calls stack up during redirects.
+    const withTimeout = (promise, ms, label) => new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(`${label} made no progress for ${ms}ms`)), ms);
+      promise.then(
+        (value) => { clearTimeout(t); resolve(value); },
+        (err) => { clearTimeout(t); reject(err); },
+      );
+    });
     // Declared here so finish() can detach it; assigned once the session is in
     // hand. A const at the registration site would sit in its TDZ for any early
     // finish path.
@@ -267,6 +286,9 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       try {
         if (!win.isDestroyed()) {
           win.show();
+          // Windows denies activation from a background process, so focus()
+          // alone would leave the window under the user's app: raise without it.
+          win.moveTop();
           win.focus();
         }
       } catch { /* window gone */ }
@@ -339,7 +361,17 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       } catch {
         /* best effort */
       }
-      resolve({ ...result, diagnostics });
+      const declaredHost = dlPoll && dlPoll.declaredHost ? String(dlPoll.declaredHost).trim().toLowerCase() : null;
+      if (result.ok && declaredHost && result.host
+        && String(result.host).toLowerCase() !== declaredHost) {
+        console.warn(`[masked-resolve] destination host ${result.host} does not match the gate-declared ${declaredHost}`);
+      }
+      resolve({
+        ...result,
+        // What the interstitial claimed the link would land on, if it said.
+        ...(declaredHost ? { declaredHost } : {}),
+        diagnostics,
+      });
     };
 
     const settleFromCandidates = () => {
@@ -505,7 +537,8 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
           return;
         }
         try {
-          const result = await contents.executeJavaScript(`(() => {
+          const result = await withTimeout(
+            contents.executeJavaScript(`(() => {
             const btn = document.querySelector('.download-btn[hx-get]');
             const body = (document.body && document.body.innerText) || '';
             const cfChallenge =
@@ -513,7 +546,10 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
               !!document.querySelector('#cf-chl, iframe[src*="challenges.cloudflare.com"], .cf-turnstile, #challenge-running');
             if (btn) { btn.click(); return { clicked: true, cf: cfChallenge }; }
             return { clicked: false, cf: cfChallenge };
-          })()`, true);
+          })()`, true),
+            10000,
+            "gate poll",
+          );
           if (result.cf) {
             reveal("cloudflare");
           }
@@ -522,6 +558,23 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
           }
         } catch (err) {
           // poll errors are non-fatal; the reveal timer still fires
+        }
+        // The /dl/ flow is page-internal and staged: Continue first, then
+        // Generate after the countdown, so the interval stays open and only
+        // the settle clears it. A POST is never synthesized - _xfToken is
+        // session-bound.
+        try {
+          const dlResult = await withTimeout(
+            contents.executeJavaScript(DL_POLL_SCRIPT, true),
+            10000,
+            "dl poll",
+          );
+          if (dlResult) {
+            dlPoll = { ...dlResult, at: Date.now() };
+            if (dlResult.dlActive && firstDlActiveAt === null) firstDlActiveAt = dlPoll.at;
+          }
+        } catch {
+          // dl poll errors are non-fatal; the capture points still settle
         }
       }, 1000);
       // Cache the browser session cookies / headers so they can be handed back
@@ -544,9 +597,17 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       void finish({ ok: false, error: "Resolve window crashed" });
     });
 
-    // Hidden attempt gets a short window before the user is brought in.
+    // Hidden attempt gets a short window before the user is brought in - but
+    // not while the /dl/ interstitial is visibly counting down: reschedule.
     if (headless) {
-      revealTimer = setTimeout(() => reveal("timeout"), headlessTimeoutMs);
+      revealTimer = setTimeout(function holdThenReveal() {
+        if (settled) return;
+        if (holdReveal(dlPoll, Date.now(), firstDlActiveAt)) {
+          revealTimer = setTimeout(holdThenReveal, 3000);
+          return;
+        }
+        reveal("timeout");
+      }, headlessTimeoutMs);
     }
 
     timer = setTimeout(() => {

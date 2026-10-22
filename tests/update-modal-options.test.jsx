@@ -8,7 +8,7 @@ import UpdateModal from '../src/components/downloads/UpdateModal.jsx'
 // as long as it did: linkSections was unit tested, the modal that renders it was
 // not, and the two disagreed about what a "section" was.
 //
-// The case that matters is the one observed on FreshWomen: two DLCs posted under
+// The case that matters: two DLCs posted under
 // separate headings but the same "<b>Win/Linux/Mac</b>" platform bold. They must
 // render as TWO named builds, not one option called Win/Linux/Mac.
 
@@ -56,6 +56,20 @@ describe('UpdateModal build options', () => {
     // The platform is a badge on each build, never the build's name.
     expect(screen.queryByText('Win/Linux/Mac', { selector: 'span.text-xs' })).toBeNull()
     expect(screen.getAllByText('Win/Linux/Mac').length).toBe(2)
+  })
+
+  it('shortens a "<platform> <qualifier>" head to the qualifier the badge already shows', async () => {
+    mount([
+      link('gofile.io', 'Win/Linux Heavy', 'Win/Linux'),
+      link('mega.nz', 'Win/Linux Lite', 'Win/Linux'),
+    ])
+    await waitFor(() => { expect(screen.getByText('Heavy')).toBeTruthy() })
+    expect(screen.getByText('Lite')).toBeTruthy()
+    // The full label is not printed when the qualifier alone names the section -
+    // the two badges carry the platform words.
+    expect(screen.queryByText('Win/Linux Heavy')).toBeNull()
+    expect(screen.queryByText('Win/Linux Lite')).toBeNull()
+    expect(screen.getAllByText('Win/Linux')).toHaveLength(2)
   })
 
   it('labels the mirror chips with the bare host, which is what the thread shows', async () => {
