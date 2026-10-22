@@ -127,11 +127,17 @@ function splitHeadingLines(html) {
  * What one heading line is telling us.
  *
  * @param {string} line a single stripped line
- * @returns {'platform'|'quality'|'part'|'build'}
+ * @returns {'platform'|'quality'|'part'|'build'|'ignore'} 'ignore' is a
+ *   separator bold that must leave the heading state untouched
  */
 function classifyHeadingLine(line) {
   const text = String(line || "").trim();
   if (!text) return "build";
+  // A bold that is only separator punctuation ("- ", a lone bullet) is
+  // decoration between mirrors, not a build name. Without this it ends the
+  // current build and clears the platform, filing every following mirror
+  // under a junk build named "-".
+  if (/^[-\u2013\u2014\u2022\u00b7|~*/]+$/.test(text)) return "ignore";
   if (QUALITY_LINES.has(text.toLowerCase())) return "quality";
   // Before the platform check: neither pattern tokenizes to a platform, but
   // keeping the fragment tests together is what stops a later platform token
@@ -196,10 +202,26 @@ function applyHeadingLines(state, lines) {
         // which build or platform it belongs to, so it must not clear either.
         next.part = parsePartLine(line);
         break;
-      default:
-        next.base = line;
-        // A new build clears the quality it was not given...
-        next.quality = "";
+      case "ignore":
+        break;
+      default: {
+        // A trailing "(...)" is a variant qualifier, not part of the name; the
+        // parentheses come off, the words stay. When the remainder is platform
+        // tokens ("Win/Linux (Compressed)"), the section name is platform +
+        // qualifier: two platforms may share a qualifier word, and a bare
+        // "Lite" label would fuse their per-platform mirror lists into one.
+        // Any other remainder is a build name and the marker folds onto it.
+        const marker = line.match(/\s*\(([^()]+)\)\s*$/);
+        const rest = marker ? line.slice(0, marker.index).trim() : line;
+        if (marker && rest && classifyHeadingLine(rest) === "platform") {
+          next.base = rest;
+          next.quality = marker[1].trim();
+          next.platform = rest;
+          next.part = null;
+          break;
+        }
+        next.base = marker ? rest : line;
+        next.quality = marker ? marker[1].trim() : "";
         // ...and any fragment marker left over from the build before it.
         next.part = null;
         // ...and the platform, which is the safe direction: an empty platform
@@ -209,6 +231,7 @@ function applyHeadingLines(state, lines) {
         // silently missing from the list is one they cannot even report.
         next.platform = "";
         break;
+      }
     }
   }
   return next;

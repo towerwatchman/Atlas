@@ -361,8 +361,11 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
                       about the whole thread. */}
                   {(options.length > 1 || option.unsupported) && (
                     <div className="flex items-baseline gap-2 pt-1">
+                      {/* `name` is the heading with the platform prefix off:
+                          the badge beside it already names the platforms, so
+                          the head says only what varies between sections. */}
                       <span className={`text-xs font-medium ${option.isUnlabeled ? 'text-accent' : 'text-text'}`}>
-                        {option.title}
+                        {option.name}
                       </span>
                       {/* Platform is an axis of its own now, so it is a badge on
                           the build rather than words inside its name. */}
