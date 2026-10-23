@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import HostIcon from './HostIcon.jsx'
 import { buildThreadUrl, threadUrlForGame } from './threadUrl.js'
 import { buildDownloadOptions } from './linkSections.js'
@@ -66,6 +66,11 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
   const f95ThreadId = game?.f95_id || game?.f95Id || null
   const lcThreadId = game?.lc_id || game?.lcId || game?.lewdCornerId || null
   const title = game?.title || 'this game'
+  // Every fresh start (open, or a new game in a session) bumps this. A fetch
+  // from before the bump may still be in flight, and a response landing after
+  // the reset belongs to a previous game: writing it would put the old
+  // thread's links under the new game's name until its own fetch came back.
+  const loadEpoch = useRef(0)
 
   // One entry per linked source. The tab row only renders when both ids exist.
   const sources = [
@@ -98,6 +103,8 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
 
   // One loader for both tabs. updateLinksGet takes a threadId, lcLinksGet takes an lcId.
   const loadSource = useCallback(async (source, id, force = false) => {
+    const epoch = loadEpoch.current
+    const stale = () => epoch !== loadEpoch.current
     const sourceName = source === 'lewdcorner' ? 'LewdCorner' : 'F95zone'
     if (!id) {
       setBySource((prev) => ({
@@ -106,11 +113,13 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
       }))
       return
     }
+    if (stale()) return
     setBySource((prev) => ({ ...prev, [source]: { ...prev[source], loading: true, error: '', errorCode: '' } }))
     try {
       const result = source === 'lewdcorner'
         ? await window.electronAPI.lcLinksGet?.({ lcId: id, force })
         : await window.electronAPI.updateLinksGet?.({ threadId: id, force })
+      if (stale()) return
       if (result?.ok) {
         setBySource((prev) => ({ ...prev, [source]: { loading: false, error: '', errorCode: '', data: result } }))
       } else {
@@ -120,21 +129,27 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
         }))
       }
     } catch (err) {
+      if (stale()) return
       setBySource((prev) => ({ ...prev, [source]: { loading: false, error: err.message || `Could not load ${sourceName} links`, errorCode: '', data: null } }))
     }
   }, [])
 
   useEffect(() => {
+    // Bump before any reset or load: everything started after this belongs to
+    // this modal state, and anything started before it becomes stale.
+    loadEpoch.current += 1
     if (open) {
-      // The linked tab loads on open; the other loads on first click. The ids
-      // are dependencies so session mode refetches for each new game instead
-      // of showing the last game's links.
+      // Both linked sources start at once, and so do their challenge windows.
+      // A hidden challenge that auto-resolves never waits for the other source.
+      // The ids are dependencies so session mode refetches for each new game
+      // instead of showing the last game's links.
       const first = f95ThreadId ? 'f95' : 'lewdcorner'
       setActiveSource(first)
       setBySource(freshEntries())
       setResolvingUrl('')
       setFolderChoices(null)
-      loadSource(first, first === 'lewdcorner' ? lcThreadId : f95ThreadId, false)
+      if (f95ThreadId) loadSource('f95', f95ThreadId, false)
+      if (lcThreadId) loadSource('lewdcorner', lcThreadId, false)
     } else {
       setBySource(freshEntries())
       setResolvingUrl('')
@@ -194,8 +209,10 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
         //
         // The RAW heading, empty for the unlabeled block - the display name for
         // that case lives in linkSections.FULL_ARCHIVE and is applied by whoever
-        // renders it, so the string still exists in exactly one place.
-        buildLabel: link.group || '',
+        // renders it, so the string still exists in exactly one place. The
+        // section is part of the label: a repack and the part it sits under
+        // would otherwise queue as two identical rows.
+        buildLabel: [link.group, link.section].filter(Boolean).join(' \u00b7 '),
         // Left as 'replace'. A Browse row's record_id is a synthetic `catalog:…`
         // string rather than null, so testing it here was wrong — the main
         // process normalises the id and downgrades this to 'add' when there is no
@@ -314,11 +331,6 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
                 </button>
               )}
             </div>
-            {game?.latestVersion && (
-              <p className="text-xs text-muted mt-0.5">
-                Latest version {game.latestVersion}
-              </p>
-            )}
             {/* Where the user is in the run. Both numbers, not a percentage: the
                 decision this line supports is "do I keep going or stop", and
                 "19 left" answers that where "21%" does not. */}
@@ -355,6 +367,15 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
                   }`}
                 >
                   {source.key === 'f95' ? 'F95zone' : 'LewdCorner'}
+                  {/* The live thread version, not the catalog's. A title whose
+                      thread carries no version bracket reads Unknown - a dev
+                      bracket must never pose as one. Its own muted weight
+                      keeps the tab's selected colour on the name. */}
+                  {bySource[source.key].data && (
+                    <span className="ml-1.5 text-[10px] opacity-60">
+                      {bySource[source.key].data.version || 'Unknown'}
+                    </span>
+                  )}
                 </button>
               )
             })}
@@ -433,7 +454,7 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
                     : `Choose a mirror. ${activeSourceName} will ask you to confirm in a browser window before the download starts.`}
               </p>
               {options.map((option) => (
-                <div key={option.title} className="space-y-1.5">
+                <div key={`${option.title}|${option.section}`} className="space-y-1.5">
                   {/* The build label only appears when there is a build to choose
                       between. With one option it is a caption on a list that has
                       no alternative, which is noise.
@@ -456,6 +477,20 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
                       <span className={`text-xs font-medium ${option.isUnlabeled ? 'text-accent' : 'text-text'}`}>
                         {option.name}
                       </span>
+                      {/* The poster's sub-heading inside the part ("COMPRESSED
+                          (V95)"). It is the only thing separating a repack from
+                          the part it sits under, so it sits beside the name. It
+                          truncates before the platform badge does: the badge is
+                          a filter value the user is reading, the section is a
+                          reminder of which archive this row is. */}
+                      {option.section && (
+                        <span
+                          className="text-[10px] text-muted min-w-0 truncate max-w-[45%]"
+                          title={option.section}
+                        >
+                          {option.section}
+                        </span>
+                      )}
                       {/* Platform is an axis of its own now, so it is a badge on
                           the build rather than words inside its name. */}
                       {option.platforms.length > 0 && (

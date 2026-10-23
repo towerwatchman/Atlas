@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Changed
+- Cloudflare Handling (part 3): LewdCorner thread links now open the real-browser window on a 403 or challenge page instead of failing outright, and a grant solved during account login now carries over to downloads when it is still valid
+- Restore LewdCorner's Plus member check to access eligible Plus titles for LewdCorner
+- Source fetch: the F95 and LewdCorner fallback windows now run in parallel when both sources hit a challenge
+  - Each tab also fetches its own version instead of using the single latest version as before
+  - LewdCorner parsing: add special handling for LC entries where a <b></b> wraps the entire Downloads section
+  - F95/LC parsing: add base + fixture handling for known templates
 - Update F95 parsing and link fetch due to F95 structure change
 - Cloudflare Handling (part 2): fix F95 dropped session cookies on the no-challenge fetch path
 - Cloudlfare Handling: Hotfix f95 cloudflare stricter change

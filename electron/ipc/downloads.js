@@ -12,7 +12,7 @@
 // before the user has been anywhere near a settings page.
 
 const path = require("path");
-const { ipcMain, shell, BrowserWindow, app, dialog } = require("electron");
+const { ipcMain, shell, BrowserWindow, app, dialog, session } = require("electron");
 const megaHashcashPool = require("../downloads/hosts/megaHashcashPool");
 const appLog = require("../appLog");
 
@@ -20,7 +20,7 @@ const downloadsDb = require("../db/downloads");
 const manager = require("../downloads/downloadManager");
 const credentialStore = require("../downloads/credentialStore");
 const { getPlugin, listPlugins, pluginFor } = require("../downloads/hosts");
-const { resolveMaskedLink } = require("../downloads/maskedResolver");
+const { resolveMaskedLink, RESOLVER_PARTITION } = require("../downloads/maskedResolver");
 const { toLocalRecordId } = require("../downloads/recordId");
 const { toCatalogRef } = require("../library/catalogRef");
 const accountStore = require("../accounts/accountStore");
@@ -173,6 +173,19 @@ function registerDownloadsHandlers(ctx = {}) {
         }));
       }
       return result;
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
+  });
+
+  // Field switch for the grant hand-off: wipes the resolver partition's cookie
+  // jar so the next thread fetch has to re-earn any Cloudflare challenge, and
+  // the round-trip cost becomes observable on demand instead of waiting for a
+  // grant to age out.
+  ipcMain.handle("downloads-clear-resolver-session", async () => {
+    try {
+      await session.fromPartition(RESOLVER_PARTITION).clearStorageData({ storages: ["cookies"] });
+      return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message || String(err) };
     }

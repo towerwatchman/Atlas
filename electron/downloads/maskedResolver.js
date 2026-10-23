@@ -153,6 +153,18 @@ async function applyCookies(ses, cookieHeader, baseUrl = `https://${F95_HOST}/`)
     if (eq <= 0) continue;
     const name = trimmed.slice(0, eq).trim();
     const value = trimmed.slice(eq + 1).trim();
+    // Cloudflare grants only reach the jar when it has none: one solved here is
+    // always fresher than a harvested one in the store, and overwriting the
+    // jar's own grant re-runs the challenge for nothing. URL-based lookup so a
+    // host-only grant the browser itself solved also counts as present.
+    if (isCloudflareCookie(name)) {
+      try {
+        const present = await ses.cookies.get({ url: baseUrl, name });
+        if (present.length > 0) continue;
+      } catch {
+        // Jar unreadable — still seed rather than lose the session grant.
+      }
+    }
     try {
       await ses.cookies.set({
         url: baseUrl,

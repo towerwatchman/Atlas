@@ -29,7 +29,7 @@
 // accumulate indefinitely with no way to know what needed cleaning.
 const { DEFAULT_SEARCH_FIELD_IDS } = require('../db/searchFields')
 
-const CONFIG_VERSION = 3
+const CONFIG_VERSION = 4
 
 // Sections whose KEY NAMES are generated at runtime and therefore cannot be
 // enumerated in a static default. The sanitizer must never treat an unknown key
@@ -58,6 +58,14 @@ const DEPRECATED_KEYS = {
     'detailsPageLayout',
     'detailsPageModuleOrder',
   ],
+  LewdCorner: [
+    // Replaced by the unified /economy/?section=store&category=rank URL (v4
+    // migration). Ownership is now detected from the buy button text alone.
+    'lcUserPrestigePath',
+    'lcStatusPillClass',
+    'lcStatusPillOwnedToken',
+    'lcStatusPillOwnedText',
+  ],
 }
 
 // Whole sections no longer used. Empty on purpose: no real config has yet shown
@@ -73,6 +81,9 @@ const MIGRATED_KEYS = {
   // -> templates/banner-layout-active.json (electron/config/bannerLayoutStore.js).
   // Was 18,421 bytes on a real config: 89% of the entire file.
   Appearance: ['customBannerLayout'],
+  // -> value replaced in configSanitizer (v3 -> v4): old /shop/index.php path
+  // is replaced with the unified /economy/?section=store&category=rank URL.
+  LewdCorner: ['lcUserTierPath'],
 }
 
 const buildDefaultConfig = (dataDir = '') => ({
@@ -217,11 +228,12 @@ const buildDefaultConfig = (dataDir = '') => ({
   // overrides of hardcoded defaults; a key left '' (or blank) falls back to the
   // built-in default for that key.
   //
-  // The statusPill OWNED token is the class-attribute fragment LC signals
-  // ownership with (verified Aug 2026: class "statusPill owned", text "Owned").
-  // statusPillClass is the ownership-pill container class itself — kept fully
-  // configurable so a future rename of either the container or the owned
-  // fragment is a settings edit, not a code change.
+  // Ownership is signalled on the shop page's buy button (verified Oct 2026:
+  // the shop consolidated all ranks under one URL and owned ranks render a
+  // disabled button whose text is "Owned"). lcBuyButtonClass is the button's
+  // class and lcOwnedText the button text that marks a rank owned — kept fully
+  // configurable so a future rename of either is a settings edit, not a code
+  // change.
   //
   // This is a best-effort escape hatch: it only helps if LC retains the same
   // page structure and changes just a URL or a class/text name here. A deeper
@@ -233,14 +245,20 @@ const buildDefaultConfig = (dataDir = '') => ({
     // thread id (combined with the site base URL at runtime) so the config
     // never advertises a clickable link.
     lcProbeThreadId: 14057,
-    // Shop paths are stored without the site origin and combined with the base
-    // URL at runtime, keeping the config free of full clickable URLs.
-    lcUserTierPath: '/shop/index.php#user-ranks',
-    lcUserPrestigePath: '/shop/index.php?rank_bundle=prestige',
-    // Container + owned-token for the rank ownership pill.
-    lcStatusPillClass: 'statusPill',
-    lcStatusPillOwnedToken: 'owned',
-    lcStatusPillOwnedText: 'owned',
+    // The probe fetches its thread with the same path as the shop page, which
+    // Cloudflare currently rejects for non-browser clients, so off by default.
+    // Flip it on only if the probe fetch goes through the real-browser path.
+    lcThreadProbeEnabled: false,
+    // The economy shop page listing every purchasable rank. Stored without the
+    // site origin and combined with the base URL at runtime, keeping the config
+    // free of full clickable URLs.
+    lcUserTierPath: '/economy/?section=store&category=rank',
+    // The rank card container on the shop page; pairs an item_id with its
+    // buy button. Configurable like the button below, for a rename.
+    lcCardClass: 'jblcEconomy-item',
+    // Buy-button class + owned text for the rank ownership signal.
+    lcBuyButtonClass: 'jblcEconomy-buyButton',
+    lcOwnedText: 'owned',
     // How fresh the cached membership tier must be, in hours, before a re-scrape
     // is skipped. The tier is scraped (a few requests) then held in the encrypted
     // account blob keyed to tierCheckedAt; whenever a recheck — on startup, on the

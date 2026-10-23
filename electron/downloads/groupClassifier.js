@@ -142,6 +142,22 @@ const tokenize = (value) =>
 function classifyGroup(group, link = null, options = {}) {
   const wanted = wantedFor(options.platform);
   const raw = String(group == null ? "" : group).trim();
+  // The section is the poster's sub-heading inside the part ("COMPRESSED (V95)",
+  // "Others"). It is where a repack names itself, so the kind and compressed
+  // checks read it alongside the part name.
+  const section = String(link?.section || "").trim();
+  // The anchor's own words are the only place some payloads name themselves:
+  // the Part 5 hotfix sits under a bare "Others" marker and says "HOTFIX (for
+  // v0.81)" in the link text. A heading-only check offered it as a game build.
+  // A spoiler title promoted by the LC pre-pass is the build's name, so its
+  // prose is not a kind statement: "Before the Tech Update" is a build, not an
+  // update payload. The section and the anchor label still speak.
+  const markerText = (link?.headingIsBuild
+    ? [section, String(link?.label || "").trim()]
+    : [raw, section, String(link?.label || "").trim()]
+  )
+    .filter(Boolean)
+    .join(" ");
   // Platform used to be embedded in `group`, so tokenizing the heading was the
   // same thing as reading the platform. headingLines now splits them onto
   // separate fields, and tokenizing `raw` alone would find no platform token in
@@ -193,7 +209,7 @@ function classifyGroup(group, link = null, options = {}) {
 
   // ── Kind first. A patch that mentions Windows is still a patch. ──────────
   for (const [pattern, kind] of KIND_MARKERS) {
-    if (!pattern.test(raw)) continue;
+    if (!pattern.test(markerText)) continue;
     // The `split` marker is a fallback for a bold that says "Split" and then
     // lists bare mirrors, leaving nothing for PART to match. When the parser has
     // already told us exactly which fragment this is, that guess is not needed
@@ -201,13 +217,13 @@ function classifyGroup(group, link = null, options = {}) {
     // part of "SPLIT-S3-Int+Ep12", and the unsplit .zip listed beside them.
     if (kind === "split" && declaredPart) continue;
     result.kind = kind;
-    result.reason = `heading marks this as '${kind}', not a full game`;
+    result.reason = `heading or label marks this as '${kind}', not a full game`;
     return result;
   }
   for (const pattern of MEDIA_MARKERS) {
-    if (pattern.test(raw)) {
+    if (pattern.test(markerText)) {
       result.kind = "media";
-      result.reason = "heading marks this as media, not a game build";
+      result.reason = "heading or label marks this as media, not a game build";
       return result;
     }
   }
@@ -234,7 +250,7 @@ function classifyGroup(group, link = null, options = {}) {
     }
   }
 
-  result.compressed = COMPRESSED.test(raw);
+  result.compressed = COMPRESSED.test([raw, section].filter(Boolean).join(" "));
 
   // ── Platform. ────────────────────────────────────────────────────────────
   const found = new Set();
@@ -316,12 +332,14 @@ function selectDownloadableLinks(links, options = {}) {
 
   // Group multi-part entries so all parts of one set travel together.
   //
-  // Keyed on host + build + PLATFORM. The old key stripped "Part n" back out of
-  // a flattened heading, which was the only thing available when the parser
-  // emitted `group: "Part 1"` and nothing else - and it collapsed Being a DIK's
-  // Win/Linux and Mac fragment lists into a single ten-part set that could never
-  // satisfy the contiguity check. Now that a part carries the build and platform
-  // it hangs under, the key can say what it means.
+  // Keyed on host + build + SECTION + PLATFORM. The old key stripped "Part n"
+  // back out of a flattened heading, which was the only thing available when the
+  // parser emitted `group: "Part 1"` and nothing else - and it collapsed Being a
+  // DIK's Win/Linux and Mac fragment lists into a single ten-part set that could
+  // never satisfy the contiguity check. Now that a part carries the build and
+  // platform it hangs under, the key can say what it means. The section is part
+  // of it too: a repack's parts and the base build's parts are different sets,
+  // and keying them together makes the contiguity check hide both.
   const sets = new Map();
   const singles = [];
   for (const entry of accepted) {
@@ -342,6 +360,7 @@ function selectDownloadableLinks(links, options = {}) {
         .replace(/\s+/g, " ")
         .trim()
         .toLowerCase(),
+      String(entry.link?.section || "").trim().toLowerCase(),
       String(entry.link?.platform || "").trim().toLowerCase(),
     ].join("|");
     if (!sets.has(key)) sets.set(key, []);
@@ -354,6 +373,7 @@ function selectDownloadableLinks(links, options = {}) {
       parts: sorted,
       host: sorted[0].link?.host || "",
       group: sorted[0].link?.group || "",
+      section: sorted[0].link?.section || "",
       platform: sorted[0].link?.platform || "",
       declaredTotal: sorted[0].verdict.part.total,
       // Where the set sits in the post, so it can be re-interleaved with the
@@ -392,11 +412,18 @@ function selectDownloadableLinks(links, options = {}) {
   // naming the platforms, tells the user the list is complete without offering
   // them a download that would not launch.
   //
-  // Only platform rejections, not kind rejections. A patch or a soundtrack was
-  // never a candidate for this list and saying "3 builds hidden" about them would
-  // be a lie about what the thread offers.
+  // Only platform rejections, not kind or host rejections. A patch or a
+  // soundtrack was never a candidate for this list and saying "3 builds hidden"
+  // about them would be a lie about what the thread offers. A host rejection
+  // passed the platform check and keeps its accepted verdict; it is reported by
+  // unsupportedHost, and counting it here would name platforms this machine can
+  // run in the "can't run" sentence (thread 94: five Win/Linux mirrors on
+  // datanodes, mixdrop, uploadhaven and workupload).
   const platformRejected = rejected.filter(
-    (entry) => entry.verdict.kind === "game" && entry.verdict.platforms.length > 0,
+    (entry) =>
+      !entry.verdict.accepted &&
+      entry.verdict.kind === "game" &&
+      entry.verdict.platforms.length > 0,
   );
   const hiddenPlatform = {
     links: platformRejected.length,

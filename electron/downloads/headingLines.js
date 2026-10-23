@@ -31,6 +31,10 @@
 //   PART      "Part 1", "Part 3 of 5", ".zip". A FRAGMENT of the build above it,
 //             not a build of its own. Sets the part slot and LEAVES BASE AND
 //             PLATFORM ALONE - see below.
+//   SECTION   "Others:" or "Others: COMPRESSED (V95)*". A SUB-HEADING inside the
+//             part above it, not a build of its own. Read as a build, the marker
+//             replaced the part name, so the modal offered it as a build beside
+//             Part 1..8.
 //   BUILD     anything else. Replaces the base label and clears the quality
 //             slot, because "Season 2" after "Season 1 / 1080p" is Season 2, not
 //             Season 2 at 1080p.
@@ -98,6 +102,13 @@ const PART_LINE = /^(?:part|pt)\s*[.:#-]?\s*(\d{1,2})(?:\s*(?:of|\/)\s*(\d{1,2})
 // produced entries called ".zip" with the build above them erased.
 const WHOLE_ARCHIVE_LINE = /^\.?(?:zip|rar|7z|tar|gz)$/i;
 
+// "Others" / "Others: COMPRESSED (V95)*" - a sub-heading inside the part above
+// it. The colon form carries the section's name; the bare form is the poster's
+// "more builds below" marker. Only those two shapes: a build that happens to
+// start with "Other" ("Other games") stays a build.
+const SECTION_BARE = /^others?$/i;
+const SECTION_NAMED = /^others?\s*:\s*(.*)$/i;
+
 // Same split characters as groupClassifier.tokenize, so a line is classified on
 // exactly the tokens the platform filter will later see.
 const tokenize = (value) =>
@@ -133,6 +144,13 @@ function splitHeadingLines(html) {
 function classifyHeadingLine(line) {
   const text = String(line || "").trim();
   if (!text) return "build";
+  // A line this long is prose (patch notes, a mirror-safety disclaimer), not a
+  // heading: build names are short by nature. Classified 'build' a disclaimer
+  // became a junk build name that overwrote the real heading announced right
+  // before it (thread 7's Note2 swallowed its Part 2 mirrors wholesale).
+  // shortcut: a poster writing a heading longer than 256 chars loses it;
+  // upgrade with an explicit note/qualifier vocabulary if a real page does.
+  if (text.length > 256) return "ignore";
   // A bold that is only separator punctuation ("- ", a lone bullet) is
   // decoration between mirrors, not a build name. Without this it ends the
   // current build and clears the platform, filing every following mirror
@@ -143,6 +161,7 @@ function classifyHeadingLine(line) {
   // keeping the fragment tests together is what stops a later platform token
   // from being added and quietly swallowing "Part 1".
   if (PART_LINE.test(text) || WHOLE_ARCHIVE_LINE.test(text)) return "part";
+  if (SECTION_BARE.test(text) || SECTION_NAMED.test(text)) return "section";
   const tokens = tokenize(text);
   // Every token a platform token, and at least one of them. A bare "-" or "()"
   // tokenizes to nothing and must not read as "platform: none".
@@ -153,7 +172,26 @@ function classifyHeadingLine(line) {
 }
 
 /** The heading state a fresh download area starts in. */
-const emptyHeading = () => ({ base: "", quality: "", platform: "", part: null });
+const emptyHeading = () => ({
+  base: "",
+  quality: "",
+  platform: "",
+  part: null,
+  section: "",
+});
+
+/**
+ * The section name a marker carries: the words after "Others:", without the
+ * trailing asterisk posters use for a footnote. A bare marker is "Others".
+ */
+function sectionName(line) {
+  const match = String(line || "").trim().match(SECTION_NAMED);
+  const rest = (match ? match[1] : "")
+    .replace(/\*+\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return rest || "Others";
+}
 
 /**
  * Read a part line into `{index, total, whole}`.
@@ -202,6 +240,15 @@ function applyHeadingLines(state, lines) {
         // which build or platform it belongs to, so it must not clear either.
         next.part = parsePartLine(line);
         break;
+      case "section":
+        // The base stays: the marker names a sub-heading inside the part above
+        // it. Platform and part clear, because the rows below belong to the
+        // section, not to the platform list the part just finished.
+        next.section = sectionName(line);
+        next.quality = "";
+        next.part = null;
+        next.platform = "";
+        break;
       case "ignore":
         break;
       default: {
@@ -218,12 +265,15 @@ function applyHeadingLines(state, lines) {
           next.quality = marker[1].trim();
           next.platform = rest;
           next.part = null;
+          next.section = "";
           break;
         }
         next.base = marker ? rest : line;
         next.quality = marker ? marker[1].trim() : "";
         // ...and any fragment marker left over from the build before it.
         next.part = null;
+        // ...and the section above it: a new build is not a repack of the last.
+        next.section = "";
         // ...and the platform, which is the safe direction: an empty platform
         // reads as "unlabeled" to groupClassifier and is ACCEPTED, whereas an
         // inherited one can filter an option out of the list entirely. A build
@@ -250,10 +300,11 @@ function applyBuildLine(state, line) {
   const next = { ...emptyHeading(), ...(state || {}) };
   next.base = String(line || "").trim();
   // Same clears as the default branch of applyHeadingLines: a new build owns
-  // none of the previous one's quality, fragment marker or platform.
+  // none of the previous one's quality, fragment marker, platform or section.
   next.quality = "";
   next.part = null;
   next.platform = "";
+  next.section = "";
   return next;
 }
 
