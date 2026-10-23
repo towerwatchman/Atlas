@@ -118,6 +118,14 @@ ok(!hasFragment(""), "empty string");
 {
   eq(pickBestCandidate([]), null, "no candidates");
 }
+{
+  // A revealed window lets the user click anything on the page. A funding or
+  // store link must never be accepted as the file.
+  const best = pickBestCandidate([
+    { source: "window-open", url: "https://www.patreon.com/someone", fragment: false },
+  ]);
+  eq(best, null, "a known non-download host is not a destination");
+}
 
 // ── /dl/ interstitial automation ─────────────────────────────────────────────
 //
@@ -126,7 +134,7 @@ ok(!hasFragment(""), "empty string");
 // Continue -> visible countdown -> "Generate your link" -> redirect to the
 // mirror. The resolver must click that flow's REAL controls each poll tick -
 // never synthesize the POST, since `_xfToken` and the `w` code are
-// session-bound - and hold the window open (hidden) while the countdown runs.
+// session-bound - and keep the window hidden while the countdown makes steps.
 
 const dlGate = require("../electron/downloads/dlGate");
 const { JSDOM, VirtualConsole } = require("jsdom");
@@ -175,22 +183,14 @@ const OTHER_BODY = `<html><body><div>Some off-site page or old /masked/ gate</di
   eq(result.dlActive, true, "countdown marks the interstitial as progressing");
   eq(result.seconds, 7, "the tick's remaining seconds are reported");
   const at = 5000;
-  ok(dlGate.holdReveal({ dlActive: true, at }, at + 9000) === true,
-    "a live countdown holds the reveal");
-  ok(dlGate.holdReveal({ dlActive: true, at }, at + 15001) === false,
-    "the hold expires so a stuck page still gets shown");
-  // The resolver refreshes `at` every tick, so a fresh `at` proves nothing: a
-  // page whose JS hangs mid-countdown still reports dlActive every second. The
-  // hold is therefore bounded from the first sighting of the countdown, not by
-  // the last poll - past DL_HOLD_MS from then, the window is revealed.
-  const firstSeen = at + 200;
-  ok(dlGate.holdReveal({ dlActive: true, at: at + 15500 }, at + 15501, firstSeen) === false,
-    "a fresh last poll cannot keep a stale countdown hidden forever");
-  ok(dlGate.holdReveal({ dlActive: true, at }, at + 9001, firstSeen) === true,
-    "a countdown under the ceiling still holds");
-  ok(dlGate.holdReveal({ dlActive: false, at }, at + 1000) === false,
-    "no progress, no hold");
-  ok(dlGate.holdReveal(null, at + 1000) === false, "no poll data, no hold");
+  ok(dlGate.shouldReveal({ lastProgressAt: at }, at + dlGate.IDLE_REVEAL_MS - 1) === false,
+    "a page that just made a step stays hidden");
+  ok(dlGate.shouldReveal({ lastProgressAt: at }, at + dlGate.IDLE_REVEAL_MS) === true,
+    "an idle page is revealed");
+  ok(dlGate.shouldReveal({ lastProgressAt: at, settled: true }, at + 60000) === false,
+    "a settled resolve never reveals");
+  ok(dlGate.shouldReveal({ lastProgressAt: at, revealed: true }, at + 60000) === false,
+    "an already-shown window is not shown again");
 }
 {
   // Countdown done: the button text changes but carries no known class; the

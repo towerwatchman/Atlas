@@ -52,8 +52,9 @@ const {
   hostOf,
 } = require("./maskedResolverUrls");
 // Drives F95's own /dl/ interstitial: the poll clicks its Continue / Generate
-// controls and reports the countdown so the reveal can hold while it runs.
-const { DL_POLL_SCRIPT, holdReveal } = require("./dlGate");
+// controls and reports the countdown, which the reveal watchdog counts as
+// progress while it runs.
+const { DL_POLL_SCRIPT, shouldReveal, IDLE_REVEAL_MS, LOAD_GRACE_MS } = require("./dlGate");
 // Shared with forum thread fetching (forumWindowFetch.js, updateLinks.js):
 // the persistent session whose jar holds solved Cloudflare grants, and the
 // cookie copier that seeds a window with the user's forum session.
@@ -61,11 +62,6 @@ const RESOLVER_PARTITION = "persist:masked-resolver";
 // Long enough for a slow challenge, short enough that a forgotten window does
 // not pin a queue slot indefinitely.
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
-
-// How long the hidden attempt gets before the window is revealed as a safety
-// net. Non-browser hosts (F95 -> Pixeldrain/Mega) usually resolve headlessly
-// within this, so the user rarely sees a window.
-const DEFAULT_HEADLESS_MS = 9000;
 
 // ── Which cookies survive a resolve ──────────────────────────────────────────
 //
@@ -101,10 +97,11 @@ function isCloudflareCookie(name) {
   return /^cf_chl[a-z_]*_?\d*$/i.test(text) || /^__cf_bm_/i.test(text);
 }
 
-// Cloudflare challenge markers. Used by the poll to reveal the window ONLY when
-// a challenge is actually present - so a clean (VPN-off) download stays hidden
-// while a VPN-flagged one pops the window for the user to tick. Mirrored inline
-// in the injected poll script, which cannot call this function directly.
+// Cloudflare challenge markers. The poll uses them to log challenge and
+// challenge-passed cycles, which is how a report is classified; the reveal
+// itself is decided by idleness, so a challenge that clears on its own never
+// shows a window. Mirrored inline in the injected poll script, which cannot
+// call this function directly.
 const CLOUDFLARE_MARKERS = /cloudflare|just a moment|checking your browser|verify you are human|attention required|cf-chl|turnstile/i;
 function isCloudflareChallenge(text) {
   return CLOUDFLARE_MARKERS.test(text || "");
@@ -226,7 +223,6 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     // Set false to go straight to a visible window - useful if the automated
     // path ever starts misbehaving in the field.
     headless = true,
-    headlessTimeoutMs = DEFAULT_HEADLESS_MS,
     // Hosts that count as "still on the gate". Defaults to F95; a host plugin
     // passes its own so the window knows when it has reached the real file.
     gateHosts = undefined,
@@ -257,6 +253,10 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
         partition,
         contextIsolation: true,
         nodeIntegration: false,
+        // A hidden window is a background page, and Chromium throttles its
+        // timers - which F95's masked.js and reCAPTCHA run on. Left on, the
+        // automated attempt sat frozen until the user was shown the window.
+        backgroundThrottling: false,
       },
     });
 
@@ -267,17 +267,34 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     // fragment. This is what tells us which source to trust.
     const candidates = [];
     const seen = new Set();
+    // Bumped by everything that moves the resolve forward: navigation, a load
+    // event, the continue link, a countdown tick, a download. The window stays
+    // hidden while this moves and is revealed once it has not, for
+    // IDLE_REVEAL_MS - a page waiting on a human.
+    let lastProgressAt = Date.now();
+    const markProgress = () => { lastProgressAt = Date.now(); };
+    // False until the current navigation has a parsed document. A slow
+    // response is not a stall, so the watchdog waits longer in this state.
+    let domReady = false;
     const note = (source, url) => {
       if (!isNavigableHttp(url)) return;
+      markProgress();
       const key = `${source}|${url}`;
       if (seen.has(key)) return;
       seen.add(key);
       candidates.push({ source, url, fragment: hasFragment(url), at: Date.now() });
     };
 
+    // A page that is still loading is working, not waiting on a human. Until
+    // dom-ready the watchdog uses LOAD_GRACE_MS, so a slow response is not
+    // mistaken for a stall; once the document exists, the idle window applies.
+    contents.on("did-start-loading", () => { domReady = false; markProgress(); });
+    contents.on("dom-ready", () => { domReady = true; markProgress(); });
+    contents.on("did-stop-loading", markProgress);
+
     let settled = false;
     let timer = null;
-    let revealTimer = null;
+    let idleTimer = null;
     let pollInterval = null;
     let revealed = false;
     // Browser session cookies / headers captured on page load so we can hand
@@ -286,10 +303,11 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     let cachedBrowserHeaders = null;
     // Last tick's report from the /dl/ poll: whether the countdown is live,
     // seconds left, and the host the page says the link will land on. The
-    // reveal hold and the settle warnings both read it.
+    // settle warning reads it, and a changed snapshot counts as progress.
     let dlPoll = null;
-    // When a countdown first turned visible: the hold ceiling runs from here.
-    let firstDlActiveAt = null;
+    // The last values seen from the polls, so "changed" can be told from "ran".
+    let lastHostLink = null;
+    let lastDlKey = null;
     // The same queueing hazard forumWindowFetch guards against: an
     // executeJavaScript made while any load is running sits pending until the
     // load stops, so unbounded poll calls stack up during redirects.
@@ -325,9 +343,19 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       if (revealed || settled) return;
       revealed = true;
       resolvedVia = `visible:${reason}`;
+      // What the user is actually being shown, so a report of "a window
+      // appeared" names the page instead of leaving it to guesswork.
+      let url = "";
+      let pageTitle = "";
+      try {
+        url = contents.getURL();
+        pageTitle = contents.getTitle();
+      } catch {
+        /* already gone */
+      }
       // A resolve that needed a human is the prime suspect whenever a host
       // blocks us: the reason and the cf-jar line above pair into one story.
-      require("../appLog").write("masked-resolve", { event: "reveal", reason }, { devtools: true });
+      appLog.write("masked-resolve", { event: "reveal", reason, url, title: pageTitle }, { devtools: true });
       try {
         if (!win.isDestroyed()) {
           win.show();
@@ -347,7 +375,17 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
-      if (revealTimer) clearTimeout(revealTimer);
+      if (idleTimer) clearInterval(idleTimer);
+      // The page the attempt ended on, and the last interstitial state. Without
+      // these a failed resolve says only that it failed.
+      let pageUrl = "";
+      let pageTitle = "";
+      try {
+        pageUrl = contents.getURL();
+        pageTitle = contents.getTitle();
+      } catch {
+        /* already gone */
+      }
       const diagnostics = {
         // Which sources produced an off-site URL, and did each keep the
         // fragment. Log this on the first real resolve.
@@ -360,6 +398,11 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
         resolvedVia,
         revealed,
         challengeSeen,
+        url: pageUrl,
+        title: pageTitle,
+        dl: dlPoll
+          ? { dlActive: !!dlPoll.dlActive, seconds: dlPoll.seconds, declaredHost: dlPoll.declaredHost }
+          : null,
       };
       try {
         if (!win.isDestroyed()) win.destroy();
@@ -562,9 +605,10 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     ses.on("will-download", onWillDownload);
 
     // Click the continue link once the page has loaded. Harmless when the
-    // element never appears - the reveal timer covers that case.
+    // element never appears - the idle watchdog reveals the window then.
     contents.on("did-finish-load", async () => {
       if (settled) return;
+      markProgress();
       const current = contents.getURL();
       // Only on the gate page; never inject into the destination host.
       if (!onGate(current)) return;
@@ -574,9 +618,10 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       // Buzzheavier gates present download buttons via htmx rather than the
       // F95 continue link. Poll and click natively so the browser's own
       // download manager fires will-download, which we intercept below. The
-      // same poll also watches for a Cloudflare challenge: if one appears we
-      // reveal the window so the user can tick it - a clean (VPN-off) download
-      // stays hidden and resolves on its own.
+      // same poll also reports a Cloudflare challenge; a challenge that passes
+      // on its own navigates and counts as progress, while one that persists is
+      // revealed by the idle watchdog like any other page waiting on a human.
+      if (pollInterval) clearInterval(pollInterval);
       pollInterval = setInterval(async () => {
         if (settled) {
           clearInterval(pollInterval);
@@ -586,25 +631,27 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
           const result = await withTimeout(
             contents.executeJavaScript(`(() => {
             const btn = document.querySelector('.download-btn[hx-get]');
+            const hostLink = !!document.querySelector('.host_link');
             const body = (document.body && document.body.innerText) || '';
             const cfChallenge =
               /cloudflare|just a moment|checking your browser|verify you are human|attention required|cf-chl|turnstile/i.test(body) ||
               !!document.querySelector('#cf-chl, iframe[src*="challenges.cloudflare.com"], .cf-turnstile, #challenge-running');
-            if (btn) { btn.click(); return { clicked: true, cf: cfChallenge }; }
-            return { clicked: false, cf: cfChallenge };
+            if (btn) { btn.click(); return { clicked: true, cf: cfChallenge, hostLink }; }
+            return { clicked: false, cf: cfChallenge, hostLink };
           })()`, true),
             10000,
             "gate poll",
           );
           gatePollCf = result.cf;
-          if (result.cf) {
-            reveal("cloudflare");
-          }
+          // Only the appearance of the link is a step; losing it is not.
+          if (result.hostLink && !lastHostLink) markProgress();
+          lastHostLink = result.hostLink;
           if (result.clicked) {
+            markProgress();
             clearInterval(pollInterval);
           }
         } catch (err) {
-          // poll errors are non-fatal; the reveal timer still fires
+          // poll errors are non-fatal; the idle watchdog still fires
         }
         // The /dl/ flow is page-internal and staged: Continue first, then
         // Generate after the countdown, so the interval stays open and only
@@ -617,8 +664,16 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
             "dl poll",
           );
           if (dlResult) {
-            dlPoll = { ...dlResult, at: Date.now() };
-            if (dlResult.dlActive && firstDlActiveAt === null) firstDlActiveAt = dlPoll.at;
+            dlPoll = dlResult;
+            // Only a change counts: a frozen countdown keeps reporting the same
+            // seconds and must not look alive forever. The first reading is the
+            // baseline, not a step.
+            const key = [dlResult.dlActive, dlResult.seconds, dlResult.declaredHost, dlResult.clicked].join("|");
+            if (lastDlKey === null) lastDlKey = key;
+            else if (key !== lastDlKey) {
+              lastDlKey = key;
+              markProgress();
+            }
           }
         } catch {
           // dl poll errors are non-fatal; the capture points still settle
@@ -667,17 +722,20 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       void finish({ ok: false, error: "Resolve window crashed" });
     });
 
-    // Hidden attempt gets a short window before the user is brought in - but
-    // not while the /dl/ interstitial is visibly counting down: reschedule.
+    // The window stays hidden while the page is moving and is shown once it has
+    // stopped, because that is the point a human is needed. This replaces the
+    // old fixed reveal timer: a healthy resolve is never interrupted, however
+    // long it takes, and a stalled page is handed over in seconds.
     if (headless) {
-      revealTimer = setTimeout(function holdThenReveal() {
-        if (settled) return;
-        if (holdReveal(dlPoll, Date.now(), firstDlActiveAt)) {
-          revealTimer = setTimeout(holdThenReveal, 3000);
-          return;
+      idleTimer = setInterval(() => {
+        // While the main document is still coming, a slow response looks exactly
+        // like a stall. Allow it the load grace; once dom-ready has fired, the
+        // normal idle window is the right measure.
+        const idleMs = domReady ? IDLE_REVEAL_MS : LOAD_GRACE_MS;
+        if (shouldReveal({ settled, revealed, lastProgressAt }, Date.now(), idleMs)) {
+          reveal("idle");
         }
-        reveal("timeout");
-      }, headlessTimeoutMs);
+      }, 1000);
     }
 
     timer = setTimeout(() => {

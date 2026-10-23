@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Changed
+- Cloudflare Handling (part 4): the download resolve window no longer appears while the page is still making progress. It stays hidden through a Cloudflare challenge that clears on its own and through the /dl/ countdown, and appears only after about 4 seconds with no progress. The hidden window is no longer throttled like a background tab, which could freeze F95's own scripts. A funding or social page opened from a shown window is no longer accepted as the resolved link.
 - Cloudflare Handling (part 3): LewdCorner thread links now open the real-browser window on a 403 or challenge page instead of failing outright, and a grant solved during account login now carries over to downloads when it is still valid
 - Restore LewdCorner's Plus member check to access eligible Plus titles for LewdCorner
 - Source fetch: the F95 and LewdCorner fallback windows now run in parallel when both sources hit a challenge

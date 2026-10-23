@@ -3,10 +3,10 @@
 // Regression coverage for the Cloudflare challenge detector used by the
 // hidden-resolve window.
 //
-// A host that requires a browser (Buzzheavier / Cloudflare) cannot clear its
-// challenge while the window is hidden. The window stays hidden for clean
-// downloads and only reveals when the poll detects a Cloudflare challenge (or,
-// as a backstop, after the headlessTimeoutMs timeout).
+// A host that requires a browser (Buzzheavier / Cloudflare) cannot clear a
+// challenge that actually needs a human while the window is hidden. The window
+// stays hidden while the page is making steps and is revealed once it has gone
+// idle; the poll's challenge markers feed the log, not the reveal.
 //
 // maskedResolver.js pulls in Electron at load time, so it is mocked here; the
 // functions under test are pure and Electron-free.
