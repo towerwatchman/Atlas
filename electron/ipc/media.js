@@ -1,6 +1,6 @@
 'use strict'
 
-const { ipcMain, BrowserWindow, dialog } = require('electron')
+const { ipcMain, BrowserWindow, dialog, session, app } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const crypto = require('crypto')
@@ -15,6 +15,7 @@ const { getGogIDbyRecord } = require('../db/gog')
 const { fetchAndStoreGogData } = require('../scanners/gogscanner')
 const { getLewdCornerIDbyRecord } = require('../db/lewdcorner')
 const { normalizePath } = require('../db/helpers')
+const { webImageCacheInfo } = require('../webImageCache')
 const {
   getF95IDbyRecord, getMediaSourceCache, upsertMediaSourceCache,
   nextCreatedAt,
@@ -728,6 +729,36 @@ module.exports = function registerMediaHandlers(ctx) {
     } catch (err) {
       console.error('refresh-game-media error:', err)
       return { success: false, error: err.message }
+    }
+  })
+
+  // Purges Chromium's HTTP disk cache for the default session — the cache the
+  // Metadata imageCacheSizeMB setting bounds. Streamed (remote) art honors the
+  // origin's cache headers, so a transient CDN error response can keep being
+  // served across restarts until the entries are dropped. Downloaded files go
+  // through atlas-media://, which never enters this cache, so local media is
+  // unaffected. Returns the post-clear size so the UI can show it without a
+  // second round trip.
+  ipcMain.handle('media-web-image-cache-clear', async () => {
+    try {
+      await session.defaultSession.clearCache()
+      const { sizeBytes } = await webImageCacheInfo(app.getPath('userData'))
+      return { success: true, sizeBytes }
+    } catch (err) {
+      console.error('media-web-image-cache-clear error:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Approximate on-disk size of the HTTP cache. Chromium has no size API, so
+  // this stats the Cache_Data folder (see electron/webImageCache.js).
+  ipcMain.handle('media-web-image-cache-info', async () => {
+    try {
+      const { sizeBytes, dir } = await webImageCacheInfo(app.getPath('userData'))
+      return { sizeBytes, exists: !!dir }
+    } catch (err) {
+      console.error('media-web-image-cache-info error:', err)
+      return { sizeBytes: null, exists: false }
     }
   })
 

@@ -2160,7 +2160,13 @@ app.whenReady().then(async () => {
       const data = await fsp.readFile(resolved)
       return new Response(new Uint8Array(data), {
         status: 200,
-        headers: { 'Content-Type': mediaContentType(resolved) },
+        headers: {
+          'Content-Type': mediaContentType(resolved),
+          // The file IS the store: read fresh on every load and delete/re-download
+          // cycles stay consistent. No cache layer may retain it — a re-downloaded
+          // file reuses the same path.
+          'Cache-Control': 'no-store',
+        },
       })
     } catch (err) {
       console.error('atlas-media protocol error:', request.url, err.message)
