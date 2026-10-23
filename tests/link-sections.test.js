@@ -11,11 +11,12 @@ import {
 // could install an older build over a newer one. These assert the grouping and,
 // importantly, the ordering.
 
-const link = (host, group = '', platform = '') => ({
-  url: `https://${host}/f/${group || 'latest'}${platform}`,
+const link = (host, group = '', platform = '', section = '') => ({
+  url: `https://${host}/f/${group || 'latest'}${platform}${section}`,
   host,
   group,
   platform,
+  section,
   label: 'Download',
 })
 
@@ -142,6 +143,24 @@ describe('buildDownloadOptions', () => {
     expect(buildDownloadOptions()).toEqual([])
     expect(buildDownloadOptions(null)).toEqual([])
     expect(buildDownloadOptions([null, undefined])).toEqual([])
+  })
+
+  it('keeps a repack section apart from the part it sits under', () => {
+    // Part 6 and Part 6 · COMPRESSED (V95) are different archives. Keying on the
+    // part name alone merged them into one option with every mirror of both.
+    const options = buildDownloadOptions([
+      link('mega.nz', 'Part 6', 'Win/Linux'),
+      link('pixeldrain.com', 'Part 6', 'Win/Linux'),
+      link('mega.nz', 'Part 6', 'Win/Linux', 'COMPRESSED (V95)'),
+    ])
+    expect(options).toHaveLength(2)
+    expect(options.map((o) => [o.title, o.section])).toEqual([
+      ['Part 6', ''], ['Part 6', 'COMPRESSED (V95)'],
+    ])
+    expect(options[0].links).toHaveLength(2)
+    expect(options[1].links).toHaveLength(1)
+    // Both heads read "Part 6"; the section is what tells them apart on screen.
+    expect(options.map((o) => o.name)).toEqual(['Part 6', 'Part 6'])
   })
 
   it('does not merge headings that differ only in case or spacing', () => {

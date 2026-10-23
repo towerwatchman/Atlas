@@ -113,6 +113,20 @@ const auditConfig = async (ctx) => {
       result.status = 'issues'
       result.count += report.removedKeys.length
     }
+    // Values updated in place, not removed. The same startup backup behind
+    // the removals applies here.
+    if (report.changedKeys?.length > 0) {
+      result.findings.push({
+        label: 'Settings values replaced at startup',
+        count: report.changedKeys.length,
+        detail: report.backupPath
+          ? `Updated to the current version's format; backed up to ${path.basename(report.backupPath)} first.`
+          : 'Updated to the current version\u2019s format.',
+        samples: report.changedKeys.map((k) => `[${k.section}] ${k.key}`),
+      })
+      result.status = 'issues'
+      result.count += report.changedKeys.length
+    }
     if (report.removedSections.length > 0) {
       result.findings.push({
         label: 'Obsolete sections removed at startup',

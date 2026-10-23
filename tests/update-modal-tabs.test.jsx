@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, waitFor, fireEvent, act } from '@testing-library/react'
 
 import UpdateModal from '../src/components/downloads/UpdateModal.jsx'
 
-// Task 04: one modal, one tab per linked source. The F95 tab keeps today's
-// behaviour (loads on open); the LewdCorner tab fetches lazily on first
-// click through lewdcorner-links-get ({ lcId }), which already enforces the
-// tier gate main-side and answers TIER_RESTRICTED with the reason.
+// One modal, one tab per linked source. Both linked sources start when the
+// modal opens so neither tab waits on the other; a click only switches the
+// visible tab. Each fetch goes through update-links-get ({ threadId }) or
+// lewdcorner-links-get ({ lcId }), which enforces the tier gate main-side and
+// answers TIER_RESTRICTED with the reason.
 
 const link = (host, group) => ({
   url: `https://${host}/f/${group.replace(/\W+/g, '')}`,
@@ -48,14 +49,16 @@ beforeEach(() => { vi.clearAllMocks() })
 afterEach(() => { cleanup(); delete window.electronAPI })
 
 describe('UpdateModal source tabs', () => {
-  it('dual-sourced shows both tabs and loads F95 on open without touching LC', async () => {
+  it('dual-sourced shows both tabs and starts both sources on open', async () => {
     mount({ title: 'Game', f95_id: '95982', lc_id: '3272' })
     await waitFor(() => { expect(screen.getByText('mega.nz')).toBeTruthy() })
     expect(screen.getByRole('tab', { name: /F95/i })).toBeTruthy()
     expect(screen.getByRole('tab', { name: /LewdCorner/i })).toBeTruthy()
     expect(window.electronAPI.updateLinksGet).toHaveBeenCalledWith({ threadId: '95982', force: false })
-    // Lazy: the other source waits for first click, it is never fetched up front.
-    expect(window.electronAPI.lcLinksGet).not.toHaveBeenCalled()
+    // Both sources start up front; the click only switches tabs.
+    await waitFor(() => {
+      expect(window.electronAPI.lcLinksGet).toHaveBeenCalledWith({ lcId: '3272', force: false })
+    })
   })
 
   it('clicking the LC tab fetches once and shows its links', async () => {
@@ -94,6 +97,23 @@ describe('UpdateModal source tabs', () => {
     // The gate lives main-side; the tab stays visible and reports why.
     await waitFor(() => { expect(screen.getByText(/LewdCorner Member\+/)).toBeTruthy() })
     expect(screen.getByRole('tab', { name: /LewdCorner/i })).toBeTruthy()
+  })
+
+  it('shows Unknown on a tab whose thread title carries no version', async () => {
+    // Dev-only titles like "Bazooka Cafe [Trabulance]" parse to no version:
+    // the chip reads Unknown instead of showing a creator name as a version.
+    window.electronAPI = {
+      updateLinksGet: vi.fn().mockResolvedValue({ ok: true, threadId: '95982', links: f95Links, version: '' }),
+      lcLinksGet: vi.fn().mockResolvedValue({ ok: true, threadId: '3272', links: lcLinks, version: '' }),
+      openExternalUrl: vi.fn(),
+      downloadsResolveMasked: vi.fn(),
+      downloadsEnqueue: vi.fn(),
+    }
+    render(<UpdateModal game={{ title: 'Bazooka Cafe', f95_id: '95982', lc_id: '3272' }} open onClose={() => {}} onQueued={() => {}} />)
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'F95zone Unknown' })).toBeTruthy()
+      expect(screen.getByRole('tab', { name: 'LewdCorner Unknown' })).toBeTruthy()
+    })
   })
 
   it('names the open tab in its load error', async () => {
@@ -149,5 +169,37 @@ describe('UpdateModal source tabs', () => {
     mount({ title: 'Game', f95_id: '95982' })
     await waitFor(() => { expect(screen.getByText('mega.nz')).toBeTruthy() })
     expect(screen.getByRole('button', { name: 'Refresh links' })).toBeTruthy()
+  })
+
+  it('a response from the previous game never lands on the next modal', async () => {
+    const pending = []
+    window.electronAPI = {
+      updateLinksGet: vi.fn(() => new Promise((resolve) => pending.push(resolve))),
+      lcLinksGet: vi.fn(),
+      openExternalUrl: vi.fn(),
+      downloadsResolveMasked: vi.fn(),
+      downloadsEnqueue: vi.fn(),
+    }
+    const { rerender } = render(
+      <UpdateModal game={{ title: 'Game', f95_id: '111', lc_id: null }} open onClose={() => {}} onQueued={() => {}} />,
+    )
+    rerender(
+      <UpdateModal game={{ title: 'Game', f95_id: '222', lc_id: null }} open onClose={() => {}} onQueued={() => {}} />,
+    )
+    await waitFor(() => { expect(window.electronAPI.updateLinksGet).toHaveBeenCalledTimes(2) })
+
+    // The first game's slow fetch resolves while the second game's own fetch is
+    // still running; its links must not appear on the reopened modal. act
+    // flushes the stale write before B resolves, so the assertion cannot pass
+    // by B simply overwriting the same state slot afterwards.
+    await act(async () => {
+      pending[0]({ ok: true, threadId: '111', links: [link('stalehost.com', 'Old Game Build')] })
+    })
+    expect(screen.queryByText('stalehost.com')).toBeNull()
+
+    await act(async () => {
+      pending[1]({ ok: true, threadId: '222', links: f95Links })
+    })
+    await waitFor(() => { expect(screen.getByText('mega.nz')).toBeTruthy() })
   })
 })

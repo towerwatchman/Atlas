@@ -348,8 +348,8 @@ function registerLewdCornerMediaHeaders() {
 // reports lcTierMismatch, the LewdCorner shop page parser read no owned
 // rank but the thread probe — which reflects real content access — concluded
 // the user is Plus. That mismatch is the stale-selector signal: the [LewdCorner]
-// config keys (statusPillClass / statusPillOwnedToken / statusPillOwnedText)
-// likely no longer match LC's markup. Gated on !app.isPackaged so it never
+// config keys (lcBuyButtonClass / lcOwnedText) likely no longer match LC's
+// markup. Gated on !app.isPackaged so it never
 // fires in a shipped build; the user-facing tier gate stays correct regardless
 // because the probe already resolved the real tier.
 function warnOnLcTierMismatch(result) {
@@ -358,7 +358,7 @@ function warnOnLcTierMismatch(result) {
     console.warn(
       'LewdCorner shop parser looks stale: shop reported \'Free\' but ' +
       'the thread probe confirmed real content access. Check the [LewdCorner] ' +
-      'statusPill selectors in the config.',
+      'buy-button selectors in the config.',
     )
     return
   }

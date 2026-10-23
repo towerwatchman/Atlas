@@ -569,6 +569,18 @@ function* coalesceBolds(nodes, fragment, qualifierTail = false) {
   if (pending) yield { ...pending, html: pending.html + tailOf(pending) };
 }
 
+// The poster's version in the thread title ("A Debt Paid [Ch.1 v0.35]") —
+// never the update check's source of truth, display only.
+function versionFromTitle(title) {
+  const text = String(title || "");
+  const first = text.match(/\[([^\]]{1,60})\]/);
+  // Titles are "Name [Version] [Creator]": with both brackets the first one
+  // is the version, shown as the poster wrote it. Anything else reads
+  // "Unknown" — a wrong version is worse than no label. Display-only.
+  if (first && (text.match(/\[/g) || []).length >= 2) return first[1].trim();
+  return "Unknown";
+}
+
 /**
  * Parse the download buckets out of a thread page.
  *
@@ -577,7 +589,8 @@ function* coalesceBolds(nodes, fragment, qualifierTail = false) {
  *   origin, the first-post locator and the masked form. Defaults to f95 so
  *   every existing caller is unaffected.
  * @returns {{downloads:Array, patches:Array, extras:Array, translations:Array,
- *            loggedIn:boolean|null, threadId:string|null, found:boolean}}
+ *            loggedIn:boolean|null, threadId:string|null, found:boolean,
+ *            title:string, version:string}}
  */
 function parseThreadDownloads(html, site = "f95") {
   const cfg = SITES[site] || SITES.f95;
@@ -589,9 +602,19 @@ function parseThreadDownloads(html, site = "f95") {
     extras: [],
     translations: [],
     found: false,
+    title: "",
+    version: "",
   };
 
   const source = String(html || "");
+
+  // The title is the poster's own version statement. Read it before the body
+  // check: a thread that failed to parse still names its version.
+  const titleMatch = source.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+  if (titleMatch) {
+    out.title = stripTags(titleMatch[1]).replace(/\s+/g, " ").trim();
+    out.version = versionFromTitle(out.title);
+  }
 
   // <html> carries the session and thread markers as attributes.
   const htmlTag = source.match(/<html\b([^>]*)>/i);
@@ -654,6 +677,10 @@ function parseThreadDownloads(html, site = "f95") {
   // promoted to one; if a link arrives first, it was a fragment marker and folds
   // in as one. Holding it is what lets the same text mean both things.
   let pendingPart = null;
+  // True while the current build heading is a spoiler title the LC pre-pass
+  // promoted. That title names the build, not a payload, so the kind checks
+  // must not read its prose ("Before the Tech Update" contains "update").
+  let titleBuild = false;
   // Fold a held part line back in as the fragment marker it turned out to be.
   const flushPendingPart = () => {
     if (pendingPart === null) return;
@@ -668,20 +695,24 @@ function parseThreadDownloads(html, site = "f95") {
     const tag = node.tag;
 
     if (tag === "b") {
+      const titleIsBuild = node.attrs["data-build-title"] === "1";
       // Split on <br> FIRST. One bold routinely stacks build, quality and
       // platform on separate lines, and each line means something different.
       for (const line of splitHeadingLines(node.html)) {
         const norm = line.toLowerCase();
         if (norm === "extras" || norm === "extra") {
           divider = "extras"; patchActive = false; heading = emptyHeading();
+          titleBuild = false;
           continue;
         }
         if (norm === "translations" || norm === "translation") {
           divider = "translations"; patchActive = false; heading = emptyHeading();
+          titleBuild = false;
           continue;
         }
         if (norm === "download" || norm === "downloads") {
           divider = null; patchActive = false; heading = emptyHeading();
+          titleBuild = false;
           // The divider itself opens the download area. `started` used to wait
           // for the first link on a KNOWN host, which meant a thread whose
           // mirrors were all on hosts missing from DOWNLOAD_HOSTS never opened
@@ -710,6 +741,7 @@ function parseThreadDownloads(html, site = "f95") {
           // build, so it becomes one and the platform hangs off it.
           heading = applyBuildLine(heading, pendingPart);
           pendingPart = null;
+          titleBuild = false;
           heading = applyHeadingLines(heading, [text]);
           // A new build ends whatever section preceded it. Without this an
           // "Extras" bold inside one build's block stays latched over every
@@ -725,10 +757,15 @@ function parseThreadDownloads(html, site = "f95") {
 
         flushPendingPart();
         heading = applyHeadingLines(heading, [text]);
+        if (kindOfLine === "build") titleBuild = titleIsBuild;
         // Patch tracking hangs off the BUILD line, not off any line: a bare
         // "Win/Linux" says nothing about whether the section is a patch, and
         // re-deciding on it is how the old substring test flip-flopped.
-        if (started && kindOfLine === "build") {
+        if (titleIsBuild) {
+          // A spoiler title opens a build, so its rows are not a patch section
+          // whatever word the title uses.
+          patchActive = false;
+        } else if (started && kindOfLine === "build") {
           patchActive = PATCH_KINDS.has(classifyGroup(text).kind);
         }
       }
@@ -781,12 +818,12 @@ function parseThreadDownloads(html, site = "f95") {
       : Boolean(known) || isAttachmentUrl(url, cfg);
 
     let bucketName;
+    const headingKind = titleBuild
+      ? "game"
+      : classifyGroup(headingLabel(heading)).kind;
     if (divider === "extras" || divider === "translations") {
       bucketName = divider;
-    } else if (
-      started &&
-      (patchActive || PATCH_KINDS.has(classifyGroup(headingLabel(heading)).kind))
-    ) {
+    } else if (started && (patchActive || PATCH_KINDS.has(headingKind))) {
       bucketName = "patches";
     } else if (isFile) {
       bucketName = "downloads";
@@ -809,7 +846,11 @@ function parseThreadDownloads(html, site = "f95") {
         if (alt !== "other") kind = alt;
       }
     } else {
-      kind = classifyType("download", headingLabel(heading), label, "");
+      // A spoiler title is the build's name, so only the anchor label can say
+      // the payload is a patch. The heading text is not a kind statement.
+      kind = titleBuild
+        ? classifyType("download", "", label, "")
+        : classifyType("download", headingLabel(heading), label, "");
     }
 
     buckets[bucketName].push({
@@ -817,6 +858,14 @@ function parseThreadDownloads(html, site = "f95") {
       // folded in. Empty when the post gave no build heading - the DISPLAY layer
       // names that case, so the parser and the UI cannot disagree about a string.
       group: headingLabel(heading),
+      // The poster's sub-heading inside the part ("COMPRESSED (V95)", "Others"),
+      // empty when the rows sit directly under the part. Kept apart from `group`
+      // so the part name survives as the build and the section labels the row.
+      section: heading.section,
+      // True when the build heading is a spoiler title the LC pre-pass
+      // promoted. The kind checks ignore that title's prose and read only the
+      // section and the anchor label.
+      headingIsBuild: titleBuild,
       // Platform as its own axis, raw as written ("Win/Linux/Mac"). A filter,
       // not part of the option's name.
       platform: heading.platform,

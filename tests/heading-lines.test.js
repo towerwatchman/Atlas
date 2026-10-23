@@ -4,6 +4,7 @@ import {
   splitHeadingLines,
   classifyHeadingLine,
   applyHeadingLines,
+  applyBuildLine,
   emptyHeading,
   headingLabel,
   stripTags,
@@ -83,6 +84,17 @@ describe('classifyHeadingLine', () => {
     }
   })
 
+  it('reads an Others marker as a section, not a build', () => {
+    // Read as a build, the marker replaced the part name, so the modal offered
+    // "Others: COMPRESSED (V95)*" as a build beside Part 1..8.
+    expect(classifyHeadingLine('Others:  COMPRESSED (V95)*')).toBe('section')
+    expect(classifyHeadingLine('Other: Compressed*')).toBe('section')
+    expect(classifyHeadingLine('Others')).toBe('section')
+    // Only the bare marker or the colon form. A build that starts with the word
+    // is still a build.
+    expect(classifyHeadingLine('Other games')).toBe('build')
+  })
+
   it('does not read a line that tokenizes to nothing as a platform', () => {
     // The bare value "-" appears in the data. A separator bold is not a build:
     // treating it as "platform: none" would wipe the platform of the build
@@ -99,6 +111,14 @@ describe('classifyHeadingLine', () => {
 describe('applyHeadingLines', () => {
   const fold = (...bolds) => {
     let state = emptyHeading()
+    for (const bold of bolds) state = applyHeadingLines(state, splitHeadingLines(bold))
+    return state
+  }
+
+  // "Part 6" is a part line on its own; the parser promotes it to a build when
+  // the platform below proves it named one. Sections hang under that build.
+  const foldFrom = (buildName, ...bolds) => {
+    let state = applyBuildLine(emptyHeading(), buildName)
     for (const bold of bolds) state = applyHeadingLines(state, splitHeadingLines(bold))
     return state
   }
@@ -174,6 +194,42 @@ describe('applyHeadingLines', () => {
     expect(fold('Build A', 'Part 3', 'Build B').part).toBe(null)
   })
 
+  it('keeps the part as the base and records the Others marker as a section', () => {
+    // A section marker is a sub-heading inside the part above it, not a build of
+    // its own. Its platform clears because the rows below belong to the section.
+    const state = foldFrom('Part 6', 'Others:  COMPRESSED (V95)*')
+    expect(headingLabel(state)).toBe('Part 6')
+    expect(state.section).toBe('COMPRESSED (V95)')
+    expect(state.platform).toBe('')
+  })
+
+  it('cleans the marker: "Other: Compressed*" becomes "Compressed"', () => {
+    expect(foldFrom('Part 1 - v0.16', 'Other: Compressed*').section).toBe('Compressed')
+  })
+
+  it('names a bare marker "Others", whichever spelling the poster used', () => {
+    expect(foldFrom('Part 1', 'Others').section).toBe('Others')
+    expect(foldFrom('Part 1', 'Other:').section).toBe('Others')
+  })
+
+  it('keeps the section across platform and quality lines', () => {
+    const state = foldFrom('Part 6', 'Others: COMPRESSED (V95)*', 'Win/Linux')
+    expect(state.section).toBe('COMPRESSED (V95)')
+    expect(state.platform).toBe('Win/Linux')
+  })
+
+  it('clears the section when a new build arrives', () => {
+    expect(foldFrom('Part 6', 'Others: COMPRESSED (V95)*', 'Part 5 - v0.85').section).toBe('')
+  })
+
+  it('clears the section when a held part line is promoted to a build', () => {
+    // The parser holds "Part 5" until the platform below proves it named a
+    // build. That promotion must end the section, or Part 6's compressed rows
+    // stay latched over Part 5.
+    const state = applyBuildLine(foldFrom('Part 6', 'Others: COMPRESSED (V95)*'), 'Part 5')
+    expect(state.section).toBe('')
+  })
+
   it('does not read a build that merely mentions parts as a fragment', () => {
     // Anchored to the whole line: requiring the line to BE the marker is what
     // keeps a real build label out of the part axis.
@@ -185,22 +241,22 @@ describe('applyHeadingLines', () => {
   it('does not mutate the state it was given', () => {
     const start = emptyHeading()
     applyHeadingLines(start, ['Season 1', 'Win'])
-    expect(start).toEqual({ base: '', quality: '', platform: '', part: null })
+    expect(start).toEqual({ base: '', quality: '', platform: '', part: null, section: '' })
   })
 
   it('tolerates a missing or malformed state and line list', () => {
     expect(applyHeadingLines(null, null)).toEqual({
-      base: '', quality: '', platform: '', part: null,
+      base: '', quality: '', platform: '', part: null, section: '',
     })
     expect(applyHeadingLines(undefined, ['Win'])).toEqual({
-      base: '', quality: '', platform: 'Win', part: null,
+      base: '', quality: '', platform: 'Win', part: null, section: '',
     })
   })
 
   it('handles all three lines arriving in one bold, in order', () => {
     const state = applyHeadingLines(emptyHeading(), ['Season 1', '1080p', 'Win/Linux'])
     expect(state).toEqual({
-      base: 'Season 1', quality: '1080p', platform: 'Win/Linux', part: null,
+      base: 'Season 1', quality: '1080p', platform: 'Win/Linux', part: null, section: '',
     })
     expect(headingLabel(state)).toBe('Season 1 1080p')
   })

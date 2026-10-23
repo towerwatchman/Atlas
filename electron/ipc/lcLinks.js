@@ -20,6 +20,8 @@ const USER_AGENT =
   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 const { supportedHostIds } = require("../downloads/hosts");
+const forumWindowFetch = require("../downloads/forumWindowFetch");
+const appLog = require("../appLog");
 
 const SUPPORTED_HOSTS = new Set(supportedHostIds());
 
@@ -68,12 +70,15 @@ function getThreadTier(lcId) {
 
 async function fetchThreadHtml(lcId) {
   const url = THREAD_URL.replace("{id}", encodeURIComponent(String(lcId)));
+  const stages = { ensureFreshMs: 0, fetchMs: 0, windowMs: 0 };
   let fresh = false;
+  const freshStartedAt = Date.now();
   try {
     fresh = await accountStore.ensureFreshCookies("lewdcorner");
   } catch (err) {
     console.warn("Could not refresh LewdCorner cookies:", err.message);
   }
+  stages.ensureFreshMs = Date.now() - freshStartedAt;
   const cookieHeader = accountStore.getCookieHeaderForUrl(url) || "";
   if (!cookieHeader) {
     // Logged-out visitors can read the thread but the server withholds the
@@ -87,6 +92,7 @@ async function fetchThreadHtml(lcId) {
   if (!fresh) {
     console.warn("LewdCorner cookies did not verify as fresh; attempting the fetch anyway");
   }
+  const fetchStartedAt = Date.now();
   const response = await fetch(url, {
     headers: {
       cookie: cookieHeader,
@@ -95,10 +101,22 @@ async function fetchThreadHtml(lcId) {
     },
     redirect: "follow",
   });
-  if (!response.ok) {
-    throw new Error(`LewdCorner returned ${response.status} for thread ${lcId}`);
-  }
-  return response.text();
+  stages.fetchMs = Date.now() - fetchStartedAt;
+  // Same handoff the F95 fetcher does: the node fetch cannot carry a
+  // Cloudflare grant, so the thread loads in a real window. The stored
+  // header travels whole; whether the harvested grant reaches the jar is
+  // applyCookies' only-if-absent decision. The steer is logged here.
+  return forumWindowFetch.withWindowFallback(lcId, cookieHeader, {
+    host: SITES.lewdcorner.self,
+    siteLabel: "LewdCorner",
+    response,
+    stages,
+    onSteer: (status) => appLog.write("lc-links", {
+      event: "window-fallback",
+      threadId: String(lcId),
+      status,
+    }),
+  });
 }
 
 /**
@@ -112,8 +130,11 @@ async function getLcLinks(lcId, { force = false } = {}) {
     return { ...cache.get(key).payload, cached: true };
   }
 
-  const html = await fetchThreadHtml(lcId);
+  const fetchStartedAt = Date.now();
+  const { html, stages } = await fetchThreadHtml(lcId);
+  const parseStartedAt = Date.now();
   const parsed = parseLcThreadDownloads(html);
+  const parseMs = Date.now() - parseStartedAt;
 
   if (!parsed.found) {
     throw new Error("Could not read the thread. It may have been removed or moved.");
@@ -143,6 +164,9 @@ async function getLcLinks(lcId, { force = false } = {}) {
   const payload = {
     ok: true,
     threadId: String(lcId),
+    // The version the thread itself advertises, not the catalog's copy. Empty
+    // when the title carries none; the tab then shows only the source name.
+    version: parsed.version || "",
     links: [
       ...selection.singles.map(({ link, verdict, index }) => ({
         order: index,
@@ -150,6 +174,7 @@ async function getLcLinks(lcId, { force = false } = {}) {
         host: link.host,
         label: link.label,
         group: link.group,
+        section: link.section || '',
         platform: link.platform || '',
         masked: link.masked,
         compressed: verdict.compressed,
@@ -167,6 +192,7 @@ async function getLcLinks(lcId, { force = false } = {}) {
           host: set.host,
           label: `${first.link.label} (${files.length} parts)`,
           group: set.group,
+          section: set.section || '',
           platform: set.platform || '',
           masked: files.some((file) => file.masked),
           compressed: first.verdict.compressed,
@@ -182,6 +208,7 @@ async function getLcLinks(lcId, { force = false } = {}) {
         host: link.host,
         label: link.label,
         group: link.group,
+        section: link.section || '',
         platform: link.platform || '',
         masked: link.masked,
         compressed: verdict.compressed,
@@ -198,6 +225,17 @@ async function getLcLinks(lcId, { force = false } = {}) {
   };
 
   cache.set(key, { at: Date.now(), payload });
+  // Every duration the fetch path owns, one file line: survives in packaged
+  // builds the way console output cannot.
+  appLog.write("lc-links", {
+    threadId: String(lcId),
+    ensureFreshMs: stages.ensureFreshMs,
+    fetchMs: stages.fetchMs,
+    windowMs: stages.windowMs,
+    parseMs,
+    totalMs: Date.now() - fetchStartedAt,
+    links: payload.links.length,
+  });
   return { ...payload, cached: false };
 }
 
