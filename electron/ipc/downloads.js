@@ -172,6 +172,12 @@ function registerDownloadsHandlers(ctx = {}) {
           leftGateHost: result.leftGateHost,
           cdnPath: result.cdnPath,
           ms: Date.now() - resolveStart,
+          // Why a resolve that came back with diagnostics still failed: the
+          // cancel/close and timeout paths carry their explanation here, not in
+          // the diagnostics object.
+          error: result.error,
+          timedOut: !!result.timedOut,
+          canceled: !!result.canceled,
           ...result.diagnostics,
         }, { devtools: true });
       } else if (!result?.ok) {
