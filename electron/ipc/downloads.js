@@ -117,6 +117,8 @@ function registerDownloadsHandlers(ctx = {}) {
   // URL fragment, and Mega's decryption key lives there. The first real
   // resolve tells us which source to trust.
   ipcMain.handle("downloads-resolve-masked", async (event, { url, title = "", site } = {}) => {
+    // Outside the try: the catch's failed line reports the same clock.
+    const resolveStart = Date.now();
     try {
       if (!url) return { ok: false, error: "No URL supplied" };
       // An explicit site wins. Otherwise infer from the URL, because the
@@ -141,7 +143,6 @@ function registerDownloadsHandlers(ctx = {}) {
       const cookieHeader = accountStore.getCookieHeaderForUrl(url) || "";
       const parentWindow = BrowserWindow.fromWebContents(event.sender);
       const plugin = pluginFor ? pluginFor(url) : null;
-      const resolveStart = Date.now();
       const result = await resolveMaskedLink(url, {
         parentWindow,
         cookieHeader,
@@ -158,8 +159,10 @@ function registerDownloadsHandlers(ctx = {}) {
       // the hidden attempt works and that hx-redirect / will-download land
       // where they should; dropping the log would make a regression in either
       // invisible.
+      // appLog rather than console.log: the same line now reaches atlas.log
+      // and the in-app DevTools console, not only a dev terminal.
       if (result?.diagnostics) {
-        console.log("[masked-resolve]", JSON.stringify({
+        appLog.write("masked-resolve", {
           ok: result.ok,
           host: result.host,
           hasFragment: result.hasFragment,
@@ -170,10 +173,26 @@ function registerDownloadsHandlers(ctx = {}) {
           cdnPath: result.cdnPath,
           ms: Date.now() - resolveStart,
           ...result.diagnostics,
-        }));
+        }, { devtools: true });
+      } else if (!result?.ok) {
+        // A failed resolve without diagnostics — the queue swallows this
+        // into a UI error string, so the log is the only record of it.
+        appLog.write("masked-resolve", {
+          event: "failed",
+          plugin: plugin?.id || null,
+          ms: Date.now() - resolveStart,
+          error: result?.error || "unknown",
+          timedOut: !!result?.timedOut,
+          canceled: !!result?.canceled,
+        }, { devtools: true });
       }
       return result;
     } catch (err) {
+      appLog.write("masked-resolve", {
+        event: "failed",
+        ms: Date.now() - resolveStart,
+        error: err.message || String(err),
+      }, { devtools: true });
       return { ok: false, error: err.message || String(err) };
     }
   });

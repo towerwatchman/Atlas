@@ -20,6 +20,8 @@
 // Account endpoints live on the main domain.
 const API_BASE = "https://buzzheavier.com";
 
+const appLog = require("../../appLog");
+
 // Downloads must be requested from the SAME origin the link was posted on.
 // Shares appear as bzzhr.to; asking buzzheavier.com for a bzzhr.to id was the
 // original bug - a cross-domain request that Cloudflare answered with a
@@ -159,6 +161,7 @@ async function probe(url, credentials = {}) {
   try {
     response = await fetch(`${base}/${fileId}/download`, { headers, redirect: "manual" });
   } catch (err) {
+    appLog.write("bzzhr", { event: "probe-fetch-failed", fileId, error: err.message || String(err) }, { devtools: true });
     return { ok: false, kind: classifyError(err), error: err.message || String(err) };
   }
 
@@ -169,6 +172,15 @@ async function probe(url, credentials = {}) {
   if (!redirect) {
     const snippet = await response.text().then((t) => t.slice(0, 300)).catch(() => "");
     const challenged = /turnstile|just a moment|cf-chl/i.test(snippet);
+    // cf-mitigated is Cloudflare's own header; recording both signals names the
+    // gate rather than guessing from the body text alone.
+    appLog.write("bzzhr", {
+      event: "probe-no-redirect",
+      fileId,
+      status: response.status,
+      challenged,
+      cfMitigated: response.headers.get("cf-mitigated") || null,
+    }, { devtools: true });
     return {
       ok: false,
       kind: challenged ? "quota" : classifyError(null, { status: response.status }),
@@ -186,6 +198,19 @@ async function probe(url, credentials = {}) {
   }
 
   const directUrl = redirect.startsWith("http") ? redirect : `${base}${redirect}`;
+
+  let directHost = "";
+  try {
+    directHost = new URL(directUrl).host;
+  } catch {
+    /* leave empty; the manager derives its own */
+  }
+  appLog.write("bzzhr", {
+    event: "probe-ok",
+    fileId,
+    status: response.status,
+    directHost,
+  }, { devtools: true });
 
   // The filename is not returned by this route, so derive it from the resolved
   // URL; the transfer's Content-Disposition takes over if it has one.

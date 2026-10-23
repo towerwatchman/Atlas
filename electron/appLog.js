@@ -89,9 +89,14 @@ function rotate(file) {
  * always named the same thing can be searched for. Values that are `undefined`
  * are dropped by JSON.stringify, so callers can pass optional fields inline.
  *
- * Mirrored to console so a dev terminal still shows everything.
+ * Mirrored to console so a dev terminal still shows everything, and into the
+ * console of every window that has DevTools open ("enable console" setting)
+ * when the caller asks for it: pass { devtools: true }. Main-process output
+ * otherwise never reaches the app's own console panel, which shows only the
+ * renderer. Opt-in per callsite so the view stays a diagnostics feed, not every
+ * library chatter the app emits.
  */
-function write(tag, payload) {
+function write(tag, payload, { devtools = false } = {}) {
   const stamp = new Date().toISOString();
   let body;
   try {
@@ -101,6 +106,7 @@ function write(tag, payload) {
   }
   const line = `[${stamp}] [${tag}] ${body}`;
   console.log(line);
+  if (devtools) forwardToDevTools(line);
 
   const dir = logDirectory();
   if (!dir) return;
@@ -112,6 +118,25 @@ function write(tag, payload) {
   } catch {
     // A log that throws would turn a diagnostic into an outage. An unwritable
     // data folder is already surfaced by main.js's dataWriteState.
+  }
+}
+
+function forwardToDevTools(line) {
+  try {
+    const { BrowserWindow } = require("electron");
+    if (typeof BrowserWindow?.getAllWindows !== "function") return;
+    for (const win of BrowserWindow.getAllWindows()) {
+      try {
+        if (win.isDestroyed() || !win.webContents.isDevToolsOpened()) continue;
+        win.webContents
+          .executeJavaScript(`console.log(${JSON.stringify(line)})`)
+          .catch(() => {});
+      } catch {
+        // A tearing-down window must not break the log append.
+      }
+    }
+  } catch {
+    // Not under Electron (tests) — file log still works.
   }
 }
 

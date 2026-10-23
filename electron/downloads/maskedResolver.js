@@ -42,6 +42,7 @@
 // of shipping an assumption and discovering it broken on a 4GB download.
 
 const { BrowserWindow, session: electronSession } = require("electron");
+const appLog = require("../appLog");
 const {
   F95_HOST,
   isGateUrl,
@@ -146,6 +147,14 @@ async function applyCookies(ses, cookieHeader, baseUrl = `https://${F95_HOST}/`)
     // A malformed base keeps the F95 default instead of failing the resolve.
   }
   let applied = 0;
+  // Which Cloudflare cookies materialised where. One line per header that
+  // carries any: `seeded` means the jar lacked that grant before us (each
+  // fetch then starts from a fresh challenge), `jarHad` means the jar already
+  // held it and we stayed out of the way. The pairing is what distinguishes a
+  // report of "challenged every time" between no grant persisted and
+  // Cloudflare challenging despite a live grant.
+  const seeded = [];
+  const jarHad = [];
   for (const pair of String(cookieHeader).split(";")) {
     const trimmed = pair.trim();
     if (!trimmed) continue;
@@ -160,9 +169,14 @@ async function applyCookies(ses, cookieHeader, baseUrl = `https://${F95_HOST}/`)
     if (isCloudflareCookie(name)) {
       try {
         const present = await ses.cookies.get({ url: baseUrl, name });
-        if (present.length > 0) continue;
+        if (present.length > 0) {
+          jarHad.push(name);
+          continue;
+        }
+        seeded.push(name);
       } catch {
         // Jar unreadable — still seed rather than lose the session grant.
+        seeded.push(name);
       }
     }
     try {
@@ -179,6 +193,11 @@ async function applyCookies(ses, cookieHeader, baseUrl = `https://${F95_HOST}/`)
     } catch (err) {
       console.warn(`Could not set cookie ${name}:`, err.message);
     }
+  }
+  // Only headers that actually carry CF cookies produce a line, so the ordinary
+  // forum-cookie seeding stays silent. Values never go out, only names.
+  if (seeded.length > 0 || jarHad.length > 0) {
+    require("../appLog").write("cf-jar", { host: domain, seeded, jarHad }, { devtools: true });
   }
   return applied;
 }
@@ -285,6 +304,17 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     // hand. A const at the registration site would sit in its TDZ for any early
     // finish path.
     let onWillDownload = null;
+    // CF challenge tracking for the poll: how many separate challenge pages
+    // this resolve met, and whether the current page is one. Not every tick --
+    // a challenge that loops produces one line per loop.
+    let challengeActive = false;
+    let challengeSeen = 0;
+    // When the current cycle's challenge page first appeared; challenge-passed
+    // reports how long it held.
+    let challengeStartedAt = null;
+    // This tick's gate-poll CF verdict, hoisted out of the first poll try so
+    // the transition logger below can read it.
+    let gatePollCf = false;
     // Which path produced the answer. Reported in the result so the first real
     // runs show whether the hidden attempt is actually working, rather than
     // this being assumed.
@@ -295,6 +325,9 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       if (revealed || settled) return;
       revealed = true;
       resolvedVia = `visible:${reason}`;
+      // A resolve that needed a human is the prime suspect whenever a host
+      // blocks us: the reason and the cf-jar line above pair into one story.
+      require("../appLog").write("masked-resolve", { event: "reveal", reason }, { devtools: true });
       try {
         if (!win.isDestroyed()) {
           win.show();
@@ -326,6 +359,7 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
         fragmentSources: candidates.filter((entry) => entry.fragment).map((entry) => entry.source),
         resolvedVia,
         revealed,
+        challengeSeen,
       };
       try {
         if (!win.isDestroyed()) win.destroy();
@@ -562,6 +596,7 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
             10000,
             "gate poll",
           );
+          gatePollCf = result.cf;
           if (result.cf) {
             reveal("cloudflare");
           }
@@ -587,6 +622,29 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
           }
         } catch {
           // dl poll errors are non-fatal; the capture points still settle
+        }
+        // CF challenge state transitions, not every tick: one line when a
+        // challenge page appears and one when it passes. A page that keeps
+        // challenging produces challenge/challenge-passed pairs per cycle —
+        // the same footprints a "verified then challenged again" report
+        // shows, with how long the challenge held.
+        if (gatePollCf && !challengeActive) {
+          challengeActive = true;
+          challengeSeen += 1;
+          challengeStartedAt = Date.now();
+          appLog.write("masked-resolve", {
+            event: "challenge",
+            host: hostOf(maskedUrl),
+            cycle: challengeSeen,
+          }, { devtools: true });
+        } else if (!gatePollCf && challengeActive) {
+          challengeActive = false;
+          appLog.write("masked-resolve", {
+            event: "challenge-passed",
+            host: hostOf(maskedUrl),
+            cycle: challengeSeen,
+            heldMs: Date.now() - challengeStartedAt,
+          }, { devtools: true });
         }
       }, 1000);
       // Cache the browser session cookies / headers so they can be handed back
@@ -631,6 +689,19 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     // ── Go ──────────────────────────────────────────────────────────────────
     (async () => {
       try {
+        // Jar grant state BEFORE seeding: pairs with the challenge/reveal
+        // lines so a resolve challenged despite a live grant reads as
+        // Cloudflare refusing our fingerprint, not a missing grant.
+        try {
+          const grant = await ses.cookies.get({ url: baseUrl, name: "cf_clearance" });
+          appLog.write("cf-jar", {
+            event: "resolve",
+            host: hostOf(maskedUrl),
+            grant: grant.length > 0,
+          }, { devtools: true });
+        } catch {
+          // Jar unreadable — applyCookies below still seeds.
+        }
         await applyCookies(ses, cookieHeader, baseUrl);
         await contents.loadURL(maskedUrl);
         // Stay hidden while the automated attempt runs. reveal() brings it up

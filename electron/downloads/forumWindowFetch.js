@@ -62,6 +62,12 @@ function fetchHtmlViaWindow(url, cookieHeader, {
     let cookiesSeeded = 0;
     // Wall-clock from window open, so a slow fetch points at the phase that ate the time.
     const openedAt = Date.now();
+    // One line per challenge -> passed cycle, so a challenge that auto-resolves
+    // inside a couple of seconds still shows in the log even when no window
+    // tick ever caught it visibly. Same shape the resolver logs challenges in.
+    let challengeActive = false;
+    let challengeCycles = 0;
+    let challengeStartedAt = null;
 
     const win = new BrowserWindow({
       width: 1000,
@@ -115,7 +121,7 @@ function fetchHtmlViaWindow(url, cookieHeader, {
         event: "challenge-visible",
         host,
         elapsedMs: Date.now() - openedAt,
-      });
+      }, { devtools: true });
       try {
         if (!win.isDestroyed()) {
           win.show();
@@ -170,10 +176,33 @@ function fetchHtmlViaWindow(url, cookieHeader, {
       }
       if (!state) return;
       lastPollError = null;
-      if (CHALLENGE_MARKERS.test(`${state.title} ${state.body}`)) {
+      const challenged = CHALLENGE_MARKERS.test(`${state.title} ${state.body}`);
+      if (challenged) {
+        if (!challengeActive) {
+          challengeActive = true;
+          challengeCycles += 1;
+          challengeStartedAt = Date.now();
+          appLog.write("forum-window", {
+            event: "challenge",
+            host,
+            cycle: challengeCycles,
+          }, { devtools: true });
+        }
         calmPolls = 0;
         reveal();
         return;
+      }
+      // The challenge passed: close the cycle with how long it held, so a
+      // "verified then immediately challenged again" sequence reads as a
+      // challenge-passed followed by the next cycle's challenge.
+      if (challengeActive) {
+        challengeActive = false;
+        appLog.write("forum-window", {
+          event: "challenge-passed",
+          host,
+          cycle: challengeCycles,
+          heldMs: Date.now() - challengeStartedAt,
+        }, { devtools: true });
       }
       // Past the challenge and ready: two calm polls so late-injected markup
       // settles. "complete" is too strict here - the DOM the caller wanted is
@@ -205,7 +234,7 @@ function fetchHtmlViaWindow(url, cookieHeader, {
                 htmlReadMs: Date.now() - captureStartedAt,
                 navigations: navSettles,
                 totalMs: Date.now() - openedAt,
-              });
+              }, { devtools: true });
               done(resolve, String(html));
             }
           } catch {

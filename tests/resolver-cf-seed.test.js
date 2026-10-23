@@ -58,4 +58,18 @@ describe('applyCookies cf-only-if-absent', () => {
     expect(setCalls.some(([name]) => name === 'cf_clearance')).toBe(false)
     expect(setCalls).toEqual(expect.arrayContaining([['xf_session', '2']]))
   })
+
+  it('logs which cloudflare cookies were seeded versus already in the jar', async () => {
+    const { applyCookies, fakeSes } = installStubs({
+      jar: [{ name: 'cf_clearance', value: 'jar-solved' }],
+    })
+    const lines = []
+    vi.spyOn(console, 'log').mockImplementation((...args) => lines.push(args.join(' ')))
+    await applyCookies(fakeSes, 'xf_session=2; cf_clearance=stale-harvest', 'https://lewdcorner.com/threads/1/')
+    const cfLine = lines.find((l) => l.includes('[cf-jar]'))
+    expect(cfLine).toContain('lewdcorner.com')
+    // Values never travel; only names and which side of the jar they landed on.
+    expect(cfLine).toContain('"jarHad":["cf_clearance"]')
+    expect(cfLine).not.toContain('stale-harvest')
+  })
 })

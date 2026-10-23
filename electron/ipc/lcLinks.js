@@ -115,7 +115,7 @@ async function fetchThreadHtml(lcId) {
       event: "window-fallback",
       threadId: String(lcId),
       status,
-    }),
+    }, { devtools: true }),
   });
 }
 
@@ -235,7 +235,7 @@ async function getLcLinks(lcId, { force = false } = {}) {
     parseMs,
     totalMs: Date.now() - fetchStartedAt,
     links: payload.links.length,
-  });
+  }, { devtools: true });
   return { ...payload, cached: false };
 }
 
