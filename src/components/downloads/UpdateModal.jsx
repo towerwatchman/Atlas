@@ -72,7 +72,8 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
   // thread's links under the new game's name until its own fetch came back.
   const loadEpoch = useRef(0)
 
-  // One entry per linked source. The tab row only renders when both ids exist.
+  // One entry per linked source. A single source keeps its tab: that tab
+  // carries the fetched version, which nothing else on the dialog shows.
   const sources = [
     ...(f95ThreadId ? [{ key: 'f95', id: f95ThreadId }] : []),
     ...(lcThreadId ? [{ key: 'lewdcorner', id: lcThreadId }] : []),
@@ -351,7 +352,7 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
           </button>
         </div>
 
-        {sources.length > 1 && (
+        {sources.length > 0 && (
           <div role="tablist" aria-label="Download sources" className="px-4 flex gap-2 border-b border-border shrink-0">
             {sources.map((source) => {
               const selected = activeSource === source.key

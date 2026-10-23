@@ -26,11 +26,11 @@ const lcLinks = [link('vikingfile.com', 'Season 2')]
 
 const mount = (game, { f95 = f95Links, lc = lcLinks, lcError = null } = {}) => {
   window.electronAPI = {
-    updateLinksGet: vi.fn().mockResolvedValue({ ok: true, threadId: '95982', links: f95 }),
+    updateLinksGet: vi.fn().mockResolvedValue({ ok: true, threadId: '95982', links: f95, version: '0.20' }),
     lcLinksGet: vi.fn().mockImplementation(async () =>
       lcError
         ? { ok: false, error: lcError.error, code: lcError.code }
-        : { ok: true, threadId: '3272', links: lc }),
+        : { ok: true, threadId: '3272', links: lc, version: '0.19' }),
     openExternalUrl: vi.fn(),
     downloadsResolveMasked: vi.fn(),
     downloadsEnqueue: vi.fn().mockResolvedValue({ success: true, item: {} }),
@@ -73,18 +73,25 @@ describe('UpdateModal source tabs', () => {
     expect(screen.queryByText('mega.nz')).toBeNull()
   })
 
-  it('single-source F95 shows no tab row and behaves as today', async () => {
+  it('single-source F95 still shows its tab, carrying the version', async () => {
     mount({ title: 'Game', f95_id: '95982' })
     await waitFor(() => { expect(screen.getByText('mega.nz')).toBeTruthy() })
-    expect(screen.queryByRole('tab')).toBeNull()
+    expect(screen.getByRole('tab', { name: 'F95zone 0.20' })).toBeTruthy()
+    expect(screen.queryByRole('tab', { name: /LewdCorner/i })).toBeNull()
     expect(window.electronAPI.lcLinksGet).not.toHaveBeenCalled()
   })
 
-  it('LC-only game loads LC on open with no tab row', async () => {
+  it('LC-only game shows its tab and loads LC on open', async () => {
     mount({ title: 'Game', lc_id: '3272' })
     await waitFor(() => { expect(screen.getByText('vikingfile.com')).toBeTruthy() })
-    expect(screen.queryByRole('tab')).toBeNull()
+    expect(screen.getByRole('tab', { name: 'LewdCorner 0.19' })).toBeTruthy()
+    expect(screen.queryByRole('tab', { name: /F95/i })).toBeNull()
     expect(window.electronAPI.updateLinksGet).not.toHaveBeenCalled()
+  })
+
+  it('no linked source keeps the tab row out', async () => {
+    mount({ title: 'Game' })
+    expect(screen.queryByRole('tab')).toBeNull()
   })
 
   it('tier failure renders the reason in the LC tab instead of hiding it', async () => {
