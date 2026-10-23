@@ -129,17 +129,42 @@ async function fetchThreadHtml(threadId) {
   try {
     response = await impl(url, init);
   } catch (err) {
-    console.warn(`F95 thread fetch failed for ${threadId} (cookies: ${cookieNames()}): ${err.message || err} cause=${err?.cause?.code || err?.cause?.message || 'n/a'}`);
+    // appLog over console.warn: the same line then lands in atlas.log and the
+    // in-app DevTools console instead of only the dev terminal.
+    appLog.write("f95-links", {
+      event: "ses-fetch-failed",
+      threadId: String(threadId),
+      cookies: cookieNames(),
+      error: `${err.message || err} cause=${err?.cause?.code || err?.cause?.message || 'n/a'}`,
+    }, { devtools: true });
     throw err;
   }
   stages.attemptMs += Date.now() - attemptStartedAt;
   // 403 and the challenge-signed 200 steer into the window, shared with the
-  // LC fetcher; the window's own [forum-window] line covers the steer.
-  return forumWindowFetch.withWindowFallback(threadId, explicitCookies, {
-    siteLabel: "F95zone",
-    response,
-    stages,
-  });
+  // LC fetcher; the onSteer line records the status that forced it.
+  try {
+    // await so a failed window fallback lands in the catch below, not out
+    // into the caller as an unlogged rejection.
+    return await forumWindowFetch.withWindowFallback(threadId, explicitCookies, {
+      siteLabel: "F95zone",
+      response,
+      stages,
+      // Same steer line the LC fetcher logs: the status that forced the window,
+      // because the window's own [forum-window] lines start after it.
+      onSteer: (status) => appLog.write("f95-links", {
+        event: "window-fallback",
+        threadId: String(threadId),
+        status,
+      }, { devtools: true }),
+    });
+  } catch (err) {
+    appLog.write("f95-links", {
+      event: "window-fallback-failed",
+      threadId: String(threadId),
+      error: err.message || String(err),
+    }, { devtools: true });
+    throw err;
+  }
 }
 
 /**
@@ -275,7 +300,7 @@ async function getUpdateLinks(threadId, { force = false } = {}) {
     windowMs: stages.windowMs,
     totalMs: Date.now() - fetchStartedAt,
     links: payload.links.length,
-  });
+  }, { devtools: true });
   return { ...payload, cached: false };
 }
 

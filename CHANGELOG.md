@@ -21,6 +21,7 @@
   - Path resolution highlighting: red if invalid, green if path exists or pass the check.
   
 ### Added
+- Add debug log for CF / masked resolve handling on downloader popup & send to devtool
 - Add Esc keyboard handling for exit game entry page + input boxes to support (#130)
 - Game detail metadata is now clickable (#130)
   - Tags, category, engine and status jump to that filtered search, while developer and language run a text search.
