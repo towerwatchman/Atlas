@@ -374,6 +374,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   hostsMegaSelfTest: () => ipcRenderer.invoke("hosts-mega-selftest"),
   updateLinksGet: (params) => ipcRenderer.invoke("update-links-get", params),
   updateLinksClearCache: (params) => ipcRenderer.invoke("update-links-clear-cache", params),
+  // Clears Chromium's HTTP disk cache, the "web" cache of streamed remote
+  // media behind Settings -> Metadata's "Clear image cache" row. Scoped to
+  // "web" to avoid name clashes with Atlas-native caches and the external
+  // browser setting. Downloaded files are unaffected.
+  clearWebImageCache: () => ipcRenderer.invoke("media-web-image-cache-clear"),
+  // Approximate on-disk size of that cache, for the same settings row.
+  getWebImageCacheInfo: () => ipcRenderer.invoke("media-web-image-cache-info"),
   lcLinksGet: (params) => ipcRenderer.invoke("lewdcorner-links-get", params),
   lcLinksClearCache: (params) => ipcRenderer.invoke("lewdcorner-links-clear-cache", params),
   // Field switch used to re-run a CF challenge on demand; one-shot from the

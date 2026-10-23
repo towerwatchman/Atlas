@@ -1,4 +1,7 @@
 const assert = require('assert')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
 
 const { applyMediaSources } = require('../electron/db/mediaSources')
 const { buildBannerSelectFields } = require('../electron/db/helpers')
@@ -59,6 +62,41 @@ const customBannerGame = applyMediaSources({
 
 assert.strictEqual(customBannerGame.banner_url, 'C:/Atlas/src/data/images/45/banner_custom_mc.webp')
 assert.deepStrictEqual(customBannerGame.banner_candidates, ['C:/Atlas/src/data/images/45/banner_custom_mc.webp'])
+
+// Downloaded SOURCE banner: pinned only when its file is really on disk.
+// A present file must be served (the caller's file check feeds bannerFileExists);
+// rows pointing at a deleted file fall back to the remote source chain instead
+// of serving a permanent broken image.
+const pinnedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-banner-pin-'))
+const pinnedFile = path.join(pinnedDir, 'banner_f95_mc.webp')
+fs.writeFileSync(pinnedFile, Buffer.alloc(1))
+
+const presentFilePinnedGame = applyMediaSources({
+  record_id: 46,
+  steam_id: '12345',
+  banner_source: 'download',
+  banner_url: pinnedFile,
+  f95_banner: 'https://f95.example/banner.jpg',
+  steam_header: 'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/12345/header.jpg',
+}, { sourceOrder: ['steam', 'f95'], bannerFileExists: true })
+
+assert.strictEqual(presentFilePinnedGame.banner_url, pinnedFile)
+assert.deepStrictEqual(presentFilePinnedGame.banner_candidates, [pinnedFile])
+
+// Same row shape, but the file is gone: the remote chain must win again.
+const deletedFileGame = applyMediaSources({
+  record_id: 47,
+  banner_source: 'download',
+  banner_url: path.join(pinnedDir, 'banner_f95_gone_mc.webp'),
+  f95_banner: 'https://f95.example/banner.jpg',
+  steam_header: 'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/12345/header.jpg',
+}, { sourceOrder: ['steam', 'f95'], bannerFileExists: false })
+
+assert.strictEqual(
+  deletedFileGame.banner_url,
+  'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/12345/header.jpg',
+)
+fs.rmSync(pinnedDir, { recursive: true, force: true })
 
 const bannerSelectFields = buildBannerSelectFields('C:/Atlas/src', 'download')
 assert.ok(

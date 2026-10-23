@@ -203,12 +203,16 @@ const applyMediaSources = (game, options = {}) => {
   game.steam_appid = appid
   game.gog_id = game.gog_id || gogId
 
-  // Banner: custom/user banners must win, but downloaded source banners still
-  // follow metadata source order. Otherwise a cached F95 banner masks a higher
-  // priority Steam header in the gallery grid.
+  // Banner: custom/user banners must win unconditionally. Downloaded source
+  // banners pin their file too, but only when the caller confirmed the file is
+  // really on disk (bannerFileExists) — rows pointing at a deleted file must
+  // fall back to the source order instead of serving a permanent broken image.
+  // With a present file, serving the download beats picking a remote source:
+  // the user's storage setting already chose to keep that art locally.
   const bannerSource = game.banner_source
   const isCustomBanner = /banner_custom_/i.test(String(game.banner_url || ''))
-  const isPinnedBanner = isCustomBanner && (bannerSource === 'download' || bannerSource === 'download-animated')
+  const isDownloadedSource = bannerSource === 'download' || bannerSource === 'download-animated'
+  const isPinnedBanner = isCustomBanner || (isDownloadedSource && options.bannerFileExists === true)
   let bannerCandidates
   if (!isPinnedBanner) {
     bannerCandidates = bannerCandidatesForOrder(game, order, appid)

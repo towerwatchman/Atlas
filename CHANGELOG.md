@@ -21,6 +21,7 @@
   - Path resolution highlighting: red if invalid, green if path exists or pass the check.
   
 ### Added
+- Add a settings in Metadata section to clear web image cache to prevent image cached from transient 404 errors
 - Add debug log for CF / masked resolve handling on downloader popup & send to devtool
 - Add Esc keyboard handling for exit game entry page + input boxes to support (#130)
 - Game detail metadata is now clickable (#130)
@@ -42,6 +43,7 @@
 - Added a "Download Version" entry to the split-button caret on the game detail page, beside "Manual Install". It opens the same downloads modal the UPDATE button does, listing every build and mirror the thread offers, so a different version can be fetched over one already installed. Previously an installed title with no pending update had no route to that modal at all: the primary button becomes PLAY once a version is installed, and the UPDATE button only renders when an update is flagged. The entry goes straight to the downloads modal rather than through the source picker, and is shown disabled with a reason for titles with no F95zone thread linked.
 
 ### Fixed
+- Fix: correct order of media served by banner previews - custom > downloaded > remote. Also add an async probe to avoid serving invalid image path for banner.
 - Fix nightly existing bugs:
   - Tags/Category in Filter side bar now correctly show badge counter.  Engine/Status also have their counter logic fix to include exclusive.
   - Double highlight issues on browse/library mode switching without clicking on Library / Browse button on the sidebar rail.
