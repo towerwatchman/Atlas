@@ -43,9 +43,6 @@ const emptyReport = () => ({
   configVersionAfter: CONFIG_VERSION,
   removedSections: [],
   removedKeys: [],
-  // Keys whose value this sanitizer rewrote to the current schema default.
-  // Separate from removedKeys because the key still exists.
-  changedKeys: [],
   // Keys present on disk that this build's schema does not define and that are
   // not on any deprecation list. Reported, never removed — an unrecognised key
   // is as likely to come from a newer build as an older one. This exists because
@@ -126,23 +123,6 @@ const sanitizeParsedConfig = (parsed, dataDir = '') => {
     cleaned[section] = nextSection
   }
 
-  // ── v3 → v4: LewdCorner shop URL migration ────────────────────────────────
-  // Rewrite only the value this build shipped for v3. Anything else in this
-  // key means the user set it (it doubles as a rename escape hatch), so it
-  // stays as written. The report counts this as a replacement, not a removal.
-  if (
-    cleaned.LewdCorner &&
-    cleaned.LewdCorner.lcUserTierPath === '/shop/index.php#user-ranks'
-  ) {
-    report.changedKeys.push({
-      section: 'LewdCorner',
-      key: 'lcUserTierPath',
-      value: '/shop/index.php#user-ranks',
-    })
-    cleaned.LewdCorner.lcUserTierPath = schema.LewdCorner.lcUserTierPath
-    report.changed = true
-  }
-
   // Stamp the version so the next launch can tell how old this file is. A file
   // that had no marker at all is by definition pre-0.9.
   if (report.configVersionBefore !== CONFIG_VERSION) {
@@ -206,10 +186,6 @@ const sanitizeConfigFile = (configPath, ini, dataDir = '') => {
       for (const entry of report.removedSections) {
         console.log(`  - [${entry.section}] (whole section, ${entry.keys} key(s))`)
       }
-    }
-    // Replacements, not removals, so they get their own line.
-    for (const entry of report.changedKeys) {
-      console.log(`config sanitize: replaced [${entry.section}] ${entry.key} (was: ${entry.value})`)
     }
     if (report.configVersionBefore !== CONFIG_VERSION) {
       console.log(

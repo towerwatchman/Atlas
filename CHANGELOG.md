@@ -5,7 +5,9 @@ Stable release history. Nightly builds are tracked in
 [LEGACY.CHANGELOG.md](./LEGACY.CHANGELOG.md), and the tag naming used before
 0.9.14 is explained in [legacy-tag-history.md](./legacy-tag-history.md).
 
-## [Unreleased]
+## 0.9.14
+
+- **fix**: LewdCorner's shop path and selectors now ship with the app instead of `config.ini`, so installs still on the retired legacy LC shop page no longer show Plus as Standard.
 
 ## 0.9.13
 

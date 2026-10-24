@@ -347,9 +347,9 @@ function registerLewdCornerMediaHeaders() {
 // Dev-only diagnostic for the LewdCorner tier check. When verifyLcTier()
 // reports lcTierMismatch, the LewdCorner shop page parser read no owned
 // rank but the thread probe — which reflects real content access — concluded
-// the user is Plus. That mismatch is the stale-selector signal: the [LewdCorner]
-// config keys (lcBuyButtonClass / lcOwnedText) likely no longer match LC's
-// markup. Gated on !app.isPackaged so it never
+// the user is Plus. That mismatch is the stale-selector signal: the class and
+// owned text in electron/config/lcTier.json likely no longer match LC's markup.
+// Gated on !app.isPackaged so it never
 // fires in a shipped build; the user-facing tier gate stays correct regardless
 // because the probe already resolved the real tier.
 function warnOnLcTierMismatch(result) {
@@ -357,8 +357,8 @@ function warnOnLcTierMismatch(result) {
   if (result.lcTierMismatch === true) {
     console.warn(
       'LewdCorner shop parser looks stale: shop reported \'Free\' but ' +
-      'the thread probe confirmed real content access. Check the [LewdCorner] ' +
-      'buy-button selectors in the config.',
+      'the thread probe confirmed real content access. Check the card and ' +
+      'buy-button selectors in electron/config/lcTier.json.',
     )
     return
   }
