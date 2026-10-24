@@ -169,8 +169,8 @@ jobs:
             echo "No source changes; changelog not required."
             exit 0
           fi
-          if echo "$changed" | grep -qx 'CHANGELOG.md'; then
-            echo "CHANGELOG.md updated."
+          if echo "$changed" | grep -qxE 'CHANGELOG\.md|NIGHTLY\.CHANGELOG\.md'; then
+            echo "Changelog updated."
             exit 0
           fi
           if echo "$LABELS" | tr ',' '\n' | grep -qx 'no-changelog'; then
@@ -178,8 +178,9 @@ jobs:
             exit 0
           fi
 
-          echo "::error::CHANGELOG.md was not updated."
+          echo "::error::No changelog entry was added."
           echo ""
-          echo "Add an entry describing the user-visible effect. If there isn't"
-          echo "one, apply the 'no-changelog' label."
+          echo "Add an entry to NIGHTLY.CHANGELOG.md describing the user-visible"
+          echo "effect. CHANGELOG.md only changes when a release is cut. If there"
+          echo "is no user-visible effect, apply the 'no-changelog' label."
           exit 1
