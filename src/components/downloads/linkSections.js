@@ -51,6 +51,28 @@ export function describeBuild(buildLabel) {
 }
 
 /**
+ * The section head to render for a build option.
+ *
+ * A variant row heading is "<platform> <qualifier>", and the renderer shows the
+ * platforms as a badge on the same line, so the head collapses to just the
+ * qualifier. The full heading survives as the option's `title` - this only
+ * changes what is printed, never how links are grouped or keyed.
+ *
+ * @param {string} title the poster's heading verbatim
+ * @param {string[]} platforms the raw platform strings shown in the badge
+ * @returns {string} what the section head should say
+ */
+function qualifierName(title, platforms) {
+  for (const platform of platforms) {
+    if (title.startsWith(`${platform} `)) {
+      const rest = title.slice(platform.length + 1).trim()
+      if (rest) return rest
+    }
+  }
+  return title
+}
+
+/**
  * Group links into the builds the poster offered.
  *
  * A link marked `unsupported` has no host plugin behind it. Those are kept only
@@ -61,13 +83,13 @@ export function describeBuild(buildLabel) {
  * Atlas cannot fetch it - it just has to say so.
  *
  * @param {Array} links from update-links-get, already filtered to supported hosts
- * @returns {Array<{title:string, isUnlabeled:boolean, unsupported:boolean,
- *                  platforms:string[], hosts:string[], links:Array}>}
+ * @returns {Array<{title:string, section:string, name:string, isUnlabeled:boolean,
+ *                  unsupported:boolean, platforms:string[], hosts:string[], links:Array}>}
  */
 export function buildDownloadOptions(links = []) {
   const list = Array.isArray(links) ? links : []
   const order = []
-  const byTitle = new Map()
+  const byKey = new Map()
 
   for (const link of list) {
     if (!link) continue
@@ -75,17 +97,23 @@ export function buildDownloadOptions(links = []) {
     // No heading means the link sat under a plain "DOWNLOAD" with nothing
     // further said about it: the whole game, current build.
     const title = heading || FULL_ARCHIVE
-    if (!byTitle.has(title)) {
-      byTitle.set(title, {
+    // The section is the poster's sub-heading inside the part ("COMPRESSED
+    // (V95)"). A repack and the part it sits under share a title but are
+    // different archives, so the section is part of the option's identity.
+    const section = String(link.section || '').trim()
+    const key = JSON.stringify([title, section])
+    if (!byKey.has(key)) {
+      byKey.set(key, {
         title,
+        section,
         isUnlabeled: !heading,
         platforms: [],
         links: [],
         unsupportedLinks: [],
       })
-      order.push(title)
+      order.push(key)
     }
-    const option = byTitle.get(title)
+    const option = byKey.get(key)
     if (link.unsupported) option.unsupportedLinks.push(link)
     else option.links.push(link)
     // Distinct platform strings, raw as the poster wrote them. Shown as a badge
@@ -104,11 +132,20 @@ export function buildDownloadOptions(links = []) {
   // Only when there is no working mirror at all does the build fall back to
   // being SHOWN AND EXPLAINED rather than silently omitted.
   const options = order
-    .map((title) => byTitle.get(title))
+    .map((key) => byKey.get(key))
     .map((option) => {
       const unsupported = option.links.length === 0
       return {
         title: option.title,
+        section: option.section,
+        // "<platform> <qualifier>" headlines ("Win/Linux Heavy") shrink to the
+        // qualifier alone: the badge beside it names the platforms, so printing
+        // "Win/Linux" twice on one line is repetition, not information. Keeping
+        // the full label as `title` preserves the section key (two platforms
+        // may share a qualifier word) and the fallback: nothing is stripped
+        // unless the badge covers the whole platform part and a qualifier
+        // remains.
+        name: qualifierName(option.title, option.platforms),
         isUnlabeled: option.isUnlabeled,
         unsupported,
         platforms: option.platforms,

@@ -51,6 +51,25 @@ const steamImages = (appid, game = {}) => ({
   logo: resolvedSteamAsset(game && game.steam_logo) || steamAsset(appid, 'logo.png'),
 })
 
+// Longest hex run (>= 16 chars) in a value, lowercased, or ''. Steam, F95 and
+// most CDN hosts embed the file's content hash in the name, so this is the
+// cheapest cross-host "same picture" test without downloading bytes.
+const longestHexToken = (value) => {
+  const runs = String(value || '').match(/[0-9a-f]{16,}/gi)
+  if (!runs || runs.length === 0) return ''
+  return [...runs].sort((a, b) => b.length - a.length)[0].toLowerCase()
+}
+
+// Content key for a Steam asset URL: its embedded hash, e.g.
+//   .../apps/1091500/ss_0002f18563d313bdd1d82c725d411408ebf762b0.1920x1080.jpg?t=...
+//   -> 0002f18563d313bdd1d82c725d411408ebf762b0
+const steamImageContentKey = (url) => {
+  const s = String(url || '')
+  if (!s) return ''
+  const path = s.split(/[?#]/)[0]
+  return longestHexToken(path) || path.split('/').filter(Boolean).slice(-2).join('/').toLowerCase()
+}
+
 // external_ids is stored as a JSON object string, e.g.
 //   {"patreon":"DrPinkCake","steam_appid":"1126320","twitter":"DrPinkCake"}
 const parseExternalIds = (raw) => {
@@ -184,12 +203,16 @@ const applyMediaSources = (game, options = {}) => {
   game.steam_appid = appid
   game.gog_id = game.gog_id || gogId
 
-  // Banner: custom/user banners must win, but downloaded source banners still
-  // follow metadata source order. Otherwise a cached F95 banner masks a higher
-  // priority Steam header in the gallery grid.
+  // Banner: custom/user banners must win unconditionally. Downloaded source
+  // banners pin their file too, but only when the caller confirmed the file is
+  // really on disk (bannerFileExists) — rows pointing at a deleted file must
+  // fall back to the source order instead of serving a permanent broken image.
+  // With a present file, serving the download beats picking a remote source:
+  // the user's storage setting already chose to keep that art locally.
   const bannerSource = game.banner_source
   const isCustomBanner = /banner_custom_/i.test(String(game.banner_url || ''))
-  const isPinnedBanner = isCustomBanner && (bannerSource === 'download' || bannerSource === 'download-animated')
+  const isDownloadedSource = bannerSource === 'download' || bannerSource === 'download-animated'
+  const isPinnedBanner = isCustomBanner || (isDownloadedSource && options.bannerFileExists === true)
   let bannerCandidates
   if (!isPinnedBanner) {
     bannerCandidates = bannerCandidatesForOrder(game, order, appid)
@@ -325,6 +348,35 @@ const sourceFromRemoteUrl = (url) => {
   return 'atlas'
 }
 const detectPreviewSource = (url) => sourceFromRemoteUrl(url)
+
+// Twin key for preview dedupe (#301): pairs a saved file with its remote twin.
+// A long hex token is a content hash, so it pairs across hosts. Without one
+// there is nothing to pair on, so only Steam falls back to its appid-qualified path.
+const previewTwinKey = (url) => {
+  const hash = longestHexToken(String(url || '').split(/[?#]/)[0])
+  if (hash) return hash
+  if (sourceFromRemoteUrl(url) === 'steam') return steamImageContentKey(url) || null
+  return null
+}
+// Fresh URLs with no stored twin. The install path feeds this the stored
+// remote_url values and the fresh list, and downloads only what comes back.
+// Raw equality first, then previewTwinKey where one exists: a host swap or a
+// rotated query string still matches its stored twin. Callers pass non-custom
+// URLs only. Custom rows store NULL remote_url and never reach this function.
+const findNewRemoteUrls = (storedUrls, freshUrls) => {
+  const known = new Set()
+  for (const url of storedUrls || []) {
+    known.add(String(url))
+    const key = previewTwinKey(url)
+    if (key) known.add(`twin:${key}`)
+  }
+  return (freshUrls || []).filter((url) => {
+    if (known.has(String(url))) return false
+    const key = previewTwinKey(url)
+    if (key && known.has(`twin:${key}`)) return false
+    return true
+  })
+}
 // Stable-reorders only the remote (http) entries of a preview list by source
 // priority, preserving the position of any local file paths.
 const orderPreviewsBySource = (urls, rawOrder) => {
@@ -372,4 +424,7 @@ module.exports = {
   buildExternalLinks,
   orderPreviewsBySource,
   sourceFromRemoteUrl,
+  steamImageContentKey,
+  previewTwinKey,
+  findNewRemoteUrls,
 }

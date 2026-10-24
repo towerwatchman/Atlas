@@ -324,7 +324,8 @@ async function ensureFreshCookies(site) {
     rebuildCookieCache()
     return true
   } catch (err) {
-    console.warn(`accountStore: re-login failed for ${site}:`, err.message)
+    // Temporary comment this out since it will be now the norm
+    // console.warn(`accountStore: ${site} re-login failed (${err.message || err}); continuing on stored cookies.`)
     return false
   }
 }

@@ -1,16 +1,20 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import Module from 'module'
+import { isCloudflareChallenge, F95_HOST } from '../electron/downloads/maskedResolver.js'
 
 // Covers the F95 403-challenge handoff: headless fetch answers
 // cf-mitigated=challenge, so the thread loads in a real window instead.
 // The window module is stubbed (no BrowserWindow under test); what is
 // verified is the delegation, its arguments, and that the returned HTML
-// flows through the existing parser into offerable links.
+// flows through the existing parser into offerable links. The fallback
+// branch logic itself is unit-tested against the real helper in
+// window-fallback.test.js; this stub copy only has to mirror it.
 
 const COOKIES = 'xf_user=1; xf_session=2'
 
-const f95page = (loggedIn, body, contentKey = 'thread-308445') =>
+const f95page = (loggedIn, body, contentKey = 'thread-308445', title = 'Summertime Saga [v21.0.0 wip.8194] [Kompas Productions] | F95zone') =>
   `<html data-content-key="${contentKey}" data-logged-in="${loggedIn}">` +
+  `<head><title>${title}</title></head>` +
   `<div class="bbWrapper">${body}</div></html>`
 
 const bodyWithMega = `<b>DOWNLOAD</b><br><a href="https://mega.nz/file/abc">MEGA</a>`
@@ -38,9 +42,24 @@ const installStubs = ({ windowHtml = null, withPartition = false, cookieHeader =
       }),
     },
   }
+  const fetchViaWindow = vi.fn(async () => windowHtml)
   const windowStub = {
     isAvailable: () => windowHtml !== null,
-    fetchThreadHtmlViaWindow: vi.fn(async () => windowHtml),
+    fetchThreadHtmlViaWindow: fetchViaWindow,
+    // Mirrors the real tail so the delegation arguments stay asserted here.
+    withWindowFallback: async (threadId, cookies, { response, siteLabel, host = F95_HOST, onSteer } = {}) => {
+      const viaWindow = async () => {
+        if (onSteer) onSteer(response.status)
+        return fetchViaWindow(threadId, cookies, { host })
+      }
+      if (!response.ok) {
+        if (response.status === 403 && windowHtml !== null) return { html: await viaWindow(), stages: {} }
+        throw new Error(`${siteLabel} returned ${response.status} for thread ${threadId}`)
+      }
+      const body = await response.text()
+      if (isCloudflareChallenge(body) && windowHtml !== null) return { html: await viaWindow(), stages: {} }
+      return { html: body, stages: {} }
+    },
   }
   const accountStub = {
     ensureFreshCookies: vi.fn(async () => true),
@@ -83,10 +102,15 @@ describe('f95 challenge fallback', () => {
     vi.stubGlobal('fetch', vi.fn(async () => challengeResponse()))
 
     const result = await updateLinks.getUpdateLinks('308445', { force: true })
-    expect(windowStub.fetchThreadHtmlViaWindow).toHaveBeenCalledWith('308445', COOKIES)
+    expect(windowStub.fetchThreadHtmlViaWindow).toHaveBeenCalledWith(
+      '308445',
+      COOKIES,
+      { host: F95_HOST },
+    )
     expect(result.ok).toBe(true)
     expect(result.links.length).toBeGreaterThan(0)
     expect(result.links[0].host).toContain('mega')
+    expect(result.version).toBe('v21.0.0 wip.8194')
   })
 
   it('throws the 403 when no window runtime is available', async () => {
@@ -154,6 +178,7 @@ describe('f95 challenge fallback', () => {
     expect(windowStub.fetchThreadHtmlViaWindow).toHaveBeenCalledWith(
       '308445',
       'xf_user=1; xf_session=2',
+      { host: F95_HOST },
     )
     expect(result.ok).toBe(true)
     expect(result.links.length).toBeGreaterThan(0)
@@ -168,5 +193,34 @@ describe('f95 challenge fallback', () => {
     await expect(updateLinks.getUpdateLinks('308445', { force: true })).rejects.toThrow(
       'Could not read the thread',
     )
+  })
+
+  it('offers dl-redirect mirrors with the favicon-recovered host through getUpdateLinks', async () => {
+    const dl = (t, style, label) =>
+      `<a href="https://f95zone.to/dl/21960808/?u=45151&k=5fbe367c8e88&r=1792644872&t=${t}"`
+      + (style ? ` style="background-image: url(&quot;${style}&quot;);"` : "")
+      + `>${label}</a>`
+    const bodyWithDl = `<b>DOWNLOAD</b><br><b>Win</b>: `
+      + dl('B', 'https://external-content.duckduckgo.com/ip3/bzzhr.to.ico', 'BUZZHEAVIER') + ` - `
+      + dl('C', 'https://external-content.duckduckgo.com/ip3/datanodes.to.ico', 'DATANODES')
+    const { fakeSes } = installStubs({ withPartition: true })
+    // The parser's host recovery is the behavior under test; the fetch only
+    // has to hand it a logged-in /dl/ thread page.
+    fakeSes.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => f95page('true', bodyWithDl),
+    }))
+    const updateLinks = fresh('../electron/ipc/updateLinks.js')
+
+    const result = await updateLinks.getUpdateLinks('308445', { force: true })
+
+    const bzzhr = result.links.find((link) => link.host === 'bzzhr.to')
+    const datanodes = result.links.find((link) => link.host === 'datanodes.to')
+    expect(bzzhr).toBeDefined()
+    expect(bzzhr.unsupported).toBeUndefined()
+    expect(bzzhr.masked).toBe(true)
+    expect(datanodes).toBeDefined()
+    expect(datanodes.unsupported).toBe(true)
   })
 })

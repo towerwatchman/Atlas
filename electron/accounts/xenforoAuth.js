@@ -11,6 +11,8 @@
 // keeps the surface small and avoids adding tough-cookie/axios-cookiejar.
 
 const axios = require('axios')
+const { fetchUrlViaWindow, isAvailable } = require('../downloads/forumWindowFetch')
+const { isCloudflareChallenge } = require('../downloads/maskedResolver')
 
 const SITES = {
   f95: { base: 'https://f95zone.to', domain: 'f95zone.to', label: 'F95zone' },
@@ -146,11 +148,22 @@ const LC_RANK_IDS = new Set([2, 6, 7, 8, 12, 13])
 // without config plumbing, and so a markup change can be handled by config.
 const LC_TIER_DEFAULTS = {
   lcProbeThreadId: 14057,
-  lcUserTierPath: '/shop/index.php#user-ranks',
-  lcUserPrestigePath: '/shop/index.php?rank_bundle=prestige',
-  lcStatusPillClass: 'statusPill',
-  lcStatusPillOwnedToken: 'owned',
-  lcStatusPillOwnedText: 'owned',
+  // Off by default: the probe fetches over the same axios path as the shop
+  // page, and Cloudflare challenges it regardless of cookies. Flip it back on
+  // via [LewdCorner] lcThreadProbeEnabled once the probe fetch moves to the
+  // real-browser (window / page-context) path.
+  lcThreadProbeEnabled: false,
+  // The economy shop consolidated every purchasable rank under one URL (Oct
+  // 2026); the old /shop/index.php tier + prestige pages are gone.
+  lcUserTierPath: '/economy/?section=store&category=rank',
+  // Card container, matched first so an item_id lines up with its own
+  // buy button.
+  lcCardClass: 'jblcEconomy-item',
+  // Ownership is signalled on the buy button: owned ranks render a disabled
+  // button whose text is "Owned". Class + text are config-driven so a rename
+  // is a settings edit.
+  lcBuyButtonClass: 'jblcEconomy-buyButton',
+  lcOwnedText: 'owned',
 }
 
 // Fold an optional per-site config object over the LC defaults, dropping any
@@ -161,89 +174,124 @@ function lcConfigWithDefaults(cfg) {
   for (const key of Object.keys(LC_TIER_DEFAULTS)) {
     const v = cfg[key]
     if (typeof v === 'number' && Number.isFinite(v)) out[key] = v
+    else if (typeof v === 'boolean') out[key] = v
     else if (typeof v === 'string' && v.trim() !== '') out[key] = v
   }
   return out
 }
 
-// Scrape the LewdCorner profile page to determine which ranks the user owns.
-// Returns 'VIP' if any Plus-granting rank is owned, 'Free' if the page loads
-// but no Plus rank is found, and null if no page loads at all (so the caller
-// can fall back to the thread probe).
-// An owned rank shows a green "Owned" pill and an "Owned" button; otherwise
-// the pill is absent and the button says "Purchase Rank". Matching on the
-// pill is the authoritative signal. The pill class/token/text are config-driven
-// so a rename is a settings edit. Never throws.
+// Scrape the LewdCorner economy shop page to determine which ranks the user
+// owns. Returns 'VIP' if any Plus-granting rank is owned, 'Free' if the page
+// loads but no Plus rank is found, and null if no page loads at all (so the
+// caller can fall back to the thread probe).
+// The shop consolidated every rank under one URL (lcUserTierPath). Each rank
+// card carries a hidden item_id input; ownership is on the buy button — owned
+// ranks render a disabled button whose text is "Owned", unowned ones a submit
+// button ("Not enough funds" / price), and out-of-stock ranks (Beta) a
+// disabled "Out of stock" button. The button class and owned text are
+// config-driven so a rename is a settings edit.
+// Never throws.
 async function scrapeLcTierFromProfile(cookieArray, lcConfig) {
   const jar = new CookieJar()
   jar.loadArray(cookieArray)
   if (jar.size === 0) return null
 
   const lc = lcConfigWithDefaults(lcConfig)
+  const shopUrl = SITES.lewdcorner.base + lc.lcUserTierPath
 
-  // Build the full shop URLs from the configured paths + LewdCorner base.
-  const lcUserTierUrls = [
-    SITES.lewdcorner.base + lc.lcUserTierPath,
-    SITES.lewdcorner.base + lc.lcUserPrestigePath,
-  ]
-
-  let anyPageLoaded = false
-
-  // Build the regex from the configured container class so a container rename
-  // is honored without code changes. The owned-token/text are checked against
-  // the pill's class fragment and inner text respectively.
-  const lcPillClass = escapeRegExp(lc.lcStatusPillClass)
-  const lcPillRegex = new RegExp(
-    'data-item-id="(\\d+)"[\\s\\S]*?<span[^>]*class="[^"]*' + lcPillClass + '([^"]*)"[^>]*>([^<]*)</span>',
+  // Build the regexes from the configured classes so a rename is honored
+  // without code changes. Each card block is matched first and the item_id +
+  // button text are paired within that block only — pairing across the whole
+  // page would let a card missing its button steal the next card's.
+  const lcCardClass = escapeRegExp(lc.lcCardClass)
+  const lcCardRegex = new RegExp(
+    '<article[^>]*class="[^"]*' + lcCardClass + '[^"]*">[\\s\\S]*?<\/article>',
     'gi',
   )
-  const lcOwnedToken = lc.lcStatusPillOwnedToken ? lc.lcStatusPillOwnedToken.toLowerCase() : ''
-  const lcOwnedText = lc.lcStatusPillOwnedText
+  const lcBuyButtonClass = escapeRegExp(lc.lcBuyButtonClass)
+  const lcButtonRegex = new RegExp(
+    '<button[^>]*class="[^"]*' + lcBuyButtonClass + '[^"]*"[^>]*>([\\s\\S]*?)</button>',
+  )
+  const lcItemIdRegex = /name="item_id"\s+value="(\d+)"/
+  const lcLowerOwnedText = lc.lcOwnedText ? lc.lcOwnedText.toLowerCase() : ''
 
-  for (const url of lcUserTierUrls) {
+  try {
+    // Headless axios fetch: fast, but Cloudflare blocks it regardless of
+    // cookies. A challenge page would parse as a shop with nothing owned,
+    // marking a Plus user Free. Blocked responses (403, or a challenge page
+    // sent with a 200 status) retry through the real window, which keeps
+    // the cf_clearance of any challenge already solved there.
+    let html = null
+    let cfBlocked = false
     try {
-      const r = await axios.get(url, {
+      const r = await axios.get(shopUrl, {
         headers: { ...DEFAULT_HEADERS, Cookie: jar.header() },
         timeout: 30000,
         maxRedirects: 5,
         validateStatus: () => true,
       })
-      if (r.status !== 200) continue
-      anyPageLoaded = true
-      const html = String(r.data || '')
-
-      // Each rank card carries data-item-id and an ownership pill. A card is
-      // owned when the pill's class contains the owned token (LC styles it
-      // green) or its text matches the owned text (kept as a fallback in case
-      // the class token ever changes).
-      let match
-      const lcLowerOwnedText = lcOwnedText.toLowerCase()
-      while ((match = lcPillRegex.exec(html)) !== null) {
-        const rankId = Number(match[1])
-        const cls = match[2]
-        const text = match[3].trim().toLowerCase()
-        if (!LC_RANK_IDS.has(rankId)) continue
-        if (
-          (lcOwnedToken && cls.split(/\s+/).some((c) => c.toLowerCase().includes(lcOwnedToken))) ||
-          (lcLowerOwnedText && text === lcLowerOwnedText)
-        ) {
-          return 'VIP'
-        }
+      if (r.status === 200) {
+        const body = String(r.data || '')
+        // Check only the top of the page: challenge pages carry their title
+        // right there, but shop pages can mention these words anywhere.
+        // Same marker list the link fetchers use.
+        if (isCloudflareChallenge(body.slice(0, 4000))) cfBlocked = true
+        else html = body
+      } else if (r.status === 403) {
+        cfBlocked = true
       }
-    } catch (err) {
-      // Network or parse failure on one URL — try the next.
-      continue
+    } catch {
+      // Network failure — inconclusive, probe fallback.
+      return null
     }
-  }
 
-  // Shop page loaded but no Plus rank found → Free. If no page loaded at
-  // all, return null (inconclusive) so the caller falls back to thread probing.
-  return anyPageLoaded ? 'Free' : null
+    // Cloudflare blocked us, so retry through the real-browser window. Other
+    // statuses (a 404, say) stay null; send those to the window and it comes
+    // back with the same 404, parses as "Free", and the page never loaded.
+    if (!html && cfBlocked) {
+      if (!isAvailable()) return null // no Electron runtime in tests
+      html = await fetchUrlViaWindow(shopUrl, jar.header(), {
+        host: SITES.lewdcorner.domain,
+        timeoutMs: 60000,
+      })
+    }
+    if (!html) return null
+
+    // A card is owned when its buy button's text (tags stripped, whitespace
+    // collapsed) equals the configured owned text case-insensitively.
+    // "Not enough funds" and "Out of stock" both fail that test, as they
+    // should.
+    let cardMatch
+    while ((cardMatch = lcCardRegex.exec(html)) !== null) {
+      const card = cardMatch[0]
+      const idMatch = lcItemIdRegex.exec(card)
+      if (!idMatch) continue
+      if (!LC_RANK_IDS.has(Number(idMatch[1]))) continue
+      const btnMatch = lcButtonRegex.exec(card)
+      if (!btnMatch) continue
+      const btnText = btnMatch[1]
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase()
+      if (lcLowerOwnedText && btnText === lcLowerOwnedText) return 'VIP'
+    }
+    // Shop page loaded but no Plus rank found → Free.
+    return 'Free'
+  } catch (err) {
+    // Network failure — inconclusive, so the caller falls back to the probe.
+    return null
+  }
 }
 
 // Probe a known member-gated thread. If the attachment-hide message is present,
 // the user cannot see attachments (Standard). If it's absent, they can (Plus).
 async function probeLcTierFromThread(cookieArray, lcConfig) {
+  // Disabled by default via [LewdCorner] lcThreadProbeEnabled: it fetches over
+  // the same axios path as the shop page and Cloudflare challenges it, so it
+  // can only ever report inconclusive today. An inconclusive probe makes the
+  // combined logic above resolve exactly as if the probe had been broken.
+  if (!lcConfigWithDefaults(lcConfig).lcThreadProbeEnabled) return null
   const lc = lcConfigWithDefaults(lcConfig)
   if (!lc.lcProbeThreadId) return null
   const configuredUrl = `${SITES.lewdcorner.base}/threads/${lc.lcProbeThreadId}/`
@@ -293,18 +341,37 @@ async function probeLcTierFromThread(cookieArray, lcConfig) {
 // outage rather than a parser bug). Consumers gate a developer warning on this
 // flag.
 async function scrapeLcUserTier(cookieArray, lcConfig) {
+  const probeEnabled = !!lcConfigWithDefaults(lcConfig).lcThreadProbeEnabled
+
+  // User-facing wording here and in Accounts: internal Free/VIP is Standard/Plus.
+  const logCheck = (profileOk, threadOk, tier) => {
+    const tierLabel = tier === 'VIP' ? 'Plus' : tier === 'Free' ? 'Standard' : tier
+    console.log(
+      `lcTier check: {profile_check: ${profileOk}, thread_check: ${threadOk}, thread_probe_enabled: ${probeEnabled}} -> ${tierLabel ?? 'inconclusive'}`,
+    )
+  }
+
   const lcTierResult = await scrapeLcTierFromProfile(cookieArray, lcConfig)
-  if (lcTierResult === 'VIP') return { tier: 'VIP', lcTierMismatch: false }
+  if (lcTierResult === 'VIP') {
+    logCheck(true, false, 'VIP')
+    return { tier: 'VIP', lcTierMismatch: false }
+  }
   if (lcTierResult === 'Free') {
     // Shop says Standard — confirm with thread probe to guard against a false
-    // Standard from a broken shop page parse.
+    // Standard from a broken shop page parse. With the probe disabled it
+    // returns null and the shop verdict is trusted as-is.
     const probeResult = await probeLcTierFromThread(cookieArray, lcConfig)
-    if (probeResult === 'VIP') return { tier: 'VIP', lcTierMismatch: true }
+    if (probeResult === 'VIP') {
+      logCheck(true, true, 'VIP')
+      return { tier: 'VIP', lcTierMismatch: true }
+    }
+    logCheck(true, probeResult !== null, 'Free')
     return { tier: 'Free', lcTierMismatch: false }
   }
   // Shop failed entirely — rely on thread probe. A shop that will not load is
   // an outage, not a stale parser, so this is NOT a mismatch.
   const probeResult = await probeLcTierFromThread(cookieArray, lcConfig)
+  logCheck(false, probeResult !== null, probeResult)
   return { tier: probeResult, lcTierMismatch: false }
 }
 
@@ -327,18 +394,9 @@ async function login(site, username, password) {
       validateStatus: () => true,
     })
   } catch (err) {
-    console.warn(`F95 login GET unreachable: ${err.message || err} cause=${err?.cause?.code || err?.cause?.message || 'n/a'}`);
-    throw new Error(`Could not reach ${cfg.label} (${err.message}).`)
+    throw new Error(`Could not reach ${cfg.label} (${err.message || err}).`)
   }
   if (g.status !== 200) {
-    const headers = (g && g.headers) || {};
-    // No body in the log: the login page embeds the _xfToken CSRF value,
-    // which must not land in shared logs. The headers prove a challenge.
-    console.warn(
-      `F95 login GET HTTP ${g.status}: server=${headers.server || 'n/a'} ` +
-      `cf-ray=${headers['cf-ray'] || 'n/a'} cf-mitigated=${headers['cf-mitigated'] || 'n/a'} ` +
-      `content-type=${headers['content-type'] || 'n/a'}`,
-    );
     throw new Error(`Could not load ${cfg.label} login page (HTTP ${g.status}).`)
   }
   jar.setFromResponse(g)

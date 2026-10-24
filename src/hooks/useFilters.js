@@ -806,7 +806,7 @@ const urlMatchesSource = (url, source) => {
 // equivalent for game objects, which carry both snake_case and camelCase spellings
 // of most things depending on which query produced them.
 const SEARCH_FIELD_VALUE_GETTERS = {
-  title: (game) => [getGameTitle(game), game.short_name, game.shortName],
+  title: (game) => [getGameTitle(game), game.short_name, game.shortName, game.original_name, game.originalName],
   creator: (game) => [game.creator],
   id: (game) => [
     ...getAtlasIdValues(game),

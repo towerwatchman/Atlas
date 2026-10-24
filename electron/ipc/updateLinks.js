@@ -19,10 +19,11 @@
 const { ipcMain, session } = require("electron");
 
 const accountStore = require("../accounts/accountStore");
+const appLog = require("../appLog");
 const { parseThreadDownloads } = require("../downloads/f95ThreadParser");
 const { selectDownloadableLinks } = require("../downloads/groupClassifier");
 const forumWindowFetch = require("../downloads/forumWindowFetch");
-const { RESOLVER_PARTITION, isCloudflareCookie, applyCookies, isCloudflareChallenge } = require("../downloads/maskedResolver");
+const { RESOLVER_PARTITION, isCloudflareCookie, applyCookies } = require("../downloads/maskedResolver");
 
 const THREAD_URL = "https://f95zone.to/threads/{id}/";
 // No hardcoded UA here: the saved cf_clearance grant is bound to the real
@@ -37,10 +38,10 @@ const { supportedHostIds } = require("../downloads/hosts");
 
 const SUPPORTED_HOSTS = new Set(supportedHostIds());
 
-// threadId -> { at, payload }
+// f95:{id} -> { at, payload }
 const cache = new Map();
 
-const cacheKey = (threadId) => String(threadId);
+const cacheKey = (threadId) => `f95:${String(threadId)}`;
 
 function clearUpdateLinkCache(threadId = null) {
   if (threadId == null) cache.clear();
@@ -49,6 +50,8 @@ function clearUpdateLinkCache(threadId = null) {
 
 async function fetchThreadHtml(threadId) {
   const url = THREAD_URL.replace("{id}", encodeURIComponent(String(threadId)));
+  const freshStartedAt = Date.now();
+  const stages = { ensureFreshMs: 0, attemptMs: 0, windowMs: 0 };
   // ensureFreshCookies is async and returns a boolean; getCookieHeaderForUrl is
   // SYNCHRONOUS and returns a string. Getting that wrong is what produced
   // ".catch is not a function" - neither is a thenable to be chained onto.
@@ -65,6 +68,7 @@ async function fetchThreadHtml(threadId) {
   } catch (err) {
     console.warn("Could not refresh F95 cookies:", err.message);
   }
+  stages.ensureFreshMs = Date.now() - freshStartedAt;
   const cookieHeader = accountStore.getCookieHeaderForUrl(url) || "";
   if (!cookieHeader) {
     const error = new Error(
@@ -111,40 +115,56 @@ async function fetchThreadHtml(threadId) {
   // jar's own cookies. Seed the jar from the stored session so the forum
   // session actually travels; cf_* names are already filtered out, so a
   // solved challenge grant in the jar is never clobbered by a stale harvest.
-  if (ses) await applyCookies(ses, explicitCookies, url);
+  if (ses) {
+    const attemptStartedAt = Date.now();
+    await applyCookies(ses, explicitCookies, url);
+    stages.attemptMs += Date.now() - attemptStartedAt;
+  }
   // Fast path first: Chromium-stack fetch from the resolver partition, where a
   // previously solved Cloudflare grant lives. When that answers 403 +
   // challenge, fall back to loading the thread in a real window so the user
   // solves it once visibly instead of failing outright.
   let response;
+  const attemptStartedAt = Date.now();
   try {
     response = await impl(url, init);
   } catch (err) {
-    console.warn(`F95 thread fetch failed for ${threadId} (cookies: ${cookieNames()}): ${err.message || err} cause=${err?.cause?.code || err?.cause?.message || 'n/a'}`);
+    // appLog over console.warn: the same line then lands in atlas.log and the
+    // in-app DevTools console instead of only the dev terminal.
+    appLog.write("f95-links", {
+      event: "ses-fetch-failed",
+      threadId: String(threadId),
+      cookies: cookieNames(),
+      error: `${err.message || err} cause=${err?.cause?.code || err?.cause?.message || 'n/a'}`,
+    }, { devtools: true });
     throw err;
   }
-  if (!response.ok) {
-    let mitigated = "n/a";
-    try {
-      mitigated = response.headers.get("cf-mitigated") || "n/a";
-    } catch {
-      // Headers unreadable — status below is still the signal.
-    }
-    console.warn(`F95 thread fetch HTTP ${response.status} for ${threadId} (cookies: ${cookieNames()}): cf-mitigated=${mitigated}`);
-    if (response.status === 403 && forumWindowFetch.isAvailable()) {
-      console.warn(`F95 thread ${threadId}: headless fetch challenged, opening window fallback`);
-      return forumWindowFetch.fetchThreadHtmlViaWindow(threadId, explicitCookies);
-    }
-    throw new Error(`F95zone returned ${response.status} for thread ${threadId}`);
+  stages.attemptMs += Date.now() - attemptStartedAt;
+  // 403 and the challenge-signed 200 steer into the window, shared with the
+  // LC fetcher; the onSteer line records the status that forced it.
+  try {
+    // await so a failed window fallback lands in the catch below, not out
+    // into the caller as an unlogged rejection.
+    return await forumWindowFetch.withWindowFallback(threadId, explicitCookies, {
+      siteLabel: "F95zone",
+      response,
+      stages,
+      // Same steer line the LC fetcher logs: the status that forced the window,
+      // because the window's own [forum-window] lines start after it.
+      onSteer: (status) => appLog.write("f95-links", {
+        event: "window-fallback",
+        threadId: String(threadId),
+        status,
+      }, { devtools: true }),
+    });
+  } catch (err) {
+    appLog.write("f95-links", {
+      event: "window-fallback-failed",
+      threadId: String(threadId),
+      error: err.message || String(err),
+    }, { devtools: true });
+    throw err;
   }
-  const body = await response.text();
-  // An interstitial can arrive signed HTTP 200; letting it hit the parser
-  // yields a guest render and a misleading "re-add your account" error.
-  if (isCloudflareChallenge(body) && forumWindowFetch.isAvailable()) {
-    console.warn(`F95 thread ${threadId}: challenge delivered as HTTP 200, opening window fallback`);
-    return forumWindowFetch.fetchThreadHtmlViaWindow(threadId, explicitCookies);
-  }
-  return body;
 }
 
 /**
@@ -160,7 +180,10 @@ async function getUpdateLinks(threadId, { force = false } = {}) {
     return { ...cache.get(key).payload, cached: true };
   }
 
-  const html = await fetchThreadHtml(threadId);
+  // Same one-line summary the LC side logs; per-stage ms live in the
+  // ses.fetch / window lines above, the total pairs the two for comparison.
+  const fetchStartedAt = Date.now();
+  const { html, stages } = await fetchThreadHtml(threadId);
   const parsed = parseThreadDownloads(html);
 
   if (!parsed.found) {
@@ -183,6 +206,9 @@ async function getUpdateLinks(threadId, { force = false } = {}) {
   const payload = {
     ok: true,
     threadId: String(threadId),
+    // The version the thread itself advertises, not the catalog's copy. Empty
+    // when the title carries none; the tab then shows only the source name.
+    version: parsed.version || "",
     // Re-interleaved into POST ORDER. The selection splits one ordered list into
     // singles, sets and unsupported; concatenating those buckets would render
     // every unsupported build after every working one, which puts Being a DIK's
@@ -197,6 +223,7 @@ async function getUpdateLinks(threadId, { force = false } = {}) {
         // The build label alone. Platform travels beside it rather than inside it,
         // so two DLCs that were both posted for Win/Linux/Mac stay two options.
         group: link.group,
+        section: link.section || '',
         platform: link.platform || '',
         masked: link.masked,
         compressed: verdict.compressed,
@@ -220,6 +247,7 @@ async function getUpdateLinks(threadId, { force = false } = {}) {
           host: set.host,
           label: `${first.link.label} (${files.length} parts)`,
           group: set.group,
+          section: set.section || '',
           platform: set.platform || '',
           masked: files.some((file) => file.masked),
           compressed: first.verdict.compressed,
@@ -240,6 +268,7 @@ async function getUpdateLinks(threadId, { force = false } = {}) {
         host: link.host,
         label: link.label,
         group: link.group,
+        section: link.section || '',
         platform: link.platform || '',
         masked: link.masked,
         compressed: verdict.compressed,
@@ -262,6 +291,16 @@ async function getUpdateLinks(threadId, { force = false } = {}) {
   };
 
   cache.set(key, { at: Date.now(), payload });
+  // Same one-line summary the LC side appends; per-stage ms live in the
+  // ses.fetch / window lines above, the total pairs the two for comparison.
+  appLog.write("f95-links", {
+    threadId: String(threadId),
+    ensureFreshMs: stages.ensureFreshMs,
+    attemptMs: stages.attemptMs,
+    windowMs: stages.windowMs,
+    totalMs: Date.now() - fetchStartedAt,
+    links: payload.links.length,
+  }, { devtools: true });
   return { ...payload, cached: false };
 }
 

@@ -507,6 +507,7 @@ const initializeDatabase = (dataDir) => {
         UNIQUE (record_id, path, type)
       );
     `);
+    db.run(`ALTER TABLE banners ADD COLUMN remote_url TEXT;`, () => {});
     db.run(`
       CREATE TABLE IF NOT EXISTS media_assets
       (

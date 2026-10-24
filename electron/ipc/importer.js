@@ -2,6 +2,7 @@
 
 const { ipcMain, dialog, BrowserWindow, app } = require('electron')
 const { downloadImages, buildBannerBaseName } = require('../imageUtils')
+const { findNewRemoteUrls, sourceFromRemoteUrl } = require('../db/mediaSources')
 const path = require('path')
 const fs = require('fs')
 const fsp = require('fs').promises
@@ -942,6 +943,95 @@ async function moveDirWithRetry(src, dest, { attempts = 6, baseDelayMs = 150, co
   }
 }
 
+// Video files are not preview images, even with a query string attached.
+// It is defined at module level because the import flow and the install
+// hook share the one copy.
+const isVideoUrl = (url) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(url || ""));
+
+// Background media fill after an install finishes. Compares the stored
+// remote_url values with the fresh list and downloads only what is new.
+// A replace or update appends without touching the existing gallery.
+// Every dependency arrives as a parameter. It is defined at module level
+// because the handler stays thin and the regression suite reaches it
+// through __testables.
+const downloadMediaForInstalledGame = async ({
+  recordId,
+  atlasId,
+  dataDir,
+  sourceOrder = null,
+  getRemoteBannerUrl,
+  getRemotePreviewUrls,
+  getStoredBannerUrls,
+  getStoredPreviewUrls,
+  updateBanners,
+  updatePreviews,
+  inferSource,
+  isVideoUrl,
+  downloadImagesFn = downloadImages,
+  onProgress = null,
+  onDone = null,
+  requestDelayMs = 0,
+  blockedSources = null,
+  onRateLimited = null,
+}) => {
+  const [storedBanners, freshBanner] = await Promise.all([
+    getStoredBannerUrls(recordId).catch(() => []),
+    getRemoteBannerUrl(recordId, { sourceOrder }).catch(() => null),
+  ]);
+  const newBannerUrls = findNewRemoteUrls(
+    storedBanners,
+    freshBanner ? [String(freshBanner)] : [],
+  );
+  const [storedPreviews, freshPreviews] = await Promise.all([
+    getStoredPreviewUrls(recordId).catch(() => []),
+    getRemotePreviewUrls(recordId, { sourceOrder }).catch(() => []),
+  ]);
+  const newPreviewUrls = findNewRemoteUrls(
+    storedPreviews,
+    (freshPreviews || [])
+      .map((entry) => (typeof entry === "string" ? entry : entry?.url))
+      .map((url) => String(url || "").trim())
+      .filter((url) => url && !isVideoUrl(url)),
+  );
+  if (newBannerUrls.length === 0 && newPreviewUrls.length === 0) {
+    const skipped = { skipped: true, downloaded: 0 };
+    if (onDone) onDone(skipped);
+    return skipped;
+  }
+  // A failed download still reports completion. Without this the detail
+  // page stalls on the last progress text and never refreshes.
+  let result;
+  try {
+    result = await downloadImagesFn(
+      recordId,
+      atlasId || recordId,
+      (current, total) => {
+        if (onProgress) onProgress(current, total);
+      },
+      newBannerUrls.length > 0,
+      newPreviewUrls.length > 0,
+      "Unlimited",
+      false,
+      dataDir,
+      async () => newBannerUrls[0] || null,
+      async () => newPreviewUrls.map((url) => ({ url, source: inferSource(url) })),
+      updateBanners,
+      updatePreviews,
+      {
+        source: newBannerUrls[0] ? inferSource(newBannerUrls[0]) : "remote",
+        appendPreviews: true,
+        requestDelayMs,
+        blockedSources,
+        onRateLimited,
+      },
+    );
+  } catch (err) {
+    result = { success: false, error: err?.message || String(err) };
+  }
+  if (onDone) onDone(result);
+  return result;
+};
+
 async function replaceInstalledVersionAfterImport({
   recordId,
   newVersion,
@@ -1385,6 +1475,7 @@ module.exports = function registerImporterHandlers(ctx) {
     addSteamMapping, getBannerUrl, getScreensUrlList,
     updateBanners, updatePreviews,
     getRemoteBannerUrl, getRemotePreviewUrls,
+    getStoredPreviewUrls, getStoredBannerUrls,
     getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
     getVersionForRecord, getVersionPathsForRecord,
     deleteVersion, deleteGameCompletely, deleteTitleRecord,
@@ -4060,7 +4151,6 @@ ipcMain.handle("import-games", async (event, params) => {
       filesWritten: 0,
       dbRowsWritten: 0,
     };
-    const isVideoUrl = (url) => /\.(mp4|webm|m4v|mpd)(\?|#|$)/i.test(String(url || ""));
     const inferMediaSource = (url) => {
       const value = String(url || "").toLowerCase();
       if (value.includes("steamstatic") || value.includes("akamaihd") || value.includes("steam")) return "steam";
@@ -5018,6 +5108,61 @@ ipcMain.handle("downloads-install", async (event, { id, version, onComplete, kee
     });
 
     notify("", 100);
+    // Background media fill for download mode. Fire and forget. The install
+    // result below returns now, images land as they finish. A failed
+    // download never fails the install.
+    if (getMediaStorageMode() === "download") {
+      (async () => {
+        // Sync-safe lookup: a synchronous throw must not kill the fill.
+        let atlasId = null;
+        try {
+          atlasId = await GetAtlasIDbyRecord(recordId).catch(() => null);
+        } catch {
+          atlasId = null;
+        }
+        const sendToAllWindows = (channel, payload) => {
+          BrowserWindow.getAllWindows().forEach((win) => {
+            if (!win.isDestroyed()) win.webContents.send(channel, payload);
+          });
+        };
+        // Paced like every other download path. Without the configured delay
+        // this fires one game of unpaced requests, which is what gets a source
+        // rate-limited. The block set and toast match import and refresh runs.
+        const installMediaSettings = getMediaPerformanceSettings(getLiveConfig());
+        const installBlockedSources = new Set();
+        await downloadMediaForInstalledGame({
+          recordId,
+          atlasId: atlasId || recordId,
+          dataDir,
+          sourceOrder: getMetadataSourceOrder(),
+          getRemoteBannerUrl,
+          getRemotePreviewUrls,
+          getStoredBannerUrls,
+          getStoredPreviewUrls,
+          updateBanners,
+          updatePreviews,
+          inferSource: sourceFromRemoteUrl,
+          isVideoUrl,
+          requestDelayMs: installMediaSettings.mediaRequestDelayMs,
+          blockedSources: installBlockedSources,
+          onRateLimited: (source, retryAfterMs) => {
+            sendToAllWindows("media-rate-limited", { source, retryAfterMs });
+          },
+          onProgress: (current, total) => {
+            sendToAllWindows("game-details-import-progress", {
+              text: `Downloading images ${current}/${total}`,
+              progress: current,
+              total,
+            });
+          },
+          onDone: () => {
+            sendToAllWindows("game-updated", recordId);
+          },
+        });
+      })().catch((err) => {
+        console.warn("[downloads-install] background media download failed:", err?.message || err);
+      });
+    }
     // A declined replace is reported back so the renderer can say so. The new
     // version IS installed either way, so this is a notice rather than an error
     // — but the user asked for the old build to go, and silence about it not
@@ -5084,4 +5229,6 @@ module.exports.__testables = {
   // are module-level function declarations, and passing oldVersionSnapshot +
   // trustedOldPath + deleteDatabaseRow:false keeps it off the database entirely.
   replaceInstalledVersionAfterImport,
+  // Install-completion media fill. Tested with stub dependencies, no handler run.
+  downloadMediaForInstalledGame,
 };

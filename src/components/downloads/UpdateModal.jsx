@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import HostIcon from './HostIcon.jsx'
 import { buildThreadUrl, threadUrlForGame } from './threadUrl.js'
 import { buildDownloadOptions } from './linkSections.js'
@@ -34,6 +34,19 @@ import { buildDownloadOptions } from './linkSections.js'
 
 const prettyHost = (host) => String(host || '').replace(/^www\./, '')
 
+// Only folder hosts take the list-folder step. A Gofile share URL names a
+// folder, so the listing picks between picker and single file. Other hosts
+// queue the resolved URL untouched: probing their links rewrote good URLs
+// (Buzzheavier lost its ?v= token and the CDN 403d) or dropped data the
+// queue needs (Mega's decrypt spec). A future folder host opts in here.
+const FOLDER_PICKER_HOST = /gofile/i
+
+// Fresh loading, error and links slots for each tab.
+const freshEntries = () => ({
+  f95: { loading: false, error: '', errorCode: '', data: null },
+  lewdcorner: { loading: false, error: '', errorCode: '', data: null },
+})
+
 const formatBytes = (value) => {
   const bytes = Number(value) || 0
   if (bytes <= 0) return '0 B'
@@ -44,15 +57,32 @@ const formatBytes = (value) => {
 }
 
 export default function UpdateModal({ game, open, onClose, onQueued, session = null }) {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [errorCode, setErrorCode] = useState('')
-  const [data, setData] = useState(null)
+  // Loading, error and links live per tab, so a failed fetch on one tab does not clear the other.
+  const [bySource, setBySource] = useState(freshEntries)
+  const [activeSource, setActiveSource] = useState('f95')
   const [resolvingUrl, setResolvingUrl] = useState('')
   const [folderChoices, setFolderChoices] = useState(null)
 
-  const threadId = game?.f95_id || game?.f95Id || null
+  const f95ThreadId = game?.f95_id || game?.f95Id || null
+  const lcThreadId = game?.lc_id || game?.lcId || game?.lewdCornerId || null
   const title = game?.title || 'this game'
+  // Every fresh start (open, or a new game in a session) bumps this. A fetch
+  // from before the bump may still be in flight, and a response landing after
+  // the reset belongs to a previous game: writing it would put the old
+  // thread's links under the new game's name until its own fetch came back.
+  const loadEpoch = useRef(0)
+
+  // One entry per linked source. A single source keeps its tab: that tab
+  // carries the fetched version, which nothing else on the dialog shows.
+  const sources = [
+    ...(f95ThreadId ? [{ key: 'f95', id: f95ThreadId }] : []),
+    ...(lcThreadId ? [{ key: 'lewdcorner', id: lcThreadId }] : []),
+  ]
+  const activeId = activeSource === 'lewdcorner' ? lcThreadId : f95ThreadId
+  // The open tab's display name. Labels that act on one tab say which one.
+  const activeSourceName = activeSource === 'lewdcorner' ? 'LewdCorner' : 'F95zone'
+  // loading, error and data below come from the open tab.
+  const { loading, error, errorCode, data } = bySource[activeSource]
 
   // Where "Open thread" goes. See threadUrl.js for why this is not a template
   // string built from an id that may not exist.
@@ -62,37 +92,85 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
   const options = buildDownloadOptions(data?.links)
   // threadUrlForGame owns the field-name variance; the only thing added here is
   // the freshly fetched thread id, which the modal has and the record may not.
-  const threadUrl = data?.threadId
-    ? buildThreadUrl({ siteUrl: game?.siteUrl || game?.site_url, f95Id: data.threadId })
+  // The thread button follows the open tab. data.threadId is that tab's own
+  // id, so it builds an F95 URL on the F95 tab and an LC URL on the LC tab.
+  const threadUrl = activeSource === 'lewdcorner'
+    ? buildThreadUrl({ lewdCornerSiteUrl: game?.lewdCornerSiteUrl || game?.lewdcornerSiteUrl, lcId: data?.threadId || lcThreadId })
       || threadUrlForGame(game)
-    : threadUrlForGame(game)
+    : data?.threadId
+      ? buildThreadUrl({ siteUrl: game?.siteUrl || game?.site_url, f95Id: data.threadId })
+        || threadUrlForGame(game)
+      : threadUrlForGame(game)
 
-  const load = useCallback(async (force = false) => {
-    if (!threadId) {
-      setError('This game has no F95zone thread linked, so Atlas cannot look up download links.')
+  // One loader for both tabs. updateLinksGet takes a threadId, lcLinksGet takes an lcId.
+  const loadSource = useCallback(async (source, id, force = false) => {
+    const epoch = loadEpoch.current
+    const stale = () => epoch !== loadEpoch.current
+    const sourceName = source === 'lewdcorner' ? 'LewdCorner' : 'F95zone'
+    if (!id) {
+      setBySource((prev) => ({
+        ...prev,
+        [source]: { loading: false, error: `This game has no ${sourceName} thread linked, so Atlas cannot look up download links.`, errorCode: '', data: null },
+      }))
       return
     }
-    setLoading(true)
-    setError('')
-    setErrorCode('')
+    if (stale()) return
+    setBySource((prev) => ({ ...prev, [source]: { ...prev[source], loading: true, error: '', errorCode: '' } }))
     try {
-      const result = await window.electronAPI.updateLinksGet?.({ threadId, force })
-      if (result?.ok) setData(result)
-      else {
-        setError(result?.error || 'Could not load download links')
-        setErrorCode(result?.code || '')
+      const result = source === 'lewdcorner'
+        ? await window.electronAPI.lcLinksGet?.({ lcId: id, force })
+        : await window.electronAPI.updateLinksGet?.({ threadId: id, force })
+      if (stale()) return
+      if (result?.ok) {
+        setBySource((prev) => ({ ...prev, [source]: { loading: false, error: '', errorCode: '', data: result } }))
+      } else {
+        setBySource((prev) => ({
+          ...prev,
+          [source]: { loading: false, error: result?.error || `Could not load ${sourceName} links`, errorCode: result?.code || '', data: null },
+        }))
       }
     } catch (err) {
-      setError(err.message || 'Could not load download links')
-    } finally {
-      setLoading(false)
+      if (stale()) return
+      setBySource((prev) => ({ ...prev, [source]: { loading: false, error: err.message || `Could not load ${sourceName} links`, errorCode: '', data: null } }))
     }
-  }, [threadId])
+  }, [])
 
   useEffect(() => {
-    if (open) load(false)
-    else { setData(null); setError(''); setResolvingUrl(''); setFolderChoices(null) }
-  }, [open, load])
+    // Bump before any reset or load: everything started after this belongs to
+    // this modal state, and anything started before it becomes stale.
+    loadEpoch.current += 1
+    if (open) {
+      // Both linked sources start at once, and so do their challenge windows.
+      // A hidden challenge that auto-resolves never waits for the other source.
+      // The ids are dependencies so session mode refetches for each new game
+      // instead of showing the last game's links.
+      const first = f95ThreadId ? 'f95' : 'lewdcorner'
+      setActiveSource(first)
+      setBySource(freshEntries())
+      setResolvingUrl('')
+      setFolderChoices(null)
+      if (f95ThreadId) loadSource('f95', f95ThreadId, false)
+      if (lcThreadId) loadSource('lewdcorner', lcThreadId, false)
+    } else {
+      setBySource(freshEntries())
+      setResolvingUrl('')
+      setFolderChoices(null)
+    }
+  }, [open, f95ThreadId, lcThreadId, loadSource])
+
+  // Each tab fetches on first open and keeps its links until the modal closes.
+  const selectSource = (source) => {
+    setActiveSource(source)
+    const entry = bySource[source]
+    if (!entry.data && !entry.error && !entry.loading) {
+      loadSource(source, source === 'lewdcorner' ? lcThreadId : f95ThreadId, false)
+    }
+  }
+
+  // Resolve and queue errors belong to the open tab.
+  const setActiveError = (message, code = '') => {
+    setBySource((prev) => ({ ...prev, [activeSource]: { ...prev[activeSource], error: message, errorCode: code } }))
+  }
 
   // Resolving opens a real browser window where the user clears F95's gate
   // themselves. Atlas reads the destination and queues it.
@@ -124,7 +202,7 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
         version: game?.latestVersion || game?.latest_version || '',
         url,
         host,
-        source: 'f95',
+        source: activeSource === 'lewdcorner' ? 'lewdcorner' : 'f95',
         // Which build this is, in the poster's own words. The queue otherwise
         // shows the game title and the LATEST version on every row, so an old
         // season, a compressed build and the current one are three identical
@@ -132,8 +210,10 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
         //
         // The RAW heading, empty for the unlabeled block - the display name for
         // that case lives in linkSections.FULL_ARCHIVE and is applied by whoever
-        // renders it, so the string still exists in exactly one place.
-        buildLabel: link.group || '',
+        // renders it, so the string still exists in exactly one place. The
+        // section is part of the label: a repack and the part it sits under
+        // would otherwise queue as two identical rows.
+        buildLabel: [link.group, link.section].filter(Boolean).join(' \u00b7 '),
         // Left as 'replace'. A Browse row's record_id is a synthetic `catalog:…`
         // string rather than null, so testing it here was wrong — the main
         // process normalises the id and downgrades this to 'add' when there is no
@@ -148,13 +228,13 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
         // the run showing nothing.
         if (!session) onClose?.()
       } else {
-        setError(queued?.error || 'Could not add this to the download queue')
+        setActiveError(queued?.error || 'Could not add this to the download queue')
       }
   }
 
   const choose = async (link) => {
     setResolvingUrl(link.url)
-    setError('')
+    setActiveError('')
     setFolderChoices(null)
     try {
       const resolved = await window.electronAPI.downloadsResolveMasked?.({
@@ -163,8 +243,13 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
       })
       if (!resolved?.ok) {
         if (!resolved?.canceled) {
-          setError(resolved?.error || 'Could not get the download link')
+          setActiveError(resolved?.error || 'Could not get the download link')
         }
+        return
+      }
+      // Only folder hosts get a listing. The rest queue the resolved URL.
+      if (!FOLDER_PICKER_HOST.test(link.host || '')) {
+        await queueDownload(link, resolved.url, resolved.host || link.host)
         return
       }
       // The listing decides: choices present means pick, anything else queues.
@@ -175,12 +260,12 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
         return
       }
       if (folder && !folder.ok && !/no plugin/i.test(folder.error || '')) {
-        setError(folder.error || 'Could not read this folder')
+        setActiveError(folder.error || 'Could not read this folder')
         return
       }
       await queueDownload(link, folder?.directUrl || resolved.url, resolved.host || link.host)
     } catch (err) {
-      setError(err.message || 'Could not start this download')
+      setActiveError(err.message || 'Could not start this download')
     } finally {
       setResolvingUrl('')
     }
@@ -190,11 +275,11 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
     const picked = folderChoices
     if (!picked) return
     setResolvingUrl(picked.linkUrl)
-    setError('')
+    setActiveError('')
     try {
       await queueDownload(picked.link, choice.directUrl, picked.resolved.host || picked.link.host)
     } catch (err) {
-      setError(err.message || 'Could not start this download')
+      setActiveError(err.message || 'Could not start this download')
     } finally {
       setResolvingUrl('')
     }
@@ -247,11 +332,6 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
                 </button>
               )}
             </div>
-            {game?.latestVersion && (
-              <p className="text-xs text-muted mt-0.5">
-                Latest version {game.latestVersion}
-              </p>
-            )}
             {/* Where the user is in the run. Both numbers, not a percentage: the
                 decision this line supports is "do I keep going or stop", and
                 "19 left" answers that where "21%" does not. */}
@@ -272,6 +352,37 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
           </button>
         </div>
 
+        {sources.length > 0 && (
+          <div role="tablist" aria-label="Download sources" className="px-4 flex gap-2 border-b border-border shrink-0">
+            {sources.map((source) => {
+              const selected = activeSource === source.key
+              return (
+                <button
+                  key={source.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => selectSource(source.key)}
+                  className={`text-xs px-3 py-2 border-b-2 transition-colors -mb-px ${
+                    selected ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'
+                  }`}
+                >
+                  {source.key === 'f95' ? 'F95zone' : 'LewdCorner'}
+                  {/* The live thread version, not the catalog's. A title whose
+                      thread carries no version bracket reads Unknown - a dev
+                      bracket must never pose as one. Its own muted weight
+                      keeps the tab's selected colour on the name. */}
+                  {bySource[source.key].data && (
+                    <span className="ml-1.5 text-[10px] opacity-60">
+                      {bySource[source.key].data.version || 'Unknown'}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
           {loading && (
             <div className="py-10 text-center text-sm text-muted">
@@ -287,12 +398,12 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
               {/* A session problem is fixable by the user, so say where. */}
               {(errorCode === 'NO_SESSION' || errorCode === 'NOT_LOGGED_IN') && (
                 <p className="mt-1 text-muted">
-                  Settings &rsaquo; Accounts is where F95zone sign-in lives.
+                  Settings &rsaquo; Accounts is where {activeSourceName} sign-in lives.
                 </p>
               )}
               <button
                 type="button"
-                onClick={() => load(true)}
+                onClick={() => loadSource(activeSource, activeId, true)}
                 className="mt-2 h-7 px-3 text-xs rounded-buttonTheme bg-button hover:bg-buttonHover text-text"
               >
                 Try again
@@ -340,11 +451,11 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
                 {options.every((option) => option.unsupported)
                   ? 'This thread\u2019s builds are all on hosts Atlas cannot download from yet, so there is nothing to queue here.'
                   : options.length > 1
-                    ? 'This thread offers more than one build. Pick the build first, then a mirror. F95zone will ask you to confirm in a browser window before the download starts.'
-                    : 'Choose a mirror. F95zone will ask you to confirm in a browser window before the download starts.'}
+                    ? `This thread offers more than one build. Pick the build first, then a mirror. ${activeSourceName} will ask you to confirm in a browser window before the download starts.`
+                    : `Choose a mirror. ${activeSourceName} will ask you to confirm in a browser window before the download starts.`}
               </p>
               {options.map((option) => (
-                <div key={option.title} className="space-y-1.5">
+                <div key={`${option.title}|${option.section}`} className="space-y-1.5">
                   {/* The build label only appears when there is a build to choose
                       between. With one option it is a caption on a list that has
                       no alternative, which is noise.
@@ -361,9 +472,26 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
                       about the whole thread. */}
                   {(options.length > 1 || option.unsupported) && (
                     <div className="flex items-baseline gap-2 pt-1">
+                      {/* `name` is the heading with the platform prefix off:
+                          the badge beside it already names the platforms, so
+                          the head says only what varies between sections. */}
                       <span className={`text-xs font-medium ${option.isUnlabeled ? 'text-accent' : 'text-text'}`}>
-                        {option.title}
+                        {option.name}
                       </span>
+                      {/* The poster's sub-heading inside the part ("COMPRESSED
+                          (V95)"). It is the only thing separating a repack from
+                          the part it sits under, so it sits beside the name. It
+                          truncates before the platform badge does: the badge is
+                          a filter value the user is reading, the section is a
+                          reminder of which archive this row is. */}
+                      {option.section && (
+                        <span
+                          className="text-[10px] text-muted min-w-0 truncate max-w-[45%]"
+                          title={option.section}
+                        >
+                          {option.section}
+                        </span>
+                      )}
                       {/* Platform is an axis of its own now, so it is a badge on
                           the build rather than words inside its name. */}
                       {option.platforms.length > 0 && (
@@ -512,11 +640,11 @@ export default function UpdateModal({ game, open, onClose, onQueued, session = n
         <div className="px-4 py-2.5 border-t border-border flex items-center justify-between gap-2">
           <button
             type="button"
-            onClick={() => load(true)}
+            onClick={() => loadSource(activeSource, activeId, true)}
             disabled={loading || Boolean(resolvingUrl)}
             className="text-[11px] text-muted hover:text-text disabled:opacity-40"
           >
-            Refresh links
+            {sources.length > 1 ? `Refresh ${activeSourceName} links` : 'Refresh links'}
           </button>
           {session ? (
             // Two different exits, and they are not the same thing. Skip leaves

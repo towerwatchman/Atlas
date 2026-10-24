@@ -109,6 +109,15 @@ const SourceOrderList = ({ order, availableSources, labelFor, onMove, onRemove, 
   )
 }
 
+const formatBytes = (value) => {
+  const bytes = Number(value) || 0
+  if (bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+  const scaled = bytes / 1024 ** index
+  return `${scaled.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
+}
+
 const Metadata = () => {
   const [mediaStorageMode, setMediaStorageMode] = useState('stream')
   const [downloadPreviews, setDownloadPreviews] = useState(false)
@@ -118,6 +127,33 @@ const Metadata = () => {
   const [mediaPerHostConcurrency, setMediaPerHostConcurrency] = useState(2)
   const [mediaRequestDelayMs, setMediaRequestDelayMs] = useState(100)
   const [imageCacheSizeMB, setImageCacheSizeMB] = useState(1024)
+  const [clearingWebImageCache, setClearingWebImageCache] = useState(false)
+  const [webImageCacheStatus, setWebImageCacheStatus] = useState('')
+  const [webImageCacheBytes, setWebImageCacheBytes] = useState(null)
+
+  useEffect(() => {
+    window.electronAPI.getWebImageCacheInfo().then((info) => {
+      if (info && Number.isFinite(info.sizeBytes)) setWebImageCacheBytes(info.sizeBytes)
+    }).catch(() => { /* size hint only; the row still works without it */ })
+  }, [])
+
+  const handleClearWebImageCache = async () => {
+    setClearingWebImageCache(true)
+    setWebImageCacheStatus('')
+    try {
+      const result = await window.electronAPI.clearWebImageCache()
+      if (result?.success === false) throw new Error(result.error || 'Clear failed')
+      if (Number.isFinite(result?.sizeBytes)) setWebImageCacheBytes(result.sizeBytes)
+      setWebImageCacheStatus('Image cache cleared.')
+    } catch (err) {
+      console.error('Failed to clear image cache:', err)
+      setWebImageCacheStatus(`Failed to clear image cache: ${err.message || 'Unknown error'}`)
+    } finally {
+      // Keep the status line readable; restore the button immediately.
+      setClearingWebImageCache(false)
+      setTimeout(() => setWebImageCacheStatus(''), 4000)
+    }
+  }
 
   useEffect(() => {
     window.electronAPI.getConfig().then((config) => {
@@ -246,6 +282,27 @@ const Metadata = () => {
           title={mediaStorageMode !== 'stream' ? 'Only applies when streaming media' : undefined}
         />
       </div>
+
+      <div className="flex items-center mb-2">
+        <label className="flex-1">
+          Clear image cache
+          <span className="block text-xs opacity-50 max-w-2xl">
+            Purges the web cache backing this size setting — streamed banners, previews and trailers, including
+            stale CDN errors that keep showing broken images until this runs. Downloaded files are not affected.
+            {webImageCacheBytes !== null ? ` Current size: ${formatBytes(webImageCacheBytes)}.` : ''}
+          </span>
+        </label>
+        <button
+          onClick={handleClearWebImageCache}
+          disabled={clearingWebImageCache}
+          className="px-4 py-1 bg-button hover:bg-buttonHover rounded disabled:opacity-50"
+        >
+          {clearingWebImageCache ? 'Clearing…' : 'Clear now'}
+        </button>
+      </div>
+      {webImageCacheStatus && (
+        <p className="text-xs opacity-60 mb-2">{webImageCacheStatus}</p>
+      )}
 
       <div className="flex items-center mb-2">
         <label className="flex-1">Download Image Previews</label>

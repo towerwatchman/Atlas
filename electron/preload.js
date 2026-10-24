@@ -196,6 +196,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // ─── FIXED: Added missing external URL opener for Update Available button ──
   openExternalUrl: (url) => ipcRenderer.invoke("open-external-url", url),
+  listBrowsers: () => ipcRenderer.invoke("browsers-list"),
+  selectCustomBrowser: () => ipcRenderer.invoke("select-custom-browser"),
   launchGame: (data) => ipcRenderer.invoke("launch-game", data),
   openGameFolder: (data) => ipcRenderer.invoke("open-game-folder", data),
   openGameImageFolder: (recordId) =>
@@ -372,6 +374,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
   hostsMegaSelfTest: () => ipcRenderer.invoke("hosts-mega-selftest"),
   updateLinksGet: (params) => ipcRenderer.invoke("update-links-get", params),
   updateLinksClearCache: (params) => ipcRenderer.invoke("update-links-clear-cache", params),
+  // Clears Chromium's HTTP disk cache, the "web" cache of streamed remote
+  // media behind Settings -> Metadata's "Clear image cache" row. Scoped to
+  // "web" to avoid name clashes with Atlas-native caches and the external
+  // browser setting. Downloaded files are unaffected.
+  clearWebImageCache: () => ipcRenderer.invoke("media-web-image-cache-clear"),
+  // Approximate on-disk size of that cache, for the same settings row.
+  getWebImageCacheInfo: () => ipcRenderer.invoke("media-web-image-cache-info"),
+  lcLinksGet: (params) => ipcRenderer.invoke("lewdcorner-links-get", params),
+  lcLinksClearCache: (params) => ipcRenderer.invoke("lewdcorner-links-clear-cache", params),
+  // Field switch used to re-run a CF challenge on demand; one-shot from the
+  // debug console, no UI.
+  downloadsClearResolverSession: () => ipcRenderer.invoke("downloads-clear-resolver-session"),
   // Each returns its own unsubscribe function so a remounting panel does not
   // stack duplicate listeners.
   onDownloadAdded: (cb) => {
@@ -421,6 +435,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onMetadataChanged: (callback) => {
     ipcRenderer.on("metadata-changed", (event, metadata) => callback(metadata));
     return () => ipcRenderer.removeAllListeners("metadata-changed");
+  },
+  onDetailClickSearchModeChanged: (callback) => {
+    ipcRenderer.on("detail-click-search-mode-changed", (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners("detail-click-search-mode-changed");
   },
   // Fired by the browser-extension RPC server after it writes a wishlist
   // entry, so an already-open library reflects the change without a restart.

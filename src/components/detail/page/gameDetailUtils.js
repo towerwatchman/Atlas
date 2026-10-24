@@ -27,6 +27,19 @@ export const getDefaultVersion = (versions = []) => {
   return sortVersionsDesc(versions)[0] || null
 }
 
+// The Steam appid of the selected season
+export const selectedSteamAppId = (selectedVersion) =>
+  (selectedVersion && selectedVersion.source === 'steam')
+    ? (selectedVersion.source_app_id ?? selectedVersion.sourceAppId ?? null)
+    : null
+
+// Season scope steam logo.
+export const seasonLogoOverride = (selectedVersion) => {
+  const appId = selectedSteamAppId(selectedVersion)
+  if (!appId) return null
+  return `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/logo.png`
+}
+
 export const normalizeUrl = (url) => {
   if (!url) return ''
   return String(url).split(/[?#]/)[0].trim().toLowerCase().replace(/\/+$/, '')
@@ -178,6 +191,11 @@ export const formatLanguages = (raw, cap = 5) => {
   if (list.length > cap) return `Multiple languages (${list.length})`
   return list.join(', ')
 }
+
+// formatLanguages collapses long lists into a "Multiple languages (N)"
+// summary. That summary is display-only: searching it literally matches
+// nothing, so callers render it as plain text, not a search link.
+export const isLanguageSummary = (value) => String(value || '').startsWith('Multiple languages (')
 
 // Convert Steam's HTML description (or plain/bbcode text) into readable plain
 // text. Avoids dangerouslySetInnerHTML — block tags become line breaks, list

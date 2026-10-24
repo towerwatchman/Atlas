@@ -470,7 +470,7 @@ async function downloadImages(
           fs.writeFileSync(animatedPath, imageBytes);
         }
         await verifyTrackedFile(animatedPath, existedBefore);
-        await updateBanners(recordId, `${relativePath}${ext}`, "animated");
+        await updateBanners(recordId, `${relativePath}${ext}`, "animated", bannerUrl);
         result.bannerRowsWritten++;
         result.downloaded++;
         imageProgress++;
@@ -485,7 +485,7 @@ async function downloadImages(
             // Already have the animated derivative — don't decode every frame
             // just to re-confirm it's animated. Register the existing file.
             await verifyTrackedFile(animatedWebpPath, true);
-            await updateBanners(recordId, `${relativePath}_animated.webp`, "animated");
+            await updateBanners(recordId, `${relativePath}_animated.webp`, "animated", bannerUrl);
             result.bannerRowsWritten++;
             result.downloaded++;
             imageProgress++;
@@ -511,7 +511,7 @@ async function downloadImages(
                 })
                 .toFile(animatedWebpPath);
               await verifyTrackedFile(animatedWebpPath, false);
-              await updateBanners(recordId, `${relativePath}_animated.webp`, "animated");
+              await updateBanners(recordId, `${relativePath}_animated.webp`, "animated", bannerUrl);
               result.bannerRowsWritten++;
               result.downloaded++;
               imageProgress++;
@@ -540,7 +540,7 @@ async function downloadImages(
         ]);
       }
       await verifyTrackedFile(highResPath, highResExisted);
-      await updateBanners(recordId, `${relativePath}_mc.webp`, "small");
+      await updateBanners(recordId, `${relativePath}_mc.webp`, "small", bannerUrl);
       result.bannerRowsWritten++;
       result.localBannerPath = `${relativePath}_mc.webp`;
       result.downloaded++;
@@ -548,7 +548,7 @@ async function downloadImages(
       reportProgress();
 
       await verifyTrackedFile(lowResPath, lowResExisted);
-      await updateBanners(recordId, `${relativePath}_sc.webp`, "large");
+      await updateBanners(recordId, `${relativePath}_sc.webp`, "large", bannerUrl);
       result.bannerRowsWritten++;
       if (!result.localBannerPath) result.localBannerPath = `${relativePath}_sc.webp`;
       result.downloaded++;
@@ -575,6 +575,28 @@ async function downloadImages(
     }
   }
 
+  // Append-only preview numbering for updates. A shifted fresh url list must
+  // never overwrite an occupied slot. Each newcomer takes the next free
+  // suffix for its source, scanned once per source from the files on disk.
+  const appendPreviews = options.appendPreviews === true;
+  const appendPreviewCounters = new Map();
+  const appendPreviewIndex = (source) => {
+    const key = normalizeImageSource(source, "f95");
+    if (!appendPreviewCounters.has(key)) {
+      const prefix = `preview_${key}_`;
+      let max = 0;
+      for (const file of fs.readdirSync(imgDir)) {
+        if (!file.startsWith(prefix)) continue;
+        const m = file.slice(prefix.length).match(/^(\d+)/);
+        if (m) max = Math.max(max, Number(m[1]));
+      }
+      appendPreviewCounters.set(key, max);
+    }
+    const next = appendPreviewCounters.get(key) + 1;
+    appendPreviewCounters.set(key, next);
+    return next - 1;
+  };
+
   for (let i = 0; i < previewCount; i++) {
     const previewEntry = screenUrls[i];
     const url = typeof previewEntry === "string"
@@ -595,7 +617,10 @@ async function downloadImages(
     try {
       result.attempted++;
       const ext = path.extname(new URL(url).pathname).toLowerCase();
-      const baseName = buildPreviewBaseName(previewSource, i);
+      const baseName = buildPreviewBaseName(
+        previewSource,
+        appendPreviews ? appendPreviewIndex(previewSource) : i,
+      );
       const imagePath = path.join(imgDir, baseName);
       const relativePath = path.join(
         "data",

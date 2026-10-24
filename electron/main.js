@@ -87,6 +87,7 @@ const {
   updateFolderSize, getBannerUrl, getScreensUrlList,
   updateBanners, updatePreviews, insertPreviewSortRow, getRemotePreviewUrls, getSteamMovieThumbnails,
   getPreviews, getPreviewsWithMeta, getBanners, getBanner, getRemoteBannerUrl, getBrowsePreviewUrls,
+  getStoredPreviewUrls, getStoredBannerUrls,
   getSteamBrowseMediaForAppId,
   getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
   deleteBanner, deletePreviews,
@@ -147,6 +148,7 @@ const registerAccountsHandlers = require('./ipc/accounts')
 const registerCollectionsHandlers = require('./ipc/collections')
 const registerDownloadsHandlers = require('./ipc/downloads')
 const registerUpdateLinkHandlers = require('./ipc/updateLinks')
+const registerLcLinkHandlers = require('./ipc/lcLinks')
 const { registerExtensionHandlers } = require('./ipc/extension')
 const { startExtensionServer, stopExtensionServer } = require('./rpc/extensionServer')
 const {
@@ -346,8 +348,8 @@ function registerLewdCornerMediaHeaders() {
 // reports lcTierMismatch, the LewdCorner shop page parser read no owned
 // rank but the thread probe — which reflects real content access — concluded
 // the user is Plus. That mismatch is the stale-selector signal: the [LewdCorner]
-// config keys (statusPillClass / statusPillOwnedToken / statusPillOwnedText)
-// likely no longer match LC's markup. Gated on !app.isPackaged so it never
+// config keys (lcBuyButtonClass / lcOwnedText) likely no longer match LC's
+// markup. Gated on !app.isPackaged so it never
 // fires in a shipped build; the user-facing tier gate stays correct regardless
 // because the probe already resolved the real tier.
 function warnOnLcTierMismatch(result) {
@@ -356,7 +358,7 @@ function warnOnLcTierMismatch(result) {
     console.warn(
       'LewdCorner shop parser looks stale: shop reported \'Free\' but ' +
       'the thread probe confirmed real content access. Check the [LewdCorner] ' +
-      'statusPill selectors in the config.',
+      'buy-button selectors in the config.',
     )
     return
   }
@@ -1834,6 +1836,7 @@ function buildCtx() {
     addWishlistEntry, removeWishlistEntry, toggleWishlistEntry, isWishlistEntry,
     getWishlistEntries, getWishlistEntryIdentities,
     getBannerUrl, getScreensUrlList, getRemoteBannerUrl, getRemotePreviewUrls, getSteamMovieThumbnails,
+    getStoredPreviewUrls, getStoredBannerUrls,
     getAllDownloadableAssetUrlsForRecord, upsertMediaAsset,
     getEmulatorConfig, removeEmulatorConfig, saveEmulatorConfig, getEmulatorByExtension,
     GetAtlasIDbyRecord, getPreviews, getPreviewsWithMeta, getBanner, deleteBanner, deletePreviews,
@@ -2157,7 +2160,13 @@ app.whenReady().then(async () => {
       const data = await fsp.readFile(resolved)
       return new Response(new Uint8Array(data), {
         status: 200,
-        headers: { 'Content-Type': mediaContentType(resolved) },
+        headers: {
+          'Content-Type': mediaContentType(resolved),
+          // The file IS the store: read fresh on every load and delete/re-download
+          // cycles stay consistent. No cache layer may retain it — a re-downloaded
+          // file reuses the same path.
+          'Cache-Control': 'no-store',
+        },
       })
     } catch (err) {
       console.error('atlas-media protocol error:', request.url, err.message)
@@ -2463,6 +2472,7 @@ app.whenReady().then(async () => {
   registerCollectionsHandlers(ctx)
   registerDownloadsHandlers(ctx)
   registerUpdateLinkHandlers(ctx)
+  registerLcLinkHandlers(ctx)
   registerExtensionHandlers(ctx)
 
   const extConfig = appConfig?.Extension || {}

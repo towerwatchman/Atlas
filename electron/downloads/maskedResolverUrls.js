@@ -18,6 +18,12 @@
 
 const F95_HOST = "f95zone.to";
 
+// The parser's "never a file" hosts: funding pages, store pages, socials. A
+// revealed window lets the user click anything on the page, and accepting a
+// Patreon link as the download is how a resolve "succeeds" with a web page as
+// the file. Unknown hosts still pass, so a new mirror is not dropped.
+const { isNonDownloadHost } = require("./xenforoThreadParser");
+
 /**
  * Still on the gate, rather than at the destination host.
  *
@@ -52,12 +58,16 @@ function hasFragment(url) {
 /**
  * Choose the usable destination from everything observed.
  *
- * Off-site and http(s) only; a fragment-bearing candidate always beats one
- * without, even if the fragmentless one arrived first. Otherwise earliest wins.
+ * Off-site, http(s) only, and never a known non-download host; a fragment-bearing
+ * candidate always beats one without, even if the fragmentless one arrived
+ * first. Otherwise earliest wins.
  */
 function pickBestCandidate(candidates, gateHosts) {
   const usable = (candidates || []).filter(
-    (entry) => entry && isNavigableHttp(entry.url) && !isGateUrl(entry.url, gateHosts),
+    (entry) => entry
+      && isNavigableHttp(entry.url)
+      && !isGateUrl(entry.url, gateHosts)
+      && !isNonDownloadHost(entry.url),
   );
   if (usable.length === 0) return null;
   const withFragment = usable.filter((entry) => hasFragment(entry.url));

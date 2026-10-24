@@ -42,9 +42,15 @@ test('the detail page gates the editor on the helper and keeps a read-only branc
   expect(src).toContain("from '../../utils/tagEditing.js'")
   expect(src).toContain('canEditTagsFor(game)')
   // Read-only chips come from detailTags, which is what Browse rows populate.
-  expect(src).toMatch(/!tagsEditable \?[\s\S]{0,400}detailTags/)
-  // The editor is only reached on the editable branch.
-  const editorAt = src.indexOf('<TagEditor')
-  const gateAt = src.lastIndexOf('tagsEditable', editorAt)
-  expect(gateAt).toBeGreaterThan(-1)
+  expect(src).toContain('readOnlyTags={detailTags}')
+  // The editor moved behind the pencil-gated panel, so it is no longer inline.
+  expect(src).toContain('<DetailTagsPanel')
+  expect(src).not.toContain('<TagEditor')
+  const panelSrc = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'components', 'detail', 'page', 'DetailTagsPanel.jsx'),
+    'utf8',
+  )
+  // The panel only reaches the editor in edit mode (mounted tests prove the
+  // pencil is the only route there).
+  expect(panelSrc).toMatch(/showEditor \? \([\s\S]{0,400}<TagEditor/)
 })

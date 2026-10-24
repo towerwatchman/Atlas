@@ -19,7 +19,15 @@ async function checkPath(raw) {
   if (!path.isAbsolute(p)) return { exists: false }
   try {
     const st = await fs.promises.stat(p)
-    return { exists: true, isDirectory: st.isDirectory(), isFile: st.isFile() }
+    let executable = st.isFile()
+    if (executable && process.platform !== 'win32') {
+      try {
+        fs.accessSync(p, fs.constants.X_OK)
+      } catch {
+        executable = false
+      }
+    }
+    return { exists: true, isDirectory: st.isDirectory(), isFile: st.isFile(), isExecutable: executable }
   } catch (e) {
     if (e && e.code === 'ENOENT') return { exists: false }
     return { exists: false, error: String(e && e.message || e) }
@@ -30,6 +38,7 @@ test('windows handler file actually registers check-path', async () => {
   const src = await fs.promises.readFile(path.join(process.cwd(), 'electron/ipc/windows.js'), 'utf8')
   expect(src).toContain("ipcMain.handle('check-path'")
   expect(src).toContain('path.isAbsolute')
+  expect(src).toContain('X_OK')
 })
 
 test('returns exists:false for empty and whitespace input without touching fs', async () => {
@@ -44,9 +53,9 @@ test('returns exists:false for empty and whitespace input without touching fs', 
 test('strips surrounding quotes and trims before stat', async () => {
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'atlas-check-path-'))
   try {
-    expect(await checkPath(`"${tmpDir}"`)).toEqual({ exists: true, isDirectory: true, isFile: false })
-    expect(await checkPath(`'${tmpDir}'`)).toEqual({ exists: true, isDirectory: true, isFile: false })
-    expect(await checkPath(`  ${tmpDir}  `)).toEqual({ exists: true, isDirectory: true, isFile: false })
+    expect(await checkPath(`"${tmpDir}"`)).toEqual({ exists: true, isDirectory: true, isFile: false, isExecutable: false })
+    expect(await checkPath(`'${tmpDir}'`)).toEqual({ exists: true, isDirectory: true, isFile: false, isExecutable: false })
+    expect(await checkPath(`  ${tmpDir}  `)).toEqual({ exists: true, isDirectory: true, isFile: false, isExecutable: false })
   } finally {
     await fs.promises.rm(tmpDir, { recursive: true, force: true })
   }
@@ -56,9 +65,12 @@ test('returns isDirectory true for an existing directory and isFile for a file',
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'atlas-check-path-'))
   const tmpFile = path.join(tmpDir, 'file.txt')
   await fs.promises.writeFile(tmpFile, 'hello')
+  // writeFile makes 0644; the bit below must be set explicitly or the
+  // executable assertion is green on Windows and red on POSIX.
+  await fs.promises.chmod(tmpFile, 0o755)
   try {
-    expect(await checkPath(tmpDir)).toMatchObject({ exists: true, isDirectory: true, isFile: false })
-    expect(await checkPath(tmpFile)).toMatchObject({ exists: true, isDirectory: false, isFile: true })
+    expect(await checkPath(tmpDir)).toMatchObject({ exists: true, isDirectory: true, isFile: false, isExecutable: false })
+    expect(await checkPath(tmpFile)).toMatchObject({ exists: true, isDirectory: false, isFile: true, isExecutable: true })
   } finally {
     await fs.promises.rm(tmpDir, { recursive: true, force: true })
   }

@@ -75,9 +75,9 @@ test('it goes straight to the downloads modal even when Steam is also a source',
   expect(onSteamInstall).not.toHaveBeenCalled()
 })
 
-test('it is shown disabled, with a reason, for a title with no F95 thread', () => {
-  // UpdateModal looks the thread up by f95_id and has nothing to show without
-  // one. Disabled rather than hidden so the route stays visible and explains
+test('it is shown disabled, with a reason, for a title with no linked thread', () => {
+  // The modal reads f95_id or lc_id and has nothing to show without either.
+  // Disabled rather than hidden so the route stays visible and explains
   // itself instead of appearing and disappearing between titles.
   const onOpenUpdate = vi.fn()
   renderBar({ game: { ...INSTALLED_GAME, f95_id: null }, onOpenUpdate })
@@ -85,10 +85,20 @@ test('it is shown disabled, with a reason, for a title with no F95 thread', () =
   openCaret()
   const item = screen.getByText('Download Version').closest('button')
   expect(item.disabled).toBe(true)
-  expect(item.textContent).toContain('No F95zone thread')
+  expect(item.textContent).toContain('No thread is linked')
 
   fireEvent.click(item)
   expect(onOpenUpdate).not.toHaveBeenCalled()
+})
+
+test('an LC-only title can reach the downloads modal through the caret', () => {
+  // No f95_id, but the modal reads lc_id too, so the route stays open.
+  const onOpenUpdate = vi.fn()
+  renderBar({ game: { ...INSTALLED_GAME, f95_id: null, lc_id: 3272 }, onOpenUpdate })
+
+  openCaret()
+  fireEvent.click(screen.getByText('Download Version'))
+  expect(onOpenUpdate).toHaveBeenCalledTimes(1)
 })
 
 test('it is disabled when the page was rendered without the modal handler', () => {

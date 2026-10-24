@@ -1,9 +1,18 @@
+import { useEffect, useRef } from 'react'
 import { useDebouncedSearch } from '../../hooks/useDebouncedSearch.js'
 
-export default function SearchBox({ value = "", onSearchChange, onToggleSidebar, resetInputSignal }) {
+export default function SearchBox({ value = "", onSearchChange, onToggleSidebar, resetInputSignal, focusSignal = 0 }) {
   const { localValue, handleChange, handleClear } = useDebouncedSearch({ value, onSearchChange, resetInputSignal })
+  const inputRef = useRef(null)
+
+  // A jump that lands text in the box hands the cursor over with it.
+  useEffect(() => {
+    if (focusSignal > 0) inputRef.current?.focus()
+  }, [focusSignal])
 
   const handleInputKeyDown = (event) => {
+    // First Escape releases focus; a later one is free to close or navigate.
+    if (event.key === 'Escape') event.currentTarget.blur()
     event.stopPropagation()
   }
 
@@ -12,6 +21,7 @@ export default function SearchBox({ value = "", onSearchChange, onToggleSidebar,
       <div className="flex bg-secondary h-10 w-[400px] items-center rounded mt-[20px] border border-border hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent relative -webkit-app-region-no-drag">
         <i className="fas fa-search w-6 h-6 text-text pl-2 flex items-center justify-center"></i>
         <input
+          ref={inputRef}
           type="text"
           placeholder="Search Atlas"
           value={localValue}

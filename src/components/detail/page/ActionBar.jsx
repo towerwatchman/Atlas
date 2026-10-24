@@ -81,12 +81,12 @@ export default function ActionBar({
   // should this come from", and this item has already answered it. Steam and GOG
   // remain reachable through the primary button.
   //
-  // UpdateModal reads `f95_id || f95Id` and shows its own error when neither is
+  // UpdateModal reads both thread ids and shows its own error when neither is
   // present, so the entry is disabled rather than hidden for a title with no
   // thread -- the route exists, this title just cannot take it, and the
   // description says so.
-  const hasF95Thread = Boolean(game?.f95_id || game?.f95Id)
-  const canDownloadVersion = typeof onOpenUpdate === 'function' && hasF95Thread
+  const hasThread = Boolean(game?.f95_id || game?.f95Id || game?.lc_id || game?.lcId || game?.lewdCornerId)
+  const canDownloadVersion = typeof onOpenUpdate === 'function' && hasThread
   // Two entries. The panel picks its own mode -- 'Install / Import Files' for
   // a catalog row, 'Update / Import Files' for a library title -- from
   // canManageWishlist, so a single handler serves both and only the wording here
@@ -97,7 +97,7 @@ export default function ActionBar({
       label: 'Download Version',
       description: canDownloadVersion
         ? 'Pick a build and mirror from the thread, including one you do not have yet.'
-        : 'No F95zone thread is linked to this title, so there are no builds to list.',
+        : 'No thread is linked to this title, so there are no builds to list.',
       icon: 'fas fa-cloud-arrow-down',
       disabled: !canDownloadVersion,
       onSelect: canDownloadVersion ? onOpenUpdate : undefined,

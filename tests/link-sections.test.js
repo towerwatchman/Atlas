@@ -11,11 +11,12 @@ import {
 // could install an older build over a newer one. These assert the grouping and,
 // importantly, the ordering.
 
-const link = (host, group = '', platform = '') => ({
-  url: `https://${host}/f/${group || 'latest'}${platform}`,
+const link = (host, group = '', platform = '', section = '') => ({
+  url: `https://${host}/f/${group || 'latest'}${platform}${section}`,
   host,
   group,
   platform,
+  section,
   label: 'Download',
 })
 
@@ -42,8 +43,31 @@ describe('buildDownloadOptions', () => {
     expect(options[1].isUnlabeled).toBe(false)
   })
 
+  it('shortens a "<platform> <qualifier>" heading to the qualifier, which the badge already shows', () => {
+    // "Win/Linux Heavy" as the section head with a "Win/Linux" badge beside it
+    // repeats the platform twice on one line. The key stays the full label -
+    // only the rendered name shrinks, and only when every platform word is
+    // spoken by the badge.
+    const options = buildDownloadOptions([
+      link('gofile.io', 'Win/Linux Heavy', 'Win/Linux'),
+      link('mega.nz', 'Win/Linux Lite', 'Win/Linux'),
+      link('mega.nz', 'Mac Lite', 'Mac'),
+      link('mega.nz', 'Season 2 Final', 'Win/Linux'),
+      link('mega.nz', 'Win/Linux', 'Win/Linux'),
+    ])
+    expect(options.map((o) => o.name)).toEqual([
+      'Heavy', 'Lite', 'Lite', 'Season 2 Final', 'Win/Linux',
+    ])
+    // But the section identity is untouched: same keys, same links.
+    expect(options.map((o) => o.title)).toEqual([
+      'Win/Linux Heavy', 'Win/Linux Lite', 'Mac Lite',
+      'Season 2 Final', 'Win/Linux',
+    ])
+    expect(options[0].links).toHaveLength(1)
+  })
+
   it('does NOT collapse two builds that share a platform', () => {
-    // The FreshWomen bug, at this layer. Both DLCs were posted under
+    // Two DLCs were posted under
     // "<b>Win/Linux/Mac</b>", and while platform was part of `group` they became
     // one option named after the platform. Now platform is its own field and the
     // two builds stay two builds.
@@ -119,6 +143,24 @@ describe('buildDownloadOptions', () => {
     expect(buildDownloadOptions()).toEqual([])
     expect(buildDownloadOptions(null)).toEqual([])
     expect(buildDownloadOptions([null, undefined])).toEqual([])
+  })
+
+  it('keeps a repack section apart from the part it sits under', () => {
+    // Part 6 and Part 6 · COMPRESSED (V95) are different archives. Keying on the
+    // part name alone merged them into one option with every mirror of both.
+    const options = buildDownloadOptions([
+      link('mega.nz', 'Part 6', 'Win/Linux'),
+      link('pixeldrain.com', 'Part 6', 'Win/Linux'),
+      link('mega.nz', 'Part 6', 'Win/Linux', 'COMPRESSED (V95)'),
+    ])
+    expect(options).toHaveLength(2)
+    expect(options.map((o) => [o.title, o.section])).toEqual([
+      ['Part 6', ''], ['Part 6', 'COMPRESSED (V95)'],
+    ])
+    expect(options[0].links).toHaveLength(2)
+    expect(options[1].links).toHaveLength(1)
+    // Both heads read "Part 6"; the section is what tells them apart on screen.
+    expect(options.map((o) => o.name)).toEqual(['Part 6', 'Part 6'])
   })
 
   it('does not merge headings that differ only in case or spacing', () => {

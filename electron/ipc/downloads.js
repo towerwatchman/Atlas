@@ -12,7 +12,7 @@
 // before the user has been anywhere near a settings page.
 
 const path = require("path");
-const { ipcMain, shell, BrowserWindow, app, dialog } = require("electron");
+const { ipcMain, shell, BrowserWindow, app, dialog, session } = require("electron");
 const megaHashcashPool = require("../downloads/hosts/megaHashcashPool");
 const appLog = require("../appLog");
 
@@ -20,10 +20,14 @@ const downloadsDb = require("../db/downloads");
 const manager = require("../downloads/downloadManager");
 const credentialStore = require("../downloads/credentialStore");
 const { getPlugin, listPlugins, pluginFor } = require("../downloads/hosts");
-const { resolveMaskedLink } = require("../downloads/maskedResolver");
+const { resolveMaskedLink, RESOLVER_PARTITION } = require("../downloads/maskedResolver");
 const { toLocalRecordId } = require("../downloads/recordId");
 const { toCatalogRef } = require("../library/catalogRef");
 const accountStore = require("../accounts/accountStore");
+// Forum bases per site, shared with the LC link handler. The masked-resolve
+// path needs the right base for cookies, so it reads the same table rather
+// than hardcoding a second copy of the origins.
+const { SITES } = require("../downloads/xenforoThreadParser");
 
 let handlerCtx = null;
 
@@ -98,17 +102,33 @@ function registerDownloadsHandlers(ctx = {}) {
 
   });
 
-  // Resolve one F95 masked link by opening it in a visible window carrying the
+  // Resolve one masked link by opening it in a visible window carrying the
   // user's own session. The user clicks through; Atlas reads the address bar.
   // Nothing is clicked on their behalf - see maskedResolver.js.
+  //
+  // `site` selects whose session applies ('lewdcorner' for the parser's
+  // masked:true fallbacks). When omitted, the site is inferred from the URL,
+  // so today's renderer — which sends no site — still resolves LC links
+  // under LC cookies. Undecodable LC /masked/* URLs live on lewdcorner.com,
+  // where F95 cookies would never be sent.
   //
   // The diagnostics come back with the result and are logged deliberately: we
   // could not verify offline which Electron navigation event preserves the
   // URL fragment, and Mega's decryption key lives there. The first real
   // resolve tells us which source to trust.
-  ipcMain.handle("downloads-resolve-masked", async (event, { url, title = "" } = {}) => {
+  ipcMain.handle("downloads-resolve-masked", async (event, { url, title = "", site } = {}) => {
+    // Outside the try: the catch's failed line reports the same clock.
+    const resolveStart = Date.now();
     try {
       if (!url) return { ok: false, error: "No URL supplied" };
+      // An explicit site wins. Otherwise infer from the URL, because the
+      // cookie header already comes from the URL's own site and the refresh
+      // must follow it. Anything unknown falls back to F95 rather than
+      // throwing, so a typo still resolves under a real session.
+      const inferred = accountStore.siteForUrl(url);
+      const siteKey = site === "f95" || site === "lewdcorner" ? site
+        : SITES[inferred]?.base ? inferred : "f95";
+      const base = SITES[siteKey]?.base || SITES.f95.base;
       // Refresh first so an expired cookie fails here, with a clear message,
       // rather than as a mystery captcha loop in the window.
       // Same shape as updateLinks: ensureFreshCookies is async,
@@ -116,19 +136,22 @@ function registerDownloadsHandlers(ctx = {}) {
       // thenable, so neither can be .catch()'d - that mistake is what produced
       // ".catch is not a function" at runtime.
       try {
-        await accountStore.ensureFreshCookies("f95");
+        await accountStore.ensureFreshCookies(siteKey);
       } catch (err) {
-        console.warn("Could not refresh F95 cookies:", err.message);
+        console.warn(`Could not refresh ${siteKey} cookies:`, err.message);
       }
       const cookieHeader = accountStore.getCookieHeaderForUrl(url) || "";
       const parentWindow = BrowserWindow.fromWebContents(event.sender);
       const plugin = pluginFor ? pluginFor(url) : null;
-      const resolveStart = Date.now();
       const result = await resolveMaskedLink(url, {
         parentWindow,
         cookieHeader,
         title,
-        gateHosts: plugin?.gateHosts,
+        // The forum origin for cookies plus the gate default when no plugin
+        // claims the URL. Masked URLs live on the forum itself, so plugin is
+        // null and the gate would otherwise fall back to F95 for LC links.
+        baseUrl: base,
+        gateHosts: plugin?.gateHosts ?? [new URL(base).hostname],
         requiresBrowser: plugin?.requiresBrowser,
       });
       // Kept from before this host was added, and now carrying the two fields
@@ -136,8 +159,10 @@ function registerDownloadsHandlers(ctx = {}) {
       // the hidden attempt works and that hx-redirect / will-download land
       // where they should; dropping the log would make a regression in either
       // invisible.
+      // appLog rather than console.log: the same line now reaches atlas.log
+      // and the in-app DevTools console, not only a dev terminal.
       if (result?.diagnostics) {
-        console.log("[masked-resolve]", JSON.stringify({
+        appLog.write("masked-resolve", {
           ok: result.ok,
           host: result.host,
           hasFragment: result.hasFragment,
@@ -147,10 +172,45 @@ function registerDownloadsHandlers(ctx = {}) {
           leftGateHost: result.leftGateHost,
           cdnPath: result.cdnPath,
           ms: Date.now() - resolveStart,
+          // Why a resolve that came back with diagnostics still failed: the
+          // cancel/close and timeout paths carry their explanation here, not in
+          // the diagnostics object.
+          error: result.error,
+          timedOut: !!result.timedOut,
+          canceled: !!result.canceled,
           ...result.diagnostics,
-        }));
+        }, { devtools: true });
+      } else if (!result?.ok) {
+        // A failed resolve without diagnostics — the queue swallows this
+        // into a UI error string, so the log is the only record of it.
+        appLog.write("masked-resolve", {
+          event: "failed",
+          plugin: plugin?.id || null,
+          ms: Date.now() - resolveStart,
+          error: result?.error || "unknown",
+          timedOut: !!result?.timedOut,
+          canceled: !!result?.canceled,
+        }, { devtools: true });
       }
       return result;
+    } catch (err) {
+      appLog.write("masked-resolve", {
+        event: "failed",
+        ms: Date.now() - resolveStart,
+        error: err.message || String(err),
+      }, { devtools: true });
+      return { ok: false, error: err.message || String(err) };
+    }
+  });
+
+  // Field switch for the grant hand-off: wipes the resolver partition's cookie
+  // jar so the next thread fetch has to re-earn any Cloudflare challenge, and
+  // the round-trip cost becomes observable on demand instead of waiting for a
+  // grant to age out.
+  ipcMain.handle("downloads-clear-resolver-session", async () => {
+    try {
+      await session.fromPartition(RESOLVER_PARTITION).clearStorageData({ storages: ["cookies"] });
+      return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message || String(err) };
     }

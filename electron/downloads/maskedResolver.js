@@ -2,14 +2,15 @@
 
 // ── Masked link resolver ─────────────────────────────────────────────────────
 //
-// Opens an F95 /masked/ link in a real, visible browser window carrying the
-// user's own session, waits for THEM to click through, and captures where the
-// browser ended up.
+// Opens a forum /masked/ link (F95 or LewdCorner) in a real, visible browser
+// window carrying the user's own session, waits for THEM to click through,
+// and captures where the browser ended up.
 //
-// Why a window at all: masked links are AES-encrypted server-side with an
+// Why a window at all: F95 masked links are AES-encrypted server-side with an
 // HMAC over the requesting account's user id, so they cannot be decoded
 // offline, and the landing page loads reCAPTCHA. A real browser is the only
-// honest way through.
+// honest way through. (LC masked links normally decode offline in the parser;
+// only undecodable fallbacks reach this window, under LC cookies.)
 //
 // Two-stage resolve. The window is created HIDDEN and the continue link is
 // clicked programmatically; if that produces a destination within a few
@@ -41,6 +42,7 @@
 // of shipping an assumption and discovering it broken on a 4GB download.
 
 const { BrowserWindow, session: electronSession } = require("electron");
+const appLog = require("../appLog");
 const {
   F95_HOST,
   isGateUrl,
@@ -49,6 +51,10 @@ const {
   pickBestCandidate,
   hostOf,
 } = require("./maskedResolverUrls");
+// Drives F95's own /dl/ interstitial: the poll clicks its Continue / Generate
+// controls and reports the countdown, which the reveal watchdog counts as
+// progress while it runs.
+const { DL_POLL_SCRIPT, shouldReveal, IDLE_REVEAL_MS, LOAD_GRACE_MS } = require("./dlGate");
 // Shared with forum thread fetching (forumWindowFetch.js, updateLinks.js):
 // the persistent session whose jar holds solved Cloudflare grants, and the
 // cookie copier that seeds a window with the user's forum session.
@@ -56,11 +62,6 @@ const RESOLVER_PARTITION = "persist:masked-resolver";
 // Long enough for a slow challenge, short enough that a forgotten window does
 // not pin a queue slot indefinitely.
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
-
-// How long the hidden attempt gets before the window is revealed as a safety
-// net. Non-browser hosts (F95 -> Pixeldrain/Mega) usually resolve headlessly
-// within this, so the user rarely sees a window.
-const DEFAULT_HEADLESS_MS = 9000;
 
 // ── Which cookies survive a resolve ──────────────────────────────────────────
 //
@@ -96,10 +97,11 @@ function isCloudflareCookie(name) {
   return /^cf_chl[a-z_]*_?\d*$/i.test(text) || /^__cf_bm_/i.test(text);
 }
 
-// Cloudflare challenge markers. Used by the poll to reveal the window ONLY when
-// a challenge is actually present - so a clean (VPN-off) download stays hidden
-// while a VPN-flagged one pops the window for the user to tick. Mirrored inline
-// in the injected poll script, which cannot call this function directly.
+// Cloudflare challenge markers. The poll uses them to log challenge and
+// challenge-passed cycles, which is how a report is classified; the reveal
+// itself is decided by idleness, so a challenge that clears on its own never
+// shows a window. Mirrored inline in the injected poll script, which cannot
+// call this function directly.
 const CLOUDFLARE_MARKERS = /cloudflare|just a moment|checking your browser|verify you are human|attention required|cf-chl|turnstile/i;
 function isCloudflareChallenge(text) {
   return CLOUDFLARE_MARKERS.test(text || "");
@@ -130,12 +132,26 @@ const CLICK_HOST_LINK = `
   })();
 `;
 
-// Cookie header -> individual cookies on the window's session, so F95 sees the
-// user's real login. Stored cookies come back as a single header string, which
-// is what the headless fetch path uses.
-async function applyCookies(ses, cookieHeader, baseUrl) {
+// Copies the user's forum cookies into the resolve window, so the site sees
+// a logged-in user instead of a guest. The domain comes from baseUrl because
+// cookies are per-host: an LC cookie stored under F95 would never be sent to LC
+async function applyCookies(ses, cookieHeader, baseUrl = `https://${F95_HOST}/`) {
   if (!cookieHeader) return 0;
+  let domain = F95_HOST;
+  try {
+    domain = new URL(baseUrl).hostname || F95_HOST;
+  } catch {
+    // A malformed base keeps the F95 default instead of failing the resolve.
+  }
   let applied = 0;
+  // Which Cloudflare cookies materialised where. One line per header that
+  // carries any: `seeded` means the jar lacked that grant before us (each
+  // fetch then starts from a fresh challenge), `jarHad` means the jar already
+  // held it and we stayed out of the way. The pairing is what distinguishes a
+  // report of "challenged every time" between no grant persisted and
+  // Cloudflare challenging despite a live grant.
+  const seeded = [];
+  const jarHad = [];
   for (const pair of String(cookieHeader).split(";")) {
     const trimmed = pair.trim();
     if (!trimmed) continue;
@@ -143,12 +159,29 @@ async function applyCookies(ses, cookieHeader, baseUrl) {
     if (eq <= 0) continue;
     const name = trimmed.slice(0, eq).trim();
     const value = trimmed.slice(eq + 1).trim();
+    // Cloudflare grants only reach the jar when it has none: one solved here is
+    // always fresher than a harvested one in the store, and overwriting the
+    // jar's own grant re-runs the challenge for nothing. URL-based lookup so a
+    // host-only grant the browser itself solved also counts as present.
+    if (isCloudflareCookie(name)) {
+      try {
+        const present = await ses.cookies.get({ url: baseUrl, name });
+        if (present.length > 0) {
+          jarHad.push(name);
+          continue;
+        }
+        seeded.push(name);
+      } catch {
+        // Jar unreadable — still seed rather than lose the session grant.
+        seeded.push(name);
+      }
+    }
     try {
       await ses.cookies.set({
         url: baseUrl,
         name,
         value,
-        domain: `.${F95_HOST}`,
+        domain: `.${domain}`,
         path: "/",
         secure: true,
         httpOnly: false,
@@ -157,6 +190,11 @@ async function applyCookies(ses, cookieHeader, baseUrl) {
     } catch (err) {
       console.warn(`Could not set cookie ${name}:`, err.message);
     }
+  }
+  // Only headers that actually carry CF cookies produce a line, so the ordinary
+  // forum-cookie seeding stays silent. Values never go out, only names.
+  if (seeded.length > 0 || jarHad.length > 0) {
+    require("../appLog").write("cf-jar", { host: domain, seeded, jarHad }, { devtools: true });
   }
   return applied;
 }
@@ -167,7 +205,8 @@ async function applyCookies(ses, cookieHeader, baseUrl) {
  * @param {string} maskedUrl
  * @param {object} [options]
  * @param {BrowserWindow} [options.parentWindow]
- * @param {string} [options.cookieHeader] the user's F95 cookies
+ * @param {string} [options.cookieHeader] the user's site cookies for the link's site
+ * @param {string} [options.baseUrl] forum origin the cookies belong to (F95 default)
  * @param {string} [options.title] window title, e.g. the game name
  * @param {number} [options.timeoutMs]
  * @returns {Promise<{ok:boolean, url?:string, host?:string, hasFragment?:boolean,
@@ -178,12 +217,12 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
   const {
     parentWindow = null,
     cookieHeader = "",
+    baseUrl = `https://${F95_HOST}/`,
     title = "",
     timeoutMs = DEFAULT_TIMEOUT_MS,
     // Set false to go straight to a visible window - useful if the automated
     // path ever starts misbehaving in the field.
     headless = true,
-    headlessTimeoutMs = DEFAULT_HEADLESS_MS,
     // Hosts that count as "still on the gate". Defaults to F95; a host plugin
     // passes its own so the window knows when it has reached the real file.
     gateHosts = undefined,
@@ -214,6 +253,10 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
         partition,
         contextIsolation: true,
         nodeIntegration: false,
+        // A hidden window is a background page, and Chromium throttles its
+        // timers - which F95's masked.js and reCAPTCHA run on. Left on, the
+        // automated attempt sat frozen until the user was shown the window.
+        backgroundThrottling: false,
       },
     });
 
@@ -224,27 +267,72 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     // fragment. This is what tells us which source to trust.
     const candidates = [];
     const seen = new Set();
+    // Bumped by everything that moves the resolve forward: navigation, a load
+    // event, the continue link, a countdown tick, a download. The window stays
+    // hidden while this moves and is revealed once it has not, for
+    // IDLE_REVEAL_MS - a page waiting on a human.
+    let lastProgressAt = Date.now();
+    const markProgress = () => { lastProgressAt = Date.now(); };
+    // False until the current navigation has a parsed document. A slow
+    // response is not a stall, so the watchdog waits longer in this state.
+    let domReady = false;
     const note = (source, url) => {
       if (!isNavigableHttp(url)) return;
+      markProgress();
       const key = `${source}|${url}`;
       if (seen.has(key)) return;
       seen.add(key);
       candidates.push({ source, url, fragment: hasFragment(url), at: Date.now() });
     };
 
+    // A page that is still loading is working, not waiting on a human. Until
+    // dom-ready the watchdog uses LOAD_GRACE_MS, so a slow response is not
+    // mistaken for a stall; once the document exists, the idle window applies.
+    contents.on("did-start-loading", () => { domReady = false; markProgress(); });
+    contents.on("dom-ready", () => { domReady = true; markProgress(); });
+    contents.on("did-stop-loading", markProgress);
+
     let settled = false;
     let timer = null;
-    let revealTimer = null;
+    let idleTimer = null;
     let pollInterval = null;
     let revealed = false;
     // Browser session cookies / headers captured on page load so we can hand
     // them back to Atlas when the download is intercepted. Without these,
     // Cloudflare-challenged CDNs reject the anonymous Node.js request.
     let cachedBrowserHeaders = null;
+    // Last tick's report from the /dl/ poll: whether the countdown is live,
+    // seconds left, and the host the page says the link will land on. The
+    // settle warning reads it, and a changed snapshot counts as progress.
+    let dlPoll = null;
+    // The last values seen from the polls, so "changed" can be told from "ran".
+    let lastHostLink = null;
+    let lastDlKey = null;
+    // The same queueing hazard forumWindowFetch guards against: an
+    // executeJavaScript made while any load is running sits pending until the
+    // load stops, so unbounded poll calls stack up during redirects.
+    const withTimeout = (promise, ms, label) => new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(`${label} made no progress for ${ms}ms`)), ms);
+      promise.then(
+        (value) => { clearTimeout(t); resolve(value); },
+        (err) => { clearTimeout(t); reject(err); },
+      );
+    });
     // Declared here so finish() can detach it; assigned once the session is in
     // hand. A const at the registration site would sit in its TDZ for any early
     // finish path.
     let onWillDownload = null;
+    // CF challenge tracking for the poll: how many separate challenge pages
+    // this resolve met, and whether the current page is one. Not every tick --
+    // a challenge that loops produces one line per loop.
+    let challengeActive = false;
+    let challengeSeen = 0;
+    // When the current cycle's challenge page first appeared; challenge-passed
+    // reports how long it held.
+    let challengeStartedAt = null;
+    // This tick's gate-poll CF verdict, hoisted out of the first poll try so
+    // the transition logger below can read it.
+    let gatePollCf = false;
     // Which path produced the answer. Reported in the result so the first real
     // runs show whether the hidden attempt is actually working, rather than
     // this being assumed.
@@ -255,9 +343,25 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       if (revealed || settled) return;
       revealed = true;
       resolvedVia = `visible:${reason}`;
+      // What the user is actually being shown, so a report of "a window
+      // appeared" names the page instead of leaving it to guesswork.
+      let url = "";
+      let pageTitle = "";
+      try {
+        url = contents.getURL();
+        pageTitle = contents.getTitle();
+      } catch {
+        /* already gone */
+      }
+      // A resolve that needed a human is the prime suspect whenever a host
+      // blocks us: the reason and the cf-jar line above pair into one story.
+      appLog.write("masked-resolve", { event: "reveal", reason, url, title: pageTitle }, { devtools: true });
       try {
         if (!win.isDestroyed()) {
           win.show();
+          // Windows denies activation from a background process, so focus()
+          // alone would leave the window under the user's app: raise without it.
+          win.moveTop();
           win.focus();
         }
       } catch { /* window gone */ }
@@ -271,7 +375,17 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
-      if (revealTimer) clearTimeout(revealTimer);
+      if (idleTimer) clearInterval(idleTimer);
+      // The page the attempt ended on, and the last interstitial state. Without
+      // these a failed resolve says only that it failed.
+      let pageUrl = "";
+      let pageTitle = "";
+      try {
+        pageUrl = contents.getURL();
+        pageTitle = contents.getTitle();
+      } catch {
+        /* already gone */
+      }
       const diagnostics = {
         // Which sources produced an off-site URL, and did each keep the
         // fragment. Log this on the first real resolve.
@@ -283,6 +397,12 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
         fragmentSources: candidates.filter((entry) => entry.fragment).map((entry) => entry.source),
         resolvedVia,
         revealed,
+        challengeSeen,
+        url: pageUrl,
+        title: pageTitle,
+        dl: dlPoll
+          ? { dlActive: !!dlPoll.dlActive, seconds: dlPoll.seconds, declaredHost: dlPoll.declaredHost }
+          : null,
       };
       try {
         if (!win.isDestroyed()) win.destroy();
@@ -330,7 +450,17 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       } catch {
         /* best effort */
       }
-      resolve({ ...result, diagnostics });
+      const declaredHost = dlPoll && dlPoll.declaredHost ? String(dlPoll.declaredHost).trim().toLowerCase() : null;
+      if (result.ok && declaredHost && result.host
+        && String(result.host).toLowerCase() !== declaredHost) {
+        console.warn(`[masked-resolve] destination host ${result.host} does not match the gate-declared ${declaredHost}`);
+      }
+      resolve({
+        ...result,
+        // What the interstitial claimed the link would land on, if it said.
+        ...(declaredHost ? { declaredHost } : {}),
+        diagnostics,
+      });
     };
 
     const settleFromCandidates = () => {
@@ -475,9 +605,10 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     ses.on("will-download", onWillDownload);
 
     // Click the continue link once the page has loaded. Harmless when the
-    // element never appears - the reveal timer covers that case.
+    // element never appears - the idle watchdog reveals the window then.
     contents.on("did-finish-load", async () => {
       if (settled) return;
+      markProgress();
       const current = contents.getURL();
       // Only on the gate page; never inject into the destination host.
       if (!onGate(current)) return;
@@ -487,32 +618,88 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       // Buzzheavier gates present download buttons via htmx rather than the
       // F95 continue link. Poll and click natively so the browser's own
       // download manager fires will-download, which we intercept below. The
-      // same poll also watches for a Cloudflare challenge: if one appears we
-      // reveal the window so the user can tick it - a clean (VPN-off) download
-      // stays hidden and resolves on its own.
+      // same poll also reports a Cloudflare challenge; a challenge that passes
+      // on its own navigates and counts as progress, while one that persists is
+      // revealed by the idle watchdog like any other page waiting on a human.
+      if (pollInterval) clearInterval(pollInterval);
       pollInterval = setInterval(async () => {
         if (settled) {
           clearInterval(pollInterval);
           return;
         }
         try {
-          const result = await contents.executeJavaScript(`(() => {
+          const result = await withTimeout(
+            contents.executeJavaScript(`(() => {
             const btn = document.querySelector('.download-btn[hx-get]');
+            const hostLink = !!document.querySelector('.host_link');
             const body = (document.body && document.body.innerText) || '';
             const cfChallenge =
               /cloudflare|just a moment|checking your browser|verify you are human|attention required|cf-chl|turnstile/i.test(body) ||
               !!document.querySelector('#cf-chl, iframe[src*="challenges.cloudflare.com"], .cf-turnstile, #challenge-running');
-            if (btn) { btn.click(); return { clicked: true, cf: cfChallenge }; }
-            return { clicked: false, cf: cfChallenge };
-          })()`, true);
-          if (result.cf) {
-            reveal("cloudflare");
-          }
+            if (btn) { btn.click(); return { clicked: true, cf: cfChallenge, hostLink }; }
+            return { clicked: false, cf: cfChallenge, hostLink };
+          })()`, true),
+            10000,
+            "gate poll",
+          );
+          gatePollCf = result.cf;
+          // Only the appearance of the link is a step; losing it is not.
+          if (result.hostLink && !lastHostLink) markProgress();
+          lastHostLink = result.hostLink;
           if (result.clicked) {
+            markProgress();
             clearInterval(pollInterval);
           }
         } catch (err) {
-          // poll errors are non-fatal; the reveal timer still fires
+          // poll errors are non-fatal; the idle watchdog still fires
+        }
+        // The /dl/ flow is page-internal and staged: Continue first, then
+        // Generate after the countdown, so the interval stays open and only
+        // the settle clears it. A POST is never synthesized - _xfToken is
+        // session-bound.
+        try {
+          const dlResult = await withTimeout(
+            contents.executeJavaScript(DL_POLL_SCRIPT, true),
+            10000,
+            "dl poll",
+          );
+          if (dlResult) {
+            dlPoll = dlResult;
+            // Only a change counts: a frozen countdown keeps reporting the same
+            // seconds and must not look alive forever. The first reading is the
+            // baseline, not a step.
+            const key = [dlResult.dlActive, dlResult.seconds, dlResult.declaredHost, dlResult.clicked].join("|");
+            if (lastDlKey === null) lastDlKey = key;
+            else if (key !== lastDlKey) {
+              lastDlKey = key;
+              markProgress();
+            }
+          }
+        } catch {
+          // dl poll errors are non-fatal; the capture points still settle
+        }
+        // CF challenge state transitions, not every tick: one line when a
+        // challenge page appears and one when it passes. A page that keeps
+        // challenging produces challenge/challenge-passed pairs per cycle —
+        // the same footprints a "verified then challenged again" report
+        // shows, with how long the challenge held.
+        if (gatePollCf && !challengeActive) {
+          challengeActive = true;
+          challengeSeen += 1;
+          challengeStartedAt = Date.now();
+          appLog.write("masked-resolve", {
+            event: "challenge",
+            host: hostOf(maskedUrl),
+            cycle: challengeSeen,
+          }, { devtools: true });
+        } else if (!gatePollCf && challengeActive) {
+          challengeActive = false;
+          appLog.write("masked-resolve", {
+            event: "challenge-passed",
+            host: hostOf(maskedUrl),
+            cycle: challengeSeen,
+            heldMs: Date.now() - challengeStartedAt,
+          }, { devtools: true });
         }
       }, 1000);
       // Cache the browser session cookies / headers so they can be handed back
@@ -535,9 +722,20 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
       void finish({ ok: false, error: "Resolve window crashed" });
     });
 
-    // Hidden attempt gets a short window before the user is brought in.
+    // The window stays hidden while the page is moving and is shown once it has
+    // stopped, because that is the point a human is needed. This replaces the
+    // old fixed reveal timer: a healthy resolve is never interrupted, however
+    // long it takes, and a stalled page is handed over in seconds.
     if (headless) {
-      revealTimer = setTimeout(() => reveal("timeout"), headlessTimeoutMs);
+      idleTimer = setInterval(() => {
+        // While the main document is still coming, a slow response looks exactly
+        // like a stall. Allow it the load grace; once dom-ready has fired, the
+        // normal idle window is the right measure.
+        const idleMs = domReady ? IDLE_REVEAL_MS : LOAD_GRACE_MS;
+        if (shouldReveal({ settled, revealed, lastProgressAt }, Date.now(), idleMs)) {
+          reveal("idle");
+        }
+      }, 1000);
     }
 
     timer = setTimeout(() => {
@@ -549,7 +747,20 @@ function resolveMaskedLinkImpl(maskedUrl, options = {}) {
     // ── Go ──────────────────────────────────────────────────────────────────
     (async () => {
       try {
-        await applyCookies(ses, cookieHeader, `https://${F95_HOST}/`);
+        // Jar grant state BEFORE seeding: pairs with the challenge/reveal
+        // lines so a resolve challenged despite a live grant reads as
+        // Cloudflare refusing our fingerprint, not a missing grant.
+        try {
+          const grant = await ses.cookies.get({ url: baseUrl, name: "cf_clearance" });
+          appLog.write("cf-jar", {
+            event: "resolve",
+            host: hostOf(maskedUrl),
+            grant: grant.length > 0,
+          }, { devtools: true });
+        } catch {
+          // Jar unreadable — applyCookies below still seeds.
+        }
+        await applyCookies(ses, cookieHeader, baseUrl);
         await contents.loadURL(maskedUrl);
         // Stay hidden while the automated attempt runs. reveal() brings it up
         // if that does not pan out.

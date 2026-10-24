@@ -5,7 +5,6 @@ import {
   computeOnlineRating, computeRatingAverage, readRatingsFromGame,
 } from '../../utils/ratingCategories.js'
 import { canEditTags as canEditTagsFor } from '../../utils/tagEditing.js'
-import TagEditor from '../tags/TagEditor.jsx'
 import { useTagState } from '../../hooks/useTagState.js'
 import HeroBanner from './page/HeroBanner.jsx'
 import ActionBar from './page/ActionBar.jsx'
@@ -13,6 +12,9 @@ import InfoPanel from './page/InfoPanel.jsx'
 import PreviewLightbox from './page/PreviewLightbox.jsx'
 import HoverVideo from './page/HoverVideo.jsx'
 import DetailPanelGrid, { DEFAULT_DETAIL_LAYOUT } from './page/DetailPanelGrid.jsx'
+import DetailTagsPanel from './page/DetailTagsPanel.jsx'
+import SearchableDetailValue from './page/SearchableDetailValue.jsx'
+import { isSecondaryModeClick, detailFieldForLabel, escClosesDetail } from '../../utils/metadataSearch.js'
 import SafeImage from '../ui/SafeImage.jsx'
 import ConfirmModal from '../ui/ConfirmModal.jsx'
 import VersionCard from './page/VersionCard.jsx'
@@ -21,6 +23,7 @@ import {
   LAUNCH_STATE, filterOutBanner, formatPlaytime,
   sortVersionsDesc, getInstalledVersions, getDefaultVersion, isVideoUrl, formatReleaseDate,
   isSteamGame, getMappedSteamAppId, isGogGame, getMappedGogId, resolveDeveloper, formatLanguages, getCategoryIcon, splitCsv,
+  seasonLogoOverride,
 } from './page/gameDetailUtils.js'
 import { buildGroupedGameLinks, gogStoreUrl } from './gameLinks.js'
 import InstallSourceModal from './page/InstallSourceModal.jsx'
@@ -123,6 +126,14 @@ const isArchiveSourcePath = (sourcePath = '', archiveExtensions = ['zip', '7z', 
   return Boolean(ext && archiveExtensions.includes(ext))
 }
 
+// Same guard App uses for Backspace: inputs keep the keystroke so Escape
+// never navigates away from typing.
+const isTextInputTarget = (target) => {
+  if (!target) return false
+  const tagName = target.tagName?.toLowerCase()
+  return tagName === 'input' || tagName === 'textarea' || tagName === 'select' || target.isContentEditable
+}
+
 const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRatingFor = null,
   onRatingOpened,
   // Called after a successful blacklist so App can close this page; the title
@@ -132,6 +143,11 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   // drives it across many games, and a modal owned by this page would
   // drag the detail view along with each one.
   onOpenUpdate = null,
+  // Raised to App when a metadata chip is clicked so it can search the grid.
+  // Shift-click targets the secondary mode (Library vs Browse).
+  onMetadataSearch = null,
+  // Falls back to Browse when App passes no click-to-search mode.
+  defaultSearchMode = 'browse',
 }) => {
   const [previews, setPreviews] = useState([])
   const [movieThumbs, setMovieThumbs] = useState({}) // video url -> steam thumbnail url
@@ -262,25 +278,16 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
             setPreviews(filterOutBanner(browsePreviewCacheRef.current.get(cacheKey), game.banner_url))
             return
           }
-          const urls = await window.electronAPI.getBrowsePreviewUrls?.({
-            atlas_id: game.atlas_id,
-            f95_id: game.f95_id,
-            lc_id: game.lc_id || game.lcId,
-            steam_id: browseSteamAppId,
-            gog_id: game.gog_id || game.gog_appid,
-          })
-          const safeUrls = Array.isArray(urls) ? urls : []
-          // On-demand: fetch the selected Steam season's screens + trailers so
-          // browse mode shows them like an installed game. Trailer urls are
-          // prepended (they lead the media grid) and their thumbnails feed the
-          // movieThumbs map used by the Videos section.
-          let steamPreviews = []
+          // Fetch the selected season's media BEFORE reading: the browse query
+          // only returns season rows already in the local DB. Trailers are
+          // prepended (the browse query returns screenshots only) and their
+          // thumbnails feed the movieThumbs map used by the Videos section.
+          let trailerUrls = []
           if (browseSteamAppId) {
             try {
               const media = await window.electronAPI.ensureSteamBrowseMedia?.(browseSteamAppId)
               if (media) {
-                const trailerUrls = (media.trailers || []).map((t) => t.url).filter(Boolean)
-                steamPreviews = [...trailerUrls, ...(media.previews || [])]
+                trailerUrls = (media.trailers || []).map((t) => String(t?.url || '').trim()).filter(Boolean)
                 if ((media.trailers || []).length > 0) {
                   setMovieThumbs((prev) => {
                     const next = { ...prev }
@@ -293,15 +300,18 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
               console.warn('Failed to load browse steam media:', mediaErr?.message)
             }
           }
+          const urls = await window.electronAPI.getBrowsePreviewUrls?.({
+            atlas_id: game.atlas_id,
+            f95_id: game.f95_id,
+            lc_id: game.lc_id || game.lcId,
+            steam_id: browseSteamAppId,
+            gog_id: game.gog_id || game.gog_appid,
+          })
+          const safeUrls = Array.isArray(urls) ? urls : []
           const snapshotPreviews = splitPreviewUrls(game.preview_urls || game.previewUrls)
-          // Merge: steam trailers/screens first, then whatever the browse query
-          // returned, then the snapshot fallback. De-duped, order-preserving.
-          const merged = []
-          const seen = new Set()
-          for (const u of [...steamPreviews, ...safeUrls, ...(safeUrls.length === 0 && steamPreviews.length === 0 ? snapshotPreviews : [])]) {
-            const s = String(u || '').trim()
-            if (s && !seen.has(s)) { seen.add(s); merged.push(s) }
-          }
+          // Season trailers first, then the browse query result (which already
+          // includes the season's screens), then the snapshot fallback.
+          const merged = [...new Set([...trailerUrls, ...safeUrls, ...(safeUrls.length === 0 && trailerUrls.length === 0 ? snapshotPreviews : [])])]
           browsePreviewCacheRef.current.set(cacheKey, merged)
           setPreviews(filterOutBanner(merged, game.banner_url))
           return
@@ -309,40 +319,27 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
         const selectedSteamAppId = (selectedVersion && selectedVersion.source === 'steam')
           ? (selectedVersion.source_app_id ?? selectedVersion.sourceAppId ?? null)
           : null
-        const urls = await window.electronAPI.getPreviews(game.record_id, selectedSteamAppId)
-        let localPreviews = Array.isArray(urls) ? urls : []
-        // For a Steam version, the selected season's screens/trailers may not be
-        // in the local DB yet (only the imported appid's media gets fetched at
-        // import time). Lazily fetch this appid's media so switching versions
-        // shows the right previews + trailers, mirroring browse mode. Trailer
-        // urls lead the grid; their thumbnails feed movieThumbs.
+        // Fetch the selected season's media BEFORE reading: getPreviews only
+        // returns season rows already in the local DB, and only the imported
+        // appid's media is fetched at import time. The backend merges and
+        // dedupes, so there is no manual concat here — just the trailer
+        // thumbnails for the Videos section.
         if (selectedSteamAppId) {
           try {
             const media = await window.electronAPI.ensureSteamBrowseMedia?.(selectedSteamAppId)
-            if (media) {
-              const trailerUrls = (media.trailers || []).map((t) => t.url).filter(Boolean)
-              const steamMedia = [...trailerUrls, ...(media.previews || [])]
-              const merged = []
-              const seen = new Set()
-              // Steam media for the selected appid first, then whatever getPreviews
-              // returned (local downloaded art, other-source screens), deduped.
-              for (const u of [...steamMedia, ...localPreviews]) {
-                const s = String(u || '').trim()
-                if (s && !seen.has(s)) { seen.add(s); merged.push(s) }
-              }
-              localPreviews = merged
-              if ((media.trailers || []).length > 0) {
-                setMovieThumbs((prev) => {
-                  const next = { ...prev }
-                  for (const t of media.trailers) if (t?.url && t?.thumbnail) next[t.url] = t.thumbnail
-                  return next
-                })
-              }
+            if ((media?.trailers || []).length > 0) {
+              setMovieThumbs((prev) => {
+                const next = { ...prev }
+                for (const t of media.trailers) if (t?.url && t?.thumbnail) next[t.url] = t.thumbnail
+                return next
+              })
             }
           } catch (mediaErr) {
             console.warn('Failed to load selected steam version media:', mediaErr?.message)
           }
         }
+        const urls = await window.electronAPI.getPreviews(game.record_id, selectedSteamAppId)
+        const localPreviews = Array.isArray(urls) ? urls : []
         setPreviews(filterOutBanner(localPreviews, game.banner_url))
       } catch (err) {
         console.error('Failed to load previews:', err)
@@ -352,7 +349,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
       }
     }
     loadPreviews()
-  }, [game?.record_id, game?.versions, game?.selected_version_id, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.lc_id, game?.lcId, game?.steam_id, selectedVersion?.version_id, selectedVersion?.source_app_id])
+  }, [game?.record_id, game?.versions, game?.selected_version_id, game?.banner_url, game?.isCatalogEntry, game?.atlas_id, game?.f95_id, game?.lc_id, game?.lcId, game?.steam_id, selectedVersion?.version_id, selectedVersion?.source_app_id, selectedVersion?.sourceAppId])
 
   // Steam provides a poster thumbnail per trailer; fetch a url->thumbnail map so
   // the Videos section can show it instead of a video first-frame. Real records
@@ -555,6 +552,24 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
     }
   }, [game?.record_id, onRefresh])
 
+  // Escape closes the page, but only when nothing else owns the key: the
+  // lightbox closes itself and open modals keep focus.
+  useEffect(() => {
+    const modalOpen = ratingModalOpen || refreshModalOpen || installSourceModalOpen || Boolean(folderError)
+    const onKey = (event) => {
+      if (event.key !== 'Escape') return
+      if (!escClosesDetail({
+        consumed: event.defaultPrevented === true,
+        lightboxOpen: lightboxIndex !== null,
+        modalOpen,
+        inTextInput: isTextInputTarget(event.target),
+      })) return
+      onBack?.()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lightboxIndex, ratingModalOpen, refreshModalOpen, installSourceModalOpen, folderError, onBack])
+
   // Authoritative launch state, driven by the main process: RUNNING is held for
   // the lifetime of the game process (tracked launches) and released on exit.
   // Matched on record id only — the title is running whichever version it is.
@@ -688,6 +703,14 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
   const developer = resolveDeveloper(game)
   const categories = splitCsv(game.category)
   const detailTags = getDetailTags(game)
+  // Forwards a tag-chip click to App as a grid search. Null-safe so the panel
+  // renders read-only chips even where App does not pass a search handler.
+  const onSearchTag = (tag, event) =>
+    onMetadataSearch?.({ field: 'tag', value: tag, secondaryMode: isSecondaryModeClick(event) }, event)
+  // Forwards a Details-row click the same way. Only index-covered rows arrive
+  // here; anything else stays plain text and never calls this.
+  const onSearchDetail = (label, token, event) =>
+    onMetadataSearch?.({ field: detailFieldForLabel(label), value: token, secondaryMode: isSecondaryModeClick(event) }, event)
   // Community scores are 0-5 at source; computeOnlineRating converts to 0-10.
   const onlineRating = computeOnlineRating({
     f95Rating: game.rating,
@@ -1249,6 +1272,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
           // falls through its candidate chain if this URL fails to load.
           return `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/library_hero.jpg`
         })()}
+        logoOverride={seasonLogoOverride(selectedVersion)}
         bannerRef={bannerRef}
         bannerDimsRef={bannerDimsRef}
         bannerMask={bannerMask}
@@ -1700,7 +1724,7 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
                   {metadataRows.map(([label, value]) => (
                     <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 6 }}>
                       <span style={{ color: 'var(--color-muted)', flexShrink: 0 }}>{label}</span>
-                      <span style={{ textAlign: 'right', minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{String(value)}</span>
+                      <SearchableDetailValue label={label} value={value} defaultSearchMode={defaultSearchMode} onSearch={onSearchDetail} />
                     </div>
                   ))}
 
@@ -1708,10 +1732,10 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
                     <div style={{ paddingTop: 4 }}>
                       <div style={{ color: 'var(--color-muted)', marginBottom: 6 }}>Category</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {[...new Set(categories)].map((cat, i) => (
-                          <div key={`${cat}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                        {[...new Set(categories)].map((cat) => (
+                          <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
                             <i className={getCategoryIcon(cat)} style={{ width: 16, textAlign: 'center', color: 'var(--color-muted)', flexShrink: 0, fontSize: 13 }} aria-hidden="true"></i>
-                            <span style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{cat}</span>
+                            <SearchableDetailValue label="Category" value={cat} align="left" defaultSearchMode={defaultSearchMode} onSearch={onSearchDetail} />
                           </div>
                         ))}
                       </div>
@@ -1732,38 +1756,21 @@ const GameDetailPage = ({ game, onBack, onRefresh, onWishlistChanged, openRating
             tags: (tagsEditable
               ? (tagState.tags.length > 0 || tagState.catalogTags.length > 0 || tagState.loading)
               : detailTags.length > 0) ? (
-              <section className="bg-secondary border border-border p-2">
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <h2 className="text-lg font-semibold">Tags</h2>
-                  {tagsEditable && tagState.overridden && (
-                    <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-accent">
-                      Custom
-                    </span>
-                  )}
-                </div>
-                {!tagsEditable ? (
-                  // Browse / metadata-only rows: read-only catalog tags.
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {[...new Set(detailTags)].slice(0, 32).map((tag, i) => (
-                      <span key={`${tag}-${i}`} className="bg-primary border border-border px-2 py-1 text-xs">{tag}</span>
-                    ))}
-                  </div>
-                ) : tagState.loading ? (
-                  <p className="text-xs text-muted">Loading tags…</p>
-                ) : (
-                  <TagEditor
-                    tags={tagState.tags}
-                    catalogTags={tagState.catalogTags}
-                    overridden={tagState.overridden}
-                    busy={tagState.busy}
-                    onChange={tagState.applyTags}
-                    onReset={tagState.resetTags}
-                  />
-                )}
-                {tagsEditable && tagState.error && (
-                  <p className="mt-1 text-xs text-danger">{tagState.error}</p>
-                )}
-              </section>
+              <DetailTagsPanel
+                key={game?.record_id ?? 'catalog'}
+                editable={tagsEditable}
+                tags={tagState.tags}
+                catalogTags={tagState.catalogTags}
+                overridden={tagState.overridden}
+                busy={tagState.busy}
+                loading={tagState.loading}
+                error={tagState.error}
+                onApplyTags={tagState.applyTags}
+                onResetTags={tagState.resetTags}
+                readOnlyTags={detailTags}
+                onSearchTag={onSearchTag}
+                defaultSearchMode={defaultSearchMode}
+              />
             ) : null,
           }}
         />
