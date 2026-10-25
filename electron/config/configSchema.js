@@ -59,12 +59,21 @@ const DEPRECATED_KEYS = {
     'detailsPageModuleOrder',
   ],
   LewdCorner: [
-    // Replaced by the unified /economy/?section=store&category=rank URL (v4
-    // migration). Ownership is now detected from the buy button text alone.
+    // Replaced by the unified /economy/?section=store&category=rank URL.
+    // Ownership is now detected from the buy button text alone.
     'lcUserPrestigePath',
     'lcStatusPillClass',
     'lcStatusPillOwnedToken',
     'lcStatusPillOwnedText',
+    // Moved to electron/config/lcTier.json, which ships with the code. These
+    // describe the site, not the user, so a copy in config.ini was only ever a
+    // way to go stale: the retired shop URL they shipped with returned 404 and
+    // silently disabled the tier check for every affected install.
+    'lcUserTierPath',
+    'lcProbeThreadId',
+    'lcCardClass',
+    'lcBuyButtonClass',
+    'lcOwnedText',
   ],
 }
 
@@ -81,9 +90,6 @@ const MIGRATED_KEYS = {
   // -> templates/banner-layout-active.json (electron/config/bannerLayoutStore.js).
   // Was 18,421 bytes on a real config: 89% of the entire file.
   Appearance: ['customBannerLayout'],
-  // -> value replaced in configSanitizer (v3 -> v4): old /shop/index.php path
-  // is replaced with the unified /economy/?section=store&category=rank URL.
-  LewdCorner: ['lcUserTierPath'],
 }
 
 const buildDefaultConfig = (dataDir = '') => ({
@@ -222,43 +228,19 @@ const buildDefaultConfig = (dataDir = '') => ({
   NSFW: {
     enabled: false,
   },
-  // Endpoints + selectors used to scrape the logged-in LC user's membership
-  // tier. Kept in config so a markup or URL change can be addressed with a
-  // settings edit instead of a code change + release. Values are informational
-  // overrides of hardcoded defaults; a key left '' (or blank) falls back to the
-  // built-in default for that key.
-  //
-  // Ownership is signalled on the shop page's buy button (verified Oct 2026:
-  // the shop consolidated all ranks under one URL and owned ranks render a
-  // disabled button whose text is "Owned"). lcBuyButtonClass is the button's
-  // class and lcOwnedText the button text that marks a rank owned — kept fully
-  // configurable so a future rename of either is a settings edit, not a code
-  // change.
-  //
-  // This is a best-effort escape hatch: it only helps if LC retains the same
-  // page structure and changes just a URL or a class/text name here. A deeper
-  // restructure (different attribute, different element, redesigned markup)
-  // still needs a code edit to the parser.
+  // Behaviour knobs for the LewdCorner membership-tier check. The facts about
+  // the site itself — the shop URL, the classes that mark a rank card and its
+  // buy button, the "owned" button text, and the probe thread — live in
+  // electron/config/lcTier.json, which ships with the code. They are not
+  // settings: a stale copy in config.ini cannot be detected, and once it named a
+  // page the site had retired it silently disabled the check for every install
+  // that had the key. Keeping them out of the user's file means a release is all
+  // that is needed to follow the site.
   LewdCorner: {
-    // Member-gated thread probed as a fallback when the shop page is
-    // unreachable or its parser yields no confident answer. Stored as a bare
-    // thread id (combined with the site base URL at runtime) so the config
-    // never advertises a clickable link.
-    lcProbeThreadId: 14057,
     // The probe fetches its thread with the same path as the shop page, which
     // Cloudflare currently rejects for non-browser clients, so off by default.
     // Flip it on only if the probe fetch goes through the real-browser path.
     lcThreadProbeEnabled: false,
-    // The economy shop page listing every purchasable rank. Stored without the
-    // site origin and combined with the base URL at runtime, keeping the config
-    // free of full clickable URLs.
-    lcUserTierPath: '/economy/?section=store&category=rank',
-    // The rank card container on the shop page; pairs an item_id with its
-    // buy button. Configurable like the button below, for a rename.
-    lcCardClass: 'jblcEconomy-item',
-    // Buy-button class + owned text for the rank ownership signal.
-    lcBuyButtonClass: 'jblcEconomy-buyButton',
-    lcOwnedText: 'owned',
     // How fresh the cached membership tier must be, in hours, before a re-scrape
     // is skipped. The tier is scraped (a few requests) then held in the encrypted
     // account blob keyed to tierCheckedAt; whenever a recheck — on startup, on the
