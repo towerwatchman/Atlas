@@ -9,6 +9,7 @@ the release it heads to; earlier labels mix the cycle and the candidate, as
 ## 0.9.15-nightly.518
 
 - **fix**: Deleting a game now removes its rows from the download queue, collection, sort, GOG mapping, and media cache tables, and the startup sweep and database audit cover those tables too. The Downloads view is notified on both delete paths.
+- **fix**: Deleting a game or version no longer steals keyboard focus from the window. Confirm and alert dialogs on the detail page now use Atlas style instead of native, and the delete runs in the background (#216).
 
 ## 0.9.12-nightly.517
 
