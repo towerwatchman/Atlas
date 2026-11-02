@@ -6,6 +6,10 @@ in [LEGACY.CHANGELOG.md](./LEGACY.CHANGELOG.md). From 0.9.14 a build is named fo
 the release it heads to; earlier labels mix the cycle and the candidate, as
 [legacy-tag-history.md](./legacy-tag-history.md) records.
 
+## 0.9.15-nightly.518
+
+- **fix**: Deleting a game now removes its rows from the download queue, collection, sort, GOG mapping, and media cache tables, and the startup sweep and database audit cover those tables too. The Downloads view is notified on both delete paths.
+
 ## 0.9.12-nightly.517
 
 - **changed**: Cloudflare handling (part 4): the download resolve window no longer appears while the page is still making progress. It stays hidden through a Cloudflare challenge that clears on its own and through the `/dl/` countdown, and appears only after about 4 seconds with no progress.

@@ -137,7 +137,7 @@ const { startScan } = require('./scanners/f95scanner')
 const { deletePathWithElevationFallback } = require('./deleteUtils')
 
 // IPC domain modules
-const { registerGamesHandlers } = require('./ipc/games')
+const { registerGamesHandlers, broadcastGameDeleted } = require('./ipc/games')
 const registerWindowsHandlers = require('./ipc/windows')
 const registerSettingsHandlers = require('./ipc/settings')
 const registerUpdaterHandlers = require('./ipc/updater')
@@ -969,9 +969,7 @@ async function deleteTitleRecord(recordId, { deleteFiles = false } = {}) {
     const result = await deleteGameCompletely(recordId, getAssetBasePath(), process.defaultApp)
     if (!result.success) return result
     recentlyDeleted.remember(recordId, versionPaths)
-    BrowserWindow.getAllWindows().forEach((win) => {
-      if (!win.isDestroyed()) win.webContents.send('game-deleted', recordId)
-    })
+    broadcastGameDeleted(recordId)
     return { success: true }
   } catch (err) {
     console.error('delete-title failed:', err)
