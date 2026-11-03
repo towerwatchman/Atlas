@@ -1482,7 +1482,7 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
         ELSE strftime('%s', ${field}) * 1000
       END
     `;
-    const addDateRangeFilter = (field, range) => {
+    const addDateRangeFilter = (field, range, dateExpr) => {
       const now = Date.now();
       let min = null;
       let max = now;
@@ -1493,12 +1493,26 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
         const year = new Date(now).getFullYear();
         min = new Date(year, 0, 1).getTime();
         max = new Date(year + 1, 0, 1).getTime() - 1;
+      } else if (range === 'custom') {
+        const fromMs = filters.dateFrom ? Date.parse(`${filters.dateFrom}T00:00:00`) : Number.NaN;
+        const toMs = filters.dateTo ? Date.parse(`${filters.dateTo}T23:59:59.999`) : Number.NaN;
+        min = Number.isFinite(fromMs) ? fromMs : null;
+        max = Number.isFinite(toMs) ? toMs : null;
+        if (min === null && max === null) return;
       } else {
         return;
       }
-      const dateExpr = dateMsExpression(field);
-      filterWhereParts.push(`(${dateExpr}) BETWEEN ? AND ?`);
-      filterParams.push(min, max);
+      if (dateExpr === undefined) dateExpr = dateMsExpression(field);
+      // Separate >= / <= instead of BETWEEN: BETWEEN min AND NULL is always
+      // false in SQLite, and the slider leaves dateTo empty.
+      if (min !== null) {
+        filterWhereParts.push(`(${dateExpr}) >= ?`);
+        filterParams.push(min);
+      }
+      if (max !== null) {
+        filterWhereParts.push(`(${dateExpr}) <= ?`);
+        filterParams.push(max);
+      }
     };
     const browseSource = String(filters.browseSource || filters.source || 'all').toLowerCase();
     if (browseSource === 'steam') {
@@ -1640,14 +1654,28 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
       filterWhereParts.push('MAX(COALESCE(CAST(catalog.rating AS REAL), 0), COALESCE(CAST(catalog.lewdcornerRating AS REAL), 0)) >= ?');
       filterParams.push(communityRatingMinValue);
     }
+    // The catalog index bakes a COALESCE fallback into each date concept
+    // (release_date -> steam_release_date, thread_updated -> lewdcorner
+    // thread_updated, thread_publish_date -> lewdcorner register_date). The
+    // union path must reproduce the same chains for both filtering and
+    // sorting, or rows with an empty primary date are dropped (filter) or
+    // mis-ordered (sort).
+    const rdExpr = `COALESCE(${dateMsExpression('catalog.release_date')}, ${dateMsExpression('catalog.steam_release_date')})`;
+    const luExpr = `COALESCE(${dateMsExpression('catalog.thread_updated')}, ${dateMsExpression('catalog.lewdcornerThreadUpdated')})`;
+    const tpExpr = `COALESCE(${dateMsExpression('catalog.thread_publish_date')}, ${dateMsExpression('catalog.lewdcornerRegisterDate')})`;
     if (filters.dateField === 'releaseDate' && filters.dateRange && filters.dateRange !== 'any') {
-      addDateRangeFilter('catalog.release_date', filters.dateRange);
+      addDateRangeFilter('catalog.release_date', filters.dateRange, rdExpr);
     } else if (filters.dateField === 'latestUpdate' && filters.dateRange && filters.dateRange !== 'any') {
-      addDateRangeFilter('catalog.thread_updated', filters.dateRange);
+      addDateRangeFilter('catalog.thread_updated', filters.dateRange, luExpr);
     } else if (filters.dateField === 'threadPublished' && filters.dateRange && filters.dateRange !== 'any') {
-      addDateRangeFilter('catalog.thread_publish_date', filters.dateRange);
+      addDateRangeFilter('catalog.thread_publish_date', filters.dateRange, tpExpr);
     } else if (filters.dateField === 'none' && filters.browseDateRange && filters.browseDateRange !== 'any') {
-      addDateRangeFilter(filters.browseDateBasis === 'thread_publish_date' ? 'catalog.thread_publish_date' : 'catalog.thread_updated', filters.browseDateRange);
+      const basisField = filters.browseDateBasis === 'thread_publish_date' ? 'thread_publish_date' : 'thread_updated';
+      if (basisField === 'thread_publish_date') {
+        addDateRangeFilter('catalog.thread_publish_date', filters.browseDateRange, tpExpr);
+      } else {
+        addDateRangeFilter('catalog.thread_updated', filters.browseDateRange, luExpr);
+      }
     }
     const whereParts = [searchWhere, ...filterWhereParts].filter(Boolean);
     const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
@@ -1661,8 +1689,8 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
     };
     const browseSortValue = String(filters.browseSort || 'threadUpdatedDesc');
     const browseSort = browseSortAliases[browseSortValue] || browseSortValue;
-    const orderByParsedDate = (field, direction) => {
-      const dateExpr = dateMsExpression(field);
+    const orderByParsedDate = (field, direction, dateExpr) => {
+      if (dateExpr === undefined) dateExpr = dateMsExpression(field);
       const nowMs = Date.now();
       // Rows with a valid, non-future date sort first (by direction); rows with
       // a future date are pushed below them, and NULL/empty dates last. This
@@ -1697,17 +1725,17 @@ const getCatalogGamesFromUnion = (appPath, isDev, options = {}) => {
                 : browseSort === 'ratingAsc'
                   ? orderByBestOf('catalog.rating', 'catalog.lewdcornerRating', 'ASC')
                   : browseSort === 'threadUpdatedDesc'
-                    ? orderByParsedDate('catalog.thread_updated', 'DESC')
+                    ? orderByParsedDate('catalog.thread_updated', 'DESC', luExpr)
                     : browseSort === 'threadUpdatedAsc'
-                      ? orderByParsedDate('catalog.thread_updated', 'ASC')
+                      ? orderByParsedDate('catalog.thread_updated', 'ASC', luExpr)
                       : browseSort === 'threadPublishedDesc'
-                        ? orderByParsedDate('catalog.thread_publish_date', 'DESC')
+                        ? orderByParsedDate('catalog.thread_publish_date', 'DESC', tpExpr)
                         : browseSort === 'threadPublishedAsc'
-                          ? orderByParsedDate('catalog.thread_publish_date', 'ASC')
+                          ? orderByParsedDate('catalog.thread_publish_date', 'ASC', tpExpr)
                           : browseSort === 'releaseDateDesc'
-                            ? orderByParsedDate('catalog.release_date', 'DESC')
+                            ? orderByParsedDate('catalog.release_date', 'DESC', rdExpr)
                             : browseSort === 'releaseDateAsc'
-                              ? orderByParsedDate('catalog.release_date', 'ASC')
+                              ? orderByParsedDate('catalog.release_date', 'ASC', rdExpr)
                               : browseSort === 'f95LatestOrderDesc'
                                 ? orderByNullableNumber('catalog.f95_latest_order', 'DESC')
                                 : browseSort === 'f95LatestOrderAsc'
