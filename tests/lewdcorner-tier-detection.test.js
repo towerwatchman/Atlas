@@ -101,7 +101,7 @@ describe('scrapeLcTierFromProfile', () => {
     })
     const result = await scrapeLcTierFromProfile(DUMMY_COOKIES)
     expect(result).toBe('VIP')
-    expect(urls).toEqual(['https://lewdcorner.com/economy/?section=store&category=rank'])
+    expect(urls).toEqual([`https://lewdcorner.com${require('../electron/config/lcTier.json').shopPath}`])
   })
 
   test('returns null when the shop fetch fails (network error)', async () => {
@@ -137,29 +137,19 @@ describe('scrapeLcTierFromProfile', () => {
     expect(await scrapeLcTierFromProfile(DUMMY_COOKIES)).toBe('Free')
   })
 
-  test('a custom lcConfig with renamed card + button classes still detects ownership', async () => {
-    // Simulates LC renaming the buy button and its card container: same
-    // structure, new names for both. The config should cover the pair.
+  test('a renamed card and button on the site no longer match the shipped selectors', async () => {
+    // The selectors ship with the parser (electron/config/lcTier.json), so a
+    // rename on the site is a code change, not a user setting. Until that lands
+    // the page parses as unowned rather than guessing.
     const html = `
       <article class="lc-rank-card">
-        <form action="/economy/purchase" method="post" class="jblcEconomy-termPurchase">
+        <form action="/economy/purchase" method="post">
           <input type="hidden" name="item_id" value="12">
           <button type="button" class="button lc-rank-buy" disabled="true"><span class="button-text">Owned</span></button>
         </form>
       </article>`
-    const lcConfig = {
-      lcCardClass: 'lc-rank-card',
-      lcBuyButtonClass: 'lc-rank-buy',
-    }
     mockGet(() => ({ status: 200, data: html }))
-    expect(await scrapeLcTierFromProfile(DUMMY_COOKIES, lcConfig)).toBe('VIP')
-  })
-
-  test('blank lcConfig keys fall back to built-in defaults', async () => {
-    mockGet(() => ({ status: 200, data: lcTierPageHtml({ donatorOwned: true }) }))
-    // All blank — the default buy-button/owned selectors must still match.
-    const lcConfig = { lcBuyButtonClass: '', lcOwnedText: '' }
-    expect(await scrapeLcTierFromProfile(DUMMY_COOKIES, lcConfig)).toBe('VIP')
+    expect(await scrapeLcTierFromProfile(DUMMY_COOKIES)).toBe('Free')
   })
 })
 
@@ -501,27 +491,38 @@ describe('[LewdCorner] lcTierRecheckHours config', () => {
   })
 })
 
-describe('[LewdCorner] shop URL defaults', () => {
+describe('[LewdCorner] tier site contract', () => {
   const { buildDefaultConfig } = require('../electron/config/configSchema')
+  const shipped = require('../electron/config/lcTier.json')
   const fs = require('fs')
   const path = require('path')
 
-  test('lcUserTierPath is the unified economy shop URL', () => {
-    expect(buildDefaultConfig().LewdCorner.lcUserTierPath).toBe('/economy/?section=store&category=rank')
+  test('the shop path, selectors and probe thread ship with the code', () => {
+    expect(shipped).toEqual({
+      shopPath: '/economy/?section=store&category=rank',
+      cardClass: 'jblcEconomy-item',
+      buyButtonClass: 'jblcEconomy-buyButton',
+      ownedText: 'owned',
+      probeThreadId: 14057,
+    })
   })
 
-  test('lcBuyButtonClass, lcCardClass and lcOwnedText are correct', () => {
-    expect(buildDefaultConfig().LewdCorner.lcBuyButtonClass).toBe('jblcEconomy-buyButton')
-    expect(buildDefaultConfig().LewdCorner.lcCardClass).toBe('jblcEconomy-item')
-    expect(buildDefaultConfig().LewdCorner.lcOwnedText).toBe('owned')
+  test('none of that contract is written into the user config', () => {
+    // A copy in config.ini is what silently disabled the check: a stale value is
+    // all the scraper had to go on, and the page it named returned 404. The
+    // selectors are the same kind of fact, so they live in the file too.
+    const lc = buildDefaultConfig().LewdCorner
+    for (const key of ['lcUserTierPath', 'lcProbeThreadId', 'lcCardClass', 'lcBuyButtonClass', 'lcOwnedText']) {
+      expect(lc).not.toHaveProperty(key)
+    }
   })
 
-  test('xenforoAuth defaults match config', () => {
+  test('the scraper reads the shipped file and hardcodes no selector', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'electron', 'accounts', 'xenforoAuth.js'), 'utf8')
-    expect(src).toContain("lcUserTierPath: '/economy/?section=store&category=rank'")
-    expect(src).toContain("lcCardClass: 'jblcEconomy-item'")
-    expect(src).toContain("lcBuyButtonClass: 'jblcEconomy-buyButton'")
-    expect(src).toContain("lcOwnedText: 'owned'")
+    expect(src).toContain("require('../config/lcTier.json')")
+    expect(src).not.toContain('jblcEconomy-item')
+    expect(src).not.toContain('jblcEconomy-buyButton')
+    expect(src).not.toContain('lcUserTierPath')
     // The retired two-page shop contract must not creep back in.
     expect(src).not.toContain('lcUserPrestigePath')
     expect(src).not.toContain('lcStatusPill')

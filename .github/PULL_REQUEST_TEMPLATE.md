@@ -18,7 +18,7 @@
 - [ ] For a fix: the regression test fails against the unfixed code
 - [ ] `npm run check` passes locally
 - [ ] New functions and IPC handlers have comments explaining *why*
-- [ ] `CHANGELOG.md` updated
+- [ ] `NIGHTLY.CHANGELOG.md` updated (or `CHANGELOG.md` for a release cut)
 - [ ] This PR targets `nightly`, not `main`
 
 ## AI assistance
