@@ -32,12 +32,19 @@ export default function ConfirmModal({
       onClick={() => { if (!busy) onCancel?.() }}
     >
       <div
-        className="bg-secondary border border-border rounded-md max-w-lg w-full p-4 shadow-2xl"
+        className="bg-secondary border border-border rounded-md max-w-lg w-full shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {title && <h2 className="text-lg font-semibold mb-3">{title}</h2>}
-        <div className="text-sm whitespace-pre-line mb-4">{body}</div>
-        <div className="flex justify-end gap-2">
+        {/* Same header/footer divider treatment as UpdateModal: the title sits
+            in its own row above a border, the buttons in their own row below
+            one, so the body reads as a distinct section. */}
+        {title && (
+          <div className="px-4 py-3 border-b border-border">
+            <h2 className="text-lg font-semibold">{title}</h2>
+          </div>
+        )}
+        <div className="px-4 py-4 text-sm whitespace-pre-line">{body}</div>
+        <div className="px-4 py-2.5 border-t border-border flex justify-end gap-2">
           {!alert && (
             <button
               onClick={() => onCancel?.()}

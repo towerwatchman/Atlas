@@ -999,6 +999,8 @@ function sweepOrphanedRecords() {
     "game_personal_ratings",
     "collection_games",
     "preview_sort",
+    "downloads",
+    "media_source_cache",
   ];
   for (const tbl of childTables) {
     db.run(
@@ -1028,6 +1030,7 @@ function sweepOrphanedRecords() {
 module.exports = {
   db: null,  // populated after initializeDatabase()
   initializeDatabase,
+  sweepOrphanedRecords,
 }
 
 Object.defineProperty(module.exports, 'db', { get: () => db })
