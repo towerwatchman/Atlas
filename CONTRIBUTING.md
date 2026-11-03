@@ -188,7 +188,8 @@ freezes the result.
 - Target `nightly`.
 - One logical change per PR. A PR that fixes a bug *and* refactors the
   surrounding module will be asked to split.
-- Update `CHANGELOG.md`. Enforced by CI.
+- Update `NIGHTLY.CHANGELOG.md` for nightly work; only a release cut touches
+  `CHANGELOG.md`. Enforced by CI.
 - Fill in the PR template honestly. The checkboxes are for the reviewer's
   benefit, not yours.
 - Complete the **AI assistance** section. Enforced by CI. There is deliberately

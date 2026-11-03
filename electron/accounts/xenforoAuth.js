@@ -13,6 +13,10 @@
 const axios = require('axios')
 const { fetchUrlViaWindow, isAvailable } = require('../downloads/forumWindowFetch')
 const { isCloudflareChallenge } = require('../downloads/maskedResolver')
+// Endpoints for the LewdCorner tier check that only the code can know. They live
+// in a shipped file rather than config.ini so a stale copy in a user's data
+// folder can never point the check at a page the site has retired.
+const LC_TIER_ENDPOINTS = require('../config/lcTier.json')
 
 const SITES = {
   f95: { base: 'https://f95zone.to', domain: 'f95zone.to', label: 'F95zone' },
@@ -133,7 +137,8 @@ async function checkCookiesLive(site, cookieArray) {
 }
 
 // Escape a literal string so it can be used inside a RegExp constructor.
-// Used to fold a config-supplied CSS class name into the shop-page regex.
+// Used to fold a class name from the shipped site contract into the shop-page
+// regex.
 function escapeRegExp(str) {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -142,40 +147,26 @@ function escapeRegExp(str) {
 // cosmetic-only and does not count.
 const LC_RANK_IDS = new Set([2, 6, 7, 8, 12, 13])
 
-// Default endpoints + selectors for LewdCorner tier detection. Mirrors the
-// configSchema [LewdCorner] section; a config value that is blank/empty falls
-// back to these. Kept here so the module runs standalone (and unit-tests pass)
-// without config plumbing, and so a markup change can be handled by config.
+// The only [LewdCorner] setting left: whether the thread probe may run. The rest
+// of the site contract — shop URL, rank card and buy-button classes, the owned
+// button text, the probe thread — is a fact about LewdCorner, not a user choice,
+// so it ships in config/lcTier.json. Anything in config.ini describing the site
+// could only go stale; the retired shop path did exactly that and silently
+// disabled the check for every install that carried it.
 const LC_TIER_DEFAULTS = {
-  lcProbeThreadId: 14057,
   // Off by default: the probe fetches over the same axios path as the shop
   // page, and Cloudflare challenges it regardless of cookies. Flip it back on
   // via [LewdCorner] lcThreadProbeEnabled once the probe fetch moves to the
   // real-browser (window / page-context) path.
   lcThreadProbeEnabled: false,
-  // The economy shop consolidated every purchasable rank under one URL (Oct
-  // 2026); the old /shop/index.php tier + prestige pages are gone.
-  lcUserTierPath: '/economy/?section=store&category=rank',
-  // Card container, matched first so an item_id lines up with its own
-  // buy button.
-  lcCardClass: 'jblcEconomy-item',
-  // Ownership is signalled on the buy button: owned ranks render a disabled
-  // button whose text is "Owned". Class + text are config-driven so a rename
-  // is a settings edit.
-  lcBuyButtonClass: 'jblcEconomy-buyButton',
-  lcOwnedText: 'owned',
 }
 
-// Fold an optional per-site config object over the LC defaults, dropping any
-// blank value so a cleared config key falls back to the built-in default.
+// Fold an optional per-site config object over the defaults. Only booleans are
+// user-settable now, so a missing or non-boolean value keeps the default.
 function lcConfigWithDefaults(cfg) {
-  if (!cfg || typeof cfg !== 'object') return { ...LC_TIER_DEFAULTS }
   const out = { ...LC_TIER_DEFAULTS }
-  for (const key of Object.keys(LC_TIER_DEFAULTS)) {
-    const v = cfg[key]
-    if (typeof v === 'number' && Number.isFinite(v)) out[key] = v
-    else if (typeof v === 'boolean') out[key] = v
-    else if (typeof v === 'string' && v.trim() !== '') out[key] = v
+  if (cfg && typeof cfg === 'object' && typeof cfg.lcThreadProbeEnabled === 'boolean') {
+    out.lcThreadProbeEnabled = cfg.lcThreadProbeEnabled
   }
   return out
 }
@@ -184,36 +175,33 @@ function lcConfigWithDefaults(cfg) {
 // owns. Returns 'VIP' if any Plus-granting rank is owned, 'Free' if the page
 // loads but no Plus rank is found, and null if no page loads at all (so the
 // caller can fall back to the thread probe).
-// The shop consolidated every rank under one URL (lcUserTierPath). Each rank
-// card carries a hidden item_id input; ownership is on the buy button — owned
-// ranks render a disabled button whose text is "Owned", unowned ones a submit
-// button ("Not enough funds" / price), and out-of-stock ranks (Beta) a
-// disabled "Out of stock" button. The button class and owned text are
-// config-driven so a rename is a settings edit.
+// The site contract — URL, card class, buy-button class, owned text — comes from
+// config/lcTier.json. Each rank card carries a hidden item_id input; ownership
+// is on the buy button — owned ranks render a disabled button whose text is
+// "Owned", unowned ones a submit button ("Not enough funds" / price), and
+// out-of-stock ranks (Beta) a disabled "Out of stock" button.
 // Never throws.
-async function scrapeLcTierFromProfile(cookieArray, lcConfig) {
+async function scrapeLcTierFromProfile(cookieArray) {
   const jar = new CookieJar()
   jar.loadArray(cookieArray)
   if (jar.size === 0) return null
 
-  const lc = lcConfigWithDefaults(lcConfig)
-  const shopUrl = SITES.lewdcorner.base + lc.lcUserTierPath
+  const shopUrl = SITES.lewdcorner.base + LC_TIER_ENDPOINTS.shopPath
 
-  // Build the regexes from the configured classes so a rename is honored
-  // without code changes. Each card block is matched first and the item_id +
-  // button text are paired within that block only — pairing across the whole
-  // page would let a card missing its button steal the next card's.
-  const lcCardClass = escapeRegExp(lc.lcCardClass)
+  // Each card block is matched first and the item_id + button text are paired
+  // within that block only — pairing across the whole page would let a card
+  // missing its button steal the next card's.
+  const lcCardClass = escapeRegExp(LC_TIER_ENDPOINTS.cardClass)
   const lcCardRegex = new RegExp(
     '<article[^>]*class="[^"]*' + lcCardClass + '[^"]*">[\\s\\S]*?<\/article>',
     'gi',
   )
-  const lcBuyButtonClass = escapeRegExp(lc.lcBuyButtonClass)
+  const lcBuyButtonClass = escapeRegExp(LC_TIER_ENDPOINTS.buyButtonClass)
   const lcButtonRegex = new RegExp(
     '<button[^>]*class="[^"]*' + lcBuyButtonClass + '[^"]*"[^>]*>([\\s\\S]*?)</button>',
   )
   const lcItemIdRegex = /name="item_id"\s+value="(\d+)"/
-  const lcLowerOwnedText = lc.lcOwnedText ? lc.lcOwnedText.toLowerCase() : ''
+  const lcLowerOwnedText = LC_TIER_ENDPOINTS.ownedText.toLowerCase()
 
   try {
     // Headless axios fetch: fast, but Cloudflare blocks it regardless of
@@ -292,9 +280,7 @@ async function probeLcTierFromThread(cookieArray, lcConfig) {
   // can only ever report inconclusive today. An inconclusive probe makes the
   // combined logic above resolve exactly as if the probe had been broken.
   if (!lcConfigWithDefaults(lcConfig).lcThreadProbeEnabled) return null
-  const lc = lcConfigWithDefaults(lcConfig)
-  if (!lc.lcProbeThreadId) return null
-  const configuredUrl = `${SITES.lewdcorner.base}/threads/${lc.lcProbeThreadId}/`
+  const configuredUrl = `${SITES.lewdcorner.base}/threads/${LC_TIER_ENDPOINTS.probeThreadId}/`
   const jar = new CookieJar()
   jar.loadArray(cookieArray)
   if (jar.size === 0) return null
@@ -351,7 +337,7 @@ async function scrapeLcUserTier(cookieArray, lcConfig) {
     )
   }
 
-  const lcTierResult = await scrapeLcTierFromProfile(cookieArray, lcConfig)
+  const lcTierResult = await scrapeLcTierFromProfile(cookieArray)
   if (lcTierResult === 'VIP') {
     logCheck(true, false, 'VIP')
     return { tier: 'VIP', lcTierMismatch: false }

@@ -1,65 +1,69 @@
 // ── Config sanitizer migration contracts ───────────────────────────────────
 //
-// sanitizeParsedConfig takes a parsed ini object and touches no disk, so
-// these test the v3 → v4 LewdCorner shop URL migration on its own: only the
-// old shipped default gets rewritten, the report calls it a replacement, and
-// an already-migrated config passes through unchanged.
+// sanitizeParsedConfig takes a parsed ini object and touches no disk, so these
+// test what happens to a config.ini written by an older build.
+//
+// The LewdCorner shop URL is not a user setting any more: the tier scraper
+// reads it from electron/config/lcTier.json, which ships with the code. The old
+// config key is therefore retired and removed at startup like any deprecation,
+// whatever value it holds. Rewriting it in place was the previous approach and
+// could not work, because the INI reader ends the value at the '#' in the
+// shipped default, so the key arrived as '/shop/index.php' and never matched.
 
 import { test, expect, describe } from 'vitest'
 
+const ini = require('ini')
+
 const { sanitizeParsedConfig } = require('../electron/config/configSanitizer.js')
-const { CONFIG_VERSION } = require('../electron/config/configSchema.js')
+const { buildDefaultConfig } = require('../electron/config/configSchema.js')
 
-const OLD_TIER_PATH = '/shop/index.php#user-ranks'
-const NEW_TIER_PATH = '/economy/?section=store&category=rank'
+// A real v3 config.ini fragment, parsed the way the app parses it. The value on
+// disk carries the #user-ranks fragment; the parsed value does not.
+const v3File = [
+  '[Meta]',
+  'configVersion=3',
+  '[LewdCorner]',
+  'lcUserTierPath=/shop/index.php#user-ranks',
+  'lcProbeThreadId=14057',
+  'lcCardClass=jblcEconomy-item',
+  'lcBuyButtonClass=jblcEconomy-buyButton',
+  'lcOwnedText=owned',
+  '',
+].join('\r\n')
 
-// A v3-shaped fragment; the sanitizer only ever reads parsed ini objects.
-const config = (LewdCorner = {}) => ({
-  Meta: { configVersion: 3 },
-  LewdCorner: { lcThreadProbeEnabled: false, ...LewdCorner },
-})
+describe('retired LewdCorner site keys', () => {
+  const RETIRED = {
+    lcUserTierPath: '/shop/index.php',
+    lcProbeThreadId: '14057',
+    lcCardClass: 'jblcEconomy-item',
+    lcBuyButtonClass: 'jblcEconomy-buyButton',
+    lcOwnedText: 'owned',
+  }
 
-describe('v3 → v4 LewdCorner shop URL migration', () => {
-  test('replaces the v3 default shop URL and reports it as a changed key', () => {
-    const { config: cleaned, report } = sanitizeParsedConfig(config({ lcUserTierPath: OLD_TIER_PATH }))
-    expect(cleaned.LewdCorner.lcUserTierPath).toBe(NEW_TIER_PATH)
-    expect(cleaned.Meta.configVersion).toBe(CONFIG_VERSION)
-    expect(report.changedKeys).toEqual([
-      { section: 'LewdCorner', key: 'lcUserTierPath', value: OLD_TIER_PATH },
-    ])
-    // A rewritten key is not a removed key.
-    expect(report.removedKeys).toEqual([])
-  })
-
-  test('leaves a customized lcUserTierPath alone', () => {
-    // A custom value means the user set it; the key doubles as the rename
-    // escape hatch, so leave it exactly as written.
-    const custom = '/economy/?section=store&category=rank&custom=1'
-    const { config: cleaned, report } = sanitizeParsedConfig(config({ lcUserTierPath: custom }))
-    expect(cleaned.LewdCorner.lcUserTierPath).toBe(custom)
-    expect(report.changedKeys).toEqual([])
-  })
-
-  test('still removes the retired prestige/pill keys alongside the migration', () => {
-    const { config: cleaned, report } = sanitizeParsedConfig(config({
-      lcUserTierPath: OLD_TIER_PATH,
-      lcUserPrestigePath: '/shop/index.php?rank_bundle=prestige',
-      lcStatusPillClass: 'statusPill',
-      lcStatusPillOwnedText: 'owned',
-    }))
-    expect(cleaned.LewdCorner.lcUserPrestigePath).toBeUndefined()
-    expect(cleaned.LewdCorner.lcStatusPillClass).toBeUndefined()
-    expect(cleaned.LewdCorner.lcStatusPillOwnedText).toBeUndefined()
-    for (const key of ['lcUserPrestigePath', 'lcStatusPillClass', 'lcStatusPillOwnedText']) {
+  test('removes the keys from a real v3 config.ini', () => {
+    const { config: cleaned, report } = sanitizeParsedConfig(ini.parse(v3File))
+    for (const key of Object.keys(RETIRED)) {
+      expect(cleaned.LewdCorner[key]).toBeUndefined()
       expect(report.removedKeys.some((k) => k.key === key)).toBe(true)
     }
+    // The INI reader starts a comment at '#', so the shipped default arrives
+    // here as the bare path.
+    expect(report.removedKeys.find((k) => k.key === 'lcUserTierPath').value).toBe('/shop/index.php')
+    expect(report.changed).toBe(true)
   })
 
-  test('a second run over migrated values changes nothing', () => {
-    const { config: once } = sanitizeParsedConfig(config({ lcUserTierPath: OLD_TIER_PATH }))
-    const { report: twice, config: clean } = sanitizeParsedConfig(once)
-    expect(clean.LewdCorner.lcUserTierPath).toBe(NEW_TIER_PATH)
-    expect(twice.changed).toBe(false)
-    expect(twice.changedKeys).toEqual([])
+  test('removes them whatever value they hold, including a custom one', () => {
+    // Nobody edits these by hand, and the code no longer reads them, so a
+    // custom value is as retired as the shipped one.
+    const { config: cleaned } = sanitizeParsedConfig({
+      Meta: { configVersion: 4 },
+      LewdCorner: { ...RETIRED, lcUserTierPath: '/economy/?section=store&category=rank&custom=1' },
+    })
+    for (const key of Object.keys(RETIRED)) expect(cleaned.LewdCorner[key]).toBeUndefined()
+  })
+
+  test('a fresh config never contains them', () => {
+    const lc = buildDefaultConfig().LewdCorner
+    for (const key of Object.keys(RETIRED)) expect(lc).not.toHaveProperty(key)
   })
 })
