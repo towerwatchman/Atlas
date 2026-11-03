@@ -926,7 +926,14 @@ const deleteGameCompletely = async (recordId, appPath, isDev) => {
   }
 
   try {
+    // FK cascades are dead code (pragma off); record_id reuse would make
+    // orphans point at the next game that takes the same id.
     const tables = [
+      "downloads",
+      "collection_games",
+      "preview_sort",
+      "gog_mappings",
+      "media_source_cache",
       "banners",
       "previews",
       "media_assets",
@@ -953,6 +960,17 @@ const deleteGameCompletely = async (recordId, appPath, isDev) => {
     } catch (err) {
       await dbRun("ROLLBACK").catch(() => {});
       throw err;
+    }
+
+    // The delete committed, so the games row is gone. Clear the deleted record's
+    // reference in the browse index; without this the Installed filter keeps
+    // showing the game as installed (catalog_index.local_record_id is stale).
+    try {
+      const { refreshCatalogIndexInstallState } = require('./catalogIndex')
+      await refreshCatalogIndexInstallState(recordId)
+    } catch (err) {
+      console.warn("deleteGameCompletely catalog index refresh warning:", err)
+      warnings.push(`Catalog index refresh: ${err.message}`)
     }
 
     return warnings.length ? { success: true, warnings } : { success: true };

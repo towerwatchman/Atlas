@@ -6,6 +6,12 @@ in [LEGACY.CHANGELOG.md](./LEGACY.CHANGELOG.md). From 0.9.14 a build is named fo
 the release it heads to; earlier labels mix the cycle and the candidate, as
 [legacy-tag-history.md](./legacy-tag-history.md) records.
 
+## 0.9.15-nightly.518
+
+- **fix**: The date range slider in Browse mode now filters results — the `custom` range was silently ignored. Add fallback options for date filters and sorts to match catalog index's fallback chains to correct ordering (#465).
+- **fix**: Deleting a game now removes its rows from the download queue, collection, sort, GOG mapping, and media cache tables, and the startup sweep and database audit cover those tables too. The Downloads view is notified on both delete paths (#424).
+- **fix**: Deleting a game or version no longer steals keyboard focus from the window. Confirm and alert dialogs on the detail page now use Atlas style instead of native, and the delete runs in the background (#216).
+
 ## 0.9.12-nightly.517
 
 - **changed**: Cloudflare handling (part 4): the download resolve window no longer appears while the page is still making progress. It stays hidden through a Cloudflare challenge that clears on its own and through the `/dl/` countdown, and appears only after about 4 seconds with no progress.

@@ -53,6 +53,7 @@ const yieldToLoop = () => new Promise((resolve) => setImmediate(resolve))
 // SQLite reuses ids, and a leftover child can bleed into a later game that
 // happens to reuse its id.
 const RECORD_CHILD_TABLES = [
+  'preview_sort', 'media_source_cache', 'downloads', 'collection_games',
   'versions', 'atlas_mappings', 'tag_mappings', 'game_metadata_overrides',
   'previews', 'banners', 'media_assets', 'f95_zone_mappings',
   'lewdcorner_mappings', 'steam_mappings', 'gog_mappings', 'game_personal_ratings',

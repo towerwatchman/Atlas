@@ -374,13 +374,6 @@ const SearchSidebar = ({
     updateFilters({ dateField: value });
   };
 
-  const handleDateRangeChange = (value) => {
-    updateFilters({
-      dateRange: value,
-      browseDateRange: value === "custom" ? "any" : value,
-    });
-  };
-
   useEffect(() => {
     setHighlightedTagIndex(-1);
   }, [tagSearch]);
