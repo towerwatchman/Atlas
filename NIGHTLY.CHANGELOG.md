@@ -6,6 +6,18 @@ in [LEGACY.CHANGELOG.md](./LEGACY.CHANGELOG.md). From 0.9.14 a build is named fo
 the release it heads to; earlier labels mix the cycle and the candidate, as
 [legacy-tag-history.md](./legacy-tag-history.md) records.
 
+## 0.9.5-nightly.519
+
+- **fix**: F95 or LewdCorner previews now display correctly in Download mode when F95/LC is set as the priority source. We previously add a new table for f95zone/LC screens for both Stream and Download modes (seem to be empty), but only Stream mode had a fallback to the old screen data when the new data is empty — Download mode does not and will fail f95/LC and fallback to Steam instead -> this change will fix this behavior (#467).
+- **fix**: LewdCorner account check regex change due to site change (#469).
+
+
+## 0.9.15-nightly.518
+
+- **fix**: The date range slider in Browse mode now filters results — the `custom` range was silently ignored. Add fallback options for date filters and sorts to match catalog index's fallback chains to correct ordering (#465).
+- **fix**: Deleting a game now removes its rows from the download queue, collection, sort, GOG mapping, and media cache tables, and the startup sweep and database audit cover those tables too. The Downloads view is notified on both delete paths (#424).
+- **fix**: Deleting a game or version no longer steals keyboard focus from the window. Confirm and alert dialogs on the detail page now use Atlas style instead of native, and the delete runs in the background (#216).
+
 ## 0.9.12-nightly.517
 
 - **changed**: Cloudflare handling (part 4): the download resolve window no longer appears while the page is still making progress. It stays hidden through a Cloudflare challenge that clears on its own and through the `/dl/` countdown, and appears only after about 4 seconds with no progress.
