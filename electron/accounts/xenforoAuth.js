@@ -193,7 +193,7 @@ async function scrapeLcTierFromProfile(cookieArray) {
   // missing its button steal the next card's.
   const lcCardClass = escapeRegExp(LC_TIER_ENDPOINTS.cardClass)
   const lcCardRegex = new RegExp(
-    '<article[^>]*class="[^"]*' + lcCardClass + '[^"]*">[\\s\\S]*?<\/article>',
+    '<article[^>]*class="[^"]*' + lcCardClass + '[^"]*"[^>]*>[\\s\\S]*?<\/article>',
     'gi',
   )
   const lcBuyButtonClass = escapeRegExp(LC_TIER_ENDPOINTS.buyButtonClass)

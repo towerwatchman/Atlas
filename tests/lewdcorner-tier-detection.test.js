@@ -137,6 +137,21 @@ describe('scrapeLcTierFromProfile', () => {
     expect(await scrapeLcTierFromProfile(DUMMY_COOKIES)).toBe('Free')
   })
 
+  test('detects a rank card when attributes follow the class (verified live LC markup)', async () => {
+    const html = `
+      <article class="jblcEconomy-item" id="jblc-rank-13" style="scroll-margin-top:160px">
+        <div class="jblcEconomy-itemCopy"><span class="jblcEconomy-itemType">rank</span><h3>members+</h3></div>
+        <div class="jblcEconomy-itemBuy">
+          <form action="/economy/purchase" method="post" class="jblcEconomy-termPurchase">
+            <input type="hidden" name="item_id" value="13">
+            <button type="button" class="button jblcEconomy-buyButton" disabled="true"><span class="button-text">Owned</span></button>
+          </form>
+        </div>
+      </article>`
+    mockGet(() => ({ status: 200, data: html }))
+    expect(await scrapeLcTierFromProfile(DUMMY_COOKIES)).toBe('VIP')
+  })
+
   test('a renamed card and button on the site no longer match the shipped selectors', async () => {
     // The selectors ship with the parser (electron/config/lcTier.json), so a
     // rename on the site is a code change, not a user setting. Until that lands
