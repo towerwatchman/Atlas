@@ -44,11 +44,11 @@ function lcTierPageHtml(overrides = {}) {
   const rankCards = cards
     .map((c) => {
       const buyButton = c.owned
-        ? '<button type="button" class="button jblcEconomy-buyButton" disabled="true"><span class="button-text">Owned</span></button>'
-        : '<button type="submit" class="button button--primary jblcEconomy-buyButton" data-economy-buy="true" data-state="disabled" disabled="1"><span class="button-text"><span data-economy-buy-label="">Not enough funds</span><span aria-hidden="true"> →</span></span></button>'
+        ? '<button type="button" class="button ecBuy-button" disabled="true"><span class="button-text">Owned</span></button>'
+        : '<button type="submit" class="button button--primary ecBuy-button" data-economy-buy="true" data-state="disabled" disabled="1"><span class="button-text"><span data-economy-buy-label="">Not enough funds</span><span aria-hidden="true"> →</span></span></button>'
       return `
-    <article class="jblcEconomy-item">
-      <div class="jblcEconomy-itemCopy"><span class="jblcEconomy-itemType">rank</span><h3>${c.name}</h3></div>
+    <article class="ecCard">
+      <div class="ecCardCopy"><span class="ecCardType">rank</span><h3>${c.name}</h3></div>
       <form action="/economy/purchase" method="post" class="jblcEconomy-termPurchase">
         <input type="hidden" name="item_id" value="${c.id}">
         ${buyButton}
@@ -113,11 +113,11 @@ describe('scrapeLcTierFromProfile', () => {
 
   test('detects an owned rank from its disabled Owned buy button (verified LC markup)', async () => {
     const html = `
-      <article class="jblcEconomy-item">
-        <div class="jblcEconomy-itemCopy"><span class="jblcEconomy-itemType">rank</span><h3>members+</h3></div>
+      <article class="ecCard">
+        <div class="ecCardCopy"><span class="ecCardType">rank</span><h3>members+</h3></div>
         <form action="/economy/purchase" method="post" class="jblcEconomy-termPurchase">
           <input type="hidden" name="item_id" value="13">
-          <button type="button" class="button jblcEconomy-buyButton" disabled="true"><span class="button-text">Owned</span></button>
+          <button type="button" class="button ecBuy-button" disabled="true"><span class="button-text">Owned</span></button>
         </form>
       </article>`
     mockGet(() => ({ status: 200, data: html }))
@@ -126,11 +126,11 @@ describe('scrapeLcTierFromProfile', () => {
 
   test('treats a Not-enough-funds buy button as not owned', async () => {
     const html = `
-      <article class="jblcEconomy-item">
-        <div class="jblcEconomy-itemCopy"><span class="jblcEconomy-itemType">rank</span><h3>members+</h3></div>
+      <article class="ecCard">
+        <div class="ecCardCopy"><span class="ecCardType">rank</span><h3>members+</h3></div>
         <form action="/economy/purchase" method="post" class="jblcEconomy-termPurchase">
           <input type="hidden" name="item_id" value="13">
-          <button type="submit" class="button button--primary jblcEconomy-buyButton" data-economy-buy="true" data-state="disabled" disabled="1"><span class="button-text"><span data-economy-buy-label="">Not enough funds</span><span aria-hidden="true"> →</span></span></button>
+          <button type="submit" class="button button--primary ecBuy-button" data-economy-buy="true" data-state="disabled" disabled="1"><span class="button-text"><span data-economy-buy-label="">Not enough funds</span><span aria-hidden="true"> →</span></span></button>
         </form>
       </article>`
     mockGet(() => ({ status: 200, data: html }))
@@ -139,12 +139,12 @@ describe('scrapeLcTierFromProfile', () => {
 
   test('detects a rank card when attributes follow the class (verified live LC markup)', async () => {
     const html = `
-      <article class="jblcEconomy-item" id="jblc-rank-13" style="scroll-margin-top:160px">
-        <div class="jblcEconomy-itemCopy"><span class="jblcEconomy-itemType">rank</span><h3>members+</h3></div>
-        <div class="jblcEconomy-itemBuy">
+      <article class="ecCard" id="jblc-rank-13" style="scroll-margin-top:160px">
+        <div class="ecCardCopy"><span class="ecCardType">rank</span><h3>members+</h3></div>
+        <div class="ecCardBuy">
           <form action="/economy/purchase" method="post" class="jblcEconomy-termPurchase">
             <input type="hidden" name="item_id" value="13">
-            <button type="button" class="button jblcEconomy-buyButton" disabled="true"><span class="button-text">Owned</span></button>
+            <button type="button" class="button ecBuy-button" disabled="true"><span class="button-text">Owned</span></button>
           </form>
         </div>
       </article>`
@@ -515,8 +515,8 @@ describe('[LewdCorner] tier site contract', () => {
   test('the shop path, selectors and probe thread ship with the code', () => {
     expect(shipped).toEqual({
       shopPath: '/economy/?section=store&category=rank',
-      cardClass: 'jblcEconomy-item',
-      buyButtonClass: 'jblcEconomy-buyButton',
+      cardClass: 'ecCard',
+      buyButtonClass: 'ecBuy-button',
       ownedText: 'owned',
       probeThreadId: 14057,
     })
@@ -535,8 +535,8 @@ describe('[LewdCorner] tier site contract', () => {
   test('the scraper reads the shipped file and hardcodes no selector', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'electron', 'accounts', 'xenforoAuth.js'), 'utf8')
     expect(src).toContain("require('../config/lcTier.json')")
-    expect(src).not.toContain('jblcEconomy-item')
-    expect(src).not.toContain('jblcEconomy-buyButton')
+    expect(src).not.toContain('ecCard')
+    expect(src).not.toContain('ecBuy-button')
     expect(src).not.toContain('lcUserTierPath')
     // The retired two-page shop contract must not creep back in.
     expect(src).not.toContain('lcUserPrestigePath')

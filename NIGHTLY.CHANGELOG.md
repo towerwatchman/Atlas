@@ -6,6 +6,10 @@ in [LEGACY.CHANGELOG.md](./LEGACY.CHANGELOG.md). From 0.9.14 a build is named fo
 the release it heads to; earlier labels mix the cycle and the candidate, as
 [legacy-tag-history.md](./legacy-tag-history.md) records.
 
+## 0.9.5-nightly.520
+
+- **fix**: LewdCorner account check regex change due to site change (#474).
+
 ## 0.9.5-nightly.519
 
 - **fix**: F95 or LewdCorner previews now display correctly in Download mode when F95/LC is set as the priority source. We previously add a new table for f95zone/LC screens for both Stream and Download modes (seem to be empty), but only Stream mode had a fallback to the old screen data when the new data is empty — Download mode does not and will fail f95/LC and fallback to Steam instead -> this change will fix this behavior (#467).
