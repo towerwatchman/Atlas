@@ -33,6 +33,13 @@ let handlerCtx = null;
 
 const getLiveConfig = () => handlerCtx?.appConfig || {};
 
+// Read per call, not at registration: the Settings > Accounts toggle is live.
+const resolveWithVisibility = (url, options = {}) =>
+  resolveMaskedLink(url, {
+    ...options,
+    headless: getLiveConfig()?.Resolve?.showWindow !== true,
+  });
+
 // Downloads never live inside the library folder. That folder holds installed
 // games and gets scanned as such, so parking in-progress archives there means
 // a scan picks up half-written files as titles. When the user has not chosen a
@@ -94,7 +101,7 @@ function registerDownloadsHandlers(ctx = {}) {
     // Electron window the F95 masked links use. It is not F95-specific: it
     // loads a url and reports where the browser landed, which is exactly
     // what a Cloudflare-challenged host needs.
-    browserResolver: (url, options) => resolveMaskedLink(url, options),
+    browserResolver: (url, options) => resolveWithVisibility(url, options),
     onEvent: (type, payload) => {
       broadcast(type, payload);
       broadcastSummary();
@@ -143,7 +150,7 @@ function registerDownloadsHandlers(ctx = {}) {
       const cookieHeader = accountStore.getCookieHeaderForUrl(url) || "";
       const parentWindow = BrowserWindow.fromWebContents(event.sender);
       const plugin = pluginFor ? pluginFor(url) : null;
-      const result = await resolveMaskedLink(url, {
+      const result = await resolveWithVisibility(url, {
         parentWindow,
         cookieHeader,
         title,
