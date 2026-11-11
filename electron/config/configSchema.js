@@ -74,6 +74,8 @@ const DEPRECATED_KEYS = {
     'lcCardClass',
     'lcBuyButtonClass',
     'lcOwnedText',
+    // Renamed to lcTierRecheckDays; units changed (hours → days), nothing to migrate.
+    'lcTierRecheckHours',
   ],
 }
 
@@ -241,17 +243,16 @@ const buildDefaultConfig = (dataDir = '') => ({
     // Cloudflare currently rejects for non-browser clients, so off by default.
     // Flip it on only if the probe fetch goes through the real-browser path.
     lcThreadProbeEnabled: false,
-    // How fresh the cached membership tier must be, in hours, before a re-scrape
+    // How fresh the cached membership tier must be, in days, before a re-scrape
     // is skipped. The tier is scraped (a few requests) then held in the encrypted
-    // account blob keyed to tierCheckedAt; whenever a recheck — on startup, on the
-    // periodic timer, or a force — runs, it is skipped if the cached tier is newer
-    // than this window. So it bounds network traffic to at most one scrape per
-    // window regardless of how often the client is opened. 0 disables the periodic
-    // recheck entirely (startup + re-link still verify). This is a rolling window
-    // from the last successful check, not a fixed time of day. A promotion
-    // (Standard → Plus) is only noticed on the next recheck, and re-linking the
-    // account always forces a fresh scrape regardless of freshness.
-    lcTierRecheckHours: 24,
+    // account blob keyed to tierCheckedAt; the startup recheck is skipped if the
+    // cached tier is newer than this window, so it bounds network traffic to at
+    // most one scrape per window regardless of how often the client is opened.
+    // This is a rolling window from the last successful check, not a fixed time
+    // of day. A promotion (Standard → Plus) is only noticed on the next recheck,
+    // and re-linking the account always forces a fresh scrape regardless of
+    // freshness.
+    lcTierRecheckDays: 30,
   },
   WindowBounds: {},
 })

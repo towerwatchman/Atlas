@@ -240,10 +240,11 @@ function commitAccount(site) {
         'account cannot be saved safely.',
     }
   }
-  // Preserve any previously-detected tier from the existing account.
+  // Reset tier on lewdcorner save: the old tier was computed against the
+  // expired session. A fresh scrape with the new cookies runs below.
   const existingSecret = readSecret(store[site])
-  const prevTier = existingSecret && existingSecret.tier ? existingSecret.tier : null
-  const prevCheckedAt = existingSecret && existingSecret.tierCheckedAt ? existingSecret.tierCheckedAt : null
+  const prevTier = site === 'lewdcorner' ? null : (existingSecret && existingSecret.tier ? existingSecret.tier : null)
+  const prevCheckedAt = site === 'lewdcorner' ? null : (existingSecret && existingSecret.tierCheckedAt ? existingSecret.tierCheckedAt : null)
 
   store[site] = {
     username: p.username,
@@ -304,19 +305,22 @@ async function ensureFreshCookies(site) {
   // Password account — re-login with the stored credentials.
   try {
     const cookies = await login(site, entry.username, secret.password)
-    // Re-read the live entry: a concurrent verifyLcTier may have updated the tier
-    // while we were re-logging in. Update cookies but preserve the live tier.
+    // Re-read the live entry: a concurrent verifyLcTier may have updated it
+    // while we were re-logging in.
     const liveEntry = store[site]
     if (!liveEntry) return false
     const liveSecret = readSecret(liveEntry)
     if (!liveSecret) return false
+    // Reset the tier on lewdcorner re-login: it was computed against the
+    // expired cookies that just failed. Other sites keep their stored tier.
+    const resetTier = site === 'lewdcorner'
     store[site] = {
       username: liveEntry.username,
       secretEnc: encrypt(JSON.stringify({
         password: liveSecret.password || null,
         cookies,
-        tier: liveSecret.tier || null,
-        tierCheckedAt: liveSecret.tierCheckedAt || null,
+        tier: resetTier ? null : (liveSecret.tier || null),
+        tierCheckedAt: resetTier ? null : (liveSecret.tierCheckedAt || null),
       })),
       updatedAt: Date.now(),
     }
@@ -336,16 +340,13 @@ async function refreshAllAccounts() {
   }
 }
 
-// Scrape the user's LewdCorner tier (shop page + thread probe) and persist the
-// result in the encrypted blob. Safe to call on startup or periodically.
-// Only operates on the LewdCorner stored account with valid cookies.
-// Returns { ok, tier?, lcTierMismatch?, fromCache?, error? } where lcTierMismatch
-// is the dev-only stale-parser signal (true only when the shop page concluded
-// 'Free' but the thread probe — reflecting real content access — concluded
-// 'VIP').
+// Scrape the user's LewdCorner tier (homepage banner → rank-card → thread
+// probe pipeline) and persist the result in the encrypted blob. Safe to call
+// on startup or on re-link. Only operates on the LewdCorner stored account
+// with valid cookies. Returns { ok, tier?, fromCache?, error? }.
 //
 // Unless `{ force: true }` is passed, the network scrape is skipped when the
-// cached tier is still fresh (checked within lcTierRecheckHours). This bounds
+// cached tier is still fresh (checked within lcTierRecheckDays). This bounds
 // shop-page traffic to at most one scrape per window no matter how often the
 // client is opened; re-linking the account passes force so a reconnect always
 // re-scrapes immediately.
@@ -358,19 +359,17 @@ async function verifyLcTier({ force = false } = {}) {
     return { ok: false, error: 'No valid cookies — please re-authenticate.' }
   }
 
-  // Reuse a still-fresh cached tier instead of re-scraping. lcTierRecheckHours of
-  // 0 disables the periodic recheck entirely (startup + a force still verify).
-  const recheckHours = lcConfig && typeof lcConfig.lcTierRecheckHours === 'number'
-    ? lcConfig.lcTierRecheckHours
-    : 24
-  if (!force && recheckHours > 0 && secret.tier && secret.tierCheckedAt) {
-    const ageMs = Date.now() - secret.tierCheckedAt
-    if (ageMs >= 0 && ageMs < recheckHours * 3600 * 1000) {
-      return { ok: true, tier: secret.tier, fromCache: true }
-    }
+  // A set tier is trusted for lcTierRecheckDays (default 30d) from when it was
+  // last checked; once it goes stale the next non-forced check re-scrapes.
+  // Re-login still nulls the tier (commitAccount / ensureFreshCookies) so a
+  // fresh session is never shown a tier computed against an expired one.
+  const recheckDays = Number(lcConfig?.lcTierRecheckDays)
+  const recheckMs = (Number.isFinite(recheckDays) ? recheckDays : 30) * 24 * 60 * 60 * 1000
+  if (!force && secret.tier && secret.tierCheckedAt && Date.now() - secret.tierCheckedAt < recheckMs) {
+    return { ok: true, tier: secret.tier, fromCache: true }
   }
 
-  const { tier: lcTier, lcTierMismatch } = await scrapeLcUserTier(secret.cookies, lcConfig)
+  const { tier: lcTier } = await scrapeLcUserTier(secret.cookies, lcConfig)
   if (lcTier === null) {
     return { ok: false, error: 'Tier check inconclusive.' }
   }
@@ -402,7 +401,7 @@ async function verifyLcTier({ force = false } = {}) {
   persist()
   rebuildCookieCache()
 
-  return { ok: true, tier: lcTier, lcTierMismatch }
+  return { ok: true, tier: lcTier }
 }
 
 module.exports = {
