@@ -6,6 +6,9 @@ in [LEGACY.CHANGELOG.md](./LEGACY.CHANGELOG.md). From 0.9.14 a build is named fo
 the release it heads to; earlier labels mix the cycle and the candidate, as
 [legacy-tag-history.md](./legacy-tag-history.md) records.
 
+## 0.9.5-nightly.521
+- **enhancement**: improve LewdCorner account membership checking stability.
+
 ## 0.9.5-nightly.520
 
 - **fix**: LewdCorner account check regex change due to site change (#474).

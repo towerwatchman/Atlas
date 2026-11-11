@@ -344,24 +344,9 @@ function registerLewdCornerMediaHeaders() {
   registerMediaAuthHeaders()
 }
 
-// Dev-only diagnostic for the LewdCorner tier check. When verifyLcTier()
-// reports lcTierMismatch, the LewdCorner shop page parser read no owned
-// rank but the thread probe — which reflects real content access — concluded
-// the user is Plus. That mismatch is the stale-selector signal: the class and
-// owned text in electron/config/lcTier.json likely no longer match LC's markup.
-// Gated on !app.isPackaged so it never
-// fires in a shipped build; the user-facing tier gate stays correct regardless
-// because the probe already resolved the real tier.
-function warnOnLcTierMismatch(result) {
+// Dev-only tier log; never fires in a shipped build.
+function logLcTierResult(result) {
   if (app.isPackaged || !result) return
-  if (result.lcTierMismatch === true) {
-    console.warn(
-      'LewdCorner shop parser looks stale: shop reported \'Free\' but ' +
-      'the thread probe confirmed real content access. Check the card and ' +
-      'buy-button selectors in electron/config/lcTier.json.',
-    )
-    return
-  }
   if (result.ok && result.tier) {
     const src = result.fromCache ? ' (cached)' : ''
     console.log(`LewdCorner tier: ${result.tier}${src}`)
@@ -2314,30 +2299,23 @@ app.whenReady().then(async () => {
   // hook) come up, then refresh any expired sessions in the background.
   try {
     accountStore.init(dataDir, appConfig?.LewdCorner)
-    accountStore.refreshAllAccounts().catch((err) =>
-      console.warn('Account cookie refresh failed:', err.message),
-    )
-    // Tier verification: scrape LC membership tier after cookies are fresh.
-    // Runs in the background on startup and periodically. The recheck interval
-    // reads lcTierRecheckHours from config (default 24h); a recheck that finds the
-    // cached tier still fresh is skipped inside verifyLcTier, so this only scrapes
-    // when actually stale. Re-linking the account re-triggers it immediately via
-    // commitAccount's forced verifyLcTier.
-    const lcTierRecheckHours = Number(appConfig?.LewdCorner?.lcTierRecheckHours)
-    const lcTierRecheckInterval =
-      (Number.isFinite(lcTierRecheckHours) ? lcTierRecheckHours : 24) * 60 * 60 * 1000
-    const runLcTierCheck = () =>
-      accountStore.verifyLcTier().then((result) => {
-        warnOnLcTierMismatch(result)
+    // Tier check chains off cookie refresh so it reads the updated cookies
+    // (re-login resets the tier to null). A fresh cached tier is skipped
+    // inside verifyLcTier (lcTierRecheckDays); re-linking forces a fresh scrape.
+    const { fetchRemoteConfig } = require('./config/remoteConfig')
+    const runLcTierCheck = async () => {
+      await fetchRemoteConfig(getDefaultAppUpdateBranch(), 'lcTier.json')
+      const result = await accountStore.verifyLcTier()
+      logLcTierResult(result)
+    }
+    // Chain the tier check after cookie refresh.
+    accountStore.refreshAllAccounts()
+      .catch((err) => {
+        console.warn('Account cookie refresh failed:', err.message)
       })
-    runLcTierCheck().catch((err) =>
-      console.warn('Initial tier check failed:', err.message),
-    )
-    setInterval(() => {
-      runLcTierCheck().catch((err) =>
-        console.warn('Periodic tier check failed:', err.message),
-      )
-    }, lcTierRecheckInterval)
+      .finally(() => runLcTierCheck().catch((err) => {
+        console.warn('Initial tier check failed:', err.message)
+      }))
   } catch (err) {
     console.warn('Account store init failed:', err.message)
   }

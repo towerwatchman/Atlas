@@ -36,10 +36,7 @@ module.exports = function registerAccountsHandlers(ctx) {
   })
 
   // Tier detection — returns the cached LewdCorner tier, or triggers a fresh
-  // check when forceRefresh is set. forceRefresh also returns lcTierMismatch:
-  // the dev-only stale-parser signal (true when the LC shop page read no owned
-  // rank but the thread probe found real content access), which the main process
-  // surfaces as a dev console warning.
+  // check when forceRefresh is set.
   ipcMain.handle('lewdcorner-tier', async (event, { forceRefresh = false } = {}) => {
     try {
       if (forceRefresh) {
@@ -47,7 +44,6 @@ module.exports = function registerAccountsHandlers(ctx) {
         return {
           tier: result.tier || null,
           checkedAt: Date.now(),
-          lcTierMismatch: result.lcTierMismatch === true,
         }
       }
       return { tier: accountStore.getLcUserTier() }

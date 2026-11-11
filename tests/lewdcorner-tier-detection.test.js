@@ -333,16 +333,14 @@ describe('scrapeLcUserTier', () => {
       status: 200,
       data: lcTierPageHtml({ membersPlusOwned: true }),
     }))
-    const { tier, lcTierMismatch } = await scrapeLcUserTier(DUMMY_COOKIES)
+    const { tier } = await scrapeLcUserTier(DUMMY_COOKIES)
     expect(tier).toBe('VIP')
-    expect(lcTierMismatch).toBe(false)
   })
 
   test('trusts the shop Free verdict without the disabled probe', async () => {
     mockGet(() => ({ status: 200, data: lcTierPageHtml() }))
-    const { tier, lcTierMismatch } = await scrapeLcUserTier(DUMMY_COOKIES)
+    const { tier } = await scrapeLcUserTier(DUMMY_COOKIES)
     expect(tier).toBe('Free')
-    expect(lcTierMismatch).toBe(false)
     // Probe disabled: only the single shop URL is requested, never the thread.
     expect(axios.get).toHaveBeenCalledTimes(1)
   })
@@ -364,31 +362,21 @@ describe('scrapeLcUserTier', () => {
       status: 200,
       data: lcTierPageHtml({ prestige5Owned: true }),
     }))
-    const { tier, lcTierMismatch } = await scrapeLcUserTier(DUMMY_COOKIES)
+    const { tier } = await scrapeLcUserTier(DUMMY_COOKIES)
     expect(tier).toBe('VIP')
-    expect(lcTierMismatch).toBe(false)
     expect(axios.get).toHaveBeenCalledTimes(1)
   })
 
   // ── Probe enabled via [LewdCorner] lcThreadProbeEnabled: true ─────────────
-  // The pre-disabled contracts survive under the toggle, so flipping it back
-  // on restores the original behaviour without edits.
+  // The probe is now a fallback for when the rank-card check is inconclusive,
+  // not a cross-confirmation. First definitive verdict wins.
 
-  test('probe on: shop Free confirmed by the thread probe', async () => {
-    let callCount = 0
-    mockGet(() => {
-      callCount++
-      if (callCount === 1) {
-        return { status: 200, data: lcTierPageHtml() }
-      }
-      return {
-        status: 200,
-        data: '<div class="messageHide messageHide--attach">You must be registered</div>',
-      }
-    })
-    const { tier, lcTierMismatch } = await scrapeLcUserTier(DUMMY_COOKIES, { lcThreadProbeEnabled: true })
+  test('probe on: a rank-card Free verdict is final, the probe is never consulted', async () => {
+    mockGet(() => ({ status: 200, data: lcTierPageHtml() }))
+    const { tier } = await scrapeLcUserTier(DUMMY_COOKIES, { lcThreadProbeEnabled: true })
     expect(tier).toBe('Free')
-    expect(lcTierMismatch).toBe(false)
+    // First definitive verdict wins: only the shop URL is requested, never the thread.
+    expect(axios.get).toHaveBeenCalledTimes(1)
   })
 
   test('probe on: rescues a Plus verdict when the shop fails', async () => {
@@ -401,30 +389,52 @@ describe('scrapeLcUserTier', () => {
         data: '<div class="message-attachment"><img class="bbImage"></div>',
       }
     })
-    const { tier, lcTierMismatch } = await scrapeLcUserTier(DUMMY_COOKIES, { lcThreadProbeEnabled: true })
+    const { tier } = await scrapeLcUserTier(DUMMY_COOKIES, { lcThreadProbeEnabled: true })
     expect(tier).toBe('VIP')
-    // Shop outage is not a parser bug, so this must NOT be flagged as a mismatch.
-    expect(lcTierMismatch).toBe(false)
+  })
+})
+
+// ── Remote lcTier.json override ─────────────────────────────────────────────
+//
+// A fetched remote file merges over the bundled one (missing keys fall back);
+// a failed fetch keeps the bundled file.
+
+describe('remote lcTier.json override', () => {
+  const remoteConfig = require('../electron/config/remoteConfig')
+
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    remoteConfig.clearRemoteConfigs()
   })
 
-  // The stale-parser signal: the LC shop page reads 'Free' (no Plus rank parsed)
-  // but the thread probe shows real content access. This is the mismatch that
-  // tells a developer the [LewdCorner] selectors have drifted.
-  test('probe on: flags lcTierMismatch when shop says Free but probe confirms VIP', async () => {
-    let callCount = 0
-    mockGet(() => {
-      callCount++
-      if (callCount === 1) {
-        return { status: 200, data: lcTierPageHtml() }
-      }
-      return {
-        status: 200,
-        data: '<div class="message-attachment"><img class="bbImage"></div>',
-      }
+  test('a partial remote file overrides its keys and falls back for the rest', async () => {
+    mockGet(() => ({ status: 200, data: { shopPath: '/remote-shop' } }))
+    await remoteConfig.fetchRemoteConfig('stable', 'lcTier.json')
+
+    const urls = []
+    mockGet((url) => {
+      urls.push(url)
+      return { status: 200, data: lcTierPageHtml({ membersPlusOwned: true }) }
     })
-    const { tier, lcTierMismatch } = await scrapeLcUserTier(DUMMY_COOKIES, { lcThreadProbeEnabled: true })
+    const { tier } = await scrapeLcUserTier(DUMMY_COOKIES)
+    // Remote shopPath is used; bundled card/buy-button classes still parse the
+    // page, which a whole-file shadow would break.
     expect(tier).toBe('VIP')
-    expect(lcTierMismatch).toBe(true)
+    expect(urls).toEqual(['https://lewdcorner.com/remote-shop'])
+  })
+
+  test('a failed fetch keeps the bundled file', async () => {
+    mockGet(() => { throw new Error('network error') })
+    await remoteConfig.fetchRemoteConfig('stable', 'lcTier.json')
+
+    const urls = []
+    mockGet((url) => {
+      urls.push(url)
+      return { status: 200, data: lcTierPageHtml({ membersPlusOwned: true }) }
+    })
+    const { tier } = await scrapeLcUserTier(DUMMY_COOKIES)
+    expect(tier).toBe('VIP')
+    expect(urls).toEqual([`https://lewdcorner.com${require('../electron/config/lcTier.json').shopPath}`])
   })
 })
 
@@ -477,32 +487,32 @@ describe('tier logic is isolated to lewdcorner', () => {
   })
 })
 
-// ── Config: lcTierRecheckHours ───────────────────────────────────────────────
+// ── Config: lcTierRecheckDays ────────────────────────────────────────────────
 //
-// The freshness window is config-driven. Default 24; coerced to a number from
+// The freshness window is config-driven. Default 30; coerced to a number from
 // the ini string; blank/absent falls back to the default.
 
-describe('[LewdCorner] lcTierRecheckHours config', () => {
+describe('[LewdCorner] lcTierRecheckDays config', () => {
   const { buildDefaultConfig, mergeWithDefaults } = require('../electron/config/configSchema')
 
-  test('defaults to 24 in the config schema', () => {
-    expect(buildDefaultConfig().LewdCorner.lcTierRecheckHours).toBe(24)
+  test('defaults to 30 in the config schema', () => {
+    expect(buildDefaultConfig().LewdCorner.lcTierRecheckDays).toBe(30)
   })
 
   test('coerces a string from the ini to a number', () => {
     const merged = mergeWithDefaults(
-      { LewdCorner: { lcTierRecheckHours: '12' } },
+      { LewdCorner: { lcTierRecheckDays: '30' } },
       { LewdCorner: buildDefaultConfig().LewdCorner },
     )
-    expect(merged.LewdCorner.lcTierRecheckHours).toBe(12)
+    expect(merged.LewdCorner.lcTierRecheckDays).toBe(30)
   })
 
   test('falls back to the default for a non-numeric value', () => {
     const merged = mergeWithDefaults(
-      { LewdCorner: { lcTierRecheckHours: 'soon' } },
+      { LewdCorner: { lcTierRecheckDays: 'soon' } },
       { LewdCorner: buildDefaultConfig().LewdCorner },
     )
-    expect(merged.LewdCorner.lcTierRecheckHours).toBe(24)
+    expect(merged.LewdCorner.lcTierRecheckDays).toBe(30)
   })
 })
 
