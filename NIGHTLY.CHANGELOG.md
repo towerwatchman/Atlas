@@ -6,6 +6,10 @@ in [LEGACY.CHANGELOG.md](./LEGACY.CHANGELOG.md). From 0.9.14 a build is named fo
 the release it heads to; earlier labels mix the cycle and the candidate, as
 [legacy-tag-history.md](./legacy-tag-history.md) records.
 
+## 0.9.5-nightly.523
+
+- **fix**: F95 download gate no longer auto-clicks when a captcha is present. The window opens so you can solve it, with a 5-minute window to do so.
+
 ## 0.9.5-nightly.522
 
 - **feat**: New "Do not hide resolve window" toggle in Settings > Accounts. When on, the resolve window stays open so you can watch it and step in if it stalls.

@@ -279,3 +279,91 @@ describe('resolver idle reveal', () => {
     await settle(promise, windows[0])
   })
 })
+
+describe('resolver captcha mode', () => {
+  const gateCalls = (contents) =>
+    contents.executeJavaScript.mock.calls.filter((c) => c[0].includes('f95dl')).length
+
+  it('reveals the window and stops polling when a captcha appears', async () => {
+    vi.useFakeTimers()
+    const { resolveMaskedLink, windows } = installStubs()
+    const promise = resolveMaskedLink('https://f95zone.to/masked/mega.nz/1/2/s/i/p')
+    await vi.advanceTimersByTimeAsync(0)
+    const contents = windows[0].webContents
+    contents.executeJavaScript.mockImplementation(async (script) => {
+      if (script.includes('f95dl')) {
+        return { dlActive: false, seconds: null, declaredHost: null, clicked: false, captcha: true }
+      }
+      return { clicked: false, cf: false, hostLink: false }
+    })
+
+    contents.emit('dom-ready')
+    contents.emit('did-finish-load')
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(windows[0].shown).toBe(1)
+
+    // The poll stopped: no further gate-script calls after the reveal.
+    const before = gateCalls(contents)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(gateCalls(contents)).toBe(before)
+
+    await settle(promise, windows[0])
+  })
+
+  it('reveals the window after three clicks of the same button with no countdown', async () => {
+    vi.useFakeTimers()
+    const { resolveMaskedLink, windows } = installStubs()
+    const promise = resolveMaskedLink('https://f95zone.to/masked/mega.nz/1/2/s/i/p')
+    await vi.advanceTimersByTimeAsync(0)
+    const contents = windows[0].webContents
+    contents.executeJavaScript.mockImplementation(async (script) => {
+      if (script.includes('f95dl')) {
+        return { dlActive: false, seconds: null, declaredHost: null, clicked: 'continue', captcha: false }
+      }
+      return { clicked: false, cf: false, hostLink: false }
+    })
+
+    contents.emit('dom-ready')
+    contents.emit('did-finish-load')
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(windows[0].shown).toBe(0)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(windows[0].shown).toBe(0)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(windows[0].shown).toBe(1)
+
+    await settle(promise, windows[0])
+  })
+
+  it('does not treat a countdown as a click-loop', async () => {
+    vi.useFakeTimers()
+    const { resolveMaskedLink, windows } = installStubs()
+    const promise = resolveMaskedLink('https://f95zone.to/masked/mega.nz/1/2/s/i/p')
+    await vi.advanceTimersByTimeAsync(0)
+    const contents = windows[0].webContents
+    let phase = 0
+    contents.executeJavaScript.mockImplementation(async (script) => {
+      if (script.includes('f95dl')) {
+        if (phase === 0) {
+          phase = 1
+          return { dlActive: false, seconds: null, declaredHost: null, clicked: 'continue', captcha: false }
+        }
+        return { dlActive: true, seconds: 5, declaredHost: null, clicked: false, captcha: false }
+      }
+      return { clicked: false, cf: false, hostLink: false }
+    })
+
+    contents.emit('dom-ready')
+    contents.emit('did-finish-load')
+
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(windows[0].shown).toBe(0)
+
+    await settle(promise, windows[0])
+  })
+})
