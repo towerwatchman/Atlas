@@ -16,6 +16,26 @@ const Accounts = () => {
   const [modalOpen, setModalOpen] = useState(false)
   const [modalSite, setModalSite] = useState(null)
   const [tiers, setTiers] = useState({})
+  // The masked-link resolver serves both game sites above, so the flag lives with them.
+  const [showResolveWindow, setShowResolveWindow] = useState(false)
+
+  useEffect(() => {
+    window.electronAPI.getConfig().then((config) => {
+      setShowResolveWindow(config?.Resolve?.showWindow === true)
+    })
+  }, [])
+
+  const handleResolveWindowToggle = (checked) => {
+    setShowResolveWindow(checked)
+    // Re-read before writing: saveSettings takes the whole config, and a
+    // stale snapshot would roll back settings changed while this page was open.
+    window.electronAPI.getConfig().then((config) => {
+      window.electronAPI.saveSettings({
+        ...config,
+        Resolve: { ...(config?.Resolve || {}), showWindow: checked },
+      })
+    })
+  }
 
   const loadAccounts = useCallback(async () => {
     try {
@@ -134,6 +154,20 @@ const Accounts = () => {
             </div>
           )
         })}
+
+        <div className="flex items-center gap-3 pl-3">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={showResolveWindow}
+              onChange={(e) => handleResolveWindowToggle(e.target.checked)}
+            />
+            <span>Do not hide resolve window</span>
+          </label>
+          <span className="text-xs text-text/50">
+            Keep the resolve window open so you can watch it and step in if it stalls
+          </span>
+        </div>
       </div>
 
       <div className="mt-6">

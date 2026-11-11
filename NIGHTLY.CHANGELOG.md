@@ -6,6 +6,11 @@ in [LEGACY.CHANGELOG.md](./LEGACY.CHANGELOG.md). From 0.9.14 a build is named fo
 the release it heads to; earlier labels mix the cycle and the candidate, as
 [legacy-tag-history.md](./legacy-tag-history.md) records.
 
+## 0.9.5-nightly.522
+
+- **feat**: New "Do not hide resolve window" toggle in Settings > Accounts. When on, the resolve window stays open so you can watch it and step in if it stalls.
+- **changed**: Stuck link resolves now time out in 2 minutes instead of 5.
+
 ## 0.9.5-nightly.521
 - **enhancement**: improve LewdCorner account membership checking stability.
 

@@ -162,6 +162,11 @@ const buildDefaultConfig = (dataDir = '') => ({
     validatePathsOnStartup: false,
     sevenZipPath: '',
   },
+  // Whether the window that turns a masked link into a download link is shown
+  // to the user. Off by default so existing installs keep the hidden behaviour.
+  Resolve: {
+    showWindow: false,
+  },
   Metadata: {
     downloadPreviews: false,
     mediaStorageMode: 'stream',

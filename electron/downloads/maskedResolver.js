@@ -61,7 +61,7 @@ const { DL_POLL_SCRIPT, shouldReveal, IDLE_REVEAL_MS, LOAD_GRACE_MS } = require(
 const RESOLVER_PARTITION = "persist:masked-resolver";
 // Long enough for a slow challenge, short enough that a forgotten window does
 // not pin a queue slot indefinitely.
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 2 * 60 * 1000;
 
 // ── Which cookies survive a resolve ──────────────────────────────────────────
 //
@@ -810,6 +810,7 @@ function resolveMaskedLink(maskedUrl, options = {}) {
 
 module.exports = {
   resolveMaskedLink,
+  DEFAULT_TIMEOUT_MS,
   // Persistent partition + cookie seeding, shared with forum thread fetching
   // so both use the one session that holds solved Cloudflare grants.
   RESOLVER_PARTITION,
