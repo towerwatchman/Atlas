@@ -1,25 +1,21 @@
 "use strict";
 
-// F95's new download flow is an intermediate page on f95zone.to itself:
-// /dl/<postId>/?u=...&k=...&t=... That page's own f95dl JS walks Continue ->
-// countdown -> "Generate your link" -> mirror.
+// F95's /dl/ gate page: Continue -> countdown -> "Generate your link" -> mirror.
 
-// How long the window may stay hidden after the last meaningful step. A live
-// countdown counts while its seconds move; a challenge that passes on its own
-// navigates. Only a page waiting on a human goes quiet this long.
+// Hidden window may stay dark this long after the last step.
 const IDLE_REVEAL_MS = 4000;
 
-// A navigation that has not reached its document yet is loading, not waiting on
-// a human: a slow response or a redirect chain can outlast the idle window with
-// no event to reset it. Give it this long to reach dom-ready, then treat the
-// page normally. The cap matters because a request that never answers must
-// still be shown rather than hidden for the whole resolve budget.
+// Max wait for a navigation to reach dom-ready before treating it as stalled.
 const LOAD_GRACE_MS = 15000;
+
+// hCaptcha's own #anchor widget lives inside its iframe, which a poll injection
+// cannot reach; the container the gate page owns is the part that is visible.
+const CAPTCHA_SELECTOR = '[data-sitekey], iframe[src*="hcaptcha.com"]';
 
 const DL_POLL_SCRIPT = `(() => {
   const declared = document.querySelector('.f95dl-link-host');
   const declaredHost = declared ? ((declared.textContent || '').trim() || null) : null;
-  const snap = (o) => ({ dlActive: false, clicked: false, seconds: null, declaredHost, ...o });
+  const snap = (o) => ({ dlActive: false, clicked: false, seconds: null, declaredHost, captcha: false, ...o });
   const countdown = document.querySelector('.js-f95dlCountdown');
   if (countdown && !countdown.classList.contains('u-hidden')) {
     const node = countdown.querySelector('.js-f95dlSeconds');
@@ -28,6 +24,7 @@ const DL_POLL_SCRIPT = `(() => {
   }
   const form = document.querySelector('form[action*="/dl/"]');
   if (!form) return snap();
+  if (form.querySelector('${CAPTCHA_SELECTOR}')) return snap({ captcha: true });
   const cont = form.querySelector('.js-f95dlContinue');
   if (cont) {
     cont.click();
@@ -42,11 +39,7 @@ const DL_POLL_SCRIPT = `(() => {
   return snap();
 })()`;
 
-// Reveal once the page stops making steps. The caller marks progress on every
-// navigation, load event, continue link, countdown tick and download, so only a
-// page waiting for something the user must do - or one that has died - reaches
-// the idle window. A countdown that freezes in place stops marking progress,
-// which is exactly when the window should be shown.
+// True once the page has been quiet for idleMs.
 function shouldReveal({ settled = false, revealed = false, lastProgressAt }, now, idleMs = IDLE_REVEAL_MS) {
   if (settled || revealed) return false;
   return now - lastProgressAt >= idleMs;

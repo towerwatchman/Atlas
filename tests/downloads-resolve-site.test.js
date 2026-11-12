@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import Module from 'node:module'
 
 // The masked-resolve handler hardcoded the F95 session, so LC masked:true
@@ -50,7 +50,8 @@ Module._load = function (request, ...rest) {
   }
   return originalLoad.call(this, request, ...rest)
 }
-require('../electron/ipc/downloads.js')({})
+const registerDownloadsHandlers = require('../electron/ipc/downloads.js')
+registerDownloadsHandlers({})
 Module._load = originalLoad
 
 const resolveMasked = (args) =>
@@ -111,5 +112,33 @@ describe('downloads-resolve-masked site', () => {
     const options = resolveMock.mock.calls[0][1]
     expect(options?.baseUrl || '').toContain('lewdcorner.com')
     expect(options?.gateHosts || []).toContain('lewdcorner.com')
+  })
+})
+
+describe('resolve window visibility', () => {
+  // The Settings > Accounts toggle is live, so each test registers the config
+  // it wants; the default registration is restored afterwards.
+  afterEach(() => registerDownloadsHandlers({}))
+
+  it('resolves headless when Resolve.showWindow is unset', async () => {
+    await resolveMasked({ url: 'https://f95zone.to/masked/xyz', title: 'game' })
+    expect(resolveMock.mock.calls[0][1].headless).toBe(true)
+  })
+
+  it('shows the window when Resolve.showWindow is true', async () => {
+    registerDownloadsHandlers({ appConfig: { Resolve: { showWindow: true } } })
+    await resolveMasked({ url: 'https://f95zone.to/masked/xyz', title: 'game' })
+    expect(resolveMock.mock.calls[0][1].headless).toBe(false)
+  })
+
+  it('passes manual resolve through when Resolve.manualResolve is true', async () => {
+    registerDownloadsHandlers({ appConfig: { Resolve: { manualResolve: true } } })
+    await resolveMasked({ url: 'https://f95zone.to/masked/xyz', title: 'game' })
+    expect(resolveMock.mock.calls[0][1].manualResolve).toBe(true)
+  })
+
+  it('leaves manual resolve off when the setting is unset', async () => {
+    await resolveMasked({ url: 'https://f95zone.to/masked/xyz', title: 'game' })
+    expect(resolveMock.mock.calls[0][1].manualResolve).toBe(false)
   })
 })

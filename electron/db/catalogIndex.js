@@ -1247,9 +1247,23 @@ const buildIndexWhere = (search = {}, filters = {}) => {
       const year = new Date(now).getFullYear()
       min = new Date(year, 0, 1).getTime()
       max = new Date(year + 1, 0, 1).getTime() - 1
+    } else if (range === 'custom') {
+      const fromMs = filters.dateFrom ? Date.parse(`${filters.dateFrom}T00:00:00`) : Number.NaN
+      const toMs = filters.dateTo ? Date.parse(`${filters.dateTo}T23:59:59.999`) : Number.NaN
+      min = Number.isFinite(fromMs) ? fromMs : null
+      max = Number.isFinite(toMs) ? toMs : null
+      if (min === null && max === null) return
     } else return
-    parts.push(`ci.${column} BETWEEN ? AND ?`)
-    params.push(min, max)
+    // Separate >= / <= instead of BETWEEN: BETWEEN min AND NULL is always
+    // false in SQLite, and the slider leaves dateTo empty.
+    if (min !== null) {
+      parts.push(`ci.${column} >= ?`)
+      params.push(min)
+    }
+    if (max !== null) {
+      parts.push(`ci.${column} <= ?`)
+      params.push(max)
+    }
   }
   const range = filters.dateRange
   if (filters.dateField === 'releaseDate' && range && range !== 'any') addDateRange('release_date_ms', range)

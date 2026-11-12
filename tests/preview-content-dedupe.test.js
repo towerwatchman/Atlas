@@ -11,7 +11,7 @@ const os = require('os')
 const path = require('path')
 
 const dbIndex = require('../electron/db/index.js')
-const { getPreviews, getBrowsePreviewUrls } = require('../electron/db/media.js')
+const { getPreviews, getBrowsePreviewUrls, getRemotePreviewUrls } = require('../electron/db/media.js')
 
 const freshDataDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-preview-dedupe-'))
 
@@ -280,5 +280,40 @@ describe('browse season scoping (#301)', () => {
     const urls = await getBrowsePreviewUrls({ atlasId: 1 })
 
     expect(urls).toHaveLength(2)
+  })
+})
+
+describe('download mode f95 priority (legacy column)', () => {
+  const F95_A = 'https://attachments.f95zone.to/2023/07/2779350_legacy_a.png'
+  const F95_B = 'https://attachments.f95zone.to/2023/07/2779351_legacy_b.png'
+  const STEAM = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/100/ss_1c9404709062641ab14d795cf3c627cedf83a8f7.1920x1080.jpg`
+
+  // f95 screens live only in the legacy f95_zone_data.screens column; the
+  // f95_zone_screens table is empty in production, so this is the real shape.
+  const linkF95Legacy = async () => {
+    await run(`INSERT OR IGNORE INTO f95_zone_data (f95_id, atlas_id, screens) VALUES (?, ?, ?)`, [1, 1, `${F95_A},${F95_B}`])
+  }
+
+  it('f95 legacy screens win over Steam in Download mode', async () => {
+    await openFreshDatabase()
+    await insertGame(1)
+    await linkF95Legacy()
+    await linkSteam(1, 100)
+    await addSteamScreen(100, STEAM)
+
+    const urls = await getRemotePreviewUrls(1, {})
+
+    expect(urls).toEqual([F95_A, F95_B])
+  })
+
+  it('Steam-only game still shows Steam when no f95 legacy screens exist', async () => {
+    await openFreshDatabase()
+    await insertGame(1)
+    await linkSteam(1, 100)
+    await addSteamScreen(100, STEAM)
+
+    const urls = await getRemotePreviewUrls(1, {})
+
+    expect(urls).toEqual([STEAM])
   })
 })

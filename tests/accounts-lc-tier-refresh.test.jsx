@@ -30,6 +30,8 @@ const mockAPI = (overrides = {}) => {
     verifyAccountBrowser: async () => ({ ok: true }),
     steamStatus: async () => ({ connected: false }),
     hostsList: async () => [],
+    // The page reads the resolve-window flag on mount.
+    getConfig: async () => ({}),
     ...overrides,
   }
   vi.stubGlobal('window', Object.assign(globalThis.window, { electronAPI: api }))

@@ -6,6 +6,40 @@ in [LEGACY.CHANGELOG.md](./LEGACY.CHANGELOG.md). From 0.9.14 a build is named fo
 the release it heads to; earlier labels mix the cycle and the candidate, as
 [legacy-tag-history.md](./legacy-tag-history.md) records.
 
+## 0.9.5-nightly.524
+
+- **fix**: F95 captcha detection now looks for the hCaptcha container the gate page owns. The old check read inside hCaptcha's iframe, which a page script cannot reach. It never fired.
+- **fix**: after the resolver hands the window over for a captcha, a failed-check reload no longer restarts the auto-clicking, and the resolver window no longer opens a DevTools console over the page.
+- **feat**: New "Do not auto-resolve masked link" toggle in Settings > Accounts, right below "Do not hide resolve window". When on, the resolver opens the window and leaves every click to you, with a 5-minute window to finish.
+
+## 0.9.5-nightly.523
+
+- **fix**: F95 download gate no longer auto-clicks when a captcha is present. The window opens so you can solve it, with a 5-minute window to do so.
+
+## 0.9.5-nightly.522
+
+- **feat**: New "Do not hide resolve window" toggle in Settings > Accounts. When on, the resolve window stays open so you can watch it and step in if it stalls.
+- **changed**: Stuck link resolves now time out in 2 minutes instead of 5.
+
+## 0.9.5-nightly.521
+- **enhancement**: improve LewdCorner account membership checking stability.
+
+## 0.9.5-nightly.520
+
+- **fix**: LewdCorner account check regex change due to site change (#474).
+
+## 0.9.5-nightly.519
+
+- **fix**: F95 or LewdCorner previews now display correctly in Download mode when F95/LC is set as the priority source. We previously add a new table for f95zone/LC screens for both Stream and Download modes (seem to be empty), but only Stream mode had a fallback to the old screen data when the new data is empty — Download mode does not and will fail f95/LC and fallback to Steam instead -> this change will fix this behavior (#467).
+- **fix**: LewdCorner account check regex change due to site change (#469).
+
+
+## 0.9.15-nightly.518
+
+- **fix**: The date range slider in Browse mode now filters results — the `custom` range was silently ignored. Add fallback options for date filters and sorts to match catalog index's fallback chains to correct ordering (#465).
+- **fix**: Deleting a game now removes its rows from the download queue, collection, sort, GOG mapping, and media cache tables, and the startup sweep and database audit cover those tables too. The Downloads view is notified on both delete paths (#424).
+- **fix**: Deleting a game or version no longer steals keyboard focus from the window. Confirm and alert dialogs on the detail page now use Atlas style instead of native, and the delete runs in the background (#216).
+
 ## 0.9.12-nightly.517
 
 - **changed**: Cloudflare handling (part 4): the download resolve window no longer appears while the page is still making progress. It stays hidden through a Cloudflare challenge that clears on its own and through the `/dl/` countdown, and appears only after about 4 seconds with no progress.

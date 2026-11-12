@@ -16,6 +16,39 @@ const Accounts = () => {
   const [modalOpen, setModalOpen] = useState(false)
   const [modalSite, setModalSite] = useState(null)
   const [tiers, setTiers] = useState({})
+  // The masked-link resolver serves both game sites above, so both flags live with them.
+  const [showResolveWindow, setShowResolveWindow] = useState(false)
+  // Named for the checkbox, not the setting: the box is ticked only when the
+  // user has turned auto-resolve off, which is not the default.
+  const [doNotAutoResolve, setDoNotAutoResolve] = useState(false)
+
+  useEffect(() => {
+    window.electronAPI.getConfig().then((config) => {
+      setShowResolveWindow(config?.Resolve?.showWindow === true)
+      setDoNotAutoResolve(config?.Resolve?.manualResolve === true)
+    })
+  }, [])
+
+  const saveResolve = (patch) => {
+    // Re-read before writing: saveSettings takes the whole config, and a
+    // stale snapshot would roll back settings changed while this page was open.
+    window.electronAPI.getConfig().then((config) => {
+      window.electronAPI.saveSettings({
+        ...config,
+        Resolve: { ...(config?.Resolve || {}), ...patch },
+      })
+    })
+  }
+
+  const handleResolveWindowToggle = (checked) => {
+    setShowResolveWindow(checked)
+    saveResolve({ showWindow: checked })
+  }
+
+  const handleManualResolveToggle = (checked) => {
+    setDoNotAutoResolve(checked)
+    saveResolve({ manualResolve: checked })
+  }
 
   const loadAccounts = useCallback(async () => {
     try {
@@ -134,6 +167,34 @@ const Accounts = () => {
             </div>
           )
         })}
+
+        <div className="flex items-center gap-3 pl-3">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={showResolveWindow}
+              onChange={(e) => handleResolveWindowToggle(e.target.checked)}
+            />
+            <span>Do not hide resolve window</span>
+          </label>
+          <span className="text-xs text-text/50">
+            Keep the resolve window open so you can watch it and step in if it stalls
+          </span>
+        </div>
+
+        <div className="flex items-center gap-3 pl-3">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={doNotAutoResolve}
+              onChange={(e) => handleManualResolveToggle(e.target.checked)}
+            />
+            <span>Do not auto-resolve masked link</span>
+          </label>
+          <span className="text-xs text-text/50">
+            Open the window and leave the clicks to you when a captcha needs solving
+          </span>
+        </div>
       </div>
 
       <div className="mt-6">
