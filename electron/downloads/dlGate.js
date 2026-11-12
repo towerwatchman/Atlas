@@ -8,8 +8,9 @@ const IDLE_REVEAL_MS = 4000;
 // Max wait for a navigation to reach dom-ready before treating it as stalled.
 const LOAD_GRACE_MS = 15000;
 
-// hCaptcha checkbox; scoped to the gate form so LC can't false-positive.
-const CAPTCHA_SELECTOR = '#anchor';
+// hCaptcha's own #anchor widget lives inside its iframe, which a poll injection
+// cannot reach; the container the gate page owns is the part that is visible.
+const CAPTCHA_SELECTOR = '[data-sitekey], iframe[src*="hcaptcha.com"]';
 
 const DL_POLL_SCRIPT = `(() => {
   const declared = document.querySelector('.f95dl-link-host');

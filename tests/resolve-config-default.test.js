@@ -19,4 +19,16 @@ describe('Resolve section defaults', () => {
     )
     expect(merged.Resolve.showWindow).toBe(true)
   })
+
+  test('manualResolve is false in a fresh config', () => {
+    expect(buildDefaultConfig().Resolve.manualResolve).toBe(false)
+  })
+
+  test('mergeWithDefaults keeps a stored manualResolve: true', () => {
+    const merged = mergeWithDefaults(
+      { Resolve: { manualResolve: true } },
+      buildDefaultConfig(),
+    )
+    expect(merged.Resolve.manualResolve).toBe(true)
+  })
 })

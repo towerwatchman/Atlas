@@ -166,6 +166,9 @@ const buildDefaultConfig = (dataDir = '') => ({
   // to the user. Off by default so existing installs keep the hidden behaviour.
   Resolve: {
     showWindow: false,
+    // Whether the resolve leaves the gate's controls and its captcha to the
+    // user. On shows the window and skips every click.
+    manualResolve: false,
   },
   Metadata: {
     downloadPreviews: false,
