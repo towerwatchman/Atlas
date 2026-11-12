@@ -7,7 +7,7 @@ import { EventEmitter } from 'events'
 // what replaced the fixed 9s reveal timer, so both the rule and its wiring in
 // the resolver are covered here.
 
-const { shouldReveal, IDLE_REVEAL_MS, LOAD_GRACE_MS } = require('../electron/downloads/dlGate.js')
+const { shouldReveal, IDLE_REVEAL_MS, LOAD_GRACE_MS, DL_POLL_SCRIPT } = require('../electron/downloads/dlGate.js')
 
 let restoreLoad = null
 
@@ -80,8 +80,8 @@ const installStubs = () => {
   // bound to that test's fake BrowserWindow (and its own resolve chain).
   delete require.cache[require.resolve('../electron/downloads/maskedResolver.js')]
 
-  const { resolveMaskedLink } = require('../electron/downloads/maskedResolver.js')
-  return { resolveMaskedLink, windows }
+  const resolver = require('../electron/downloads/maskedResolver.js')
+  return { resolveMaskedLink: resolver.resolveMaskedLink, windows, resolver }
 }
 
 const settle = async (promise, win) => {
@@ -365,5 +365,100 @@ describe('resolver captcha mode', () => {
     expect(windows[0].shown).toBe(0)
 
     await settle(promise, windows[0])
+  })
+
+  it('keeps the gate clicks off when the page reloads after captcha mode', async () => {
+    vi.useFakeTimers()
+    const { resolveMaskedLink, windows } = installStubs()
+    const promise = resolveMaskedLink('https://f95zone.to/masked/mega.nz/1/2/s/i/p')
+    await vi.advanceTimersByTimeAsync(0)
+    const contents = windows[0].webContents
+    contents.executeJavaScript.mockImplementation(async (script) => {
+      if (script.includes('f95dl')) {
+        return { dlActive: false, seconds: null, declaredHost: null, clicked: false, captcha: true }
+      }
+      return { clicked: false, cf: false, hostLink: false }
+    })
+
+    contents.emit('dom-ready')
+    contents.emit('did-finish-load')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(windows[0].shown).toBe(1)
+
+    // A rejected captcha POST reloads the gate page. That load runs
+    // did-finish-load again, and it used to re-arm the polling - and with it
+    // the clicking - for the rest of the resolve.
+    const before = gateCalls(contents)
+    contents.emit('did-finish-load')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(gateCalls(contents)).toBe(before)
+
+    await settle(promise, windows[0])
+  })
+})
+
+describe('gate captcha detection', () => {
+  // hCaptcha builds #anchor inside its own iframe, and executeJavaScript only
+  // reaches the main frame, so the widget internals are invisible to the poll.
+  // The container div belongs to the gate page and is what it can see.
+  it('looks for the hCaptcha container, not the widget internals', () => {
+    expect(DL_POLL_SCRIPT).toContain('[data-sitekey]')
+    expect(DL_POLL_SCRIPT).not.toContain('#anchor')
+  })
+})
+
+describe('resolver manual resolve', () => {
+  it('shows the window at once and never clicks the gate', async () => {
+    vi.useFakeTimers()
+    const { resolveMaskedLink, windows } = installStubs()
+    const promise = resolveMaskedLink('https://f95zone.to/masked/mega.nz/1/2/s/i/p', { manualResolve: true })
+    await vi.advanceTimersByTimeAsync(0)
+
+    const contents = windows[0].webContents
+    expect(windows[0].shown).toBe(1)
+
+    contents.emit('dom-ready')
+    contents.emit('did-finish-load')
+    await vi.advanceTimersByTimeAsync(3000)
+    const clicked = contents.executeJavaScript.mock.calls.filter((call) => /\.click\(\)/.test(call[0]))
+    expect(clicked).toHaveLength(0)
+
+    await settle(promise, windows[0])
+  })
+
+  it('uses the takeover budget so a human has time to solve it', async () => {
+    vi.useFakeTimers()
+    const { resolveMaskedLink, windows, resolver } = installStubs()
+    let result = null
+    const promise = resolveMaskedLink('https://f95zone.to/masked/mega.nz/1/2/s/i/p', { manualResolve: true })
+    promise.then((value) => { result = value })
+    await vi.advanceTimersByTimeAsync(0)
+    windows[0].webContents.emit('dom-ready')
+
+    await vi.advanceTimersByTimeAsync(resolver.DEFAULT_TIMEOUT_MS + 1000)
+    expect(result).toBeNull()
+
+    await vi.advanceTimersByTimeAsync(resolver.F95_CAPTCHA_TIMEOUT_MS)
+    expect(result?.timedOut).toBe(true)
+  })
+
+  it('gives the full budget from when the gate finishes loading', async () => {
+    vi.useFakeTimers()
+    const { resolveMaskedLink, windows, resolver } = installStubs()
+    let result = null
+    const promise = resolveMaskedLink('https://f95zone.to/masked/mega.nz/1/2/s/i/p', { manualResolve: true })
+    promise.then((value) => { result = value })
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Most of the original budget goes on the load, before the user can act.
+    await vi.advanceTimersByTimeAsync(resolver.F95_CAPTCHA_TIMEOUT_MS - 1000)
+    expect(result).toBeNull()
+
+    windows[0].webContents.emit('did-finish-load')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(result).toBeNull()
+
+    await vi.advanceTimersByTimeAsync(resolver.F95_CAPTCHA_TIMEOUT_MS)
+    expect(result?.timedOut).toBe(true)
   })
 })

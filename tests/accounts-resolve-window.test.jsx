@@ -54,3 +54,30 @@ test('toggling the checkbox saves Resolve.showWindow', async () => {
   expect(saved).not.toBeNull()
   expect(saved.Resolve.showWindow).toBe(false)
 })
+
+test('the auto-resolve checkbox sits under the resolve-window one', async () => {
+  await renderSettled(<Accounts />)
+  const hideFrame = screen.getByLabelText(/do not hide resolve window/i)
+  const autoResolve = screen.getByLabelText(/do not auto-resolve masked link/i)
+  expect(hideFrame.compareDocumentPosition(autoResolve) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+test('the auto-resolve box is clear on a fresh install, so it keeps auto-resolving', async () => {
+  await renderSettled(<Accounts />)
+  expect(screen.getByLabelText(/do not auto-resolve masked link/i).checked).toBe(false)
+})
+
+test('the auto-resolve box is ticked when manual resolve is stored on', async () => {
+  storedConfig = { Resolve: { manualResolve: true } }
+  await renderSettled(<Accounts />)
+  expect(screen.getByLabelText(/do not auto-resolve masked link/i).checked).toBe(true)
+})
+
+test('ticking it saves Resolve.manualResolve: true without losing showWindow', async () => {
+  await renderSettled(<Accounts />)
+  await act(async () => {
+    fireEvent.click(screen.getByLabelText(/do not auto-resolve masked link/i))
+  })
+  expect(saved?.Resolve.manualResolve).toBe(true)
+  expect(saved?.Resolve.showWindow).toBe(true)
+})

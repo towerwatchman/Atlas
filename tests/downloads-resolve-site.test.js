@@ -130,4 +130,15 @@ describe('resolve window visibility', () => {
     await resolveMasked({ url: 'https://f95zone.to/masked/xyz', title: 'game' })
     expect(resolveMock.mock.calls[0][1].headless).toBe(false)
   })
+
+  it('passes manual resolve through when Resolve.manualResolve is true', async () => {
+    registerDownloadsHandlers({ appConfig: { Resolve: { manualResolve: true } } })
+    await resolveMasked({ url: 'https://f95zone.to/masked/xyz', title: 'game' })
+    expect(resolveMock.mock.calls[0][1].manualResolve).toBe(true)
+  })
+
+  it('leaves manual resolve off when the setting is unset', async () => {
+    await resolveMasked({ url: 'https://f95zone.to/masked/xyz', title: 'game' })
+    expect(resolveMock.mock.calls[0][1].manualResolve).toBe(false)
+  })
 })

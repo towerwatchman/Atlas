@@ -33,12 +33,15 @@ let handlerCtx = null;
 
 const getLiveConfig = () => handlerCtx?.appConfig || {};
 
-// Read per call, not at registration: the Settings > Accounts toggle is live.
-const resolveWithVisibility = (url, options = {}) =>
-  resolveMaskedLink(url, {
+// Read per call, not at registration: the Settings > Accounts toggles are live.
+const resolveWithVisibility = (url, options = {}) => {
+  const resolveConfig = getLiveConfig()?.Resolve || {};
+  return resolveMaskedLink(url, {
     ...options,
-    headless: getLiveConfig()?.Resolve?.showWindow !== true,
+    manualResolve: resolveConfig.manualResolve === true,
+    headless: resolveConfig.showWindow !== true,
   });
+};
 
 // Downloads never live inside the library folder. That folder holds installed
 // games and gets scanned as such, so parking in-progress archives there means

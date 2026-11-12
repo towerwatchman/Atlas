@@ -6,6 +6,12 @@ in [LEGACY.CHANGELOG.md](./LEGACY.CHANGELOG.md). From 0.9.14 a build is named fo
 the release it heads to; earlier labels mix the cycle and the candidate, as
 [legacy-tag-history.md](./legacy-tag-history.md) records.
 
+## 0.9.5-nightly.524
+
+- **fix**: F95 captcha detection now looks for the hCaptcha container the gate page owns. The old check read inside hCaptcha's iframe, which a page script cannot reach. It never fired.
+- **fix**: after the resolver hands the window over for a captcha, a failed-check reload no longer restarts the auto-clicking, and the resolver window no longer opens a DevTools console over the page.
+- **feat**: New "Do not auto-resolve masked link" toggle in Settings > Accounts, right below "Do not hide resolve window". When on, the resolver opens the window and leaves every click to you, with a 5-minute window to finish.
+
 ## 0.9.5-nightly.523
 
 - **fix**: F95 download gate no longer auto-clicks when a captcha is present. The window opens so you can solve it, with a 5-minute window to do so.
