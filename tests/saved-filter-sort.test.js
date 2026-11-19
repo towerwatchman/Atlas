@@ -91,6 +91,50 @@ test('unknown browse sort values fall back to the browse default', () => {
   expect(normalizeSavedBrowseSort('')).toBe(DEFAULT_SAVED_BROWSE_SORT)
 })
 
+// The renderer normalizes a saved filter on load through normalizeFilterState;
+// releaseDate* was retired in favour of newRelease*, so an old filter carrying
+// that key must land on the new sort rather than fall back to the default.
+// threadPublished* is a current sort again, so it resolves to itself.
+test('a saved filter carrying releaseDateDesc resolves to newReleaseDesc', async () => {
+  const { normalizeFilterState } = await rendererVocabulary()
+  expect(normalizeFilterState({ browseSort: 'releaseDateDesc' }).browseSort).toBe('newReleaseDesc')
+})
+
+test('a saved filter carrying releaseDateAsc resolves to newReleaseAsc', async () => {
+  const { normalizeFilterState } = await rendererVocabulary()
+  expect(normalizeFilterState({ browseSort: 'releaseDateAsc' }).browseSort).toBe('newReleaseAsc')
+})
+
+test('threadPublishedDesc is a current sort and resolves to itself', async () => {
+  const { normalizeFilterState } = await rendererVocabulary()
+  expect(normalizeFilterState({ browseSort: 'threadPublishedDesc' }).browseSort).toBe('threadPublishedDesc')
+})
+
+test('threadPublishedAsc is a current sort and resolves to itself', async () => {
+  const { normalizeFilterState } = await rendererVocabulary()
+  expect(normalizeFilterState({ browseSort: 'threadPublishedAsc' }).browseSort).toBe('threadPublishedAsc')
+})
+
+test('the abandoned newThreads keys are gone and fall back to the default', async () => {
+  const { normalizeFilterState, DEFAULT_BROWSE_SORT, BROWSE_SORT_ALIASES } = await rendererVocabulary()
+  expect(BROWSE_SORT_ALIASES.newThreadsDesc).toBeUndefined()
+  expect(BROWSE_SORT_ALIASES.newThreadsAsc).toBeUndefined()
+  expect(normalizeFilterState({ browseSort: 'newThreadsDesc' }).browseSort).toBe(DEFAULT_BROWSE_SORT)
+  expect(normalizeFilterState({ browseSort: 'newThreadsAsc' }).browseSort).toBe(DEFAULT_BROWSE_SORT)
+})
+
+test('the retired releaseDate keys are aliased out and newlyAdded is not accepted as a sort', async () => {
+  const { BROWSE_SORT_VALUES, BROWSE_SORT_ALIASES } = await rendererVocabulary()
+  expect(BROWSE_SORT_VALUES).not.toContain('releaseDateDesc')
+  expect(BROWSE_SORT_VALUES).not.toContain('releaseDateAsc')
+  expect(BROWSE_SORT_VALUES).not.toContain('newlyAddedDesc')
+  expect(BROWSE_SORT_VALUES).not.toContain('newlyAddedAsc')
+  expect(BROWSE_SORT_VALUES).toContain('newReleaseDesc')
+  expect(BROWSE_SORT_VALUES).toContain('newReleaseAsc')
+  expect(BROWSE_SORT_ALIASES.releaseDateDesc).toBe('newReleaseDesc')
+  expect(BROWSE_SORT_ALIASES.releaseDateAsc).toBe('newReleaseAsc')
+})
+
 // ── Wiring ──────────────────────────────────────────────────────────────────
 
 // Everything above passes against a savedFilterSort.js that nothing calls, so
@@ -107,4 +151,42 @@ test('settings.js normalizes saved browse sorts through the shared module', () =
   // bypassed -- a leftover copy is the thing that would drift back.
   expect(settings).not.toMatch(/'nameAsc', 'nameDesc'/)
   expect(settings).not.toMatch(/merged\.browseSort === 'name'/)
+})
+
+// The renderer normalizes a saved Library sort the same way: 'date' was retired
+// in favour of 'newRelease'. Without that mapping, normalizeSortType fell through
+// to the unknown-key branch and reset the Library to Title A-Z.
+test('a saved Library sort of date resolves to newRelease', async () => {
+  const { normalizeFilterState } = await rendererVocabulary()
+  expect(normalizeFilterState({ sort: 'date' }).sort).toBe('newRelease')
+})
+
+// The main process reads the settings file through its own normaliser, not the
+// renderer's, so the retired 'date' key must be mapped there too. The line is
+// not importable from a test, so pin it as text the way the browse-sort guard
+// does: dropping the mapping makes this fail.
+test('settings.js maps the retired Library sort key', () => {
+  const settings = projectFile('electron', 'ipc', 'settings.js')
+  expect(settings).toContain("merged.sort === 'date'")
+})
+
+// The union Browse query builder resolves a saved sort through a module-local
+// alias map before its ORDER BY staircase. That map is not reachable from a
+// test without a live database, so pin its contents as text: a stale
+// releaseDate* key with no entry skips every staircase arm and
+// lands on the alphabetical title fallback instead of the newRelease sort.
+test('the union sort alias map redirects the retired Browse keys', () => {
+  const source = projectFile('electron', 'db', 'versions.js')
+  const start = source.indexOf('const browseSortAliases = {')
+  const end = source.indexOf('};', start)
+  expect(start).not.toBe(-1)
+  const block = source.slice(start, end)
+  expect(block).toContain("releaseDateDesc: 'newReleaseDesc'")
+  expect(block).toContain("releaseDateAsc: 'newReleaseAsc'")
+  // The map may only redirect retired keys. An added entry that shadows a live
+  // sort passes the checks above unnoticed, so pin the whole key set: any new
+  // entry has to be justified here.
+  const aliasKeys = [...block.matchAll(/^\s{6}(\w+):/gm)].map((match) => match[1])
+  const redirectedKeys = ['name', 'nameAsc', 'nameDesc', 'newest', 'oldest', 'releaseDateDesc', 'releaseDateAsc']
+  expect(aliasKeys.sort()).toEqual(redirectedKeys.sort())
 })

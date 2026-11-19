@@ -80,8 +80,7 @@ const getDateRangeBounds = (range, dateFrom = "", dateTo = "") => {
 
 const getDateFieldValue = (g, field) => {
   if (field === "dateAdded") return normalizeDateValueMs(g.dateAdded ?? g.date_added ?? g.flagged_at ?? g.flaggedAt);
-  if (field === "releaseDate")
-    return normalizeDateValueMs(g.release_date ?? g.releaseDate ?? g.steam_release_date ?? g.steamReleaseDate);
+  if (field === "threadPublished") return normalizeDateValueMs(g.threadPublishDate ?? g.thread_publish_date);
   if (field === "lastInstalled") return normalizeDateValueMs(g.lastInstalled);
   if (field === "lastPlayed") return normalizeDateValueMs(g.lastPlayed);
   if (field === "wishlistAdded") return normalizeDateValueMs(g.flagged_at ?? g.flaggedAt);
@@ -135,26 +134,46 @@ check("iso string still parses", normalizeDateValueMs("2026-07-13") !== null);
 
 // ── end-to-end: a compact-dated game is included in ranges it belongs to ─────
 const games = [
-  { title: "iso", release_date: iso(now - 10 * day) },
-  { title: "compact", release_date: compact(now - 10 * day) },
-  { title: "old", release_date: iso(now - 200 * day) },
+  { title: "iso", threadPublishDate: iso(now - 10 * day) },
+  { title: "compact", threadPublishDate: compact(now - 10 * day) },
+  { title: "old", threadPublishDate: iso(now - 200 * day) },
   { title: "none" },
 ];
 const titles = (f) => applyDateFilter(games, f).map((g) => g.title).sort().join(",");
 
-check("compact game in 30d range", titles({ dateField: "releaseDate", dateRange: "30d" }) === "compact,iso");
-check("compact game in 90d range", titles({ dateField: "releaseDate", dateRange: "90d" }) === "compact,iso");
-check("compact excluded from 7d", titles({ dateField: "releaseDate", dateRange: "7d" }) === "");
+check("compact game in 30d range", titles({ dateField: "threadPublished", dateRange: "30d" }) === "compact,iso");
+check("compact game in 90d range", titles({ dateField: "threadPublished", dateRange: "90d" }) === "compact,iso");
+check("compact excluded from 7d", titles({ dateField: "threadPublished", dateRange: "7d" }) === "");
 check(
   "custom from-only includes compact",
-  titles({ dateField: "releaseDate", dateRange: "custom", dateFrom: iso(now - 30 * day), dateTo: "" }) === "compact,iso",
+  titles({ dateField: "threadPublished", dateRange: "custom", dateFrom: iso(now - 30 * day), dateTo: "" }) === "compact,iso",
 );
 check(
   "custom bounded excludes old",
-  titles({ dateField: "releaseDate", dateRange: "custom", dateFrom: iso(now - 30 * day), dateTo: iso(now - 5 * day) }) === "compact,iso",
+  titles({ dateField: "threadPublished", dateRange: "custom", dateFrom: iso(now - 30 * day), dateTo: iso(now - 5 * day) }) === "compact,iso",
 );
 check("none => passthrough", titles({ dateField: "none", dateRange: "30d" }) === "compact,iso,none,old");
-check("missing date excluded", !applyDateFilter(games, { dateField: "releaseDate", dateRange: "90d" }).some((g) => g.title === "none"));
+check("missing date excluded", !applyDateFilter(games, { dateField: "threadPublished", dateRange: "90d" }).some((g) => g.title === "none"));
+
+// The mirror reads threadPublishDate directly; the real lookup goes through
+// getBrowseDate, which also falls back to the LewdCorner register date when a
+// game has no F95 thread. A break in those fallbacks leaves every case above
+// green, so the same 30d range runs through the real function instead, compact
+// date and fallback game included.
+test("the real threadPublished lookup matches the same 30d range", async () => {
+  const { getBrowseDate } = await import("../src/hooks/useFilters.js");
+  const bounds = getDateRangeBounds("30d");
+  const set = [...games, { title: "lcFallback", source: "lewdcorner", register_date: compact(now - 10 * day) }];
+  const matched = set
+    .filter((g) => {
+      const v = getBrowseDate(g, "thread_publish_date");
+      return v !== null && (bounds.min === null || v >= bounds.min) && (bounds.max === null || v <= bounds.max);
+    })
+    .map((g) => g.title)
+    .sort()
+    .join(",");
+  expect(matched).toBe("compact,iso,lcFallback");
+});
 
 // ── dateAdded field filtering ───────────────────────────────────────────────
 const addedGames = [
@@ -169,6 +188,18 @@ check("dateAdded in 7d range", addedTitles({ dateField: "dateAdded", dateRange: 
 check("dateAdded in 30d range", addedTitles({ dateField: "dateAdded", dateRange: "30d" }) === "monthOld,recent");
 check("dateAdded in 90d range", addedTitles({ dateField: "dateAdded", dateRange: "90d" }) === "monthOld,recent");
 check("dateAdded custom range", addedTitles({ dateField: "dateAdded", dateRange: "custom", dateFrom: iso(now - 150 * day), dateTo: iso(now - 10 * day) }) === "longAgo,monthOld");
+
+// ── the retired releaseDate field must not survive normalization ─────────────
+// A filter saved while releaseDate was still a date field carries it in
+// saved_filters.json. Nothing filters on it any more, so passing it through
+// would mean "match everything" while the sidebar still showed a date
+// constraint; normalizeDateField drops it to 'none' instead. Loaded from the
+// real hook rather than the mirror above, because the point is what the
+// renderer actually does with a stored filter.
+test("a stored filter carrying releaseDate normalises to no date field", async () => {
+  const { normalizeFilterState } = await import("../src/hooks/useFilters.js");
+  expect(normalizeFilterState({ dateField: "releaseDate", dateRange: "30d" }).dateField).toBe("none");
+});
 
 test("every dateFilter check is registered", () => {
   expect(pass).toBeGreaterThan(0);

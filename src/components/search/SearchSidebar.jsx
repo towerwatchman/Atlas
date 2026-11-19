@@ -72,7 +72,7 @@ const SORT_OPTIONS = [
   { value: 'newlyPlayed', label: 'Last Played', icon: 'fa-play' },
   { value: 'playtime', label: 'Playtime', icon: 'fa-stopwatch' },
   { value: 'fileSize', label: 'File Size', icon: 'fa-hard-drive' },
-  { value: 'date', label: 'Release Date', icon: 'fa-calendar-day' },
+  { value: 'newRelease', label: 'New Releases', icon: 'fa-calendar-day' },
   { value: 'dateAdded', label: 'Date Added', icon: 'fa-calendar-plus' },
 ]
 
@@ -89,7 +89,7 @@ const CATALOG_SORT_OPTIONS = [
   { key: 'lastUpdated', label: 'Last Updated', icon: 'fa-clock', asc: 'threadUpdatedAsc', desc: 'threadUpdatedDesc' },
   { key: 'likes', label: 'Likes', icon: 'fa-thumbs-up', asc: 'likesAsc', desc: 'likesDesc' },
   { key: 'rating', label: 'Rating', icon: 'fa-star', asc: 'ratingAsc', desc: 'ratingDesc' },
-  { key: 'releaseDate', label: 'Release Date', icon: 'fa-calendar-day', asc: 'releaseDateAsc', desc: 'releaseDateDesc' },
+  { key: 'newRelease', label: 'New Releases', icon: 'fa-calendar-day', asc: 'newReleaseAsc', desc: 'newReleaseDesc' },
 ]
 
 const SearchSidebar = ({
@@ -208,7 +208,6 @@ const SearchSidebar = ({
     }
     const iso = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
     updateFilters({
-      dateField: selectedFilters.dateField === "none" ? "releaseDate" : selectedFilters.dateField,
       dateRange: "custom",
       dateFrom: iso,
       dateTo: "",
@@ -359,12 +358,10 @@ const SearchSidebar = ({
         ["none", "No date filter"],
         ["latestUpdate", "Latest Update"],
         ["threadPublished", "Thread Published"],
-        ["releaseDate", "Release Date"],
       ]
     : [
         ["none", "No date filter"],
         ["dateAdded", "Date Added"],
-        ["releaseDate", "Release Date"],
         ["lastInstalled", "Last Installed"],
         ["lastPlayed", "Last Played"],
         ["wishlistAdded", "Wishlist Added"],
@@ -539,7 +536,7 @@ const SearchSidebar = ({
                       key={opt.value}
                       type="button"
                       onClick={() => handleSortClick(opt.value)}
-                      title={active ? `${opt.label} — ${selectedFilters.sortDirection === "asc" ? "Ascending" : "Descending"} (click to flip)` : opt.label}
+                      title={opt.label}
                       aria-label={opt.label}
                       className={`h-9 flex items-center justify-center gap-1 rounded border text-sm ${active ? "bg-accent text-white border-accent" : "bg-tertiary hover:bg-highlight border-border text-text"}`}
                     >
@@ -574,7 +571,7 @@ const SearchSidebar = ({
                         key={opt.key}
                         type="button"
                         onClick={() => handleCatalogSortClick(opt)}
-                        title={active ? `${opt.label} — ${catalogSortDirection === "asc" ? "Ascending" : "Descending"} (click to flip)` : opt.label}
+                        title={opt.label}
                         aria-label={opt.label}
                         className={`h-9 flex items-center justify-center gap-1 rounded border text-sm ${active ? "bg-accent text-white border-accent" : "bg-tertiary hover:bg-highlight border-border text-text"}`}
                       >

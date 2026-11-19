@@ -369,8 +369,12 @@ const CATALOG_INDEX_INDEXES = [
      ON catalog_index(thread_updated_tier, thread_updated_ms DESC, title COLLATE NOCASE, catalog_key);`,
   `CREATE INDEX IF NOT EXISTS idx_catalog_index_thread_publish_v2
      ON catalog_index(thread_publish_tier, thread_publish_ms DESC, title COLLATE NOCASE, catalog_key);`,
-  `CREATE INDEX IF NOT EXISTS idx_catalog_index_release_date_v2
-     ON catalog_index(release_date_tier, release_date_ms DESC, title COLLATE NOCASE, catalog_key);`,
+  // Nothing filters or orders by release_date anymore; New Releases uses atlas_id.
+  `DROP INDEX IF EXISTS idx_catalog_index_release_date_v2;`,
+  // New Releases orders by atlas_id DESC with the title/catalog_key tiebreakers;
+  // covering all three lets the sort read the index in order instead of a temp b-tree.
+  `CREATE INDEX IF NOT EXISTS idx_catalog_index_atlas_id
+     ON catalog_index(atlas_id DESC, title COLLATE NOCASE, catalog_key);`,
   `CREATE INDEX IF NOT EXISTS idx_catalog_index_title
      ON catalog_index(title COLLATE NOCASE, catalog_key);`,
   `CREATE INDEX IF NOT EXISTS idx_catalog_index_creator
@@ -1266,8 +1270,7 @@ const buildIndexWhere = (search = {}, filters = {}) => {
     }
   }
   const range = filters.dateRange
-  if (filters.dateField === 'releaseDate' && range && range !== 'any') addDateRange('release_date_ms', range)
-  else if (filters.dateField === 'latestUpdate' && range && range !== 'any') addDateRange('thread_updated_ms', range)
+  if (filters.dateField === 'latestUpdate' && range && range !== 'any') addDateRange('thread_updated_ms', range)
   else if (filters.dateField === 'threadPublished' && range && range !== 'any') addDateRange('thread_publish_ms', range)
   else if (filters.dateField === 'none' && filters.browseDateRange && filters.browseDateRange !== 'any') {
     addDateRange(
@@ -1285,6 +1288,8 @@ const buildIndexOrderBy = (filters = {}) => {
   const aliases = {
     name: 'titleAsc', nameAsc: 'titleAsc', nameDesc: 'titleDesc',
     newest: 'threadUpdatedDesc', oldest: 'threadUpdatedAsc',
+    releaseDateDesc: 'newReleaseDesc',
+    releaseDateAsc: 'newReleaseAsc',
   }
   const raw = String(filters.browseSort || 'threadUpdatedDesc')
   const sort = aliases[raw] || raw
@@ -1304,8 +1309,8 @@ const buildIndexOrderBy = (filters = {}) => {
     case 'threadUpdatedAsc': return dated('thread_updated', 'ASC')
     case 'threadPublishedDesc': return dated('thread_publish', 'DESC')
     case 'threadPublishedAsc': return dated('thread_publish', 'ASC')
-    case 'releaseDateDesc': return dated('release_date', 'DESC')
-    case 'releaseDateAsc': return dated('release_date', 'ASC')
+    case 'newReleaseDesc': return `ORDER BY ci.atlas_id DESC, ci.title COLLATE NOCASE ASC, ci.catalog_key ASC`
+    case 'newReleaseAsc': return nullsLast('atlas_id', 'ASC')
     case 'f95LatestOrderDesc': return nullsLast('f95_latest_order', 'DESC')
     case 'f95LatestOrderAsc': return nullsLast('f95_latest_order', 'ASC')
     default: return dated('thread_updated', 'DESC')

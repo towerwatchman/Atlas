@@ -6,6 +6,9 @@ in [LEGACY.CHANGELOG.md](./LEGACY.CHANGELOG.md). From 0.9.14 a build is named fo
 the release it heads to; earlier labels mix the cycle and the candidate, as
 [legacy-tag-history.md](./legacy-tag-history.md) records.
 
+## 0.9.5-nightly.525
+- **changed**: Replace ReleaseDate and Recently Released with "New Releases" in filters and built-in saved filters.
+
 ## 0.9.5-nightly.524
 
 - **fix**: F95 captcha detection now looks for the hCaptcha container the gate page owns. The old check read inside hCaptcha's iframe, which a page script cannot reach. It never fired.
