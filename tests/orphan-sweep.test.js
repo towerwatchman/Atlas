@@ -60,9 +60,16 @@ describe('sweepOrphanedRecords — downloads + media_source_cache', () => {
     rows = await allAsync('SELECT * FROM downloads WHERE record_id IS NULL')
     expect(rows).toHaveLength(1)
 
-    // 4. Run the sweep.
+    // 4. Run the sweep. It only queues its DELETEs, and the connection is back
+    // in parallel mode once initializeDatabase returns, so the checks below have
+    // to be queued in the same serialized batch or they can overtake it.
     const { sweepOrphanedRecords } = dbIndex
-    sweepOrphanedRecords()
+    await new Promise((resolve, reject) => {
+      dbIndex.db.serialize(() => {
+        sweepOrphanedRecords()
+        dbIndex.db.all('SELECT 1', (err) => (err ? reject(err) : resolve()))
+      })
+    })
 
     // 5. Verify post-sweep: orphans gone, NULL row survives.
     rows = await allAsync('SELECT * FROM downloads WHERE record_id = 999')

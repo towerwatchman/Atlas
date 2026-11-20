@@ -36,6 +36,8 @@ export const BROWSE_SORT_ALIASES = {
   nameDesc: 'titleDesc',
   newest: 'threadUpdatedDesc',
   oldest: 'threadUpdatedAsc',
+  releaseDateDesc: 'newReleaseDesc',
+  releaseDateAsc: 'newReleaseAsc',
 }
 
 export const BROWSE_SORT_VALUES = [
@@ -51,8 +53,8 @@ export const BROWSE_SORT_VALUES = [
   'threadUpdatedAsc',
   'threadPublishedDesc',
   'threadPublishedAsc',
-  'releaseDateDesc',
-  'releaseDateAsc',
+  'newReleaseDesc',
+  'newReleaseAsc',
   'f95LatestOrderDesc',
   'f95LatestOrderAsc',
 ]
@@ -82,7 +84,6 @@ export const defaultFilters = {
   excludedPlaystates: [],
   sort: 'name',
   sortDirection: 'asc',
-  dateLimit: 0,
   dateField: 'none',
   dateRange: 'any',
   dateFrom: '',
@@ -111,6 +112,9 @@ export const defaultFilters = {
   includeUninstalled: true,
   installState: 'all',
   multipleInstalledVersions: false,
+  // Which unseen titles to show, resolved in main against the watermark there;
+  // the renderer only carries the choice. null = no constraint.
+  lastSeen: null,
 }
 
 const arrayFilterKeys = [
@@ -130,12 +134,12 @@ const arrayFilterKeys = [
 ]
 const searchTypes = ['all', 'title', 'creator', 'atlasId', 'f95Id', 'lewdcornerId', 'steamId', 'anyId']
 const sourceTypes = ['all', 'f95', 'lewdcorner', 'steam', 'atlas']
-const dateFields = ['none', 'dateAdded', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded']
+const dateFields = ['none', 'dateAdded', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded']
 const dateRanges = ['any', '7d', '30d', '90d', 'year', 'custom']
 const sortTypes = [
   'name',
   'creator',
-  'date',
+  'newRelease',
   'dateAdded',
   'lastUpdated',
   'likes',
@@ -148,7 +152,7 @@ const sortTypes = [
   'fileSize',
   'personalRating',
 ]
-const defaultDescSortTypes = ['date', 'dateAdded', 'lastUpdated', 'likes', 'views', 'rating', 'installedVersionCount', 'newlyInstalled', 'newlyPlayed', 'playtime', 'fileSize', 'personalRating']
+const defaultDescSortTypes = ['newRelease', 'dateAdded', 'lastUpdated', 'likes', 'views', 'rating', 'installedVersionCount', 'newlyInstalled', 'newlyPlayed', 'playtime', 'fileSize', 'personalRating']
 
 export const getDefaultSortDirectionForSort = (sort) =>
   defaultDescSortTypes.includes(sort) ? 'desc' : 'asc'
@@ -170,7 +174,10 @@ const normalizeSourceType = (value) => {
 }
 
 const normalizeSortType = (value) => {
-  const normalized = String(value || 'name')
+  let normalized = String(value || 'name')
+  // 'date' was retired in favour of 'newRelease'; a saved Library sort still
+  // carrying it must not fall through to Title A-Z.
+  if (normalized === 'date') normalized = 'newRelease'
   return sortTypes.includes(normalized) ? normalized : 'name'
 }
 
@@ -318,12 +325,10 @@ export const normalizeFilterState = (filters = {}) => {
   }
   if (merged.installState === 'installed') merged.includeUninstalled = false
   if (['all', 'uninstalled'].includes(merged.installState)) merged.includeUninstalled = true
-  const dateLimit = Number(merged.dateLimit)
-  merged.dateLimit = Number.isFinite(dateLimit) && dateLimit > 0 ? dateLimit : 0
-  if (merged.dateField === 'none' && [7, 30, 90].includes(merged.dateLimit)) {
-    merged.dateField = 'releaseDate'
-    merged.dateRange = `${merged.dateLimit}d`
-  }
+  merged.lastSeen = ['startup', 'tracked'].includes(merged.lastSeen) ? merged.lastSeen : null
+  // lastSeenFloor is derived from the mode by main; the renderer never sets it,
+  // so one coming from a renderer or a saved filter is dropped here.
+  delete merged.lastSeenFloor
   return merged
 }
 
@@ -354,17 +359,6 @@ const parseSortableMetric = (value) => {
   const multiplier =
     match[2] === 'm' ? 1000000 : match[2] === 'k' ? 1000 : 1
   return Number.isFinite(amount) ? amount * multiplier : null
-}
-
-const getReleaseDateValue = (game = {}) => {
-  const rawValue = game.release_date ?? game.releaseDate ?? game.steam_release_date ?? game.steamReleaseDate
-  if (rawValue === undefined || rawValue === null || rawValue === '') return null
-  if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
-    if (rawValue <= 0) return null
-    return rawValue > 100000000000 ? rawValue : rawValue * 1000
-  }
-  const parsed = Date.parse(String(rawValue).trim())
-  return Number.isFinite(parsed) ? parsed : null
 }
 
 const normalizeDateValueMs = (value) => {
@@ -465,8 +459,8 @@ const compareLocalGames = (a, b, activeFilters) => {
 
   if (activeFilters.sort === 'creator') {
     result = compareText(a.creator, b.creator, direction)
-  } else if (activeFilters.sort === 'date') {
-    result = compareMaybeNumber(getReleaseDateValue(a), getReleaseDateValue(b), direction)
+  } else if (activeFilters.sort === 'newRelease') {
+    result = compareMaybeNumber(getNullableNumber(a.atlas_id ?? a.atlasId), getNullableNumber(b.atlas_id ?? b.atlasId), direction)
   } else if (activeFilters.sort === 'dateAdded') {
     result = compareMaybeNumber(getPositiveNumberOrNull(a.dateAdded), getPositiveNumberOrNull(b.dateAdded), direction)
   } else if (activeFilters.sort === 'lastUpdated') {
@@ -934,9 +928,6 @@ const getDateFieldValue = (game = {}, field) => {
   if (field === 'dateAdded') {
     return normalizeDateValueMs(game.dateAdded ?? game.date_added ?? game.flagged_at ?? game.flaggedAt)
   }
-  if (field === 'releaseDate') {
-    return normalizeDateValueMs(game.release_date ?? game.releaseDate ?? game.steam_release_date ?? game.steamReleaseDate)
-  }
   if (field === 'lastInstalled') {
     return normalizeDateValueMs(game.lastInstalled)
   }
@@ -969,15 +960,6 @@ const applyDateFilter = (games, activeFilters) => {
     })
   }
 
-  if (activeFilters.dateLimit > 0) {
-    const bounds = getDateRangeBounds(`${activeFilters.dateLimit}d`)
-    const fallbackBounds = bounds || { min: Date.now() - activeFilters.dateLimit * 86400000, max: Date.now() }
-    return games.filter((game) => {
-      const dateValue = getDateFieldValue(game, 'releaseDate')
-      return dateValue !== null && dateValue >= fallbackBounds.min && dateValue <= fallbackBounds.max
-    })
-  }
-
   return games
 }
 
@@ -997,11 +979,6 @@ const compareBrowseDate = (a, b, dateBasis, direction = 'desc') => {
     getBrowseDate(b, dateBasis),
     direction
   )
-  return result || compareBrowseTitle(a, b, 'asc')
-}
-
-const compareBrowseReleaseDate = (a, b, direction = 'desc') => {
-  const result = compareMaybeNumber(getReleaseDateValue(a), getReleaseDateValue(b), direction)
   return result || compareBrowseTitle(a, b, 'asc')
 }
 
@@ -1202,11 +1179,11 @@ export const filterGamesWithState = (games, filters = {}, options = {}) => {
       if (activeFilters.browseSort === 'threadPublishedAsc') {
         return compareBrowseDate(a, b, 'thread_publish_date', 'asc')
       }
-      if (activeFilters.browseSort === 'releaseDateDesc') {
-        return compareBrowseReleaseDate(a, b, 'desc')
+      if (activeFilters.browseSort === 'newReleaseDesc') {
+        return compareMaybeNumber(a.atlas_id, b.atlas_id, 'desc') || compareBrowseTitle(a, b, 'asc')
       }
-      if (activeFilters.browseSort === 'releaseDateAsc') {
-        return compareBrowseReleaseDate(a, b, 'asc')
+      if (activeFilters.browseSort === 'newReleaseAsc') {
+        return compareMaybeNumber(a.atlas_id, b.atlas_id, 'asc') || compareBrowseTitle(a, b, 'asc')
       }
       if (activeFilters.browseSort === 'f95LatestOrderDesc') {
         return compareBrowseF95LatestOrder(a, b, 'desc')
@@ -1291,13 +1268,16 @@ export const builtInSavedFilters = [
   },
   {
     id: 'builtin-recent',
-    name: 'Recently released',
+    name: 'New Releases',
     builtIn: true,
+    // Nothing records when a title entered the catalog, so "recent" is the New
+    // Releases sort, not a date range. The id stays put so stored refs survive.
     filters: normalizeFilterState({
-      dateField: 'releaseDate',
-      dateRange: '90d',
-      sort: 'date',
+      dateField: 'none',
+      dateRange: 'any',
+      sort: 'newRelease',
       sortDirection: 'desc',
+      browseSort: 'newReleaseDesc',
       includeUninstalled: true,
       installState: 'all',
     }),

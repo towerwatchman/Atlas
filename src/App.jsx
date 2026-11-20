@@ -244,6 +244,8 @@ const App = () => {
   // the Settings toggle.
   const browseAvailableRef = useRef(browseAvailable)
   useEffect(() => { browseAvailableRef.current = browseAvailable }, [browseAvailable])
+  const libraryModeRef = useRef(libraryMode)
+  useEffect(() => { libraryModeRef.current = libraryMode }, [libraryMode])
 
   // The user's default search scope ([Search] defaultFields). Held in state only
   // so the scope picker can render "Reset to my default" and highlight it; the
@@ -288,7 +290,7 @@ const App = () => {
     catalogTotal, catalogLoadError, catalogIndexState,
     gamesLoading, wishlistLoading, libraryStats, libraryStatsStale,
     fetchWishlistGames, replaceGameInState,
-    removeGameFromState, refreshGame, includeUninstalledRef,
+    removeGameFromState, refreshGame, includeUninstalledRef, lastSeenRef,
   } = useGames()
 
   // ── Collections ────────────────────────────────────────────────────────────
@@ -431,9 +433,11 @@ const App = () => {
   // count come from two separate queries, so a membership change makes them
   // disagree for real until the re-count lands — and "reports 1 game, none
   // returned" is exactly what deleting your last game looks like mid-flight.
+  // A Last Seen mode narrows the returned list but not the raw count, so an empty
+  // list is expected there. The cost: a failed fetch under a mode stays silent.
   const libraryLoadMismatch =
     libraryMode === 'local' && !gamesLoading && !libraryStatsStale
-    && games.length === 0 && expectedLibraryCount > 0
+    && games.length === 0 && expectedLibraryCount > 0 && !activeFilters?.lastSeen
   // Distinguishes "your filters match nothing" from "you have no games", which
   // the single 'No games available' string used to conflate.
   const hasActiveLibraryFilters = Boolean(
@@ -442,7 +446,8 @@ const App = () => {
     (activeFilters?.tags?.length || 0) > 0 ||
     (activeFilters?.category?.length || 0) > 0 ||
     (activeFilters?.engine?.length || 0) > 0 ||
-    (activeFilters?.status?.length || 0) > 0,
+    (activeFilters?.status?.length || 0) > 0 ||
+    activeFilters?.lastSeen,
   )
   // The collection currently being viewed, if the filter holds exactly one.
   const activeCollection =
@@ -1865,11 +1870,23 @@ const App = () => {
       }
     }
 
+    // The last-tracked floor lives in the main process, so the renderer's filter
+    // value is unchanged after a clear; re-reading whichever list is showing reflects the move.
+    const handleLastTrackedCleared = () => {
+      if (libraryModeRef.current === 'catalog') {
+        fetchCatalogGames({ search: catalogSearchRef.current, filters: catalogQueryFiltersRef.current })
+      } else {
+        fetchGames()
+      }
+    }
+
     window.electronAPI.onWindowStateChanged(handleWindowStateChanged)
     const removeWishlistUpdatedListener =
       window.electronAPI.onWishlistUpdated?.(handleWishlistUpdated)
     const removeBlacklistUpdatedListener =
       window.electronAPI.onBlacklistUpdated?.(handleBlacklistUpdated)
+    const removeLastTrackedClearedListener =
+      window.electronAPI.onLastTrackedCleared?.(handleLastTrackedCleared)
     window.electronAPI.onDbUpdateProgress(handleDbUpdateProgress)
     window.electronAPI.onImportProgress(handleImportProgress)
     window.electronAPI.onGameImported(handleGameImported)
@@ -1962,6 +1979,7 @@ const App = () => {
       if (typeof removeRateTitleListener === 'function') removeRateTitleListener()
       if (typeof removeWishlistUpdatedListener === 'function') removeWishlistUpdatedListener()
       if (typeof removeBlacklistUpdatedListener === 'function') removeBlacklistUpdatedListener()
+      if (typeof removeLastTrackedClearedListener === 'function') removeLastTrackedClearedListener()
       window.removeEventListener('resize', debounceResize)
       ;[
         'window-state-changed', 'db-update-progress', 'import-progress',
@@ -2037,6 +2055,17 @@ const App = () => {
     includeUninstalledRef.current = true
     fetchGames(true)
   }, [showSavedFilters, fetchGames, includeUninstalledRef])
+
+  // Main narrows the list, so a mode change has to refetch; lastSeenRef
+  // keeps every other fetchGames() reading the same mode.
+  const libraryLastSeenFetchedRef = useRef(null)
+  useEffect(() => {
+    const mode = activeFilters.lastSeen || null
+    lastSeenRef.current = mode
+    if (libraryMode !== 'local' || mode === libraryLastSeenFetchedRef.current) return
+    libraryLastSeenFetchedRef.current = mode
+    fetchGames()
+  }, [activeFilters.lastSeen, libraryMode, fetchGames, lastSeenRef])
 
   useEffect(() => {
     if (selectedGame) return
@@ -2327,6 +2356,7 @@ const App = () => {
               defaultSearchFieldIds={defaultSearchFieldIds}
               activeFilters={activeFilters}
               isCatalogMode={libraryMode === 'catalog'}
+              isWishlistMode={libraryMode === 'wishlist'}
               userSavedFilters={userSavedFilters}
               mode="inline"
               side="left"
@@ -2666,6 +2696,7 @@ const App = () => {
             defaultSearchFieldIds={defaultSearchFieldIds}
             activeFilters={activeFilters}
             isCatalogMode={libraryMode === 'catalog'}
+            isWishlistMode={libraryMode === 'wishlist'}
             userSavedFilters={userSavedFilters}
             mode="inline"
             side="right"
@@ -2689,6 +2720,7 @@ const App = () => {
             defaultSearchFieldIds={defaultSearchFieldIds}
             activeFilters={activeFilters}
             isCatalogMode={libraryMode === 'catalog'}
+            isWishlistMode={libraryMode === 'wishlist'}
             userSavedFilters={userSavedFilters}
             mode="overlay"
             side={filterSidebarSide}

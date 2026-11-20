@@ -369,8 +369,11 @@ const CATALOG_INDEX_INDEXES = [
      ON catalog_index(thread_updated_tier, thread_updated_ms DESC, title COLLATE NOCASE, catalog_key);`,
   `CREATE INDEX IF NOT EXISTS idx_catalog_index_thread_publish_v2
      ON catalog_index(thread_publish_tier, thread_publish_ms DESC, title COLLATE NOCASE, catalog_key);`,
+  // Kept for future use; no sort or filter reads release_date today.
   `CREATE INDEX IF NOT EXISTS idx_catalog_index_release_date_v2
      ON catalog_index(release_date_tier, release_date_ms DESC, title COLLATE NOCASE, catalog_key);`,
+  `CREATE INDEX IF NOT EXISTS idx_catalog_index_atlas_id
+     ON catalog_index(atlas_id DESC, title COLLATE NOCASE, catalog_key);`,
   `CREATE INDEX IF NOT EXISTS idx_catalog_index_title
      ON catalog_index(title COLLATE NOCASE, catalog_key);`,
   `CREATE INDEX IF NOT EXISTS idx_catalog_index_creator
@@ -468,6 +471,50 @@ const setMeta = (key, value) =>
   dbRun(`INSERT INTO catalog_index_meta (key, value) VALUES (?, ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     [key, value === null || value === undefined ? null : String(value)])
+
+const LAST_SEEN_ATLAS_ID_KEY = 'last_seen_atlas_id'
+const LAST_TRACKED_ATLAS_ID_KEY = 'last_tracked_atlas_id'
+
+// Only whole numbers count as a floor; an empty value reads as absent. No
+// schema build here: a missing table leaves the list unfiltered.
+const readWatermark = async (key) => {
+  const stored = await getMeta(key)
+  if (stored === null || stored === '') return null
+  const value = Number(stored)
+  return Number.isInteger(value) ? value : null
+}
+
+// Maps a Last Seen mode to the watermark floor to filter on. An unrecognised
+// mode is deliberately treated as no filter, hence null without reading.
+const readLastSeenFloor = async (mode) => {
+  if (mode === 'startup') return readWatermark(LAST_SEEN_ATLAS_ID_KEY)
+  if (mode === 'tracked') return readWatermark(LAST_TRACKED_ATLAS_ID_KEY)
+  return null
+}
+
+// One transaction, so a shrinking catalog or a second advance cannot land
+// between read and write. An empty catalog leaves the key untouched, not 0.
+const advanceWatermark = async (key) => {
+  await ensureCatalogIndexSchema()
+  return withTransaction('catalogIndex.watermark', dbRun, async () => {
+    const stored = await readWatermark(key)
+    const row = await dbGet(`SELECT MAX(atlas_id) AS m FROM atlas_data`)
+    const max = row && Number.isInteger(row.m) ? row.m : null
+    if (max === null) return stored
+    const next = stored === null ? max : Math.max(stored, max)
+    await setMeta(key, String(next))
+    return next
+  })
+}
+
+// last_seen climbs on every launch. last_tracked is written only while absent,
+// so a launch never slides an existing floor forward.
+const bootstrapLastSeenWatermarks = async () => {
+  const seen = await advanceWatermark(LAST_SEEN_ATLAS_ID_KEY)
+  const existingTracked = await readWatermark(LAST_TRACKED_ATLAS_ID_KEY)
+  const tracked = existingTracked === null ? await advanceWatermark(LAST_TRACKED_ATLAS_ID_KEY) : existingTracked
+  return { seen, tracked }
+}
 
 const markCatalogIndexStale = async (reason = 'unspecified') => {
   try {
@@ -675,12 +722,14 @@ const insertCatalogIndexTags = async (rows) => {
 
 // ── full rebuild ─────────────────────────────────────────────────────────────
 
+let _rebuildInFlight = null
+
 // Chunked on purpose. node-sqlite3 runs statements on a threadpool so the event
 // loop stays responsive, but every query shares one connection — a single
 // long-running transaction would queue the library's own reads behind it and
 // read as a freeze. Committing per chunk and yielding between chunks lets those
 // reads interleave, so the app is usable while this runs in the background.
-const rebuildCatalogIndex = async ({ onProgress, chunkSize = CHUNK_SIZE } = {}) => {
+const _doRebuildCatalogIndex = async ({ onProgress, chunkSize = CHUNK_SIZE } = {}) => {
   const startedAt = Date.now()
   await ensureCatalogIndexSchema()
 
@@ -755,6 +804,21 @@ const rebuildCatalogIndex = async ({ onProgress, chunkSize = CHUNK_SIZE } = {}) 
   report({ phase: 'done', processed: summary.totalRows, total: summary.totalRows, message: 'Catalog index ready' })
   return summary
 }
+
+// A rebuild deletes and refills catalog_index, so overlapping builds would wipe
+// it out from under each other; queue waits for the running one instead of dropping.
+const rebuildCatalogIndex = async ({ onProgress, chunkSize = CHUNK_SIZE, queue = false } = {}) => {
+  if (_rebuildInFlight) {
+    if (queue) {
+      return _rebuildInFlight.then(() => rebuildCatalogIndex({ onProgress, chunkSize }))
+    }
+    return _rebuildInFlight
+  }
+  _rebuildInFlight = _doRebuildCatalogIndex({ onProgress, chunkSize }).finally(() => { _rebuildInFlight = null })
+  return _rebuildInFlight
+}
+
+const isRebuildInFlight = () => !!_rebuildInFlight
 
 // Tiles for provider rows that do NOT roll up under an atlas entry. The steam
 // branch's exclusion is now a primary-key probe against atlas_external_steam
@@ -979,9 +1043,16 @@ module.exports = {
   getCatalogIndexStatus,
   markCatalogIndexStale,
   rebuildCatalogIndex,
+  isRebuildInFlight,
   rebuildAtlasExternalSteam,
   refreshCatalogIndexForAtlasIds,
   refreshCatalogIndexInstallState,
+  LAST_SEEN_ATLAS_ID_KEY,
+  LAST_TRACKED_ATLAS_ID_KEY,
+  readWatermark,
+  readLastSeenFloor,
+  advanceWatermark,
+  bootstrapLastSeenWatermarks,
   // exported for tests
   parseDateToMs,
   dateTier,
@@ -1266,13 +1337,19 @@ const buildIndexWhere = (search = {}, filters = {}) => {
     }
   }
   const range = filters.dateRange
-  if (filters.dateField === 'releaseDate' && range && range !== 'any') addDateRange('release_date_ms', range)
-  else if (filters.dateField === 'latestUpdate' && range && range !== 'any') addDateRange('thread_updated_ms', range)
+  if (filters.dateField === 'latestUpdate' && range && range !== 'any') addDateRange('thread_updated_ms', range)
   else if (filters.dateField === 'threadPublished' && range && range !== 'any') addDateRange('thread_publish_ms', range)
   else if (filters.dateField === 'none' && filters.browseDateRange && filters.browseDateRange !== 'any') {
     addDateRange(
       filters.browseDateBasis === 'thread_publish_date' ? 'thread_publish_ms' : 'thread_updated_ms',
       filters.browseDateRange)
+  }
+
+  // A missing or null floor means no watermark exists yet, so leave the page
+  // unfiltered; a `> NULL` would match nothing and show an empty catalog.
+  if (Number.isFinite(filters.lastSeenFloor)) {
+    parts.push('ci.atlas_id > ?')
+    params.push(filters.lastSeenFloor)
   }
 
   return { where: parts.length ? `WHERE ${parts.join(' AND ')}` : '', params }
@@ -1285,6 +1362,8 @@ const buildIndexOrderBy = (filters = {}) => {
   const aliases = {
     name: 'titleAsc', nameAsc: 'titleAsc', nameDesc: 'titleDesc',
     newest: 'threadUpdatedDesc', oldest: 'threadUpdatedAsc',
+    releaseDateDesc: 'newReleaseDesc',
+    releaseDateAsc: 'newReleaseAsc',
   }
   const raw = String(filters.browseSort || 'threadUpdatedDesc')
   const sort = aliases[raw] || raw
@@ -1304,8 +1383,8 @@ const buildIndexOrderBy = (filters = {}) => {
     case 'threadUpdatedAsc': return dated('thread_updated', 'ASC')
     case 'threadPublishedDesc': return dated('thread_publish', 'DESC')
     case 'threadPublishedAsc': return dated('thread_publish', 'ASC')
-    case 'releaseDateDesc': return dated('release_date', 'DESC')
-    case 'releaseDateAsc': return dated('release_date', 'ASC')
+    case 'newReleaseDesc': return `ORDER BY ci.atlas_id DESC, ci.title COLLATE NOCASE ASC, ci.catalog_key ASC`
+    case 'newReleaseAsc': return nullsLast('atlas_id', 'ASC')
     case 'f95LatestOrderDesc': return nullsLast('f95_latest_order', 'DESC')
     case 'f95LatestOrderAsc': return nullsLast('f95_latest_order', 'ASC')
     default: return dated('thread_updated', 'DESC')

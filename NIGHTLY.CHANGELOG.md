@@ -6,6 +6,17 @@ in [LEGACY.CHANGELOG.md](./LEGACY.CHANGELOG.md). From 0.9.14 a build is named fo
 the release it heads to; earlier labels mix the cycle and the candidate, as
 [legacy-tag-history.md](./legacy-tag-history.md) records.
 
+## 0.9.5-nightly.525
+
+- **changed**: The "Release Date" sort and the "Recently released" saved filter are replaced by a single "New Releases" sort in Browse and Library. It orders titles by when they appeared in the Atlas catalog, which doesn't get rewritten.
+- **feat**: New "Only new tiles" filter in the sidebar (Browse and Library):
+  - **Since last startup**: titles that entered the catalog since you last opened the client
+  - **Since last tracked**: titles that entered the catalog since you last pressed "Clear last tracked"
+- **feat**: After a full catalog update, the game index rebuilds in the background and the library refreshes when it finishes, instead of waiting for the next launch.
+- **feat**: Settings > Database shows the index rebuilding state while a background rebuild is running, and the Rebuild button stays disabled until it finishes.
+- **fix**: A failed background index rebuild no longer leaves Browse stuck on the "building" state; the progress UI clears and the index stays stale for the next launch.
+- **fix**: Schema setup no longer aborts the whole process when a single index statement fails.
+
 ## 0.9.5-nightly.524
 
 - **fix**: F95 captcha detection now looks for the hCaptcha container the gate page owns. The old check read inside hCaptcha's iframe, which a page script cannot reach. It never fired.

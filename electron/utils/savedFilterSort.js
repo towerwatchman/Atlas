@@ -8,6 +8,8 @@ const browseSortAliases = {
   nameDesc: 'titleDesc',
   newest: 'threadUpdatedDesc',
   oldest: 'threadUpdatedAsc',
+  releaseDateDesc: 'newReleaseDesc',
+  releaseDateAsc: 'newReleaseAsc',
 }
 
 const savedBrowseSorts = new Set([
@@ -23,8 +25,8 @@ const savedBrowseSorts = new Set([
   'threadUpdatedAsc',
   'threadPublishedDesc',
   'threadPublishedAsc',
-  'releaseDateDesc',
-  'releaseDateAsc',
+  'newReleaseDesc',
+  'newReleaseAsc',
   'f95LatestOrderDesc',
   'f95LatestOrderAsc',
 ])
