@@ -13,6 +13,10 @@ const { getGame, getGames, getCatalogGames } = require('../electron/db/versions'
 const { searchAtlas } = require('../electron/db/atlas')
 const { buildIndexWhere } = require('../electron/db/catalogIndex')
 const {
+  ensureCatalogIndexSchema,
+  LAST_TRACKED_ATLAS_ID_KEY,
+} = require('../electron/db/catalogIndex')
+const {
   indexColumnsForSearchFieldIds,
   unionColumnsForSearchFieldIds,
 } = require('../electron/db/searchFields')
@@ -141,5 +145,69 @@ describe('original_name is searchable under the title scope', () => {
     ]
     const hits = filterGamesWithState(games, { text: 'ourlifexq', searchFields: ['title'], installState: 'all', includeUninstalled: true })
     expect(hits.map((g) => g.record_id)).toEqual([1])
+  })
+})
+
+// Library-side Last Seen: getGames narrows the list to catalog rows past the
+// stored watermark, and a row with no catalog mapping drops out too. The renderer
+// only sends the mode string; main reads the floor (see getGames in versions.js).
+describe('Last Seen filters the Library query in main', () => {
+  const FLOOR = 990000
+  let aboveId
+  let belowId
+  let unmappedId
+
+  const presentIds = (games) => games.map((g) => g.record_id)
+
+  const seedLibraryRow = async (atlasId, title) => {
+    const recordId = await addGame({ title, creator: 'Dev', engine: 'RenPy' })
+    if (atlasId !== null) {
+      await run(
+        'INSERT OR REPLACE INTO atlas_data (atlas_id, title, creator) VALUES (?, ?, ?)',
+        [atlasId, title, 'Dev'],
+      )
+      await run('INSERT OR REPLACE INTO atlas_mappings (record_id, atlas_id) VALUES (?, ?)', [recordId, atlasId])
+    }
+    return recordId
+  }
+
+  beforeAll(async () => {
+    await ensureCatalogIndexSchema()
+    await run(
+      `INSERT INTO catalog_index_meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [LAST_TRACKED_ATLAS_ID_KEY, String(FLOOR)],
+    )
+    aboveId = await seedLibraryRow(FLOOR + 1, 'Above Floor')
+    belowId = await seedLibraryRow(FLOOR - 1, 'Below Floor')
+    unmappedId = await seedLibraryRow(null, 'No Catalog Match')
+    await settle()
+  })
+
+  it('drops rows at or below the floor and rows with no catalog match', async () => {
+    const games = await getGames('/tmp', true, 0, 1000,
+      { includeUninstalled: true, skipPathValidation: true, lastSeen: 'tracked' })
+    const present = presentIds(games)
+    expect(present).toContain(aboveId)
+    expect(present).not.toContain(belowId)
+    expect(present).not.toContain(unmappedId)
+  })
+
+  it('is unfiltered when no mode is sent', async () => {
+    const games = await getGames('/tmp', true, 0, 1000,
+      { includeUninstalled: true, skipPathValidation: true })
+    const present = presentIds(games)
+    expect(present).toContain(aboveId)
+    expect(present).toContain(belowId)
+    expect(present).toContain(unmappedId)
+  })
+
+  it('treats an unknown mode as no filter', async () => {
+    const games = await getGames('/tmp', true, 0, 1000,
+      { includeUninstalled: true, skipPathValidation: true, lastSeen: 'bogus' })
+    const present = presentIds(games)
+    expect(present).toContain(aboveId)
+    expect(present).toContain(belowId)
+    expect(present).toContain(unmappedId)
   })
 })

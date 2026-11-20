@@ -46,7 +46,6 @@ const defaultSavedFilterState = {
   excludedTags: [],
   sort: 'name',
   sortDirection: 'asc',
-  dateLimit: 0,
   dateField: 'none',
   dateRange: 'any',
   dateFrom: '',
@@ -104,8 +103,9 @@ const normalizeSavedFilterState = (filters = {}) => {
       : LEGACY_SEARCH_TYPE_FIELDS[merged.type],
   )
   merged.sort = String(merged.sort || 'name')
+  if (merged.sort === 'date') merged.sort = 'newRelease'
   merged.sortDirection = merged.sortDirection === 'desc' ? 'desc' : 'asc'
-  merged.dateField = ['none', 'dateAdded', 'releaseDate', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded'].includes(merged.dateField)
+  merged.dateField = ['none', 'dateAdded', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded'].includes(merged.dateField)
     ? merged.dateField
     : 'none'
   merged.dateRange = ['any', '7d', '30d', '90d', 'year', 'custom'].includes(merged.dateRange)
@@ -153,8 +153,6 @@ const normalizeSavedFilterState = (filters = {}) => {
   }
   if (merged.installState === 'installed') merged.includeUninstalled = false
   if (['all', 'uninstalled'].includes(merged.installState)) merged.includeUninstalled = true
-  const dateLimit = Number(merged.dateLimit)
-  merged.dateLimit = Number.isFinite(dateLimit) && dateLimit > 0 ? dateLimit : 0
   return merged
 }
 

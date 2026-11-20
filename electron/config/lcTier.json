@@ -1,7 +1,7 @@
 {
   "shopPath": "/economy/?section=store&category=rank",
-  "cardClass": "jblcEconomy-item",
-  "buyButtonClass": "jblcEconomy-buyButton",
+  "cardClass": "ecCard",
+  "buyButtonClass": "ecBuy-button",
   "ownedText": "owned",
   "probeThreadId": 14057
 }

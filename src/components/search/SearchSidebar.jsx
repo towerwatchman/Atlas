@@ -72,7 +72,7 @@ const SORT_OPTIONS = [
   { value: 'newlyPlayed', label: 'Last Played', icon: 'fa-play' },
   { value: 'playtime', label: 'Playtime', icon: 'fa-stopwatch' },
   { value: 'fileSize', label: 'File Size', icon: 'fa-hard-drive' },
-  { value: 'date', label: 'Release Date', icon: 'fa-calendar-day' },
+  { value: 'newRelease', label: 'New Releases', icon: 'fa-calendar-day' },
   { value: 'dateAdded', label: 'Date Added', icon: 'fa-calendar-plus' },
 ]
 
@@ -89,7 +89,7 @@ const CATALOG_SORT_OPTIONS = [
   { key: 'lastUpdated', label: 'Last Updated', icon: 'fa-clock', asc: 'threadUpdatedAsc', desc: 'threadUpdatedDesc' },
   { key: 'likes', label: 'Likes', icon: 'fa-thumbs-up', asc: 'likesAsc', desc: 'likesDesc' },
   { key: 'rating', label: 'Rating', icon: 'fa-star', asc: 'ratingAsc', desc: 'ratingDesc' },
-  { key: 'releaseDate', label: 'Release Date', icon: 'fa-calendar-day', asc: 'releaseDateAsc', desc: 'releaseDateDesc' },
+  { key: 'newRelease', label: 'New Releases', icon: 'fa-calendar-day', asc: 'newReleaseAsc', desc: 'newReleaseDesc' },
 ]
 
 const SearchSidebar = ({
@@ -98,6 +98,7 @@ const SearchSidebar = ({
   defaultSearchFieldIds = [],
   activeFilters = {},
   isCatalogMode = false,
+  isWishlistMode = false,
   userSavedFilters = [],
   onSavedFilterSaved,
   onSearchChange,
@@ -126,7 +127,13 @@ const SearchSidebar = ({
   const [saveError, setSaveError] = useState("");
   const [saveBusy, setSaveBusy] = useState(false);
   const [tagError, setTagError] = useState("");
+  const [clearBusy, setClearBusy] = useState(false);
+  const [clearError, setClearError] = useState("");
   const [showSavedView, setShowSavedView] = useState(false);
+  // Guards the in-flight clear so its reply can't set state after the
+  // sidebar unmounts mid-call.
+  const clearMountedRef = useRef(true);
+  useEffect(() => () => { clearMountedRef.current = false; }, []);
   // The sidebar's search field is debounced the same way the header
   // SearchBox is: keystrokes echo instantly from local state while the
   // parent filter (Library's in-memory filter and Browse's catalog fetch)
@@ -208,7 +215,6 @@ const SearchSidebar = ({
     }
     const iso = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
     updateFilters({
-      dateField: selectedFilters.dateField === "none" ? "releaseDate" : selectedFilters.dateField,
       dateRange: "custom",
       dateFrom: iso,
       dateTo: "",
@@ -268,6 +274,25 @@ const SearchSidebar = ({
       console.error("Failed to save filter:", err);
     } finally {
       setSaveBusy(false);
+    }
+  };
+
+  // One-way IPC write: surface a rejected or no-op reply inline, and keep the
+  // button disabled until it settles so a double click can't race.
+  const handleClearLastTracked = async () => {
+    setClearError("");
+    setClearBusy(true);
+    try {
+      const result = await window.electronAPI.clearLastTracked?.();
+      if (clearMountedRef.current && !result?.cleared) {
+        setClearError("Failed to clear last tracked.");
+      }
+    } catch (err) {
+      if (clearMountedRef.current) {
+        setClearError(`Failed to clear last tracked: ${err.message || "Unknown error"}`);
+      }
+    } finally {
+      if (clearMountedRef.current) setClearBusy(false);
     }
   };
 
@@ -359,12 +384,10 @@ const SearchSidebar = ({
         ["none", "No date filter"],
         ["latestUpdate", "Latest Update"],
         ["threadPublished", "Thread Published"],
-        ["releaseDate", "Release Date"],
       ]
     : [
         ["none", "No date filter"],
         ["dateAdded", "Date Added"],
-        ["releaseDate", "Release Date"],
         ["lastInstalled", "Last Installed"],
         ["lastPlayed", "Last Played"],
         ["wishlistAdded", "Wishlist Added"],
@@ -372,13 +395,6 @@ const SearchSidebar = ({
 
   const handleDateFieldChange = (value) => {
     updateFilters({ dateField: value });
-  };
-
-  const handleDateRangeChange = (value) => {
-    updateFilters({
-      dateRange: value,
-      browseDateRange: value === "custom" ? "any" : value,
-    });
   };
 
   useEffect(() => {
@@ -546,7 +562,7 @@ const SearchSidebar = ({
                       key={opt.value}
                       type="button"
                       onClick={() => handleSortClick(opt.value)}
-                      title={active ? `${opt.label} — ${selectedFilters.sortDirection === "asc" ? "Ascending" : "Descending"} (click to flip)` : opt.label}
+                      title={opt.label}
                       aria-label={opt.label}
                       className={`h-9 flex items-center justify-center gap-1 rounded border text-sm ${active ? "bg-accent text-white border-accent" : "bg-tertiary hover:bg-highlight border-border text-text"}`}
                     >
@@ -581,7 +597,7 @@ const SearchSidebar = ({
                         key={opt.key}
                         type="button"
                         onClick={() => handleCatalogSortClick(opt)}
-                        title={active ? `${opt.label} — ${catalogSortDirection === "asc" ? "Ascending" : "Descending"} (click to flip)` : opt.label}
+                        title={opt.label}
                         aria-label={opt.label}
                         className={`h-9 flex items-center justify-center gap-1 rounded border text-sm ${active ? "bg-accent text-white border-accent" : "bg-tertiary hover:bg-highlight border-border text-text"}`}
                       >
@@ -963,6 +979,33 @@ const SearchSidebar = ({
                     <option value="all">Installed and uninstalled</option>
                     <option value="uninstalled">Uninstalled only</option>
                   </select>
+                </div>
+              )}
+              {!isWishlistMode && (
+                <div>
+                  <label className="block text-sm mb-1">Only new tiles</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      className="w-full p-2 bg-tertiary border border-border rounded text-sm"
+                      value={selectedFilters.lastSeen || 'any'}
+                      onChange={(e) => {
+                        const lastSeen = e.target.value;
+                        updateFilters({ lastSeen: lastSeen === 'any' ? null : lastSeen });
+                      }}
+                    >
+                      <option value="any">-</option>
+                      <option value="startup">Since last startup</option>
+                      <option value="tracked">Since last tracked</option>
+                    </select>
+                    <button
+                      onClick={handleClearLastTracked}
+                      disabled={clearBusy}
+                      className="w-full px-3 py-1.5 rounded border text-sm bg-tertiary hover:bg-highlight border-border text-text disabled:opacity-50 -webkit-app-region-no-drag"
+                    >
+                      Clear last tracked
+                    </button>
+                  </div>
+                  {clearError && <div className="text-xs text-danger mt-1">{clearError}</div>}
                 </div>
               )}
               {!isCatalogMode && (

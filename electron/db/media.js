@@ -805,12 +805,9 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
         // When a specific Steam appid is selected, drop Steam media that belongs
         // to a different appid. Non-Steam rows (steamRef null) always pass.
         .filter((row) => !sourceAppId || row.steamRef == null || row.steamRef === sourceAppId);
-      const urls = selectPreviewUrlsBySource(previewEntries, options.sourceOrder);
-      if (urls.length > 0) {
-        resolve(urls);
-        return;
-      }
-
+      // The f95_zone_screens table is empty in production; f95/lewdcorner screens
+      // live in the legacy comma-separated columns. Merge them in always (not just
+      // as a fallback) so f95 wins by source priority even when Steam media exists.
       getDb().get(
         `SELECT f95_zone_data.screens AS f95_screens, lewdcorner_data.screens AS lewdcorner_screens
          FROM games
@@ -826,20 +823,16 @@ const getRemotePreviewUrls = (recordId, options = {}) => {
             reject(screensErr);
             return;
           }
-          resolve(
-            selectPreviewUrlsBySource(
-              [
-                ...String(row?.f95_screens || "").split(",").map((url) => ({ url, source: "f95" })),
-                ...String(row?.lewdcorner_screens || "").split(",").map((url) => ({ url, source: "lewdcorner" })),
-              ]
-                .map((entry) => ({
-                url: String(entry.url || "").trim(),
-                source: entry.source,
-                }))
-                .filter((entry) => entry.url),
-              options.sourceOrder,
-            ),
-          );
+          const legacyEntries = [
+            ...String(row?.f95_screens || "").split(",").map((url) => ({ url, source: "f95" })),
+            ...String(row?.lewdcorner_screens || "").split(",").map((url) => ({ url, source: "lewdcorner" })),
+          ]
+            .map((entry) => ({
+              url: String(entry.url || "").trim(),
+              source: entry.source,
+            }))
+            .filter((entry) => entry.url);
+          resolve(selectPreviewUrlsBySource([...previewEntries, ...legacyEntries], options.sourceOrder));
         },
       );
     });

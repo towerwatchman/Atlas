@@ -82,10 +82,10 @@ function rebuildAtlasDataWithoutUnique() {
             return;
           }
           // DROP TABLE removed its indexes; recreate them.
-          db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_title ON atlas_data(title);`);
-          db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_short_name ON atlas_data(short_name);`);
-          db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_creator ON atlas_data(creator);`);
-          db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_normalized_title ON atlas_data(normalized_title);`);
+          db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_title ON atlas_data(title);`, () => {});
+          db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_short_name ON atlas_data(short_name);`, () => {});
+          db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_creator ON atlas_data(creator);`, () => {});
+          db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_normalized_title ON atlas_data(normalized_title);`, () => {});
           console.log("atlas_data rebuilt without id_name UNIQUE constraint");
           settle();
         });
@@ -800,29 +800,32 @@ const initializeDatabase = (dataDir) => {
     UNIQUE (record_id, gog_id)
   );
 `);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_gog_data_atlas_id ON gog_data(atlas_id);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_gog_mappings_gog_id ON gog_mappings(gog_id);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_versions_game_path ON versions(game_path);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_versions_record_version ON versions(record_id, version);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_mappings_atlas_id ON atlas_mappings(atlas_id);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_banners_record_type ON banners(record_id, type);`);
+    // These all pass a callback because node-sqlite3 raises a callback-less
+    // failure as an unhandled 'error' event on the statement, which kills the
+    // process instead of failing one statement.
+    db.run(`CREATE INDEX IF NOT EXISTS idx_gog_data_atlas_id ON gog_data(atlas_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_gog_mappings_gog_id ON gog_mappings(gog_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_versions_game_path ON versions(game_path);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_versions_record_version ON versions(record_id, version);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_mappings_atlas_id ON atlas_mappings(atlas_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_banners_record_type ON banners(record_id, type);`, () => {});
 
     // Search performance indexes
-    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_title ON atlas_data(title);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_short_name ON atlas_data(short_name);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_creator ON atlas_data(creator);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_data_atlas_id ON f95_zone_data(atlas_id);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_lewdcorner_data_atlas_id ON lewdcorner_data(atlas_id);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_lewdcorner_mappings_lc_id ON lewdcorner_mappings(lc_id);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_lewdcorner_mappings_record_id ON lewdcorner_mappings(record_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_title ON atlas_data(title);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_short_name ON atlas_data(short_name);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_creator ON atlas_data(creator);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_data_atlas_id ON f95_zone_data(atlas_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_lewdcorner_data_atlas_id ON lewdcorner_data(atlas_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_lewdcorner_mappings_lc_id ON lewdcorner_mappings(lc_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_lewdcorner_mappings_record_id ON lewdcorner_mappings(record_id);`, () => {});
     // Browse/catalog query performance — getCatalogGames() joins/correlates on
     // these columns for every row in the catalog (atlas_data ⨝ steam_data,
     // plus mapping lookups to determine install state). None of these had an
     // index, forcing a full table scan per row on a 3-way UNION ALL.
-    db.run(`CREATE INDEX IF NOT EXISTS idx_steam_data_atlas_id ON steam_data(atlas_id);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_steam_mappings_steam_id ON steam_mappings(steam_id);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_mappings_f95_id ON f95_zone_mappings(f95_id);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_mappings_record_id ON f95_zone_mappings(record_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_steam_data_atlas_id ON steam_data(atlas_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_steam_mappings_steam_id ON steam_mappings(steam_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_mappings_f95_id ON f95_zone_mappings(f95_id);`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_f95_zone_mappings_record_id ON f95_zone_mappings(record_id);`, () => {});
     db.run(`ALTER TABLE games ADD COLUMN is_favorite INTEGER DEFAULT 0;`, () => {});
     db.run(`ALTER TABLE games ADD COLUMN selected_version_id INTEGER;`, () => {});
     // Timestamp when the title record was created in the user's Atlas library.
@@ -892,7 +895,7 @@ const initializeDatabase = (dataDir) => {
     // (normalizeSearchKey) and broke title matching for accented / non-Latin
     // titles. Keep the column + index; JS fills the values.
     db.run(`ALTER TABLE atlas_data ADD COLUMN normalized_title TEXT;`, () => {});
-    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_normalized_title ON atlas_data(normalized_title);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_atlas_data_normalized_title ON atlas_data(normalized_title);`, () => {});
 
     // --- Migrations to match the refactored remote schema -----------------
     // New columns the scraper now emits. ALTER ADD COLUMN is idempotent here:
@@ -999,6 +1002,8 @@ function sweepOrphanedRecords() {
     "game_personal_ratings",
     "collection_games",
     "preview_sort",
+    "downloads",
+    "media_source_cache",
   ];
   for (const tbl of childTables) {
     db.run(
@@ -1028,6 +1033,7 @@ function sweepOrphanedRecords() {
 module.exports = {
   db: null,  // populated after initializeDatabase()
   initializeDatabase,
+  sweepOrphanedRecords,
 }
 
 Object.defineProperty(module.exports, 'db', { get: () => db })

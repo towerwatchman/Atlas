@@ -13,10 +13,13 @@
 const axios = require('axios')
 const { fetchUrlViaWindow, isAvailable } = require('../downloads/forumWindowFetch')
 const { isCloudflareChallenge } = require('../downloads/maskedResolver')
-// Endpoints for the LewdCorner tier check that only the code can know. They live
-// in a shipped file rather than config.ini so a stale copy in a user's data
-// folder can never point the check at a page the site has retired.
-const LC_TIER_ENDPOINTS = require('../config/lcTier.json')
+// Endpoints live in a shipped file, not config.ini, so a stale user copy can't
+// point the check at a retired page. The remote config merges over the bundled one.
+const { getRemoteConfig } = require('../config/remoteConfig')
+// Merge over bundled (not replace): a partial remote file falls back per key.
+function getLcTierEndpoints() {
+  return { ...require('../config/lcTier.json'), ...getRemoteConfig('lcTier.json') }
+}
 
 const SITES = {
   f95: { base: 'https://f95zone.to', domain: 'f95zone.to', label: 'F95zone' },
@@ -186,22 +189,23 @@ async function scrapeLcTierFromProfile(cookieArray) {
   jar.loadArray(cookieArray)
   if (jar.size === 0) return null
 
-  const shopUrl = SITES.lewdcorner.base + LC_TIER_ENDPOINTS.shopPath
+  const lcTier = getLcTierEndpoints()
+  const shopUrl = SITES.lewdcorner.base + lcTier.shopPath
 
   // Each card block is matched first and the item_id + button text are paired
   // within that block only — pairing across the whole page would let a card
   // missing its button steal the next card's.
-  const lcCardClass = escapeRegExp(LC_TIER_ENDPOINTS.cardClass)
+  const lcCardClass = escapeRegExp(lcTier.cardClass)
   const lcCardRegex = new RegExp(
-    '<article[^>]*class="[^"]*' + lcCardClass + '[^"]*">[\\s\\S]*?<\/article>',
+    '<article[^>]*class="[^"]*' + lcCardClass + '[^"]*"[^>]*>[\\s\\S]*?<\/article>',
     'gi',
   )
-  const lcBuyButtonClass = escapeRegExp(LC_TIER_ENDPOINTS.buyButtonClass)
+  const lcBuyButtonClass = escapeRegExp(lcTier.buyButtonClass)
   const lcButtonRegex = new RegExp(
     '<button[^>]*class="[^"]*' + lcBuyButtonClass + '[^"]*"[^>]*>([\\s\\S]*?)</button>',
   )
   const lcItemIdRegex = /name="item_id"\s+value="(\d+)"/
-  const lcLowerOwnedText = LC_TIER_ENDPOINTS.ownedText.toLowerCase()
+  const lcLowerOwnedText = lcTier.ownedText.toLowerCase()
 
   try {
     // Headless axios fetch: fast, but Cloudflare blocks it regardless of
@@ -280,7 +284,7 @@ async function probeLcTierFromThread(cookieArray, lcConfig) {
   // can only ever report inconclusive today. An inconclusive probe makes the
   // combined logic above resolve exactly as if the probe had been broken.
   if (!lcConfigWithDefaults(lcConfig).lcThreadProbeEnabled) return null
-  const configuredUrl = `${SITES.lewdcorner.base}/threads/${LC_TIER_ENDPOINTS.probeThreadId}/`
+  const configuredUrl = `${SITES.lewdcorner.base}/threads/${getLcTierEndpoints().probeThreadId}/`
   const jar = new CookieJar()
   jar.loadArray(cookieArray)
   if (jar.size === 0) return null
@@ -313,52 +317,17 @@ async function probeLcTierFromThread(cookieArray, lcConfig) {
   }
 }
 
-// Determine the logged-in user's LewdCorner tier. Tries the shop page first
-// (definitive), falls back to a thread probe. Returns
-// { tier: 'Free' | 'VIP' | null, lcTierMismatch: boolean } where 'Free'≈Standard
-// and 'VIP'≈Plus.
+// Run the tier-check pipeline (homepage banner → rank-card → thread probe);
+// returns { tier: 'Free' | 'VIP' | null } where 'Free'≈Standard, 'VIP'≈Plus.
 //
-// `lcTierMismatch` is the stale-parser signal: it is true only when the
-// LewdCorner shop page concluded 'Free' (no Plus rank parsed) yet the thread
-// probe — which reflects actual content access — concluded 'VIP'. That
-// mismatch is the reliable indicator that the shop's selector/container has
-// drifted, because it cannot fire for a genuinely Free user (whose probe is
-// also Free) or when the shop page simply failed to load (shop === null, an
-// outage rather than a parser bug). Consumers gate a developer warning on this
-// flag.
+// Lazy require: lcTierChecks requires this module, so a top-level require
+// here would hand it a half-initialised export object.
 async function scrapeLcUserTier(cookieArray, lcConfig) {
-  const probeEnabled = !!lcConfigWithDefaults(lcConfig).lcThreadProbeEnabled
-
-  // User-facing wording here and in Accounts: internal Free/VIP is Standard/Plus.
-  const logCheck = (profileOk, threadOk, tier) => {
-    const tierLabel = tier === 'VIP' ? 'Plus' : tier === 'Free' ? 'Standard' : tier
-    console.log(
-      `lcTier check: {profile_check: ${profileOk}, thread_check: ${threadOk}, thread_probe_enabled: ${probeEnabled}} -> ${tierLabel ?? 'inconclusive'}`,
-    )
-  }
-
-  const lcTierResult = await scrapeLcTierFromProfile(cookieArray)
-  if (lcTierResult === 'VIP') {
-    logCheck(true, false, 'VIP')
-    return { tier: 'VIP', lcTierMismatch: false }
-  }
-  if (lcTierResult === 'Free') {
-    // Shop says Standard — confirm with thread probe to guard against a false
-    // Standard from a broken shop page parse. With the probe disabled it
-    // returns null and the shop verdict is trusted as-is.
-    const probeResult = await probeLcTierFromThread(cookieArray, lcConfig)
-    if (probeResult === 'VIP') {
-      logCheck(true, true, 'VIP')
-      return { tier: 'VIP', lcTierMismatch: true }
-    }
-    logCheck(true, probeResult !== null, 'Free')
-    return { tier: 'Free', lcTierMismatch: false }
-  }
-  // Shop failed entirely — rely on thread probe. A shop that will not load is
-  // an outage, not a stale parser, so this is NOT a mismatch.
-  const probeResult = await probeLcTierFromThread(cookieArray, lcConfig)
-  logCheck(false, probeResult !== null, probeResult)
-  return { tier: probeResult, lcTierMismatch: false }
+  const { checkLcTier } = require('./lcTierChecks')
+  const { tier, source } = await checkLcTier({ cookies: cookieArray, lcConfig })
+  const tierLabel = tier === 'VIP' ? 'Plus' : tier === 'Free' ? 'Standard' : tier
+  console.log(`lcTier check: source=${source ?? 'none'} -> ${tierLabel ?? 'inconclusive'}`)
+  return { tier }
 }
 
 // Full login. Returns a cookie array ({name,value,domain,path}) on success,

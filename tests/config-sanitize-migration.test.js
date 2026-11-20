@@ -67,3 +67,25 @@ describe('retired LewdCorner site keys', () => {
     for (const key of Object.keys(RETIRED)) expect(lc).not.toHaveProperty(key)
   })
 })
+
+// ── Renamed recheck window ──────────────────────────────────────────────────
+// lcTierRecheckHours → lcTierRecheckDays. Old key is retired; the value is
+// discarded and the user gets the new default.
+
+describe('renamed lcTierRecheckHours', () => {
+  test('removes the old key whatever value it holds', () => {
+    const { config: cleaned, report } = sanitizeParsedConfig({
+      Meta: { configVersion: 4 },
+      LewdCorner: { lcTierRecheckHours: '12' },
+    })
+    expect(cleaned.LewdCorner.lcTierRecheckHours).toBeUndefined()
+    expect(report.removedKeys.some((k) => k.key === 'lcTierRecheckHours')).toBe(true)
+    expect(report.changed).toBe(true)
+  })
+
+  test('a fresh config has the new key, not the old one', () => {
+    const lc = buildDefaultConfig().LewdCorner
+    expect(lc).not.toHaveProperty('lcTierRecheckHours')
+    expect(lc.lcTierRecheckDays).toBe(30)
+  })
+})

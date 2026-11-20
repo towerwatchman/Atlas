@@ -19,16 +19,24 @@ const { fetchAndStoreGogData } = require('../scanners/gogscanner')
 const { applyMediaSources } = require('../db/mediaSources')
 const { calculatePathSize } = require('../pathSize')
 const { runDatabaseAudit, getInvalidMappingCount } = require('../db/audit')
-const { getCatalogIndexStatus, rebuildCatalogIndex } = require('../db/catalogIndex')
+const { getCatalogIndexStatus, rebuildCatalogIndex, isRebuildInFlight, advanceWatermark, LAST_TRACKED_ATLAS_ID_KEY } = require('../db/catalogIndex')
 const { runClientAudit, repairClientAuditSection } = require('../db/clientAudit')
 const { auditSeasonMerges, applySeasonMerge, applyAllSeasonMerges } = require('../db/seasonMerge')
 // Required directly for the same curated-ctx reason as tagOverrides above.
 const { addBlacklistEntry, removeBlacklistEntry, getBlacklistEntries } = require('../db/blacklist')
 const { parseCatalogRef } = require('../library/catalogRef')
 
-// Guards against two full rebuilds interleaving their chunked transactions on
-// the single shared sqlite connection.
-let catalogIndexRebuildInFlight = false
+// Every window, not just the sender: both delete paths use this helper so the
+// renderer always sees game-deleted + downloads-changed in one broadcast.
+function broadcastGameDeleted(recordId) {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('game-deleted', recordId)
+      win.webContents.send('downloads-changed', {})
+    }
+  })
+}
+
 // Repairs mutate shared tables and VACUUM takes an exclusive lock, so only one
 // may run at a time.
 let clientAuditRepairInFlight = false
@@ -360,9 +368,7 @@ function registerGamesHandlers(ctx) {
   ipcMain.handle('delete-game-completely', async (_, recordId) => {
     const result = await deleteGameCompletely(recordId, getAssetBasePath(), process.defaultApp)
     if (result.success) {
-      BrowserWindow.getAllWindows().forEach((win) => {
-        if (!win.isDestroyed()) win.webContents.send('game-deleted', recordId)
-      })
+      broadcastGameDeleted(recordId)
     }
     return result
   })
@@ -810,7 +816,7 @@ function registerGamesHandlers(ctx) {
   // so Browse can show build progress instead of an empty grid.
   ipcMain.handle('get-catalog-index-status', async () => {
     try {
-      return { success: true, ...(await getCatalogIndexStatus()) }
+      return { success: true, ...(await getCatalogIndexStatus()), inFlight: isRebuildInFlight() }
     } catch (err) {
       console.error('get-catalog-index-status error:', err)
       return { success: false, error: err.message, ready: false }
@@ -821,10 +827,6 @@ function registerGamesHandlers(ctx) {
   // library stays usable while it runs; progress is streamed to every open
   // window rather than returned, since a large catalog takes a few seconds.
   ipcMain.handle('rebuild-catalog-index', async () => {
-    if (catalogIndexRebuildInFlight) {
-      return { success: false, error: 'A catalog index rebuild is already running.' }
-    }
-    catalogIndexRebuildInFlight = true
     try {
       const summary = await rebuildCatalogIndex({
         onProgress: (payload) => {
@@ -837,8 +839,6 @@ function registerGamesHandlers(ctx) {
     } catch (err) {
       console.error('rebuild-catalog-index error:', err)
       return { success: false, error: err.message }
-    } finally {
-      catalogIndexRebuildInFlight = false
     }
   })
 
@@ -999,6 +999,21 @@ function registerGamesHandlers(ctx) {
     }
   })
 
+  // Moves the last-tracked floor to the catalog maximum. Monotonic, so an empty
+  // catalog leaves an already-set floor where it was rather than clearing it.
+  ipcMain.handle('clear-last-tracked', async () => {
+    try {
+      const watermark = await advanceWatermark(LAST_TRACKED_ATLAS_ID_KEY)
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send('last-tracked-cleared', watermark)
+      })
+      return { cleared: true, watermark }
+    } catch (err) {
+      console.error('clear-last-tracked error:', err)
+      return { cleared: false }
+    }
+  })
+
   // Library-wide audit of the custom metadata table. Pass dryRun to get the
   // report without writing anything.
   ipcMain.handle('validate-game-overrides', async (event, { dryRun = false } = {}) => {
@@ -1012,4 +1027,4 @@ function registerGamesHandlers(ctx) {
   })
 }
 
-module.exports = { registerGamesHandlers, launchGame }
+module.exports = { registerGamesHandlers, launchGame, broadcastGameDeleted }
