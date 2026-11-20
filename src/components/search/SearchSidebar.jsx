@@ -983,7 +983,7 @@ const SearchSidebar = ({
               )}
               {!isWishlistMode && (
                 <div>
-                  <label className="block text-sm mb-1">Last Seen</label>
+                  <label className="block text-sm mb-1">Only new tiles</label>
                   <div className="grid grid-cols-2 gap-2">
                     <select
                       className="w-full p-2 bg-tertiary border border-border rounded text-sm"

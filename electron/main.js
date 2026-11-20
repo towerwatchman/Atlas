@@ -98,8 +98,8 @@ const {
   addAtlasMapping, getAtlasData, getImportRecordStatus, insertJsonData,
   recomputeNormalizedTitles,
 } = require('./db/atlas')
-const { getCatalogIndexStatus, rebuildCatalogIndex, bootstrapLastSeenWatermarks } = require('./db/catalogIndex')
-const { isWriteLockBusy, activeWriteLockLabel } = require('./db/writeLock')
+const { bootstrapLastSeenWatermarks } = require('./db/catalogIndex')
+const { runBackgroundCatalogIndexRebuild } = require('./db/catalogIndexBackground')
 const { buildDefaultConfig, mergeWithDefaults } = require('./config/configSchema')
 // Shared across main.js, ipc/importer.js and ipc/games.js. Was a local Map here
 // passed through ctx, which module-level functions in importer.js could not
@@ -2355,37 +2355,10 @@ app.whenReady().then(async () => {
   // sqlite connection — a single long transaction would queue the library's own
   // reads behind it and read as a freeze. Progress is streamed to the renderer so
   // Browse can show it instead of an empty grid.
-  setTimeout(async () => {
-    try {
-      // The DB update check also runs at startup. The write lock makes the two
-      // safe to overlap, but there is no point queueing every index chunk behind
-      // a long catalog sync — wait for the writer to finish first, up to a cap so
-      // a stuck sync can never block the build forever.
-      for (let waited = 0; isWriteLockBusy() && waited < 120000; waited += 1000) {
-        if (waited === 0) {
-          console.log(`catalog_index build waiting for ${activeWriteLockLabel() || 'another writer'}…`)
-        }
-        await new Promise((r) => setTimeout(r, 1000))
-      }
-      const status = await getCatalogIndexStatus()
-      if (status.ready) {
-        console.log(`catalog_index ready: ${status.rowCount} entries`)
-        return
-      }
-      console.log(
-        `catalog_index needs building (version ${status.version} -> ${status.expectedVersion}` +
-        `${status.stale ? `, stale: ${status.staleReason}` : ''}); building in background`,
-      )
-      await rebuildCatalogIndex({
-        onProgress: (payload) => {
-          BrowserWindow.getAllWindows().forEach((win) => {
-            if (!win.isDestroyed()) win.webContents.send('catalog-index-progress', payload)
-          })
-        },
-      })
-    } catch (err) {
+  setTimeout(() => {
+    runBackgroundCatalogIndexRebuild().catch((err) => {
       console.error('Background catalog index build failed:', err?.message || err)
-    }
+    })
   }, 1500)
 
   const ctx = buildCtx()

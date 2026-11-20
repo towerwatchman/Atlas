@@ -250,6 +250,9 @@ export default function Database() {
     try {
       const res = await window.electronAPI.getCatalogIndexStatus?.()
       setIndexStatus(res || null)
+      // A background rebuild that started before this screen mounted missed its
+      // start event; inFlight is the only signal left.
+      if (res && res.inFlight) setIndexBusy(true)
     } catch (err) {
       setIndexError(err?.message || String(err))
     }
@@ -259,10 +262,22 @@ export default function Database() {
 
   useEffect(() => {
     const off = window.electronAPI.onCatalogIndexProgress?.((payload) => {
-      setIndexProgress(payload || null)
+      const phase = payload?.phase
+      if (phase === 'done') {
+        setIndexProgress(null)
+        setIndexBusy(false)
+        loadIndexStatus()
+      } else if (phase === 'error') {
+        setIndexProgress(null)
+        setIndexBusy(false)
+        setIndexError(payload?.message || 'Rebuild failed.')
+      } else {
+        setIndexProgress(payload || null)
+        setIndexBusy(true)
+      }
     })
     return () => { if (typeof off === 'function') off() }
-  }, [])
+  }, [loadIndexStatus])
 
   const rebuildIndex = useCallback(async () => {
     setIndexBusy(true)

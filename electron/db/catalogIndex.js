@@ -369,10 +369,9 @@ const CATALOG_INDEX_INDEXES = [
      ON catalog_index(thread_updated_tier, thread_updated_ms DESC, title COLLATE NOCASE, catalog_key);`,
   `CREATE INDEX IF NOT EXISTS idx_catalog_index_thread_publish_v2
      ON catalog_index(thread_publish_tier, thread_publish_ms DESC, title COLLATE NOCASE, catalog_key);`,
-  // Nothing filters or orders by release_date anymore; New Releases uses atlas_id.
-  `DROP INDEX IF EXISTS idx_catalog_index_release_date_v2;`,
-  // New Releases orders by atlas_id DESC with the title/catalog_key tiebreakers;
-  // covering all three lets the sort read the index in order instead of a temp b-tree.
+  // Kept for future use; no sort or filter reads release_date today.
+  `CREATE INDEX IF NOT EXISTS idx_catalog_index_release_date_v2
+     ON catalog_index(release_date_tier, release_date_ms DESC, title COLLATE NOCASE, catalog_key);`,
   `CREATE INDEX IF NOT EXISTS idx_catalog_index_atlas_id
      ON catalog_index(atlas_id DESC, title COLLATE NOCASE, catalog_key);`,
   `CREATE INDEX IF NOT EXISTS idx_catalog_index_title
@@ -723,12 +722,14 @@ const insertCatalogIndexTags = async (rows) => {
 
 // ── full rebuild ─────────────────────────────────────────────────────────────
 
+let _rebuildInFlight = null
+
 // Chunked on purpose. node-sqlite3 runs statements on a threadpool so the event
 // loop stays responsive, but every query shares one connection — a single
 // long-running transaction would queue the library's own reads behind it and
 // read as a freeze. Committing per chunk and yielding between chunks lets those
 // reads interleave, so the app is usable while this runs in the background.
-const rebuildCatalogIndex = async ({ onProgress, chunkSize = CHUNK_SIZE } = {}) => {
+const _doRebuildCatalogIndex = async ({ onProgress, chunkSize = CHUNK_SIZE } = {}) => {
   const startedAt = Date.now()
   await ensureCatalogIndexSchema()
 
@@ -803,6 +804,21 @@ const rebuildCatalogIndex = async ({ onProgress, chunkSize = CHUNK_SIZE } = {}) 
   report({ phase: 'done', processed: summary.totalRows, total: summary.totalRows, message: 'Catalog index ready' })
   return summary
 }
+
+// A rebuild deletes and refills catalog_index, so overlapping builds would wipe
+// it out from under each other; queue waits for the running one instead of dropping.
+const rebuildCatalogIndex = async ({ onProgress, chunkSize = CHUNK_SIZE, queue = false } = {}) => {
+  if (_rebuildInFlight) {
+    if (queue) {
+      return _rebuildInFlight.then(() => rebuildCatalogIndex({ onProgress, chunkSize }))
+    }
+    return _rebuildInFlight
+  }
+  _rebuildInFlight = _doRebuildCatalogIndex({ onProgress, chunkSize }).finally(() => { _rebuildInFlight = null })
+  return _rebuildInFlight
+}
+
+const isRebuildInFlight = () => !!_rebuildInFlight
 
 // Tiles for provider rows that do NOT roll up under an atlas entry. The steam
 // branch's exclusion is now a primary-key probe against atlas_external_steam
@@ -1027,6 +1043,7 @@ module.exports = {
   getCatalogIndexStatus,
   markCatalogIndexStale,
   rebuildCatalogIndex,
+  isRebuildInFlight,
   rebuildAtlasExternalSteam,
   refreshCatalogIndexForAtlasIds,
   refreshCatalogIndexInstallState,

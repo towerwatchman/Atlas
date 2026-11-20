@@ -140,7 +140,7 @@ export function useGames() {
   useEffect(() => {
     refreshCatalogIndexState()
     const off = window.electronAPI.onCatalogIndexProgress?.((payload) => {
-      const done = payload?.phase === 'done'
+      const done = payload?.phase === 'done' || payload?.phase === 'error'
       setCatalogIndexState({
         ready: done,
         building: !done,

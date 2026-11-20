@@ -1270,10 +1270,8 @@ export const builtInSavedFilters = [
     id: 'builtin-recent',
     name: 'New Releases',
     builtIn: true,
-    // Nothing records when a title entered the catalog, so no date range can
-    // mean "recent"; this is the New Releases sort instead. The shape is written
-    // out rather than left to normalisation, and the id stays put so a stored
-    // reference survives the rename.
+    // Nothing records when a title entered the catalog, so "recent" is the New
+    // Releases sort, not a date range. The id stays put so stored refs survive.
     filters: normalizeFilterState({
       dateField: 'none',
       dateRange: 'any',

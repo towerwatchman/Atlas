@@ -262,7 +262,7 @@ test('SearchSidebar shows the Last Seen block in catalog mode', async () => {
     />,
   )
   await act(() => screen.getByText('Quick Filters').click())
-  expect(screen.getByText('Last Seen')).toBeTruthy()
+  expect(screen.getByText('Only new tiles')).toBeTruthy()
   expect(screen.getByText('Since last startup')).toBeTruthy()
   expect(screen.getByText('Since last tracked')).toBeTruthy()
   expect(screen.getByText('Clear last tracked')).toBeTruthy()
@@ -278,7 +278,7 @@ test('SearchSidebar shows the Last Seen block in library mode', async () => {
     />,
   )
   await act(() => screen.getByText('Quick Filters').click())
-  expect(screen.getByText('Last Seen')).toBeTruthy()
+  expect(screen.getByText('Only new tiles')).toBeTruthy()
   expect(screen.getByText('Since last startup')).toBeTruthy()
   expect(screen.getByText('Since last tracked')).toBeTruthy()
   expect(screen.getByText('Clear last tracked')).toBeTruthy()
@@ -429,11 +429,11 @@ const renderSidebarInMode = async ({ isWishlistMode, isCatalogMode }) => {
 
 test('SearchSidebar hides Last Seen in the Wishlist', async () => {
   await renderSidebarInMode({ isWishlistMode: true, isCatalogMode: false })
-  expect(screen.queryByText('Last Seen')).toBeNull()
+  expect(screen.queryByText('Only new tiles')).toBeNull()
   expect(screen.queryByText('Clear last tracked')).toBeNull()
 })
 
 test('SearchSidebar keeps Last Seen in the local Library', async () => {
   await renderSidebarInMode({ isWishlistMode: false, isCatalogMode: false })
-  expect(screen.getByText('Last Seen')).toBeTruthy()
+  expect(screen.getByText('Only new tiles')).toBeTruthy()
 })

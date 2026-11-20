@@ -24,18 +24,20 @@ let statsFromDb
 let statsCalls
 let gamesFromDb
 let getGamesCalls
+let progressListener
 
 beforeEach(() => {
   statsFromDb = { games: 1, versions: 1, pathVersions: 1, ok: true }
   statsCalls = 0
   gamesFromDb = []
   getGamesCalls = []
+  progressListener = null
   vi.stubGlobal('window', Object.assign(globalThis.window, {
     electronAPI: {
       getLibraryStats: async () => { statsCalls += 1; return statsFromDb },
       getGames: async (args) => { getGamesCalls.push(args); return gamesFromDb },
       getCatalogIndexStatus: async () => ({ ready: true }),
-      onCatalogIndexProgress: () => () => {},
+      onCatalogIndexProgress: (cb) => { progressListener = cb; return () => { progressListener = null } },
     },
   }))
 })
@@ -146,4 +148,20 @@ test('fetchGames sends null when the mode is cleared', async () => {
   act(() => { result.current.lastSeenRef.current = null })
   await act(async () => { await result.current.fetchGames(true) })
   expect(getGamesCalls.at(-1).options.lastSeen).toBeNull()
+})
+
+// ── A failed rebuild leaves the hook ready, not building ──────────────────────
+//
+// Finding 9: the grid gates on catalogIndexState to choose between the slow scan
+// and "building". A build that errors must clear building and report ready, or
+// Browse would sit on "building" forever after a crash.
+test('an error event clears building and marks the index ready', async () => {
+  const { result } = await mounted()
+
+  act(() => { progressListener({ phase: 'start', processed: 0, total: 100, message: 'Indexing…' }) })
+  expect(result.current.catalogIndexState.building).toBe(true)
+
+  act(() => { progressListener({ phase: 'error', message: 'Disk full' }) })
+  expect(result.current.catalogIndexState.building).toBe(false)
+  expect(result.current.catalogIndexState.ready).toBe(true)
 })

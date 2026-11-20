@@ -103,9 +103,6 @@ const normalizeSavedFilterState = (filters = {}) => {
       : LEGACY_SEARCH_TYPE_FIELDS[merged.type],
   )
   merged.sort = String(merged.sort || 'name')
-  // 'date' was retired in favour of 'newRelease'. The renderer maps it on load, but
-  // without the same mapping here the settings file kept the old key and every save
-  // rewrote it back.
   if (merged.sort === 'date') merged.sort = 'newRelease'
   merged.sortDirection = merged.sortDirection === 'desc' ? 'desc' : 'asc'
   merged.dateField = ['none', 'dateAdded', 'lastInstalled', 'lastPlayed', 'latestUpdate', 'threadPublished', 'wishlistAdded'].includes(merged.dateField)

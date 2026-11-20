@@ -10,6 +10,7 @@ const {
   refreshCatalogIndexForAtlasIds,
   markCatalogIndexStale,
 } = require('./catalogIndex')
+const { runBackgroundCatalogIndexRebuild } = require('./catalogIndexBackground')
 const { isNewerVersion } = require('../utils/versionUtils')
 
 // Update packages identify rows by atlas_id; f95/lewdcorner payloads carry it
@@ -549,6 +550,11 @@ const checkDbUpdates = async (updatesDir, mainWindow) => {
     try {
       if (snapshotApplied) {
         await markCatalogIndexStale("full snapshot applied");
+        // Rebuild now instead of at next launch; fire-and-forget so the update
+        // check returns while the rebuild streams and refreshes the library.
+        runBackgroundCatalogIndexRebuild().catch((err) => {
+          console.warn("background catalog_index rebuild after snapshot failed:", err.message);
+        });
       } else if (touchedAtlasIds.size > 0) {
         const { refreshed } = await refreshCatalogIndexForAtlasIds([...touchedAtlasIds]);
         console.log(`catalog_index: refreshed ${refreshed} of ${touchedAtlasIds.size} touched entries`);
