@@ -15,6 +15,7 @@ the release it heads to; earlier labels mix the cycle and the candidate, as
 - **feat**: After a full catalog update, the game index rebuilds in the background and the library refreshes when it finishes, instead of waiting for the next launch.
 - **feat**: Settings > Database shows the index rebuilding state while a background rebuild is running, and the Rebuild button stays disabled until it finishes.
 - **fix**: A failed background index rebuild no longer leaves Browse stuck on the "building" state; the progress UI clears and the index stays stale for the next launch.
+- **fix**: Schema setup no longer aborts the whole process when a single index statement fails.
 
 ## 0.9.5-nightly.524
 

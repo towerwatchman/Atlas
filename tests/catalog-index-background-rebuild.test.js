@@ -109,7 +109,15 @@ describe('runBackgroundCatalogIndexRebuild', () => {
     }
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    // initializeDatabase queues its DDL and a fresh database keeps all of it in
+    // the -wal, so the connection has to be drained before its files are removed.
+    // close() is queued behind those statements, which is what makes that safe.
+    await new Promise((resolve) => {
+      const db = dbIndex.db
+      if (!db) return resolve()
+      db.close(() => resolve())
+    })
     try { fs.rmSync(dataDir, { recursive: true, force: true }) } catch {}
   })
 
