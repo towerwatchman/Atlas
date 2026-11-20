@@ -98,7 +98,7 @@ const {
   addAtlasMapping, getAtlasData, getImportRecordStatus, insertJsonData,
   recomputeNormalizedTitles,
 } = require('./db/atlas')
-const { getCatalogIndexStatus, rebuildCatalogIndex } = require('./db/catalogIndex')
+const { getCatalogIndexStatus, rebuildCatalogIndex, bootstrapLastSeenWatermarks } = require('./db/catalogIndex')
 const { isWriteLockBusy, activeWriteLockLabel } = require('./db/writeLock')
 const { buildDefaultConfig, mergeWithDefaults } = require('./config/configSchema')
 // Shared across main.js, ipc/importer.js and ipc/games.js. Was a local Map here
@@ -2159,6 +2159,12 @@ app.whenReady().then(async () => {
 
   // Initialize database
   initializeDatabase(dataDir)
+
+  // Floors the Last Seen watermarks. They read MAX(atlas_id) from atlas_data,
+  // which the index rebuild never empties.
+  bootstrapLastSeenWatermarks().catch((err) =>
+    console.warn('last-seen watermark bootstrap failed:', err?.message),
+  )
 
   // Correct any normalized_title values computed by the old SQL migration (which
   // diverged from the JS import matcher on accented/non-Latin titles, breaking

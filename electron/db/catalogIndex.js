@@ -473,6 +473,50 @@ const setMeta = (key, value) =>
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     [key, value === null || value === undefined ? null : String(value)])
 
+const LAST_SEEN_ATLAS_ID_KEY = 'last_seen_atlas_id'
+const LAST_TRACKED_ATLAS_ID_KEY = 'last_tracked_atlas_id'
+
+// Only whole numbers count as a floor; an empty value reads as absent. No
+// schema build here: a missing table leaves the list unfiltered.
+const readWatermark = async (key) => {
+  const stored = await getMeta(key)
+  if (stored === null || stored === '') return null
+  const value = Number(stored)
+  return Number.isInteger(value) ? value : null
+}
+
+// Maps a Last Seen mode to the watermark floor to filter on. An unrecognised
+// mode is deliberately treated as no filter, hence null without reading.
+const readLastSeenFloor = async (mode) => {
+  if (mode === 'startup') return readWatermark(LAST_SEEN_ATLAS_ID_KEY)
+  if (mode === 'tracked') return readWatermark(LAST_TRACKED_ATLAS_ID_KEY)
+  return null
+}
+
+// One transaction, so a shrinking catalog or a second advance cannot land
+// between read and write. An empty catalog leaves the key untouched, not 0.
+const advanceWatermark = async (key) => {
+  await ensureCatalogIndexSchema()
+  return withTransaction('catalogIndex.watermark', dbRun, async () => {
+    const stored = await readWatermark(key)
+    const row = await dbGet(`SELECT MAX(atlas_id) AS m FROM atlas_data`)
+    const max = row && Number.isInteger(row.m) ? row.m : null
+    if (max === null) return stored
+    const next = stored === null ? max : Math.max(stored, max)
+    await setMeta(key, String(next))
+    return next
+  })
+}
+
+// last_seen climbs on every launch. last_tracked is written only while absent,
+// so a launch never slides an existing floor forward.
+const bootstrapLastSeenWatermarks = async () => {
+  const seen = await advanceWatermark(LAST_SEEN_ATLAS_ID_KEY)
+  const existingTracked = await readWatermark(LAST_TRACKED_ATLAS_ID_KEY)
+  const tracked = existingTracked === null ? await advanceWatermark(LAST_TRACKED_ATLAS_ID_KEY) : existingTracked
+  return { seen, tracked }
+}
+
 const markCatalogIndexStale = async (reason = 'unspecified') => {
   try {
     await setMeta('stale', '1')
@@ -986,6 +1030,12 @@ module.exports = {
   rebuildAtlasExternalSteam,
   refreshCatalogIndexForAtlasIds,
   refreshCatalogIndexInstallState,
+  LAST_SEEN_ATLAS_ID_KEY,
+  LAST_TRACKED_ATLAS_ID_KEY,
+  readWatermark,
+  readLastSeenFloor,
+  advanceWatermark,
+  bootstrapLastSeenWatermarks,
   // exported for tests
   parseDateToMs,
   dateTier,
@@ -1276,6 +1326,13 @@ const buildIndexWhere = (search = {}, filters = {}) => {
     addDateRange(
       filters.browseDateBasis === 'thread_publish_date' ? 'thread_publish_ms' : 'thread_updated_ms',
       filters.browseDateRange)
+  }
+
+  // A missing or null floor means no watermark exists yet, so leave the page
+  // unfiltered; a `> NULL` would match nothing and show an empty catalog.
+  if (Number.isFinite(filters.lastSeenFloor)) {
+    parts.push('ci.atlas_id > ?')
+    params.push(filters.lastSeenFloor)
   }
 
   return { where: parts.length ? `WHERE ${parts.join(' AND ')}` : '', params }

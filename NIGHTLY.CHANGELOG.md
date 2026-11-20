@@ -8,6 +8,9 @@ the release it heads to; earlier labels mix the cycle and the candidate, as
 
 ## 0.9.5-nightly.525
 - **changed**: Replace ReleaseDate and Recently Released with "New Releases" in filters and built-in saved filters.
+- **feat**: Add a "Last Seen" filter to Quick Filters in Browse and Library:
+  - Last seen since client open: new titles since last client open
+  - Last seen since tracked: new titles since the last time you clear the tracked checkpoint.
 
 ## 0.9.5-nightly.524
 

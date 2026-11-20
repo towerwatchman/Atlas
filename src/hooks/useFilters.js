@@ -112,6 +112,9 @@ export const defaultFilters = {
   includeUninstalled: true,
   installState: 'all',
   multipleInstalledVersions: false,
+  // Which unseen titles to show, resolved in main against the watermark there;
+  // the renderer only carries the choice. null = no constraint.
+  lastSeen: null,
 }
 
 const arrayFilterKeys = [
@@ -322,6 +325,10 @@ export const normalizeFilterState = (filters = {}) => {
   }
   if (merged.installState === 'installed') merged.includeUninstalled = false
   if (['all', 'uninstalled'].includes(merged.installState)) merged.includeUninstalled = true
+  merged.lastSeen = ['startup', 'tracked'].includes(merged.lastSeen) ? merged.lastSeen : null
+  // lastSeenFloor is derived from the mode by main; the renderer never sets it,
+  // so one coming from a renderer or a saved filter is dropped here.
+  delete merged.lastSeenFloor
   return merged
 }
 

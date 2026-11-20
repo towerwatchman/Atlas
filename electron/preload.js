@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     return [];
   },
   addGame: (game) => ipcRenderer.invoke("add-game", game),
+  clearLastTracked: () => ipcRenderer.invoke("clear-last-tracked"),
   getGame: (id) => {
     console.log("Invoking getGame for recordId:", id);
     return ipcRenderer.invoke("get-game", id);
@@ -451,6 +452,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     const handler = (event, payload) => callback(payload);
     ipcRenderer.on("blacklist-updated", handler);
     return () => ipcRenderer.removeListener("blacklist-updated", handler);
+  },
+  onLastTrackedCleared: (callback) => {
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on("last-tracked-cleared", handler);
+    return () => ipcRenderer.removeListener("last-tracked-cleared", handler);
   },
   onDbUpdateProgress: (callback) => {
     ipcRenderer.on("db-update-progress", (event, progress) =>

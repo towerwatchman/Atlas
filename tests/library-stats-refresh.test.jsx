@@ -23,15 +23,17 @@ import { useGames } from '../src/hooks/useGames.js'
 let statsFromDb
 let statsCalls
 let gamesFromDb
+let getGamesCalls
 
 beforeEach(() => {
   statsFromDb = { games: 1, versions: 1, pathVersions: 1, ok: true }
   statsCalls = 0
   gamesFromDb = []
+  getGamesCalls = []
   vi.stubGlobal('window', Object.assign(globalThis.window, {
     electronAPI: {
       getLibraryStats: async () => { statsCalls += 1; return statsFromDb },
-      getGames: async () => gamesFromDb,
+      getGames: async (args) => { getGamesCalls.push(args); return gamesFromDb },
       getCatalogIndexStatus: async () => ({ ready: true }),
       onCatalogIndexProgress: () => () => {},
     },
@@ -114,4 +116,34 @@ test('reloading the library re-reads the count', async () => {
 
   expect(statsCalls).toBeGreaterThan(before)
   await waitFor(() => expect(result.current.libraryStats.games).toBe(0))
+})
+
+// ── Last-seen mode reaches the payload ────────────────────────────────────────
+//
+// fetchGames reads the active mode from lastSeenRef and hands it to main via
+// options.lastSeen, so the Library Last Seen picker works. Nothing tested this
+// through the renderer; the main-side filter was tested through getGames
+// directly. Deleting the mode from the payload would have left the suite green.
+
+test('fetchGames sends lastSeenRef through to getGames', async () => {
+  const { result } = await mounted()
+
+  act(() => { result.current.lastSeenRef.current = 'tracked' })
+  await act(async () => { await result.current.fetchGames(true) })
+
+  const lastCall = getGamesCalls.at(-1)
+  expect(lastCall.options.lastSeen).toBe('tracked')
+})
+
+test('fetchGames sends null when the mode is cleared', async () => {
+  const { result } = await mounted()
+
+  act(() => { result.current.lastSeenRef.current = 'tracked' })
+  await act(async () => { await result.current.fetchGames(true) })
+  expect(getGamesCalls.at(-1).options.lastSeen).toBe('tracked')
+
+  // The hook exposes lastSeenRef, so App clears the mode by setting it to null.
+  act(() => { result.current.lastSeenRef.current = null })
+  await act(async () => { await result.current.fetchGames(true) })
+  expect(getGamesCalls.at(-1).options.lastSeen).toBeNull()
 })

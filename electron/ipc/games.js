@@ -19,7 +19,7 @@ const { fetchAndStoreGogData } = require('../scanners/gogscanner')
 const { applyMediaSources } = require('../db/mediaSources')
 const { calculatePathSize } = require('../pathSize')
 const { runDatabaseAudit, getInvalidMappingCount } = require('../db/audit')
-const { getCatalogIndexStatus, rebuildCatalogIndex } = require('../db/catalogIndex')
+const { getCatalogIndexStatus, rebuildCatalogIndex, advanceWatermark, LAST_TRACKED_ATLAS_ID_KEY } = require('../db/catalogIndex')
 const { runClientAudit, repairClientAuditSection } = require('../db/clientAudit')
 const { auditSeasonMerges, applySeasonMerge, applyAllSeasonMerges } = require('../db/seasonMerge')
 // Required directly for the same curated-ctx reason as tagOverrides above.
@@ -1005,6 +1005,21 @@ function registerGamesHandlers(ctx) {
     } catch (err) {
       console.error('get-startup-repair-summary error:', err)
       return null
+    }
+  })
+
+  // Moves the last-tracked floor to the catalog maximum. Monotonic, so an empty
+  // catalog leaves an already-set floor where it was rather than clearing it.
+  ipcMain.handle('clear-last-tracked', async () => {
+    try {
+      const watermark = await advanceWatermark(LAST_TRACKED_ATLAS_ID_KEY)
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send('last-tracked-cleared', watermark)
+      })
+      return { cleared: true, watermark }
+    } catch (err) {
+      console.error('clear-last-tracked error:', err)
+      return { cleared: false }
     }
   })
 

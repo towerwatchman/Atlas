@@ -68,6 +68,9 @@ export function useGames() {
   const [libraryStatsStale, setLibraryStatsStale] = useState(false)
   const [totalVersions, setTotalVersions] = useState(0)
   const includeUninstalledRef = useRef(true)
+  // Last-seen mode for the Library list, mirrored from activeFilters in App,
+  // so every fetchGames() picks it up without threading it through call sites.
+  const lastSeenRef = useRef(null)
   // Bumped on every reset; any page fetch already in flight from a
   // previous "generation" checks this and discards its result instead of
   // writing stale data into the current catalogGames array.
@@ -158,12 +161,12 @@ export function useGames() {
   const fetchGames = useCallback(
     (includeUninstalled = includeUninstalledRef.current, options = {}) => {
       setGamesLoading(true)
-      // Re-counted alongside the list rather than trusted from mount, so the
-      // two always describe the same database state. This is also what makes
-      // the warning panel's own "Reload library" button able to clear it.
+      const lastSeen = lastSeenRef.current
+      // Re-counted with the list so the panel compares one fetch's count against
+      // one fetch's games, which is what lets "Reload library" clear the warning.
       refreshLibraryStats()
       return window.electronAPI
-        .getGames({ includeUninstalled, options })
+        .getGames({ includeUninstalled, options: { ...options, lastSeen } })
         .then((allGames) => {
           const gamesArray = normalizeGamesForRenderer(allGames)
           console.log(
@@ -480,5 +483,6 @@ export function useGames() {
     removeGameFromState,
     refreshGame,
     includeUninstalledRef,
+    lastSeenRef,
   }
 }
